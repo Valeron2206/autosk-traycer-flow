@@ -26,7 +26,7 @@ intake
   -> cleanup
 ~~~
 
-Чисто редакционная правка, не влияющая на поведение, может пропустить Code Review. Любое изменение исполняемого кода сохраняет независимую проверку, если пользователь явно её не отменил.
+Чисто редакционная Quick-правка может пропустить Code Review только через deterministic editorial classification с exact candidate identity и changed path set. Exemption запрещён для executable code, config/schema/security, prompts, governance bundle и любого behavior-defining документа. Любое другое изменение сохраняет независимую проверку, если пользователь явно её не отменил.
 
 ### Planned
 
@@ -37,6 +37,20 @@ intake
 - архитектурный, API-, data-, security-, concurrency- или migration-выбор;
 - несколько независимо проверяемых частей;
 - неясные границы или дорогая ошибка.
+
+### Параллельные проекты
+
+До classification координатор разрешает ровно один canonical project root и project identity. Все создаваемые задачи, документы, worktree, sessions, snapshots и evidence получают эту identity.
+
+Разные проекты могут выполняться одновременно через общий autoskd worker pool, но их графы не соединяются:
+
+- parent/child и blocker edges допустимы только внутри одного проекта;
+- проектный Brief/Core Flow/Tech Plan/Tickets пишутся только в Git этого проекта;
+- provider session не переиспользуется между проектами;
+- project policy hash принадлежит только metadata своего проекта;
+- остановка, correction или cleanup проекта A не меняют задачи и файлы проекта B.
+
+Если один пользовательский запрос затрагивает несколько репозиториев, координатор создаёт отдельный project-scoped Epic для каждого. Каждый Epic хранит общий opaque UUID correlation ID только для display/audit. Он не содержит и не разрешает task/session/evidence/path другого проекта; runtime не использует его для lookup, blockers, joins или recovery. Общего Ticket, общей session или общего mutable документа между проектами нет.
 
 ## 2. Адаптивное планирование
 
@@ -149,9 +163,11 @@ Judge выбирает подход; Reviewer принимает или откл
 
 ## 5. Исполнение Tickets
 
-После PASS комплекта Tickets координатор создаёт autosk-задачу на каждый Ticket:
+После PASS комплекта Tickets собственный workflow `autosk-flow` создаёт autosk-задачу на каждый Ticket. `devflow` не вызывается и не является fallback:
 
 - зависимости Ticket превращаются в blockers;
+- fresh и repair dispatch используют одну durable ticket_repair_op: сначала create/configure всего набора, затем materialize blockers/enroll и перейти в join;
+- human recovery Ticket с зависимостью от replacement сам каскадно становится replacement, поэтому его нельзя запустить раньше prerequisite;
 - независимые Tickets выполняются параллельно;
 - каждая задача получает свежий worktree от записанного base OID;
 - исполнитель по умолчанию — Grok 4.6 xhigh;
@@ -160,7 +176,7 @@ Judge выбирает подход; Reviewer принимает или откл
 
 Родительская epic-задача блокируется всеми Ticket-задачами. Она продолжает работу только когда каждая ожидаемая Ticket-задача имеет status=done и валидный PASS/commit binding. Ticket status=human продолжает блокировать parent и исправляется в дочерней задаче. cancel, отсутствующая задача или done без binding снимают blocker, но join затем переводит parent в human.
 
-Единственное исключение: Ticket с waiting_parent_anchor может временно suspend свой blocker с детерминированным receipt, чтобы передать anchor change родительскому Epic. При code-only impact parent ведёт одну незакрытую anchor_rebuild_op до подтверждённого входа в ticket_join. Допустимый human Ticket до нового rebuild находится ровно в одном из двух состояний: `waiting_parent_anchor=true` с suspension receipt либо `blocked_anchor` с обоснованным pending, который ещё не поглощён parent. В mixed repair parent сначала заменяет done/cancel/new/missing Tickets, затем resume обычные human Tickets. Пока parent op открыт, любая новая anchor-корректировка записывается прямо в Epic pending; Ticket-local source hash старой операции не заменяется. Если сигнал возникает после Ticket resume, deterministic Ticket step merge'ит его в Epic, ставит waiting_parent_anchor и suspend edge, поэтому код не проверяется под устаревшим anchor. Crash продолжает записанную phase/dispositions; ready_to_transit повторяет только ticket_join, op закрывается prologue в ticket_join. Live work/invalid human останавливает новую операцию до записей. Planning dispatch сначала создаёт replacements и лишь затем resume matched humans. Потерянный receipt блокирует процесс.
+Единственное исключение: Ticket с correction append'ит immutable `anchor_correction` event в comments родительского Epic, записывает собственный waiting receipt, сначала подтверждённо паркуется human и только затем exact-unblock'ит parent. Ticket никогда не пишет Epic metadata. `ticket_join` не возвращает намеренно снятый edge при exact final receipt: он сначала переводит correction в blocked_anchor. Незавершённый receipt, напротив, восстанавливает edge и возобновляется через `complete_anchor_handoff`. Parent deterministic gate как единственный writer consume'ит events в pending_anchor. При code-only impact rebuild заканчивает все semantic anchor/binding writes и переходит в `resume_repaired_tickets`. Этот step до восстановления blocker записывает/read-back в Ticket долговечный `resume_intent` с exact op/target, затем возвращает edge и resume'ит child. Crash после edge до resume оставляет parent безопасно blocked, а human Ticket — с единственной явной целью `rebuild_code_anchor`; пользователь возобновляет его без перестройки графа. После resume parent пишет только монотонные фазы recovery operation и закрывает её при входе в ticket_join. Crash после нового event не теряет его из-за append-only inbox. Planning dispatch создаёт отдельную durable repair operation и готовит replacements без enroll/blockers; только после resume всех matched human Tickets он enroll'ит replacements и ставит blockers. Потерянный receipt или event hash блокирует процесс.
 
 ## 6. Freeze, Review и исправления
 
@@ -208,7 +224,7 @@ review findings
 1. Tickets интегрируются в порядке зависимостей;
 2. merge OID строится без движения целевой ветки;
 3. approved tree сверяется повторно;
-4. traycer-protocol integrate-approved выполняет CAS и проверяет reflog;
+4. autosk-flow integrate-approved выполняет CAS и проверяет reflog;
 5. запускается aggregate verification всего epic;
 6. worktree и временные snapshot сначала очищаются с force=false; dirty workspace сохраняется для решения человеком;
 7. epic переходит в done.
@@ -234,9 +250,11 @@ Bare resume запрещён для эскалаций, где требуетс�
 | BLOCKED_ANCHOR, standalone Quick | rebuild_code_anchor | own anchor bump, затем verify/freeze/full review |
 | BLOCKED_ANCHOR, Ticket with parent | rebuild_code_anchor | propagate pending в parent, suspend blocker с receipt, ждать parent rebuild_anchor |
 | Waiting for parent anchor | rebuild_code_anchor | parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен |
+| Anchor resume pending | rebuild_code_anchor | exact parent edge active; pending resume_intent совпадает с op/anchor/receipt/target и child остаётся human |
 | Parent absorbed live Ticket anchor before suspension | rebuild_code_anchor | Ticket anchor=parent, local pending=null, matching parent_rebuild_receipt, active blocker edge добавлен |
-| Affected done/cancel/new/missing Ticket, code-only repair | rebuild_anchor | CAS-clear recorded Ticket source; сохранить newer Epic pending; old task исключить, superseded_by записать, replacement создать с blocker |
-| Affected done/cancel/new/missing Ticket, planning repair | dispatch_ticket_dag | сначала закрыть/заменить все old tasks и поставить replacement blockers; только затем restore/resume matched human Tickets |
+| Affected done/cancel/new/missing Ticket, code-only repair | rebuild_anchor | consume correction events; old task исключить, superseded_by записать, replacement только создать/configure; после resume human Tickets следующий step enroll'ит replacement и ставит blockers |
+| Affected done/cancel/new/missing Ticket, planning repair | dispatch_ticket_dag | создать отдельную ticket_repair_op и подготовить replacements без enroll/blockers; затем resume human Tickets, после чего enroll/block replacements |
+| Invalid/open duplicate Ticket repair operation | dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind | human выбирает одну exact op; premature blockers сняты, immutable phases не понижены |
 | Affected work Ticket (anchor_repair_ticket_live) | rebuild_anchor после завершения live run | status/impact перечитаны; pending_anchor сохранён; автоматическая mutation/cancel запрещена |
 | Artifact PASS revalidation failed | freeze_artifact | старые bindings void, attempt+1, сохранённый full/narrow mode |
 | Лимит review | fix_artifact для Planned; fix для Quick/Ticket | новый user-approved cap, сохранённые findings и identity |
@@ -265,7 +283,7 @@ onTransit отклоняет resume, если причина park и требу�
 | Не создавать Brief/Core Flow | координатор по объективной классификации | classification в metadata |
 | Не создавать плановые артефакты для Quick | координатор | mode=quick |
 | Пропустить панель существующего артефакта | только пользователь | panel waiver с точным scope |
-| Пропустить Code Review | только пользователь; редакционная правка освобождена правилами | review waiver или editorial classification |
+| Пропустить Code Review | только пользователь; строго редакционная Quick-правка освобождена deterministic rules | review waiver либо editorial classification + exact identity/path set; governance не editorial |
 | Сократить панель из-за недоступности | только пользователь | unavailable seat, причина, явный waiver и фактический roster |
 | Auto-integration | пользователь или заранее принятая project policy | policy hash в metadata |
 | Превысить 10 раундов | пользователь | human resume с новым cap |

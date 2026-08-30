@@ -4,12 +4,12 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension; autoskd core не форкать в MVP.
+- Решение: реализовать процесс как TypeScript extension; autoskd core не форкать. Единственное обязательное upstream-изменение — узкий совместимый creation-key/binding-hash primitive из ADR-014.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
-  - [LOCAL_SOURCE]
-  - [LOCAL_SOURCE]
+  - `wierdbytes/autosk@5163f00`: `daemon/sdk/src/workflow.ts`;
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/extensions/registry.ts`.
 
 ## ADR-002: два пользовательских маршрута
 
@@ -28,7 +28,7 @@
 - Источники:
   - текущее пользовательское уточнение о панели по умолчанию;
   - разговор «Описание механизмов контроля»;
-  - [LOCAL_SOURCE], раздел Plan critique panel.
+  - README.md, канонические правила 1–2, и 01-core-flows.md, раздел «Четырёхмодельная панель».
 
 ## ADR-004: строгий roster из четырёх моделей
 
@@ -45,12 +45,12 @@
 - Альтернатива: четыре Pi-процесса внутри одного composite AgentDefinition.
 - Обоснование: отдельные task/session IDs дают независимую историю, восстановление и прозрачность. Текущий scheduler уже не запускает blocked work-задачи. Четыре worker по умолчанию улучшают latency, но correctness не зависит от фактической параллельности.
 - Источники:
-  - [LOCAL_SOURCE]
-  - [LOCAL_SOURCE]
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/engine/engine.ts`;
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/store/store.ts`.
 
 ## ADR-006: Git хранит нормативную правду
 
-- Решение: Brief, Core Flow, Tech Plan, Decision Log и Tickets хранятся под docs/autosk/epics в Git. autosk metadata не заменяет их.
+- Решение: Brief, Core Flow, Tech Plan, Decision Log и Tickets хранятся под `docs/autosk/epics` в Git-репозитории конкретного проекта. autosk metadata не заменяет их.
 - Альтернатива: хранить документы внутри daemon runtime или task descriptions.
 - Обоснование: Git даёт reviewable history и OID; runtime-файлы остаются операционным состоянием и могут очищаться.
 - Источники:
@@ -59,7 +59,7 @@
 
 ## ADR-007: без второго ledger
 
-- Решение: текущее состояние хранится в namespaced task metadata, comments и sessions. Отдельный run.json/status ledger не создаётся.
+- Решение: текущее состояние хранится в namespaced task metadata, comments и sessions. Отдельный run.json/status ledger не создаётся; bundle manifest и per-Epic protocol lock описывают immutable bytes, а не status.
 - Альтернатива: собственный manifest/ledger рядом с autosk state.
 - Обоснование: дублирующее состояние создаёт drift. Отдельные evidence records нужны только для байтов verdict/log и связываются hash.
 - Источники:
@@ -68,7 +68,7 @@
 
 ## ADR-008: автоматическая компиляция замороженных инструкций
 
-- Решение: один global protocol bundle копируется в task-scoped snapshot под абсолютным исходным projectRoot; PromptEnvelope собирается daemon-side до запуска sandbox по роли.
+- Решение: autosk-native bundle содержит один Guide, exact 12 protocol files, canonical manifest/content digest и detached four-model attestation. Для Epic exact bundle копируется в project-owned immutable snapshot и фиксируется protocol.lock; проектные решения остаются в Epic artifacts/user instructions и не переопределяют governance.
 - Альтернатива: полагаться на память модели, указывать ей путь без загрузки либо вручную копировать тексты.
 - Обоснование: отдельный agent context обязан получить применимые правила, но пользователь не должен их переносить вручную. Snapshot защищает выполняющийся epic от обновления расширения.
 - Источники:
@@ -81,8 +81,8 @@
 - Альтернатива: Arena всей feature либо выбор подхода одним планировщиком.
 - Обоснование: локальная Arena решает конкретный спор без удвоения всей разработки. Judge выбирает базу, но изменённый Tech Plan получает новую полную панель, а итоговый код — обычный review.
 - Источники:
-  - [LOCAL_SOURCE]
-  - [LOCAL_SOURCE]
+  - 01-core-flows.md, раздел «Arena/Judge»;
+  - 03-technical-plan.md, workflows `autosk-arena-candidate` и `autosk-arena-judge`.
 
 ## ADR-010: PASS только по точной идентичности
 
@@ -102,14 +102,14 @@
   - раздел Cross-model review в agent-selection-guide.md;
   - разговор «Описание механизмов контроля».
 
-## ADR-012: детерминированная интеграция существующим инструментом
+## ADR-012: автономная детерминированная интеграция
 
-- Решение: переиспользовать traycer-protocol integrate-approved как adapter subprocess. State file хранить вне repo/worktrees.
-- Альтернатива: prompt-driven merge или новая TypeScript-реализация CAS/reflog.
-- Обоснование: существующий инструмент уже закрывает crash resume, foreign movement, obstruction, reattach и reflog continuity. Переписывание увеличит риск без пользовательской ценности.
+- Решение: перенести проверенную CAS/reflog-логику и тесты integrate-approved в autosk-owned adapter. State file хранить под canonical project root `.autosk/autosk-flow`, вне worktree.
+- Альтернатива: runtime-вызов Traycer binary либо новая prompt-driven merge-логика.
+- Обоснование: перенос сохраняет доказанные failure contracts, но устраняет runtime-зависимость от Traycer и глобальный cross-project state.
 - Источники:
-  - [LOCAL_SOURCE]
-  - bin.zip tests.
+  - 03-technical-plan.md, разделы «Commit on PASS» и «Integration»;
+  - обязательная перед реализацией миграция CAS/reflog tests в публичный пакет с привязкой к exact source/version.
 
 ## ADR-013: human gate перед интеграцией
 
@@ -120,30 +120,85 @@
   - autosk statusStep human;
   - связанный разговор, этап Human / Merge.
 
-## ADR-014: сначала extension-only, write API позже
+## ADR-014: CLI orchestration с обязательным immutable creation key
 
-- Решение: MVP создаёт и управляет child tasks через autosk CLI из ctx.exec с идемпотентным run_id. Кроме create/metadata/enroll/block используются точечный unblock, обратный block и resume --to для единственного автоматического случая anchor repair. Добавление TasksAPI write methods оформить отдельным upstream ticket после измерений.
-- Альтернатива: менять core до первого end-to-end proof.
-- Обоснование: CLI предоставляет нужные операции; preflight подтверждает их на временных задачах до запуска workflow. Ранний core patch расширит scope до доказательства необходимости.
+- Решение: orchestration остаётся в extension и вызывает autosk CLI из ctx.exec, но task.create/CLI до MVP получает обязательную optional пару `creation_key + creation_binding_hash`: write-once daemon-owned fields, атомарно сохраняемые вместе с task. Key уникален внутри canonical project, hash связывает immutable project/parent/run/type/artifact/session/workflow target. `autosk create --creation-key ... --creation-binding-hash ...` возвращает existing task только при совпадении пары; mismatch — conflict. Title/description и human-editable metadata не участвуют в recovery. Остальные write methods TasksAPI остаются отдельным upstream ticket после измерений.
+- Альтернатива: create → metadata set и поиск по marker в title/description.
+- Обоснование: текущий autosk@5163f00 создаёт task с пустой metadata, а title/description изменяемы; crash или rename до metadata set делает текстовый marker недостоверным и допускает duplicate child. Узкий primitive закрывает именно доказанную дыру, не переносит workflow в core и не создаёт второй ledger.
 - Источники:
   - daemon/sdk/src/agent.ts, read-only TasksAPI;
-  - docs/cli.md, create/block/unblock/metadata/enroll/resume --to;
-  - daemon/core/src/engine/session.ts, commit текущего transit не отклоняется из-за вновь добавленного blocker.
+  - `wierdbytes/autosk@5163f00`: `cmd/autosk/create.go`, create без metadata/creation key;
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/store/store.ts`, createTask пишет editable title/description и пустую metadata;
+  - CodeRabbit finding на PR #2: rename до metadata set может скрыть child от retry.
 
-## ADR-015: повторное ревью тем же логическим агентом
+## ADR-015: повторное ревью по exact session file
 
-- Решение: каждая model-owned task имеет собственный session record общей схемы и общий absolute session directory под исходным projectRoot. Panel/contest/narrow берут seat session, code review — отдельный review session по reviewer family, Arena — раздельные candidate/Judge sessions. Author session никогда не копируется reviewer. Оба поля передаются Pi как session-id/session-dir. Full re-panel возобновляет четыре seat sessions, narrow re-review — Lead, contest — originating seats.
+- Решение: каждая model-owned task имеет собственный session record. Первый Pi run сохраняет exact absolute session file; follow-up открывает его через `--session <path>`, независимо от worktree cwd. Panel/contest/narrow берут seat file, code review — отдельный reviewer file, Arena — раздельные candidate/Judge files. Author session никогда не копируется reviewer.
 - Альтернатива: каждый раунд запускать полностью нового агента без истории либо держать один бесконечный autosk task.
-- Обоснование: прежний reviewer помнит собственные findings и не переоткрывает весь scope; новые task IDs сохраняют blockers, аудит и независимое завершение раундов. Replacement создаётся только при недоступности, повреждении session или обязательной смене роли и явно записывает replaces.
+- Обоснование: Pi фильтрует custom session-dir lookup по cwd, поэтому ID+dir недостаточны. Exact file сохраняет историю reviewer; replacement создаётся только при недоступности, повреждении session или обязательной смене роли и явно записывает replaces.
 - Источники:
   - Traycer Handoff rules: повторное обращение к тому же child после final reply;
   - Pi session-id/resume surface;
   - autosk session/task separation.
 
+## ADR-016: изоляция параллельных проектов по canonical project root
+
+- Решение: все project resources привязаны к canonical `ctx.projectRoot`; любой ключ за пределами одного store использует project_root_sha256. Boundary guard проходит до каждого side effect и запрещает traversal/symlink. Внешний Git worktree cache — единственное физическое исключение и тоже namespaced project hash.
+- Альтернатива: использовать `<project-slug>`, epic ID или task ID как глобальный ключ.
+- Обоснование: autoskd может держать несколько открытых проектов в одном daemon и общем worker pool; task/session IDs и slug не должны смешивать операции разных root.
+- Источники:
+  - daemon/core/src/project/resolve.ts, canonicalize + walk-up до ближайшего `.autosk`;
+  - daemon/core/src/store/paths.ts, per-project `.autosk` layout;
+  - daemon/core/src/engine/engine.ts, global queue over registered projects.
+
+## ADR-017: Obsidian MCP исключён из целевого процесса
+
+- Решение: Obsidian MCP и локальный навык `architecture-planning` не входят в preflight, prompts, tests, review gates, runtime или Definition of Done autosk-flow.
+- Альтернатива: оставить Obsidian как обязательную или опциональную архитектурную сверку.
+- Обоснование: autosk-flow должен быть автономным расширением autosk; личный vault не должен становиться скрытой зависимостью процесса или публичного пакета.
+- Источники:
+  - прямое решение пользователя: Obsidian MCP не используем.
+
+## ADR-018: без devflow и Traycer runtime
+
+- Решение: `autosk-flow` регистрирует собственные Planned, Quick, Ticket, Review, Panel и Arena workflows. `devflow`, `~/.traycer`, `traycer_*`, Traycer skills и Traycer sessions не используются ни как dependency, ни как fallback.
+- Альтернатива: orchestration layer над авторским devflow и вызовы локальных Traycer tools.
+- Обоснование: чужой flow имеет собственный lifecycle и может изменяться независимо; такая связь нарушает автономность и делает поведение Ticket неуправляемым нашей спецификацией.
+- Источники:
+  - прямое решение пользователя: devflow нам не нужен;
+  - разговор «Проектирование autosk v2».
+
+## ADR-019: публичный автономный bundle, приватный migration baseline
+
+- Решение: public Git содержит только очищенный autosk-native Guide + exact 12-file protocol + manifest + detached panel attestation. Exact imported Traycer baseline хранится локально вне Git и используется только явным import/diff tool до сборки новой bundle version.
+- Альтернатива: публиковать exact baseline или читать его из `~/.traycer` во время runtime.
+- Обоснование: active bundle должен быть воспроизводимым и автономным, но публичный репозиторий не должен раскрывать личные пути, Traycer API и локальные инструкции. Автоматической синхронизации нет.
+- Источники:
+  - разговор «Проектирование autosk v2»;
+  - решение публиковать только обезличенную спецификацию.
+
+## ADR-020: single-writer Epic metadata через correction inbox
+
+- Решение: только parent deterministic steps пишут Epic `autosk_flow` metadata. Пользователь, модели и Tickets append'ят immutable structured correction events в native Epic comments; parent consume'ит их по id/hash/watermark. Ticket resume начинается только после завершения parent metadata step.
+- Альтернатива: конкурентные `metadata set` с заявленным compare-and-swap.
+- Обоснование: autosk metadata write — last-write-wins и не поддерживает expected-hash CAS; append-only events предотвращают потерю поздней correction без второго ledger.
+- Источники:
+  - autosk metadata/comment store behavior;
+  - full re-panel finding G-H-02.
+
+## ADR-021: capability-minimal gate agents
+
+- Решение: panel, contest, narrow, code-review и Judge получают только snapshot-rooted read tools и единственный host-mediated `submit_gate_result`. Прямой transit, shell, edit/write, `autosk_task` и sibling comment mutations отсутствуют. После model run deterministic tail GateAgent повторяет project guard перед каждым side effect, валидирует submit, записывает и перечитывает immutable record, затем validator выполняет переход.
+- Альтернатива: полный стандартный Pi tool set плюс post-check Git worktree.
+- Обоснование: Git dirt check не обнаруживает mutation live `.autosk` store. Gate agent не должен иметь capability менять объект, который проверяет.
+- Источники:
+  - autosk Pi tools/runtime behavior;
+  - full re-panel finding G-H-03.
+
 ## Оставшиеся риски, не решения
 
-1. Read-only сейчас обнаруживается post-check, а не гарантируется permissions. Каждый reviewer уже изолирован отдельным child task и pinned worktree; если реальные writes повторятся, добавить container read-only mount отдельным этапом.
-2. child-task orchestration через несколько CLI-операций не транзакционно. Идемпотентность и crash-matrix обязательны; create/block/enroll выполняются только AgentDefinition steps, write API рассматривается после MVP.
+1. Custom gate driver предотвращает известные write-capabilities, а pre/post hashes обнаруживают ошибку driver, но OS-level read-only mount пока отсутствует. Если измерения покажут необнаруживаемый путь записи, добавить container mount отдельным этапом.
+2. block/enroll и остальные child-task операции остаются многошаговыми, поэтому receipts и crash-matrix обязательны. Сам create становится идемпотентным через atomic daemon-owned creation_key+binding hash; полный write API рассматривается после MVP.
 3. Pi auth check не понимает custom Cursor/Claude provider state. Готовность этих маршрутов подтверждается только live synthetic calls.
 4. autosk не замораживает workflow graph. Protocol bytes будут pinned; исчезновение workflow/step корректно паркует task в human, но полная graph snapshot остаётся возможным будущим core enhancement.
-5. Obsidian architecture vault не был доступен в текущей сессии. Перед публикацией архитектуры в vault потребуется отдельная сверка через Obsidian MCP.
+5. autoskd использует общий FIFO worker pool для всех проектов. Изоляция и correctness не зависят от порядка, но равная latency между проектами не гарантируется; admission limit нужен только после измерения реального starvation.

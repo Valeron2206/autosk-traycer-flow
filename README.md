@@ -1,10 +1,10 @@
-# Проект рабочего процесса Traycer на autosk v2
+# Проект автономного autosk-flow для autosk v2
 
-Статус: PASS — точная версия проектного пакета принята GPT, Grok, Kimi и Opus в тех же проверяющих сессиях; реализация ещё не начата.
+Статус: PANEL PASS — candidate `2b97752` закрывает finding CodeRabbit об immutable child creation identity и получил PASS GPT, Grok, Kimi и Opus в тех же проверяющих сессиях. Реализация ещё не начата.
 
 ## Цель
 
-Перенести в autosk не внешнюю церемонию Traycer, а его проверяемые гарантии:
+Реализовать автономное расширение autosk v2, которое переносит проверяемые гарантии рабочего процесса, но не зависит от Traycer, devflow, Obsidian или внешнего архитектурного навыка:
 
 - адаптивное планирование через Brief, Core Flow, Tech Plan и Tickets;
 - обязательную независимую панель GPT, Grok, Kimi и Opus для каждого созданного планового артефакта;
@@ -15,7 +15,8 @@
 - независимую межсемейную проверку кода;
 - исправления с узкой повторной проверкой;
 - детерминированную интеграцию с проверкой движения ветки;
-- простой маршрут для задач, которым плановые артефакты не нужны.
+- простой маршрут для задач, которым плановые артефакты не нужны;
+- безопасную параллельную работу в нескольких проектах без смешивания их документов, сессий и evidence.
 
 ## Канонические правила
 
@@ -26,28 +27,30 @@
 5. Каждый PASS связан с неизменяемой идентичностью. Изменился hash, pathspec, anchor version или tree OID — старый PASS недействителен. Единственное исключение: явный human-approved re-binding на новую anchor version при неизменных bytes/tree и отсутствии affected upstream kind.
 6. Пользователь не копирует инструкции вручную. Расширение фиксирует версию протокола и автоматически собирает точный пакет для каждого агента.
 7. autoskd остаётся единственным владельцем операционного состояния задач. Отдельная база, второй оркестратор и второй журнал состояния не создаются.
+8. `autosk-flow` самостоятельно выполняет planning и Ticket lifecycle. `devflow` не устанавливается, не вызывается и не является fallback.
+9. Traycer используется только как локальный одноразовый источник миграции Guide и protocol. Runtime не читает `~/.traycer`, не вызывает `traycer_*` и не требует Traycer skills.
+10. Код расширения и активный governance bundle глобальны. Все проектные документы, snapshots, tasks, sessions, evidence и integration state принадлежат конкретному canonical project root.
+11. Obsidian MCP и навык `architecture-planning` исключены из процесса и не входят в preflight, prompts или Definition of Done.
+12. Child fan-out требует daemon-owned write-once пару `creation_key + creation_binding_hash`, атомарно сохранённую при task.create. Изменяемые title/description/metadata не используются как recovery identity; без primitive preflight останавливает workflow.
 
 ## Состав пакета
 
 - [01-core-flows.md](01-core-flows.md) — маршруты задач, панели, арены и проверки.
 - [02-architecture.md](02-architecture.md) — компоненты, границы ответственности и хранение.
 - [03-technical-plan.md](03-technical-plan.md) — реализуемый план расширения autosk v2.
-- [04-decisions.md](04-decisions.md) — принятые архитектурные решения и риски.
-- [diagrams/autosk-traycer-flow.drawio](diagrams/autosk-traycer-flow.drawio) — редактируемая диаграмма после генерации.
-- [diagrams/autosk-traycer-flow.png](diagrams/autosk-traycer-flow.png) — проверочный рендер диаграммы.
+- [04-decisions.md](04-decisions.md) — предлагаемые ADR и оставшиеся риски; статус станет accepted только после решения пользователя и PASS панели.
+- [diagrams/autosk-flow.drawio](diagrams/autosk-flow.drawio) — редактируемая двухстраничная диаграмма.
+- [diagrams/autosk-flow-workflow.png](diagrams/autosk-flow-workflow.png) — обзор workflow.
+- [diagrams/autosk-flow-architecture.png](diagrams/autosk-flow-architecture.png) — global/project архитектура.
 
 Диаграмма является производным обзором, а не нормативной машиной состояний. Gate связывается с четырьмя Markdown-артефактами и README; при расхождении действует 03-technical-plan.md. Диаграмма проверяется структурно и обновляется после принятых текстовых изменений.
 
 ## Граница текущей работы
 
-Сейчас создаётся и проверяется только проектный пакет. Новая версия autosk, расширение и зависимости не устанавливаются. Реализация начнётся отдельным шагом после принятия этого пакета.
+Сейчас обновляется и повторно проверяется только проектный пакет. Код расширения и governance bundle ещё не создаются. Реализация начнётся после четырёх PASS новой точной версии.
 
 ## Источники
 
-- действующее руководство: [LOCAL_SOURCE];
-- нормативные документы: [LOCAL_SOURCE];
-- навыки Traycer и команда [LOCAL_SOURCE];
-- разговор «Описание механизмов контроля»;
-- исходный код autosk v2: [LOCAL_SOURCE].
-
-Obsidian-коннектор, которого требует локальный навык architecture-planning, в этой сессии недоступен. Поэтому решения опираются на перечисленные первичные материалы и реальный код, без вымышленных ссылок на vault.
+- исходный код [wierdbytes/autosk](https://github.com/wierdbytes/autosk);
+- разговоры «Описание механизмов контроля» и «Проектирование autosk v2»;
+- локальные Agent Selection Guide и 12 protocol files как одноразовый миграционный источник, не публикуемый в исходном виде и не используемый runtime.

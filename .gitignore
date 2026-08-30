@@ -21,3 +21,6 @@ tmp/
 # AutoSK runtime state and generated evidence
 .autosk/
 .autosk-evidence/
+
+# Local migration inputs are never published
+resources/governance/imported-baseline/
