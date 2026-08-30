@@ -68,7 +68,7 @@
 
 ## ADR-008: автоматическая компиляция замороженных инструкций
 
-- Решение: autosk-native bundle содержит один Guide, exact 12 protocol files и hash manifest. Для Epic он объединяется с versioned project overrides, копируется в project-owned immutable snapshot и фиксируется protocol.lock; PromptEnvelope собирается daemon-side по роли.
+- Решение: autosk-native bundle содержит один Guide, exact 12 protocol files, canonical manifest/content digest и detached four-model attestation. Для Epic exact bundle копируется в project-owned immutable snapshot и фиксируется protocol.lock; проектные решения остаются в Epic artifacts/user instructions и не переопределяют governance.
 - Альтернатива: полагаться на память модели, указывать ей путь без загрузки либо вручную копировать тексты.
 - Обоснование: отдельный agent context обязан получить применимые правила, но пользователь не должен их переносить вручную. Snapshot защищает выполняющийся epic от обновления расширения.
 - Источники:
@@ -130,11 +130,11 @@
   - docs/cli.md, create/block/unblock/metadata/enroll/resume --to;
   - daemon/core/src/engine/session.ts, commit текущего transit не отклоняется из-за вновь добавленного blocker.
 
-## ADR-015: повторное ревью тем же логическим агентом
+## ADR-015: повторное ревью по exact session file
 
-- Решение: каждая model-owned task имеет собственный session record общей схемы и общий absolute session directory под исходным projectRoot. Panel/contest/narrow берут seat session, code review — отдельный review session по reviewer family, Arena — раздельные candidate/Judge sessions. Author session никогда не копируется reviewer. Оба поля передаются Pi как session-id/session-dir. Full re-panel возобновляет четыре seat sessions, narrow re-review — Lead, contest — originating seats.
+- Решение: каждая model-owned task имеет собственный session record. Первый Pi run сохраняет exact absolute session file; follow-up открывает его через `--session <path>`, независимо от worktree cwd. Panel/contest/narrow берут seat file, code review — отдельный reviewer file, Arena — раздельные candidate/Judge files. Author session никогда не копируется reviewer.
 - Альтернатива: каждый раунд запускать полностью нового агента без истории либо держать один бесконечный autosk task.
-- Обоснование: прежний reviewer помнит собственные findings и не переоткрывает весь scope; новые task IDs сохраняют blockers, аудит и независимое завершение раундов. Replacement создаётся только при недоступности, повреждении session или обязательной смене роли и явно записывает replaces.
+- Обоснование: Pi фильтрует custom session-dir lookup по cwd, поэтому ID+dir недостаточны. Exact file сохраняет историю reviewer; replacement создаётся только при недоступности, повреждении session или обязательной смене роли и явно записывает replaces.
 - Источники:
   - Traycer Handoff rules: повторное обращение к тому же child после final reply;
   - Pi session-id/resume surface;
@@ -142,7 +142,7 @@
 
 ## ADR-016: изоляция параллельных проектов по canonical project root
 
-- Решение: все проектные документы, snapshots, provider sessions, evidence, integration state и recovery keys привязаны к canonical `ctx.projectRoot`; любой ключ за пределами одного project store использует `project_root_sha256`, а slug остаётся только display name.
+- Решение: все project resources привязаны к canonical `ctx.projectRoot`; любой ключ за пределами одного store использует project_root_sha256. Boundary guard проходит до каждого side effect и запрещает traversal/symlink. Внешний Git worktree cache — единственное физическое исключение и тоже namespaced project hash.
 - Альтернатива: использовать `<project-slug>`, epic ID или task ID как глобальный ключ.
 - Обоснование: autoskd может держать несколько открытых проектов в одном daemon и общем worker pool; task/session IDs и slug не должны смешивать операции разных root.
 - Источники:
@@ -169,12 +169,30 @@
 
 ## ADR-019: публичный автономный bundle, приватный migration baseline
 
-- Решение: public Git содержит только очищенный autosk-native Guide + exact 12-file protocol + manifest. Exact imported Traycer baseline хранится локально вне Git и используется только явным import/diff tool до сборки новой bundle version.
+- Решение: public Git содержит только очищенный autosk-native Guide + exact 12-file protocol + manifest + detached panel attestation. Exact imported Traycer baseline хранится локально вне Git и используется только явным import/diff tool до сборки новой bundle version.
 - Альтернатива: публиковать exact baseline или читать его из `~/.traycer` во время runtime.
 - Обоснование: active bundle должен быть воспроизводимым и автономным, но публичный репозиторий не должен раскрывать личные пути, Traycer API и локальные инструкции. Автоматической синхронизации нет.
 - Источники:
   - разговор «Проектирование autosk v2»;
   - решение публиковать только обезличенную спецификацию.
+
+## ADR-020: single-writer Epic metadata через correction inbox
+
+- Решение: только parent deterministic steps пишут Epic `autosk_flow` metadata. Пользователь, модели и Tickets append'ят immutable structured correction events в native Epic comments; parent consume'ит их по id/hash/watermark. Ticket resume начинается только после завершения parent metadata step.
+- Альтернатива: конкурентные `metadata set` с заявленным compare-and-swap.
+- Обоснование: autosk metadata write — last-write-wins и не поддерживает expected-hash CAS; append-only events предотвращают потерю поздней correction без второго ledger.
+- Источники:
+  - autosk metadata/comment store behavior;
+  - full re-panel finding G-H-02.
+
+## ADR-021: capability-minimal gate agents
+
+- Решение: panel, contest, narrow, code-review и Judge получают только snapshot-rooted read tools и current-task transit. Shell, edit/write, `autosk_task` и sibling comment mutations отсутствуют; verdict записывает host driver.
+- Альтернатива: полный стандартный Pi tool set плюс post-check Git worktree.
+- Обоснование: Git dirt check не обнаруживает mutation live `.autosk` store. Gate agent не должен иметь capability менять объект, который проверяет.
+- Источники:
+  - autosk Pi tools/runtime behavior;
+  - full re-panel finding G-H-03.
 
 ## Оставшиеся риски, не решения
 

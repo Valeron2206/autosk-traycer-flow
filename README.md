@@ -29,7 +29,7 @@
 7. autoskd остаётся единственным владельцем операционного состояния задач. Отдельная база, второй оркестратор и второй журнал состояния не создаются.
 8. `autosk-flow` самостоятельно выполняет planning и Ticket lifecycle. `devflow` не устанавливается, не вызывается и не является fallback.
 9. Traycer используется только как локальный одноразовый источник миграции Guide и protocol. Runtime не читает `~/.traycer`, не вызывает `traycer_*` и не требует Traycer skills.
-10. Код расширения и активный governance bundle глобальны. Все проектные артефакты, snapshots, tasks, sessions, evidence, overrides и integration state принадлежат конкретному canonical project root.
+10. Код расширения и активный governance bundle глобальны. Все проектные документы, snapshots, tasks, sessions, evidence и integration state принадлежат конкретному canonical project root.
 11. Obsidian MCP и навык `architecture-planning` исключены из процесса и не входят в preflight, prompts или Definition of Done.
 
 ## Состав пакета

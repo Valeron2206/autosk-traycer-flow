@@ -6,7 +6,7 @@
 
 Пакет регистрирует собственные Planned, Quick, Ticket, Panel, Review и Arena workflows. `devflow` и Traycer runtime не являются dependencies или fallback. Канонические autosk-native Guide/protocol/schemas принадлежат расширению; exact migration baseline остаётся локальным вне public Git.
 
-Каждый проект хранит только свои нормативные артефакты и операционное состояние внутри canonical root. Глобальная установка не содержит project documents, sessions, evidence, overrides или mutable integration state.
+Каждый проект хранит только свои нормативные артефакты и операционное состояние внутри canonical root. Глобальная установка не содержит project documents, sessions, evidence или mutable integration state.
 
 Перед любой записью расширение берёт canonical project root из `ctx.projectRoot` и считает `project_root_sha256`. Все проектные файлы пишутся под этим root; любые lookup/recovery ключи за пределами одного store включают `{project_root_sha256, task_id|operation_id}`. Task ID, branch name, epic ID или человекочитаемый slug без project-root hash не являются глобально уникальными. Obsidian MCP и `architecture-planning` не входят в preflight, prompts, tests или recovery.
 
@@ -35,7 +35,7 @@ contest:
 
 arena:
   select_next -> dispatch_arena -> arena_join
-  -> apply_arena_decision -> freeze_artifact
+  -> apply_arena_decision -> draft_artifact -> freeze_artifact
   -> dispatch_panel
 
 execution:
@@ -43,13 +43,17 @@ execution:
   -> accept -> integrate -> aggregate_verify -> cleanup -> done
 
 recovery:
-  rebuild_anchor -> draft_artifact | dispatch_arena | select_next | ticket_join | human
+  rebuild_anchor -> draft_artifact | dispatch_arena | select_next | resume_repaired_tickets | ticket_join | human
+  resume_repaired_tickets -> ticket_join
+  repair_protocol_snapshot -> recorded pre-failure step | human
   integration_recovery -> integrate | human
 ~~~
 
 Brief, Core Flow, Tech Plan и весь комплект Tickets — четыре значения current_artifact.kind и проходят один artifact cycle. Отдельных draft_tickets/tickets_panel steps нет.
 
 Каноническая таблица переходов:
+
+Перед вычислением любого gate parent-owned deterministic step вызывает `consumeAnchorCorrections`: читает новые immutable `anchor_correction` events из Epic comments, проверяет event id/hash/project/anchor provenance и как единственный writer merge'ит их в Epic pending_anchor. Model/Ticket/user paths не выполняют `metadata set` родительского Epic. Если event появился после текущего consume, он остаётся непрочитанным и блокирует следующий gate.
 
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
@@ -58,7 +62,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | select_next | Tech Plan passed и существует arena.decisions entry status=pending | выбрать первый stable decision_id, записать current_decision_id, dispatch_arena |
 | select_next | planning kinds passed, все Arena decisions terminal либо отсутствуют, Tickets ещё не passed | записать kind=tickets, создать review_cycles.tickets если absent, draft_artifact |
 | select_next | Tickets passed | dispatch_ticket_dag |
-| draft_artifact | bytes записаны и scope чист | freeze_artifact |
+| draft_artifact | arena re-expression required, но Decision Record/graft list не отражены в новых Tech Plan bytes либо identity равна pre-arena | human с park.reason=arena_reexpression_missing |
+| draft_artifact | bytes записаны, scope чист и обязательная arena re-expression завершена либо не требуется | freeze_artifact |
 | freeze_artifact | current_cycle.full_panel_required=true или current_cycle.narrow=false | dispatch_panel |
 | freeze_artifact | current_cycle.narrow=true, но scope/anchor/load-bearing decisions изменились | atomically current_cycle.narrow=false, current_cycle.full_panel_required=true, dispatch_panel |
 | freeze_artifact | current_cycle.narrow=true, current_cycle.full_panel_required=false и scope/anchor/load-bearing decisions не изменились | dispatch_narrow_review |
@@ -99,28 +104,31 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | arena_join | judge status=done, минимум два live candidates и judgment binding валиден | apply_arena_decision |
 | arena_join | cancel/missing/invalid judgment | human с park.reason=arena_join_invalid |
 | arena_join | child status=human | parent остаётся blocked; пользователь возобновляет child |
-| apply_arena_decision | user/judge decision recorded для current_decision_id, включая fallback, и block entry rewritten applied/fallback с Decision Record ref | arena.decisions[id] terminal, current_decision_id=null, artifact_pass.tech_plan=null, kind=tech_plan, review_cycles.tech_plan.narrow=false/full_panel_required=true, attempt+1, freeze_artifact |
+| apply_arena_decision | user/judge decision recorded для current_decision_id, включая fallback, и block entry rewritten applied/fallback с Decision Record/graft list ref | arena.decisions[id] terminal, current_decision_id=null, artifact_pass.tech_plan=null, kind=tech_plan, сохранить pre-arena identity, reexpression_required=true, review_cycles.tech_plan.narrow=false/full_panel_required=true, attempt+1, draft_artifact |
 | rebuild_anchor | anchor_rebuild_op открыт | validate op binding; продолжить записанные per-ticket phases/dispositions без повторной классификации; phase=ready_to_transit повторяет только recorded target |
 | rebuild_anchor | anchor_impact incomplete, current in-flight kind без current PASS не affected, upstream cascade нарушен, hash claimed-unaffected изменён или Ticket task re-binding не подтверждён | human с park.reason=anchor_impact_invalid |
 | rebuild_anchor | любой affected Ticket status=work | human с park.reason=anchor_repair_ticket_live; никаких mutation, pending_anchor сохраняется |
 | rebuild_anchor | affected Ticket status=human, но это не waiting_parent_anchor с suspension receipt и не blocked_anchor с обоснованным pending до absorption | human с park.reason=anchor_impact_invalid; никаких mutation |
 | rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes, void affected bindings, current kind=earliest affected, current_cycle full required, draft_artifact |
-| rebuild_anchor | planning kinds unchanged/re-bound, affected только Ticket code bindings, все affected Tickets status=human и каждый либо waiting_parent_anchor+suspension receipt, либо blocked_anchor+обоснованный pending до absorption | bump/re-bind; CAS-clear Ticket source hashes и только Epic source_pending_hash; newer corrections при открытом op уже находятся в Epic; write receipts/anchors; resume humans; ready_to_transit(ticket_join) |
-| rebuild_anchor | planning kinds unchanged/re-bound, affected только Ticket code bindings, есть done/cancel/new/missing Ticket, нет status=work, а каждый оставшийся human Ticket имеет один из двух допустимых pre-rebuild recovery states | bump/re-bind; CAS-clear Ticket source hashes и только Epic source_pending_hash; сохранить newer Epic pending; завершить replacements, затем resume humans; ready_to_transit(ticket_join) |
+| rebuild_anchor | planning kinds unchanged/re-bound, affected только Ticket code bindings, все affected Tickets status=human и каждый либо waiting_parent_anchor+suspension receipt, либо blocked_anchor+обоснованный pending до absorption | sole-writer bump/re-bind, clear consumed source pending, write Ticket receipts/anchors до resume, ready_to_transit(resume_repaired_tickets) |
+| rebuild_anchor | planning kinds unchanged/re-bound, affected только Ticket code bindings, есть done/cancel/new/missing Ticket, нет status=work, а каждый оставшийся human Ticket имеет один из двух допустимых pre-rebuild recovery states | sole-writer bump/re-bind, clear consumed source pending, завершить replacements, ready_to_transit(resume_repaired_tickets) |
 | rebuild_anchor | affected bindings пусты, active Arena decision pending/running | bump/re-bind, void old Arena run binding, arena attempt+1, dispatch_arena |
 | rebuild_anchor | affected bindings пусты, planning phase без active Arena | bump/re-bind, select_next |
 | rebuild_anchor | affected bindings пусты, execution/ticket_join phase | bump/re-bind Ticket task metadata, ticket_join |
+| resume_repaired_tickets | Epic metadata/op writes sealed; Ticket anchors/receipts готовы | restore/add exact blocker edges, resume recorded human Tickets, больше не писать Epic metadata, transit ticket_join |
 | dispatch_ticket_dag | old Ticket status=work | human с park.reason=ticket_join_invalid; live task не изменяется и не отменяется автоматически |
 | dispatch_ticket_dag | suspended receipt не сопоставлен живому Ticket и не имеет valid superseded_by mapping | human с park.reason=ticket_edge_receipt_lost |
 | dispatch_ticket_dag | old Ticket status=done/cancel/new/missing либо path/hash/base не совпадает с current tickets PASS, либо Ticket удалён | old task superseded: parent map исключает old task; cancel только допустимую non-live task; cleanup+close receipt; создать новую Ticket task из current PASS |
 | dispatch_ticket_dag | matched receipt, но scope/dependency blockers/candidate reset не подтверждены из current tickets PASS | human с park.reason=ticket_join_invalid |
-| dispatch_ticket_dag | все receipts matched/superseded и repair tasks настроены | сначала завершить create/configure/enroll/block всех new/superseded replacements; затем для matched human Ticket проверить recovery metadata+path/hash/base, переиздать scope/dependencies/attempt, очистить stale state, restore/add edge и resume rebuild_code_anchor; parent transit ticket_join |
-| ticket_join | pending_anchor или anchor mismatch любого ожидаемого Ticket | atomically ensure pending_anchor(reason, identity, affected tickets), human с park.reason=blocked_anchor |
-| ticket_join | любой ожидаемый Ticket status=new/work | parent остаётся blocked; переход запрещён до закрытия blockers |
+| dispatch_ticket_dag | все receipts matched/superseded и repair tasks настроены | завершить create/configure всех replacements; для matched human Ticket проверить recovery metadata+path/hash/base, переиздать scope/dependencies/attempt и очистить stale state; затем resume_repaired_tickets |
+| ticket_join | unconsumed correction event, pending_anchor или anchor mismatch любого ожидаемого Ticket | consume/ensure pending_anchor(reason, identity, affected tickets), human с park.reason=blocked_anchor |
+| ticket_join | любой ожидаемый Ticket status=new/work/human и соответствующий blocker отсутствует | восстановить exact blocker edge, transit ticket_join_wait |
+| ticket_join_wait | blockers ещё открыты | step не запускается scheduler |
+| ticket_join_wait | blockers terminal/removed | ticket_join |
 | ticket_join | все Tickets status=done + code PASS + commit OID, auto-integration policy валидна | integrate |
 | ticket_join | все Tickets status=done + code PASS + commit OID, auto-policy отсутствует или невалидна | accept statusStep("human") |
 | ticket_join | cancel/missing/done без binding | human с park.reason=ticket_join_invalid |
-| ticket_join | Ticket status=human | parent остаётся blocked; пользователь возобновляет Ticket, кроме документированного anchor-repair resume из уже работающего rebuild_anchor/dispatch_ticket_dag |
+| ticket_join | ожидаемый Ticket status=human | обеспечить exact blocker edge, transit ticket_join_wait; пользователь возобновляет child |
 | accept | resume --to integrate, user acceptance той же identity записан, pending_anchor отсутствует | integrate |
 | integrate | pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
 | integrate | следующий Ticket успешно CAS-integrated, остались Tickets | integrate |
@@ -144,6 +152,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 ~~~text
 intake -> implement -> verify -> freeze -> dispatch_review -> review_join -> record_code_verdict
        -> fix -> verify -> freeze -> dispatch_narrow_review -> review_join -> record_code_verdict
+       -> freeze -> record_editorial_exemption -> accept
        -> accept -> integrate -> cleanup -> done
                      -> integration_recovery -> integrate | human
 recovery: rebuild_code_anchor -> verify
@@ -160,6 +169,7 @@ implement -> verify -> freeze -> dispatch_review -> review_join -> record_code_v
           -> fix -> verify -> freeze -> dispatch_narrow_review -> review_join -> record_code_verdict
           -> commit_on_pass -> ticket_done
 recovery: rebuild_code_anchor -> verify
+          complete_anchor_handoff -> human
 ~~~
 
 Зависимости между Ticket-задачами выражаются autosk blockers.
@@ -180,6 +190,7 @@ Parent Ticket блокируется review child и после разблоки
 | --- | --- | --- |
 | implement | критерии проверены, worktree не коммитился | verify |
 | verify | evidence record валиден | freeze |
+| freeze | workflow=autosk-quick, editorial classification валидна, changed paths/bytes не затрагивают executable/config/schema/security/prompt/governance behavior | record_editorial_exemption |
 | freeze | review_cycle.full_review_required=true | dispatch_review |
 | freeze | review_cycle.full_review_required=false и candidate создан после confirmed fixes | dispatch_narrow_review |
 | dispatch_review / dispatch_narrow_review | нет reviewer семьи вне union author/fixer set | human с park.reason=no_external_reviewer |
@@ -196,8 +207,10 @@ Parent Ticket блокируется review child и после разблоки
 | record_code_verdict | PASS и workflow=autosk-quick, auto-integration policy валидна | если full, atomically full_review_required=false; integrate |
 | record_code_verdict | PASS и workflow=autosk-quick, auto-policy отсутствует или невалидна | если full, atomically full_review_required=false; accept |
 | fix | confirmed findings исправлены | verify |
+| record_editorial_exemption | classification + exact candidate identity + changed path set записаны вместо review verdict; повторная deterministic проверка всё ещё editorial | accept |
 | rebuild_code_anchor | parent_epic_task отсутствует (standalone Quick), pending anchor валиден | own anchor_version+1, clear pending_anchor, review_cycle.full_review_required=true, verify |
-| rebuild_code_anchor | parent_epic_task задан, waiting_parent_anchor=false, pending_anchor обоснован | merge proposal в parent Epic, void Ticket review binding, waiting_parent_anchor=true, suspend blocker edge с receipt, human с park.reason=waiting_parent_anchor |
+| rebuild_code_anchor | parent_epic_task задан, waiting_parent_anchor=false, correction обоснована | append immutable correction event, void Ticket review binding, receipt phase=event_appended, park.reason=anchor_handoff_incomplete, `await ctx.transit(human)`, затем exact unblock parent и receipt phase=edge_suspended/waiting_parent_anchor; Epic metadata не писать |
+| complete_anchor_handoff | event hash/receipt валидны, Ticket human, parent edge ещё active | идемпотентно подтвердить human park, exact unblock parent, receipt phase=edge_suspended, park.reason=waiting_parent_anchor |
 | rebuild_code_anchor | parent_epic_task задан, waiting_parent_anchor=true, Ticket anchor=parent anchor, pending_anchor=null, matching parent_rebuild_receipt записан parent, suspension receipt/edge восстановлен | waiting_parent_anchor=false, review_cycle.full_review_required=true, verify |
 | rebuild_code_anchor | parent_epic_task задан, waiting_parent_anchor=false, Ticket anchor=parent anchor, pending_anchor=null, matching parent_rebuild_receipt записан parent, suspended receipt отсутствует | review_cycle.full_review_required=true, verify |
 | commit_on_pass | Ticket или parent epic pending_anchor / anchor mismatch | atomically ensure pending_anchor(reason, identity), human с blocked_anchor |
@@ -320,13 +333,14 @@ autosk-flow/
               technical-writing.md
               unslop.md
           bundle-manifest.json
+          bundle-attestation.json
   tools/
     import-traycer-baseline.ts   # explicit local migration tool, not runtime
 ~~~
 
 Exact imported Traycer baseline хранится только локально вне public Git. `import-traycer-baseline` читает явно переданные guide/protocol paths, требует regular Guide + exact 12 expected Markdown paths, игнорирует только `.DS_Store`, отклоняет любой другой unexpected entry/symlink, вычисляет hashes, создаёт diff proposal для нового autosk-native bundle и завершается. Он не устанавливает watcher и не добавляет runtime lookup в `~/.traycer`.
 
-`bundle-manifest.json` содержит как минимум `schemaVersion`, `bundleId`, `bundleVersion`, provenance без личных paths, ordered map из 13 relative paths в SHA-256, общий digest и binding последней четырёхмодельной проверки bundle. Project-owned `protocol.lock.json` дополнительно связывает этот digest с project_root_sha256, Epic ID, effective project override hashes и snapshot path. Изменение любого поля/byte создаёт новую bundle/effective identity.
+`bundle-manifest.json` содержит `schemaVersion`, `bundleId`, `bundleVersion`, provenance без личных paths, ordered map из 13 relative paths в SHA-256 и canonical content digest. Preimage digest — domain separator + canonical metadata + ordered file map; собственное поле `contentDigest` и attestation исключены, поэтому цикла нет. Exact manifest bytes хешируются отдельно. `bundle-attestation.json` хранит content digest и четыре verdict/session/record hashes; его создание не меняет проверенную content identity. Project-owned `protocol.lock.json` связывает content digest, exact manifest hash, attestation hash, project_root_sha256, Epic ID и snapshot path. Изменение governance byte/canonical manifest metadata создаёт новую content identity; изменение attestation не переписывает manifest.
 
 ## 4. Metadata contract
 
@@ -335,6 +349,8 @@ Exact imported Traycer baseline хранится только локально �
 Единственный машинный enum ArtifactKind: brief | core_flow | tech_plan | tickets. Имена файлов могут содержать дефисы, metadata и переходы — никогда.
 
 Каждая task metadata содержит неизменяемый project binding `{canonical_root, project_root_sha256}`. Parent/child, blocker, session, verdict и evidence binding с разными project_root_sha256 недействительны. Любая CLI/RPC операция получает canonical root явно; текущий shell cwd и branch name project identity не определяют.
+
+Optional `correlation_id` — только UUID по закрытой схеме. В нём нет path/task/session/evidence refs; расширение никогда не выполняет lookup по этому полю.
 
 Каждая задача, чей AgentDefinition вызывает resolvedPiAgent — Epic/Quick parent, Ticket implementer, panel/contest/narrow seat, code-review child, Arena candidate/Judge — имеет собственный autosk_flow.session record одной общей схемы. Reviewer/Judge session никогда не копируется из implementer/author task. Без собственного record enroll запрещён.
 
@@ -350,9 +366,11 @@ Exact imported Traycer baseline хранится только локально �
     },
     "mode": "planned",
     "epic_id": "epic-001",
+    "correlation_id": null,
     "session": {
       "provider_session_id": "...",
       "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
+      "provider_session_file": null,
       "generation": 1,
       "replaces": null
     },
@@ -400,6 +418,7 @@ Exact imported Traycer baseline хранится только локально �
           "task_id": "...",
           "provider_session_id": "...",
           "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
+          "provider_session_file": null,
           "generation": 1,
           "replaces": null
         }
@@ -430,9 +449,9 @@ Exact imported Traycer baseline хранится только локально �
 }
 ~~~
 
-`anchor_rebuild_op` хранит `op_id`, Epic `source_pending_hash`, per-ticket `source_ticket_pending_hash`, `from_version`, `to_version`, immutable dispositions каждого Ticket, per-ticket phase, общую phase (`prepared | anchor_committed | ready_to_transit`), recorded target и expected identity. Наличие открытой операции имеет приоритет над обычными guard-строками `rebuild_anchor`; закрыть её может только общий deterministic prologue уже достигнутого recorded target. Очистка pending выполняется compare-and-swap только для записанных source hashes.
+`anchor_rebuild_op` хранит `op_id`, consumed correction event IDs/watermark, pre-resume Epic/Ticket hashes, `from_version`, `to_version`, immutable dispositions каждого Ticket, per-ticket phase, общую phase (`prepared | anchor_committed | ready_to_transit`), recorded target и expected identity. Наличие открытой операции имеет приоритет над обычными guard-строками `rebuild_anchor`; закрыть её может только общий deterministic prologue уже достигнутого recorded target.
 
-Пока parent anchor_rebuild_op открыт, новая пользовательская или агентская anchor-корректировка записывается сразу в Epic pending, а Ticket-local pending защищён от внешней записи. Если сигнал возникает внутри Ticket после его resume, deterministic `ensure_pending_anchor` сразу merge'ит его в Epic, ставит Ticket waiting_parent_anchor и suspend edge с receipt; он не создаёт новый Ticket-local CAS operand текущей операции. Поэтому другой Ticket-local hash до разрешённого resume — protocol violation и anchor_impact_invalid, а более новый Epic hash законно сохраняется для следующего rebuild.
+Epic `autosk_flow` metadata имеет единственного writer — parent deterministic steps. Пользователь, модели и Tickets публикуют correction events в append-only comments. Событие, пришедшее после consumed watermark, не конкурирует с metadata write и будет обработано следующим parent gate. Parent завершает все Epic/Ticket metadata writes и transit в `resume_repaired_tickets` до первого Ticket resume.
 
 ### Ticket task
 
@@ -448,6 +467,7 @@ Exact imported Traycer baseline хранится только локально �
     "session": {
       "provider_session_id": "...",
       "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
+      "provider_session_file": null,
       "generation": 1,
       "replaces": null
     },
@@ -537,14 +557,16 @@ Opus предлагает classification и короткое обоснован�
 1. открыть bundled `bundle-manifest.json` и потребовать один Guide плюс exact 12 protocol paths;
 2. отклонить symlink, non-regular file, неизвестный или отсутствующий entry;
 3. прочитать verified bytes, сверить per-file SHA-256 и общий bundle digest;
-4. прочитать versioned project overrides только из current project Git tree и включить их hashes в effective digest;
+4. проверить detached attestation против уже вычисленного content digest;
 5. через ctx.projectRoot получить absolute canonical destination, не sandbox cwd;
 6. проверить, что destination находится внутри canonical project root текущей задачи;
-7. атомарно записать immutable effective snapshot и `protocol.lock.json` в namespaced каталог проекта;
-8. записать bundle id/version/digest, effective digest, absolute path и project_root_sha256 в metadata;
-9. на каждом dispatch повторно проверить lock, snapshot hashes и project_root_sha256.
+7. атомарно записать immutable bundle snapshot и `protocol.lock.json` в namespaced каталог проекта;
+8. записать bundle id/version/content digest, manifest/attestation hashes, absolute path и project_root_sha256 в metadata;
+9. на каждом dispatch повторно проверить lock, snapshot hashes и project_root_sha256, не сравнивая с текущей установленной версией bundle.
 
 Ни один шаг не ищет `~/.traycer`, `forCursor.md`, Traycer skill или Obsidian. Явный import tool завершается до сборки bundle и не доступен model/runtime workflows.
+
+Провал lock/snapshot validation не выполняет model/fs side effects и паркует task с `protocol_lock_invalid`. `repair_protocol_snapshot` восстанавливает bytes только из exact content-addressed bundle/attestation, записанных в lock. Если эта версия недоступна, требуется human reinstall exact bundle либо явная migration на новую bundle identity с anchor impact и полными gates; current installed latest молча не подставляется.
 
 ### resolvedPiAgent
 
@@ -553,15 +575,17 @@ Opus предлагает classification и короткое обоснован�
 1. читает current task metadata;
 2. проверяет route и protocol snapshot;
 3. компилирует firstMessage;
-4. требует autosk_flow.session.provider_session_id и абсолютный provider_session_dir в metadata текущей задачи;
-5. создаёт штатный piAgent с model/firstMessage/sandbox и extraArgs ["--session-id", autosk_flow.session.provider_session_id, "--session-dir", autosk_flow.session.provider_session_dir];
-6. проксирует onSteer, onFollowup и onAbort текущему inner agent.
+4. проверяет session binding: ID, project-owned directory и optional absolute provider_session_file;
+5. для первого запуска создаёт штатный piAgent с `--session-id` + `--session-dir`; после запуска читает get_state и атомарно сохраняет exact absolute sessionFile;
+6. для любого follow-up/full re-panel/narrow/contest открывает exact file через `--session <absolute-session-file>`; session ID без file не считается cwd-independent resume key;
+7. проверяет, что session file лежит внутри project provider-sessions, а header model/family/role/session ID совпадают;
+8. проксирует onSteer, onFollowup и onAbort текущему inner agent.
 
 Driver и transit correction штатного piAgent не копируются.
 
 ### Session continuity
 
-Первый dispatch места создаёт стабильный provider_session_id и общий absolute provider_session_dir под исходным projectRoot. Следующая child task того же места, Lead или originating critic получает оба поля до enroll. resolvedPiAgent всегда передаёт Pi одновременно --session-id и --session-dir, поэтому смена task ID или worktree cwd не создаёт пустую одноимённую сессию. Новый PromptEnvelope несёт новую identity. provider_session_id уникален только внутри provider_session_dir; сравнения между проектами всегда включают `project_root_sha256`.
+Первый dispatch места создаёт provider_session_id и project-owned provider_session_dir. После фактического запуска exact provider_session_file становится главным resume binding. Следующая child task того же места получает ID/dir/file до enroll и открывает file независимо от нового worktree cwd. Если file отсутствует/повреждён, replacement создаёт новую generation и `replaces`; молчаливое создание второго jsonl с тем же ID запрещено. Сравнения между проектами всегда включают project_root_sha256.
 
 Источники session record:
 
@@ -584,12 +608,26 @@ Dispatcher никогда не копирует author/implementer session в re
 
 Task ID может быть новым для каждого раунда ради blockers и audit, provider_session_id остаётся тем же. Таким образом autosk сохраняет нативный task graph и одновременно переотправляет исправления тем же логическим агентам.
 
+### Project boundary guard
+
+Каждый deterministic AgentDefinition начинает с `assertProjectBoundary` и повторяет его непосредственно перед каждым fs/Git/CLI/RPC side effect. `onTransit` выполняет только вторую defense-in-depth проверку; поздний отказ не считается защитой уже выполненной записи.
+
+Guard проверяет project binding всех task/session/blocker/verdict/evidence refs, устанавливает `AUTOSK_CWD=ctx.projectRoot` для каждого autosk CLI процесса и использует `safeProjectFs`. Разрешённый root по умолчанию — canonical project root; единственное исключение — Git worktree operation под exact `~/.autosk/worktrees/<project_root_sha256>/`, тоже связанная metadata owner текущего проекта.
+
+- canonical root получается через realpath один раз на run;
+- каждый существующий path component проверяется через lstat и не может быть symlink/junction;
+- `..`, absolute foreign path и prefix-only совпадение отклоняются;
+- create/rename/delete выполняются fd-relative с no-follow semantics и post-check canonical parent;
+- если платформа не даёт race-safe no-follow primitive, side effect fail-closed, а не ослабляется lexical check;
+- ноль side effects допустим до успешного guard.
+
 ### Child tasks
 
 Использовать ctx.exec с autosk CLI до появления write API в SDK:
 
 - передать canonical project root каждой CLI/RPC операции и проверить project binding в прочитанной task view;
-- create без workflow;
+- до create искать exact deterministic marker в create-time title/description: `[autosk-flow:<project_root_sha256>:<parent-id>:<run-id>:<seat-or-type>]`;
+- create без workflow, но уже с этим marker; metadata ещё не считается готовой;
 - metadata set, включая обязательный собственный autosk_flow.session record из правильного role registry для любой model-owned task;
 - при необходимости подготовить branch/worktree от точного snapshot/base;
 - enroll после полной настройки;
@@ -597,7 +635,7 @@ Task ID может быть новым для каждого раунда рад
 - для anchor repair снять ровно edge `autosk unblock <parent-id> <ticket-id>`, сохранив receipt, и вернуть его `autosk block <parent-id> <ticket-id>`; `--all` запрещён;
 - после восстановления edge возобновить human Ticket через `autosk resume <ticket-id> --to rebuild_code_anchor`.
 
-Каждая операция проверяет exit code и перечитывает созданную task view. `{project_root_sha256, parent_id, run_id, seat/type}` делают повтор безопасным; совпавший run_id другого проекта никогда не считается той же операцией.
+Каждая операция проверяет exit code и перечитывает созданную task view. Create-time marker позволяет найти task после crash до metadata set; task никогда не enroll до полной metadata/session/sandbox проверки. Retry переиспользует ровно один marker-matched child, а duplicate marker паркует dispatch. Recovery sweep закрывает только собственные `new` tasks с валидным marker и незавершённой metadata; произвольные unlabeled tasks не трогает. Совпавший run_id другого проекта никогда не считается той же операцией.
 
 Эти команды являются доступными autosk CLI-операциями, а не действиями модели. Обычную human-задачу возобновляет пользователь; единственное автоматическое исключение — deterministic parent step для anchor repair с валидными parent rebuild и edge receipts. Preflight расширения в временном проекте обязан доказать точечный `block -> unblock -> block` и parent-initiated `resume --to rebuild_code_anchor`; отсутствие любой операции останавливает запуск до создания реальных задач.
 
@@ -609,23 +647,23 @@ Task ID может быть новым для каждого раунда рад
 
 После synthesis любое предложенное отклонение или снижение серьёзности finding создаёт contest child task каждому originating seat. Parent блокируется ими и не переходит к fix/PASS до валидных dispositions.
 
-Новая пользовательская инструкция, изменение Decision Log или другой нормативной основы записывает pending_anchor. Активные review children завершаются либо оператор abort/cancel их; пока child human/work открыт, parent корректно остаётся blocked. После разблокировки panel/narrow join видит mismatch и паркует parent с blocked_anchor.
+Новая пользовательская инструкция, изменение Decision Log или Ticket/verdict signal не пишет Epic metadata напрямую. Источник добавляет immutable structured `anchor_correction` event в comments родительского Epic: `{event_id, project_root_sha256, source_task/session, source_anchor, affected_identity, reason, payload_hash}`. Parent deterministic gate проверяет/хеширует event, как единственный metadata writer merge'ит его в pending_anchor и записывает consumed event IDs/watermark. Поздний event остаётся в inbox до следующего gate и не может быть стёрт parent write.
 
-Если BLOCKED_ANCHOR первым приходит из verdict, а pending_anchor ещё null, deterministic join step до park атомарно создаёт pending_anchor с reason, source verdict и affected identity. onTransit по-прежнему ничего не пишет.
+Ticket correction соблюдает порядок: append accepted event → atomically park Ticket human/waiting с receipt → только затем exact unblock parent. Crash до park/unblock оставляет parent blocked, а Ticket recovery повторяет тот же event_id. `BLOCKED_ANCHOR` verdict проходит тот же event path. Редактирование comment после принятия не меняет event, потому gate связан с принятым record hash.
 
 Явный deterministic AgentDefinition step rebuild_anchor:
 
 1. если `anchor_rebuild_op` уже открыт, проверяет его task/from/to binding и продолжает только записанную phase и per-ticket dispositions; `pending_anchor` повторно не требуется, текущие Ticket status не переклассифицируют уже назначенные действия;
-2. только для новой операции требует pending_anchor, human-approved anchor_impact и отсутствие живых review children;
+2. только для новой операции сначала consume'ит correction inbox, затем требует pending_anchor, human-approved anchor_impact и отсутствие живых review children;
 3. требует классификацию каждого существующего planning PASS, каждого Ticket binding, status/recovery metadata каждой Ticket task и текущего in-flight kind; in-flight kind без current PASS всегда affected, kind с current PASS может быть unaffected_rebind;
 4. применяет обязательный cascade brief -> core_flow -> tech_plan -> tickets -> Ticket code: downstream не может быть unaffected_rebind, если affected любой upstream kind;
 5. для unaffected_rebind повторно проверяет неизменность bytes/tree и human approval, готовит binding новой anchor_version;
 6. при неполной карте, нарушенном cascade, изменившемся claimed-unaffected hash или human Ticket вне двух допустимых pre-rebuild recovery states ничего не меняет и паркует anchor_impact_invalid; при любом affected Ticket status=work ничего не меняет, сохраняет pending_anchor и паркует anchor_repair_ticket_live;
 7. один раз создаёт idempotent anchor_rebuild_op с from_version, to_version=from+1, dispositions и phase; retry продолжает тот же to_version и никогда не bump'ит второй раз;
-8. после общей проверки status для каждой Ticket task идемпотентно пишет anchor_version=to_version: unaffected re-bind'ит code/commit binding; affected Ticket compare-and-swap очищает pending_anchor только с записанным source_ticket_pending_hash; любой другой Ticket-local hash нарушает write-routing открытого op и паркует anchor_impact_invalid без перезаписи. Affected human Ticket получает matching parent_rebuild_receipt/full_review_required; done/cancel/new/missing получает replacement phases и superseded_by;
-9. после подтверждения всех task-level записей одной атомарной epic-записью устанавливает anchor_version=to_version, re-bind'ит planning PASS, void'ит active/affected bindings, compare-and-swap очищает только pending_anchor с hash=source_pending_hash и переводит op в `anchor_committed`; более новый pending сохраняется, op не закрывается;
+8. пока Tickets ещё не resume'нуты, идемпотентно пишет их anchor_version=to_version: unaffected re-bind'ит code/commit binding; affected Ticket очищает только source pending, получает parent_rebuild_receipt/full_review_required; done/cancel/new/missing получает replacement phases и superseded_by. Несовпадение с записанным pre-resume Ticket state паркует anchor_impact_invalid;
+9. как единственный Epic metadata writer устанавливает anchor_version=to_version, re-bind'ит planning PASS, void'ит active/affected bindings, очищает обработанный pending_anchor, сохраняет consumed correction watermark и переводит op в `anchor_committed`; events после watermark остаются в comments, op не закрывается;
 10. если affected planning kinds не пусты, сохраняет repair map с ticket_artifact/hash/base, выбирает earliest affected kind, ставит full panel required и записывает target=`draft_artifact`; future dispatch_ticket_dag разрешит receipts только по строгому совпадению или superseded cleanup;
-11. если affected лишь Ticket code bindings, сначала до конца выполняет replacement phases, затем normal human dispositions получают restore/add edge и resume. Перед resume Ticket onTransit проверяет, что Ticket-local hash всё ещё равен ожидаемому очищенному состоянию; новый anchor signal маршрутизируется прямо в Epic и переводит Ticket в waiting/suspended, а не меняет Ticket-local source operand старого op. Crash продолжает immutable dispositions без переклассификации. Target=`ticket_join`;
+11. если affected лишь Ticket code bindings, сначала до конца выполняет replacement phases и все Epic/Ticket metadata writes, затем target=`resume_repaired_tickets`; никакой Ticket не resume внутри rebuild_anchor;
 12. если affected bindings пусты, active Arena run void и target=`dispatch_arena`; иначе target=`select_next` либо `ticket_join` по записанной phase;
 13. после всех side effects и повторной проверки receipts/blockers атомарно ставит `phase=ready_to_transit` и recorded target;
 14. retry с `ready_to_transit` не требует pending_anchor и вызывает только тот же `ctx.transit(recorded_target)`;
@@ -690,7 +728,11 @@ Review round увеличивает только freeze_artifact/freeze при �
 
 ### Read-only review
 
-Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит уникальный path/branch от snapshot commit с ключом reviewer task ID + role + attempt. Штатный worktreeSandbox без предварительной привязки к OID для review запрещён. До и после записываются HEAD, HEAD tree, status и untracked set. Несовпадение аннулирует verdict.
+Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит path/branch от snapshot commit с ключом `project_root_sha256 + reviewer task ID + role + attempt`. Из-за ограничений Git worktree он живёт во внешнем, но project-namespaced cache `~/.autosk/worktrees/<project_root_sha256>/...`; metadata owner остаётся current canonical root. Каждый autosk CLI subprocess получает `AUTOSK_CWD=ctx.projectRoot`, поэтому cwd worktree никогда не выбирает другой store.
+
+Panel, contest, narrow Lead, code-review и Judge запускаются с explicit custom tool allowlist: snapshot-rooted read/grep/list + current-task transit. Builtin bash/powershell/edit/write и `@autosk/pi-tools` task/comment mutations не загружаются; arbitrary autosk CLI недоступен. Structured verdict возвращается через driver и записывается host-side после завершения model run.
+
+Штатный worktreeSandbox без предварительной привязки к OID для review запрещён. До и после записываются HEAD, HEAD tree, status/untracked set, а также hashes parent/sibling task metadata/comments. Любая неожиданная Git/store запись превращает ответ в blocking non-verdict; только engine-owned transit текущей reviewer task разрешён.
 
 ### Commit on PASS
 
@@ -723,8 +765,9 @@ State path создаётся отдельно для каждой operation п�
 ## 6. onTransit guards
 
 - current task project binding обязан совпадать с canonical ctx.projectRoot и project_root_sha256;
-- parent, child, blocker, session, artifact, verdict и evidence refs другого проекта отклоняются до любых side effects;
-- effective protocol lock обязан принадлежать текущему project/Epic и совпадать с bundled manifest + project override hashes;
+- parent, child, blocker, session, artifact, verdict, evidence и correlation refs другого проекта отклоняются; тот же assert уже обязан был пройти до side effects;
+- protocol lock/snapshot обязан принадлежать текущему project/Epic и совпадать с manifest/content digest/detached attestation, записанными в самом immutable lock;
+- current installed bundle сравнивается только при создании нового lock. Его более новая версия не инвалидирует и не перепривязывает открытый Epic;
 - Planned implementation запрещён до PASS всех реально созданных плановых артефактов.
 - Tickets не исполняются без отдельного tickets-panel PASS текущей версии набора.
 - Panel seat не закрывается без валидного verdict той же identity.
@@ -741,7 +784,7 @@ State path создаётся отдельно для каждой operation п�
 - apply_arena_decision и planning rebuild_anchor выставляют current_cycle.full_panel_required=true. Пока флаг true, freeze может идти только в dispatch_panel; валидный full panel_join атомарно сбрасывает его в current_cycle, после чего fix этого же attempt может использовать Lead-only narrow re-review.
 - rebuild_code_anchor выставляет Ticket/Quick review_cycle.full_review_required=true. Пока флаг true, freeze может идти только в dispatch_review; только валидный record_code_verdict полного review сбрасывает флаг.
 - Ticket с parent_epic_task не может самостоятельно увеличить anchor_version; commit/review/join требуют равенства parent anchor, а suspended blocker обязан иметь restore receipt.
-- После anchor rebuild исходные Epic/Ticket source hashes не должны остаться. Более новый Epic pending сохраняется и после target prologue вызывает следующий blocked_anchor. Пока op открыт, новый Ticket signal обязан быть немедленно маршрутизирован в Epic с waiting/suspension receipt; произвольный новый Ticket-local hash является protocol violation. Normal human recovery получает parent_rebuild_receipt, replacement — superseded_by. Только остаточный source pending, Ticket-local mismatch или отсутствующий binding/receipt означает anchor_impact_invalid.
+- После anchor rebuild pending_anchor не содержит уже consumed correction events. Events после recorded watermark остаются в comments и на следующем gate создают новый blocked_anchor. Ticket signal всегда публикуется event + waiting receipt и не пишет Epic metadata. Normal human recovery получает parent_rebuild_receipt, replacement — superseded_by. Потерянный consumed event/hash, Ticket pre-resume mismatch или отсутствующий binding/receipt означает anchor_impact_invalid.
 - Code review запрещён без verification record и candidate tree OID.
 - Code reviewer family и panel Lead обязаны отсутствовать в полном author/fixer set.
 - Reviewer/Judge/gate provider_session_id обязан отличаться от session IDs всех author/fixer tasks того же scope; совпадение запрещает dispatch и аннулирует verdict.
@@ -759,12 +802,18 @@ State path создаётся отдельно для каждой operation п�
 | Ситуация | Поведение |
 | --- | --- |
 | Provider/model отсутствует | повтор по контракту; затем human, без автоматической подмены или сокращения панели |
+| Project boundary/path guard не прошёл | human с project_boundary_invalid; side effects count=0 |
 | Child create завершился частично | повторный dispatch находит задачи по parent/run/seat |
+| Duplicate/malformed create-time marker | human с child_dispatch_marker_invalid; ни один child не enroll |
 | Child task parked human | parent остаётся blocked; оператор возобновляет child в его существующем workflow либо cancel делает join ответственным за parent park; только anchor-repair parent step может автоматически resume Ticket по валидным receipts |
 | Один seat cancel/unavailable | parent переходит в human; сокращённый roster требует явного waiver |
 | Ticket cancel/done без binding | parent переходит в human; такой Ticket не считается завершённым |
+| Crash после Ticket human park и до exact unblock parent | Ticket остаётся human с anchor_handoff_incomplete; parent безопасно остаётся blocked |
 | Affected Ticket ещё status=work во время rebuild_anchor | parent паркуется с anchor_repair_ticket_live до любых rebuild writes; pending_anchor сохраняется |
 | Artifact изменён после verdict | verdict void, новый attempt |
+| Arena decision не re-expressed в новых Tech Plan bytes | human с arena_reexpression_missing |
+| Correction event schema/hash/project invalid | human с correction_event_invalid; event не consume'ится |
+| Protocol lock/snapshot повреждён | human с protocol_lock_invalid; model/fs side effects не выполняются |
 | Anchor version изменена | void active-cycle verdicts и bindings из human-approved anchor_impact; unchanged planning PASS живут только через явный hash-checked re-binding; affected scope получает новый full gate |
 | Extension обновлена во время epic | продолжается pinned protocol snapshot; исчезнувший workflow паркуется human |
 | Reviewer изменил snapshot | blocking non-verdict, новый isolated review |
@@ -778,14 +827,20 @@ Resume contract:
 | park.reason | Существующий workflow step | Требование |
 | --- | --- | --- |
 | panel_join_invalid | dispatch_panel | invalid child IDs записаны, attempt+1; старые bindings void |
+| project_boundary_invalid | исходный deterministic step | project binding/path исправлены и повторный pre-side-effect assert PASS |
+| child_dispatch_marker_invalid | исходный dispatch step | duplicate закрыт/исследован, остаётся один valid create-time marker |
 | panel_waiver_required | dispatch_panel или panel_join | retry отсутствующего route либо waiver текущей identity и actual roster |
 | contest_join_invalid | dispatch_contest | invalid disposition tasks записаны, attempt+1 |
 | narrow_join_invalid | dispatch_narrow_review | прежний Lead child закрыт, новый attempt |
 | review_join_invalid | dispatch_review или dispatch_narrow_review | invalid review child закрыт, новый attempt и сохранён narrow/full mode |
 | code_verdict_invalid | freeze | старый review binding void, новый candidate/review attempt |
+| protocol_lock_invalid | repair_protocol_snapshot | exact locked content digest/manifest/attestation доступен для atomic re-mint; иначе reinstall exact bundle либо явная migration с full gates |
+| arena_reexpression_missing | draft_artifact | Decision Record/graft list отражены в новых Tech Plan bytes и identity отличается от pre-arena |
+| correction_event_invalid | human decision, затем исходный gate | event исправляется только новой append-записью; старый record не редактируется и не consume'ится |
 | blocked_anchor, autosk-planned | rebuild_anchor | полный human-approved anchor_impact; recorded target выбирается только из draft_artifact, dispatch_arena, select_next или ticket_join по impact/phase |
 | anchor_impact_invalid | rebuild_anchor | исправленная полная impact map и повторно проверенные unchanged hashes |
 | anchor_repair_ticket_live | rebuild_anchor | anchor_rebuild_op=null; каждый affected live run завершился в human/done/cancel; status/impact map перечитаны; pending_anchor сохранён; rebuild writes отсутствуют |
+| anchor_handoff_incomplete | complete_anchor_handoff | event/receipt hash валидны, Ticket human и exact parent edge ещё active |
 | blocked_anchor, standalone Quick | rebuild_code_anchor | own anchor bump, старые review bindings void, затем verify/freeze/full code review |
 | blocked_anchor, Ticket with parent | rebuild_code_anchor | propagate pending to parent, suspend blocker with receipt, ждать parent rebuild_anchor |
 | waiting_parent_anchor | rebuild_code_anchor | parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt restored |
@@ -820,6 +875,10 @@ Resume contract:
 - atomic record_artifact_pass, включая malformed autosk-arena без частичной записи;
 - prompt compilation из одного snapshot;
 - bundle manifest требует один Guide и exact 12 protocol paths, regular files и совпадающие hashes/digest;
+- canonical bundle digest и detached attestation проходят golden vectors без self-hash cycle;
+- editorial classifier отклоняет config/schema/security/prompt/governance и behavior-defining paths;
+- create-time child marker однозначно кодирует project/parent/run/seat и обнаруживает duplicate marker;
+- correction event schema/id/hash/watermark не допускает повторное consume;
 - metadata schema требует autosk_flow.session для каждой model-owned task;
 - каждый project-local файл и recovery key привязан к canonical project root hash;
 - project binding обязателен для parent/child/blocker/session/verdict/evidence refs;
@@ -834,8 +893,17 @@ Resume contract:
 ### Integration
 
 - два project roots одновременно создают Epics с одинаковыми epic/task/run labels без collision;
-- документы, overrides, protocol locks, sessions, evidence и integration state двух проектов остаются в своих roots;
+- одинаковые reviewer task IDs двух проектов создают разные external worktree paths по project_root_sha256 и всегда используют `AUTOSK_CWD=ctx.projectRoot`;
+- документы, project policy metadata, protocol locks, sessions, evidence и integration state двух проектов остаются в своих roots;
 - общий worker pool может чередовать проекты, но не меняет project binding и не создаёт cross-project blockers;
+- update installed bundle v1→v2 не влияет на активные Epics с v1 locks; новый Epic получает v2;
+- bundle GC не удаляет digest, пока хотя бы один registered project lock его использует; corrupted snapshot re-mint'ится из exact cached digest;
+- crash до/после child metadata set находит child по create-time marker и не enroll'ит duplicate/orphan;
+- Ticket append events H1/H2 одновременно с parent rebuild не теряются: parent sole writer consume'ит только recorded watermark;
+- rebuild_anchor завершает Epic metadata и transit до `resume_repaired_tickets`; после первого Ticket resume parent metadata writer больше не вызывается;
+- Ticket park→unblock crash оставляет parent blocked и восстанавливается через complete_anchor_handoff;
+- ticket_join при missing blocker создаёт edge, transits ticket_join_wait и не завершает onRun без ctx.transit;
+- gate role не получает bash/edit/write/autosk_task и не может изменить parent/sibling store; structured verdict записывает host driver;
 - запуск с временным HOME без `.traycer`, devflow и Obsidian проходит Quick и Planned smoke;
 - active bundle и prompt compiler не выполняют filesystem/process lookup Traycer;
 - четыре child tasks создаются до parent join;
@@ -855,14 +923,14 @@ Resume contract:
 - crash после anchor_committed, после любого child blocker, перед recorded transit и после transit до target prologue продолжает тот же op/to_version; ready_to_transit не требует pending_anchor и не переклассифицирует изменившиеся child statuses;
 - rebuild_anchor никогда не записывает dispatch_ticket_dag как direct target: planning repair идёт через draft/select_next, code-only repair завершается ticket_join;
 - новый pending_anchor, появившийся после создания op, не очищается старой перестройкой и блокирует дальнейшие gates после target prologue до следующего rebuild;
-- guard требует исчезновения recorded source hashes, сохраняет newer Epic pending и после prologue запускает следующий blocked_anchor;
-- новый Ticket anchor signal при открытом parent op маршрутизируется прямо в Epic и suspend'ит Ticket; Ticket-local source operand старого op не заменяется;
-- superseded done/cancel/new/missing Tickets CAS-clear only their recorded Ticket source pending; newer signals are routed to Epic before replacement;
+- consumed correction IDs не применяются дважды; event после watermark переживает parent metadata write и запускает следующий blocked_anchor;
+- новый Ticket anchor signal append'ит parent correction event, park'ится human и только затем suspend'ит edge; прямой Epic metadata write запрещён;
+- superseded done/cancel/new/missing Tickets не удаляют correction events и не конкурируют с единственным Epic metadata writer;
 - ticket_join with any expected Ticket in new/work leaves parent blocked and cannot integrate or park as invalid;
 - child human продолжает блокировать parent; cancel разблокирует, но join паркует parent;
 - restart на каждой границе dispatch не создаёт дублей;
 - full re-panel, narrow re-review и contest возобновляют правильные provider session IDs;
-- каждый child получает provider_session_id + общий absolute provider_session_dir до enroll; resolvedPiAgent реально передаёт оба Pi-флага;
+- первый child сохраняет exact provider_session_file; follow-up из другого worktree открывает его через `--session <file>` и не создаёт второй same-id jsonl;
 - reviewer/Judge session IDs никогда не совпадают с author/implementer sessions; narrow/contest при этом переиспользуют правильный review seat;
 - session replacement увеличивает generation и сохраняет replaces;
 - cancel/human/done без binding не проходит join и переводит parent в human;
@@ -886,6 +954,8 @@ Resume contract:
 
 - forged child/blocker/verdict с project_root_sha256 соседнего проекта;
 - path traversal или symlink из project runtime в другой project root;
+- forged boundary metadata даёт ноль вызовов fs/Git/CLI/RPC side effects по fake adapter counters;
+- `$HOME/.autosk` существует, reviewer cwd — external worktree, но autosk CLI с AUTOSK_CWD пишет только current project store;
 - одинаковые task/session IDs в двух project stores;
 - отсутствие `~/.traycer`, переименование source baseline после установки и запрет `traycer_*` subprocess;
 - установленный devflow отсутствует либо несовместим — autosk-flow behavior не меняется;

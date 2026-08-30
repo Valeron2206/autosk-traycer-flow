@@ -67,7 +67,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 Каждый canonical project root отдельно владеет:
 
-- проектным контекстом и governance overrides;
+- project policy metadata и user decisions;
 - Brief, Core Flow, Tech Plan, Decision Log и Tickets;
 - task metadata, blockers, comments и sessions;
 - provider session directory;
@@ -133,9 +133,6 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 ~~~text
 <canonical-project-root>/
-  docs/autosk/project/
-    context.md
-    governance-overrides.md
   docs/autosk/epics/<epic-id>/
     brief.md
     core-flow.md
@@ -150,7 +147,7 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
 
-Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. Versioned project overrides входят в protocol identity и не изменяют глобальный bundle.
+Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. Проектные факты и решения фиксируются в Epics/Decision Logs либо user instructions; отдельного governance override слоя нет.
 
 ### Операционная правда в autosk
 
@@ -191,22 +188,26 @@ resources/governance/bundles/autosk-v1/
       technical-writing.md
       unslop.md
   bundle-manifest.json
+  bundle-attestation.json
 ~~~
 
-Это один Guide и точные 12 protocol files. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
+Это один Guide и точные 12 protocol files. Canonical content digest считается как SHA-256 от domain separator, bundle id/version/provenance и ordered `{relative_path, file_sha256}` для этих 13 файлов; поля `contentDigest` и attestation в собственный preimage не входят. Manifest записывает получившийся digest, а его exact bytes получают отдельный manifest hash. `bundle-attestation.json` связывает четыре panel verdict hashes с уже неизменяемым content digest; запись PASS не меняет проверенную content identity. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
 
 ### Замороженный protocol snapshot
 
-При старте Epic daemon-side AgentDefinition проверяет manifest/digest активного bundle, применяет versioned project overrides и копирует итоговые bytes в проект:
+При старте Epic daemon-side AgentDefinition проверяет manifest/digest активного bundle и копирует exact bundle bytes в проект:
 
 ~~~text
 <absolute-project-root>/.autosk/autosk-flow/protocol-snapshots/<sha256>/
   agent-selection-guide.md
   protocol/
   bundle-manifest.json
+  bundle-attestation.json
 ~~~
 
-`protocol.lock.json` записывает bundle id/version/digest, project override hashes, snapshot path и SHA-256 каждого из 13 нормативных файлов. Prompt compiler читает только этот project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
+`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из 13 нормативных файлов. Prompt compiler читает только project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
+
+Installer/cache хранит bundle versions content-addressed по digest, пока существует хотя бы один project lock на эту версию. Garbage collection сначала инвентаризирует locks всех зарегистрированных roots и не удаляет referenced digest; это позволяет repair повреждённого project snapshot без подстановки latest bundle.
 
 ### Доказательства
 
@@ -228,15 +229,18 @@ State file хранит canonical root и отказывается продол�
 
 ### Изоляция параллельных проектов
 
-Каждый dispatch получает project identity из autoskd/ctx.projectRoot и передаёт её во все CLI/RPC операции. Обязательные guards:
+Каждый deterministic step получает project identity из canonical autoskd/ctx.projectRoot и выполняет fail-closed boundary check до первого и перед каждым fs/Git/CLI/RPC side effect; onTransit повторяет проверку только как defense-in-depth. Обязательные guards:
 
 - child task и parent имеют один project identity;
 - blocker не может ссылаться на task другого проекта;
 - provider session directory и evidence path начинаются с canonical root текущего проекта;
 - artifact/PASS binding включает project identity;
-- project override не попадает в snapshot другого проекта;
+- project policy/user decisions другого root не попадают в PromptEnvelope текущего проекта;
+- cross-project correlation — только opaque UUID для display/audit; он не резолвится в task/session/path другого root;
 - cleanup удаляет только paths, записанные текущим project/task metadata;
 - общий worker pool может менять порядок запуска, но не владение состоянием.
+
+Project filesystem adapter отклоняет traversal/symlink/junction и использует no-follow/fd-relative create/delete. Лексический prefix не считается доказательством принадлежности. Внешний Git worktree cache допускается только под `~/.autosk/worktrees/<project_root_sha256>/` с explicit owner binding и `AUTOSK_CWD` исходного проекта.
 
 Параллельность между проектами не требует общей папки документов или глобальной памяти. Общими могут быть только provider credentials, worker capacity и read-only installed bundle.
 
@@ -260,6 +264,8 @@ pinned common protocol
 Для панели common protocol, anchor pack, artifact bytes и scale byte-identical. Отличаются только role contract и model route.
 
 Небольшой resolvedPiAgent wrapper строит firstMessage во время onRun, затем делегирует штатному piAgent. Это позволяет выбрать модель и snapshot из task metadata без копирования pi-agent driver и без изменения autoskd.
+
+Первый model run создаёт session ID/dir и сохраняет exact absolute Pi session file из get_state. Follow-up в другом worktree открывает только этот file через `--session <path>`; ID + directory не считаются cwd-independent resume binding. Session file обязан находиться в provider-sessions текущего project root.
 
 ## 7. Идентичность
 
@@ -313,14 +319,16 @@ verdict binding =
 
 - implementation workspace создаётся от записанного base OID;
 - каждый reviewer и Arena candidate получает отдельный child task ID;
-- review workspace имеет путь, зависящий от role, attempt и snapshot commit;
+- review workspace лежит в `~/.autosk/worktrees/<project_root_sha256>/...` и ключуется project hash + task ID + role + attempt + snapshot commit;
 - git worktree add получает точный commit OID, а не текущий HEAD;
 - существующая ветка/path переиспользуется только после проверки source commit.
 
-Текущий autosk не обеспечивает права «только чтение» на уровне engine. Поэтому защита состоит из двух слоёв:
+Внешний worktree cache — физическое исключение из правила «под canonical root», потому что Git не допускает вложенный worktree внутри рабочего дерева. Он остаётся логически project-owned за счёт project_root_sha256, metadata owner и обязательного `AUTOSK_CWD=ctx.projectRoot` для autosk CLI.
+
+Текущий autosk не обеспечивает права «только чтение» на уровне engine. Поэтому gate-роли получают только custom snapshot-rooted read tools и current-task transit; mutating builtin tools, `autosk_task`, arbitrary comments и shell отключены. Дополнительно:
 
 1. reviewer child task получает отдельный pinned worktree, созданный из snapshot commit точного tree OID;
-2. до и после сессии детерминированный шаг сравнивает HEAD, tree, status и untracked set.
+2. до и после сессии детерминированный шаг сравнивает HEAD, tree, status/untracked set и parent/sibling store hashes.
 
 Любая запись превращает результат в blocking non-verdict. На первом этапе это обнаружение, а не абсолютное предотвращение; контейнерный read-only mount можно добавить позже только если измерения покажут необходимость.
 
