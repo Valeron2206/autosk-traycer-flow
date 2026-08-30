@@ -424,7 +424,7 @@
         <mxCell id="a-a-docs" value="Git: docs/autosk/epics&#xa;Brief / Flow / Plan / Tickets&#xa;Decision Logs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
           <mxGeometry x="30" y="70" width="190" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="a-a-state" value=".autosk/autosk-flow/&#xa;tasks + sessions&#xa;snapshot + protocol.lock&#xa;integration state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
+        <mxCell id="a-a-state" value=".autosk/tasks + sessions&#xa;.autosk/autosk-flow/&#xa;provider sessions + snapshots&#xa;protocol.lock + integration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
           <mxGeometry x="250" y="70" width="190" height="120" as="geometry" />
         </mxCell>
         <mxCell id="a-a-evidence" value=".autosk-evidence/&#xa;verdicts + logs&#xa;project A only" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
@@ -439,7 +439,7 @@
         <mxCell id="a-b-docs" value="Git: docs/autosk/epics&#xa;Brief / Flow / Plan / Tickets&#xa;Decision Logs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">
           <mxGeometry x="30" y="70" width="190" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="a-b-state" value=".autosk/autosk-flow/&#xa;tasks + sessions&#xa;snapshot + protocol.lock&#xa;integration state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">
+        <mxCell id="a-b-state" value=".autosk/tasks + sessions&#xa;.autosk/autosk-flow/&#xa;provider sessions + snapshots&#xa;protocol.lock + integration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">
           <mxGeometry x="250" y="70" width="190" height="120" as="geometry" />
         </mxCell>
         <mxCell id="a-b-evidence" value=".autosk-evidence/&#xa;verdicts + logs&#xa;project B only" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">

@@ -37,7 +37,7 @@
 - [01-core-flows.md](01-core-flows.md) — маршруты задач, панели, арены и проверки.
 - [02-architecture.md](02-architecture.md) — компоненты, границы ответственности и хранение.
 - [03-technical-plan.md](03-technical-plan.md) — реализуемый план расширения autosk v2.
-- [04-decisions.md](04-decisions.md) — принятые архитектурные решения и риски.
+- [04-decisions.md](04-decisions.md) — предлагаемые ADR и оставшиеся риски; статус станет accepted только после решения пользователя и PASS панели.
 - [diagrams/autosk-flow.drawio](diagrams/autosk-flow.drawio) — редактируемая двухстраничная диаграмма.
 - [diagrams/autosk-flow-workflow.png](diagrams/autosk-flow-workflow.png) — обзор workflow.
 - [diagrams/autosk-flow-architecture.png](diagrams/autosk-flow-architecture.png) — global/project архитектура.

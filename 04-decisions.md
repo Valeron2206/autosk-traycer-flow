@@ -8,8 +8,8 @@
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
-  - [LOCAL_SOURCE]
-  - [LOCAL_SOURCE]
+  - `wierdbytes/autosk@5163f00`: `daemon/sdk/src/workflow.ts`;
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/extensions/registry.ts`.
 
 ## ADR-002: два пользовательских маршрута
 
@@ -28,7 +28,7 @@
 - Источники:
   - текущее пользовательское уточнение о панели по умолчанию;
   - разговор «Описание механизмов контроля»;
-  - [LOCAL_SOURCE], раздел Plan critique panel.
+  - README.md, канонические правила 1–2, и 01-core-flows.md, раздел «Четырёхмодельная панель».
 
 ## ADR-004: строгий roster из четырёх моделей
 
@@ -45,8 +45,8 @@
 - Альтернатива: четыре Pi-процесса внутри одного composite AgentDefinition.
 - Обоснование: отдельные task/session IDs дают независимую историю, восстановление и прозрачность. Текущий scheduler уже не запускает blocked work-задачи. Четыре worker по умолчанию улучшают latency, но correctness не зависит от фактической параллельности.
 - Источники:
-  - [LOCAL_SOURCE]
-  - [LOCAL_SOURCE]
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/engine/engine.ts`;
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/store/store.ts`.
 
 ## ADR-006: Git хранит нормативную правду
 
@@ -81,8 +81,8 @@
 - Альтернатива: Arena всей feature либо выбор подхода одним планировщиком.
 - Обоснование: локальная Arena решает конкретный спор без удвоения всей разработки. Judge выбирает базу, но изменённый Tech Plan получает новую полную панель, а итоговый код — обычный review.
 - Источники:
-  - [LOCAL_SOURCE]
-  - [LOCAL_SOURCE]
+  - 01-core-flows.md, раздел «Arena/Judge»;
+  - 03-technical-plan.md, workflows `autosk-arena-candidate` и `autosk-arena-judge`.
 
 ## ADR-010: PASS только по точной идентичности
 
@@ -108,8 +108,8 @@
 - Альтернатива: runtime-вызов Traycer binary либо новая prompt-driven merge-логика.
 - Обоснование: перенос сохраняет доказанные failure contracts, но устраняет runtime-зависимость от Traycer и глобальный cross-project state.
 - Источники:
-  - [LOCAL_SOURCE]
-  - bin.zip tests.
+  - 03-technical-plan.md, разделы «Commit on PASS» и «Integration»;
+  - обязательная перед реализацией миграция CAS/reflog tests в публичный пакет с привязкой к exact source/version.
 
 ## ADR-013: human gate перед интеграцией
 
@@ -187,7 +187,7 @@
 
 ## ADR-021: capability-minimal gate agents
 
-- Решение: panel, contest, narrow, code-review и Judge получают только snapshot-rooted read tools и current-task transit. Shell, edit/write, `autosk_task` и sibling comment mutations отсутствуют; verdict записывает host driver.
+- Решение: panel, contest, narrow, code-review и Judge получают только snapshot-rooted read tools и единственный host-mediated `submit_gate_result`. Прямой transit, shell, edit/write, `autosk_task` и sibling comment mutations отсутствуют. После model run deterministic tail GateAgent повторяет project guard перед каждым side effect, валидирует submit, записывает и перечитывает immutable record, затем validator выполняет переход.
 - Альтернатива: полный стандартный Pi tool set плюс post-check Git worktree.
 - Обоснование: Git dirt check не обнаруживает mutation live `.autosk` store. Gate agent не должен иметь capability менять объект, который проверяет.
 - Источники:
@@ -196,7 +196,7 @@
 
 ## Оставшиеся риски, не решения
 
-1. Read-only сейчас обнаруживается post-check, а не гарантируется permissions. Каждый reviewer уже изолирован отдельным child task и pinned worktree; если реальные writes повторятся, добавить container read-only mount отдельным этапом.
+1. Custom gate driver предотвращает известные write-capabilities, а pre/post hashes обнаруживают ошибку driver, но OS-level read-only mount пока отсутствует. Если измерения покажут необнаруживаемый путь записи, добавить container mount отдельным этапом.
 2. child-task orchestration через несколько CLI-операций не транзакционно. Идемпотентность и crash-matrix обязательны; create/block/enroll выполняются только AgentDefinition steps, write API рассматривается после MVP.
 3. Pi auth check не понимает custom Cursor/Claude provider state. Готовность этих маршрутов подтверждается только live synthetic calls.
 4. autosk не замораживает workflow graph. Protocol bytes будут pinned; исчезновение workflow/step корректно паркует task в human, но полная graph snapshot остаётся возможным будущим core enhancement.

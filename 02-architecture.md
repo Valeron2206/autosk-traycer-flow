@@ -47,7 +47,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 ### Pi-провайдеры
 
-Выполняют только модельные роли. Они не определяют состояние workflow напрямую: агент обязан записать структурированный результат и запросить один разрешённый переход.
+Выполняют только модельные роли. Author/implementer использует обычный разрешённый переход. Gate-роли не меняют workflow или task store напрямую: они возвращают structured result через единственный host-mediated `submit_gate_result`; driver записывает и перечитывает immutable record, после чего deterministic validator выполняет разрешённый переход.
 
 ### Git
 
@@ -118,14 +118,14 @@ SDK пока предоставляет TasksAPI только для чтени�
 Порядок dispatch выбран так, чтобы сбой не оставил невосстановимую блокировку:
 
 1. parent фиксирует run_id и artifact identity;
-2. для каждого места ищет существующую задачу с тем же parent/run/seat;
-3. при отсутствии создаёт new-задачу;
-4. записывает metadata и готовит snapshot branch/worktree;
+2. для каждого места ищет ровно одну existing new-задачу по exact create-time marker `[autosk-flow:<project_root_sha256>:<parent-id>:<run-id>:<seat-or-type>]`;
+3. при отсутствии создаёт new-задачу без workflow, но с этим marker уже в initial title/description; metadata ещё не считается готовой;
+4. записывает metadata и готовит snapshot branch/worktree; duplicate marker либо несогласованный partial child паркуют dispatch для явного recovery;
 5. enroll каждого полностью настроенного child;
 6. только после готовности всех children добавляет blockers parent;
 7. parent переходит в join.
 
-После сбоя повторный dispatch находит созданные задачи и не дублирует их. Если сбой произошёл после добавления blockers, уже enrolled children завершаются, parent разблокируется и заканчивает недостающие действия.
+После сбоя повторный dispatch находит созданные задачи даже при crash до metadata set и не дублирует их. Child никогда не enroll до полной проверки metadata/session/sandbox. Recovery sweep может закрыть только собственную `new`-задачу с валидным marker; произвольную unlabeled task он не трогает. Если сбой произошёл после добавления blockers, уже enrolled children завершаются, parent разблокируется и заканчивает недостающие действия.
 
 ## 5. Хранение
 
@@ -205,7 +205,7 @@ resources/governance/bundles/autosk-v1/
   bundle-attestation.json
 ~~~
 
-`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из 13 нормативных файлов. Prompt compiler читает только project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
+`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из 13 нормативных файлов. Перед каждым prompt compile, dispatch и resume расширение заново проверяет snapshot bytes, manifest, attestation и project-root binding именно против этого Epic lock. Несовпадение fail-closed паркует задачу с `protocol_lock_invalid`; repair разрешён только из content-addressed digest, указанного в lock, без подстановки current/latest bundle. Prompt compiler читает только уже проверенный project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
 
 Installer/cache хранит bundle versions content-addressed по digest, пока существует хотя бы один project lock на эту версию. Garbage collection сначала инвентаризирует locks всех зарегистрированных roots и не удаляет referenced digest; это позволяет repair повреждённого project snapshot без подстановки latest bundle.
 
@@ -325,12 +325,12 @@ verdict binding =
 
 Внешний worktree cache — физическое исключение из правила «под canonical root», потому что Git не допускает вложенный worktree внутри рабочего дерева. Он остаётся логически project-owned за счёт project_root_sha256, metadata owner и обязательного `AUTOSK_CWD=ctx.projectRoot` для autosk CLI.
 
-Текущий autosk не обеспечивает права «только чтение» на уровне engine. Поэтому gate-роли получают только custom snapshot-rooted read tools и current-task transit; mutating builtin tools, `autosk_task`, arbitrary comments и shell отключены. Дополнительно:
+Текущий autosk не обеспечивает OS-level read-only mount на уровне engine. Поэтому gate-роли получают только custom snapshot-rooted read tools и единственный host-mediated `submit_gate_result`; прямой transit, mutating builtin tools, `autosk_task`, arbitrary comments и shell отключены. Submit tool принимает только закрытую схему результата текущей task и сам ничего не пишет. Deterministic tail GateAgent AgentDefinition повторно проверяет project boundary перед записью и каждым fs/RPC side effect, host-side записывает/read-back immutable record и лишь затем передаёт управление validator. Дополнительно:
 
 1. reviewer child task получает отдельный pinned worktree, созданный из snapshot commit точного tree OID;
 2. до и после сессии детерминированный шаг сравнивает HEAD, tree, status/untracked set и parent/sibling store hashes.
 
-Любая запись превращает результат в blocking non-verdict. На первом этапе это обнаружение, а не абсолютное предотвращение; контейнерный read-only mount можно добавить позже только если измерения покажут необходимость.
+Любая неожиданная запись превращает результат в blocking non-verdict. Ограниченный набор capabilities предотвращает известные пути записи, а pre/post hashes остаются защитой от ошибки driver; контейнерный read-only mount можно добавить позже только если измерения покажут необходимость.
 
 ## 9. Модели
 

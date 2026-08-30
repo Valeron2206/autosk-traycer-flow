@@ -45,6 +45,11 @@ execution:
 recovery:
   rebuild_anchor -> draft_artifact | dispatch_arena | select_next | resume_repaired_tickets | ticket_join | human
   resume_repaired_tickets -> ticket_join
+  panel_join_wait -> panel_join
+  contest_join_wait -> contest_join
+  narrow_review_join_wait -> narrow_review_join
+  arena_join_wait -> arena_join
+  ticket_join_wait -> ticket_join
   repair_protocol_snapshot -> recorded pre-failure step | human
   integration_recovery -> integrate | human
 ~~~
@@ -54,6 +59,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 Каноническая таблица переходов:
 
 Перед вычислением любого gate parent-owned deterministic step вызывает `consumeAnchorCorrections`: читает новые immutable `anchor_correction` events из Epic comments, проверяет event id/hash/project/anchor provenance и как единственный writer merge'ит их в Epic pending_anchor. Model/Ticket/user paths не выполняют `metadata set` родительского Epic. Если event появился после текущего consume, он остаётся непрочитанным и блокирует следующий gate.
+
+У всех fan-out одинаковый deterministic join prologue. Если ожидаемый child имеет status=new/work/human, но его exact parent blocker отсутствует, join восстанавливает только этот edge и переходит в зарегистрированный `<join>_wait`. Пока хотя бы один такой blocker активен, scheduler не запускает wait-step; когда все children terminal/removed, wait-step обязан перейти обратно в исходный join. Это правило действует для panel, contest, narrow, Arena, code review и Ticket joins и не позволяет AgentDefinition завершить onRun без transition.
 
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
@@ -69,9 +76,11 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | freeze_artifact | current_cycle.narrow=true, current_cycle.full_panel_required=false и scope/anchor/load-bearing decisions не изменились | dispatch_narrow_review |
 | dispatch_panel | нет gate-carrying семьи вне union author/fixer set | human с park.reason=no_external_panel_lead |
 | dispatch_panel | route недоступен после retry и точного waiver ещё нет | human с park.reason=panel_waiver_required |
-| dispatch_panel | четыре child tasks или exact-waived actual_roster полностью настроены/enrolled | panel_join |
+| dispatch_panel | четыре child tasks или exact-waived actual_roster полностью настроены/enrolled и parent имеет exact blockers всех children | panel_join |
 | panel_join | pending_anchor, любой verdict=BLOCKED_ANCHOR или anchor version отличается | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
-| panel_join | child status=human | parent остаётся blocked; пользователь возобновляет child |
+| panel_join | любой child status=new/work/human | join prologue обеспечивает exact blocker, panel_join_wait; human child возобновляет пользователь |
+| panel_join_wait | хотя бы один expected blocker активен | step не запускается scheduler |
+| panel_join_wait | все expected blockers terminal/removed | panel_join |
 | panel_join | exact user waiver текущей identity, actual_roster содержит gate Lead вне author/fixer set, все listed seats status=done и bindings валидны | atomically current_cycle.full_panel_required=false, synthesize_panel |
 | panel_join | roster меньше четырёх без waiver | human с park.reason=panel_waiver_required |
 | panel_join | все четыре status=done, verdicts валидны, нет BLOCKED_ANCHOR/mismatch | atomically current_cycle.full_panel_required=false, synthesize_panel |
@@ -79,17 +88,21 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | synthesize_panel | требуется contest | dispatch_contest |
 | synthesize_panel | подтверждены findings | fix_artifact |
 | synthesize_panel | PASS | record_artifact_pass |
-| dispatch_contest | все contest children настроены/enrolled и parent blocked | contest_join |
+| dispatch_contest | все contest children настроены/enrolled и parent имеет exact blockers всех children | contest_join |
 | contest_join | pending_anchor или disposition=BLOCKED_ANCHOR/mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
-| contest_join | child status=human | parent остаётся blocked; пользователь возобновляет child |
+| contest_join | любой child status=new/work/human | join prologue обеспечивает exact blocker, contest_join_wait; human child возобновляет пользователь |
+| contest_join_wait | хотя бы один expected blocker активен | step не запускается scheduler |
+| contest_join_wait | все expected blockers terminal/removed | contest_join |
 | contest_join | все originating seats status=done и dispositions валидны | synthesize_panel |
 | contest_join | cancel/missing/invalid | human с park.reason=contest_join_invalid |
 | fix_artifact | исправлены только confirmed findings без scope change | freeze_artifact с current_cycle.narrow=true |
 | fix_artifact | изменился scope/anchor/load-bearing decision | freeze_artifact с current_cycle.narrow=false |
 | dispatch_narrow_review | нет Lead семьи вне union author/fixer set | human с park.reason=no_external_panel_lead |
-| dispatch_narrow_review | один Lead child настроен/enrolled и parent blocked | narrow_review_join |
+| dispatch_narrow_review | один Lead child настроен/enrolled и parent имеет exact blocker child | narrow_review_join |
 | narrow_review_join | verdict=BLOCKED_ANCHOR, pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
-| narrow_review_join | child status=human | parent остаётся blocked; пользователь возобновляет child |
+| narrow_review_join | Lead status=new/work/human | join prologue обеспечивает exact blocker, narrow_review_join_wait; human child возобновляет пользователь |
+| narrow_review_join_wait | blocker активен | step не запускается scheduler |
+| narrow_review_join_wait | blocker terminal/removed | narrow_review_join |
 | narrow_review_join | Lead status=done, NOT_PASS/findings и round >= cap | human с park.reason=review_cap |
 | narrow_review_join | Lead status=done, NOT_PASS/findings и round < cap | fix_artifact |
 | narrow_review_join | Lead status=done, verdict PASS текущей identity | record_artifact_pass |
@@ -98,12 +111,14 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_artifact_pass | identity/anchor/roster или verdict binding невалидны | human с park.reason=artifact_pass_invalid; ничего не записано |
 | record_artifact_pass | verdict binding текущей identity валиден; для tech_plan Arena block валиден | atomically artifact_pass[kind]=identity+verdict, arena fields обновлены, select_next |
 | record_artifact_pass | tech_plan Arena block malformed | human с park.reason=arena_contract_invalid |
-| dispatch_arena | candidates и judge task настроены/enrolled | arena_join |
+| dispatch_arena | candidates и judge task настроены/enrolled, Judge blocked candidates и parent имеет exact blockers всех Arena children | arena_join |
 | arena_join | pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
+| arena_join | любой Arena child status=new/work/human | join prologue обеспечивает exact blocker, arena_join_wait; human child возобновляет пользователь |
+| arena_join_wait | хотя бы один expected blocker активен | step не запускается scheduler |
+| arena_join_wait | все expected blockers terminal/removed | arena_join |
 | arena_join | менее двух live candidates, fallback requested или candidate roster недостаточен | human с park.reason=arena_fallback_required |
 | arena_join | judge status=done, минимум два live candidates и judgment binding валиден | apply_arena_decision |
 | arena_join | cancel/missing/invalid judgment | human с park.reason=arena_join_invalid |
-| arena_join | child status=human | parent остаётся blocked; пользователь возобновляет child |
 | apply_arena_decision | user/judge decision recorded для current_decision_id, включая fallback, и block entry rewritten applied/fallback с Decision Record/graft list ref | arena.decisions[id] terminal, current_decision_id=null, artifact_pass.tech_plan=null, kind=tech_plan, сохранить pre-arena identity, reexpression_required=true, review_cycles.tech_plan.narrow=false/full_panel_required=true, attempt+1, draft_artifact |
 | rebuild_anchor | anchor_rebuild_op открыт | validate op binding; продолжить записанные per-ticket phases/dispositions без повторной классификации; phase=ready_to_transit повторяет только recorded target |
 | rebuild_anchor | anchor_impact incomplete, current in-flight kind без current PASS не affected, upstream cascade нарушен, hash claimed-unaffected изменён или Ticket task re-binding не подтверждён | human с park.reason=anchor_impact_invalid |
@@ -115,7 +130,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | rebuild_anchor | affected bindings пусты, active Arena decision pending/running | bump/re-bind, void old Arena run binding, arena attempt+1, dispatch_arena |
 | rebuild_anchor | affected bindings пусты, planning phase без active Arena | bump/re-bind, select_next |
 | rebuild_anchor | affected bindings пусты, execution/ticket_join phase | bump/re-bind Ticket task metadata, ticket_join |
-| resume_repaired_tickets | Epic metadata/op writes sealed; Ticket anchors/receipts готовы | restore/add exact blocker edges, resume recorded human Tickets, больше не писать Epic metadata, transit ticket_join |
+| resume_repaired_tickets | semantic anchor/binding writes sealed; Ticket anchors/receipts готовы | для каждого recorded human Ticket с отсутствующим edge идемпотентно resume, перечитать status/step/anchor, parent-only записать phase=child_resumed и только после подтверждения restore/add exact blocker + phase=edge_restored; после первого resume разрешены только монотонные op-phase writes; op закрывается лишь prologue целевого ticket_join |
 | dispatch_ticket_dag | old Ticket status=work | human с park.reason=ticket_join_invalid; live task не изменяется и не отменяется автоматически |
 | dispatch_ticket_dag | suspended receipt не сопоставлен живому Ticket и не имеет valid superseded_by mapping | human с park.reason=ticket_edge_receipt_lost |
 | dispatch_ticket_dag | old Ticket status=done/cancel/new/missing либо path/hash/base не совпадает с current tickets PASS, либо Ticket удалён | old task superseded: parent map исключает old task; cancel только допустимую non-live task; cleanup+close receipt; создать новую Ticket task из current PASS |
@@ -156,6 +171,7 @@ intake -> implement -> verify -> freeze -> dispatch_review -> review_join -> rec
        -> accept -> integrate -> cleanup -> done
                      -> integration_recovery -> integrate | human
 recovery: rebuild_code_anchor -> verify
+          review_join_wait -> review_join
 ~~~
 
 accept — statusStep("human"); при валидной auto-integration policy только record_code_verdict после повторной валидации может перейти сразу в integrate.
@@ -170,6 +186,7 @@ implement -> verify -> freeze -> dispatch_review -> review_join -> record_code_v
           -> commit_on_pass -> ticket_done
 recovery: rebuild_code_anchor -> verify
           complete_anchor_handoff -> human
+          review_join_wait -> review_join
 ~~~
 
 Зависимости между Ticket-задачами выражаются autosk blockers.
@@ -195,7 +212,9 @@ Parent Ticket блокируется review child и после разблоки
 | freeze | review_cycle.full_review_required=false и candidate создан после confirmed fixes | dispatch_narrow_review |
 | dispatch_review / dispatch_narrow_review | нет reviewer семьи вне union author/fixer set | human с park.reason=no_external_reviewer |
 | dispatch_review / dispatch_narrow_review | child настроен/enrolled, parent blocked | review_join |
-| review_join | child human | parent остаётся blocked; пользователь возобновляет child |
+| review_join | child new/work/human | join prologue обеспечивает exact blocker, review_join_wait; human child возобновляет пользователь |
+| review_join_wait | blocker активен | step не запускается scheduler |
+| review_join_wait | blocker terminal/removed | review_join |
 | review_join | BLOCKED_ANCHOR, pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
 | review_join | cancel/missing/stale/invalid | human с park.reason=review_join_invalid |
 | review_join | PASS/NOT_PASS verdict binding текущей identity валиден | record_code_verdict |
@@ -271,6 +290,33 @@ build_candidate -> verify_candidate -> freeze_candidate -> done
 judge -> validate_judgment -> done
 ~~~
 
+### Исчерпывающий contract дочерних workflows
+
+Panel seat, contest seat, code reviewer и Judge сами не вызывают transit и не пишут comments/evidence. Модель может только передать один payload закрытой схемы через `submit_gate_result`. После завершения model run deterministic tail того же GateAgent AgentDefinition сначала снова вызывает `assertProjectBoundary`, затем перед каждым record fs/RPC side effect повторяет guard и в строгом порядке: проверяет envelope текущей task/session/identity, записывает immutable result record в project-owned storage, перечитывает его bytes/hash, сверяет pre/post snapshot и sibling-store hashes, затем вызывает `ctx.transit(validate_*)`. Модель и submit tool не владеют этой записью. Deterministic validate-step всегда завершает работу одним из двух переходов: `done` для валидного binding либо `human` с точной причиной. Возврат модели без submit и provider failure также явно паркуются, поэтому ни один child AgentDefinition не заканчивает onRun без transition.
+
+| Workflow / текущий шаг | Условие | Следующий шаг |
+| --- | --- | --- |
+| panel-seat review_artifact / code-review review_candidate | provider недоступен после retry | human с park.reason=gate_provider_unavailable |
+| panel-seat review_artifact / code-review review_candidate | model run завершился без единственного valid submit | human с park.reason=gate_result_missing |
+| panel-seat review_artifact / code-review review_candidate | host принял один schema-valid payload и записал/read-back record | validate_verdict |
+| validate_verdict | record/session/identity/snapshot/store hashes валидны | done |
+| validate_verdict | record malformed/stale/binding mismatch | human с park.reason=gate_result_invalid |
+| validate_verdict | snapshot либо parent/sibling store неожиданно изменён | human с park.reason=gate_snapshot_mutated |
+| contest-seat review_disposition | provider недоступен после retry либо submit отсутствует | human с gate_provider_unavailable или gate_result_missing |
+| contest-seat review_disposition | host записал и перечитал schema-valid disposition | validate_disposition |
+| validate_disposition | finding/originating-seat/identity binding валиден и snapshot/store неизменны | done |
+| validate_disposition | binding/record невалиден либо обнаружена mutation | human с gate_result_invalid или gate_snapshot_mutated |
+| arena-judge judge | provider недоступен после retry либо submit отсутствует | human с gate_provider_unavailable или gate_result_missing |
+| arena-judge judge | host записал и перечитал schema-valid judgment | validate_judgment |
+| validate_judgment | anonymous roster/rubric/evidence/identity binding валиден и store неизменён | done |
+| validate_judgment | binding/record невалиден либо обнаружена mutation | human с gate_result_invalid или gate_snapshot_mutated |
+| arena-candidate build_candidate | provider/input/sandbox precondition невалидны | human с park.reason=arena_candidate_failed |
+| arena-candidate build_candidate | candidate bytes и declared evidence записаны в isolated worktree | verify_candidate |
+| verify_candidate | измеримые rubric checks PASS и evidence complete | freeze_candidate |
+| verify_candidate | NOT_PASS, incomplete evidence или runner failure после retry | human с park.reason=arena_candidate_verify_failed |
+| freeze_candidate | base/pathspec/tree OID и candidate binding повторно совпали | done |
+| freeze_candidate | identity/scope изменились либо snapshot mint невалиден | human с park.reason=arena_candidate_freeze_invalid |
+
 ## 3. Минимальная структура расширения
 
 ~~~text
@@ -281,6 +327,7 @@ autosk-flow/
     config.ts
     agents/
       resolved-pi-agent.ts
+      gate-agent.ts
       deterministic-step.ts
     workflows/
       planned.ts
@@ -301,6 +348,7 @@ autosk-flow/
       record-artifact-pass.ts
       record-code-verdict.ts
       verdicts.ts
+      submit-gate-result.ts
       freeze.ts
       pinned-worktree.ts
       commit-on-pass.ts
@@ -352,7 +400,7 @@ Exact imported Traycer baseline хранится только локально �
 
 Optional `correlation_id` — только UUID по закрытой схеме. В нём нет path/task/session/evidence refs; расширение никогда не выполняет lookup по этому полю.
 
-Каждая задача, чей AgentDefinition вызывает resolvedPiAgent — Epic/Quick parent, Ticket implementer, panel/contest/narrow seat, code-review child, Arena candidate/Judge — имеет собственный autosk_flow.session record одной общей схемы. Reviewer/Judge session никогда не копируется из implementer/author task. Без собственного record enroll запрещён.
+Каждая model-owned задача, чей AgentDefinition вызывает resolvedPiAgent либо restricted gateAgent — Epic/Quick parent, Ticket implementer, panel/contest/narrow seat, code-review child, Arena candidate/Judge — имеет собственный autosk_flow.session record одной общей схемы. Reviewer/Judge session никогда не копируется из implementer/author task. Без собственного record enroll запрещён.
 
 ### Epic task
 
@@ -449,9 +497,9 @@ Optional `correlation_id` — только UUID по закрытой схеме
 }
 ~~~
 
-`anchor_rebuild_op` хранит `op_id`, consumed correction event IDs/watermark, pre-resume Epic/Ticket hashes, `from_version`, `to_version`, immutable dispositions каждого Ticket, per-ticket phase, общую phase (`prepared | anchor_committed | ready_to_transit`), recorded target и expected identity. Наличие открытой операции имеет приоритет над обычными guard-строками `rebuild_anchor`; закрыть её может только общий deterministic prologue уже достигнутого recorded target.
+`anchor_rebuild_op` хранит `op_id`, consumed correction event IDs/watermark, pre-resume Epic/Ticket hashes, `from_version`, `to_version`, immutable dispositions каждого Ticket, per-ticket phase (`prepared | replacement_ready | child_resumed | edge_restored | superseded`), общую phase (`prepared | anchor_committed | ready_to_transit | resuming_children | ready_to_join`), recorded target и expected identity. Наличие открытой операции имеет приоритет над обычными guard-строками `rebuild_anchor`. Для обычного target её закрывает его deterministic prologue; для промежуточного `resume_repaired_tickets` prologue переводит phase в `resuming_children`, а закрывает op только последующий `ticket_join` prologue.
 
-Epic `autosk_flow` metadata имеет единственного writer — parent deterministic steps. Пользователь, модели и Tickets публикуют correction events в append-only comments. Событие, пришедшее после consumed watermark, не конкурирует с metadata write и будет обработано следующим parent gate. Parent завершает все Epic/Ticket metadata writes и transit в `resume_repaired_tickets` до первого Ticket resume.
+Epic `autosk_flow` metadata имеет единственного writer — parent deterministic steps. Пользователь, модели и Tickets публикуют correction events в append-only comments. Событие, пришедшее после consumed watermark, не конкурирует с metadata write и будет обработано следующим parent gate. Parent завершает все semantic anchor/binding writes до первого Ticket resume; после него пишет только монотонные `anchor_rebuild_op` phases и закрывает op в `ticket_join` prologue.
 
 ### Ticket task
 
@@ -581,7 +629,7 @@ Opus предлагает classification и короткое обоснован�
 7. проверяет, что session file лежит внутри project provider-sessions, а header model/family/role/session ID совпадают;
 8. проксирует onSteer, onFollowup и onAbort текущему inner agent.
 
-Driver и transit correction штатного piAgent не копируются.
+Для author/implementer wrapper сохраняет штатный driver и transit correction piAgent. GateAgent переиспользует тот же session launch/continuity слой, но подменяет tool allowlist и завершение run на описанный ниже host-mediated `submit_gate_result`; общий piAgent driver не форкается.
 
 ### Session continuity
 
@@ -610,7 +658,7 @@ Task ID может быть новым для каждого раунда рад
 
 ### Project boundary guard
 
-Каждый deterministic AgentDefinition начинает с `assertProjectBoundary` и повторяет его непосредственно перед каждым fs/Git/CLI/RPC side effect. `onTransit` выполняет только вторую defense-in-depth проверку; поздний отказ не считается защитой уже выполненной записи.
+Каждый deterministic AgentDefinition и deterministic host tail внутри GateAgent начинают с `assertProjectBoundary` и повторяют его непосредственно перед каждым fs/Git/CLI/RPC side effect. Это явно включает запись/read-back gate result после model run. `onTransit` выполняет только вторую defense-in-depth проверку; поздний отказ не считается защитой уже выполненной записи.
 
 Guard проверяет project binding всех task/session/blocker/verdict/evidence refs, устанавливает `AUTOSK_CWD=ctx.projectRoot` для каждого autosk CLI процесса и использует `safeProjectFs`. Разрешённый root по умолчанию — canonical project root; единственное исключение — Git worktree operation под exact `~/.autosk/worktrees/<project_root_sha256>/`, тоже связанная metadata owner текущего проекта.
 
@@ -632,16 +680,16 @@ Guard проверяет project binding всех task/session/blocker/verdict/e
 - при необходимости подготовить branch/worktree от точного snapshot/base;
 - enroll после полной настройки;
 - block parent только после готовности всего набора;
-- для anchor repair снять ровно edge `autosk unblock <parent-id> <ticket-id>`, сохранив receipt, и вернуть его `autosk block <parent-id> <ticket-id>`; `--all` запрещён;
-- после восстановления edge возобновить human Ticket через `autosk resume <ticket-id> --to rebuild_code_anchor`.
+- для anchor repair снять ровно edge `autosk unblock <parent-id> <ticket-id>`, сохранив receipt; `--all` запрещён;
+- при восстановлении сначала возобновить human Ticket через `autosk resume <ticket-id> --to rebuild_code_anchor`, перечитать task, затем вернуть ровно его edge командой `autosk block <parent-id> <ticket-id>`; blocker до подтверждённого resume запрещён.
 
 Каждая операция проверяет exit code и перечитывает созданную task view. Create-time marker позволяет найти task после crash до metadata set; task никогда не enroll до полной metadata/session/sandbox проверки. Retry переиспользует ровно один marker-matched child, а duplicate marker паркует dispatch. Recovery sweep закрывает только собственные `new` tasks с валидным marker и незавершённой metadata; произвольные unlabeled tasks не трогает. Совпавший run_id другого проекта никогда не считается той же операцией.
 
 Эти команды являются доступными autosk CLI-операциями, а не действиями модели. Обычную human-задачу возобновляет пользователь; единственное автоматическое исключение — deterministic parent step для anchor repair с валидными parent rebuild и edge receipts. Preflight расширения в временном проекте обязан доказать точечный `block -> unblock -> block` и parent-initiated `resume --to rebuild_code_anchor`; отсутствие любой операции останавливает запуск до создания реальных задач.
 
-Возвращённый blocker запрещает новый dispatch parent, но не отменяет уже работающую parent session и не запрещает ей завершить единственный `ctx.transit`. Поэтому порядок остаётся таким: restore edge, resume child, parent transit `ticket_join`; integration-test фиксирует именно этот межпроцессный сценарий.
+Resume выполняется до blocker: crash до восстановления edge оставляет parent runnable, и открытый anchor_rebuild_op повторяет resume/read-back идемпотентно; crash после blocker уже имеет запущенный либо повторно parked child, который владеет дальнейшим прогрессом. Когда child terminal, blocker перестаёт быть активным и parent продолжает открытую операцию. Только после обработки всех Tickets текущая parent session вызывает `ctx.transit(ticket_join)`; target prologue закрывает op. Так нет окна «human child уже блокирует parent, но ещё не был resume'нут».
 
-Все side effects — create/block/enroll/metadata, Git freeze, worktree preparation и integration — выполняются только deterministic AgentDefinition steps, где доступен ctx.exec. onTransit ничего не запускает и не пишет во внешние системы: он только читает task/metadata, проверяет guard и разрешает либо отклоняет один переход.
+Все side effects — create/block/enroll/metadata, host-side gate result record, Git freeze, worktree preparation и integration — выполняются только guarded deterministic кодом AgentDefinition, где доступен current ctx и project boundary adapter. Model tool side effects отсутствуют. onTransit ничего не запускает и не пишет во внешние системы: он только читает task/metadata, проверяет guard и разрешает либо отклоняет один переход.
 
 ### Contest и anchor changes
 
@@ -663,11 +711,11 @@ Ticket correction соблюдает порядок: append accepted event → a
 8. пока Tickets ещё не resume'нуты, идемпотентно пишет их anchor_version=to_version: unaffected re-bind'ит code/commit binding; affected Ticket очищает только source pending, получает parent_rebuild_receipt/full_review_required; done/cancel/new/missing получает replacement phases и superseded_by. Несовпадение с записанным pre-resume Ticket state паркует anchor_impact_invalid;
 9. как единственный Epic metadata writer устанавливает anchor_version=to_version, re-bind'ит planning PASS, void'ит active/affected bindings, очищает обработанный pending_anchor, сохраняет consumed correction watermark и переводит op в `anchor_committed`; events после watermark остаются в comments, op не закрывается;
 10. если affected planning kinds не пусты, сохраняет repair map с ticket_artifact/hash/base, выбирает earliest affected kind, ставит full panel required и записывает target=`draft_artifact`; future dispatch_ticket_dag разрешит receipts только по строгому совпадению или superseded cleanup;
-11. если affected лишь Ticket code bindings, сначала до конца выполняет replacement phases и все Epic/Ticket metadata writes, затем target=`resume_repaired_tickets`; никакой Ticket не resume внутри rebuild_anchor;
+11. если affected лишь Ticket code bindings, сначала до конца выполняет replacement phases и все semantic anchor/binding writes, затем target=`resume_repaired_tickets`; никакой Ticket не resume внутри rebuild_anchor, а последующие metadata writes ограничены монотонными op phases;
 12. если affected bindings пусты, active Arena run void и target=`dispatch_arena`; иначе target=`select_next` либо `ticket_join` по записанной phase;
 13. после всех side effects и повторной проверки receipts/blockers атомарно ставит `phase=ready_to_transit` и recorded target;
 14. retry с `ready_to_transit` не требует pending_anchor и вызывает только тот же `ctx.transit(recorded_target)`;
-15. каждый возможный target начинает deterministic prologue: проверяет, что task действительно вошла в recorded target с нужным anchor/version, и только затем атомарно закрывает anchor_rebuild_op. Crash после transit до prologue повторяет prologue, а не rebuild;
+15. каждый возможный target начинает deterministic prologue и проверяет фактический target/anchor/version. Обычный target атомарно закрывает op. `resume_repaired_tickets` вместо закрытия ставит phase=`resuming_children`, после каждого read-back/edge пишет только per-ticket phase, затем phase=`ready_to_join` и transits `ticket_join`; лишь его prologue закрывает op. Crash на любой из этих границ продолжает записанную phase, а не rebuild;
 16. интеграция запрещена до нового PASS всех affected Tickets; новая identity идёт только в полную соответствующую panel/code-review gate.
 
 Ticket anchor_version — производная копия parent Epic anchor, не самостоятельный счётчик. rebuild_code_anchor:
@@ -675,14 +723,14 @@ Ticket anchor_version — производная копия parent Epic anchor, 
 - для standalone Quick без parent_epic_task увеличивает собственный anchor и требует full Code Review;
 - для Ticket пишет pending_anchor proposal в parent Epic, void'ит собственный review binding, ставит waiting_parent_anchor=true и сохраняет receipt временного удаления blocker edge parent<-Ticket;
 - Ticket остаётся human, но suspension позволяет parent в итоге дойти до ticket_join и blocked_anchor/rebuild_anchor;
-- parent rebuild_anchor обновляет Ticket task metadata до единого to_version и оставляет affected human Tickets matching parent_rebuild_receipt; при code-only mixed impact сначала полностью создаёт/закрывает replacement phases для affected done/cancel/new/missing Tickets, только затем обеспечивает active edges и возобновляет human Tickets в rebuild_code_anchor, после чего переходит ticket_join; live work Ticket останавливает новую операцию; при planning impact suspension хранится до будущего dispatch_ticket_dag, который также завершает replacements до human resume;
+- parent rebuild_anchor обновляет Ticket task metadata до единого to_version и оставляет affected human Tickets matching parent_rebuild_receipt; при code-only mixed impact сначала полностью создаёт/закрывает replacement phases для affected done/cancel/new/missing Tickets и transits в resume_repaired_tickets. Этот следующий step resume'ит каждый human Ticket, перечитывает его и только затем восстанавливает active edge; после resume он пишет только parent-owned op phases, а ticket_join prologue закрывает op. Live work Ticket останавливает новую операцию; при planning impact suspension хранится до будущего dispatch_ticket_dag, который также завершает replacements до human resume;
 - commit_on_pass и ticket_join требуют равенства Ticket anchor_version parent Epic anchor_version.
 
 Удаление blocker без suspension receipt или потеря обратного восстановления — blocking error.
 
 ### Structured verdict
 
-Reviewer обязан добавить JSON verdict в task comment или evidence record перед transit. validate_verdict проверяет:
+Gate model возвращает JSON result только через `submit_gate_result`. Модель не пишет task comment/evidence и не вызывает transit. После model run host driver сначала проверяет envelope, затем записывает immutable verdict/disposition/judgment record, перечитывает exact bytes/hash и лишь после этого transits в deterministic validate-step. Для verdict validate_verdict проверяет:
 
 - schema version;
 - artifact/candidate identity;
@@ -730,7 +778,7 @@ Review round увеличивает только freeze_artifact/freeze при �
 
 Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит path/branch от snapshot commit с ключом `project_root_sha256 + reviewer task ID + role + attempt`. Из-за ограничений Git worktree он живёт во внешнем, но project-namespaced cache `~/.autosk/worktrees/<project_root_sha256>/...`; metadata owner остаётся current canonical root. Каждый autosk CLI subprocess получает `AUTOSK_CWD=ctx.projectRoot`, поэтому cwd worktree никогда не выбирает другой store.
 
-Panel, contest, narrow Lead, code-review и Judge запускаются с explicit custom tool allowlist: snapshot-rooted read/grep/list + current-task transit. Builtin bash/powershell/edit/write и `@autosk/pi-tools` task/comment mutations не загружаются; arbitrary autosk CLI недоступен. Structured verdict возвращается через driver и записывается host-side после завершения model run.
+Panel, contest, narrow Lead, code-review и Judge запускаются с explicit custom tool allowlist: snapshot-rooted read/grep/list + единственный `submit_gate_result`. Прямой transit, builtin bash/powershell/edit/write и `@autosk/pi-tools` task/comment mutations не загружаются; arbitrary autosk CLI недоступен. Submit payload сам ничего не пишет: после завершения model run host driver валидирует его, записывает/read-back immutable record и только затем transits в validate-step.
 
 Штатный worktreeSandbox без предварительной привязки к OID для review запрещён. До и после записываются HEAD, HEAD tree, status/untracked set, а также hashes parent/sibling task metadata/comments. Любая неожиданная Git/store запись превращает ответ в blocking non-verdict; только engine-owned transit текущей reviewer task разрешён.
 
@@ -771,10 +819,11 @@ State path создаётся отдельно для каждой operation п�
 - Planned implementation запрещён до PASS всех реально созданных плановых артефактов.
 - Tickets не исполняются без отдельного tickets-panel PASS текущей версии набора.
 - Panel seat не закрывается без валидного verdict той же identity.
+- Каждый fan-out dispatch ставит exact parent blockers до перехода в join; любой join, увидевший nonterminal child без edge, восстанавливает его и переходит в парный wait-step вместо invalid classification.
 - Panel join требует четыре ожидаемых child tasks в status=done и четыре валидных verdict bindings. Child human оставляет parent blocked; cancel/missing/invalid после разблокировки переводят parent в human.
 - Сокращённый panel join допустим только с exact waiver той же identity, полным actual_roster и gate Lead вне author/fixer set.
 - Любой pending_anchor, BLOCKED_ANCHOR или несовпадение anchor_version переводит parent в human с blocked_anchor; четыре PASS ничего не разрешают.
-- Открытый anchor_rebuild_op имеет приоритет над обычной классификацией: rebuild_anchor продолжает только его записанную phase, ready_to_transit допускает только recorded target, а target prologue закрывает op после проверки фактического входа.
+- Открытый anchor_rebuild_op имеет приоритет над обычной классификацией: rebuild_anchor продолжает только его записанную phase, ready_to_transit допускает только recorded target. Prologue обычного target закрывает op; промежуточный `resume_repaired_tickets` только ведёт монотонные resuming phases, и op закрывает последующий `ticket_join` prologue.
 - Narrow review join требует ровно одного Lead child в status=done и verdict текущей identity; findings возвращают fix_artifact, PASS ведёт select_next, invalid terminal ведёт human.
 - Contest join требует отдельную disposition каждого originating seat; снижение или отклонение finding без полного набора dispositions недействительно.
 - Ticket join требует каждую ожидаемую Ticket task в status=done, действующий code PASS и commit OID. Terminal status сам по себе недостаточен.
@@ -802,6 +851,9 @@ State path создаётся отдельно для каждой operation п�
 | Ситуация | Поведение |
 | --- | --- |
 | Provider/model отсутствует | повтор по контракту; затем human, без автоматической подмены или сокращения панели |
+| Gate model не вызвал submit либо вернул invalid payload | child human с gate_result_missing/gate_result_invalid; accepted verdict не создаётся |
+| Gate snapshot/store изменился | child human с gate_snapshot_mutated и blocking non-verdict |
+| Arena candidate build/verify/freeze не завершён | child human с точной arena_candidate_* причиной; candidate не считается live |
 | Project boundary/path guard не прошёл | human с project_boundary_invalid; side effects count=0 |
 | Child create завершился частично | повторный dispatch находит задачи по parent/run/seat |
 | Duplicate/malformed create-time marker | human с child_dispatch_marker_invalid; ни один child не enroll |
@@ -827,6 +879,10 @@ Resume contract:
 | park.reason | Существующий workflow step | Требование |
 | --- | --- | --- |
 | panel_join_invalid | dispatch_panel | invalid child IDs записаны, attempt+1; старые bindings void |
+| gate_provider_unavailable | исходный gate model step | exact route снова проходит synthetic smoke; прежняя session продолжается либо explicit replacement записан |
+| gate_result_missing / gate_result_invalid | исходный gate model step | invalid/nonexistent result не принят; attempt+1 и та же logical reviewer session с явным reminder схемы |
+| gate_snapshot_mutated | исходный gate model step | новый immutable pinned snapshot того же candidate identity создан, pre-hashes совпадают, прежний response остаётся non-verdict |
+| arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid | соответствующий build/verify/freeze step | тот же candidate attempt восстановим и identity неизменна; иначе новая Arena attempt через parent |
 | project_boundary_invalid | исходный deterministic step | project binding/path исправлены и повторный pre-side-effect assert PASS |
 | child_dispatch_marker_invalid | исходный dispatch step | duplicate закрыт/исследован, остаётся один valid create-time marker |
 | panel_waiver_required | dispatch_panel или panel_join | retry отсутствующего route либо waiver текущей identity и actual roster |
@@ -900,27 +956,28 @@ Resume contract:
 - bundle GC не удаляет digest, пока хотя бы один registered project lock его использует; corrupted snapshot re-mint'ится из exact cached digest;
 - crash до/после child metadata set находит child по create-time marker и не enroll'ит duplicate/orphan;
 - Ticket append events H1/H2 одновременно с parent rebuild не теряются: parent sole writer consume'ит только recorded watermark;
-- rebuild_anchor завершает Epic metadata и transit до `resume_repaired_tickets`; после первого Ticket resume parent metadata writer больше не вызывается;
+- rebuild_anchor завершает semantic anchor/binding writes до `resume_repaired_tickets`; после первого Ticket resume parent пишет только монотонные child_resumed/edge_restored/ready_to_join phases, а ticket_join prologue закрывает op;
 - Ticket park→unblock crash оставляет parent blocked и восстанавливается через complete_anchor_handoff;
 - ticket_join при missing blocker создаёт edge, transits ticket_join_wait и не завершает onRun без ctx.transit;
-- gate role не получает bash/edit/write/autosk_task и не может изменить parent/sibling store; structured verdict записывает host driver;
+- gate role получает только snapshot-rooted read tools и `submit_gate_result`; host driver принимает ровно один payload, записывает/read-back record до validate transit, а missing/invalid/mutating run паркуется с точной причиной;
 - запуск с временным HOME без `.traycer`, devflow и Obsidian проходит Quick и Planned smoke;
 - active bundle и prompt compiler не выполняют filesystem/process lookup Traycer;
 - четыре child tasks создаются до parent join;
+- panel и Arena dispatch не переходят в join до установки exact blockers; missing blocker при running/human child ведёт в panel_join_wait/arena_join_wait, а не в invalid park;
 - при workers>=4 свободный pool запускает независимые seats параллельно; при меньшем pool результат не меняется;
 - parent не запускается, пока blocker открыт;
 - pending_anchor блокирует panel/contest/narrow/review/Arena/Ticket joins и integrate до rebuild;
 - partial anchor_impact re-bind'ит ровно unchanged planning passes и void'ит ровно affected bindings;
 - Ticket-scoped BLOCKED_ANCHOR propagates to parent with a suspension receipt;
-- code-only anchor repair restores any suspended edge before Ticket resume and parent transit; planning repair keeps the edge suspended until dispatch_ticket_dag, which also restores before resume;
+- code-only anchor repair resume'ит и перечитывает каждый human Ticket до восстановления suspended edge; planning repair сохраняет suspension до dispatch_ticket_dag, который применяет тот же resume-before-edge порядок;
 - affected Ticket whose pending was absorbed before suspension resumes through the matching parent_rebuild_receipt path and cannot stall between guards;
 - planning repair resolves every suspended receipt by resume or superseded cleanup; unmatched receipt parks ticket_edge_receipt_lost;
 - planning repair reuses an old Ticket only when it is human in the expected recovery state and artifact path, canonical ticket hash and execution base match; it reissues scope/dependency blockers and clears stale candidate state, otherwise replaces any non-live task;
-- mixed code-only repair creates/enrolls replacement tasks and resumes human recovery Tickets inside the current rebuild_anchor session before parent transits to ticket_join;
+- mixed code-only repair создаёт/enroll'ит replacements и завершает все semantic anchor/binding writes в rebuild_anchor, затем отдельный `resume_repaired_tickets` resume'ит human recovery Tickets, восстанавливает edges, пишет только op phases и transits в ticket_join;
 - code-only repair never resumes done/cancel/new/missing affected Tickets; it creates replacement repair tasks with fresh dependency blockers instead, while status=work parks without automatic cancellation;
 - code-only replacement repair first suspends the old edge, closes every old new task and recorded sandbox, then prepares/swaps/enrolls the replacement and finally adds its parent blocker; crash at each phase resumes the same op, and old/new implementations cannot run together;
 - crash-matrix после каждой mixed replacement phase либо продолжает anchor_rebuild_op на unblocked parent, либо безопасно ждёт уже enrolled replacement; не остаётся open old-new blocker или одновременно runnable old/new task;
-- crash после anchor_committed, после любого child blocker, перед recorded transit и после transit до target prologue продолжает тот же op/to_version; ready_to_transit не требует pending_anchor и не переклассифицирует изменившиеся child statuses;
+- crash после anchor_committed, сразу после child resume до edge, после edge до parent transit и после transit до target prologue продолжает тот же op/to_version; до edge parent остаётся runnable, после edge прогресс принадлежит уже resume'нутому child, ready_to_transit не требует pending_anchor;
 - rebuild_anchor никогда не записывает dispatch_ticket_dag как direct target: planning repair идёт через draft/select_next, code-only repair завершается ticket_join;
 - новый pending_anchor, появившийся после создания op, не очищается старой перестройкой и блокирует дальнейшие gates после target prologue до следующего rebuild;
 - consumed correction IDs не применяются дважды; event после watermark переживает parent metadata write и запускает следующий blocked_anchor;
@@ -940,7 +997,7 @@ Resume contract:
 - reviewer write обнаруживается;
 - reviewer task использует отдельный task ID и pinned OID workspace;
 - preflight на реальном autosk CLI доказывает точечные unblock/block и parent-initiated resume --to; extension не стартует, если хотя бы одна операция отсутствует;
-- уже работающий parent после восстановления blocker edge успешно завершает ctx.transit в ticket_join, а новый parent dispatch остаётся заблокирован child status;
+- crash до blocker после успешного child resume позволяет parent повторить read-back/edge restore; crash после blocker не требует parent до terminal/human recovery child; после всех edges уже работающий parent успешно transits в ticket_join;
 - Arena judge cancel/missing/invalid не проходит arena_join;
 - applied/fallback arena status того же decision_id не понижается обратно в pending;
 - две Arena decisions имеют непересекающиеся role session IDs; retry одной decision переиспользует только её map;
@@ -953,6 +1010,7 @@ Resume contract:
 ### Adversarial
 
 - forged child/blocker/verdict с project_root_sha256 соседнего проекта;
+- forged project binding в `submit_gate_result` даёт ноль result-record writes по fake adapter counters и паркует gate child;
 - path traversal или symlink из project runtime в другой project root;
 - forged boundary metadata даёт ноль вызовов fs/Git/CLI/RPC side effects по fake adapter counters;
 - `$HOME/.autosk` существует, reviewer cwd — external worktree, но autosk CLI с AUTOSK_CWD пишет только current project store;
