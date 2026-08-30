@@ -1,6 +1,6 @@
 # Проект автономного autosk-flow для autosk v2
 
-Статус: PANEL RE-REVIEW — baseline `3138be0` получил четыре PASS; текущий candidate закрывает finding CodeRabbit об immutable child creation identity и повторно проверяется теми же сессиями. Реализация ещё не начата.
+Статус: PANEL PASS — candidate `2b97752` закрывает finding CodeRabbit об immutable child creation identity и получил PASS GPT, Grok, Kimi и Opus в тех же проверяющих сессиях. Реализация ещё не начата.
 
 ## Цель
 
