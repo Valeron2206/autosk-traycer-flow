@@ -14,7 +14,9 @@ Draft pull requests are not reviewed automatically. A manual review can be reque
 
 ## Planning changes
 
-Changes to Brief, Core Flow, Tech Plan, Tickets, or another behavior-defining artifact follow the four-model panel rules in the specification. A prior PASS does not apply after the reviewed identity changes.
+Changes to Brief, Core Flow, Tech Plan, Tickets, or another behavior-defining artifact follow the four-model panel rules in the specification.
+A planning PASS is bound to the artifact kind, exact bytes and file hashes, pathspec, tree or snapshot OID, anchor version, and attempt.
+Changing any bound field invalidates the prior PASS and requires a new four-model panel before implementation, except for the explicit hash-checked, human-approved re-binding defined in `03-technical-plan.md`.
 
 ## Commits
 
