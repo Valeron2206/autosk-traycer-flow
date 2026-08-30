@@ -38,6 +38,20 @@ intake
 - несколько независимо проверяемых частей;
 - неясные границы или дорогая ошибка.
 
+### Параллельные проекты
+
+До classification координатор разрешает ровно один canonical project root и project identity. Все создаваемые задачи, документы, worktree, sessions, snapshots и evidence получают эту identity.
+
+Разные проекты могут выполняться одновременно через общий autoskd worker pool, но их графы не соединяются:
+
+- parent/child и blocker edges допустимы только внутри одного проекта;
+- проектный Brief/Core Flow/Tech Plan/Tickets пишутся только в Git этого проекта;
+- provider session не переиспользуется между проектами;
+- project policy и governance overrides влияют только на snapshots своего проекта;
+- остановка, correction или cleanup проекта A не меняют задачи и файлы проекта B.
+
+Если один пользовательский запрос затрагивает несколько репозиториев, координатор создаёт отдельный project-scoped Epic для каждого. Каждый Epic хранит собственную coordination-ссылку и общий immutable correlation ID в своей metadata; общего Ticket, общей session или общего mutable документа между проектами нет.
+
 ## 2. Адаптивное планирование
 
 Полный граф возможностей:
@@ -149,7 +163,7 @@ Judge выбирает подход; Reviewer принимает или откл
 
 ## 5. Исполнение Tickets
 
-После PASS комплекта Tickets координатор создаёт autosk-задачу на каждый Ticket:
+После PASS комплекта Tickets собственный workflow `autosk-flow` создаёт autosk-задачу на каждый Ticket. `devflow` не вызывается и не является fallback:
 
 - зависимости Ticket превращаются в blockers;
 - независимые Tickets выполняются параллельно;
@@ -208,7 +222,7 @@ review findings
 1. Tickets интегрируются в порядке зависимостей;
 2. merge OID строится без движения целевой ветки;
 3. approved tree сверяется повторно;
-4. traycer-protocol integrate-approved выполняет CAS и проверяет reflog;
+4. autosk-flow integrate-approved выполняет CAS и проверяет reflog;
 5. запускается aggregate verification всего epic;
 6. worktree и временные snapshot сначала очищаются с force=false; dirty workspace сохраняется для решения человеком;
 7. epic переходит в done.

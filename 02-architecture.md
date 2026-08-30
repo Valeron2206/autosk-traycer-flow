@@ -2,7 +2,7 @@
 
 ## 1. Основной принцип
 
-autosk v2 остаётся движком задач и переходов. Новая логика живёт в расширении traycer-flow. Мы не создаём второй daemon, вторую базу или универсальный язык workflow.
+autosk v2 остаётся движком задач и переходов. Новая логика живёт в расширении autosk-flow. Мы не создаём второй daemon, вторую базу или универсальный язык workflow.
 
 Расширение использует существующие механизмы:
 
@@ -28,7 +28,7 @@ autosk v2 остаётся движком задач и переходов. Но
 - счётчики step_visits;
 - загрузку расширений и диагностику.
 
-### traycer-flow extension
+### autosk-flow extension
 
 Отвечает за:
 
@@ -40,7 +40,10 @@ autosk v2 остаётся движком задач и переходов. Но
 - атомарную запись artifact PASS и механическое извлечение autosk-arena block;
 - привязку PASS к hash/OID;
 - лимиты раундов и human escalation;
-- freeze, commit-on-pass и вызов интеграционного адаптера.
+- собственные Ticket workflows: implement, verify, freeze, review, fix, commit и integration;
+- freeze, commit-on-pass и собственный детерминированный интеграционный адаптер.
+
+`devflow` не входит в архитектуру. Расширение не импортирует, не вызывает и не отслеживает авторский workflow autosk; все нужные Ticket-стадии принадлежат `autosk-flow`.
 
 ### Pi-провайдеры
 
@@ -50,9 +53,29 @@ autosk v2 остаётся движком задач и переходов. Но
 
 Хранит нормативные артефакты и код. Git object database даёт tree/commit OID для неизменяемой идентичности. Branch name никогда не считается идентичностью.
 
-### traycer-protocol
+### autosk-owned integration adapter
 
-Сохраняется как проверенный детерминированный механизм интеграции. Расширение вычисляет входы и обрабатывает классифицированный результат, но не переписывает его CAS/reflog-логику на TypeScript в первой версии.
+CAS/reflog-механика `integrate-approved` переносится вместе с тестами в пакет `autosk-flow` и вызывается как собственный executable/module. Исходная Traycer-команда используется только для миграционного сравнения. Runtime не обращается к `traycer-protocol`, `~/.traycer`, Traycer skills или Traycer sessions.
+
+### Глобальное и проектное владение
+
+Глобально устанавливаются только:
+
+- исполняемый код расширения;
+- схемы и provider defaults;
+- автономный read-only governance bundle с manifest и digest.
+
+Каждый canonical project root отдельно владеет:
+
+- проектным контекстом и governance overrides;
+- Brief, Core Flow, Tech Plan, Decision Log и Tickets;
+- task metadata, blockers, comments и sessions;
+- provider session directory;
+- protocol snapshots и per-Epic lock;
+- materialized PromptEnvelope/cache, если он сохраняется вне session transcript;
+- worktree, evidence и integration recovery state.
+
+Глобальный пакет никогда не записывает внутрь себя проектные данные. Проект A не может ссылаться на task/session/evidence path проекта B; cross-project blocker и cross-project PASS binding запрещены.
 
 ## 3. Почему панель — дочерние задачи
 
@@ -88,6 +111,8 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 Параллельность не является гарантией correctness: worker pool глобальный и настраиваемый. Preflight рекомендует workers >= 4 и сообщает конкурирующую нагрузку; при меньшем значении места выполнятся последовательно, но gate останется тем же.
 
+При нескольких активных проектах global FIFO не обещает равную latency: панель одного проекта может временно занять все worker slots. Это не разрешает cross-project state и не меняет gates. Preflight показывает общий worker budget и активные проекты; отдельный fairness/admission слой добавляется только при доказанном starvation.
+
 ## 4. Идемпотентный fan-out
 
 Порядок dispatch выбран так, чтобы сбой не оставил невосстановимую блокировку:
@@ -107,42 +132,81 @@ SDK пока предоставляет TasksAPI только для чтени�
 ### Нормативная правда в Git
 
 ~~~text
-docs/autosk/epics/<epic-id>/
-  brief.md
-  core-flow.md
-  tech-plan.md
-  decision-log.md
-  decisions/
-    ADR-001-<slug>.md
-  tickets/
-    T01-<slug>.md
-    T02-<slug>.md
+<canonical-project-root>/
+  docs/autosk/project/
+    context.md
+    governance-overrides.md
+  docs/autosk/epics/<epic-id>/
+    brief.md
+    core-flow.md
+    tech-plan.md
+    decision-log.md
+    decisions/
+      ADR-001-<slug>.md
+    tickets/
+      T01-<slug>.md
+      T02-<slug>.md
 ~~~
 
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
+
+Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. Versioned project overrides входят в protocol identity и не изменяют глобальный bundle.
 
 ### Операционная правда в autosk
 
 Используются существующие:
 
 ~~~text
-.autosk/tasks/<task-id>/task.json
-.autosk/tasks/<task-id>/comments.jsonl
-.autosk/sessions/<session-id>.json
-.autosk/sessions/<session-id>.jsonl
+<canonical-project-root>/.autosk/tasks/<task-id>/task.json
+<canonical-project-root>/.autosk/tasks/<task-id>/comments.jsonl
+<canonical-project-root>/.autosk/sessions/<session-id>.json
+<canonical-project-root>/.autosk/sessions/<session-id>.jsonl
+<canonical-project-root>/.autosk/autosk-flow/provider-sessions/
+<canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
-Дополнительный ledger или run-manifest не создаётся. Машиночитаемая связь хранится в namespaced metadata.traycer, а человекочитаемая сводка и ссылки на доказательства — в comments.
+Дополнительный status-ledger не создаётся. `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая связь хранится в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
 
-### Замороженный протокол
+### Автономный governance bundle
 
-Глобальное расширение содержит канонический protocol bundle. При старте epic daemon-side AgentDefinition разрешает исходный ctx.projectRoot и копирует нужные байты в:
+Публичный пакет содержит только очищенную autosk-native версию:
 
 ~~~text
-<absolute-project-root>/.autosk/traycer-flow/protocol-snapshots/<sha256>/
+resources/governance/bundles/autosk-v1/
+  agent-selection-guide.md
+  protocol/
+    principles-digest.md
+    playbooks/
+      feature.md
+      bug-fix.md
+      refactoring.md
+      perf.md
+    arena/
+      arena-stage.md
+      judge-brief.md
+    verification/template.md
+    autobuild/run-contract.md
+    reflect/reviewer-brief.md
+    writing/
+      technical-writing.md
+      unslop.md
+  bundle-manifest.json
 ~~~
 
-В metadata записываются hash и абсолютный canonical path. Prompt compiler читает его через ctx.projectRoot до запуска sandboxed Pi; он никогда не резолвит snapshot относительно reviewer worktree. Все последующие сообщения этого epic собираются только из snapshot. Обновление глобального расширения не меняет уже начатый процесс.
+Это один Guide и точные 12 protocol files. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
+
+### Замороженный protocol snapshot
+
+При старте Epic daemon-side AgentDefinition проверяет manifest/digest активного bundle, применяет versioned project overrides и копирует итоговые bytes в проект:
+
+~~~text
+<absolute-project-root>/.autosk/autosk-flow/protocol-snapshots/<sha256>/
+  agent-selection-guide.md
+  protocol/
+  bundle-manifest.json
+~~~
+
+`protocol.lock.json` записывает bundle id/version/digest, project override hashes, snapshot path и SHA-256 каждого из 13 нормативных файлов. Prompt compiler читает только этот project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
 
 ### Доказательства
 
@@ -154,11 +218,27 @@ docs/autosk/epics/<epic-id>/
 
 ### Состояние интеграции
 
-Файл состояния команды integrate-approved обязан лежать вне репозитория и всех worktree:
+Файл состояния integrate-approved принадлежит проекту, но лежит в ignored runtime-каталоге canonical root, а не в рабочем worktree:
 
 ~~~text
-~/.autosk/traycer-flow/integration-state/<project-slug>/<operation-id>.json
+<canonical-project-root>/.autosk/autosk-flow/integration-state/<operation-id>.json
 ~~~
+
+State file хранит canonical root и отказывается продолжать операцию при несовпадении. Worktree никогда не выбирается источником project identity.
+
+### Изоляция параллельных проектов
+
+Каждый dispatch получает project identity из autoskd/ctx.projectRoot и передаёт её во все CLI/RPC операции. Обязательные guards:
+
+- child task и parent имеют один project identity;
+- blocker не может ссылаться на task другого проекта;
+- provider session directory и evidence path начинаются с canonical root текущего проекта;
+- artifact/PASS binding включает project identity;
+- project override не попадает в snapshot другого проекта;
+- cleanup удаляет только paths, записанные текущим project/task metadata;
+- общий worker pool может менять порядок запуска, но не владение состоянием.
+
+Параллельность между проектами не требует общей папки документов или глобальной памяти. Общими могут быть только provider credentials, worker capacity и read-only installed bundle.
 
 ## 6. Компилятор сообщений
 
@@ -187,7 +267,8 @@ pinned common protocol
 
 ~~~text
 artifact identity =
-  epic id
+  project identity
+  + epic id
   + artifact kind
   + base commit OID
   + declared pathspec
@@ -202,7 +283,8 @@ artifact identity =
 
 ~~~text
 candidate identity =
-  ticket id
+  project identity
+  + ticket id
   + base commit OID
   + declared pathspec
   + candidate tree OID
@@ -266,4 +348,8 @@ verdict binding =
 - cost dashboard и метрики ради метрик;
 - постоянная глобальная память модели;
 - ручное дублирование всего протокола в каждом comment;
+- Obsidian MCP и `architecture-planning` как обязательный/опциональный gate или источник runtime-контекста;
+- devflow как dependency, child workflow или fallback;
+- runtime-доступ к Traycer, `~/.traycer`, Traycer skills или `traycer_*` commands;
+- общая для нескольких проектов папка документов, sessions, evidence или integration state;
 - миграция autosk v0.1.6.

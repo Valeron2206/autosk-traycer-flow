@@ -2,13 +2,17 @@
 
 ## 1. Форма поставки
 
-Создать отдельный TypeScript-пакет traycer-flow для autosk v2. Разрабатывать и проверять его как project-local extension в тестовом Git-репозитории. После PASS установить тот же проверенный source/version глобально, чтобы проекты не копировали процесс.
+Создать отдельный TypeScript-пакет autosk-flow для autosk v2. Разрабатывать и проверять его как project-local extension в тестовом Git-репозитории. После PASS установить тот же проверенный source/version глобально, чтобы проекты не копировали процесс.
 
-Проект хранит только свои нормативные артефакты и операционное состояние. Канонические protocol/prompts/schemas принадлежат расширению.
+Пакет регистрирует собственные Planned, Quick, Ticket, Panel, Review и Arena workflows. `devflow` и Traycer runtime не являются dependencies или fallback. Канонические autosk-native Guide/protocol/schemas принадлежат расширению; exact migration baseline остаётся локальным вне public Git.
+
+Каждый проект хранит только свои нормативные артефакты и операционное состояние внутри canonical root. Глобальная установка не содержит project documents, sessions, evidence, overrides или mutable integration state.
+
+Перед любой записью расширение берёт canonical project root из `ctx.projectRoot` и считает `project_root_sha256`. Все проектные файлы пишутся под этим root; любые lookup/recovery ключи за пределами одного store включают `{project_root_sha256, task_id|operation_id}`. Task ID, branch name, epic ID или человекочитаемый slug без project-root hash не являются глобально уникальными. Obsidian MCP и `architecture-planning` не входят в preflight, prompts, tests или recovery.
 
 ## 2. Регистрируемые workflows
 
-### traycer-planned
+### autosk-planned
 
 Родительская epic-задача:
 
@@ -135,7 +139,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 
 Строки каждого шага применяются строго сверху вниз; success-предикаты явно исключают BLOCKED_ANCHOR, mismatch, fallback и недостаточный roster. select_next считает kind passed только если artifact_pass binding совпадает с текущими anchor_version, protocol hash и artifact identity. Tickets не входят в planning-kind search и появляются только после того, как все arena.decisions terminal. Stable pending order задаёт порядок entries в нормативном block; terminal entry никогда не запускается повторно.
 
-### traycer-quick
+### autosk-quick
 
 ~~~text
 intake -> implement -> verify -> freeze -> dispatch_review -> review_join -> record_code_verdict
@@ -147,7 +151,7 @@ recovery: rebuild_code_anchor -> verify
 
 accept — statusStep("human"); при валидной auto-integration policy только record_code_verdict после повторной валидации может перейти сразу в integrate.
 
-### traycer-ticket
+### autosk-ticket
 
 Workflow одной реализации из утверждённого комплекта Tickets:
 
@@ -160,7 +164,7 @@ recovery: rebuild_code_anchor -> verify
 
 Зависимости между Ticket-задачами выражаются autosk blockers.
 
-### traycer-code-review
+### autosk-code-review
 
 Отдельная child task с отдельным task ID и pinned snapshot workspace:
 
@@ -188,9 +192,9 @@ Parent Ticket блокируется review child и после разблоки
 | record_code_verdict | повторная identity/binding validation не прошла | human с park.reason=code_verdict_invalid; ничего не записано |
 | record_code_verdict | NOT_PASS/findings и round >= cap | если full, atomically full_review_required=false; human с review_cap |
 | record_code_verdict | NOT_PASS/findings и round < cap | если full, atomically full_review_required=false; fix |
-| record_code_verdict | PASS и workflow=traycer-ticket | если full, atomically full_review_required=false; commit_on_pass |
-| record_code_verdict | PASS и workflow=traycer-quick, auto-integration policy валидна | если full, atomically full_review_required=false; integrate |
-| record_code_verdict | PASS и workflow=traycer-quick, auto-policy отсутствует или невалидна | если full, atomically full_review_required=false; accept |
+| record_code_verdict | PASS и workflow=autosk-ticket | если full, atomically full_review_required=false; commit_on_pass |
+| record_code_verdict | PASS и workflow=autosk-quick, auto-integration policy валидна | если full, atomically full_review_required=false; integrate |
+| record_code_verdict | PASS и workflow=autosk-quick, auto-policy отсутствует или невалидна | если full, atomically full_review_required=false; accept |
 | fix | confirmed findings исправлены | verify |
 | rebuild_code_anchor | parent_epic_task отсутствует (standalone Quick), pending anchor валиден | own anchor_version+1, clear pending_anchor, review_cycle.full_review_required=true, verify |
 | rebuild_code_anchor | parent_epic_task задан, waiting_parent_anchor=false, pending_anchor обоснован | merge proposal в parent Epic, void Ticket review binding, waiting_parent_anchor=true, suspend blocker edge с receipt, human с park.reason=waiting_parent_anchor |
@@ -220,7 +224,7 @@ Quick tail:
 | cleanup | dirty=true при force=false | human с cleanup_dirty |
 | done | terminal | нет переходов |
 
-### traycer-panel-seat
+### autosk-panel-seat
 
 Одна задача одного места панели:
 
@@ -230,7 +234,7 @@ review_artifact -> validate_verdict -> done
 
 Route, role и lens читаются из metadata. onTransit разрешает done только после появления verdict record правильной схемы и правильной artifact identity.
 
-### traycer-contest-seat
+### autosk-contest-seat
 
 Новая child task для каждого originating panel seat:
 
@@ -240,13 +244,13 @@ review_disposition -> validate_disposition -> done
 
 Identity включает artifact identity, canonical finding IDs, proposed rejection/downgrade и originating seat. Обычный panel PASS не является contest disposition.
 
-### traycer-arena-candidate
+### autosk-arena-candidate
 
 ~~~text
 build_candidate -> verify_candidate -> freeze_candidate -> done
 ~~~
 
-### traycer-arena-judge
+### autosk-arena-judge
 
 Эта задача blocked_by кандидатскими задачами:
 
@@ -257,7 +261,7 @@ judge -> validate_judgment -> done
 ## 3. Минимальная структура расширения
 
 ~~~text
-traycer-flow/
+autosk-flow/
   package.json
   src/
     index.ts
@@ -294,31 +298,35 @@ traycer-flow/
       disposition.ts
       judgment.ts
       metadata.ts
-  protocol/
-    common.md
-    playbooks/
-      feature.md
-      bug-fix.md
-      refactor.md
-      performance.md
-    roles/
-      orchestrator.md
-      panel-lead.md
-      panel-feasibility.md
-      panel-intent.md
-      panel-architecture.md
-      implementer.md
-      code-reviewer.md
-      arena-candidate.md
-      arena-judge.md
-    stages/
-      brief.md
-      core-flow.md
-      tech-plan.md
-      tickets.md
-      code-review.md
-      narrow-review.md
+  resources/
+    governance/
+      bundles/
+        autosk-v1/
+          agent-selection-guide.md
+          protocol/
+            principles-digest.md
+            playbooks/
+              feature.md
+              bug-fix.md
+              refactoring.md
+              perf.md
+            arena/
+              arena-stage.md
+              judge-brief.md
+            verification/template.md
+            autobuild/run-contract.md
+            reflect/reviewer-brief.md
+            writing/
+              technical-writing.md
+              unslop.md
+          bundle-manifest.json
+  tools/
+    import-traycer-baseline.ts   # explicit local migration tool, not runtime
 ~~~
+
+Exact imported Traycer baseline хранится только локально вне public Git. `import-traycer-baseline` читает явно переданные guide/protocol paths, требует regular Guide + exact 12 expected Markdown paths, игнорирует только `.DS_Store`, отклоняет любой другой unexpected entry/symlink, вычисляет hashes, создаёт diff proposal для нового autosk-native bundle и завершается. Он не устанавливает watcher и не добавляет runtime lookup в `~/.traycer`.
+
+`bundle-manifest.json` содержит как минимум `schemaVersion`, `bundleId`, `bundleVersion`, provenance без личных paths, ordered map из 13 relative paths в SHA-256, общий digest и binding последней четырёхмодельной проверки bundle. Project-owned `protocol.lock.json` дополнительно связывает этот digest с project_root_sha256, Epic ID, effective project override hashes и snapshot path. Изменение любого поля/byte создаёт новую bundle/effective identity.
 
 ## 4. Metadata contract
 
@@ -326,19 +334,25 @@ traycer-flow/
 
 Единственный машинный enum ArtifactKind: brief | core_flow | tech_plan | tickets. Имена файлов могут содержать дефисы, metadata и переходы — никогда.
 
-Каждая задача, чей AgentDefinition вызывает resolvedPiAgent — Epic/Quick parent, Ticket implementer, panel/contest/narrow seat, code-review child, Arena candidate/Judge — имеет собственный traycer.session record одной общей схемы. Reviewer/Judge session никогда не копируется из implementer/author task. Без собственного record enroll запрещён.
+Каждая task metadata содержит неизменяемый project binding `{canonical_root, project_root_sha256}`. Parent/child, blocker, session, verdict и evidence binding с разными project_root_sha256 недействительны. Любая CLI/RPC операция получает canonical root явно; текущий shell cwd и branch name project identity не определяют.
+
+Каждая задача, чей AgentDefinition вызывает resolvedPiAgent — Epic/Quick parent, Ticket implementer, panel/contest/narrow seat, code-review child, Arena candidate/Judge — имеет собственный autosk_flow.session record одной общей схемы. Reviewer/Judge session никогда не копируется из implementer/author task. Без собственного record enroll запрещён.
 
 ### Epic task
 
 ~~~json
 {
-  "traycer": {
+  "autosk_flow": {
     "schema": 1,
+    "project": {
+      "canonical_root": "/absolute/project-root",
+      "project_root_sha256": "..."
+    },
     "mode": "planned",
     "epic_id": "epic-001",
     "session": {
       "provider_session_id": "...",
-      "provider_session_dir": "/absolute/project-root/.autosk/traycer-flow/provider-sessions",
+      "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
       "generation": 1,
       "replaces": null
     },
@@ -348,7 +362,7 @@ traycer-flow/
     "anchor_rebuild_op": null,
     "protocol": {
       "hash": "sha256",
-      "snapshot_path": "/absolute/project-root/.autosk/traycer-flow/protocol-snapshots/sha256"
+      "snapshot_path": "/absolute/project-root/.autosk/autosk-flow/protocol-snapshots/sha256"
     },
     "classification": {
       "brief": true,
@@ -385,7 +399,7 @@ traycer-flow/
         "gpt": {
           "task_id": "...",
           "provider_session_id": "...",
-          "provider_session_dir": "/absolute/project-root/.autosk/traycer-flow/provider-sessions",
+          "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
           "generation": 1,
           "replaces": null
         }
@@ -424,12 +438,16 @@ traycer-flow/
 
 ~~~json
 {
-  "traycer": {
+  "autosk_flow": {
     "schema": 1,
+    "project": {
+      "canonical_root": "/absolute/project-root",
+      "project_root_sha256": "..."
+    },
     "parent_epic_task": "...",
     "session": {
       "provider_session_id": "...",
-      "provider_session_dir": "/absolute/project-root/.autosk/traycer-flow/provider-sessions",
+      "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
       "generation": 1,
       "replaces": null
     },
@@ -479,7 +497,7 @@ Receipt приостановленной blocker-связи содержит `{p
 
 ### Panel seat task
 
-Содержит parent_task, run_id, seat, route, role, author_families, собственную traycer.session запись общей схемы и полную frozen artifact identity. Dispatcher копирует выбранный parent panel.seats record в child traycer.session до enroll. Seat task не может изменить identity или session binding.
+Содержит parent_task, run_id, seat, route, role, author_families, собственную autosk_flow.session запись общей схемы и полную frozen artifact identity. Dispatcher копирует выбранный parent panel.seats record в child autosk_flow.session до enroll. Seat task не может изменить identity или session binding.
 
 Route binding — исполняемый protocol data, а не свободный выбор агента:
 
@@ -516,13 +534,17 @@ Opus предлагает classification и короткое обоснован�
 
 Перед первым модельным шагом:
 
-1. вычислить список нужных protocol files;
-2. проверить, что это обычные файлы;
-3. прочитать bytes и вычислить SHA-256;
-4. через ctx.projectRoot получить absolute canonical destination, не sandbox cwd;
-5. атомарно записать immutable snapshot в namespaced каталог исходного project root;
-6. записать hash и абсолютный path в metadata;
-7. на каждом dispatch повторно проверить snapshot hash.
+1. открыть bundled `bundle-manifest.json` и потребовать один Guide плюс exact 12 protocol paths;
+2. отклонить symlink, non-regular file, неизвестный или отсутствующий entry;
+3. прочитать verified bytes, сверить per-file SHA-256 и общий bundle digest;
+4. прочитать versioned project overrides только из current project Git tree и включить их hashes в effective digest;
+5. через ctx.projectRoot получить absolute canonical destination, не sandbox cwd;
+6. проверить, что destination находится внутри canonical project root текущей задачи;
+7. атомарно записать immutable effective snapshot и `protocol.lock.json` в namespaced каталог проекта;
+8. записать bundle id/version/digest, effective digest, absolute path и project_root_sha256 в metadata;
+9. на каждом dispatch повторно проверить lock, snapshot hashes и project_root_sha256.
+
+Ни один шаг не ищет `~/.traycer`, `forCursor.md`, Traycer skill или Obsidian. Явный import tool завершается до сборки bundle и не доступен model/runtime workflows.
 
 ### resolvedPiAgent
 
@@ -531,15 +553,15 @@ Opus предлагает classification и короткое обоснован�
 1. читает current task metadata;
 2. проверяет route и protocol snapshot;
 3. компилирует firstMessage;
-4. требует traycer.session.provider_session_id и абсолютный provider_session_dir в metadata текущей задачи;
-5. создаёт штатный piAgent с model/firstMessage/sandbox и extraArgs ["--session-id", traycer.session.provider_session_id, "--session-dir", traycer.session.provider_session_dir];
+4. требует autosk_flow.session.provider_session_id и абсолютный provider_session_dir в metadata текущей задачи;
+5. создаёт штатный piAgent с model/firstMessage/sandbox и extraArgs ["--session-id", autosk_flow.session.provider_session_id, "--session-dir", autosk_flow.session.provider_session_dir];
 6. проксирует onSteer, onFollowup и onAbort текущему inner agent.
 
 Driver и transit correction штатного piAgent не копируются.
 
 ### Session continuity
 
-Первый dispatch места создаёт стабильный provider_session_id и общий absolute provider_session_dir под исходным projectRoot. Следующая child task того же места, Lead или originating critic получает оба поля до enroll. resolvedPiAgent всегда передаёт Pi одновременно --session-id и --session-dir, поэтому смена task ID или worktree cwd не создаёт пустую одноимённую сессию. Новый PromptEnvelope несёт новую identity.
+Первый dispatch места создаёт стабильный provider_session_id и общий absolute provider_session_dir под исходным projectRoot. Следующая child task того же места, Lead или originating critic получает оба поля до enroll. resolvedPiAgent всегда передаёт Pi одновременно --session-id и --session-dir, поэтому смена task ID или worktree cwd не создаёт пустую одноимённую сессию. Новый PromptEnvelope несёт новую identity. provider_session_id уникален только внутри provider_session_dir; сравнения между проектами всегда включают `project_root_sha256`.
 
 Источники session record:
 
@@ -566,15 +588,16 @@ Task ID может быть новым для каждого раунда рад
 
 Использовать ctx.exec с autosk CLI до появления write API в SDK:
 
+- передать canonical project root каждой CLI/RPC операции и проверить project binding в прочитанной task view;
 - create без workflow;
-- metadata set, включая обязательный собственный traycer.session record из правильного role registry для любой model-owned task;
+- metadata set, включая обязательный собственный autosk_flow.session record из правильного role registry для любой model-owned task;
 - при необходимости подготовить branch/worktree от точного snapshot/base;
 - enroll после полной настройки;
 - block parent только после готовности всего набора;
 - для anchor repair снять ровно edge `autosk unblock <parent-id> <ticket-id>`, сохранив receipt, и вернуть его `autosk block <parent-id> <ticket-id>`; `--all` запрещён;
 - после восстановления edge возобновить human Ticket через `autosk resume <ticket-id> --to rebuild_code_anchor`.
 
-Каждая операция проверяет exit code и перечитывает созданную task view. run_id плюс seat/type делают повтор безопасным.
+Каждая операция проверяет exit code и перечитывает созданную task view. `{project_root_sha256, parent_id, run_id, seat/type}` делают повтор безопасным; совпавший run_id другого проекта никогда не считается той же операцией.
 
 Эти команды являются доступными autosk CLI-операциями, а не действиями модели. Обычную human-задачу возобновляет пользователь; единственное автоматическое исключение — deterministic parent step для anchor repair с валидными parent rebuild и edge receipts. Preflight расширения в временном проекте обязан доказать точечный `block -> unblock -> block` и parent-initiated `resume --to rebuild_code_anchor`; отсутствие любой операции останавливает запуск до создания реальных задач.
 
@@ -667,7 +690,7 @@ Review round увеличивает только freeze_artifact/freeze при �
 
 ### Read-only review
 
-Перед запуском создаётся отдельная traycer-code-review child task. pinnedWorktreeSandbox строит уникальный path/branch от snapshot commit с ключом reviewer task ID + role + attempt. Штатный worktreeSandbox без предварительной привязки к OID для review запрещён. До и после записываются HEAD, HEAD tree, status и untracked set. Несовпадение аннулирует verdict.
+Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит уникальный path/branch от snapshot commit с ключом reviewer task ID + role + attempt. Штатный worktreeSandbox без предварительной привязки к OID для review запрещён. До и после записываются HEAD, HEAD tree, status и untracked set. Несовпадение аннулирует verdict.
 
 ### Commit on PASS
 
@@ -686,19 +709,22 @@ Review round увеличивает только freeze_artifact/freeze при �
 
 ### Integration
 
-Детерминированный шаг:
+Детерминированный autosk-owned adapter:
 
 1. берёт чистую целевую ветку и её recorded base OID;
 2. строит merge commit без движения целевой ref;
 3. вычисляет merge tree и сверяет approved tree;
-4. вызывает traycer-protocol integrate-approved;
+4. вызывает bundled `autosk-flow integrate-approved`, перенесённый вместе с CAS/reflog tests и не зависящий от Traycer binary;
 5. классифицирует exit: success, precondition, obstruction, foreign movement, indeterminate или reattach;
 6. только success разрешает следующий Ticket.
 
-State path создаётся отдельно для каждой operation вне репозитория.
+State path создаётся отдельно для каждой operation под `<canonical-project-root>/.autosk/autosk-flow/integration-state/` и связывается с project_root_sha256. Никакой integration state не хранится в глобальной пользовательской папке или соседнем проекте.
 
 ## 6. onTransit guards
 
+- current task project binding обязан совпадать с canonical ctx.projectRoot и project_root_sha256;
+- parent, child, blocker, session, artifact, verdict и evidence refs другого проекта отклоняются до любых side effects;
+- effective protocol lock обязан принадлежать текущему project/Epic и совпадать с bundled manifest + project override hashes;
 - Planned implementation запрещён до PASS всех реально созданных плановых артефактов.
 - Tickets не исполняются без отдельного tickets-panel PASS текущей версии набора.
 - Panel seat не закрывается без валидного verdict той же identity.
@@ -757,7 +783,7 @@ Resume contract:
 | narrow_join_invalid | dispatch_narrow_review | прежний Lead child закрыт, новый attempt |
 | review_join_invalid | dispatch_review или dispatch_narrow_review | invalid review child закрыт, новый attempt и сохранён narrow/full mode |
 | code_verdict_invalid | freeze | старый review binding void, новый candidate/review attempt |
-| blocked_anchor, traycer-planned | rebuild_anchor | полный human-approved anchor_impact; recorded target выбирается только из draft_artifact, dispatch_arena, select_next или ticket_join по impact/phase |
+| blocked_anchor, autosk-planned | rebuild_anchor | полный human-approved anchor_impact; recorded target выбирается только из draft_artifact, dispatch_arena, select_next или ticket_join по impact/phase |
 | anchor_impact_invalid | rebuild_anchor | исправленная полная impact map и повторно проверенные unchanged hashes |
 | anchor_repair_ticket_live | rebuild_anchor | anchor_rebuild_op=null; каждый affected live run завершился в human/done/cancel; status/impact map перечитаны; pending_anchor сохранён; rebuild writes отсутствуют |
 | blocked_anchor, standalone Quick | rebuild_code_anchor | own anchor bump, старые review bindings void, затем verify/freeze/full code review |
@@ -793,7 +819,10 @@ Resume contract:
 - независимый review_cycles entry для каждого ArtifactKind;
 - atomic record_artifact_pass, включая malformed autosk-arena без частичной записи;
 - prompt compilation из одного snapshot;
-- metadata schema требует traycer.session для каждой model-owned task;
+- bundle manifest требует один Guide и exact 12 protocol paths, regular files и совпадающие hashes/digest;
+- metadata schema требует autosk_flow.session для каждой model-owned task;
+- каждый project-local файл и recovery key привязан к canonical project root hash;
+- project binding обязателен для parent/child/blocker/session/verdict/evidence refs;
 - identity/hash canonicalization;
 - verdict schema и stale binding;
 - author-family routing;
@@ -804,6 +833,11 @@ Resume contract:
 
 ### Integration
 
+- два project roots одновременно создают Epics с одинаковыми epic/task/run labels без collision;
+- документы, overrides, protocol locks, sessions, evidence и integration state двух проектов остаются в своих roots;
+- общий worker pool может чередовать проекты, но не меняет project binding и не создаёт cross-project blockers;
+- запуск с временным HOME без `.traycer`, devflow и Obsidian проходит Quick и Planned smoke;
+- active bundle и prompt compiler не выполняют filesystem/process lookup Traycer;
 - четыре child tasks создаются до parent join;
 - при workers>=4 свободный pool запускает независимые seats параллельно; при меньшем pool результат не меняется;
 - parent не запускается, пока blocker открыт;
@@ -850,13 +884,19 @@ Resume contract:
 
 ### Adversarial
 
+- forged child/blocker/verdict с project_root_sha256 соседнего проекта;
+- path traversal или symlink из project runtime в другой project root;
+- одинаковые task/session IDs в двух project stores;
+- отсутствие `~/.traycer`, переименование source baseline после установки и запрет `traycer_*` subprocess;
+- установленный devflow отсутствует либо несовместим — autosk-flow behavior не меняется;
+- Obsidian MCP/skill отсутствует — ни один gate или prompt не меняется;
 - forged PASS comment без session binding;
 - изменение nested untracked и ignored file;
 - смена anchor version во время review;
 - duplicate/late panel verdict;
 - downgrade/reject без contest originating seats;
 - mixed authorship без внешней reviewer family;
-- reset step_visits не сбрасывает traycer review cap;
+- reset step_visits не сбрасывает autosk_flow review cap;
 - bare resume без recovery metadata;
 - каждая resume target существует среди зарегистрированных steps;
 - downgrade/reject проходит отдельный contest-seat workflow и полный disposition join;
@@ -872,14 +912,20 @@ Resume contract:
 
 Перед использованием — синтетическая задача без приватного проекта для каждого exact Pi route. Каталог моделей сам по себе недостаточен.
 
+Multi-project preflight дополнительно печатает canonical root/hash текущего проекта, все project-owned output roots, общий worker budget и число активных проектов. Несовпадение root либо output path вне root останавливает dispatch; нехватка workers только предупреждает о последовательном исполнении.
+
 ## 9. Последовательность реализации
 
 ### Slice 1 — безопасный фундамент
 
 - отдельный extension package;
+- autosk-native Guide + exact 12-file governance bundle + manifest/digest;
+- local-only explicit Traycer import/diff tool, недоступный runtime;
 - config + exact model preflight;
-- protocol snapshot и prompt compiler;
+- project-scoped protocol lock/snapshot и prompt compiler;
 - metadata/verdict schemas;
+- multi-project isolation tests и no-Traycer/no-devflow/no-Obsidian smoke;
+- idempotent project bootstrap: versioned docs создаются on demand, `.autosk/` и `.autosk-evidence/` добавляются в project `.gitignore` без перезаписи существующих правил;
 - deterministic helpers и тесты.
 
 ### Slice 2 — Quick
@@ -903,7 +949,7 @@ Resume contract:
 
 - создание Ticket-задач с blockers;
 - commit-on-pass;
-- traycer-protocol integration adapter;
+- autosk-owned integration adapter с перенесёнными CAS/reflog tests;
 - aggregate verification и recovery tests.
 
 ### Slice 5 — Arena/Judge

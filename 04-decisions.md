@@ -50,7 +50,7 @@
 
 ## ADR-006: Git хранит нормативную правду
 
-- Решение: Brief, Core Flow, Tech Plan, Decision Log и Tickets хранятся под docs/autosk/epics в Git. autosk metadata не заменяет их.
+- Решение: Brief, Core Flow, Tech Plan, Decision Log и Tickets хранятся под `docs/autosk/epics` в Git-репозитории конкретного проекта. autosk metadata не заменяет их.
 - Альтернатива: хранить документы внутри daemon runtime или task descriptions.
 - Обоснование: Git даёт reviewable history и OID; runtime-файлы остаются операционным состоянием и могут очищаться.
 - Источники:
@@ -59,7 +59,7 @@
 
 ## ADR-007: без второго ledger
 
-- Решение: текущее состояние хранится в namespaced task metadata, comments и sessions. Отдельный run.json/status ledger не создаётся.
+- Решение: текущее состояние хранится в namespaced task metadata, comments и sessions. Отдельный run.json/status ledger не создаётся; bundle manifest и per-Epic protocol lock описывают immutable bytes, а не status.
 - Альтернатива: собственный manifest/ledger рядом с autosk state.
 - Обоснование: дублирующее состояние создаёт drift. Отдельные evidence records нужны только для байтов verdict/log и связываются hash.
 - Источники:
@@ -68,7 +68,7 @@
 
 ## ADR-008: автоматическая компиляция замороженных инструкций
 
-- Решение: один global protocol bundle копируется в task-scoped snapshot под абсолютным исходным projectRoot; PromptEnvelope собирается daemon-side до запуска sandbox по роли.
+- Решение: autosk-native bundle содержит один Guide, exact 12 protocol files и hash manifest. Для Epic он объединяется с versioned project overrides, копируется в project-owned immutable snapshot и фиксируется protocol.lock; PromptEnvelope собирается daemon-side по роли.
 - Альтернатива: полагаться на память модели, указывать ей путь без загрузки либо вручную копировать тексты.
 - Обоснование: отдельный agent context обязан получить применимые правила, но пользователь не должен их переносить вручную. Snapshot защищает выполняющийся epic от обновления расширения.
 - Источники:
@@ -102,11 +102,11 @@
   - раздел Cross-model review в agent-selection-guide.md;
   - разговор «Описание механизмов контроля».
 
-## ADR-012: детерминированная интеграция существующим инструментом
+## ADR-012: автономная детерминированная интеграция
 
-- Решение: переиспользовать traycer-protocol integrate-approved как adapter subprocess. State file хранить вне repo/worktrees.
-- Альтернатива: prompt-driven merge или новая TypeScript-реализация CAS/reflog.
-- Обоснование: существующий инструмент уже закрывает crash resume, foreign movement, obstruction, reattach и reflog continuity. Переписывание увеличит риск без пользовательской ценности.
+- Решение: перенести проверенную CAS/reflog-логику и тесты integrate-approved в autosk-owned adapter. State file хранить под canonical project root `.autosk/autosk-flow`, вне worktree.
+- Альтернатива: runtime-вызов Traycer binary либо новая prompt-driven merge-логика.
+- Обоснование: перенос сохраняет доказанные failure contracts, но устраняет runtime-зависимость от Traycer и глобальный cross-project state.
 - Источники:
   - [LOCAL_SOURCE]
   - bin.zip tests.
@@ -140,10 +140,46 @@
   - Pi session-id/resume surface;
   - autosk session/task separation.
 
+## ADR-016: изоляция параллельных проектов по canonical project root
+
+- Решение: все проектные документы, snapshots, provider sessions, evidence, integration state и recovery keys привязаны к canonical `ctx.projectRoot`; любой ключ за пределами одного project store использует `project_root_sha256`, а slug остаётся только display name.
+- Альтернатива: использовать `<project-slug>`, epic ID или task ID как глобальный ключ.
+- Обоснование: autoskd может держать несколько открытых проектов в одном daemon и общем worker pool; task/session IDs и slug не должны смешивать операции разных root.
+- Источники:
+  - daemon/core/src/project/resolve.ts, canonicalize + walk-up до ближайшего `.autosk`;
+  - daemon/core/src/store/paths.ts, per-project `.autosk` layout;
+  - daemon/core/src/engine/engine.ts, global queue over registered projects.
+
+## ADR-017: Obsidian MCP исключён из целевого процесса
+
+- Решение: Obsidian MCP и локальный навык `architecture-planning` не входят в preflight, prompts, tests, review gates, runtime или Definition of Done autosk-flow.
+- Альтернатива: оставить Obsidian как обязательную или опциональную архитектурную сверку.
+- Обоснование: autosk-flow должен быть автономным расширением autosk; личный vault не должен становиться скрытой зависимостью процесса или публичного пакета.
+- Источники:
+  - прямое решение пользователя: Obsidian MCP не используем.
+
+## ADR-018: без devflow и Traycer runtime
+
+- Решение: `autosk-flow` регистрирует собственные Planned, Quick, Ticket, Review, Panel и Arena workflows. `devflow`, `~/.traycer`, `traycer_*`, Traycer skills и Traycer sessions не используются ни как dependency, ни как fallback.
+- Альтернатива: orchestration layer над авторским devflow и вызовы локальных Traycer tools.
+- Обоснование: чужой flow имеет собственный lifecycle и может изменяться независимо; такая связь нарушает автономность и делает поведение Ticket неуправляемым нашей спецификацией.
+- Источники:
+  - прямое решение пользователя: devflow нам не нужен;
+  - разговор «Проектирование autosk v2».
+
+## ADR-019: публичный автономный bundle, приватный migration baseline
+
+- Решение: public Git содержит только очищенный autosk-native Guide + exact 12-file protocol + manifest. Exact imported Traycer baseline хранится локально вне Git и используется только явным import/diff tool до сборки новой bundle version.
+- Альтернатива: публиковать exact baseline или читать его из `~/.traycer` во время runtime.
+- Обоснование: active bundle должен быть воспроизводимым и автономным, но публичный репозиторий не должен раскрывать личные пути, Traycer API и локальные инструкции. Автоматической синхронизации нет.
+- Источники:
+  - разговор «Проектирование autosk v2»;
+  - решение публиковать только обезличенную спецификацию.
+
 ## Оставшиеся риски, не решения
 
 1. Read-only сейчас обнаруживается post-check, а не гарантируется permissions. Каждый reviewer уже изолирован отдельным child task и pinned worktree; если реальные writes повторятся, добавить container read-only mount отдельным этапом.
 2. child-task orchestration через несколько CLI-операций не транзакционно. Идемпотентность и crash-matrix обязательны; create/block/enroll выполняются только AgentDefinition steps, write API рассматривается после MVP.
 3. Pi auth check не понимает custom Cursor/Claude provider state. Готовность этих маршрутов подтверждается только live synthetic calls.
 4. autosk не замораживает workflow graph. Protocol bytes будут pinned; исчезновение workflow/step корректно паркует task в human, но полная graph snapshot остаётся возможным будущим core enhancement.
-5. Obsidian architecture vault не был доступен в текущей сессии. Перед публикацией архитектуры в vault потребуется отдельная сверка через Obsidian MCP.
+5. autoskd использует общий FIFO worker pool для всех проектов. Изоляция и correctness не зависят от порядка, но равная latency между проектами не гарантируется; admission limit нужен только после измерения реального starvation.

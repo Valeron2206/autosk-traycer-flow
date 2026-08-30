@@ -1,5 +1,5 @@
 <mxfile host="Electron">
-  <diagram id="7U1BOKTP7M6X3iQPNTNq" name="pageWithNumber">
+  <diagram id="7U1BOKTP7M6X3iQPNTNq" name="Workflow">
     <mxGraphModel dx="-575" dy="-828" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="0" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
@@ -94,9 +94,9 @@
             <mxGeometry height="54" width="423" x="508" y="2104" as="geometry" />
           </mxCell>
         </UserObject>
-        <UserObject label="Grok implementer в fresh worktree" mermaidId="n:implement" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#ECECFF,#1f2020);strokeColor=light-dark(#9370DB,#cccccc);fontColor=light-dark(#333333,#cccccc);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="Grok implementer в fresh worktree" id="20">
+        <UserObject label="autosk-flow Ticket: Grok implementer в fresh worktree" mermaidId="n:implement" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#ECECFF,#1f2020);strokeColor=light-dark(#9370DB,#cccccc);fontColor=light-dark(#333333,#cccccc);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="autosk-flow Ticket: Grok implementer в fresh worktree" id="20">
           <mxCell parent="1" style="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#ECECFF,#1f2020);strokeColor=light-dark(#9370DB,#cccccc);fontColor=light-dark(#333333,#cccccc);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" vertex="1">
-            <mxGeometry height="54" width="314" x="563" y="2208" as="geometry" />
+            <mxGeometry height="54" width="380" x="530" y="2208" as="geometry" />
           </mxCell>
         </UserObject>
         <UserObject label="Проверка критериев" mermaidId="n:verify" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#ECECFF,#1f2020);strokeColor=light-dark(#9370DB,#cccccc);fontColor=light-dark(#333333,#cccccc);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="Проверка критериев" id="21">
@@ -389,6 +389,127 @@
             </mxGeometry>
           </mxCell>
         </UserObject>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="autosk-flow-architecture" name="Multi-project architecture">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="a0" />
+        <mxCell id="a1" parent="a0" />
+        <mxCell id="a-global" value="Глобальная установка: read-only code + bundle" style="swimlane;startSize=34;html=1;whiteSpace=wrap;container=1;pointerEvents=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=15;" vertex="1" parent="a1">
+          <mxGeometry x="320" y="40" width="900" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="a-package" value="autosk-flow package&#xa;собственные workflows&#xa;без devflow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="a-global">
+          <mxGeometry x="30" y="60" width="250" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a-bundle" value="Governance bundle&#xa;Guide + 12 protocol files&#xa;manifest + digest" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="a-global">
+          <mxGeometry x="325" y="60" width="250" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a-autoskd" value="autoskd&#xa;projects + scheduler&#xa;global worker pool" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="a-global">
+          <mxGeometry x="620" y="60" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a-shared" value="Общие только:&#xa;provider credentials&#xa;worker capacity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="a-global">
+          <mxGeometry x="325" y="185" width="250" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="a-migration" value="Локальный Traycer baseline&#xa;explicit import/diff only&#xa;не публикуется" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="a1">
+          <mxGeometry x="40" y="80" width="230" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a-forbidden" value="Нет runtime-зависимостей&#xa;Traycer / traycer_*&#xa;devflow&#xa;Obsidian / architecture-planning" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;" vertex="1" parent="a1">
+          <mxGeometry x="1280" y="70" width="280" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="a-project-a" value="Project A — canonical root A" style="swimlane;startSize=34;html=1;whiteSpace=wrap;container=1;pointerEvents=0;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=15;" vertex="1" parent="a1">
+          <mxGeometry x="80" y="390" width="690" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="a-a-docs" value="Git: docs/autosk/&#xa;project context + Epics&#xa;Brief / Flow / Plan / Tickets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
+          <mxGeometry x="30" y="70" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-a-state" value=".autosk/autosk-flow/&#xa;tasks + sessions&#xa;snapshot + protocol.lock&#xa;integration state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
+          <mxGeometry x="250" y="70" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-a-evidence" value=".autosk-evidence/&#xa;verdicts + logs&#xa;project A only" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-a">
+          <mxGeometry x="480" y="70" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-a-work" value="Project A worktrees&#xa;implement / review / Arena" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="a-project-a">
+          <mxGeometry x="250" y="230" width="190" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a-project-b" value="Project B — canonical root B" style="swimlane;startSize=34;html=1;whiteSpace=wrap;container=1;pointerEvents=0;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=15;" vertex="1" parent="a1">
+          <mxGeometry x="850" y="390" width="690" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="a-b-docs" value="Git: docs/autosk/&#xa;project context + Epics&#xa;Brief / Flow / Plan / Tickets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">
+          <mxGeometry x="30" y="70" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-b-state" value=".autosk/autosk-flow/&#xa;tasks + sessions&#xa;snapshot + protocol.lock&#xa;integration state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">
+          <mxGeometry x="250" y="70" width="190" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-b-evidence" value=".autosk-evidence/&#xa;verdicts + logs&#xa;project B only" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="a-project-b">
+          <mxGeometry x="480" y="70" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-b-work" value="Project B worktrees&#xa;implement / review / Arena" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="a-project-b">
+          <mxGeometry x="250" y="230" width="190" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a-providers" value="Pi / Claude Code / Cursor providers&#xa;project-scoped session directories" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="a1">
+          <mxGeometry x="620" y="820" width="380" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="a-legend" value="Легенда" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=1;" vertex="1" parent="a1">
+          <mxGeometry x="80" y="800" width="390" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="a-leg-global" value="Глобальный read-only слой" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="a-legend">
+          <mxGeometry x="20" y="35" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="a-leg-project" value="Project-owned state" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="a-legend">
+          <mxGeometry x="205" y="35" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="a-leg-external" value="Внешний / migration-only" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="a-legend">
+          <mxGeometry x="20" y="80" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="a-leg-forbidden" value="Запрещённая зависимость" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="a-legend">
+          <mxGeometry x="205" y="80" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="ae-import" value="explicit import/diff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=blockThin;endFill=1;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="a1" source="a-migration" target="a-bundle">
+          <mxGeometry relative="1" x="0" y="-0.2" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="130" />
+              <mxPoint x="300" y="210" />
+              <mxPoint x="620" y="210" />
+              <mxPoint x="620" y="150" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ae-register" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" edge="1" parent="a-global" source="a-package" target="a-autoskd">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="155" y="45" />
+              <mxPoint x="740" y="45" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ae-a-store" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;exitX=0.35;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="a1" source="a-autoskd" target="a-a-state">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae-b-store" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;exitX=0.65;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="a1" source="a-autoskd" target="a-b-state">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae-a-bundle" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;dashed=1;exitX=0.35;exitY=1;entryX=0.2;entryY=0;" edge="1" parent="a1" source="a-bundle" target="a-a-state">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae-b-bundle" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;dashed=1;exitX=0.65;exitY=1;entryX=0.8;entryY=0;" edge="1" parent="a1" source="a-bundle" target="a-b-state">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae-providers" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="a1" source="a-autoskd" target="a-providers">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="810" y="350" />
+              <mxPoint x="810" y="780" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ae-a-docs" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="a-project-a" source="a-a-state" target="a-a-docs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae-b-docs" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="a-project-b" source="a-b-state" target="a-b-docs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
