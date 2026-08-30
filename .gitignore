@@ -1,0 +1,23 @@
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Local secrets and overrides
+.env
+.env.*
+!.env.example
+*.local
+
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+.tmp/
+tmp/
+*.log
+
+# AutoSK runtime state and generated evidence
+.autosk/
+.autosk-evidence/
