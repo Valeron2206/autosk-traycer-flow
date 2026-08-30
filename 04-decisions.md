@@ -4,7 +4,7 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension; autoskd core не форкать в MVP.
+- Решение: реализовать процесс как TypeScript extension; autoskd core не форкать. Единственное обязательное upstream-изменение — узкий совместимый creation-key primitive из ADR-014.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
@@ -120,15 +120,16 @@
   - autosk statusStep human;
   - связанный разговор, этап Human / Merge.
 
-## ADR-014: сначала extension-only, write API позже
+## ADR-014: CLI orchestration с обязательным immutable creation key
 
-- Решение: MVP создаёт и управляет child tasks через autosk CLI из ctx.exec с идемпотентным run_id. Кроме create/metadata/enroll/block используются точечный unblock, обратный block и resume --to для единственного автоматического случая anchor repair. Добавление TasksAPI write methods оформить отдельным upstream ticket после измерений.
-- Альтернатива: менять core до первого end-to-end proof.
-- Обоснование: CLI предоставляет нужные операции; preflight подтверждает их на временных задачах до запуска workflow. Ранний core patch расширит scope до доказательства необходимости.
+- Решение: orchestration остаётся в extension и вызывает autosk CLI из ctx.exec, но task.create/CLI до MVP получает обязательный optional `creation_key`: write-once daemon-owned field, атомарно сохраняемый вместе с task и уникальный внутри canonical project. `autosk create --creation-key` возвращает existing task того же key/binding при retry. Title/description и human-editable metadata не участвуют в recovery. Остальные write methods TasksAPI остаются отдельным upstream ticket после измерений.
+- Альтернатива: create → metadata set и поиск по marker в title/description.
+- Обоснование: текущий autosk@5163f00 создаёт task с пустой metadata, а title/description изменяемы; crash или rename до metadata set делает текстовый marker недостоверным и допускает duplicate child. Узкий primitive закрывает именно доказанную дыру, не переносит workflow в core и не создаёт второй ledger.
 - Источники:
   - daemon/sdk/src/agent.ts, read-only TasksAPI;
-  - docs/cli.md, create/block/unblock/metadata/enroll/resume --to;
-  - daemon/core/src/engine/session.ts, commit текущего transit не отклоняется из-за вновь добавленного blocker.
+  - `wierdbytes/autosk@5163f00`: `cmd/autosk/create.go`, create без metadata/creation key;
+  - `wierdbytes/autosk@5163f00`: `daemon/core/src/store/store.ts`, createTask пишет editable title/description и пустую metadata;
+  - CodeRabbit finding на PR #2: rename до metadata set может скрыть child от retry.
 
 ## ADR-015: повторное ревью по exact session file
 
@@ -197,7 +198,7 @@
 ## Оставшиеся риски, не решения
 
 1. Custom gate driver предотвращает известные write-capabilities, а pre/post hashes обнаруживают ошибку driver, но OS-level read-only mount пока отсутствует. Если измерения покажут необнаруживаемый путь записи, добавить container mount отдельным этапом.
-2. child-task orchestration через несколько CLI-операций не транзакционно. Идемпотентность и crash-matrix обязательны; create/block/enroll выполняются только AgentDefinition steps, write API рассматривается после MVP.
+2. block/enroll и остальные child-task операции остаются многошаговыми, поэтому receipts и crash-matrix обязательны. Сам create становится идемпотентным через atomic daemon-owned creation_key; полный write API рассматривается после MVP.
 3. Pi auth check не понимает custom Cursor/Claude provider state. Готовность этих маршрутов подтверждается только live synthetic calls.
 4. autosk не замораживает workflow graph. Protocol bytes будут pinned; исчезновение workflow/step корректно паркует task в human, но полная graph snapshot остаётся возможным будущим core enhancement.
 5. autoskd использует общий FIFO worker pool для всех проектов. Изоляция и correctness не зависят от порядка, но равная latency между проектами не гарантируется; admission limit нужен только после измерения реального starvation.
