@@ -31,7 +31,7 @@
 9. Traycer используется только как локальный одноразовый источник миграции Guide и protocol. Runtime не читает `~/.traycer`, не вызывает `traycer_*` и не требует Traycer skills.
 10. Код расширения и активный governance bundle глобальны. Все проектные документы, snapshots, tasks, sessions, evidence и integration state принадлежат конкретному canonical project root.
 11. Obsidian MCP и навык `architecture-planning` исключены из процесса и не входят в preflight, prompts или Definition of Done.
-12. Child fan-out требует daemon-owned write-once `creation_key`, атомарно сохранённый при task.create. Изменяемые title/description/metadata не используются как recovery identity; без primitive preflight останавливает workflow.
+12. Child fan-out требует daemon-owned write-once пару `creation_key + creation_binding_hash`, атомарно сохранённую при task.create. Изменяемые title/description/metadata не используются как recovery identity; без primitive preflight останавливает workflow.
 
 ## Состав пакета
 

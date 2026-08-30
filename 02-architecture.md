@@ -107,7 +107,7 @@ parent: panel_join -> synthesis
 - штатный worker pool по умолчанию имеет четыре места;
 - parent не опрашивает состояние в цикле: blockers сами открывают fan-in.
 
-SDK пока предоставляет TasksAPI только для чтения. MVP создаёт и связывает дочерние задачи через ctx.exec с autosk CLI. Но текущий create не умеет атомарно сохранить неизменяемую identity: title, description и обычная metadata редактируемы. Поэтому MVP имеет один обязательный upstream prerequisite — optional daemon-owned `creation_key` в task.create/CLI. Полный write API остаётся отдельным улучшением и MVP не блокирует.
+SDK пока предоставляет TasksAPI только для чтения. MVP создаёт и связывает дочерние задачи через ctx.exec с autosk CLI. Но текущий create не умеет атомарно сохранить неизменяемую identity: title, description и обычная metadata редактируемы. Поэтому MVP имеет один обязательный upstream prerequisite — optional daemon-owned pair `creation_key + creation_binding_hash` в task.create/CLI. Полный write API остаётся отдельным улучшением и MVP не блокирует.
 
 Параллельность не является гарантией correctness: worker pool глобальный и настраиваемый. Preflight рекомендует workers >= 4 и сообщает конкурирующую нагрузку; при меньшем значении места выполнятся последовательно, но gate останется тем же.
 
@@ -117,15 +117,15 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 Порядок dispatch выбран так, чтобы сбой не оставил невосстановимую блокировку:
 
-1. parent фиксирует run_id, artifact identity и deterministic `creation_key = autosk-flow/v1/<project-hash>/<parent>/<run>/<seat-or-type>`;
-2. для каждого места ищет ровно одну existing new-задачу по daemon-owned creation_key, не по title/description или human-editable metadata;
-3. при отсутствии вызывает `autosk create --creation-key <key>` без workflow; daemon под project-level creation-key lock либо атомарно пишет key вместе с новой task, либо возвращает уже существующую task с тем же key;
-4. записывает обычную metadata и готовит snapshot branch/worktree; key collision с другим immutable creation binding либо несогласованный partial child паркуют dispatch для явного recovery;
+1. parent фиксирует run_id, artifact identity, deterministic `creation_key = autosk-flow/v1/<project-hash>/<parent>/<run>/<seat-or-type>` и SHA-256 canonical immutable creation binding (project/parent/run/type/artifact/session/workflow target);
+2. для каждого места ищет ровно одну existing new-задачу по daemon-owned key+binding hash, не по title/description или human-editable metadata;
+3. при отсутствии вызывает `autosk create --creation-key <key> --creation-binding-hash <sha256>` без workflow; daemon под project-level creation-key lock атомарно пишет оба поля вместе с task, возвращает existing только при совпадении обоих или отвечает conflict;
+4. записывает обычную metadata и готовит snapshot branch/worktree; key collision с другим binding hash либо несогласованный partial child паркуют dispatch для явного recovery;
 5. enroll каждого полностью настроенного child;
 6. только после готовности всех children добавляет blockers parent;
 7. parent переходит в join.
 
-`creation_key` — write-once engine field, включённый в TaskView и защищённый от внешней reconcile-правки. Под одним canonical project root daemon обеспечивает его уникальность без второго ledger: create выполняет поиск/запись под project-level key lock. После сбоя retry находит задачу даже если её переименовали до metadata set. Child никогда не enroll до полной проверки metadata/session/sandbox. Recovery sweep может закрыть только собственную `new`-задачу с валидным creation_key; произвольную task без key он не трогает. Если primitive отсутствует, preflight останавливает autosk-flow до создания реальных задач; fallback на title/description запрещён.
+`creation_key` и `creation_binding_hash` — write-once engine fields, включённые read-only в TaskView и защищённые от внешней reconcile-правки. Под одним canonical project root daemon обеспечивает уникальность key без второго ledger: create выполняет поиск/запись под project-level key lock и никогда не возвращает existing task при hash mismatch. После сбоя retry находит задачу даже если её переименовали до metadata set. Child никогда не enroll до полной проверки metadata/session/sandbox. Recovery sweep может закрыть только собственную `new`-задачу с валидной парой; произвольную task без неё он не трогает. Если primitive отсутствует, preflight останавливает autosk-flow до создания реальных задач; fallback на title/description запрещён.
 
 ## 5. Хранение
 

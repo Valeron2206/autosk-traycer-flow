@@ -132,7 +132,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | rebuild_anchor | affected bindings пусты, execution/ticket_join phase | bump/re-bind Ticket task metadata, ticket_join |
 | resume_repaired_tickets | нет ровно одной open repair op (`anchor_rebuild_op` source=code_only либо `ticket_repair_op` source=`fresh|current|planning`) для current project/anchor/expected set | human с park.reason=ticket_repair_op_invalid; side effects отсутствуют |
 | resume_repaired_tickets | replacement уже enrolled либо имеет dependency/parent blocker до `child_resumed` всех recorded human Tickets | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
-| resume_repaired_tickets | recorded replacement имеет phase вне `{replacement_ready,replacement_enrolled}`, creation_key/owner/scope mismatch либо required preparation incomplete | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, phases не продвигаются |
+| resume_repaired_tickets | recorded replacement имеет phase вне `{replacement_ready,replacement_enrolled}`, creation_key/binding_hash/owner/scope mismatch либо required preparation incomplete | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, phases не продвигаются |
 | resume_repaired_tickets | recorded human recovery Ticket имеет transitive prerequisite в replacement set либо stable topological order/dependency plan нарушен | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
 | resume_repaired_tickets | recorded human recovery Ticket не human+pending и прошлый resume не доказан consumed intent либо status/step после target | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, phases не продвигаются |
 | resume_repaired_tickets | repair op валидна, every replacement phase=`replacement_ready|replacement_enrolled`, parent не имеет premature replacement blockers, semantic writes sealed | в stable topological order для каждого recorded human recovery Ticket materialize dependency edges только к уже processed prerequisites, atomically записать/read-back pending resume_intent + park.reason=anchor_resume_pending; ensure/read-back exact parent blocker, phase=edge_restored; resume либо доказать прошлый resume, phase=child_resumed. После всех human phases для replacement_ready attach remaining dependency blockers, enroll, add exact parent blocker и set replacement_enrolled; already replacement_enrolled только read-back binding. Atomically op phase=ready_to_join/target=ticket_join, transit ticket_join |
@@ -722,8 +722,8 @@ Guard проверяет project binding всех task/session/blocker/verdict/e
 Использовать ctx.exec с autosk CLI после появления обязательного upstream creation-key primitive; полный TasksAPI write surface не требуется:
 
 - передать canonical project root каждой CLI/RPC операции и проверить project binding в прочитанной task view;
-- вычислить exact deterministic `creation_key = autosk-flow/v1/<project_root_sha256>/<parent-id>/<run-id>/<seat-or-type>` и immutable creation binding hash;
-- вызвать create без workflow через `autosk create --creation-key <key>`; daemon atomically persists write-once key вместе с task либо возвращает existing task того же key/binding;
+- вычислить exact deterministic `creation_key = autosk-flow/v1/<project_root_sha256>/<parent-id>/<run-id>/<seat-or-type>` и `creation_binding_hash = SHA-256(canonical project/parent/run/type/artifact/session/workflow-target binding)`;
+- вызвать create без workflow через `autosk create --creation-key <key> --creation-binding-hash <sha256>`; daemon atomically persists оба write-once поля вместе с task, возвращает existing только при совпадении пары или conflict при hash mismatch;
 - metadata set, включая обязательный собственный autosk_flow.session record из правильного role registry для любой model-owned task;
 - при необходимости подготовить branch/worktree от точного snapshot/base;
 - enroll после полной настройки;
@@ -731,7 +731,7 @@ Guard проверяет project binding всех task/session/blocker/verdict/e
 - для anchor repair снять ровно edge `autosk unblock <parent-id> <ticket-id>`, сохранив receipt; `--all` запрещён;
 - при восстановлении сначала записать/read-back child resume_intent, затем вернуть ровно его edge командой `autosk block <parent-id> <ticket-id>` и только после этого выполнить `autosk resume <ticket-id> --to rebuild_code_anchor`; `--all` и resume без matching intent запрещены.
 
-Каждая операция проверяет exit code и перечитывает task view с daemon-owned creation_key. Daemon сериализует одинаковый key под project-level lock и обеспечивает ровно одну task без отдельного index/ledger; title/description и human-editable metadata в recovery lookup не участвуют. Retry переиспользует existing key-matched child даже после rename до metadata set. Key collision с другим binding паркует dispatch, task никогда не enroll до полной metadata/session/sandbox проверки. Recovery sweep закрывает только собственные `new` tasks с валидным creation_key и незавершённой metadata; произвольные tasks без key не трогает. Совпавший run_id другого проекта не совпадает из-за project hash.
+Каждая операция проверяет exit code и перечитывает task view с daemon-owned creation_key+binding hash. Daemon сериализует одинаковый key под project-level lock и обеспечивает ровно одну task без отдельного index/ledger; title/description и human-editable metadata в recovery lookup не участвуют. Retry переиспользует existing child только при совпадении пары даже после rename до metadata set. Key с другим binding hash возвращает conflict и паркует dispatch; task никогда не enroll до полной metadata/session/sandbox проверки. Recovery sweep закрывает только собственные `new` tasks с валидной парой и незавершённой metadata; произвольные tasks без неё не трогает. Совпавший run_id другого проекта не совпадает из-за project hash.
 
 Эти команды являются доступными autosk CLI-операциями, а не действиями модели. Обычную human-задачу возобновляет пользователь; единственное автоматическое исключение — deterministic parent step для anchor repair с валидными parent rebuild и edge receipts. Preflight расширения во временном проекте обязан доказать rename-between-create-and-retry для immutable creation_key, точечный `block -> unblock -> block` и parent-initiated `resume --to rebuild_code_anchor`; отсутствие любого primitive останавливает запуск до создания реальных задач.
 
@@ -904,7 +904,7 @@ State path создаётся отдельно для каждой operation п�
 | Arena candidate build/verify/freeze не завершён | child human с точной arena_candidate_* причиной; candidate не считается live |
 | Project boundary/path guard не прошёл | human с project_boundary_invalid; side effects count=0 |
 | Child create завершился частично | повторный dispatch находит задачу по daemon-owned creation_key даже после rename до metadata set |
-| Duplicate/malformed/colliding creation_key | human с child_creation_key_invalid; ни один child не enroll |
+| Duplicate/malformed/colliding creation_key или binding hash mismatch | human с child_creation_key_invalid; ни один child не enroll |
 | Child task parked human | parent остаётся blocked; оператор возобновляет child в его существующем workflow либо cancel делает join ответственным за parent park; только anchor-repair parent step может автоматически resume Ticket по валидным receipts |
 | Один seat cancel/unavailable | parent переходит в human; сокращённый roster требует явного waiver |
 | Ticket cancel/done без binding | parent переходит в human; такой Ticket не считается завершённым |
@@ -937,7 +937,7 @@ Resume contract:
 | gate_snapshot_mutated | исходный gate model step | новый immutable pinned snapshot того же candidate identity создан, pre-hashes совпадают, прежний response остаётся non-verdict |
 | arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid | соответствующий build/verify/freeze step | тот же candidate attempt восстановим и identity неизменна; иначе новая Arena attempt через parent |
 | project_boundary_invalid | исходный deterministic step | project binding/path исправлены и повторный pre-side-effect assert PASS |
-| child_creation_key_invalid | исходный dispatch step | daemon-owned key/binding исправлен; остаётся ровно одна matching task, title/description не используются |
+| child_creation_key_invalid | исходный dispatch step | daemon-owned key+binding hash исправлены; остаётся ровно одна matching task, title/description не используются |
 | panel_waiver_required | dispatch_panel или panel_join | retry отсутствующего route либо waiver текущей identity и actual roster |
 | contest_join_invalid | dispatch_contest | invalid disposition tasks записаны, attempt+1 |
 | narrow_join_invalid | dispatch_narrow_review | прежний Lead child закрыт, новый attempt |
@@ -1001,7 +1001,7 @@ Resume contract:
 - freeze precedence различает initial editorial exemption и anchor_rebuild forced full review через full_review_reason;
 - Quick/Ticket implement, verify и freeze имеют взаимно исключающие success/fix/human exits для provider/output/scope/evidence/environment/identity failures;
 - каждый workflow graph регистрирует common repair_protocol_snapshot и возвращает только в recorded pre-failure step;
-- daemon-owned creation_key однозначно кодирует project/parent/run/seat, write-once и обнаруживает collision;
+- daemon-owned creation_key и creation_binding_hash write-once; key кодирует project/parent/run/seat, hash связывает artifact/session/workflow target;
 - concurrent create с одним creation_key возвращает один task ID; тот же key с другим binding fail-closed;
 - correction event schema/id/hash/watermark не допускает повторное consume;
 - correction disposition пропускает только exact raw id/hash с later valid human-approved superseder и атомарно двигает watermark;
@@ -1028,7 +1028,7 @@ Resume contract:
 - update installed bundle v1→v2 не влияет на активные Epics с v1 locks; новый Epic получает v2;
 - bundle GC не удаляет digest, пока хотя бы один registered project lock его использует; corrupted snapshot re-mint'ится из exact cached digest;
 - rename/description edit после create до metadata set не меняет creation_key; retry находит existing child и не создаёт duplicate/orphan;
-- reconcile отвергает external task.json edit/remove creation_key; отсутствие CLI/RPC primitive останавливает preflight до child create;
+- reconcile отвергает external task.json edit/remove любого creation field; отсутствие CLI/RPC pair primitive останавливает preflight до child create;
 - Ticket append events H1/H2 одновременно с parent rebuild не теряются: parent sole writer consume'ит только recorded watermark;
 - Ticket никогда не вызывает Epic metadata writer: correction публикуется только append-only event, а любые Ticket-side metadata set parent Epic отклоняются;
 - rebuild_anchor завершает semantic anchor/binding writes до `resume_repaired_tickets`; после первого Ticket resume parent пишет только монотонные edge_restored/child_resumed/ready_to_join phases, а ticket_join prologue закрывает op;
@@ -1137,7 +1137,7 @@ Multi-project preflight дополнительно печатает canonical ro
 
 ### Slice 1 — безопасный фундамент
 
-- минимальный upstream autosk patch: daemon-owned write-once creation_key в StoredTask/TaskView, atomic task.create/CLI `--creation-key`, project-level uniqueness lock и reconcile protection;
+- минимальный upstream autosk patch: daemon-owned write-once creation_key+creation_binding_hash в StoredTask/TaskView, atomic task.create/CLI flags для пары, project-level key lock и reconcile protection;
 - compatibility preflight, который fail-closed запрещает child fan-out на autosk без creation-key primitive;
 - отдельный extension package;
 - autosk-native Guide + exact 12-file governance bundle + manifest/digest;
@@ -1188,7 +1188,7 @@ Arena входит в целевую архитектуру, но реализу
 - пакет прошёл четырёхмодельную панель;
 - все Critical/High закрыты, Medium исправлены или явно отложены;
 - пользователь принял положения из 04-decisions.md;
-- upstream creation-key primitive реализован/протестирован в зафиксированной версии autosk; fallback на title/description отсутствует;
+- upstream creation-key+binding-hash primitive реализован/протестирован в зафиксированной версии autosk; fallback на title/description отсутствует;
 - все четыре Pi route прошли live smoke;
 - создан отдельный тестовый Git-репозиторий, не рабочий проект пользователя;
 - autosk v2 установлен только после фиксации версии и rollback-плана.
