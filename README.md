@@ -1,6 +1,6 @@
 # Проект автономного autosk-flow для autosk v2
 
-Статус: REVISION IN PROGRESS — прежний PASS относится к предыдущей архитектуре. Полная автономность, отсутствие devflow и изоляция параллельных проектов должны получить новый PASS GPT, Grok, Kimi и Opus до реализации.
+Статус: PANEL PASS — автономный multi-project candidate `3138be0` получил PASS GPT, Grok, Kimi и Opus в тех же проверяющих сессиях. Реализация ещё не начата.
 
 ## Цель
 
