@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -225,6 +226,11 @@ test("documentation rejects a positive Traycer call hidden behind a separate neg
   }
 });
 
+test("documentation may describe declared registry kind tokens", () => {
+  const readme = `${documentation.readme}\nThe registry uses \`traycer_skill\` and \`traycer_protocol_command\` records.`;
+  assert.deepEqual(validateDocumentation(readme, documentation.summary, baseRegistry), []);
+});
+
 test("registry rejects private and session-derived strings outside sanitized negative statements", () => {
   for (const value of [
     "responseId abc123",
@@ -269,9 +275,16 @@ test("push validation does not require a branch diff while pull requests keep th
   const packageJson = JSON.parse(readFileSync(path.join(ROOT, "package.json")));
   const workflow = readFileSync(path.join(ROOT, ".github/workflows/validate-traycer-parity.yml"), "utf8");
   assert.equal(packageJson.scripts["validate:migration"], "node scripts/validate-traycer-parity.mjs");
-  assert.equal(packageJson.scripts["validate:scope"], "node scripts/validate-traycer-parity.mjs --check-file-scope origin/main");
+  assert.equal(packageJson.scripts["validate:scope"], "node scripts/validate-traycer-parity.mjs --check-file-scope");
   assert.match(workflow, /if: github\.event_name == 'pull_request'/);
-  assert.match(workflow, /run: npm run validate:scope/);
+  assert.match(workflow, /run: npm run validate:scope -- "\$\{\{ github\.event\.pull_request\.base\.sha \}\}"/);
+});
+
+test("workflow actions are immutable and checkout does not persist credentials", () => {
+  const workflow = readFileSync(path.join(ROOT, ".github/workflows/validate-traycer-parity.yml"), "utf8");
+  assert.match(workflow, /actions\/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /actions\/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5/);
 });
 
 test("source report output is rejected inside the worktree", () => {
@@ -421,6 +434,32 @@ test("aggregate digest binds rationale and invariant fields", () => {
   const registry = clone(baseRegistry);
   findSource(registry, "guide.agent-selection").notes = "Changed rationale";
   assert.match(validateRegistry(registry, schema, documentation).join("\n"), /aggregateDigest mismatch/);
+});
+
+test("aggregate digest and summary comparison ignore object key insertion order", () => {
+  const reorderedSources = baseRegistry.sources.map((source) => Object.fromEntries(Object.entries(source).reverse()));
+  assert.equal(computeAggregateDigest(reorderedSources), baseRegistry.aggregateDigest);
+
+  const registry = clone(baseRegistry);
+  registry.summary = Object.fromEntries(Object.entries(registry.summary).reverse());
+  assert.deepEqual(validateRegistry(registry, schema, documentation), []);
+});
+
+test("malformed registries without sources return errors instead of throwing", () => {
+  const registry = clone(baseRegistry);
+  delete registry.sources;
+  assert.doesNotThrow(() => validateRegistry(registry, schema, documentation));
+  assert.match(validateRegistry(registry, schema, documentation).join("\n"), /expected 37 parity records/);
+  assert.doesNotThrow(() => verifySourceMap(registry, { schemaVersion: 1, sources: {} }));
+  assert.match(verifySourceMap(registry, { schemaVersion: 1, sources: {} }).errors.join("\n"), /registry\.sources must be an array/);
+});
+
+test("CLI executes when invoked through a symlink", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "autosk-parity-cli-link-"));
+  const link = path.join(directory, "validate-traycer-parity.mjs");
+  symlinkSync(path.join(ROOT, "scripts/validate-traycer-parity.mjs"), link);
+  const output = execFileSync(process.execPath, [link, path.join(ROOT, "resources/traycer-parity/registry.v1.json")], { cwd: ROOT, encoding: "utf8" });
+  assert.match(output, /OK: 37 mapped records/);
 });
 
 test("deferred protocol bytes explicitly remain in the v1 bundle", () => {

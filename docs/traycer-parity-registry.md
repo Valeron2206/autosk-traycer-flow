@@ -20,9 +20,9 @@
 | `intentionally_deferred` | 6 |
 | `rejected` | 0 |
 
-Aggregate digest: `1bffce04f2dbde44c1cfe0dc4eefe29ed6a51afade1869f7a5d4d90333901501`.
+Aggregate digest: `607c1d3b6bac5ee2f202afaeedb74f9c932c9f84c1c37faa23853f38fe305438`.
 
-Digest считается от domain separator `autosk-flow.traycer-parity.v1`, затем от полного упорядоченного JSON-представления всех полей 37 записей. Поле digest не входит в собственный preimage. Full candidate tree дополнительно связывает registry, schema, validator, tests и документацию.
+Digest считается от domain separator `autosk-flow.traycer-parity.v1`, затем от полного рекурсивно канонизированного JSON-представления всех полей 37 записей: object keys сортируются детерминированно без locale-зависимости, а array order сохраняется. Текущий keyspace — ASCII. Поле digest не входит в собственный preimage. Full candidate tree дополнительно связывает registry, schema, validator, tests и документацию.
 
 ## Состав
 
@@ -86,4 +86,4 @@ node scripts/validate-traycer-parity.mjs --verify-sources .autosk-evidence/autob
 
 Опциональный report разрешён только по явно переданному пути вне worktree. CI не требует приватных источников и проверяет registry, схему, документацию, отрицательные случаи и точный changed-file scope.
 
-Exact eight-file scope проверяется только пока registry отсутствует в base ref текущего PR. После интеграции issue #3 будущие PR пропускают этот одноразовый scope gate, но продолжают обычные registry tests. Защитой workflow path, required checks и branch policy владеет delivery-profile issue #17.
+Exact eight-file scope проверяется только пока registry отсутствует в фактическом base SHA текущего PR. После интеграции issue #3 будущие PR пропускают этот одноразовый scope gate, но продолжают обычные registry tests. Защитой workflow path, required checks и branch policy владеет delivery-profile issue #17.

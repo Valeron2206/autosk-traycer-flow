@@ -101,6 +101,7 @@ const LOCATOR_PATTERN_SOURCE = "^[a-z][a-z0-9-]*://[A-Za-z0-9._/-]+$";
 const LOCATOR_RE = new RegExp(LOCATOR_PATTERN_SOURCE);
 const TOP_KEYS = ["$schema", "aggregateDigest", "parityClaim", "registryVersion", "schemaVersion", "sourceEvidence", "sources", "summary"];
 const SOURCE_KEYS = ["autoskTarget", "classification", "defer", "disposition", "hashKind", "id", "invariants", "kind", "notes", "parityClaim", "purpose", "sanitizedLocator", "sha256", "sourceRef", "targetVersion", "verification"];
+const REGISTRY_KIND_TOKENS = new Set(["traycer_skill", "traycer_protocol_binary", "traycer_protocol_command", "traycer_test_suite"]);
 
 const canonicalCompare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const sorted = (values) => [...values].sort(canonicalCompare);
@@ -147,6 +148,7 @@ function hasPrivateData(value) {
 function hasActionableTraycerDependency(text) {
   const dependency = /(?:~\/\.traycer(?:\/[A-Za-z0-9._/-]*)?|traycer_(?:[A-Za-z0-9_]+|\*))/gi;
   for (const match of text.matchAll(dependency)) {
+    if (REGISTRY_KIND_TOKENS.has(match[0].toLowerCase())) continue;
     const prefix = text.slice(0, match.index);
     let start = Math.max(prefix.lastIndexOf("\n"), prefix.lastIndexOf(";"), prefix.lastIndexOf("!"), prefix.lastIndexOf("?"), prefix.lastIndexOf(",")) + 1;
     for (const sentence of prefix.matchAll(/[.!?](?=\s+[A-ZА-Я])/gu)) start = Math.max(start, sentence.index + sentence[0].length);
@@ -159,10 +161,20 @@ function hasActionableTraycerDependency(text) {
   return false;
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = sorted(Object.keys(value)).map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export function computeAggregateDigest(sources) {
+  const normalized = Array.isArray(sources) ? sources : [];
   return createHash("sha256")
     .update("autosk-flow.traycer-parity.v1\n")
-    .update(JSON.stringify(sources))
+    .update(canonicalJson(normalized))
     .update("\n")
     .digest("hex");
 }
@@ -175,14 +187,15 @@ export function computeCommandCapabilityHash(command, binarySha256) {
 }
 
 export function computeSummary(sources) {
+  const normalized = Array.isArray(sources) ? sources : [];
   const dispositions = Object.fromEntries(DISPOSITIONS.map((value) => [value, 0]));
-  for (const source of sources) if (Object.hasOwn(dispositions, source.disposition)) dispositions[source.disposition] += 1;
+  for (const source of normalized) if (Object.hasOwn(dispositions, source.disposition)) dispositions[source.disposition] += 1;
   return {
-    mappedRecords: sources.length,
+    mappedRecords: normalized.length,
     implementedRecords: 0,
     verifiedRecords: 0,
-    v1Records: sources.filter((source) => source.classification === "v1").length,
-    postV1Records: sources.filter((source) => source.classification === "post_v1").length,
+    v1Records: normalized.filter((source) => source.classification === "v1").length,
+    postV1Records: normalized.filter((source) => source.classification === "post_v1").length,
     dispositions,
   };
 }
@@ -339,7 +352,7 @@ export function validateRegistry(registry, schema = {}, documentation = {}) {
   }
   const expectedDigest = computeAggregateDigest(sources);
   if (registry?.aggregateDigest !== expectedDigest) errors.push(`aggregateDigest mismatch: expected ${expectedDigest}`);
-  if (JSON.stringify(registry?.summary) !== JSON.stringify(computeSummary(sources))) errors.push("summary does not match sources");
+  if (canonicalJson(registry?.summary) !== canonicalJson(computeSummary(sources))) errors.push("summary does not match sources");
   if (documentation.readme !== undefined || documentation.summary !== undefined) errors.push(...validateDocumentation(documentation.readme ?? "", documentation.summary ?? "", registry));
   return errors;
 }
@@ -362,7 +375,7 @@ export function validateDocumentation(readme, summary, registry) {
       if (matches.length !== 1 || matches[0] !== expected) errors.push(`${documentLabel} ${metricLabel} must be exactly ${expected}`);
     }
   }
-  const currentSummary = computeSummary(registry.sources);
+  const currentSummary = computeSummary(Array.isArray(registry?.sources) ? registry.sources : []);
   if (!summary.includes(`\`v1\`: ${currentSummary.v1Records}`)) errors.push("summary v1 count does not match registry");
   if (!summary.includes(`\`post_v1\`: ${currentSummary.postV1Records}`)) errors.push("summary post_v1 count does not match registry");
   for (const [disposition, count] of Object.entries(currentSummary.dispositions)) {
@@ -427,10 +440,12 @@ export function assertReportPath(reportPath, root = ROOT) {
 }
 
 export function verifySourceMap(registry, sourceMap) {
-  const sources = registry.sources.filter((source) => source.kind !== "traycer_protocol_command");
+  const allSources = Array.isArray(registry?.sources) ? registry.sources : [];
+  const sources = allSources.filter((source) => source?.kind !== "traycer_protocol_command");
   const expectedIds = sources.map((source) => source.id);
   const mapIds = sorted(Object.keys(sourceMap?.sources ?? {}));
   const errors = [];
+  if (!Array.isArray(registry?.sources)) errors.push("registry.sources must be an array");
   if (sourceMap?.schemaVersion !== 1) errors.push("source map schemaVersion must be 1");
   const missing = expectedIds.filter((id) => !mapIds.includes(id));
   const extra = mapIds.filter((id) => !expectedIds.includes(id));
@@ -512,7 +527,16 @@ function run(argv) {
   return 0;
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+function isMainEntry(argvPath) {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(path.resolve(argvPath)) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainEntry(process.argv[1])) {
   try {
     process.exitCode = run(process.argv.slice(2));
   } catch (error) {
