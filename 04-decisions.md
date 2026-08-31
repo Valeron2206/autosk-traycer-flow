@@ -197,7 +197,7 @@
 
 ## ADR-022: human alignment до нормативного planning artifact
 
-- Решение: Brief, Core Flow и Tech Plan получают нормативные bytes только после действующего human alignment/readiness record. Tickets сначала создаются как предложение, затем полный breakdown и dependency graph согласуются до Ticket Panel. Approval связан с project/Epic/kind/anchor/scope/subject/protocol identity и `policy_hash|null`, затем входит в controlling anchor pack. Модельная панель остаётся отдельным последующим gate.
+- Решение: Brief, Core Flow и Tech Plan получают нормативные bytes только после действующего human alignment/readiness record. Tickets сначала создаются как предложение, затем полный breakdown и dependency graph согласуются до Ticket Panel. Approval связан с project/Epic/kind/anchor/scope/subject, daemon user-record provenance, deterministic classifier, protocol и `policy_hash|null`, затем входит в controlling anchor pack. Модельная панель остаётся отдельным последующим gate.
 - Автономный режим: пользователь может заранее выдать exact project/run policy только для перечисленных локальных, обратимых и непродуктовых decision classes. Материальные product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration решения policy не покрывает. Policy имеет те же identity, staleness и audit guarantees и не отменяет Panel, Code Review или integration acceptance.
 - Альтернатива: разрешить планировщику фиксировать assumptions и считать PASS панели подтверждением намерения пользователя либо использовать один бессрочный флаг autonomous.
 - Обоснование: панель может доказать внутреннее качество решения, но не право модели принять его. Точная identity не позволяет повторно применить старое approval после изменения ответа, scope, anchor или Ticket DAG; ограниченная policy сохраняет автономность для заранее разрешённых мелких решений без скрытого расширения полномочий.
@@ -205,6 +205,26 @@
   - issue #4, human alignment gates;
   - 01-core-flows.md, раздел «Согласование решений человеком»;
   - 03-technical-plan.md, alignment state и metadata contracts.
+
+## ADR-023: daemon-attributed user authority
+
+- Решение: user approval, policy issuance/revocation, waiver, anchor-impact/supersedes disposition и integration acceptance принимаются только как append-only `UserDecisionRecord` с actor=user и exact identity. Record создаёт autoskd через capability trusted interactive client; capability не наследуется model/extension subprocess и не хранится в argv/env/project files. Git Decision Log/comments — hash-bound mirrors, не authority. Project policy имеет одну daemon-owned project projection, которую каждый consumer перечитывает.
+- Альтернатива: считать user-authored любой Git/comment запись с подходящим текстом либо проверять наличие TTY.
+- Обоснование: author/implementer имеет shell и может записать Git/comment или запустить обычный CLI; hash доказывает bytes, но не authorship. TTY можно получить программно. Capability-bound daemon provenance делает model self-approval механически проверяемым. Issue #35 позже добавляет общий decision queue/UI/status поверх этого минимального primitive, но не меняет его trust boundary.
+- Источники:
+  - issue #4, invariant «модель не подтверждает своё решение»;
+  - first panel findings feasibility-01 и arch-02;
+  - 02-architecture.md, daemon/user decision boundary.
+
+## ADR-024: Quick reclassification через Planned replacement
+
+- Решение: Quick classification перепроверяется на каждом pre-integration gate. Planned-trigger запускает idempotent `invalidate_quick_classification`: old Quick запрещает commit/integrate, передаёт modified worktree в evidence-retention replacement по exact ownership receipt и создаёт один Planned replacement от original base по daemon creation key. Old Quick завершается с outcome=reclassified, не PASS, только после read-back replacement/receipt.
+- Альтернатива: разрешить material scope expansion внутри Quick либо менять workflow текущей task in place.
+- Обоснование: продолжение Quick обходит четыре alignment/panel gates; in-place switch не поддержан доказанным autosk primitive и усложняет recovery. Replacement сохраняет точную lineage, не доверяет ранним bytes и восстанавливается после crash без duplicate Epic.
+- Источники:
+  - issue #4, Quick exemption only while classification valid;
+  - first panel findings intent-01 и arch-01;
+  - 03-technical-plan.md, Quick reclassification.
 
 ## Оставшиеся риски, не решения
 

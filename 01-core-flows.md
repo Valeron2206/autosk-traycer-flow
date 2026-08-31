@@ -28,6 +28,8 @@ intake
 
 Чисто редакционная Quick-правка может пропустить Code Review только через deterministic editorial classification с exact candidate identity и changed path set. Exemption запрещён для executable code, config/schema/security, prompts, governance bundle и любого behavior-defining документа. Любое другое изменение сохраняет независимую проверку, если пользователь явно её не отменил.
 
+Quick classification проверяется не только на intake, а перед каждым переходом из implementation, verification, fix, freeze, review-result, accept и в integrate prologue до первого Git side effect. Completion/evidence records обязаны перечислять новые material questions и Planned-triggers. Если обнаружены behavior/API/schema/security/concurrency/migration изменения, неясная граница либо material scope expansion, `invalidate_quick_classification` запрещает дальнейшие Quick side effects и идемпотентно создаёт project-bound Planned replacement от исходного base. Текущий worktree передаётся replacement по exact ownership/evidence receipt и остаётся непроверенным, а не code candidate. Старый Quick получает `superseded_by`, outcome=reclassified и не может commit/integrate; грязный worktree не удаляется автоматически. Обычное расширение scope через `implementation_scope_invalid` допустимо только пока повторная классификация остаётся Quick.
+
 ### Planned
 
 Используется, если присутствует хотя бы одно из следующего:
@@ -47,7 +49,7 @@ intake
 - parent/child и blocker edges допустимы только внутри одного проекта;
 - проектный Brief/Core Flow/Tech Plan/Tickets пишутся только в Git этого проекта;
 - provider session не переиспользуется между проектами;
-- project policy hash принадлежит только metadata своего проекта;
+- daemon policy projection и authority records принадлежат только своему project root;
 - остановка, correction или cleanup проекта A не меняют задачи и файлы проекта B.
 
 Если один пользовательский запрос затрагивает несколько репозиториев, координатор создаёт отдельный project-scoped Epic для каждого. Каждый Epic хранит общий opaque UUID correlation ID только для display/audit. Он не содержит и не разрешает task/session/evidence/path другого проекта; runtime не использует его для lookup, blockers, joins или recovery. Общего Ticket, общей session или общего mutable документа между проектами нет.
@@ -94,18 +96,22 @@ intake / classify
 
 | Артефакт | Что предъявляется до продолжения | Когда разрешён следующий шаг | Причина остановки |
 | --- | --- | --- | --- |
-| Brief | цель и ожидаемый результат; затронутые стороны; причина работы; scope и non-goals; критерий успеха; открытые материальные вопросы | framing подтверждён пользователем либо покрыт точной policy; только затем создаётся нормативный Brief | `brief_alignment_required` |
-| Core Flow | действия и видимые состояния; happy/unhappy paths; ошибки, повторы, отмена и partial success; права акторов и реакции системы | каждое материальное продуктовое решение закрыто пользователем; только затем создаётся нормативный Core Flow | `core_flow_decision_required` |
-| Tech Plan | readiness record: открытые вопросы, существенно разные реализации, silent inferences и уже закрытые решения | readiness подтверждена; реализация не должна изобретать оставшееся материальное решение | `tech_plan_readiness_required` |
-| Tickets | полный набор, dependency graph, scope и independently verifiable outcome каждого Ticket, порядок/параллельность и exclusions | breakdown подтверждён до Ticket Panel; изменение набора или графа требует нового согласования | `tickets_breakdown_alignment_required` |
+| Brief | цель и ожидаемый результат; затронутые стороны; причина работы; scope и non-goals; критерий успеха; открытые материальные вопросы | framing подтверждён daemon `UserDecisionRecord`; policy не утверждает product framing; только затем создаётся нормативный Brief | `brief_alignment_required` |
+| Core Flow | действия и видимые состояния; happy/unhappy paths; ошибки, повторы, отмена и partial success; права акторов и реакции системы | каждое material product решение закрыто daemon `UserDecisionRecord`; только затем создаётся нормативный Core Flow | `core_flow_decision_required` |
+| Tech Plan | readiness record: открытые вопросы, существенно разные реализации, silent inferences и уже закрытые решения | readiness подтверждена daemon record либо policy для classifier-proven local/reversible rule; реализация не изобретает material решение | `tech_plan_readiness_required` |
+| Tickets | полный набор, dependency graph, scope и independently verifiable outcome каждого Ticket, порядок/параллельность и exclusions | material breakdown подтверждён daemon record до Ticket Panel; policy может покрыть только scheduling при byte-identical set/scope/outcomes/dependencies/exclusions | `tickets_breakdown_alignment_required` |
 
 Brief, Core Flow и Tech Plan нельзя записать как нормативные артефакты до действующего alignment record. Tickets сначала создаются как предложение, показываются вместе с dependency view и становятся допустимым входом Ticket Panel только после записи approval.
 
-Каждый alignment record неизменяемо связывает `project identity + epic_id + artifact kind + anchor version + scope hash + subject hash + decision record hash + policy hash|null + protocol hash`. `subject hash` для Tickets включает канонический набор файлов, dependency graph, scopes, outcomes, порядок и exclusions; для Tech Plan — весь readiness record. Источником бывает только явное решение пользователя либо заранее выданная project/run policy. Ответы пользователя и record входят в controlling anchor pack.
+`UserDecisionRecord` создаёт только autoskd по запросу trusted interactive client. Daemon связывает record с project/Epic/request/anchor/subject identity и `actor=user`; capability живёт в trusted client connection и не передаётся model process, extension, shell, argv, environment или project filesystem. Наличие TTY само по себе ничего не доказывает. Модель может подготовить packet и recommendation, но не может вызвать user-decision API. Git Decision Log/comment служит только человекочитаемым зеркалом, если его hash уже связан с daemon record; bare Git/comment bytes не являются approval source. Тот же канал обязателен для policy issuance/revocation, waiver, anchor-impact/supersedes approval и integration acceptance.
 
-Изменение ответа, subject, scope, policy или anchor делает record stale. Correction создаёт новую anchor version, проходит impact analysis и аннулирует затронутые candidate/verdict/PASS bindings; незатронутое можно перепривязать только через существующее явное human-approved правило. Bare resume без нового decision record не проходит gate.
+Каждый alignment record неизменяемо связывает `project identity + epic_id + artifact kind + anchor version + scope hash + subject hash + UserDecisionRecord ID/hash/provenance + classifier proof + current policy disposition|null + protocol hash`. `subject hash` для Tickets включает канонический набор файлов, dependency graph, scopes, outcomes, порядок и exclusions; для Tech Plan — весь readiness record. Источником бывает только daemon-attributed решение пользователя либо re-resolved project/run policy. Authority record, optional Git mirror, classifier и policy proof входят в controlling anchor pack.
 
-Обычные локальные, обратимые и нематериальные implementation choices не входят в alignment packet и не требуют вопроса пользователю. Autonomous policy нужна только для заранее перечисленного ограниченного класса решений, который иначе был бы material question. Она должна быть заранее одобрена пользователем и точно связана с project/run, Epic, видами артефактов, классами решений, scope, constraints и собственным hash. Policy может покрывать только перечисленные обратимые и непродуктовые решения. Материальные product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration решения всегда требуют пользователя. Выход за policy даёт `alignment_policy_out_of_scope`; отсутствие или устаревание доказательства — `alignment_record_stale`. Такая policy не отменяет Panel, Code Review и human integration gate.
+Изменение ответа, subject, classifier, scope, policy disposition или anchor делает record stale. Correction создаёт новую anchor version, проходит impact analysis и аннулирует затронутые candidate/verdict/PASS bindings; незатронутое можно перепривязать только через daemon-attributed impact record. Bare resume без current daemon decision record не проходит gate.
+
+Обычные локальные, обратимые и нематериальные implementation choices не входят в alignment packet и не требуют вопроса пользователю. Autonomous policy нужна только для заранее перечисленного ограниченного класса решений, который иначе был бы material question. Она должна быть выдана через `UserDecisionRecord` и точно связана с project либо run, видами артефактов, classifier rule IDs, scope, constraints и собственным hash. Versioned deterministic classifier выводит decision classes из закрытых kind-specific полей packet; model-supplied label не доверяется, запрещённые классы имеют приоритет, а всё недоказанное fail-closed идёт пользователю. Policy может покрывать только перечисленные обратимые и непродуктовые решения. Материальные product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration решения всегда требуют пользователя. Выход за policy даёт `alignment_policy_out_of_scope`; отсутствие или устаревание доказательства — `alignment_record_stale`. Такая policy не отменяет Panel, Code Review и human integration gate.
+
+Project-bound policy и её issuance/revocation dispositions имеют один project-level source, который каждый gate перечитывает; Epic хранит только reference/hash, а не самостоятельную active-копию. Issue #4 определяет только четыре named alignment lifecycles, approval identity и этот минимальный provenance primitive. Расширяемый Artifact Registry остаётся issue #14, полная очередь/UI/status решений — issue #35, а propagation на уже реализованную работу — issue #25.
 
 Quick-flow не получает эти состояния, пока его объективная классификация остаётся валидной. Обнаруженная материальная неоднозначность делает Quick-классификацию невалидной и возвращает запрос в Planned intake.
 
@@ -261,12 +267,13 @@ Bare resume запрещён для эскалаций, где требуетс�
 
 | Причина | Реальный workflow step | Обязательное состояние |
 | --- | --- | --- |
-| Brief framing не согласован | record_alignment | полный framing decision record пользователя либо exact policy той же identity |
-| Core Flow содержит открытое решение поведения | record_alignment | пользователь закрыл каждое материальное решение; model self-approval запрещён |
-| Tech Plan не готов из-за open question или silent inference | record_alignment | текущий readiness record подтверждён пользователем либо exact policy |
-| Ticket breakdown не согласован | record_alignment | показаны текущие Ticket set/DAG/scopes/outcomes/order/exclusions и записано approval |
-| Alignment policy не покрывает решение | clarify_alignment | новое решение пользователя либо новая exact policy; расширять policy модель не может |
-| Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version и decision/alignment record текущих subject/scope hashes |
+| Brief framing не согласован | record_alignment | полный daemon `UserDecisionRecord` framing либо current exact policy той же identity |
+| Core Flow содержит открытое решение поведения | record_alignment | daemon record закрыл каждое material решение; model self-approval запрещён |
+| Tech Plan не готов из-за open question или silent inference | record_alignment | readiness/classifier proof подтверждены daemon record либо current exact policy |
+| Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
+| Alignment policy не покрывает решение | clarify_alignment | новый daemon user decision либо trusted-client-issued exact policy; расширять policy модель не может |
+| Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
+| Quick classification invalid, Planned handoff не завершён | invalidate_quick_classification | schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |
 | Недоступная code-review child | review_candidate | тот же route, новый attempt; parent остаётся blocked |
 | Invalid/cancelled panel child | dispatch_panel | invalid child IDs, attempt+1 |
@@ -275,7 +282,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Invalid narrow-review child | dispatch_narrow_review | новый Lead child и attempt |
 | Invalid code-review child | dispatch_review или dispatch_narrow_review | новый review child, сохранённый режим и attempt |
 | Code verdict revalidation failed | freeze | старый review binding void, новый candidate/review attempt |
-| BLOCKED_ANCHOR, Planned | rebuild_anchor | полная human-approved anchor_impact; step re-bind'ит unchanged, void'ит affected и идёт planning либо Ticket repair |
+| BLOCKED_ANCHOR, Planned | rebuild_anchor | полная daemon-attributed anchor_impact; step re-bind'ит unchanged, void'ит affected и идёт planning либо Ticket repair |
 | Invalid anchor impact map | rebuild_anchor | полная карта и повторно проверенные unchanged hashes |
 | BLOCKED_ANCHOR, standalone Quick | rebuild_code_anchor | own anchor bump, затем verify/freeze/full review |
 | BLOCKED_ANCHOR, Ticket with parent | rebuild_code_anchor | propagate pending в parent, suspend blocker с receipt, ждать parent rebuild_anchor |
@@ -287,7 +294,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Invalid/open duplicate Ticket repair operation | dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind | human выбирает одну exact op; premature blockers сняты, immutable phases не понижены |
 | Affected work Ticket (anchor_repair_ticket_live) | rebuild_anchor после завершения live run | status/impact перечитаны; pending_anchor сохранён; автоматическая mutation/cancel запрещена |
 | Artifact PASS revalidation failed | freeze_artifact | старые bindings void, attempt+1, сохранённый full/narrow mode |
-| Лимит review | fix_artifact для Planned; fix для Quick/Ticket | новый user-approved cap, сохранённые findings и identity |
+| Лимит review | fix_artifact для Planned; fix для Quick/Ticket | новый daemon-attributed cap decision, сохранённые findings и identity |
 | Invalid Arena/Judge | dispatch_arena | новый arena attempt |
 | Arena fallback | apply_arena_decision | пользователь выбрал fallback; следующая панель полная |
 | Invalid autosk-arena block | fix_artifact | исправленный block, narrow=false и новая полная panel |
@@ -311,10 +318,10 @@ onTransit отклоняет resume, если причина park и требу�
 | Исключение | Кто может разрешить | Как фиксируется |
 | --- | --- | --- |
 | Не создавать Brief/Core Flow | координатор по объективной классификации | classification в metadata |
-| Не создавать плановые артефакты для Quick | координатор | mode=quick |
-| Автономно закрыть alignment question | только пользователь заранее | exact project/run policy с kind, decision classes, scope, constraints, user decision ref и policy hash |
-| Пропустить панель существующего артефакта | только пользователь | panel waiver с точным scope |
-| Пропустить Code Review | только пользователь; строго редакционная Quick-правка освобождена deterministic rules | review waiver либо editorial classification + exact identity/path set; governance не editorial |
-| Сократить панель из-за недоступности | только пользователь | unavailable seat, причина, явный waiver и фактический roster |
-| Auto-integration | пользователь или заранее принятая project policy | policy hash в metadata |
-| Превысить 10 раундов | пользователь | human resume с новым cap |
+| Не создавать плановые артефакты для Quick | координатор, пока classification валидна на каждом gate | mode=quick + current classification identity |
+| Автономно закрыть alignment question | только пользователь заранее | daemon-issued exact project/run policy с kind, classifier rules/classes, scope, constraints и policy hash |
+| Пропустить панель существующего артефакта | только пользователь | daemon `UserDecisionRecord` panel waiver с точным scope |
+| Пропустить Code Review | только пользователь; строго редакционная Quick-правка освобождена deterministic rules | daemon review waiver либо editorial classification + exact identity/path set; governance не editorial |
+| Сократить панель из-за недоступности | только пользователь | unavailable seat, причина, daemon waiver и фактический roster |
+| Auto-integration | пользователь или заранее принятая project policy | daemon record/current policy ref+hash |
+| Превысить 10 раундов | пользователь | daemon cap decision + human resume |

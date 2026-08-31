@@ -18,13 +18,15 @@ autosk v2 остаётся движком задач и переходов. Но
 
 ### autoskd
 
-Без изменений отвечает за:
+В целевой pinned версии, после узких upstream primitives из ADR-014 и ADR-023, отвечает за:
 
 - хранение task.json, comments и sessions;
 - статусы new, work, human, done и cancel;
 - одну живую сессию на задачу;
 - blockers и планирование только незаблокированных work-задач;
 - атомарный переход после onTransit;
+- daemon-attributed append-only `UserDecisionRecord` с project/identity binding и actor provenance;
+- trusted-client capability для записи пользовательских решений, не наследуемую model/extension subprocess;
 - счётчики step_visits;
 - загрузку расширений и диагностику.
 
@@ -35,6 +37,7 @@ autosk v2 остаётся движком задач и переходов. Но
 - классификацию Quick/Planned;
 - последовательность плановых артефактов;
 - подготовку human alignment/readiness packets и механическую проверку их approval identity;
+- versioned fail-closed классификацию decision classes и разрешение только daemon-attributed user/policy records;
 - создание дочерних задач панели, Arena и Tickets;
 - компиляцию сообщений из замороженного протокола;
 - проверку structured verdict;
@@ -48,7 +51,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 ### Pi-провайдеры
 
-Выполняют только модельные роли. Author/implementer использует обычный разрешённый переход. Gate-роли не меняют workflow или task store напрямую: они возвращают structured result через единственный host-mediated `submit_gate_result`; driver записывает и перечитывает immutable record, после чего deterministic validator выполняет разрешённый переход.
+Выполняют только модельные роли. Author/implementer использует обычный разрешённый переход, но ни одна model session не получает trusted-client decision capability. Gate-роли не меняют workflow или task store напрямую: они возвращают structured result через единственный host-mediated `submit_gate_result`; driver записывает и перечитывает immutable record, после чего deterministic validator выполняет разрешённый переход. Shell/TTY/CLI из model process не могут создать `actor=user` record.
 
 ### Git
 
@@ -68,8 +71,9 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 Каждый canonical project root отдельно владеет:
 
-- project policy metadata и user decisions;
+- daemon-attributed user decisions и project policy projection;
 - Decision Log с ответами пользователя и exact autonomous policies;
+- daemon-owned user decision records и единый project policy/revocation projection;
 - Brief, Core Flow, Tech Plan, Decision Log и Tickets;
 - task metadata, blockers, comments и sessions;
 - provider session directory;
@@ -135,6 +139,8 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 ~~~text
 <canonical-project-root>/
+  docs/autosk/policies/
+    <policy-id>.md
   docs/autosk/epics/<epic-id>/
     brief.md
     core-flow.md
@@ -149,22 +155,26 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
 
-Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. Проектные факты и решения фиксируются в Epics/Decision Logs либо user instructions; отдельного governance override слоя нет.
+Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. `docs/autosk/policies` — человекочитаемое project-level зеркало issuance/revocation; Epic Decision Log зеркалит только Epic-scoped решения. Git bytes принимаются как нормативный текст лишь после hash-binding к daemon-attributed record и сами по себе не дают approval.
 
 ### Операционная правда в autosk
 
-Используются существующие:
+Целевое хранение использует существующий project store и два узких upstream record types для user authority/policy projection:
 
 ~~~text
 <canonical-project-root>/.autosk/tasks/<task-id>/task.json
 <canonical-project-root>/.autosk/tasks/<task-id>/comments.jsonl
 <canonical-project-root>/.autosk/sessions/<session-id>.json
 <canonical-project-root>/.autosk/sessions/<session-id>.jsonl
+<canonical-project-root>/.autosk/user-decisions/<record-id>.json
+<canonical-project-root>/.autosk/autosk-flow/alignment-policies/<policy-id>.json
 <canonical-project-root>/.autosk/autosk-flow/provider-sessions/
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
-Дополнительный status-ledger не создаётся. `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая связь хранится в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments. Ответы пользователя и autonomous policy остаются нормативными Decision Log/user instruction records в Git или native comments; metadata хранит только их immutable hashes, approval identity и состояние `valid|stale|void`.
+Дополнительный task/status-ledger не создаётся. `UserDecisionRecord` — узкий daemon-owned authority record, а не копия workflow state: `{record_id, project_root_sha256, actor=user, request/epic/task/anchor/subject identity, payload_hash, issued_at, capability_binding}`. Прямая filesystem mutation отклоняется reconciliation; capability остаётся только в trusted client connection и не сериализуется в argv/env/project files. Project policy issuance и terminal revocation используют такие records; `.autosk/autosk-flow/alignment-policies` — единственная daemon-maintained projection current status, которую каждый gate перечитывает. Epic metadata хранит только `policy_ref + expected_hash`, не active-копию. Decision Log/comments являются зеркалом, когда их bytes hash-match authority record.
+
+`bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая workflow-связь остаётся в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
 
 ### Автономный governance bundle
 
@@ -254,8 +264,8 @@ Project filesystem adapter отклоняет traversal/symlink/junction и ис
 pinned common protocol
 + role contract
 + stage contract
-+ current user instructions and accepted corrections
-+ current alignment record and exact policy proof, если применимо
++ current daemon-attributed user decisions and accepted corrections
++ current alignment record and re-resolved project policy proof, если применимо
 + decision-log extract
 + relevant planning artifacts
 + scope identity / artifact identity
@@ -266,7 +276,9 @@ pinned common protocol
 
 Для панели common protocol, anchor pack, artifact bytes и scale byte-identical. Отличаются только role contract и model route.
 
-Controlling anchor pack включает exact bytes/hash применимых пользовательских ответов, Decision Record, alignment record и autonomous policy. Изменение любого из них создаёт pending anchor impact; affected planning candidate/verdict/PASS bindings не могут пережить такую смену. Этот контракт задаёт точку включения в anchor analysis, а полное распространение поздних требований на уже выполненные Tickets проектируется отдельно.
+Controlling anchor pack включает daemon record ID/hash/provenance, exact bytes/hash его Git-зеркала при наличии, alignment record, classifier identity/inputs и re-resolved autonomous policy status. Изменение любого из них создаёт pending anchor impact; affected planning candidate/verdict/PASS bindings не могут пережить такую смену. Этот контракт задаёт точку включения в anchor analysis, а полное распространение поздних требований на уже выполненные Tickets проектируется отдельно.
+
+Граница текущего слоя узкая: четыре named alignment lifecycles и минимальный trusted user-authority primitive принадлежат issue #4. Issue #14 обобщает artifact classes/impact graph, issue #35 строит HumanDecisionRequest queue, answer/status CLI и UI, issue #25 распространяет поздние изменения на уже реализованную работу. Ни registry, ни общий decision dashboard здесь не создаются.
 
 Небольшой resolvedPiAgent wrapper строит firstMessage во время onRun, затем делегирует штатному piAgent. Это позволяет выбрать модель и snapshot из task metadata без копирования pi-agent driver и без изменения autoskd.
 
@@ -301,12 +313,13 @@ alignment approval identity =
     + anchor version
     + scope hash
     + subject hash
-    + decision record hash
-    + policy hash or null
+    + user decision record id/hash/provenance
+    + decision-classifier version/hash
+    + current policy issuance/disposition hashes or null
     + protocol hash)
 ~~~
 
-Поле `approval_identity` не входит в собственный preimage. Для Tickets `subject hash` связывает полный набор файлов, dependency graph, scopes, independently verifiable outcomes, порядок/параллельность и exclusions. Для Tech Plan он связывает readiness record. Любое несовпадение делает approval stale до нового решения или явного hash-checked re-binding в anchor impact.
+Поле `approval_identity` не входит в собственный preimage. Для Tickets `subject hash` связывает полный набор файлов, dependency graph, scopes, independently verifiable outcomes, порядок/параллельность и exclusions. Для Tech Plan он связывает readiness record. Decision classifier выводит classes из закрытых полей; unknown/ambiguous и model labels fail-closed. Любое несовпадение record provenance, classifier input/version или остальных полей делает approval stale до нового решения или явного hash-checked re-binding в anchor impact.
 
 ### Кодовый кандидат
 

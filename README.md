@@ -25,7 +25,7 @@
 2. Tickets проходят собственную панель после декомпозиции и до реализации. Это новое целевое правило для autosk и сознательно строже текущего текста Traycer guide, где Tickets могли входить в панель Tech Plan.
 3. Панель и Code Review — разные механизмы. Панель проверяет плановые артефакты четырьмя моделями; код проверяет одна модель другой семьи относительно автора.
 4. Arena/Judge не даёт PASS и не заменяет human alignment, панель или Code Review. Judge рекомендует базовый подход; материальный выбор сначала подтверждает пользователь, после чего синтезированный результат проходит обычный цикл.
-5. Каждый PASS связан с неизменяемой идентичностью. Изменился hash, pathspec, anchor version или tree OID — старый PASS недействителен. Единственное исключение: явный human-approved re-binding на новую anchor version при неизменных bytes/tree и отсутствии affected upstream kind.
+5. Каждый PASS связан с неизменяемой идентичностью. Изменился hash, pathspec, anchor version или tree OID — старый PASS недействителен. Единственное исключение: daemon-attributed re-binding на новую anchor version при неизменных bytes/tree и отсутствии affected upstream kind.
 6. Пользователь не копирует инструкции вручную. Расширение фиксирует версию протокола и автоматически собирает точный пакет для каждого агента.
 7. autoskd остаётся единственным владельцем операционного состояния задач. Отдельная база, второй оркестратор и второй журнал состояния не создаются.
 8. `autosk-flow` самостоятельно выполняет planning и Ticket lifecycle. `devflow` не устанавливается, не вызывается и не является fallback.
@@ -34,6 +34,8 @@
 11. Obsidian MCP и навык `architecture-planning` исключены из процесса и не входят в preflight, prompts или Definition of Done.
 12. Child fan-out требует daemon-owned write-once пару `creation_key + creation_binding_hash`, атомарно сохранённую при task.create. Изменяемые title/description/metadata не используются как recovery identity; без primitive preflight останавливает workflow.
 13. Модель не подтверждает собственное материальное решение от имени пользователя. Для Brief, Core Flow, Tech Plan и комплекта Tickets нужен действующий human alignment record той же project/Epic/kind/anchor/scope/subject/protocol identity либо заранее одобренная точная autonomous policy с тем же policy proof. Это согласование не заменяет Panel, Code Review или разрешение на интеграцию.
+14. Источником пользовательского решения служит только daemon-attributed `UserDecisionRecord`, созданный через trusted client capability, которой нет у model/extension subprocess. Git Decision Log и comments могут быть зеркалом, но сами по себе не доказывают authorship.
+15. Quick освобождён от planning gates только пока его classification валидна. Planned-trigger, найденный на любом шаге до integration, детерминированно останавливает Quick и создаёт project-bound Planned replacement; расширить material scope и продолжить Quick нельзя.
 
 ## Состав пакета
 
