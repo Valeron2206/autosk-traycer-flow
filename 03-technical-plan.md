@@ -187,13 +187,13 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | rebuild_anchor | любой Ticket expected execution set status=work | human с park.reason=anchor_repair_ticket_live; parent не пишет metadata ни affected, ни unaffected live Ticket, pending_anchor сохраняется |
 | rebuild_anchor | affected Ticket status=human, но это не waiting_parent_anchor с suspension receipt и не blocked_anchor с обоснованным pending до absorption | human с park.reason=anchor_impact_invalid; никаких mutation |
 | rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes/alignments только по exact daemon-attributed impact approval, void affected bindings и alignment records, current kind=earliest affected, current_cycle full required, clarify_alignment; для affected Tickets после proposal — present_tickets_breakdown |
-| rebuild_anchor | planning kinds unchanged/re-bound, affected только Ticket code bindings, все affected Tickets status=human и каждый либо waiting_parent_anchor+suspension receipt, либо blocked_anchor+обоснованный pending до absorption | sole-writer bump/re-bind, clear consumed source pending, write Ticket receipts/anchors до resume, ready_to_transit(resume_repaired_tickets) |
-| rebuild_anchor | planning kinds unchanged/re-bound, affected только Ticket code bindings, есть replacement disposition, нет status=work; dependency closure каскадно перенесла в replacement каждого human с replacement prerequisite, а оставшиеся human имеют допустимое recovery state | sole-writer bump/re-bind, clear consumed source pending; replacements только create/configure до phase=replacement_ready, без enroll/dependency/parent blockers; ready_to_transit(resume_repaired_tickets) |
+| rebuild_anchor | planning unchanged, affected Ticket code bindings, affected Tickets human in allowed recovery state | orchestrateChildBatch bound to anchor_rebuild_op/exact child heads writes receipts/anchors; ready_to_transit(resume_repaired_tickets) |
+| rebuild_anchor | code-only replacement dispositions, no expected Ticket status=work | orchestrateChildBatch applies exact supersede/create/configure child patches to replacement_ready; no enroll/blockers; ready_to_transit |
 | rebuild_anchor | affected bindings пусты, active Arena decision pending/running | bump/re-bind, void old Arena run binding, arena attempt+1, dispatch_arena |
 | rebuild_anchor | affected bindings пусты, planning phase без active Arena | bump/re-bind, select_next |
 | rebuild_anchor | affected bindings пусты, execution/ticket_join phase | bump/re-bind Ticket task metadata, ticket_join |
 | resume_repaired_tickets | authority/dependency/intent-head reconciliation, `consumeAnchorCorrections`, current Tickets pass/alignment или controlling digest не прошли; pending_anchor появился | op остаётся открытой без phase movement; human с park.reason=blocked_anchor, resume/enroll/block side effects отсутствуют |
-| resume_repaired_tickets | нет ровно одной open repair op (`anchor_rebuild_op` source=code_only либо `ticket_repair_op` source=`fresh\|current\|planning`) для current project/anchor/expected set | human с park.reason=ticket_repair_op_invalid; side effects отсутствуют |
+| resume_repaired_tickets | нет ровно одной open repair op (`anchor_rebuild_op` source=code_only либо `ticket_repair_op` source=`fresh\|current\|planning\|aggregate_unchanged`) | human с ticket_repair_op_invalid |
 | resume_repaired_tickets | replacement уже enrolled либо имеет dependency/parent blocker до `child_resumed` всех recorded human Tickets | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
 | resume_repaired_tickets | recorded replacement имеет phase вне `{replacement_ready,replacement_enrolled}`, creation_key/binding_hash/owner/scope mismatch либо required preparation incomplete | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, phases не продвигаются |
 | resume_repaired_tickets | recorded human recovery Ticket имеет transitive prerequisite в replacement set либо stable topological order/dependency plan нарушен | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
@@ -208,9 +208,10 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | dispatch_ticket_dag | ticket_repair_op открыт и recorded human task/path/hash/recovery state/dependency closure mismatch | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
 | dispatch_ticket_dag | ticket_repair_op открыт и replacement уже enrolled/work либо имеет dependency/parent blocker | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
 | dispatch_ticket_dag | open op matched receipt, но scope/dependency/candidate reset не подтверждены | human с park.reason=ticket_join_invalid |
-| dispatch_ticket_dag | ticket_repair_op открыт и не все recorded replacements phase=replacement_ready | выполнять только recorded monotonic supersede/non-live-cancel/receipt-cleanup/create/configure phases; human dependency closure уже frozen в op; enroll/blockers запрещены; затем dispatch_ticket_dag |
+| dispatch_ticket_dag | ticket_repair_op открыт и не все replacements phase=replacement_ready | orchestrateChildBatch applies only op-recorded child patches with expected heads and receipts; enroll/blockers forbidden; then dispatch_ticket_dag |
 | dispatch_ticket_dag | ticket_repair_op открыт, все human bindings валидны и replacements phase=replacement_ready | atomically phase=ready_to_transit/target=resume_repaired_tickets, transit resume_repaired_tickets |
-| dispatch_ticket_dag | ticket_repair_op отсутствует и current Tickets pass-or-waived binding/alignment валидны | read-only classify complete old/human/replacement set + receipts/dependency closure; atomically создать durable op source=`fresh\|current\|planning`, phase=prepared, exact dispositions/map; никаких cancel/cleanup/create/configure side effects; dispatch_ticket_dag |
+| dispatch_ticket_dag | remediation closed target=dispatch_ticket_dag with unchanged_repair_map и no ticket_repair_op | create op source=aggregate_unchanged binding failure evidence/map; every affected Ticket forced replacement/current repair candidate, complete_old forbidden; dispatch_ticket_dag |
+| dispatch_ticket_dag | no op and current Tickets pass/alignment valid | classify set and create op source=`fresh\|current\|planning`; no child mutation yet; dispatch_ticket_dag |
 | ticket_join | human Ticket имеет schema/hash-valid event и receipt, edge отсутствует, но receipt ещё не final `edge_suspended` | восстановить exact blocker edge, transit ticket_join_wait; child возобновляется через complete_anchor_handoff до consume |
 | ticket_join | human Ticket имеет schema/hash-valid event, но malformed/mismatched receipt | восстановить exact blocker edge, transit ticket_join_wait; child возобновляется через repair_anchor_handoff mode=receipt_only, event не дублируется |
 | ticket_join | human Ticket имеет malformed/mismatched raw comment/event | восстановить exact blocker edge, transit ticket_join_wait; child возобновляется через repair_anchor_handoff mode=supersede_event, старый raw record не редактируется |
@@ -225,21 +226,24 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | ticket_join | ожидаемый Ticket status=human | обеспечить exact blocker edge, transit ticket_join_wait; пользователь возобновляет child |
 | accept | current controlling digest mismatch | ensure pending_anchor, human с blocked_anchor; acceptance stale |
 | accept | resume --to integrate, current IntegrationAuthorizationRecord связывает current target OID, completed-prefix receipt и exact remaining transitions/digest, pending_anchor отсутствует | integrate |
+| integrate | daemon integration operation receipt phase=pending/indeterminate | integration_recovery до проверки expiry или нового Git side effect |
 | integrate | controlling digest/pending_anchor/anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до Git side effect |
+| integrate | все Tickets integrated и pending operation отсутствует | aggregate_verify |
 | integrate | IntegrationAuthorizationRecord missing/mismatched/expired | atomically сохранить completed ref-transition prefix/current target OID в integration-state; accept statusStep("human") с park.reason=integration_authorization_required; target ref дальше не читается/не меняется |
 | integrate | next integration step plan/current authorization валидны | вызвать daemon `integrateApproved(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest,authorization_id,target,expected_old,new_oid)`; daemon под mutex reconciles global journal, re-resolves relevant projection/heads/classifier/auth и Git CAS; success -> integrate |
-| integrate | все Tickets integrated | aggregate_verify |
 | integrate | precondition | human с park.reason=integration_precondition |
 | integrate | obstruction | human с park.reason=integration_obstruction |
 | integrate | foreign movement/indeterminate/reattach | integration_recovery или human по классификации |
-| integration_recovery | branch/ref/state снова однозначны и postflight валиден | integrate или aggregate_verify по recorded phase |
+| integration_recovery | pending receipt + target/reflog proves exact new OID | daemon marks committed, atomically advances completed-prefix/current target; integrate (which may aggregate or require new authorization) |
+| integration_recovery | pending receipt + target still exact expected_old | daemon marks not_applied; integrate without advancing prefix |
 | integration_recovery | состояние осталось foreign/indeterminate | human или cancel; обычный retry запрещён |
 | aggregate_verify | controlling digest mismatch или pending_anchor | human с park.reason=blocked_anchor |
 | aggregate_verify | все epic-критерии PASS | cleanup |
 | aggregate_verify | NOT_PASS | first durable write создаёт aggregate_remediation с creation key/binding, old set digest, evidence hash, phase=proposed; select_next/dispatch уже fail-closed; human с park.reason=aggregate_verify_failed |
 | record_aggregate_remediation | exact signed choice/current failure identity отсутствуют, choice вне `external_retry\|unchanged_dispatch\|set_changing` либо evidence drift | human с park.reason=aggregate_remediation_required; старые Tickets bindings не используются для нового set |
-| record_aggregate_remediation | phase=proposed, choice=external_retry и evidence доказывает environment/external retry | atomically phase=closed, clear park, aggregate_verify |
-| record_aggregate_remediation | phase=proposed, choice=unchanged_dispatch и set/DAG byte-identical approved binding | atomically phase=closed, clear park, dispatch_ticket_dag |
+| record_aggregate_remediation | phase=closed и recorded_target binding валиден | идемпотентно recorded_target |
+| record_aggregate_remediation | phase=proposed, choice=external_retry и evidence доказывает external retry | atomically phase=closed + recorded_target=aggregate_verify, clear park, aggregate_verify |
+| record_aggregate_remediation | phase=proposed, choice=unchanged_dispatch, set/DAG byte-identical и signed failure-bound repair map валиден | atomically phase=closed + recorded_target=dispatch_ticket_dag + unchanged_repair_map_hash/failure_evidence_hash, dispatch_ticket_dag |
 | record_aggregate_remediation | phase=proposed, choice=set_changing и signed exact remediation/fix scope валидны | atomically phase=choice_recorded, record_aggregate_remediation |
 | record_aggregate_remediation | phase=choice_recorded | одной parent metadata replacement void old PASS/alignment + phase=old_bindings_void, draft_artifact |
 | record_aggregate_remediation | phase=old_bindings_void | draft_artifact |
@@ -282,7 +286,7 @@ accept — statusStep("human"); при валидном signed `IntegrationAutho
 
 Quick metadata добавляет `quick_handoff=null|{op_id,project_root_sha256,source_task_id,run_id,intent_head,normalized_request_hash,classification_rules_hash,planned_trigger_hash,original_base_oid,declared_scope_hash,worktree_inventory_hash,candidate_hash?,review_hash?,acceptance_hash?,waiver_hash?,integration_authorization_hash?,replacement_creation_key,replacement_binding_hash,replacement_task_id,ownership_receipt_hash,phase}`. First `prepared` write atomically void'ит Quick review/accept/waiver/integration authorization, ставит `git_side_effects_forbidden=true` и связывает current heads/state before child create. Closed phases: `prepared -> replacement_created -> replacement_enrolled -> worktree_transferred -> complete`. Поля до phase write-once; retry только повышает phase и тот же creation key. `complete` разрешает outcome=reclassified, но не PASS/integration.
 
-Closed Quick task schema = Ticket schema fields `project,session,run_id,anchor_version,controlling_anchor_digest,authority_dependency_binding,intent_head,pending_anchor,protocol_hash,authorship,scope,candidate,review_cycle,review_sessions,review,integration,integration_authorization` плюс `classification_identity,quick_handoff,editorial_exemption,waivers,git_side_effects_forbidden`; поля `parent_epic_task,ticket_artifact,waiting_parent_anchor,resume_intent,parent_rebuild_receipt` запрещены. Quick `IntegrationAuthorizationRecord` использует `epic_id=null`, mandatory `run_id` и `quick_task_id`; unknown fields fail validation.
+Closed Quick schema uses Ticket canonical names `project,session,run_id,anchor_version,controlling_anchor_digest,authority_dependencies,intent_head,pending_anchor,protocol_hash,authorship,scope,candidate,review_cycle,review_sessions,review,integration,integration_authorization` plus Quick fields; parent/ticket-only fields forbidden. Quick IntegrationAuthorization uses epic_id=null + run_id/quick_task_id.
 
 ### autosk-ticket
 
@@ -391,6 +395,7 @@ Quick tail:
 
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
+| integrate | daemon integration operation receipt phase=pending/indeterminate | integration_recovery before Quick reclassification/auth check |
 | accept | Quick classification invalid либо planned_trigger появился до integration | invalidate_quick_classification |
 | accept | controlling digest mismatch | ensure pending_anchor, human с blocked_anchor; acceptance stale |
 | accept | resume --to integrate, signed `IntegrationAuthorizationRecord` exact Quick run/candidate/target/base/single ref transition/tree/dependency digest current, Quick classification valid, pending_anchor отсутствует | integrate |
@@ -401,7 +406,7 @@ Quick tail:
 | integrate | precondition | human с integration_precondition |
 | integrate | obstruction | human с integration_obstruction |
 | integrate | foreign movement/indeterminate/reattach | integration_recovery или human по классификации |
-| integration_recovery | branch/ref/state однозначны и postflight валиден | integrate или cleanup по recorded phase |
+| integration_recovery | pending receipt proves exact new OID | finalize daemon receipt/prefix, cleanup; if not_applied -> integrate |
 | integration_recovery | foreign/indeterminate сохраняется | human; cancel отдельной status-операцией |
 | cleanup | dirty=false и sandbox removed/absent | done |
 | cleanup | dirty=true при force=false | human с cleanup_dirty |
@@ -769,9 +774,9 @@ Alignment record content write-once. Source enum закрыт: `user_decision|pr
 
 `anchor_rebuild_op` хранит закрытый `source=planning|code_only|arena|no_bindings`, `op_id`, consumed correction event IDs/watermark, pre-resume Epic/Ticket hashes, `from_version`, `to_version`, immutable dispositions каждого Ticket, stable topological order human recovery set/dependency plan, per-ticket phase (`prepared | replacement_ready | edge_restored | child_resumed | replacement_enrolled | superseded`), общую phase (`prepared | anchor_committed | ready_to_transit | resuming_children | ready_to_join`), recorded target и expected identity. Только source=code_only может иметь target=`resume_repaired_tickets`; остальные закрываются prologue своего planning/Arena/join target. Наличие открытой операции имеет приоритет над обычными guard-строками `rebuild_anchor`.
 
-`ticket_repair_op` — parent-owned dispatch operation source=fresh|current|planning. До mutation он хранит project/anchor/current Tickets pass-or-waived binding, exact expected set, stable human/replacement/dependency map и monotonic phases. Replacements не enroll'ятся и не получают blockers до `child_resumed` всех recorded human Tickets. `resume_repaired_tickets` revalidates authority first and performs resume/enroll/block primitives only under daemon authority guard. `ticket_join` prologue закрывает ровно приведшую к нему op.
+`ticket_repair_op` source=fresh|current|planning|aggregate_unchanged. Aggregate source binds failure evidence + repair map and forbids complete_old for affected Tickets; fresh verify/review/commit required. Before mutation op stores exact set/dependency map/phases. Resume/enroll/block remain authority-guarded.
 
-`aggregate_remediation` — parent-owned durable op created as the first NOT_PASS write: `{creation_key,creation_binding_hash,old_ticket_set_digest,failure_evidence_hash,phase:proposed|choice_recorded|old_bindings_void|proposal_ready|closed,choice:null|external_retry|unchanged_dispatch|set_changing,fix_scope_hash?,new_ticket_set_digest?,choice_record_id?,choice_record_hash?}`. `select_next`/dispatch fail-closed for any non-closed op. Set-changing `choice_recorded -> old_bindings_void` is one parent metadata replacement that also void'ит old PASS/alignment; draft later records new proposal/digest and phase=proposal_ready. Crash resumes the recorded prefix, never dispatches a partial old/new set.
+`aggregate_remediation` durable op: `{creation_key,creation_binding_hash,old_ticket_set_digest,failure_evidence_hash,phase,choice,recorded_target?,unchanged_repair_map_hash?,fix_scope_hash?,new_ticket_set_digest?,choice_record_id?,choice_record_hash?}`. Closed phase always stores target for crash retry. Unchanged repair map forces fresh affected code candidates; set-changing phases void approval before new proposal.
 
 `correction_dispositions` не редактирует comments и не превращается во второй inbox. Это parent-owned terminal map только для raw records, которые не могут пройти schema/hash validation: exact raw comment id/hash получает единственный status=`superseded`, ссылку на более поздний schema-valid event и daemon `UserDecisionRecord` ID/hash. Watermark может пройти invalid raw record только в той же атомарной записи disposition; mismatch raw/authority identity снова блокирует gate.
 
@@ -783,7 +788,7 @@ Authority dependency history is an append-only daemon journal, not mutable Epic 
 
 `authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest)` — daemon connection-bound project mutex. Daemon reconciles global authority head for integrity, then compares only relevant current projection + Epic heads. Competing appends wait; resume/enroll/block accept token. `integrateApproved` uses same mutex and CAS. Unrelated project authority append therefore does not stale an Epic after re-resolution.
 
-Workflow custody exposes host RPC `mutateAutoskFlow(step_capability,expected_metadata_head,patch)` and `appendGateResult(...)`. Capability is single-use/current-step/connection/task bound and non-exportable; mutation atomically CAS-updates protected metadata head. Gate receipt is write-once under result head; joins resolve it from daemon. WorkAgent has no builtin shell: custom worktree_exec runs inside path sandbox denying canonical `.autosk`, sibling worktrees and arbitrary autosk CLI.
+Workflow custody exposes `mutateAutoskFlow(own_step_capability,expected_head,patch)`, `orchestrateChildBatch(parent_step_capability,op_id,[{child_id,expected_head,allowed_patch}])` and `appendGateResult`. Batch capability is daemon-minted only for current parent repair/dispatch step, binds exact child creation identities/heads/closed patch schema, single-use, and records monotonic per-child receipts. It never impersonates a child workflow step. WorkAgent has no raw shell/.autosk/CLI.
 
 ### Ticket task
 
@@ -796,6 +801,7 @@ Workflow custody exposes host RPC `mutateAutoskFlow(step_capability,expected_met
       "project_root_sha256": "..."
     },
     "parent_epic_task": "...",
+    "run_id": "run-001",
     "session": {
       "provider_session_id": "...",
       "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
@@ -806,6 +812,13 @@ Workflow custody exposes host RPC `mutateAutoskFlow(step_capability,expected_met
     "ticket_artifact": "docs/autosk/epics/epic-001/tickets/T01.md",
     "anchor_version": 1,
     "controlling_anchor_digest": "...",
+    "authority_dependencies": {
+      "head_sequence": 1,
+      "head_hash": "...",
+      "projection_hash": "...",
+      "current": []
+    },
+    "intent_head": {"sequence": 1, "head_hash": "..."},
     "pending_anchor": null,
     "waiting_parent_anchor": false,
     "resume_intent": null,
@@ -837,10 +850,13 @@ Workflow custody exposes host RPC `mutateAutoskFlow(step_capability,expected_met
       "task_id": "...",
       "session_id": "...",
       "reviewer_family": "codex",
-      "verdict_hash": "...",
+      "gate_result_receipt_id": "...",
+      "gate_result_receipt_hash": "...",
+      "result_head_hash": "...",
       "controlling_anchor_digest": "...",
       "status": "pass"
     },
+    "integration_authorization": null,
     "integration": null
   }
 }
@@ -1123,8 +1139,8 @@ Panel, contest, narrow Lead, code-review и Judge получают snapshot-root
 3. если private branch уже exact expected OID и parent/recipe совпадают, восстановить metadata идемпотентно;
 4. если branch на recorded base, CAS update только к expected OID;
 5. любой другой OID, даже с approved tree, — commit_foreign_movement;
-7. привести ticket worktree к чистому состоянию;
-8. записать commit OID и повторно сверить branch/tree.
+6. привести ticket worktree к чистому состоянию;
+7. записать commit OID и повторно сверить branch/tree.
 
 Модель refs не двигает.
 
@@ -1135,9 +1151,9 @@ Panel, contest, narrow Lead, code-review и Judge получают snapshot-root
 1. берёт чистую целевую ветку и её recorded base OID;
 2. строит merge commit без движения целевой ref;
 3. вычисляет merge tree и сверяет approved tree;
-4. вызывает daemon integrateApproved с relevant authority projection/dependency/intent heads, exact current IntegrationAuthorizationRecord and transition prefix; daemon mutex covers revalidation and Git CAS;
-5. классифицирует exit: success, precondition, obstruction, foreign movement, indeterminate или reattach;
-6. только success разрешает следующий Ticket.
+4. daemon under mutex writes durable integration operation receipt phase=pending binding authorization, expected_old/new, heads and prefix before Git CAS;
+5. performs update-ref, then marks receipt committed/not_applied; crash leaves pending receipt that recovery resolves by exact ref/reflog before expiry/reclassification checks;
+6. only committed advances prefix/next Ticket; foreign/indeterminate parks.
 
 State path создаётся отдельно для каждой operation под `<canonical-project-root>/.autosk/autosk-flow/integration-state/` и связывается с project_root_sha256. Никакой integration state не хранится в глобальной пользовательской папке или соседнем проекте.
 
@@ -1164,7 +1180,7 @@ State path создаётся отдельно для каждой operation п�
 - Сокращённый panel join допустим только с daemon-attributed exact waiver той же identity, полным actual_roster и gate Lead вне author/fixer set.
 - Любой pending_anchor, BLOCKED_ANCHOR или несовпадение anchor_version переводит parent в human с blocked_anchor; четыре PASS ничего не разрешают.
 - rebuild_anchor не вычисляет map после approval: только prepare_anchor_impact пишет proposal; signed approval связывает proposal hash, а watermark/status drift возвращает prepare до side effects.
-- Ровно одна active repair op допустима. anchor_rebuild_op с source=planning/code_only/arena/no_bindings имеет приоритет в rebuild_anchor, но только code_only разрешает resume target; ticket_repair_op с source=fresh/current/planning имеет приоритет в dispatch_ticket_dag. ready_to_transit допускает только recorded target. `resume_repaired_tickets` продолжает фазы выбранной op, а `ticket_join` prologue закрывает её. Unknown source, две open ops либо mismatched kind паркуют ticket_repair_op_invalid без side effects.
+- One active repair op; ticket_repair source includes aggregate_unchanged and must carry failure/map binding. Unknown/duplicate/mismatch parks without effects.
 - Narrow review join требует ровно одного Lead child в status=done и verdict текущей identity; findings возвращают fix_artifact, PASS ведёт select_next, invalid terminal ведёт human.
 - Contest join требует отдельную disposition каждого originating seat; снижение или отклонение finding без полного набора dispositions недействительно.
 - Ticket join требует каждую expected Ticket done, current code review disposition=pass|waived, controlling digest и commit OID. Terminal status сам по себе недостаточен.
@@ -1262,7 +1278,7 @@ Resume contract:
 | protocol_lock_invalid | repair_protocol_snapshot | common deterministic step зарегистрирован в Planned, Quick, Ticket, panel/contest/code-review и Arena workflows; exact locked content digest/manifest/attestation доступен для atomic re-mint; иначе reinstall exact bundle либо явная migration с full gates |
 | arena_reexpression_missing | draft_artifact | Decision Record/graft list отражены в новых Tech Plan bytes и identity отличается от pre-arena |
 | correction_event_invalid | trusted-client decision, затем исходный gate | append schema-valid superseding event с exact raw id/hash + daemon record ID/hash; parent atomically записывает terminal disposition, продвигает watermark и не редактирует старый comment |
-| ticket_repair_op_invalid | dispatch_ticket_dag для source=fresh/current/planning либо rebuild_anchor для source=code_only | open op отсутствует/двойная/source или binding не совпадает; человек выбирает единственную exact op и void'ит конфликтующую без side effects |
+| ticket_repair_op_invalid | dispatch_ticket_dag for fresh/current/planning/aggregate_unchanged or rebuild_anchor code_only | exact single op/source/binding required; conflicting op voided without child effects |
 | ticket_repair_state_invalid | recorded source step `dispatch_ticket_dag` или `resume_repaired_tickets` | daemon-attributed exact repair disposition записана в open op; premature blockers сняты либо invalid Ticket superseded/replaced, phases не понижены |
 | blocked_anchor, autosk-planned | prepare_anchor_impact | pending_anchor current; step deterministicly stages full map/status/cascade hash без rebuild side effects |
 | anchor_impact_approval_required | record_anchor_impact_approval | signed daemon `UserDecisionRecord` exact staged proposal hash; step atomically records approved status только при unchanged snapshot/watermark |
@@ -1354,6 +1370,7 @@ Resume contract:
 - authorityGuard serializes resume/enroll/block batch, а integrateApproved serializes target CAS with authority/dependency/instruction/correction append;
 - gate child authority mismatch emits validated BLOCKED_ANCHOR and reaches done, so parent join cannot remain blocked by human child;
 - daemon workflow custody rejects model/stale-host autosk_flow metadata/comment mutations; gate receipt replacement/truncation conflicts with protected result head;
+- orchestrateChildBatch accepts only current parent step/op exact child set, expected heads and closed repair patches; wrong child/field/stale head/forged child capability rejected;
 - parallel panel seats accept daemon-attributed sibling lifecycle/result versions without comparing mutable full sibling stores;
 - standalone Quick uses scope_id=quick:<task-id> dependency/intent journals and appendIntentEvent advances that head;
 - identity/hash canonicalization;

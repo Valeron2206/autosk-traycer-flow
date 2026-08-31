@@ -229,7 +229,7 @@
 
 ## ADR-025: daemon workflow custody
 
-- Решение: daemon enforce'ит `autosk_flow` writes через step-capability + expected protected metadata head; direct task.json edit mismatches head. Gate outcome — write-once result receipt/head. WorkAgent получает custom worktree-scoped fs/test exec sandbox without raw shell, `.autosk`, task/comment/metadata or arbitrary CLI; host owns transitions.
+- Решение: own-task writes use step-capability+expected head. Parent repair/dispatch uses separate `orchestrateChildBatch` capability bound to parent step/op, exact child set/heads and closed patch schema; daemon records monotonic child receipts and never mints forged child step capability. Gate outcome is write-once receipt/head. WorkAgent is worktree-only.
 - Альтернатива: доверять tool allowlist, same-UID filesystem и self-consistent metadata/hash bytes.
 - Обоснование: model с shell иначе может подделать PASS, очистить pending_anchor или заменить repair op после pre/post check. Human authority и Git dirt этого не обнаруживают.
 - Источники:

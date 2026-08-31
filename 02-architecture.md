@@ -18,7 +18,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 ### autoskd
 
-В целевой pinned версии, после узких upstream primitives из ADR-014 и ADR-023, отвечает за:
+В целевой pinned версии, после обязательных upstream sets ADR-014, ADR-023 и ADR-025, отвечает за:
 
 - хранение task.json, comments и sessions;
 - статусы new, work, human, done и cancel;
@@ -27,6 +27,7 @@ autosk v2 остаётся движком задач и переходов. Но
 - атомарный переход после onTransit;
 - daemon-attributed append-only `UserDecisionRecord` с project/identity binding и actor provenance;
 - trusted-client capability для записи пользовательских решений, не наследуемую model/extension subprocess;
+- protected authority/dependency/intent/metadata/result heads, step-capability metadata CAS и gate-result receipts;
 - счётчики step_visits;
 - загрузку расширений и диагностику.
 
@@ -114,7 +115,7 @@ parent: panel_join -> synthesis
 - штатный worker pool по умолчанию имеет четыре места;
 - parent не опрашивает состояние в цикле: blockers сами открывают fan-in.
 
-SDK пока предоставляет TasksAPI только для чтения. MVP создаёт и связывает дочерние задачи через ctx.exec с autosk CLI. Но текущий create не умеет атомарно сохранить неизменяемую identity: title, description и обычная metadata редактируемы. Поэтому MVP имеет один обязательный upstream prerequisite — optional daemon-owned pair `creation_key + creation_binding_hash` в task.create/CLI. Полный write API остаётся отдельным улучшением и MVP не блокирует.
+Current autosk не даёт three required surfaces: creation identity ADR-014, signed authority/intent ADR-023 и workflow custody/receipts ADR-025. MVP preflight запрещает любой model workflow, пока pinned autosk не реализует все три. General TasksAPI write surface остаётся отдельным улучшением.
 
 Параллельность не является гарантией correctness: worker pool глобальный и настраиваемый. Preflight рекомендует workers >= 4 и сообщает конкурирующую нагрузку; при меньшем значении места выполнятся последовательно, но gate останется тем же.
 
@@ -132,7 +133,7 @@ SDK пока предоставляет TasksAPI только для чтени�
 6. только после готовности всех children добавляет blockers parent;
 7. parent переходит в join.
 
-`creation_key` и `creation_binding_hash` — write-once engine fields, включённые read-only в TaskView и защищённые от внешней reconcile-правки. Под одним canonical project root daemon обеспечивает уникальность key без второго ledger: create выполняет поиск/запись под project-level key lock и никогда не возвращает existing task при hash mismatch. После сбоя retry находит задачу даже если её переименовали до metadata set. Child никогда не enroll до полной проверки metadata/session/sandbox. Recovery sweep может закрыть только собственную `new`-задачу с валидной парой; произвольную task без неё он не трогает. Если primitive отсутствует, preflight останавливает autosk-flow до создания реальных задач; fallback на title/description запрещён.
+`creation_key` и `creation_binding_hash` — write-once engine fields. Daemon serializes key and rejects hash mismatch. Retry finds renamed new task. Child never enrolls before custody/session/sandbox validation. Если любой ADR-014/023/025 primitive отсутствует, preflight останавливает autosk-flow до model launch/child create; mutable fallback запрещён.
 
 Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `cmd/autosk/create.go` без `--workflow` оставляет task status=new, а `cmd/autosk/enroll.go` отдельно выполняет `enroll <id> --workflow NAME [--step STEP]` и переводит new в work. Preflight доказывает оба состояния до real fan-out.
 
@@ -365,7 +366,7 @@ verdict binding =
 
 Authority/dependency/user-instruction/correction appends, graph repair mutations и Git target-ref CAS имеют одну daemon-owned точку линеаризации. `authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,digest)` держит project mutex; daemon reconciles global authority head for integrity, но сравнивает only current Epic projection so unrelated record не stales it. `integrateApproved` под тем же mutex re-resolves projection/heads/classifier/auth record и выполняет Git update-ref. Competing append ждёт mutex; lock не хранит task status.
 
-Третий upstream primitive — daemon workflow custody. Namespace `autosk_flow` принимает mutation только с step-capability `{task_id,workflow,step,expected_metadata_head}`; daemon CAS-двигает task-keyed protected metadata head. Direct task.json edit расходится с head. Gate result append advances protected result head. Parent join читает daemon receipt. Author/implementer uses custom worktree-scoped read/write/exec adapters; raw shell/autosk CLI and canonical-root `.autosk` access are absent. Exec sandbox permits only worktree + explicit toolchain paths; completion/transition request goes host driver.
+Третий upstream primitive — daemon workflow custody. Own-task mutation uses step-capability + expected metadata head. Parent repair uses `orchestrateChildBatch` capability bound to parent task/workflow/step/op ID, exact child IDs+expected heads and closed allowed patches; daemon CAS-updates child heads and records monotonic phases. It cannot mint a child-owned step capability. Gate result advances result head. WorkAgent has worktree-scoped adapters only.
 
 ## 8. Worktree identity и read-only review
 

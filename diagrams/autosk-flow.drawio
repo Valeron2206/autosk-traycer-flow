@@ -24,7 +24,7 @@
             <mxGeometry height="70" width="566" x="8" y="525" as="geometry" />
           </mxCell>
         </UserObject>
-        <UserObject label="Human: согласовать framing Brief" mermaidId="n:brief_alignment" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#FFF2CC,#3b3420);strokeColor=light-dark(#D6B656,#d6b656);fontColor=light-dark(#333333,#f0f0f0);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="Human: согласовать framing Brief" id="6">
+        <UserObject label="Human: согласовать framing Brief, если создан" mermaidId="n:brief_alignment" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#FFF2CC,#3b3420);strokeColor=light-dark(#D6B656,#d6b656);fontColor=light-dark(#333333,#f0f0f0);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="Human: согласовать framing Brief, если создан" id="6">
           <mxCell parent="1" style="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#FFF2CC,#3b3420);strokeColor=light-dark(#D6B656,#d6b656);fontColor=light-dark(#333333,#f0f0f0);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" vertex="1">
             <mxGeometry height="54" width="310" x="600" y="525" as="geometry" />
           </mxCell>
@@ -34,7 +34,7 @@
             <mxGeometry height="54" width="446" x="497" y="629" as="geometry" />
           </mxCell>
         </UserObject>
-        <UserObject label="Human: закрыть решения Core Flow" mermaidId="n:core_alignment" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#FFF2CC,#3b3420);strokeColor=light-dark(#D6B656,#d6b656);fontColor=light-dark(#333333,#f0f0f0);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="Human: закрыть решения Core Flow" id="8">
+        <UserObject label="Human: закрыть Core Flow, если создан" mermaidId="n:core_alignment" mermaidBaseStyle="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#FFF2CC,#3b3420);strokeColor=light-dark(#D6B656,#d6b656);fontColor=light-dark(#333333,#f0f0f0);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="Human: закрыть Core Flow, если создан" id="8">
           <mxCell parent="1" style="html=1;whiteSpace=wrap;strokeWidth=1;fillColor=light-dark(#FFF2CC,#3b3420);strokeColor=light-dark(#D6B656,#d6b656);fontColor=light-dark(#333333,#f0f0f0);fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" vertex="1">
             <mxGeometry height="54" width="330" x="500" y="733" as="geometry" />
           </mxCell>
