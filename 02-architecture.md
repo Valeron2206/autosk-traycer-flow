@@ -71,9 +71,8 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 Каждый canonical project root отдельно владеет:
 
-- daemon-attributed user decisions и project policy projection;
-- Decision Log с ответами пользователя и exact autonomous policies;
-- daemon-owned user decision records и единый project policy/revocation projection;
+- daemon-attributed user decision journal и единый project policy/revocation projection;
+- Decision Log/policy mirrors;
 - Brief, Core Flow, Tech Plan, Decision Log и Tickets;
 - task metadata, blockers, comments и sessions;
 - provider session directory;
@@ -82,6 +81,8 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 - worktree, evidence и integration recovery state.
 
 Глобальный пакет никогда не записывает внутрь себя проектные данные. Проект A не может ссылаться на task/session/evidence path проекта B; cross-project blocker и cross-project PASS binding запрещены.
+
+Единственное integrity-исключение к физическому project root — rollback-resistant daemon secure store: он хранит только `{project_root_sha256, authority_head, correction_head}` без decision/task payload. Логически heads project-owned, cross-project lookup запрещён; это anti-rollback anchor, не mutable status ledger.
 
 ## 3. Почему панель — дочерние задачи
 
@@ -176,7 +177,9 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 
 Дополнительный task/status-ledger не создаётся. `UserDecisionRecord` — узкий authority record, а не копия workflow state. Project init через trusted client создаёт daemon-owned write-once public-key pin до enroll любого model task; workflow TOFU/re-pin запрещены. Rekey требует signatures old+new keys; lost-key recovery void'ит dependent approvals. Autoskd выдаёт nonce+expiry challenge exact decision identity; trusted client показывает packet и подписывает через `UserPresenceSigner`. Production signer использует non-exportable project-bound OS key с user-presence access control; тесты получают fake signer. Private key не передаётся daemon child/model processes. Unpinned/headless project fail-closed до model launch.
 
-Daemon append'ит подписанный record в project-owned hash-chained journal `.autosk/user-decisions/`, затем материализует projection. Reconciliation проверяет signature, nonce, sequence, previous-record hash и project binding; синтаксически валидный файл без journal entry отклоняется. Project policy issuance и terminal revocation используют такие records; `.autosk/autosk-flow/alignment-policies` — единственная daemon-maintained projection current status, которую каждый gate перечитывает. Epic metadata хранит только `policy_ref + expected_hash`, не active-копию. Decision Log/comments являются зеркалом, когда их bytes hash-match authority record. Residual assumption: model sandbox не имеет signer/keychain/accessibility/ptrace capability к trusted client несмотря на общий OS UID.
+Daemon append'ит signed record в project-owned hash-chain journal, затем CAS-обновляет rollback-resistant secure head `{project_hash,sequence,head_hash}` в signer/daemon private store outside model-readable project tree. Challenge подписывает previous head + next sequence. Projection публикуется после head commit. Recovery принимает journal-ahead только как contiguous signed crash-tail и CAS-forward; secure-head-ahead, missing record, shorter prefix/deletion или regressed sequence fail-closed. Такой же external monotonic digest/head защищает append-only correction inbox watermark. Store содержит только project-keyed anti-rollback hashes/counters, не task status или decision payload, поэтому не является вторым ledger.
+
+Project policy issuance/revocation используют signed records; `.autosk/autosk-flow/alignment-policies` — daemon projection, которую gate перечитывает. Epic metadata хранит ref/hash, не active-копию. Git/comments — mirrors. Residual assumption: model sandbox не имеет signer/secure-head/keychain/accessibility/ptrace capability несмотря на общий OS UID.
 
 `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая workflow-связь остаётся в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
 
@@ -338,6 +341,7 @@ candidate identity =
   + declared pathspec
   + candidate tree OID
   + anchor version
+  + controlling anchor digest
   + attempt
 ~~~
 
@@ -353,6 +357,8 @@ verdict binding =
 ~~~
 
 Перед commit и integration identity вычисляется заново. Совпадение текста комментария PASS без этих полей ничего не разрешает.
+
+`controlling_anchor_digest` связывает current alignment authority/manifests/classifier/projector/policy dispositions/protocol + secure heads. Daemon authority/policy append atomically emits project-scoped `authority_changed` correction event to affected active Epics. Tool/process adapters and every Ticket/parent deterministic prologue re-resolve digest; mismatch aborts live model tools, marks existing work untrusted and enters blocked-anchor handoff before review/commit/join/integration.
 
 ## 8. Worktree identity и read-only review
 

@@ -34,7 +34,7 @@
 11. Obsidian MCP и навык `architecture-planning` исключены из процесса и не входят в preflight, prompts или Definition of Done.
 12. Child fan-out требует daemon-owned write-once пару `creation_key + creation_binding_hash`, атомарно сохранённую при task.create. Изменяемые title/description/metadata не используются как recovery identity; без primitive preflight останавливает workflow.
 13. Модель не подтверждает собственное материальное решение от имени пользователя. Для Brief, Core Flow, Tech Plan и Tickets alignment identity связывает полный canonical `material_decision_manifest`; projection пересчитывается после draft/Arena/fix, и новый material decision возвращает human gate до freeze/panel. Это согласование не заменяет Panel, Code Review или разрешение на интеграцию.
-14. Источником пользовательского решения служит только signed daemon `UserDecisionRecord`: trusted project init до model enroll pin'ит write-once public key, autoskd выдаёт exact nonce challenge, client подписывает non-exportable `UserPresenceSigner`, daemon проверяет и append'ит hash-chain journal. Workflow TOFU/re-pin и текстовые mirrors не дают authority.
+14. Источником пользовательского решения служит signed daemon `UserDecisionRecord`: trusted init pin'ит key, client подписывает exact nonce challenge, daemon append'ит hash-chain journal и CAS-обновляет rollback-resistant secure head. Short/deleted prefix fail-closed; workflow TOFU/re-pin и text mirrors не дают authority.
 15. Quick освобождён от planning gates только пока его classification валидна. Planned-trigger, найденный на любом шаге до integration, детерминированно останавливает Quick и создаёт project-bound Planned replacement; расширить material scope и продолжить Quick нельзя.
 
 ## Состав пакета

@@ -4,7 +4,7 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension; autoskd core не форкать. Единственное обязательное upstream-изменение — узкий совместимый creation-key/binding-hash primitive из ADR-014.
+- Решение: реализовать процесс как TypeScript extension без отдельного scheduler/daemon fork. Обязательные upstream primitive sets ровно два: creation-key/binding-hash из ADR-014 и signed user-authority/project-policy stack из ADR-023. Остальной workflow остаётся extension-owned.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
@@ -113,7 +113,7 @@
 
 ## ADR-013: human gate перед интеграцией
 
-- Решение: accept — statusStep("human") после PASS и до движения целевой ветки. Auto-integration policy позволяет ticket_join перейти сразу в integrate; иначе только resume --to integrate с acceptance той же identity.
+- Решение: accept — statusStep("human") после pass/waived review disposition и до движения target. Current auto-integration policy позволяет ticket_join, record_code_verdict или initial editorial exemption перейти сразу в integrate после всех identity/anchor/classification guards; иначе нужен signed acceptance той же identity.
 - Альтернатива: всегда автоматически интегрировать после PASS.
 - Обоснование: review подтверждает кандидат, но не всегда разрешает изменение пользовательской ветки. Явная policy убирает повторный вопрос для доверенных проектов.
 - Источники:
@@ -208,7 +208,7 @@
 
 ## ADR-023: daemon-attributed user authority
 
-- Решение: trusted project init до model enroll создаёт daemon-owned write-once signer public-key pin; workflow TOFU/re-pin запрещены. Autoskd выдаёт nonce+expiry challenge exact decision; trusted client показывает packet и подписывает non-exportable project-bound `UserPresenceSigner`. Daemon проверяет pin/nonce/expiry и append'ит signed hash-chain `UserDecisionRecord`; projection принимается только при signature/sequence/previous-hash reconciliation. Rekey требует old+new signatures, lost-key recovery void'ит approvals. Model subprocess не получает signer/keychain/accessibility capability. Git/comments — mirrors, не authority; project policy имеет одну daemon projection.
+- Решение: trusted init pin'ит signer key; autoskd выдаёт exact nonce challenge; client подписывает non-exportable `UserPresenceSigner`; daemon append'ит signed project journal. Previous head+next sequence входят в signature, а rollback-resistant project-keyed authority/correction heads живут в daemon private secure store вне model-readable tree. Short/deleted/regressed chain fail-closed; valid journal-ahead crash-tail может CAS-advance head. Rekey/lost-key void approvals. Git/comments — mirrors; policy имеет одну daemon projection.
 - Альтернатива: считать user-authored любой Git/comment запись с подходящим текстом либо проверять наличие TTY.
 - Обоснование: author/implementer имеет shell и может записать Git/comment, открыть обычную daemon connection или получить TTY; hash доказывает bytes, но не authorship. Подписанный exact challenge + daemon journal делает replay/forge механически проверяемым. Headless без signer остаётся blocked. Residual assumption: sandbox не имеет signer/accessibility/ptrace доступа к trusted client при общем OS UID. Issue #35 позже добавляет общий decision queue/UI/status поверх primitive, но не меняет trust boundary.
 - Источники:

@@ -70,7 +70,7 @@ intake / classify
   -> ticket DAG execution
 ~~~
 
-Этап пропускается только если его артефакт не нужен. Если артефакт создан, панель включается автоматически.
+Brief и Core Flow пропускаются только по objective classification. Tech Plan и Tickets обязательны для Planned; запрос без нужды в Ticket breakdown относится к Quick. Если артефакт создан, его panel policy применяется автоматически.
 
 ### Brief
 
@@ -103,7 +103,9 @@ intake / classify
 
 Brief, Core Flow и Tech Plan до approval существуют только как structured proposal/`material_decision_manifest`, не нормативные prose bytes. Каждый artifact содержит ровно один fenced `autosk-material-decisions` JSON block; behavior-defining sections ссылаются только на его stable decision IDs. Prompt compiler/Tickets используют block, а unreferenced prose не является material authority и не попадает в implementation constraints. После draft deterministic projector парсит exact block/section refs и сравнивает с approved manifest. Missing/new/changed/unknown decision ID или unmapped normative section stales alignment и возвращает clarify; только byte-equivalent projection либо classifier-proven local/non-material additions допускают freeze. Тот же check повторяется после Arena/fix. Tickets используют полный breakdown/manifest до Ticket Panel.
 
-`UserDecisionRecord` создаёт только autoskd после подписанного user-presence challenge. Project public-key pin создаётся trusted client при project init до запуска model task и является daemon-owned write-once field; trust-on-first-use из workflow запрещён. Rekey требует signatures old+new user-presence keys; lost-key recovery — отдельное destructive human recovery, которое void'ит прежние approvals. Daemon выдаёт trusted client одноразовый `{nonce,expires_at,project/request/anchor/subject/payload_hash}`; клиент показывает exact packet и получает подпись non-exportable project-bound ключом через OS user-presence signer. Private key отсутствует в model sandbox, argv/env/files и недоступен без user-presence prompt. Daemon проверяет signature/nonce/expiry, append'ит record в signed hash-chained project journal и только затем материализует read-only projection. Прямая запись projection не проходит journal signature/sequence reconciliation. Наличие TTY или тот же OS UID ничего не доказывает; residual trust assumption — sandbox не имеет доступа к signer, accessibility automation и памяти trusted client. Headless/unpinned project не запускает model workflow.
+`UserDecisionRecord` создаёт только autoskd после signed user-presence challenge. Project public-key pin создаётся trusted client при project init до model task и write-once; workflow TOFU/re-pin запрещены. Rekey требует old+new signatures; lost-key recovery void'ит approvals. Challenge связывает `{nonce,expires_at,project/request/anchor/subject/payload_hash,previous_secure_head,next_sequence}`. Client показывает packet и подписывает non-exportable OS user-presence key. Daemon проверяет signature/nonce/expiry, append'ит project-owned hash-chain journal, затем CAS-обновляет rollback-resistant secure head `{project_hash,sequence,head_hash}` в signer/daemon private store, недоступном model process. Projection материализуется только после head commit.
+
+Recovery: journal ahead secure head допускается только как contiguous valid signed crash-tail и CAS-forward; secure head ahead/missing record, shorter prefix, deletion или regressed sequence fail-closed как `authority_journal_truncated`. Тот же external monotonic head защищает daemon-hashed correction inbox watermark. Прямая запись/удаление project records не проходит reconciliation. Residual assumption — sandbox не имеет signer/secure-head/accessibility/ptrace доступа несмотря на общий UID. Headless/unpinned project не запускает model workflow.
 
 Модель может подготовить packet и recommendation, но обычная daemon connection без signature не создаёт `actor=user`. Git Decision Log/comment служит только человекочитаемым зеркалом, если его hash уже связан с signed daemon record; bare Git/comment bytes не являются approval source. Тот же канал обязателен для policy issuance/revocation, waiver, anchor-impact/supersedes approval и integration acceptance.
 
@@ -157,6 +159,8 @@ Lead обязан быть другой семьёй относительно в
 
 Замечания объединяются в канонические IDs. Отклонение или снижение серьёзности оспаривается у всех исходных авторов замечания. Исправляет исходный автор артефакта. Узкую повторную проверку проводит Lead по всем подтверждённым замечаниям. Существенное изменение scope запускает новую полную панель.
 
+Contest disposition терминален для canonical finding ID и exact candidate identity. Повторно оспорить уже dispositioned finding нельзя; новые evidence/root cause получают новый finding ID и обычный review round. Contest не образует собственный бесконечный цикл.
+
 Повторные обращения идут тем же логическим агентам:
 
 - за каждым местом панели закреплён provider session ID;
@@ -206,7 +210,9 @@ Judge ранжирует варианты и выдаёт рекомендаци
 - bug-fix сначала воспроизводится красной проверкой;
 - исполнитель проверяет критерии, но не коммитит и не двигает refs.
 
-Родительская epic-задача блокируется всеми Ticket-задачами. Она продолжает работу только когда каждая ожидаемая Ticket-задача имеет status=done и валидный PASS/commit binding. Ticket status=human продолжает блокировать parent и исправляется в дочерней задаче. cancel, отсутствующая задача или done без binding снимают blocker, но join затем переводит parent в human.
+Родительская epic-задача блокируется всеми Ticket-задачами. Она продолжает работу только когда каждая ожидаемая Ticket-задача имеет status=done, current review disposition=pass|waived и commit binding. Ticket status=human продолжает блокировать parent. cancel/missing/done без binding снимают blocker, но join паркует parent.
+
+Каждый Ticket/candidate/verdict связывает `controlling_anchor_digest` current user authority, manifests, classifier/projector, policy dispositions, protocol и rollback heads. Policy revoke/authority change daemon append'ит secure-headed `authority_changed` event в affected Epic inbox. Live model tool/process wrapper revalidates digest before each call and aborts stale session; every implement/verify/fix/freeze/review/record/commit и parent join/accept/integrate/aggregate prologue повторяет check. Mismatch делает bytes untrusted и идёт через existing blocked-anchor handoff/rebuild; отдельная auto-integration policy не спасает revoked planning authority.
 
 Единственное исключение: Ticket с correction append'ит immutable `anchor_correction` event в comments родительского Epic, записывает собственный waiting receipt, сначала подтверждённо паркуется human и только затем exact-unblock'ит parent. Ticket никогда не пишет Epic metadata. `ticket_join` не возвращает намеренно снятый edge при exact final receipt: он сначала переводит correction в blocked_anchor. Незавершённый receipt, напротив, восстанавливает edge и возобновляется через `complete_anchor_handoff`. Parent deterministic gate как единственный writer consume'ит events в pending_anchor. При code-only impact rebuild заканчивает все semantic anchor/binding writes и переходит в `resume_repaired_tickets`. Этот step до восстановления blocker записывает/read-back в Ticket долговечный `resume_intent` с exact op/target, затем возвращает edge и resume'ит child. Crash после edge до resume оставляет parent безопасно blocked, а human Ticket — с единственной явной целью `rebuild_code_anchor`; пользователь возобновляет его без перестройки графа. После resume parent пишет только монотонные фазы recovery operation и закрывает её при входе в ticket_join. Crash после нового event не теряет его из-за append-only inbox. Planning dispatch создаёт отдельную durable repair operation и готовит replacements без enroll/blockers; только после resume всех matched human Tickets он enroll'ит replacements и ставит blockers. Потерянный receipt или event hash блокирует процесс.
 
@@ -218,7 +224,7 @@ Judge ранжирует варианты и выдаёт рекомендаци
 2. вычисляет candidate tree OID через временный Git index;
 3. создаёт недвигающий refs snapshot commit;
 4. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
-5. создаёт отдельную review-задачу с новым task ID и OID-pinned рабочей копией из snapshot.
+5. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.
 
 Маршрут проверяющего выбирается по union фактических author и fixer families:
 
@@ -307,8 +313,8 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Commit CAS failed without movement | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | Private ticket branch moved | commit_on_pass | branch снова однозначен после расследования; cancel — отдельная status-операция |
 | Aggregate verification failed | aggregate_verify для доказанного external retry; select_next/present_tickets_breakdown для нового/изменённого fix Ticket; dispatch_ticket_dag только для unchanged approved set/DAG | set-changing fix получает новое breakdown approval, full Ticket Panel и PASS до dispatch |
-| Нет внешней code-review family | dispatch_review или dispatch_narrow_review | human reviewer, re-expression либо точный waiver; режим сохраняется |
-| Нет внешней panel Lead family | dispatch_panel или dispatch_narrow_review | external human Lead либо точный waiver; full/narrow сохраняется |
+| Нет внешней code-review family | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression | recovery возвращается к реальному waiver consumer, режим сохраняется |
+| Нет внешней panel Lead family | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead | recovery возвращается к waiver consumer, full/narrow сохраняется |
 | Dirty cleanup | cleanup | явное force-разрешение либо сохранённое восстановимое состояние |
 | Integration obstruction | integrate | помеха перемещена восстанавливаемо и записано доказательство |
 | Integration precondition | integrate | предусловие устранено, base/tree повторно записаны и доказательство приложено |
