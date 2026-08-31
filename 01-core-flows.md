@@ -96,16 +96,18 @@ intake / classify
 
 | Артефакт | Что предъявляется до продолжения | Когда разрешён следующий шаг | Причина остановки |
 | --- | --- | --- | --- |
-| Brief | цель и ожидаемый результат; затронутые стороны; причина работы; scope и non-goals; критерий успеха; открытые материальные вопросы | framing подтверждён daemon `UserDecisionRecord`; policy не утверждает product framing; только затем создаётся нормативный Brief | `brief_alignment_required` |
-| Core Flow | действия и видимые состояния; happy/unhappy paths; ошибки, повторы, отмена и partial success; права акторов и реакции системы | каждое material product решение закрыто daemon `UserDecisionRecord`; только затем создаётся нормативный Core Flow | `core_flow_decision_required` |
-| Tech Plan | readiness record: открытые вопросы, существенно разные реализации, silent inferences и уже закрытые решения | readiness подтверждена daemon record либо policy для classifier-proven local/reversible rule; реализация не изобретает material решение | `tech_plan_readiness_required` |
+| Brief | цель/результат/affected/why/scope/non-goals/success/open questions как non-normative proposal + material decision manifest | framing/manifest подтверждены daemon `UserDecisionRecord`; policy не утверждает product framing | `brief_alignment_required` |
+| Core Flow | полный behavior proposal: actions/states/happy/unhappy/errors/retry/cancel/partial success/rights/reactions + manifest | каждое material product решение manifest закрыто daemon `UserDecisionRecord` | `core_flow_decision_required` |
+| Tech Plan | readiness + proposal manifest: open questions, alternatives, silent inferences, closed и планируемые material decisions | manifest подтверждён daemon record либо policy только для classifier-proven local/reversible rule | `tech_plan_readiness_required` |
 | Tickets | полный набор, dependency graph, scope и independently verifiable outcome каждого Ticket, порядок/параллельность и exclusions | material breakdown подтверждён daemon record до Ticket Panel; policy может покрыть только scheduling при byte-identical set/scope/outcomes/dependencies/exclusions | `tickets_breakdown_alignment_required` |
 
-Brief, Core Flow и Tech Plan нельзя записать как нормативные артефакты до действующего alignment record. Tickets сначала создаются как предложение, показываются вместе с dependency view и становятся допустимым входом Ticket Panel только после записи approval.
+Brief, Core Flow и Tech Plan до approval существуют только как structured proposal/`material_decision_manifest`, не нормативные prose bytes. Каждый artifact содержит ровно один fenced `autosk-material-decisions` JSON block; behavior-defining sections ссылаются только на его stable decision IDs. Prompt compiler/Tickets используют block, а unreferenced prose не является material authority и не попадает в implementation constraints. После draft deterministic projector парсит exact block/section refs и сравнивает с approved manifest. Missing/new/changed/unknown decision ID или unmapped normative section stales alignment и возвращает clarify; только byte-equivalent projection либо classifier-proven local/non-material additions допускают freeze. Тот же check повторяется после Arena/fix. Tickets используют полный breakdown/manifest до Ticket Panel.
 
-`UserDecisionRecord` создаёт только autoskd по запросу trusted interactive client. Daemon связывает record с project/Epic/request/anchor/subject identity и `actor=user`; capability живёт в trusted client connection и не передаётся model process, extension, shell, argv, environment или project filesystem. Наличие TTY само по себе ничего не доказывает. Модель может подготовить packet и recommendation, но не может вызвать user-decision API. Git Decision Log/comment служит только человекочитаемым зеркалом, если его hash уже связан с daemon record; bare Git/comment bytes не являются approval source. Тот же канал обязателен для policy issuance/revocation, waiver, anchor-impact/supersedes approval и integration acceptance.
+`UserDecisionRecord` создаёт только autoskd после подписанного user-presence challenge. Project public-key pin создаётся trusted client при project init до запуска model task и является daemon-owned write-once field; trust-on-first-use из workflow запрещён. Rekey требует signatures old+new user-presence keys; lost-key recovery — отдельное destructive human recovery, которое void'ит прежние approvals. Daemon выдаёт trusted client одноразовый `{nonce,expires_at,project/request/anchor/subject/payload_hash}`; клиент показывает exact packet и получает подпись non-exportable project-bound ключом через OS user-presence signer. Private key отсутствует в model sandbox, argv/env/files и недоступен без user-presence prompt. Daemon проверяет signature/nonce/expiry, append'ит record в signed hash-chained project journal и только затем материализует read-only projection. Прямая запись projection не проходит journal signature/sequence reconciliation. Наличие TTY или тот же OS UID ничего не доказывает; residual trust assumption — sandbox не имеет доступа к signer, accessibility automation и памяти trusted client. Headless/unpinned project не запускает model workflow.
 
-Каждый alignment record неизменяемо связывает `project identity + epic_id + artifact kind + anchor version + scope hash + subject hash + UserDecisionRecord ID/hash/provenance + classifier proof + current policy disposition|null + protocol hash`. `subject hash` для Tickets включает канонический набор файлов, dependency graph, scopes, outcomes, порядок и exclusions; для Tech Plan — весь readiness record. Источником бывает только daemon-attributed решение пользователя либо re-resolved project/run policy. Authority record, optional Git mirror, classifier и policy proof входят в controlling anchor pack.
+Модель может подготовить packet и recommendation, но обычная daemon connection без signature не создаёт `actor=user`. Git Decision Log/comment служит только человекочитаемым зеркалом, если его hash уже связан с signed daemon record; bare Git/comment bytes не являются approval source. Тот же канал обязателен для policy issuance/revocation, waiver, anchor-impact/supersedes approval и integration acceptance.
+
+Каждый alignment record неизменяемо связывает `project identity + epic_id + artifact kind + anchor version + scope hash + subject hash + material_decision_manifest hash + UserDecisionRecord ID/hash/provenance + classifier/projector proof + current policy disposition|null + protocol hash`. Tickets manifest включает files/DAG/scopes/outcomes/order/exclusions; Tech Plan — readiness и все планируемые material decisions. Authority record, optional Git mirror, classifier/projector и policy proof входят в controlling anchor pack.
 
 Изменение ответа, subject, classifier, scope, policy disposition или anchor делает record stale. Correction создаёт новую anchor version, проходит impact analysis и аннулирует затронутые candidate/verdict/PASS bindings; незатронутое можно перепривязать только через daemon-attributed impact record. Bare resume без current daemon decision record не проходит gate.
 
@@ -185,7 +187,7 @@ approved arena framing
 
 Кандидаты не видят критерии судьи и работы друг друга. Судья получает анонимные A/B/C, ничего не исполняет в кандидатских worktree и оценивает поведенческие критерии по представленным доказательствам. Пробел доказательств закрывает отдельная проверка на замороженном snapshot.
 
-Менее двух живых кандидатов из разных семей завершает Arena без победителя. Координатор всегда паркует задачу в human с arena_fallback_required. Fallback выбирает пользователь; после записи решения Tech Plan получает новую identity, narrow=false и полную четырёхмодельную панель.
+Менее двух живых кандидатов из разных семей завершает Arena без победителя. Координатор всегда паркует задачу в human с arena_fallback_required. Fallback выбирает exact daemon `UserDecisionRecord`; autonomous policy его не закрывает. После записи решения Tech Plan получает новую identity, narrow=false и полную четырёхмодельную панель.
 
 Judge ранжирует варианты и выдаёт рекомендацию, но не утверждает материальное решение от имени пользователя. Изменённый readiness packet проходит тот же human alignment; exact policy допустима только в заранее записанном обратимом непродуктовом scope. После этого implementer re-expresses выбранные идеи, а Reviewer позднее принимает или отклоняет конкретный итоговый код. Эти роли не объединяются.
 
@@ -271,7 +273,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Core Flow содержит открытое решение поведения | record_alignment | daemon record закрыл каждое material решение; model self-approval запрещён |
 | Tech Plan не готов из-за open question или silent inference | record_alignment | readiness/classifier proof подтверждены daemon record либо current exact policy |
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
-| Alignment policy не покрывает решение | clarify_alignment | новый daemon user decision либо trusted-client-issued exact policy; расширять policy модель не может |
+| Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новый daemon user decision либо trusted-client-issued exact policy; расширять policy модель не может |
 | Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
 | Quick classification invalid, Planned handoff не завершён | invalidate_quick_classification | schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |
@@ -282,8 +284,9 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Invalid narrow-review child | dispatch_narrow_review | новый Lead child и attempt |
 | Invalid code-review child | dispatch_review или dispatch_narrow_review | новый review child, сохранённый режим и attempt |
 | Code verdict revalidation failed | freeze | старый review binding void, новый candidate/review attempt |
-| BLOCKED_ANCHOR, Planned | rebuild_anchor | полная daemon-attributed anchor_impact; step re-bind'ит unchanged, void'ит affected и идёт planning либо Ticket repair |
-| Invalid anchor impact map | rebuild_anchor | полная карта и повторно проверенные unchanged hashes |
+| BLOCKED_ANCHOR, Planned | prepare_anchor_impact | deterministic step строит/stages full map + status/cascade hashes без side effects |
+| Anchor impact ждёт approval | record_anchor_impact_approval | daemon `UserDecisionRecord` подписал exact staged proposal; step record'ит approved только при unchanged status/watermark |
+| Invalid/stale anchor impact map | prepare_anchor_impact | новая карта вычисляется step; пользователь не hand-author'ит dispositions |
 | BLOCKED_ANCHOR, standalone Quick | rebuild_code_anchor | own anchor bump, затем verify/freeze/full review |
 | BLOCKED_ANCHOR, Ticket with parent | rebuild_code_anchor | propagate pending в parent, suspend blocker с receipt, ждать parent rebuild_anchor |
 | Waiting for parent anchor | rebuild_code_anchor | parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен |
@@ -303,7 +306,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Candidate changed before commit | fix | approved findings/identity сохранены, новый candidate attempt |
 | Commit CAS failed without movement | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | Private ticket branch moved | commit_on_pass | branch снова однозначен после расследования; cancel — отдельная status-операция |
-| Aggregate verification failed | dispatch_ticket_dag или aggregate_verify | scoped integration-fix Ticket либо доказанный внешний сбой |
+| Aggregate verification failed | aggregate_verify для доказанного external retry; select_next/present_tickets_breakdown для нового/изменённого fix Ticket; dispatch_ticket_dag только для unchanged approved set/DAG | set-changing fix получает новое breakdown approval, full Ticket Panel и PASS до dispatch |
 | Нет внешней code-review family | dispatch_review или dispatch_narrow_review | human reviewer, re-expression либо точный waiver; режим сохраняется |
 | Нет внешней panel Lead family | dispatch_panel или dispatch_narrow_review | external human Lead либо точный waiver; full/narrow сохраняется |
 | Dirty cleanup | cleanup | явное force-разрешение либо сохранённое восстановимое состояние |

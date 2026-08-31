@@ -52,6 +52,8 @@ execution:
   -> accept -> integrate -> aggregate_verify -> cleanup -> done
 
 recovery:
+  prepare_anchor_impact -> await_anchor_impact_approval (human)
+  -> record_anchor_impact_approval -> rebuild_anchor
   rebuild_anchor -> clarify_alignment | present_tickets_breakdown | draft_artifact | dispatch_arena | select_next | resume_repaired_tickets | ticket_join | human
   resume_repaired_tickets -> ticket_join
   panel_join_wait -> panel_join
@@ -80,24 +82,32 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | select_next | planning kinds passed, все Arena decisions terminal либо отсутствуют, Tickets ещё не passed | записать kind=tickets, создать review_cycles.tickets если absent, draft_artifact как proposal |
 | select_next | Tickets passed и alignment_records.tickets current | dispatch_ticket_dag |
 | select_next | Tickets PASS существует, но breakdown alignment отсутствует/stale | void stale PASS binding, present_tickets_breakdown |
-| clarify_alignment | kind=brief/core_flow/tech_plan; deterministic classifier выдаёт forbidden/unknown/ambiguous, packet содержит assumption/material question либо current daemon user/policy authority отсутствует | записать subject/scope/classifier proof, await_alignment и human с kind-specific `brief_alignment_required`, `core_flow_decision_required` или `tech_plan_readiness_required` |
-| clarify_alignment | current daemon `UserDecisionRecord` actor/provenance/identity валиден | record_alignment с source=user_decision |
-| clarify_alignment | current project policy projection active, exact binding/rule/scope/constraints покрыты и classifier доказал только allowed classes | record_alignment с source=project_policy |
-| clarify_alignment | policy missing/revoked/expired/replaced/hash-mismatched либо classifier не доказал coverage | await_alignment и human с park.reason=alignment_policy_out_of_scope |
+| clarify_alignment | current daemon `UserDecisionRecord` signature/provenance/identity валиден | record_alignment с source=user_decision |
+| clarify_alignment | daemon decision отсутствует; unresolved assumption отсутствует; classifier доказал policy-eligible classes и current project policy projection active с exact binding/rule/scope/constraints | record_alignment с source=project_policy |
+| clarify_alignment | daemon decision отсутствует; classifier выдаёт human_required/forbidden/unknown/ambiguous либо packet содержит unresolved assumption | записать subject/scope/classifier proof, await_alignment и human с kind-specific `brief_alignment_required`, `core_flow_decision_required` или `tech_plan_readiness_required` |
+| clarify_alignment | daemon decision отсутствует; classifier policy-eligible; policy candidate указан, но missing/revoked/expired/replaced/hash-mismatched либо не покрывает derived rules | await_alignment и human с park.reason=alignment_policy_out_of_scope |
+| clarify_alignment | daemon decision и policy candidate отсутствуют | await_alignment и human с kind-specific alignment reason |
 | await_alignment | statusStep human | bare resume запрещён; после нового daemon decision или current policy разрешён только `record_alignment`; после смены subject/scope — `clarify_alignment`, а для kind=tickets — `present_tickets_breakdown` |
 | record_alignment | source не `user_decision\|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает | human с kind-specific reason либо park.reason=alignment_policy_out_of_scope; record не создаётся |
 | record_alignment | прежний valid record не совпадает с current project/Epic/kind/anchor/scope/subject/classifier/policy/protocol и нового authority record текущей identity ещё нет | atomically status=stale, human с park.reason=alignment_record_stale |
-| record_alignment | kind=tech_plan, current Arena entry status=recommended и daemon decision/current policy разрешает recommendation/fallback | atomically записать alignment record + authority-bound Decision Record mirror, перевести entry в terminal applied/fallback, current_decision_id=null, затем draft_artifact |
+| record_alignment | kind=tech_plan, Arena status=recommended, disposition=applied и daemon decision либо classifier-proven current policy разрешает recommendation | atomically записать alignment record + authority-bound Decision Record mirror, перевести entry в terminal applied, current_decision_id=null, затем draft_artifact |
+| record_alignment | kind=tech_plan, Arena status=recommended, disposition=fallback и daemon `UserDecisionRecord` exact Arena identity валиден | atomically записать alignment record + authority-bound Decision Record mirror, перевести entry в terminal fallback, current_decision_id=null, затем draft_artifact |
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; новый daemon decision либо re-resolved exact policy валиден для current identity | старый authority/approval hash остаётся audit evidence; atomically записать новый current record и перейти в draft_artifact |
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; current alignment record уже валиден и identity byte-identical | идемпотентно draft_artifact без перезаписи record |
 | record_alignment | kind=tickets, daemon-attributed breakdown approval либо re-resolved policy валидны для той же proposal/classifier identity | старый authority/approval hash остаётся audit evidence; atomically записать alignment_records.tickets, current_alignment=null, freeze_artifact |
 | draft_artifact | arena re-expression required, но Decision Record/graft list не отражены в новых Tech Plan bytes либо identity равна pre-arena | human с park.reason=arena_reexpression_missing |
 | draft_artifact | kind=tickets, proposal bytes и dependency view записаны, scope чист | present_tickets_breakdown |
-| draft_artifact | kind=brief/core_flow/tech_plan, alignment record current, bytes записаны, scope чист и обязательная arena re-expression завершена либо не требуется | freeze_artifact |
-| present_tickets_breakdown | не показан полный set/DAG/scopes/outcomes/order/exclusions либо approval отсутствует | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
+| draft_artifact | kind=brief/core_flow/tech_plan, post-draft projected material manifest отличается от approved manifest либо projector/classifier proof изменён | atomically alignment status=stale, artifact остаётся non-normative proposal, clarify_alignment |
+| draft_artifact | kind=brief/core_flow/tech_plan, alignment current, projected manifest byte-identical, bytes/scope чисты и Arena re-expression complete/not-required | freeze_artifact |
+| present_tickets_breakdown | не показан полный set/DAG/scopes/outcomes/order/exclusions | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
 | present_tickets_breakdown | current Tickets subject совпадает с действующим alignment record | freeze_artifact |
-| present_tickets_breakdown | exact policy покрывает текущий breakdown decision class, и packet не содержит запрещённого material scope/order/dependency/release решения | record_alignment |
-| freeze_artifact | alignment record отсутствует либо stale для current kind/anchor/scope/subject | human с park.reason=alignment_record_stale; Brief/Core Flow/Tech Plan возвращаются в clarify_alignment, Tickets — в present_tickets_breakdown |
+| present_tickets_breakdown | current daemon breakdown decision совпадает с proposal/classifier identity | record_alignment с source=user_decision |
+| present_tickets_breakdown | daemon decision отсутствует; classifier доказал scheduling-only и current exact policy покрывает rules при byte-identical set/scope/outcomes/dependencies/exclusions | record_alignment с source=project_policy |
+| present_tickets_breakdown | daemon decision отсутствует; policy candidate указан, но invalid/current coverage не доказан | await_alignment и human с park.reason=alignment_policy_out_of_scope |
+| present_tickets_breakdown | approval stale/mismatched либо daemon decision и policy candidate отсутствуют | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
+| freeze_artifact | alignment отсутствует/stale либо recomputed material manifest/projector/classifier не совпадает с current identity | human с park.reason=alignment_record_stale; Brief/Core Flow/Tech Plan возвращаются в clarify_alignment, Tickets — в present_tickets_breakdown |
+| freeze_artifact | panel waiver candidate указан, но daemon signature/identity/scope/expiry невалидны | human с park.reason=panel_waiver_required; panel child не создаётся |
+| freeze_artifact | signed panel waiver mode=full_skip exact current artifact/alignment identity валиден | record_artifact_pass с disposition=waived; panel child не создаётся |
 | freeze_artifact | current_cycle.full_panel_required=true или current_cycle.narrow=false | dispatch_panel |
 | freeze_artifact | current_cycle.narrow=true, но scope/anchor/load-bearing decisions изменились | atomically current_cycle.narrow=false, current_cycle.full_panel_required=true, dispatch_panel |
 | freeze_artifact | current_cycle.narrow=true, current_cycle.full_panel_required=false и scope/anchor/load-bearing decisions не изменились | dispatch_narrow_review |
@@ -109,7 +119,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | panel_join | любой child status=new/work/human | join prologue обеспечивает exact blocker, panel_join_wait; human child возобновляет пользователь |
 | panel_join_wait | хотя бы один expected blocker активен | step не запускается scheduler |
 | panel_join_wait | все expected blockers terminal/removed | panel_join |
-| panel_join | daemon-attributed exact user waiver текущей identity, actual_roster содержит gate Lead вне author/fixer set, все listed seats status=done и bindings валидны | atomically current_cycle.full_panel_required=false, synthesize_panel |
+| panel_join | signed panel waiver mode=reduced_roster текущей identity, actual_roster содержит external Lead, все listed seats done/bound | atomically current_cycle.full_panel_required=false, synthesize_panel |
 | panel_join | roster меньше четырёх без waiver | human с park.reason=panel_waiver_required |
 | panel_join | все четыре status=done, verdicts валидны, нет BLOCKED_ANCHOR/mismatch | atomically current_cycle.full_panel_required=false, synthesize_panel |
 | panel_join | любой cancel/missing/invalid | human с park.reason=panel_join_invalid |
@@ -123,8 +133,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | contest_join_wait | все expected blockers terminal/removed | contest_join |
 | contest_join | все originating seats status=done и dispositions валидны | synthesize_panel |
 | contest_join | cancel/missing/invalid | human с park.reason=contest_join_invalid |
-| fix_artifact | alignment subject изменился; kind=tickets | старый approval status=stale, current_cycle.narrow=false/full_panel_required=true, present_tickets_breakdown |
-| fix_artifact | alignment subject изменился; kind=brief/core_flow/tech_plan | старый approval status=stale, current_cycle.narrow=false/full_panel_required=true, clarify_alignment |
+| fix_artifact | alignment subject/material manifest изменился; kind=tickets | старый approval status=stale, current_cycle.narrow=false/full_panel_required=true, present_tickets_breakdown |
+| fix_artifact | alignment subject/material manifest изменился; kind=brief/core_flow/tech_plan | старый approval status=stale, current_cycle.narrow=false/full_panel_required=true, clarify_alignment |
 | fix_artifact | исправлены только confirmed findings без scope/alignment-subject change | freeze_artifact с current_cycle.narrow=true |
 | fix_artifact | изменился scope/anchor/load-bearing decision | старый approval stale, current_cycle.narrow=false/full_panel_required=true, clarify_alignment либо present_tickets_breakdown для Tickets |
 | dispatch_narrow_review | нет Lead семьи вне union author/fixer set | human с park.reason=no_external_panel_lead |
@@ -139,8 +149,10 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | narrow_review_join | cancel/missing/invalid | human с park.reason=narrow_join_invalid |
 | record_artifact_pass | alignment record текущей identity отсутствует/stale | human с park.reason=alignment_record_stale; ничего не записано |
 | record_artifact_pass | pending_anchor | human с park.reason=blocked_anchor; ничего не записано |
-| record_artifact_pass | identity/anchor/roster или verdict binding невалидны | human с park.reason=artifact_pass_invalid; ничего не записано |
-| record_artifact_pass | verdict binding текущей identity валиден; для tech_plan Arena block валиден | atomically artifact_pass[kind]=identity+verdict, arena fields обновлены, select_next |
+| record_artifact_pass | disposition=waived, waiver revalidation failed | human с park.reason=panel_waiver_required; ничего не записано |
+| record_artifact_pass | disposition=waived и signed panel waiver mode=full_skip exact current identity валиден | atomically artifact_pass[kind]={disposition:waived,identity,waiver_record_id,waiver_record_hash}, select_next |
+| record_artifact_pass | disposition=pass, identity/anchor/roster или verdict binding невалидны | human с park.reason=artifact_pass_invalid; ничего не записано |
+| record_artifact_pass | disposition=pass, verdict binding текущей identity валиден; для tech_plan Arena block валиден | atomically artifact_pass[kind]={disposition:pass,identity,verdict_hash}, arena fields обновлены, select_next |
 | record_artifact_pass | tech_plan Arena block malformed | human с park.reason=arena_contract_invalid |
 | dispatch_arena | candidates и judge task настроены/enrolled, Judge blocked candidates и parent имеет exact blockers всех Arena children | arena_join |
 | arena_join | pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
@@ -150,9 +162,17 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | arena_join | менее двух live candidates, fallback requested или candidate roster недостаточен | human с park.reason=arena_fallback_required |
 | arena_join | judge status=done, минимум два live candidates и judgment binding валиден | apply_arena_decision |
 | arena_join | cancel/missing/invalid judgment | human с park.reason=arena_join_invalid |
-| apply_arena_decision | judgment binding содержит base recommendation + graft list либо пользователь выбрал fallback | arena.decisions[id].status=recommended с recommendation/graft hashes, current_decision_id сохраняется, terminal Decision Record ещё отсутствует; artifact_pass.tech_plan=null, alignment_records.tech_plan stale, kind=tech_plan, сохранить pre-arena identity, reexpression_required=true, review_cycles.tech_plan.narrow=false/full_panel_required=true, attempt+1, clarify_alignment |
+| apply_arena_decision | judgment binding содержит base recommendation + graft list либо daemon `UserDecisionRecord` выбрал fallback | arena.decisions[id].status=recommended с recommendation/graft hashes, current_decision_id сохраняется, terminal Decision Record ещё отсутствует; artifact_pass.tech_plan=null, alignment_records.tech_plan stale, kind=tech_plan, сохранить pre-arena identity, reexpression_required=true, review_cycles.tech_plan.narrow=false/full_panel_required=true, attempt+1, clarify_alignment |
+| prepare_anchor_impact | pending_anchor отсутствует, open rebuild op уже существует либо source/status snapshot не читается | human с park.reason=anchor_impact_invalid; rebuild side effects отсутствуют |
+| prepare_anchor_impact | pending_anchor валиден | deterministic classify all planning PASS/current kind/Ticket bindings+statuses, применить cascade, записать immutable proposal/status snapshot/rule hashes и status=proposed; await_anchor_impact_approval, human с park.reason=anchor_impact_approval_required |
+| await_anchor_impact_approval | statusStep human | bare resume запрещён; signed `UserDecisionRecord` exact proposal hash разрешает только record_anchor_impact_approval |
+| record_anchor_impact_approval | signature/proposal identity invalid или authority отсутствует | human с park.reason=anchor_impact_approval_required; status остаётся proposed |
+| record_anchor_impact_approval | correction/status/hash drift после proposal | atomically status=stale, prepare_anchor_impact; approval не записывается |
+| record_anchor_impact_approval | authority и current snapshot валидны | atomically status=approved + approval record ID/hash, read-back, rebuild_anchor |
 | rebuild_anchor | anchor_rebuild_op открыт | validate op binding; продолжить записанные per-ticket phases/dispositions без повторной классификации; phase=ready_to_transit повторяет только recorded target |
-| rebuild_anchor | anchor_impact incomplete, current in-flight kind без current PASS не affected, upstream cascade нарушен, hash claimed-unaffected изменён или Ticket task re-binding не подтверждён | human с park.reason=anchor_impact_invalid |
+| rebuild_anchor | approved staged anchor_impact/daemon record отсутствуют либо proposal hash не совпадает | human с park.reason=anchor_impact_approval_required; side effects отсутствуют |
+| rebuild_anchor | status snapshot/correction watermark изменились после approval | atomically anchor_impact.status=stale, prepare_anchor_impact; side effects отсутствуют |
+| rebuild_anchor | approved anchor_impact incomplete, current in-flight kind без current PASS не affected, cascade нарушен, hash claimed-unaffected изменён или Ticket task re-binding не подтверждён | human с park.reason=anchor_impact_invalid |
 | rebuild_anchor | любой affected Ticket status=work | human с park.reason=anchor_repair_ticket_live; никаких mutation, pending_anchor сохраняется |
 | rebuild_anchor | affected Ticket status=human, но это не waiting_parent_anchor с suspension receipt и не blocked_anchor с обоснованным pending до absorption | human с park.reason=anchor_impact_invalid; никаких mutation |
 | rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes/alignments только по exact daemon-attributed impact approval, void affected bindings и alignment records, current kind=earliest affected, current_cycle full required, clarify_alignment; для affected Tickets после proposal — present_tickets_breakdown |
@@ -207,7 +227,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | cleanup | dirty=true при force=false | human с park.reason=cleanup_dirty |
 | done | terminal | нет переходов |
 
-Строки каждого шага применяются строго сверху вниз; success-предикаты явно исключают BLOCKED_ANCHOR, mismatch, fallback и недостаточный roster. select_next считает kind passed только если artifact_pass binding совпадает с текущими anchor_version, protocol hash и artifact identity. Tickets не входят в planning-kind search и появляются только после того, как все arena.decisions terminal. Stable pending order задаёт порядок entries в нормативном block; terminal entry никогда не запускается повторно.
+Строки каждого шага применяются строго сверху вниз; predicates взаимно исключаются и явно закрывают unmatched state. select_next считает kind завершённым только если artifact_pass disposition=pass|waived и binding совпадает с current anchor/protocol/artifact/alignment identity; waived branch дополнительно re-resolves authority. Tickets не входят в planning-kind search и появляются только после того, как все arena.decisions terminal. Stable pending order задаёт порядок entries; terminal entry не запускается повторно.
 
 ### autosk-quick
 
@@ -264,7 +284,7 @@ Parent Ticket блокируется review child и после разблоки
 | Quick intake/implement/verify/fix/freeze/record_code_verdict/accept | schema-valid planned_trigger либо повторная classification нарушает любое Quick condition | invalidate_quick_classification; обычный success/integration исход исключён |
 | invalidate_quick_classification | open handoff существует и binding совпадает | продолжить recorded phase без нового replacement/base |
 | invalidate_quick_classification | trigger/project/original-base/worktree receipt invalid либо creation collision | human с park.reason=quick_classification_invalid; Quick commit/integrate запрещены |
-| invalidate_quick_classification | binding валиден | atomically записать handoff op и `superseded_by`; idempotent create/configure/enroll Planned replacement от original base; transfer/read-back ownership dirty worktree в replacement evidence-retention receipt; Quick done с outcome=reclassified, без commit/integrate |
+| invalidate_quick_classification | binding валиден | phase=prepared atomically записывает только handoff op + commit/integrate prohibition; idempotent create/configure/enroll Planned replacement от original base; transfer/read-back worktree ownership receipt; затем одной atomic записью `superseded_by` + outcome=reclassified + phase=complete |
 | implement | provider/model недоступен после retry | human с park.reason=implement_provider_unavailable |
 | implement | model run завершился без valid completion record | human с park.reason=implementation_result_invalid |
 | implement | обнаружена out-of-scope/unexpected mutation | human с park.reason=implementation_scope_invalid |
@@ -276,6 +296,8 @@ Parent Ticket блокируется review child и после разблоки
 | verify | evidence record валиден, проверки PASS и Quick classification всё ещё valid | freeze |
 | freeze | scope/identity/tree mint невалидны или candidate изменился во время mint | human с park.reason=freeze_candidate_invalid |
 | freeze | pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
+| freeze | review waiver candidate указан, но daemon signature/identity/scope/expiry невалидны | human с park.reason=review_waiver_invalid; reviewer child не создаётся |
+| freeze | daemon-attributed review waiver exact current candidate identity валиден | record_code_verdict с disposition=waived; reviewer child не создаётся |
 | freeze | review_cycle.full_review_required=true и full_review_reason=anchor_rebuild | dispatch_review |
 | freeze | workflow=autosk-quick, review_cycle.full_review_required=true, full_review_reason=initial, editorial classification валидна, pending_anchor отсутствует, changed paths/bytes не затрагивают executable/config/schema/security/prompt/governance behavior | record_editorial_exemption |
 | freeze | review_cycle.full_review_required=true | dispatch_review |
@@ -289,7 +311,11 @@ Parent Ticket блокируется review child и после разблоки
 | review_join | cancel/missing/stale/invalid | human с park.reason=review_join_invalid |
 | review_join | PASS/NOT_PASS verdict binding текущей identity валиден | record_code_verdict |
 | record_code_verdict | pending_anchor | human с park.reason=blocked_anchor; ничего не записано |
-| record_code_verdict | повторная identity/binding validation не прошла | human с park.reason=code_verdict_invalid; ничего не записано |
+| record_code_verdict | disposition=verdict и повторная identity/binding validation не прошла | human с park.reason=code_verdict_invalid; ничего не записано |
+| record_code_verdict | disposition=waived и waiver revalidation failed | human с park.reason=review_waiver_invalid; ничего не записано |
+| record_code_verdict | disposition=waived, daemon review waiver current identity валиден, workflow=autosk-ticket | atomically review={status:waived,waiver_record_id,waiver_record_hash}, full flags reset; commit_on_pass |
+| record_code_verdict | disposition=waived, daemon review waiver current identity валиден, workflow=autosk-quick, classification valid, current auto-integration policy валидна | atomically review={status:waived,waiver_record_id,waiver_record_hash}, full flags reset; integrate |
+| record_code_verdict | disposition=waived, daemon review waiver current identity валиден, workflow=autosk-quick, classification valid, auto-policy отсутствует/невалидна | atomically review={status:waived,waiver_record_id,waiver_record_hash}, full flags reset; accept |
 | record_code_verdict | NOT_PASS/findings и round >= cap | если full, atomically full_review_required=false/full_review_reason=null; human с review_cap |
 | record_code_verdict | NOT_PASS/findings и round < cap | если full, atomically full_review_required=false/full_review_reason=null; fix |
 | record_code_verdict | PASS и workflow=autosk-ticket | если full, atomically full_review_required=false/full_review_reason=null; commit_on_pass |
@@ -425,7 +451,9 @@ autosk-flow/
       protocol-snapshot.ts
       human-alignment.ts
       decision-classifier.ts
+      material-decision-projector.ts
       user-decision-client.ts
+      user-presence-signer.ts
       project-policy.ts
       quick-reclassification.ts
       anchor-rebuild.ts
@@ -445,6 +473,7 @@ autosk-flow/
       judgment.ts
       user-decision.ts
       alignment.ts
+      material-decision-manifest.ts
       autonomous-policy.ts
       quick-handoff.ts
       metadata.ts
@@ -547,11 +576,18 @@ Optional `correlation_id` — только UUID по закрытой схеме
         "decision_mirror_ref": "docs/autosk/epics/epic-001/decision-log.md#brief-framing",
         "decision_mirror_hash": "...",
         "subject_record_ref": "docs/autosk/epics/epic-001/decision-log.md#brief-framing-packet",
+        "material_decision_manifest_ref": "docs/autosk/epics/epic-001/decision-log.md#brief-material-decisions",
+        "material_decision_manifest_hash": "...",
         "answer_hashes": {},
         "classifier": {
           "version": 1,
           "hash": "...",
           "rule_ids": ["brief.goal.material"],
+          "inputs_hash": "..."
+        },
+        "projector": {
+          "version": 1,
+          "hash": "...",
           "inputs_hash": "..."
         },
         "subject_hash": "...",
@@ -627,24 +663,28 @@ Optional `correlation_id` — только UUID по закрытой схеме
 }
 ~~~
 
-`current_alignment` хранит только подготавливаемый packet: `kind`, `scope_hash`, `subject_record_ref`, `subject_hash`, hash полного user-visible представления и deterministic classifier proof `{version,hash,rule_ids,inputs_hash,derived_classes}`. Модель может добавить reported classes/reasoning, но они не участвуют в разрешении. Ref восстанавливает exact bytes packet после restart; для Tech Plan это видимый readiness record. Закрытая subject schema зависит от kind:
+`current_alignment` хранит non-normative proposal: `kind`, `scope_hash`, `subject_record_ref/hash`, canonical `material_decision_manifest_ref/hash`, hash полного user-visible представления, classifier proof `{version,hash,rule_ids,inputs_hash,derived_classes}` и projector proof `{version,hash,inputs_hash}`. Модель может добавить reported classes/reasoning, но они не участвуют в разрешении. Ref восстанавливает exact proposal bytes после restart. Закрытая schema зависит от kind:
 
-- Brief: goal, expected outcome, affected parties, why, scope, non-goals, success criterion и open material questions;
-- Core Flow: actions, visible states, happy/unhappy paths, errors, retry, cancel, partial success, actor rights и system reactions;
-- Tech Plan: open questions, materially different implementations, silent inferences и closed decisions;
+- Brief: goal, expected outcome, affected parties, why, scope, non-goals, success criterion, open questions и full framing material manifest;
+- Core Flow: actions, visible states, happy/unhappy paths, errors, retry, cancel, partial success, actor rights, system reactions и full behavior material manifest;
+- Tech Plan: open questions, materially different implementations, silent inferences, closed/planned decisions и full technical material manifest;
 - Tickets: canonical tickets manifest, user-visible breakdown bytes, ordered canonical ticket file hashes, dependency graph, per-Ticket scope/outcome, execution order/parallelism и exclusions.
 
-`UserDecisionRecord` имеет закрытую daemon-owned схему `{schema,record_id,project_root_sha256,actor:user,capability_binding_hash,request_id,epic_id?,task_id?,anchor_version,subject_hash,payload_hash,issued_at,target_record_id?,terminal_disposition?}`. Record создаётся только trusted client RPC; write API из AgentDefinition/model subprocess отсутствует. Capability bytes не сохраняются в record. Duplicate request+identity+payload идемпотентно возвращает тот же record; другой payload конфликтует. Direct file edit/reconcile mismatch недействителен. Git mirror optional и принимается только по `mirror_hash`, уже записанному в record.
+`UserDecisionRecord` имеет закрытую daemon-owned схему `{schema,record_id,project_root_sha256,actor:user,request_id,epic_id?,task_id?,anchor_version,subject_hash,payload_hash,challenge_nonce_hash,challenge_expires_at,signer_public_key_id,signature,journal_sequence,previous_record_hash,issued_at,target_record_id?,terminal_disposition?}`. Trusted project init до model enroll pin'ит write-once public key; first-use pin из workflow запрещён. Autoskd mint'ит одноразовый exact challenge; client подписывает `UserPresenceSigner`, daemon проверяет pin/nonce/expiry и append'ит signed hash-chain journal. Rekey требует old+new signatures; lost-key recovery void'ит approvals. Model API умеет только читать request, не pin/rekey/mint/sign/submit actor=user. Duplicate request+identity+payload идемпотентен; другой payload конфликтует. Direct file edit без signature/sequence/previous hash недействителен.
 
 Project policy record имеет закрытую схему `{schema,policy_id,binding_level,project_root_sha256,epic_id?,run_id?,artifact_kinds,allowed_rule_ids,allowed_decision_classes,scope_hash,constraints_hash,issuance_record_id,policy_hash,expires_at}`. Issuance и каждый revoke/replace — отдельные `UserDecisionRecord`; project-level daemon projection детерминированно выводит current `active|revoked|expired|replaced`. `binding_level=project` требует null Epic/run, `binding_level=run` — exact Epic/run. Epic metadata хранит только ref/expected hash и при каждом gate перечитывает projection, поэтому старый cache не переживает revoke.
 
-`approval_identity` — SHA-256 domain-separated canonical JSON из `project_root_sha256`, `epic_id`, `kind`, `anchor_version`, `scope_hash`, `subject_hash`, user decision record ID/hash/provenance, classifier version/hash/rule IDs/inputs hash, current policy issuance+terminal-disposition hashes либо null и `protocol.hash`. Само поле identity в preimage не входит. `answer_hashes` — ordered map exact payload fields из daemon record; свободный пересказ модели не считается источником.
+`approval_identity` — SHA-256 domain-separated canonical JSON из `project_root_sha256`, `epic_id`, `kind`, `anchor_version`, `scope_hash`, `subject_hash`, material manifest hash, user decision record ID/hash/provenance, classifier/projector version+hash+inputs, current policy issuance+terminal-disposition hashes либо null и `protocol.hash`. Само поле identity в preimage не входит. `answer_hashes` — ordered map exact payload fields из daemon record.
 
-Alignment record content write-once. Source enum закрыт: `user_decision|project_policy`. Единственные последующие dispositions — монотонные `valid -> stale|void`; прежние authority/mirror hashes сохраняются. Смена answer record, packet subject, classifier proof, scope, anchor, current policy disposition/expiry или protocol делает record stale. Новый record не может ссылаться на старую anchor version. `record_alignment` записывает source=project_policy только если current projection/hash перечитаны, policy binding и derived classifier rule/classes совпадают, а forbidden class отсутствует.
+Alignment record content write-once. Source enum закрыт: `user_decision|project_policy`. Единственные последующие dispositions — монотонные `valid -> stale|void`; прежние authority/mirror hashes сохраняются. Смена answer, proposal/manifest, classifier/projector proof, scope, anchor, current policy disposition/expiry или protocol делает record stale. Новый record не ссылается на старую anchor version. `record_alignment` пишет source=project_policy только при current policy binding и classifier-proven allowed rules.
 
 Обычные локальные, обратимые и нематериальные implementation choices не добавляются в packet и не требуют ни user decision, ни policy. Autonomous policy — отдельное разрешение только для заранее перечисленного ограниченного класса material questions, а не panel/review/auto-integration waiver. `policy_hash` исключает собственное поле и terminal dispositions. Модель не может назначить rule/class, расширить kinds/rules/classes/scope/constraints/expiry или снять revoke. Forbidden product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration rules имеют приоритет; всё не доказанное deterministic classifier'ом идёт пользователю.
 
-`waivers.panel`, `waivers.review` и `waivers.auto_integrate` — null либо references на daemon `UserDecisionRecord`/current project policy projection с exact identity; boolean или свободный comment недействительны. Каждый consumer перечитывает authority/disposition непосредственно перед side effect.
+`waivers.panel`, `waivers.review` и `waivers.auto_integrate` — null либо references на signed daemon record/current policy exact identity; boolean/comment недействительны. Panel waiver payload имеет closed `mode=full_skip|reduced_roster` и actual roster для второго; consumer принимает только свой mode. Review waiver всегда exact full-skip current tree. Каждый consumer перечитывает authority непосредственно перед side effect.
+
+`artifact_pass[kind]` — historical field name с closed `disposition=pass|waived`: обе ветви связывают current artifact/alignment identity, но первая содержит verdict hash/roster, вторая — signed waiver record ID/hash и никогда не называется model PASS. Code review аналогично хранит `status=pass|waived` с взаимоисключающими verdict/waiver bindings.
+
+`anchor_impact` — staged proposal, а не свободный user map: `{proposal_id,from_anchor_version,pending_anchor_hash,correction_watermark,status_snapshot_hash,cascade_rules_hash,planning_dispositions,ticket_dispositions,proposal_hash,status:proposed|approved|stale,approval_record_id?,approval_record_hash?}`. `prepare_anchor_impact` единолично пишет proposed map без rebuild side effects. Trusted client подписывает exact proposal hash; `record_anchor_impact_approval` проверяет signature/current snapshot и atomically ставит approved + authority hashes. Любая новая correction/status/hash change делает proposal stale и требует нового prepare/approval.
 
 `anchor_rebuild_op` хранит закрытый `source=planning|code_only|arena|no_bindings`, `op_id`, consumed correction event IDs/watermark, pre-resume Epic/Ticket hashes, `from_version`, `to_version`, immutable dispositions каждого Ticket, stable topological order human recovery set/dependency plan, per-ticket phase (`prepared | replacement_ready | edge_restored | child_resumed | replacement_enrolled | superseded`), общую phase (`prepared | anchor_committed | ready_to_transit | resuming_children | ready_to_join`), recorded target и expected identity. Только source=code_only может иметь target=`resume_repaired_tickets`; остальные закрываются prologue своего planning/Arena/join target. Наличие открытой операции имеет приоритет над обычными guard-строками `rebuild_anchor`.
 
@@ -767,14 +807,16 @@ Quick classification identity включает normalized request, project, orig
 
 `clarify_alignment` компилирует закрытый packet текущего ArtifactKind и показывает все материальные вопросы без предлагаемого «ответа по умолчанию». Versioned deterministic classifier сам выводит `decision_classes` и `rule_ids` из закрытых kind-specific fields. Model labels — только untrusted input; forbidden rules имеют приоритет, а unknown/ambiguous classification fail-closed ведёт в `await_alignment`. Classifier version/hash, rule IDs и inputs hash входят в subject/approval identity.
 
+До approval deterministic projector строит canonical `material_decision_manifest` из structured proposal: stable decision IDs, kind-specific field path, normalized choice/constraint, affected actors/contracts/data/security/delivery, reversibility proof ref и classifier rule. Artifact schema требует ровно один fenced `autosk-material-decisions` JSON block; behavior-defining sections содержат только refs на known decision IDs. Prompt compiler и Ticket trace читают material authority только из этого block. Unreferenced prose non-normative и не переносится в implementation prompt. После draft/Arena/fix projector парсит exact block+refs: missing/new/changed/unknown ID, duplicate block, unmapped normative section или classifier drift atomically stales alignment до freeze. Лишь byte-identical manifest либо classifier-proven local/non-material entry проходят.
+
 Classifier precedence закрыт: Brief goal/scope/success и Core Flow user-visible behavior/rights/errors всегда `human_required`; Tech Plan public API/data/security/privacy/one-way-door/migration/delivery fields всегда `human_required`; Tickets set/scope/outcome/dependency/exclusion changes всегда `human_required`. Только Tech Plan internal choice с machine-checkable rollback/reversibility proof и без перечисленных affected fields либо Tickets scheduling при byte-identical set/scope/outcome/dependencies/exclusions может получить `local_reversible_implementation`. Любое отсутствующее proof, неизвестное поле или конфликт правил даёт `unknown -> human`, даже если модель сообщила allowed label.
 
-`await_alignment` — настоящий human status step. Ответ принимается только как daemon-owned `UserDecisionRecord`, созданный через trusted interactive client capability. Capability не передаётся model/extension subprocess, shell, argv, environment или project filesystem; TTY не считается доказательством. Record содержит actor=user и exact project/request/Epic/anchor/subject/payload binding. Decision Log/comment может зеркалить exact bytes, но без matching daemon record не является approval source.
+`await_alignment` — настоящий human status step. Autoskd выдаёт trusted client nonce+expiry challenge exact project/request/Epic/anchor/subject/payload identity; клиент показывает packet и подписывает challenge через non-exportable project-bound `UserPresenceSigner`. Daemon принимает actor=user только после signature/pinned-key/nonce/expiry проверки и append в hash-chained journal. Model/extension subprocess не получает signer, keychain/accessibility entitlement или submit-user-decision RPC; TTY/обычная connection не считаются доказательством. Decision Log/comment может зеркалить exact bytes, но без matching signed daemon record не является approval source. Headless без signer остаётся human.
 
 `record_alignment` — deterministic step. До записи он:
 
-1. перечитывает canonical project/Epic/anchor и packet subject/scope hashes;
-2. разрешает exact daemon record, проверяет actor=user/capability provenance/identity и optional Git mirror hash; model-authored Git/comment bytes отклоняет;
+1. перечитывает canonical project/Epic/anchor, proposal subject/scope/material-manifest и classifier/projector hashes;
+2. разрешает exact daemon record, проверяет actor=user, signature/pinned key/nonce/expiry/journal-chain/identity и optional Git mirror hash; model-authored Git/comment bytes отклоняет;
 3. запускает deterministic decision classifier и отклоняет model self-approval, assumption, unknown/ambiguous/forbidden class и любое расширение policy;
 4. для source=project_policy перечитывает единую project-level daemon projection, issuance/revocation chain, expiry и hash; Epic cache сам по себе не принимается;
 5. вычисляет domain-separated `approval_identity`, записывает record атомарно и перечитывает его;
@@ -874,7 +916,9 @@ Guard проверяет project binding всех task/session/blocker/verdict/e
 
 Каждая операция проверяет exit code и перечитывает task view с daemon-owned creation_key+binding hash. Daemon сериализует одинаковый key под project-level lock и обеспечивает ровно одну task без отдельного index/ledger; title/description и human-editable metadata в recovery lookup не участвуют. Retry переиспользует existing child только при совпадении пары даже после rename до metadata set. Key с другим binding hash возвращает conflict и паркует dispatch; task никогда не enroll до полной metadata/session/sandbox проверки. Recovery sweep закрывает только собственные `new` tasks с валидной парой и незавершённой metadata; произвольные tasks без неё не трогает. Совпавший run_id другого проекта не совпадает из-за project hash.
 
-Эти команды являются доступными autosk CLI-операциями, а не действиями модели. Pinned source proof: `wierdbytes/autosk@5163f00`, `cmd/autosk/block.go` реализует exact `block <id> <blocker-id>...` и `unblock <id> <blocker-id>... | --all`; `cmd/autosk/resume.go` реализует `resume <id> --to STEP`. Обычную human-задачу возобновляет пользователь; единственное автоматическое исключение — deterministic parent step для anchor repair с валидными parent rebuild и edge receipts. Preflight расширения во временном проекте всё равно обязан доказать rename-between-create-and-retry для immutable creation_key, точечный `block -> unblock -> block` и parent-initiated `resume --to rebuild_code_anchor`; отсутствие любого primitive останавливает запуск до создания реальных задач.
+Эти команды являются доступными autosk CLI-операциями, а не действиями модели. Pinned source proof `wierdbytes/autosk@5163f00`: `cmd/autosk/create.go` создаёт status=new без `--workflow`; `cmd/autosk/enroll.go` отдельно выполняет `enroll <id> --workflow NAME [--step STEP]` и переводит new в work; `cmd/autosk/block.go` реализует exact `block/unblock <id> <blocker-id>...`; `cmd/autosk/resume.go` реализует `resume <id> --to STEP`. Обычную human-задачу возобновляет пользователь; исключение — deterministic parent anchor repair.
+
+Preflight во временном проекте обязан доказать dormant create без scheduler run, metadata/session/sandbox configuration до activation, exact enroll new->work, rename-between-create-and-retry, точечный `block -> unblock -> block` и parent-initiated `resume --to rebuild_code_anchor`; отсутствие любого primitive останавливает запуск до создания реальных задач.
 
 Resume intent записывается до blocker. Crash до edge оставляет parent runnable и retry продолжает op. Crash после edge, но до resume оставляет parent blocked и child human с park.reason=anchor_resume_pending и exact target; пользователь возобновляет именно child, который валидирует intent и очищает его на входе. После normal resume child владеет прогрессом, а terminal blocker снова открывает parent. Только после обработки всех Tickets parent transits `ticket_join`, чей prologue закрывает op. Редкое crash-окно требует явного child resume, но не создаёт неразрешимой блокировки и не зависит от числа workers.
 
@@ -888,13 +932,15 @@ Resume intent записывается до blocker. Crash до edge остав�
 
 Ticket correction соблюдает порядок: append accepted event → atomically park Ticket human/waiting с receipt → только затем exact unblock parent. Crash до park/unblock оставляет parent blocked, а Ticket recovery повторяет тот же event_id. `BLOCKED_ANCHOR` verdict проходит тот же event path. Редактирование comment после принятия не меняет event, потому gate связан с принятым record hash.
 
+`prepare_anchor_impact` выполняет read-only first pass: consume correction inbox, инвентаризирует каждый planning PASS/current kind/Ticket binding+status, применяет pinned cascade rules и пишет immutable proposed map/hash/status snapshot. Он не bump'ит anchor, не меняет PASS/Ticket и не создаёт repair op. `await_anchor_impact_approval` показывает exact map; trusted client подписывает proposal hash. `record_anchor_impact_approval` — единственный writer approved disposition. Новая correction либо status/hash drift делает proposal stale.
+
 Явный deterministic AgentDefinition step rebuild_anchor:
 
 1. если `anchor_rebuild_op` уже открыт, проверяет его task/from/to binding и продолжает только записанную phase и per-ticket dispositions; `pending_anchor` повторно не требуется, текущие Ticket status не переклассифицируют уже назначенные действия;
-2. только для новой операции сначала consume'ит correction inbox, затем требует pending_anchor, daemon-attributed anchor_impact approval текущей identity и отсутствие живых review children;
-3. требует классификацию каждого существующего planning PASS, каждого Ticket binding, status/recovery metadata каждой Ticket task и текущего in-flight kind; in-flight kind без current PASS всегда affected, kind с current PASS может быть unaffected_rebind;
-4. применяет обязательный cascade brief -> core_flow -> tech_plan -> tickets -> Ticket code: downstream не может быть unaffected_rebind, если affected любой upstream kind;
-5. для unaffected_rebind повторно проверяет неизменность bytes/tree и alignment subject/authority/classifier/current-policy hashes, требует daemon-attributed impact approval и готовит planning PASS плюс alignment binding новой anchor_version;
+2. для новой операции требует staged `anchor_impact.status=approved`, signed daemon record exact proposal hash/current identity и отсутствие живых review children; missing approval паркует без side effects;
+3. перечитывает каждый planning PASS/current kind/Ticket binding+status и требует byte-identical proposal status snapshot/correction watermark; drift помечает proposal stale и возвращает prepare_anchor_impact без переклассификации;
+4. проверяет pinned cascade rules hash и map: in-flight kind без current PASS affected; downstream не unaffected_rebind после affected brief -> core_flow -> tech_plan -> tickets -> Ticket code;
+5. для unaffected_rebind повторно проверяет неизменность bytes/tree и alignment subject/authority/classifier/current-policy hashes против approved proposal и готовит binding новой anchor_version;
 6. при неполной карте, нарушенном cascade, изменившемся claimed-unaffected hash или human Ticket вне двух допустимых pre-rebuild recovery states ничего не меняет и паркует anchor_impact_invalid; при любом affected Ticket status=work ничего не меняет, сохраняет pending_anchor и паркует anchor_repair_ticket_live;
 7. один раз создаёт idempotent anchor_rebuild_op с from_version, to_version=from+1, dispositions и phase; retry продолжает тот же to_version и никогда не bump'ит второй раз;
 8. пока Tickets ещё не resume'нуты, идемпотентно пишет их anchor_version=to_version: unaffected re-bind'ит code/commit binding; affected Ticket очищает только source pending, получает parent_rebuild_receipt/full_review_required; done/cancel/new/missing получает replacement phases и superseded_by. Несовпадение с записанным pre-resume Ticket state паркует anchor_impact_invalid;
@@ -935,18 +981,18 @@ Gate model возвращает JSON result только через `submit_gate
 
 record_artifact_pass — deterministic AgentDefinition step, а не onTransit hook. Он:
 
-1. повторно проверяет artifact identity, anchor, roster и verdict bindings; провал ничего не записывает и паркует artifact_pass_invalid;
+1. повторно проверяет artifact/alignment identity и anchor; для disposition=pass — roster/verdict bindings, для disposition=waived — signed daemon waiver exact artifact identity. Провал ничего не записывает и паркует artifact_pass_invalid либо panel_waiver_required;
 2. для kind=tech_plan до любых записей извлекает не свободный текст, а единственный fenced JSON block autosk-arena с ordered decisions array и уникальными decision_id;
 3. отсутствие блока допустимо только когда arena.decisions пуст; иначе это удаление terminal history и arena_contract_invalid;
 4. новый decision_id допускается только со status=pending и rubric 3–6 критериев;
 5. каждый уже известный pending decision может остаться pending; `apply_arena_decision` единолично создаёт transient metadata status=recommended, а только `record_alignment` с user/exact-policy approval переводит его в applied/fallback;
 6. каждый terminal decision_id обязан присутствовать ровно с тем же status и Decision Record binding; отсутствие, pending, applied↔fallback или другой record паркуют arena_contract_invalid;
-7. после полной валидации одной атомарной операцией записывает artifact_pass[current_artifact.kind] = identity + verdict hash и merge-only обновляет в arena.decisions только нормативные поля `status`, `rubric_hash` и `decision_record`; `sessions` и уже записанные terminal bindings никогда не берутся из блока, не заменяются и не удаляются;
+7. после полной валидации одной атомарной операцией записывает artifact_pass[current_artifact.kind] с closed `disposition=pass|waived`, identity и ровно verdict hash либо waiver record ID/hash; merge-only обновляет arena.decisions только нормативными `status`, `rubric_hash`, `decision_record`; sessions/terminal bindings из блока не заменяются;
 8. только после успешной атомарной записи переходит в select_next.
 
 Разрешённые metadata status каждого entry: pending, recommended, applied, fallback. `recommended` — transient host-owned status и не допускается в нормативном autosk-arena block: он блокирует draft до `record_alignment`. Только `record_alignment` добавляет Decision Record reference и делает status applied/fallback. Terminal status для decision_id неизменяем; новая спорная развилка получает новый decision_id и отдельную полную панель.
 
-record_code_verdict выполняет аналогичную повторную валидацию code identity и session binding. Только после неё он записывает verdict hash; если review был full, в той же атомарной записи сбрасывает full_review_required=false, затем выбирает PASS/NOT_PASS переход. При провале не меняет flags и паркует code_verdict_invalid.
+record_code_verdict выполняет аналогичную повторную валидацию code identity. Для disposition=verdict он требует session/verdict binding; для disposition=waived — signed daemon review waiver exact candidate identity и записывает `review.status=waived` с authority hashes. Только после валидной branch он сбрасывает full_review_required и выбирает переход. При провале flags не меняются и task паркуется code_verdict_invalid либо review_waiver_invalid.
 
 ### Freeze
 
@@ -1005,10 +1051,10 @@ State path создаётся отдельно для каждой operation п�
 - parent, child, blocker, session, artifact, verdict, evidence, user-decision, policy и correlation refs другого проекта отклоняются; тот же assert уже обязан был пройти до side effects;
 - protocol lock/snapshot обязан принадлежать текущему project/Epic и совпадать с manifest/content digest/detached attestation, записанными в самом immutable lock;
 - current installed bundle сравнивается только при создании нового lock. Его более новая версия не инвалидирует и не перепривязывает открытый Epic;
-- Planned implementation запрещён до PASS всех реально созданных плановых артефактов.
-- Нормативный draft Brief/Core Flow/Tech Plan запрещён без `alignment_records[kind].status=valid` и полного совпадения project/Epic/kind/anchor/scope/subject/user-record/classifier/policy/protocol identity. Tickets могут существовать до approval только как proposal и не проходят freeze.
+- Planned implementation запрещён до current artifact binding каждого реально созданного артефакта: disposition=pass с verdict либо disposition=waived с signed exact daemon waiver.
+- Нормативный draft Brief/Core Flow/Tech Plan запрещён без valid alignment proposal/manifest identity. Freeze/panel дополнительно требуют, чтобы post-draft material projection exact bytes совпадал с approved manifest и project/Epic/kind/anchor/scope/user-record/classifier/projector/policy/protocol identity. Tickets до approval только proposal.
 - `record_alignment` принимает только daemon-attributed `UserDecisionRecord` либо exact current project policy projection; Git/comment authorship, model label/self-approval, assumption, unknown/ambiguous/forbidden class и material decision за пределами policy отклоняются.
-- `freeze_artifact`, full/narrow Panel dispatch/join и `record_artifact_pass` требуют current alignment record в controlling anchor pack. Изменившийся user record, subject, classifier input/version, scope, anchor или project policy disposition делает его stale раньше model fan-out.
+- `freeze_artifact`, full/narrow Panel dispatch/join и `record_artifact_pass` требуют current alignment + recomputed material manifest в controlling anchor pack. Изменившийся user record, subject/manifest, classifier/projector input/version, scope, anchor или policy disposition делает его stale раньше model fan-out.
 - Tickets не исполняются без отдельного tickets-panel PASS текущей версии набора.
 - Ticket Panel не стартует, а `dispatch_ticket_dag` не создаёт child/blocker side effects без breakdown approval того же canonical Ticket set/DAG/scopes/outcomes/order/exclusions subject hash. Panel PASS не заменяет этот approval.
 - Quick-flow не проверяет alignment records, пока classification остаётся valid. Каждый pre-integration gate повторяет closed rules; Planned-trigger исключает обычный переход и ведёт только в `invalidate_quick_classification`. Quick с open/failed handoff не может commit/integrate.
@@ -1017,6 +1063,7 @@ State path создаётся отдельно для каждой operation п�
 - Panel join требует четыре ожидаемых child tasks в status=done и четыре валидных verdict bindings. Child human оставляет parent blocked; cancel/missing/invalid после разблокировки переводят parent в human.
 - Сокращённый panel join допустим только с daemon-attributed exact waiver той же identity, полным actual_roster и gate Lead вне author/fixer set.
 - Любой pending_anchor, BLOCKED_ANCHOR или несовпадение anchor_version переводит parent в human с blocked_anchor; четыре PASS ничего не разрешают.
+- rebuild_anchor не вычисляет map после approval: только prepare_anchor_impact пишет proposal; signed approval связывает proposal hash, а watermark/status drift возвращает prepare до side effects.
 - Ровно одна active repair op допустима. anchor_rebuild_op с source=planning/code_only/arena/no_bindings имеет приоритет в rebuild_anchor, но только code_only разрешает resume target; ticket_repair_op с source=fresh/current/planning имеет приоритет в dispatch_ticket_dag. ready_to_transit допускает только recorded target. `resume_repaired_tickets` продолжает фазы выбранной op, а `ticket_join` prologue закрывает её. Unknown source, две open ops либо mismatched kind паркуют ticket_repair_op_invalid без side effects.
 - Narrow review join требует ровно одного Lead child в status=done и verdict текущей identity; findings возвращают fix_artifact, PASS ведёт select_next, invalid terminal ведёт human.
 - Contest join требует отдельную disposition каждого originating seat; снижение или отклонение finding без полного набора dispositions недействительно.
@@ -1033,7 +1080,7 @@ State path создаётся отдельно для каждой operation п�
 - Code reviewer family и panel Lead обязаны отсутствовать в полном author/fixer set.
 - Reviewer/Judge/gate provider_session_id обязан отличаться от session IDs всех author/fixer tasks того же scope; совпадение запрещает dispatch и аннулирует verdict.
 - Arena role session не переиспользуется между разными decision_id или model families; terminal decision сохраняет свою session map неизменной.
-- Commit запрещён без действующего PASS текущего tree OID.
+- Commit запрещён без действующего review disposition=pass|waived текущего tree OID; waived branch требует current daemon waiver revalidation.
 - select_next запрещён, пока record_artifact_pass не записал binding текущей identity; текстовый PASS сам по себе не считается.
 - Integration запрещена без commit OID, approved tree, dependency completion и daemon-attributed human/current project permission.
 - Terminal done запрещён до cleanup всех созданных sandboxes; единственное reclassified-исключение требует exact read-back ownership-transfer receipt в Planned replacement retention set, поэтому worktree остаётся учтён и не удаляется.
@@ -1055,6 +1102,7 @@ State path создаётся отдельно для каждой operation п�
 | Autonomous policy не совпадает с rule/class/scope/constraints или затрагивает forbidden material class | human с alignment_policy_out_of_scope; policy не расширяется автоматически |
 | Project policy revoked/expired/replaced после Epic cache | cache игнорируется, alignment stale, human с alignment_policy_out_of_scope |
 | Quick обнаружил Planned-trigger после intake | дальнейшие Quick gates/integration запрещены; idempotent Planned handoff либо human с quick_classification_invalid |
+| Anchor impact proposal создан, но не подписан | human с anchor_impact_approval_required; anchor/PASS/Ticket side effects ещё не выполнялись |
 | Gate model не вызвал submit либо вернул invalid payload | child human с gate_result_missing/gate_result_invalid; accepted verdict не создаётся |
 | Gate snapshot/store изменился | child human с gate_snapshot_mutated и blocking non-verdict |
 | Arena candidate build/verify/freeze не завершён | child human с точной arena_candidate_* причиной; candidate не считается live |
@@ -1091,7 +1139,7 @@ Resume contract:
 | core_flow_decision_required | record_alignment | каждое material behavior decision закрыто daemon record; model self-approval отсутствует |
 | tech_plan_readiness_required | record_alignment | current readiness record, classifier proof и daemon decision/current policy совпадают |
 | tickets_breakdown_alignment_required | record_alignment | current Ticket set/DAG/scopes/outcomes/order/exclusions показаны и daemon approval subject hash совпадает |
-| alignment_policy_out_of_scope | clarify_alignment | daemon user decision либо новая trusted-client-issued exact policy; Epic cache/модель старую policy не меняют |
+| alignment_policy_out_of_scope | clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets | daemon user decision либо новая trusted-client-issued exact policy; Epic cache/модель старую policy не меняют |
 | alignment_record_stale | clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets | новая anchor version/daemon impact disposition и current authority/alignment/classifier record; старые candidate/verdict/PASS bindings void или явно re-bound как unchanged |
 | quick_classification_invalid | invalidate_quick_classification | schema-valid trigger, original base/worktree receipt и одна daemon-owned creation binding Planned replacement; Quick commit/integrate остаются запрещены |
 | panel_join_invalid | dispatch_panel | invalid child IDs записаны, attempt+1; старые bindings void |
@@ -1101,7 +1149,8 @@ Resume contract:
 | arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid | соответствующий build/verify/freeze step | тот же candidate attempt восстановим и identity неизменна; иначе новая Arena attempt через parent |
 | project_boundary_invalid | исходный deterministic step | project binding/path исправлены и повторный pre-side-effect assert PASS |
 | child_creation_key_invalid | исходный dispatch step | daemon-owned key+binding hash исправлены; остаётся ровно одна matching task, title/description не используются |
-| panel_waiver_required | dispatch_panel или panel_join | retry отсутствующего route либо daemon-attributed waiver текущей identity и actual roster |
+| panel_waiver_required | freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster | retry route либо daemon-attributed waiver current identity; reduced roster также фиксирует actual roster/external Lead |
+| review_waiver_invalid | freeze | новый signed daemon review waiver exact current candidate identity либо обычный dispatch_review; stale waiver сохранён |
 | contest_join_invalid | dispatch_contest | invalid disposition tasks записаны, attempt+1 |
 | narrow_join_invalid | dispatch_narrow_review | прежний Lead child закрыт, новый attempt |
 | review_join_invalid | dispatch_review или dispatch_narrow_review | invalid review child закрыт, новый attempt и сохранён narrow/full mode |
@@ -1111,8 +1160,9 @@ Resume contract:
 | correction_event_invalid | trusted-client decision, затем исходный gate | append schema-valid superseding event с exact raw id/hash + daemon record ID/hash; parent atomically записывает terminal disposition, продвигает watermark и не редактирует старый comment |
 | ticket_repair_op_invalid | dispatch_ticket_dag для source=fresh/current/planning либо rebuild_anchor для source=code_only | open op отсутствует/двойная/source или binding не совпадает; человек выбирает единственную exact op и void'ит конфликтующую без side effects |
 | ticket_repair_state_invalid | recorded source step `dispatch_ticket_dag` или `resume_repaired_tickets` | daemon-attributed exact repair disposition записана в open op; premature blockers сняты либо invalid Ticket superseded/replaced, phases не понижены |
-| blocked_anchor, autosk-planned | rebuild_anchor | полный daemon-attributed anchor_impact; recorded target выбирается только из clarify_alignment, present_tickets_breakdown, draft_artifact, dispatch_arena, select_next, resume_repaired_tickets или ticket_join; resume_repaired_tickets — промежуточный target, op закрывает ticket_join prologue |
-| anchor_impact_invalid | rebuild_anchor | исправленная полная impact map и повторно проверенные unchanged hashes |
+| blocked_anchor, autosk-planned | prepare_anchor_impact | pending_anchor current; step deterministicly stages full map/status/cascade hash без rebuild side effects |
+| anchor_impact_approval_required | record_anchor_impact_approval | signed daemon `UserDecisionRecord` exact staged proposal hash; step atomically records approved status только при unchanged snapshot/watermark |
+| anchor_impact_invalid | prepare_anchor_impact | malformed/stale proposal сохраняется как evidence; новая полная map вычисляется deterministic step, не пользователем |
 | anchor_repair_ticket_live | rebuild_anchor | anchor_rebuild_op=null; каждый affected live run завершился в human/done/cancel; status/impact map перечитаны; pending_anchor сохранён; rebuild writes отсутствуют |
 | anchor_handoff_incomplete | complete_anchor_handoff | event/receipt hash валидны, Ticket human и exact parent edge ещё active |
 | waiting_parent_anchor с malformed/mismatched event/receipt | repair_anchor_handoff | mode=receipt_only переиспользует valid event; mode=supersede_event требует daemon user record и exact raw id/hash; bad immutable record сохраняется |
@@ -1139,7 +1189,7 @@ Resume contract:
 | candidate_changed | fix | approved findings/identity сохранены, новый candidate attempt |
 | commit_cas_failed | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | commit_foreign_movement | commit_on_pass | private branch снова однозначен после расследования; cancel — отдельная status-операция |
-| aggregate_verify_failed | dispatch_ticket_dag или aggregate_verify | scoped integration-fix Ticket либо повтор доказанного внешнего сбоя |
+| aggregate_verify_failed | aggregate_verify для доказанного external retry; select_next/present_tickets_breakdown для нового/изменённого fix Ticket; dispatch_ticket_dag только при byte-identical approved set/DAG | set-changing fix void'ит Tickets PASS/alignment, проходит breakdown approval + full Ticket Panel, затем dispatch |
 | no_external_reviewer | dispatch_review или dispatch_narrow_review | external human reviewer, re-expression либо daemon-attributed exact waiver; режим сохраняется |
 | no_external_panel_lead | dispatch_panel или dispatch_narrow_review | external human Lead либо daemon-attributed exact waiver; roster full/narrow сохраняется |
 | cleanup_dirty | cleanup | force=true разрешён явно или состояние сохранено |
@@ -1155,15 +1205,17 @@ Resume contract:
 - переходы: каждый зарегистрированный step имеет исчерпывающие взаимно исключающие исходы;
 - select_next precedence для optional artifacts, Arena и Tickets;
 - закрытые alignment packet schemas для Brief, Core Flow, Tech Plan и Tickets;
-- `UserDecisionRecord` schema/provenance/idempotency/reconcile guards; model subprocess не получает trusted-client capability;
+- `UserDecisionRecord` signature/nonce/expiry/hash-chain/idempotency/reconcile guards; model subprocess не получает `UserPresenceSigner`;
 - approval identity golden vectors связывают project/Epic/kind/anchor/scope/subject/user-record/classifier/policy/protocol и исключают self-hash;
 - alignment record допускает только монотонные valid -> stale|void dispositions; смена любого identity input отклоняет старый record;
 - deterministic decision classifier проверяет precedence/proofs, игнорирует model labels и fail-closed классифицирует unknown/ambiguous;
+- material-decision projector golden vectors для four kinds; pre-draft manifest и post-draft exact-byte projection совпадают либо alignment stale;
 - autonomous policy validator перечитывает project projection, требует exact project/run/kind/rule/class/scope/constraints/issuance binding и отклоняет revoke/expiry/replace/forbidden class;
 - Quick classification проверяется на каждом pre-integration gate; handoff op/creation key/retry создают ровно один Planned replacement и никогда не интегрируют old Quick bytes;
 - canonical ArtifactKind enum и artifact_pass binding;
 - независимый review_cycles entry для каждого ArtifactKind;
 - atomic record_artifact_pass, включая malformed autosk-arena без частичной записи;
+- artifact/code `pass|waived` dispositions взаимоисключаемы; waiver branch требует signed current authority и создаёт ноль review children;
 - Arena state допускает только host path pending -> recommended -> record_alignment -> applied/fallback; recommended запрещён в normative block и не запускает draft/panel;
 - prompt compilation из одного snapshot;
 - bundle manifest требует один Guide и exact 12 protocol paths, regular files и совпадающие hashes/digest;
@@ -1178,6 +1230,7 @@ Resume contract:
 - correction disposition пропускает только exact raw id/hash с later valid daemon-attributed superseder и атомарно двигает watermark;
 - repair_anchor_handoff receipt_only/supersede_event predicates взаимно исключаются; receipt_only не append'ит event;
 - anchor_rebuild_op/ticket_repair_op взаимно исключаются; closed source enums допускают planning/code_only/arena/no_bindings для первой и fresh/current/planning для второй, но resume target только anchor code_only или ticket op; step имеет success/fail-closed исход для каждого status/phase;
+- prepare_anchor_impact -> signed decision -> record_anchor_impact_approval -> rebuild order; approval-before-map и stale snapshot невозможны;
 - resume_intent pending/consumed guards идемпотентны при crash до edge, до resume и до transit verify;
 - metadata schema требует autosk_flow.session для каждой model-owned task;
 - каждый project-local файл и recovery key привязан к canonical project root hash;
@@ -1196,8 +1249,13 @@ Resume contract:
 - model-written Decision Log/comment с `source=user` без daemon record не создаёт alignment/waiver/policy/acceptance;
 - Core Flow содержит неразрешённое решение поведения: Epic паркуется `core_flow_decision_required`, assumption не проходит;
 - Tech Plan readiness выявляет silent inference: `draft_artifact` запрещён до нового user decision/alignment record;
+- model добавляет после readiness approval irreversible migration/delete-on-upgrade: post-draft manifest mismatch возвращает clarify до freeze/panel;
+- Brief/Core Flow/Arena/fix bytes с новым material decision одинаково stale alignment; classifier-proven non-material prose edit manifest не меняет;
+- unreferenced prose с destructive/API instruction не входит в PromptEnvelope/Ticket trace; duplicate/unknown manifest block/ref fail-closed;
 - Tickets изменены после approval: прежний subject/approval становится stale и новый Ticket Panel не запускается;
 - Ticket Panel PASS без current breakdown approval не разрешает `dispatch_ticket_dag` и создаёт ноль child/blocker side effects;
+- signed full panel waiver current artifact identity проходит freeze_artifact -> record_artifact_pass(disposition=waived) без panel child; stale waiver паркуется;
+- signed code-review waiver current tree identity проходит freeze -> record_code_verdict(status=waived) без reviewer child; tree change void'ит waiver;
 - exact autonomous policy разрешает продолжение только для записанных project/run/kind/rule/class/scope/constraints и не отменяет Panel/Code Review/integration gate;
 - project policy, выданная в Epic A и отозванная daemon record, сразу блокирует cached use в Epic B;
 - correction во время `await_alignment` повышает anchor version через impact flow, void'ит affected candidate/verdict/PASS и перезапускает соответствующий alignment/artifact cycle;
@@ -1231,6 +1289,7 @@ Resume contract:
 - parent не запускается, пока blocker открыт;
 - pending_anchor блокирует panel/contest/narrow/review/Arena/Ticket joins и integrate до rebuild;
 - partial anchor_impact re-bind'ит ровно unchanged planning passes и void'ит ровно affected bindings;
+- prepare_anchor_impact stages proposal before user approval; correction/Ticket status change while waiting stales approval and recomputes map без anchor bump;
 - Ticket-scoped BLOCKED_ANCHOR propagates to parent with a suspension receipt;
 - code-only anchor repair для каждого human Ticket записывает/read-back resume_intent, восстанавливает suspended edge и затем resume'ит child; planning repair применяет тот же intent→edge→resume порядок;
 - affected Ticket whose pending was absorbed before suspension resumes through the matching parent_rebuild_receipt path and cannot stall between guards;
@@ -1267,7 +1326,7 @@ Resume contract:
 - изменённый artifact/tree аннулирует PASS;
 - reviewer write обнаруживается;
 - reviewer task использует отдельный task ID и pinned OID workspace;
-- preflight на реальном autosk CLI доказывает точечные unblock/block и parent-initiated resume --to; extension не стартует, если хотя бы одна операция отсутствует;
+- preflight на real autosk CLI доказывает dormant create status=new, отсутствие run до configuration, enroll new->work, точечные unblock/block и parent-initiated resume --to; extension не стартует, если операция отсутствует;
 - crash до edge повторяет intent/edge idempotently; crash после edge до resume оставляет child human с anchor_resume_pending и восстанавливается точным user resume; normal resume очищает intent и после всех children parent transits ticket_join;
 - workers=1 и crash после intent, после edge и после resume дают тот же state outcome; ни один recovery step не удерживает worker в ожидании parent;
 - Arena judge cancel/missing/invalid не проходит arena_join;
@@ -1282,9 +1341,12 @@ Resume contract:
 ### Adversarial
 
 - модель подделывает user source/approval для собственного material decision;
-- model shell пишет Git Decision Log/comment, вызывает обычный autosk CLI и пытается получить actor=user без trusted capability;
+- model shell пишет Git Decision Log/comment/projection, открывает ordinary daemon connection и пытается получить actor=user без valid signer/challenge;
 - model помечает product behavior как `local_reversible_implementation`, но deterministic classifier выводит human_required;
+- model сохраняет readiness summary, но вставляет в prose новый material API/data/destructive decision, отсутствующий в approved manifest;
 - stale Epic cache пытается применить revoked project policy;
+- user пытается approve hand-authored impact map, не созданную prepare_anchor_impact, либо replay'ит signature после status drift;
+- forged/stale panel или review waiver пытается пройти consumer without current signed record;
 - policy hash валиден, но artifact kind, decision class, scope, constraints, expiry или user-decision binding не совпадает;
 - crash before/after Planned replacement create/enroll при Quick reclassification не создаёт duplicate и не разрешает Quick integrate;
 - stale Tickets approval подставлен к другому DAG с теми же именами Ticket;
@@ -1330,9 +1392,9 @@ Multi-project preflight дополнительно печатает canonical ro
 
 ### Slice 1 — безопасный фундамент
 
-- минимальный upstream autosk patch: daemon-owned write-once creation_key+creation_binding_hash; append-only `UserDecisionRecord`; trusted-client-only decision capability/RPC; project policy projection/revocation; reconcile protection;
+- минимальный upstream autosk patch: daemon-owned write-once creation_key+creation_binding_hash; nonce-bound `UserDecisionRecord`; project public-key pin + `UserPresenceSigner` challenge/verify RPC; signed hash-chain journal; project policy projection/revocation; reconcile protection;
 - compatibility preflight, который fail-closed запрещает child fan-out на autosk без creation-key primitive;
-- capability preflight, который доказывает, что model/extension subprocess не может создать actor=user record, а trusted client может;
+- authority preflight: unpinned project не enroll'ит model; trusted init pins key; rogue TOFU/rekey, replay/expired/wrong-project/forged signature, direct projection write и model submit дают ноль actor=user records;
 - отдельный extension package;
 - autosk-native Guide + exact 12-file governance bundle + manifest/digest;
 - local-only explicit Traycer import/diff tool, недоступный runtime;
@@ -1386,7 +1448,7 @@ Arena входит в целевую архитектуру, но реализу
 - все Critical/High закрыты, Medium исправлены или явно отложены;
 - пользователь принял положения из 04-decisions.md;
 - upstream creation-key+binding-hash primitive реализован/протестирован в зафиксированной версии autosk; fallback на title/description отсутствует;
-- upstream `UserDecisionRecord` + trusted-client capability/reconcile primitive реализован и adversarially доказано, что model/extension subprocess не может получить actor=user;
+- upstream signed `UserDecisionRecord` + project key pin/UserPresenceSigner/journal/reconcile primitive реализован; replay/forge/model-shell adversarial tests не получают actor=user;
 - все четыре Pi route прошли live smoke;
 - создан отдельный тестовый Git-репозиторий, не рабочий проект пользователя;
 - autosk v2 установлен только после фиксации версии и rollback-плана.

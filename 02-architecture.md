@@ -133,6 +133,8 @@ SDK пока предоставляет TasksAPI только для чтени�
 
 `creation_key` и `creation_binding_hash` — write-once engine fields, включённые read-only в TaskView и защищённые от внешней reconcile-правки. Под одним canonical project root daemon обеспечивает уникальность key без второго ledger: create выполняет поиск/запись под project-level key lock и никогда не возвращает existing task при hash mismatch. После сбоя retry находит задачу даже если её переименовали до metadata set. Child никогда не enroll до полной проверки metadata/session/sandbox. Recovery sweep может закрыть только собственную `new`-задачу с валидной парой; произвольную task без неё он не трогает. Если primitive отсутствует, preflight останавливает autosk-flow до создания реальных задач; fallback на title/description запрещён.
 
+Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `cmd/autosk/create.go` без `--workflow` оставляет task status=new, а `cmd/autosk/enroll.go` отдельно выполняет `enroll <id> --workflow NAME [--step STEP]` и переводит new в work. Preflight доказывает оба состояния до real fan-out.
+
 ## 5. Хранение
 
 ### Нормативная правда в Git
@@ -172,7 +174,9 @@ SDK пока предоставляет TasksAPI только для чтени�
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
-Дополнительный task/status-ledger не создаётся. `UserDecisionRecord` — узкий daemon-owned authority record, а не копия workflow state: `{record_id, project_root_sha256, actor=user, request/epic/task/anchor/subject identity, payload_hash, issued_at, capability_binding}`. Прямая filesystem mutation отклоняется reconciliation; capability остаётся только в trusted client connection и не сериализуется в argv/env/project files. Project policy issuance и terminal revocation используют такие records; `.autosk/autosk-flow/alignment-policies` — единственная daemon-maintained projection current status, которую каждый gate перечитывает. Epic metadata хранит только `policy_ref + expected_hash`, не active-копию. Decision Log/comments являются зеркалом, когда их bytes hash-match authority record.
+Дополнительный task/status-ledger не создаётся. `UserDecisionRecord` — узкий authority record, а не копия workflow state. Project init через trusted client создаёт daemon-owned write-once public-key pin до enroll любого model task; workflow TOFU/re-pin запрещены. Rekey требует signatures old+new keys; lost-key recovery void'ит dependent approvals. Autoskd выдаёт nonce+expiry challenge exact decision identity; trusted client показывает packet и подписывает через `UserPresenceSigner`. Production signer использует non-exportable project-bound OS key с user-presence access control; тесты получают fake signer. Private key не передаётся daemon child/model processes. Unpinned/headless project fail-closed до model launch.
+
+Daemon append'ит подписанный record в project-owned hash-chained journal `.autosk/user-decisions/`, затем материализует projection. Reconciliation проверяет signature, nonce, sequence, previous-record hash и project binding; синтаксически валидный файл без journal entry отклоняется. Project policy issuance и terminal revocation используют такие records; `.autosk/autosk-flow/alignment-policies` — единственная daemon-maintained projection current status, которую каждый gate перечитывает. Epic metadata хранит только `policy_ref + expected_hash`, не active-копию. Decision Log/comments являются зеркалом, когда их bytes hash-match authority record. Residual assumption: model sandbox не имеет signer/keychain/accessibility/ptrace capability к trusted client несмотря на общий OS UID.
 
 `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая workflow-связь остаётся в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
 
@@ -266,6 +270,7 @@ pinned common protocol
 + stage contract
 + current daemon-attributed user decisions and accepted corrections
 + current alignment record and re-resolved project policy proof, если применимо
++ approved and recomputed material-decision manifests
 + decision-log extract
 + relevant planning artifacts
 + scope identity / artifact identity
@@ -276,7 +281,7 @@ pinned common protocol
 
 Для панели common protocol, anchor pack, artifact bytes и scale byte-identical. Отличаются только role contract и model route.
 
-Controlling anchor pack включает daemon record ID/hash/provenance, exact bytes/hash его Git-зеркала при наличии, alignment record, classifier identity/inputs и re-resolved autonomous policy status. Изменение любого из них создаёт pending anchor impact; affected planning candidate/verdict/PASS bindings не могут пережить такую смену. Этот контракт задаёт точку включения в anchor analysis, а полное распространение поздних требований на уже выполненные Tickets проектируется отдельно.
+Controlling anchor pack включает daemon authority, optional mirror, alignment record, approved + post-draft recomputed material manifests, classifier/projector proofs и re-resolved policy status. Изменение любого из них создаёт pending anchor impact; affected candidate/verdict/PASS не переживают смену. Полное распространение на уже выполненные Tickets проектируется отдельно.
 
 Граница текущего слоя узкая: четыре named alignment lifecycles и минимальный trusted user-authority primitive принадлежат issue #4. Issue #14 обобщает artifact classes/impact graph, issue #35 строит HumanDecisionRequest queue, answer/status CLI и UI, issue #25 распространяет поздние изменения на уже реализованную работу. Ни registry, ни общий decision dashboard здесь не создаются.
 
@@ -313,13 +318,15 @@ alignment approval identity =
     + anchor version
     + scope hash
     + subject hash
+    + approved material manifest hash
+    + post-draft projector hash
     + user decision record id/hash/provenance
     + decision-classifier version/hash
     + current policy issuance/disposition hashes or null
     + protocol hash)
 ~~~
 
-Поле `approval_identity` не входит в собственный preimage. Для Tickets `subject hash` связывает полный набор файлов, dependency graph, scopes, independently verifiable outcomes, порядок/параллельность и exclusions. Для Tech Plan он связывает readiness record. Decision classifier выводит classes из закрытых полей; unknown/ambiguous и model labels fail-closed. Любое несовпадение record provenance, classifier input/version или остальных полей делает approval stale до нового решения или явного hash-checked re-binding в anchor impact.
+Поле `approval_identity` не входит в собственный preimage. Для всех four kinds canonical material manifest перечисляет planned material decisions до prose draft. Artifact содержит один fenced `autosk-material-decisions` block; material section refs указывают stable IDs. Prompt compiler/Ticket trace используют block, а unreferenced prose не является authority. После draft/Arena/fix projector парсит exact block+refs; mismatch/unknown/unmapped stales approval до freeze. Tickets manifest также связывает files/DAG/scopes/outcomes/order/exclusions. Любое несовпадение provenance/projection/identity делает approval stale.
 
 ### Кодовый кандидат
 
