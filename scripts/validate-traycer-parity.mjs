@@ -148,12 +148,20 @@ function hasPrivateData(value) {
 function hasActionableTraycerDependency(text) {
   const dependency = /(?:~\/\.traycer(?:\/[A-Za-z0-9._/-]*)?|traycer_(?:[A-Za-z0-9_]+|\*))/gi;
   for (const match of text.matchAll(dependency)) {
-    if (REGISTRY_KIND_TOKENS.has(match[0].toLowerCase())) continue;
     const prefix = text.slice(0, match.index);
     let start = Math.max(prefix.lastIndexOf("\n"), prefix.lastIndexOf(";"), prefix.lastIndexOf("!"), prefix.lastIndexOf("?"), prefix.lastIndexOf(",")) + 1;
     for (const sentence of prefix.matchAll(/[.!?](?=\s+[A-ZА-Я])/gu)) start = Math.max(start, sentence.index + sentence[0].length);
     for (const contrast of prefix.matchAll(/\bbut\b|(?:^|\s)но(?:\s|$)/giu)) start = Math.max(start, contrast.index + contrast[0].length);
     const clause = text.slice(start, match.index + match[0].length);
+    if (REGISTRY_KIND_TOKENS.has(match[0].toLowerCase())) {
+      const lineStart = prefix.lastIndexOf("\n") + 1;
+      const nextLine = text.indexOf("\n", match.index);
+      const line = text.slice(lineStart, nextLine < 0 ? text.length : nextLine);
+      const declarativeVerb = /\b(?:uses?|contains?|defines?|documents?)\b|(?:использует|содержит|определяет|документирует)/iu.test(line);
+      const dangerousAction = /\b(?:loads?|requires?|calls?|invokes?|reads?|opens?|executes?|runs?|depends?|fallback)\b|(?:загружает|требует|вызывает|читает|открывает|исполняет|запускает|зависит)/iu.test(line);
+      const declarative = !/(?:runtime|рантайм)/iu.test(line) && !dangerousAction && declarativeVerb && /(?:\bregistry\b|\bschema\b|реестр|схема)/iu.test(line) && /(?:\brecords?\b|\bkinds?\b|\benum\b|\bvalues?\b|запис|вид|значен)/iu.test(line);
+      if (declarative) continue;
+    }
     const hasAction = /\b(?:reads?|loads?|opens?|uses?|calls?|invokes?|requires?)\b/i.test(clause) || /(?:читает|загружает|открывает|использует|вызывает|требует)/iu.test(clause);
     const isNegative = /\b(?:does?\s+not|must\s+not|never|cannot|can't|without|forbids?|prohibits?)\b/i.test(clause) || /не\s+(?:читает|вызывает|использует|требует)/iu.test(clause);
     if (hasAction && !isNegative) return true;
@@ -189,13 +197,13 @@ export function computeCommandCapabilityHash(command, binarySha256) {
 export function computeSummary(sources) {
   const normalized = Array.isArray(sources) ? sources : [];
   const dispositions = Object.fromEntries(DISPOSITIONS.map((value) => [value, 0]));
-  for (const source of normalized) if (Object.hasOwn(dispositions, source.disposition)) dispositions[source.disposition] += 1;
+  for (const source of normalized) if (Object.hasOwn(dispositions, source?.disposition)) dispositions[source.disposition] += 1;
   return {
     mappedRecords: normalized.length,
     implementedRecords: 0,
     verifiedRecords: 0,
-    v1Records: normalized.filter((source) => source.classification === "v1").length,
-    postV1Records: normalized.filter((source) => source.classification === "post_v1").length,
+    v1Records: normalized.filter((source) => source?.classification === "v1").length,
+    postV1Records: normalized.filter((source) => source?.classification === "post_v1").length,
     dispositions,
   };
 }
@@ -345,8 +353,8 @@ export function validateRegistry(registry, schema = {}, documentation = {}) {
     const actualIds = sources.filter((source) => source?.kind === kind).map((source) => source.id);
     if (!sameArray(actualIds, expectedIds)) errors.push(`${kind} ids must be exactly: ${expectedIds.join(", ")}`);
   }
-  const binary = sources.find((source) => source.id === "executable.traycer-protocol");
-  for (const source of sources.filter((candidate) => candidate.kind === "traycer_protocol_command")) {
+  const binary = sources.find((source) => source?.id === "executable.traycer-protocol");
+  for (const source of sources.filter((candidate) => candidate?.kind === "traycer_protocol_command")) {
     const expected = binary ? computeCommandCapabilityHash(source.id.slice(8), binary.sha256) : null;
     if (source.sha256 !== expected) errors.push(`${source.id} capability hash does not bind the executable`);
   }
@@ -440,12 +448,18 @@ export function assertReportPath(reportPath, root = ROOT) {
 }
 
 export function verifySourceMap(registry, sourceMap) {
-  const allSources = Array.isArray(registry?.sources) ? registry.sources : [];
-  const sources = allSources.filter((source) => source?.kind !== "traycer_protocol_command");
+  const rawSources = registry?.sources;
+  const allSources = Array.isArray(rawSources) ? rawSources.filter((source) => source && typeof source === "object" && !Array.isArray(source)) : [];
+  const sources = allSources.filter((source) => source.kind !== "traycer_protocol_command");
   const expectedIds = sources.map((source) => source.id);
   const mapIds = sorted(Object.keys(sourceMap?.sources ?? {}));
   const errors = [];
-  if (!Array.isArray(registry?.sources)) errors.push("registry.sources must be an array");
+  if (!Array.isArray(rawSources)) errors.push("registry.sources must be an array");
+  else {
+    if (rawSources.length !== 37) errors.push(`expected 37 registry source records, found ${rawSources.length}`);
+    if (allSources.length !== rawSources.length) errors.push("registry.sources must contain only object records");
+  }
+  if (sources.length !== 31) errors.push(`expected 31 file-backed source records, found ${sources.length}`);
   if (sourceMap?.schemaVersion !== 1) errors.push("source map schemaVersion must be 1");
   const missing = expectedIds.filter((id) => !mapIds.includes(id));
   const extra = mapIds.filter((id) => !expectedIds.includes(id));

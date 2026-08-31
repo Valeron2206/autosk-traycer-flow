@@ -231,6 +231,15 @@ test("documentation may describe declared registry kind tokens", () => {
   assert.deepEqual(validateDocumentation(readme, documentation.summary, baseRegistry), []);
 });
 
+test("declared registry kind tokens are still rejected as runtime dependencies", () => {
+  for (const token of ["traycer_skill", "traycer_protocol_binary", "traycer_protocol_command", "traycer_test_suite"]) {
+    for (const statement of [`Runtime loads ${token}`, `The registry records require production to load ${token}`]) {
+      const readme = `${documentation.readme}\n${statement}`;
+      assert.match(validateDocumentation(readme, documentation.summary, baseRegistry).join("\n"), /actionable Traycer runtime dependency/);
+    }
+  }
+});
+
 test("registry rejects private and session-derived strings outside sanitized negative statements", () => {
   for (const value of [
     "responseId abc123",
@@ -452,6 +461,17 @@ test("malformed registries without sources return errors instead of throwing", (
   assert.match(validateRegistry(registry, schema, documentation).join("\n"), /expected 37 parity records/);
   assert.doesNotThrow(() => verifySourceMap(registry, { schemaVersion: 1, sources: {} }));
   assert.match(verifySourceMap(registry, { schemaVersion: 1, sources: {} }).errors.join("\n"), /registry\.sources must be an array/);
+});
+
+test("empty and malformed source arrays fail closed without throwing", () => {
+  for (const sources of [[], [null]]) {
+    const registry = clone(baseRegistry);
+    registry.sources = sources;
+    assert.doesNotThrow(() => validateRegistry(registry, schema, documentation));
+    assert.match(validateRegistry(registry, schema, documentation).join("\n"), /expected 37 parity records/);
+    assert.doesNotThrow(() => verifySourceMap(registry, { schemaVersion: 1, sources: {} }));
+    assert.match(verifySourceMap(registry, { schemaVersion: 1, sources: {} }).errors.join("\n"), /expected 37 registry source records/);
+  }
 });
 
 test("CLI executes when invoked through a symlink", () => {
