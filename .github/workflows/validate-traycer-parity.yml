@@ -1,0 +1,33 @@
+name: Validate Traycer parity registry
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Run adversarial tests
+        run: npm test
+
+      - name: Validate registry
+        run: npm run validate:migration
+
+      - name: Validate pull-request file scope
+        if: github.event_name == 'pull_request'
+        run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

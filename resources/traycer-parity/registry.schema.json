@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/traycer-parity/registry.schema.json",
+  "title": "Traycer to autosk-flow parity registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "registryVersion",
+    "parityClaim",
+    "aggregateDigest",
+    "sourceEvidence",
+    "summary",
+    "sources"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./registry.schema.json"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "registryVersion": {
+      "const": "traycer-parity-registry.v1"
+    },
+    "parityClaim": {
+      "const": "mapping_only"
+    },
+    "aggregateDigest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sourceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archives", "gaps"],
+      "properties": {
+        "archives": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "sanitizedLocator", "sha256", "inventory"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "sanitizedLocator": { "type": "string", "pattern": "^migration-archive://" },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "inventory": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["entries", "symlinks"],
+                "properties": {
+                  "entries": { "type": "integer", "minimum": 0 },
+                  "regularFiles": { "type": "integer", "minimum": 0 },
+                  "directories": { "type": "integer", "minimum": 0 },
+                  "symlinks": { "type": "integer", "minimum": 0 },
+                  "other": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "requestedLocator", "status", "searchedScope", "impact"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "requestedLocator": { "type": "string", "pattern": "^requested-archive://" },
+              "status": { "const": "not_found" },
+              "searchedScope": { "type": "string", "minLength": 1 },
+              "impact": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mappedRecords", "implementedRecords", "verifiedRecords", "v1Records", "postV1Records", "dispositions"],
+      "properties": {
+        "mappedRecords": { "const": 37 },
+        "implementedRecords": { "const": 0 },
+        "verifiedRecords": { "const": 0 },
+        "v1Records": { "type": "integer", "minimum": 0 },
+        "postV1Records": { "type": "integer", "minimum": 0 },
+        "dispositions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ported", "adapted", "superseded", "intentionally_deferred", "rejected"],
+          "properties": {
+            "ported": { "type": "integer", "minimum": 0 },
+            "adapted": { "type": "integer", "minimum": 0 },
+            "superseded": { "type": "integer", "minimum": 0 },
+            "intentionally_deferred": { "type": "integer", "minimum": 0 },
+            "rejected": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 37,
+      "maxItems": 37,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "sanitizedLocator",
+          "sha256",
+          "hashKind",
+          "purpose",
+          "invariants",
+          "autoskTarget",
+          "disposition",
+          "classification",
+          "parityClaim",
+          "targetVersion",
+          "verification",
+          "notes"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": {
+            "enum": [
+              "guide",
+              "protocol_file",
+              "traycer_skill",
+              "traycer_protocol_binary",
+              "traycer_protocol_command",
+              "traycer_test_suite",
+              "validation_record"
+            ]
+          },
+          "sanitizedLocator": { "type": "string", "pattern": "^[a-z][a-z0-9-]*://[A-Za-z0-9._/-]+$" },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "hashKind": { "enum": ["source_bytes", "derived_capability"] },
+          "purpose": { "type": "string", "minLength": 1 },
+          "invariants": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "autoskTarget": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["component", "issueRefs"],
+            "properties": {
+              "component": { "type": "string", "minLength": 1 },
+              "issueRefs": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "integer", "minimum": 3, "maximum": 39 }
+              }
+            }
+          },
+          "disposition": {
+            "enum": ["ported", "adapted", "superseded", "intentionally_deferred", "rejected"]
+          },
+          "classification": {
+            "enum": ["v1", "post_v1"]
+          },
+          "parityClaim": { "const": "mapping_only" },
+          "targetVersion": { "const": "unreleased" },
+          "verification": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "evidenceRefs"],
+            "properties": {
+              "status": { "const": "planned" },
+              "evidenceRefs": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "notes": { "type": "string", "minLength": 1 },
+          "sourceRef": { "const": "executable.traycer-protocol" },
+          "defer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason", "risk", "owner", "returnTrigger", "notImplementedProof"],
+            "properties": {
+              "reason": { "type": "string", "minLength": 1 },
+              "risk": { "type": "string", "minLength": 1 },
+              "owner": { "type": "string", "minLength": 1 },
+              "returnTrigger": { "type": "string", "minLength": 1 },
+              "notImplementedProof": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "disposition": { "const": "intentionally_deferred" } },
+              "required": ["disposition"]
+            },
+            "then": {
+              "required": ["defer"],
+              "properties": { "classification": { "const": "post_v1" } }
+            },
+            "else": { "not": { "required": ["defer"] } }
+          },
+          {
+            "if": {
+              "properties": { "kind": { "const": "traycer_protocol_command" } },
+              "required": ["kind"]
+            },
+            "then": {
+              "required": ["sourceRef"],
+              "properties": { "hashKind": { "const": "derived_capability" } }
+            },
+            "else": {
+              "not": { "required": ["sourceRef"] },
+              "properties": { "hashKind": { "const": "source_bytes" } }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

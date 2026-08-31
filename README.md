@@ -1,6 +1,6 @@
 # Проект автономного autosk-flow для autosk v2
 
-Статус: PANEL PASS — candidate `2b97752` закрывает finding CodeRabbit об immutable child creation identity и получил PASS GPT, Grok, Kimi и Opus в тех же проверяющих сессиях. Реализация ещё не начата.
+Статус: REVISION IN PROGRESS. Исторический PANEL PASS относится только к прежнему candidate `2b97752`; новый design gate ведётся в issue #39. Реализация runtime ещё не начата.
 
 ## Цель
 
@@ -48,6 +48,25 @@
 ## Граница текущей работы
 
 Сейчас обновляется и повторно проверяется только проектный пакет. Код расширения и governance bundle ещё не создаются. Реализация начнётся после четырёх PASS новой точной версии.
+
+## Реестр миграционного паритета
+
+Issue #3 добавляет только проверяемое сопоставление миграционных источников с будущими autosk-native компонентами. Это не заявление о готовом runtime:
+
+- Mapping coverage: 100% (37/37)
+- Implemented parity: 0% (0/37)
+- Verified parity: 0% (0/37)
+
+Машиночитаемый реестр находится в `resources/traycer-parity/registry.v1.json`, закрытая схема — рядом в `registry.schema.json`, а человекочитаемая сводка — в `docs/traycer-parity-registry.md`. Исходные приватные bytes, домашние пути, sessions и transcripts не публикуются. Символические ссылки на Traycer встречаются только как миграционные locators или явные запреты runtime-зависимости.
+
+Проверка не требует внешних пакетов:
+
+```text
+npm test
+npm run validate:migration
+```
+
+Шесть записей отнесены к `post_v1`: Autobuild, Reflect, Debate, Housekeeping и Changeset Walkthrough остаются неактивными до соответствующих issues. Два отсутствующих архива сохранены как открытые source-evidence gaps, а не объявлены найденными.
 
 ## Источники
 
