@@ -279,7 +279,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Core Flow содержит открытое решение поведения | record_alignment | daemon record закрыл каждое material решение; model self-approval запрещён |
 | Tech Plan не готов из-за open question или silent inference | record_alignment | readiness/classifier proof подтверждены daemon record либо current exact policy |
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
-| Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новый daemon user decision либо trusted-client-issued exact policy; расширять policy модель не может |
+| Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection |
 | Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
 | Quick classification invalid, Planned handoff не завершён | invalidate_quick_classification | schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |

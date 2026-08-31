@@ -86,7 +86,7 @@
 
 ## ADR-010: PASS только по точной идентичности
 
-- Решение: planning verdict связан с artifact snapshot; code verdict — с base/pathspec/tree OID/anchor/attempt. До private-branch CAS deterministic host фиксирует canonical commit recipe и exact expected commit OID. Recovery принимает только этот OID с recorded parent/base/recipe; same tree с другим commit — foreign movement.
+- Решение: planning verdict связан с artifact snapshot; code verdict — с base/pathspec/tree OID/anchor/controlling_anchor_digest/attempt и daemon gate-result receipt ID/hash/result head. До branch CAS host фиксирует exact commit recipe/OID; recovery accepts only that OID/parent/recipe.
 - Альтернатива: считать достаточным последний комментарий PASS или имя ветки.
 - Обоснование: branch и файлы изменяемы; OID и hash обнаруживают stale verdict.
 - Источники:
@@ -210,7 +210,7 @@
 
 - Решение: trusted init pin'ит signer key; autoskd сохраняет exact canonical challenge bytes, коммитит authority+nonce heads до projection/effects. Dependency `add|supersede` и intent journals имеют protected heads. `authorityGuard`/`integrateApproved` под project mutex reconciles global authority journal, но сравнивают relevant Epic authority projection + dependency/intent heads, поэтому unrelated project decision не stales Epic; competing appends ждут. Invalid tail never had effects/nonce reuse; missing committed bytes fail-closed. Git/comments/metadata — projections.
 - Альтернатива: считать user-authored любой Git/comment запись с подходящим текстом либо проверять наличие TTY.
-- Обоснование: author/implementer имеет shell и может записать Git/comment, открыть обычную daemon connection или получить TTY; hash доказывает bytes, но не authorship. Подписанный exact challenge + daemon journal делает replay/forge механически проверяемым. Headless без signer остаётся blocked. Residual assumption: sandbox не имеет signer/accessibility/ptrace доступа к trusted client при общем OS UID. Issue #35 позже добавляет общий decision queue/UI/status поверх primitive, но не меняет trust boundary.
+- Обоснование: signer и secure store обязаны работать в separate OS security boundary (privileged helper/separate account or hardware-backed enclave) недоступной model process. Sandbox profile запрещает model accessibility/ptrace/keychain access; deployment без доказуемой boundary/headless signer fail-closed. Boundary tests cover signer and secure-state access. Issue #35 only adds UI.
 - Источники:
   - issue #4, invariant «модель не подтверждает своё решение»;
   - first panel findings feasibility-01 и arch-02;

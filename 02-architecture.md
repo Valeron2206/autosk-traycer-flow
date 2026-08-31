@@ -83,7 +83,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 Глобальный пакет никогда не записывает внутрь себя проектные данные. Проект A не может ссылаться на task/session/evidence path проекта B; cross-project blocker и cross-project PASS binding запрещены.
 
-Единственное integrity-исключение к project root — daemon secure store с `{authority_head,dependency_head,intent_head,consumed_nonce_head,metadata_head,result_head}` hashes/counters без decision/task payload. Workflow scope — Epic либо Quick, custody heads task-keyed. Это anti-rollback/custody anchor, не task-status ledger.
+Единственное integrity-исключение к project root — daemon secure store с `{authority_head,dependency_head,intent_head,consumed_nonce_head,integration_authorization_head,metadata_head,result_head}` hashes/counters без decision/task payload. Workflow scope — Epic либо Quick; custody heads task-keyed.
 
 ## 3. Почему панель — дочерние задачи
 
@@ -174,16 +174,19 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 <canonical-project-root>/.autosk/autosk-flow/alignment-policies/<policy-id>.json
 <canonical-project-root>/.autosk/autosk-flow/authority-dependencies/<scope-id>.jsonl
 <canonical-project-root>/.autosk/autosk-flow/intent-events/<scope-id>.jsonl
+<canonical-project-root>/.autosk/autosk-flow/integration-authorizations/<scope-id>/<record-id>.json
 <canonical-project-root>/.autosk/autosk-flow/gate-results/<child-task-id>.jsonl
 <canonical-project-root>/.autosk/autosk-flow/provider-sessions/
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
-Дополнительный task/status-ledger не создаётся. `UserDecisionRecord` — узкий authority record, а не копия workflow state. Project init через trusted client создаёт daemon-owned write-once public-key pin до enroll любого model task; workflow TOFU/re-pin запрещены. Rekey требует signatures old+new keys; lost-key recovery void'ит dependent approvals. Autoskd выдаёт nonce+expiry challenge exact decision identity; trusted client показывает packet и подписывает через `UserPresenceSigner`. Production signer использует non-exportable project-bound OS key с user-presence access control; тесты получают fake signer. Private key не передаётся daemon child/model processes. Unpinned/headless project fail-closed до model launch.
+Дополнительный task/status-ledger не создаётся. Trusted client only displays/signs exact challenge. Production signer/secure store runs in separate OS security boundary (privileged helper/separate account or hardware enclave); model sandbox is denied accessibility/ptrace/keychain. Deployment without enforceable boundary, or headless/unpinned project, blocks model launch.
 
 Daemon сохраняет canonical signed challenge bytes, append'ит signed record и CAS-обновляет rollback-resistant authority/nonce heads до публикации projection или workflow effect. Signature связывает project, record ID/raw nonce/expiry, request/Epic/task/anchor/subject/payload, previous head и exact next sequence. Recovery принимает journal-ahead только после byte-exact signature verification и head/nonce CAS; invalid tail не имел applied effects, quarantine'ится и не освобождает nonce. Project/Epic dependency journal имеет daemon-only `add|supersede` append и protected dependency head; normalized user instruction/correction append имеет protected intent head. Metadata — проверяемая projection этих journals. Store содержит только hashes/counters, не task status или payload, поэтому не является вторым ledger.
 
-Project policy issuance/revocation используют signed records; `.autosk/autosk-flow/alignment-policies` — daemon projection, которую gate перечитывает. Epic metadata хранит ref/hash, не active-копию. Git/comments — mirrors. Residual assumption: model sandbox не имеет signer/secure-head/keychain/accessibility/ptrace capability несмотря на общий OS UID.
+Project policy issuance/revocation используют signed UserDecisionRecords; trusted client policy bytes authority не получают. Autoskd derives the single projection after journal/head commit. Git/comments are mirrors. Model-to-signer/secure-state OS boundary is a mandatory preflight assertion, not a residual same-UID assumption.
+
+`IntegrationAuthorizationRecord` authoritative source is daemon-owned file above plus protected `integration_authorization_head`. Record identity binds scope, record ID, content hash, expiry, terminal revoke/replace disposition, authority/dependency/intent heads and integration plan. Restart lookup resolves by scope+record ID and reconciles file/head before use. Missing/changed/shortened record or head mismatch fail-closed to `integration_authorization_required`; recovery restores exact committed bytes only. `integration-state/<operation-id>.json` stores CAS operation/prefix/outcome only and never substitutes authorization authority.
 
 `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая workflow-связь остаётся в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
 
