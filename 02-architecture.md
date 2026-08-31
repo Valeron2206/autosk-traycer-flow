@@ -34,6 +34,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 - классификацию Quick/Planned;
 - последовательность плановых артефактов;
+- подготовку human alignment/readiness packets и механическую проверку их approval identity;
 - создание дочерних задач панели, Arena и Tickets;
 - компиляцию сообщений из замороженного протокола;
 - проверку structured verdict;
@@ -68,6 +69,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 Каждый canonical project root отдельно владеет:
 
 - project policy metadata и user decisions;
+- Decision Log с ответами пользователя и exact autonomous policies;
 - Brief, Core Flow, Tech Plan, Decision Log и Tickets;
 - task metadata, blockers, comments и sessions;
 - provider session directory;
@@ -162,7 +164,7 @@ SDK пока предоставляет TasksAPI только для чтени�
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
-Дополнительный status-ledger не создаётся. `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая связь хранится в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
+Дополнительный status-ledger не создаётся. `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая связь хранится в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments. Ответы пользователя и autonomous policy остаются нормативными Decision Log/user instruction records в Git или native comments; metadata хранит только их immutable hashes, approval identity и состояние `valid|stale|void`.
 
 ### Автономный governance bundle
 
@@ -253,6 +255,7 @@ pinned common protocol
 + role contract
 + stage contract
 + current user instructions and accepted corrections
++ current alignment record and exact policy proof, если применимо
 + decision-log extract
 + relevant planning artifacts
 + scope identity / artifact identity
@@ -262,6 +265,8 @@ pinned common protocol
 ~~~
 
 Для панели common protocol, anchor pack, artifact bytes и scale byte-identical. Отличаются только role contract и model route.
+
+Controlling anchor pack включает exact bytes/hash применимых пользовательских ответов, Decision Record, alignment record и autonomous policy. Изменение любого из них создаёт pending anchor impact; affected planning candidate/verdict/PASS bindings не могут пережить такую смену. Этот контракт задаёт точку включения в anchor analysis, а полное распространение поздних требований на уже выполненные Tickets проектируется отдельно.
 
 Небольшой resolvedPiAgent wrapper строит firstMessage во время onRun, затем делегирует штатному piAgent. Это позволяет выбрать модель и snapshot из task metadata без копирования pi-agent driver и без изменения autoskd.
 
@@ -284,6 +289,24 @@ artifact identity =
   + protocol hash
   + attempt
 ~~~
+
+### Согласование человеком
+
+~~~text
+alignment approval identity =
+  SHA-256("autosk-flow/alignment-approval/v1" + canonical JSON of
+    project_root_sha256
+    + epic id
+    + artifact kind
+    + anchor version
+    + scope hash
+    + subject hash
+    + decision record hash
+    + policy hash or null
+    + protocol hash)
+~~~
+
+Поле `approval_identity` не входит в собственный preimage. Для Tickets `subject hash` связывает полный набор файлов, dependency graph, scopes, independently verifiable outcomes, порядок/параллельность и exclusions. Для Tech Plan он связывает readiness record. Любое несовпадение делает approval stale до нового решения или явного hash-checked re-binding в anchor impact.
 
 ### Кодовый кандидат
 

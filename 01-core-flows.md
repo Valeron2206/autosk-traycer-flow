@@ -58,11 +58,13 @@ intake
 
 ~~~text
 intake / classify
-  -> Brief?       -> four-model panel -> fix -> narrow re-review
-  -> Core Flow?   -> four-model panel -> fix -> narrow re-review
-  -> Tech Plan    -> four-model panel -> fix -> narrow re-review
-  -> Arena?       -> candidates -> Judge -> decision -> new four-model Tech Plan panel
-  -> Tickets      -> separate four-model panel -> fix -> narrow re-review
+  -> Brief?       -> human framing alignment -> draft -> four-model panel -> fix -> narrow re-review
+  -> Core Flow?   -> human behavior alignment -> draft -> four-model panel -> fix -> narrow re-review
+  -> Tech Plan    -> human readiness alignment -> draft -> four-model panel -> fix -> narrow re-review
+  -> Arena?       -> candidates -> Judge recommendation -> human readiness alignment
+                  -> Decision Record / changed Tech Plan -> new full four-model panel
+  -> Tickets      -> draft + dependency view -> human breakdown alignment
+                  -> separate four-model panel -> fix -> narrow re-review
   -> ticket DAG execution
 ~~~
 
@@ -85,6 +87,27 @@ intake / classify
 Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на конкретные пункты Brief, сценарии Core Flow и решения Tech Plan, содержит scope in/out, зависимости, критерии приёмки и требуемые доказательства.
 
 Весь комплект Tickets проходит отдельную четырёхмодельную панель. Панель проверяет и каждый Ticket, и согласованность набора.
+
+### Согласование решений человеком
+
+В Planned-flow согласование человеком и модельная проверка — разные gates. Согласование отвечает на вопрос «это действительно решение пользователя?», а панель проверяет качество уже разрешённого решения. Модель не может одобрить своё предложение от имени пользователя и не может спрятать материальную неоднозначность в списке assumptions.
+
+| Артефакт | Что предъявляется до продолжения | Когда разрешён следующий шаг | Причина остановки |
+| --- | --- | --- | --- |
+| Brief | цель и ожидаемый результат; затронутые стороны; причина работы; scope и non-goals; критерий успеха; открытые материальные вопросы | framing подтверждён пользователем либо покрыт точной policy; только затем создаётся нормативный Brief | `brief_alignment_required` |
+| Core Flow | действия и видимые состояния; happy/unhappy paths; ошибки, повторы, отмена и partial success; права акторов и реакции системы | каждое материальное продуктовое решение закрыто пользователем; только затем создаётся нормативный Core Flow | `core_flow_decision_required` |
+| Tech Plan | readiness record: открытые вопросы, существенно разные реализации, silent inferences и уже закрытые решения | readiness подтверждена; реализация не должна изобретать оставшееся материальное решение | `tech_plan_readiness_required` |
+| Tickets | полный набор, dependency graph, scope и independently verifiable outcome каждого Ticket, порядок/параллельность и exclusions | breakdown подтверждён до Ticket Panel; изменение набора или графа требует нового согласования | `tickets_breakdown_alignment_required` |
+
+Brief, Core Flow и Tech Plan нельзя записать как нормативные артефакты до действующего alignment record. Tickets сначала создаются как предложение, показываются вместе с dependency view и становятся допустимым входом Ticket Panel только после записи approval.
+
+Каждый alignment record неизменяемо связывает `project identity + epic_id + artifact kind + anchor version + scope hash + subject hash + decision record hash + policy hash|null + protocol hash`. `subject hash` для Tickets включает канонический набор файлов, dependency graph, scopes, outcomes, порядок и exclusions; для Tech Plan — весь readiness record. Источником бывает только явное решение пользователя либо заранее выданная project/run policy. Ответы пользователя и record входят в controlling anchor pack.
+
+Изменение ответа, subject, scope, policy или anchor делает record stale. Correction создаёт новую anchor version, проходит impact analysis и аннулирует затронутые candidate/verdict/PASS bindings; незатронутое можно перепривязать только через существующее явное human-approved правило. Bare resume без нового decision record не проходит gate.
+
+Обычные локальные, обратимые и нематериальные implementation choices не входят в alignment packet и не требуют вопроса пользователю. Autonomous policy нужна только для заранее перечисленного ограниченного класса решений, который иначе был бы material question. Она должна быть заранее одобрена пользователем и точно связана с project/run, Epic, видами артефактов, классами решений, scope, constraints и собственным hash. Policy может покрывать только перечисленные обратимые и непродуктовые решения. Материальные product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration решения всегда требуют пользователя. Выход за policy даёт `alignment_policy_out_of_scope`; отсутствие или устаревание доказательства — `alignment_record_stale`. Такая policy не отменяет Panel, Code Review и human integration gate.
+
+Quick-flow не получает эти состояния, пока его объективная классификация остаётся валидной. Обнаруженная материальная неоднозначность делает Quick-классификацию невалидной и возвращает запрос в Planned intake.
 
 ## 3. Четырёхмодельная панель
 
@@ -148,6 +171,7 @@ approved arena framing
   -> optional candidate C only with written reason
   -> Judge from a family outside candidate set
   -> base recommendation + graft list
+  -> human readiness alignment / record_alignment
   -> final implementer re-expresses selected ideas
   -> updated Decision Record / Tech Plan
   -> new full four-model panel of the changed plan
@@ -157,7 +181,7 @@ approved arena framing
 
 Менее двух живых кандидатов из разных семей завершает Arena без победителя. Координатор всегда паркует задачу в human с arena_fallback_required. Fallback выбирает пользователь; после записи решения Tech Plan получает новую identity, narrow=false и полную четырёхмодельную панель.
 
-Judge выбирает подход; Reviewer принимает или отклоняет конкретный итоговый код. Эти роли не объединяются.
+Judge ранжирует варианты и выдаёт рекомендацию, но не утверждает материальное решение от имени пользователя. Изменённый readiness packet проходит тот же human alignment; exact policy допустима только в заранее записанном обратимом непродуктовом scope. После этого implementer re-expresses выбранные идеи, а Reviewer позднее принимает или отклоняет конкретный итоговый код. Эти роли не объединяются.
 
 Изменение Tech Plan после Arena создаёт новую artifact identity и аннулирует прежний PASS. Lead-only narrow re-review применяется только к исправлению уже подтверждённых panel findings без изменения scope; результат Arena под это исключение не попадает.
 
@@ -237,6 +261,12 @@ Bare resume запрещён для эскалаций, где требуетс�
 
 | Причина | Реальный workflow step | Обязательное состояние |
 | --- | --- | --- |
+| Brief framing не согласован | record_alignment | полный framing decision record пользователя либо exact policy той же identity |
+| Core Flow содержит открытое решение поведения | record_alignment | пользователь закрыл каждое материальное решение; model self-approval запрещён |
+| Tech Plan не готов из-за open question или silent inference | record_alignment | текущий readiness record подтверждён пользователем либо exact policy |
+| Ticket breakdown не согласован | record_alignment | показаны текущие Ticket set/DAG/scopes/outcomes/order/exclusions и записано approval |
+| Alignment policy не покрывает решение | clarify_alignment | новое решение пользователя либо новая exact policy; расширять policy модель не может |
+| Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version и decision/alignment record текущих subject/scope hashes |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |
 | Недоступная code-review child | review_candidate | тот же route, новый attempt; parent остаётся blocked |
 | Invalid/cancelled panel child | dispatch_panel | invalid child IDs, attempt+1 |
@@ -282,6 +312,7 @@ onTransit отклоняет resume, если причина park и требу�
 | --- | --- | --- |
 | Не создавать Brief/Core Flow | координатор по объективной классификации | classification в metadata |
 | Не создавать плановые артефакты для Quick | координатор | mode=quick |
+| Автономно закрыть alignment question | только пользователь заранее | exact project/run policy с kind, decision classes, scope, constraints, user decision ref и policy hash |
 | Пропустить панель существующего артефакта | только пользователь | panel waiver с точным scope |
 | Пропустить Code Review | только пользователь; строго редакционная Quick-правка освобождена deterministic rules | review waiver либо editorial classification + exact identity/path set; governance не editorial |
 | Сократить панель из-за недоступности | только пользователь | unavailable seat, причина, явный waiver и фактический roster |

@@ -79,7 +79,7 @@
 
 - Решение: Arena запускается только для pending entry в каноническом autosk-arena JSON block с ordered decisions array и rubric 3–6 критериев. record_artifact_pass механически ведёт монотонную map по decision_id. Default candidates — Grok и Codex; Judge — отдельный Kimi либо Opus вне candidate set.
 - Альтернатива: Arena всей feature либо выбор подхода одним планировщиком.
-- Обоснование: локальная Arena решает конкретный спор без удвоения всей разработки. Judge выбирает базу, но изменённый Tech Plan получает новую полную панель, а итоговый код — обычный review.
+- Обоснование: локальная Arena исследует конкретный спор без удвоения всей разработки. Judge рекомендует базу; material choice подтверждает пользователь или допустимая exact policy, затем изменённый Tech Plan получает новую полную панель, а итоговый код — обычный review.
 - Источники:
   - 01-core-flows.md, раздел «Arena/Judge»;
   - 03-technical-plan.md, workflows `autosk-arena-candidate` и `autosk-arena-judge`.
@@ -194,6 +194,17 @@
 - Источники:
   - autosk Pi tools/runtime behavior;
   - full re-panel finding G-H-03.
+
+## ADR-022: human alignment до нормативного planning artifact
+
+- Решение: Brief, Core Flow и Tech Plan получают нормативные bytes только после действующего human alignment/readiness record. Tickets сначала создаются как предложение, затем полный breakdown и dependency graph согласуются до Ticket Panel. Approval связан с project/Epic/kind/anchor/scope/subject/protocol identity и `policy_hash|null`, затем входит в controlling anchor pack. Модельная панель остаётся отдельным последующим gate.
+- Автономный режим: пользователь может заранее выдать exact project/run policy только для перечисленных локальных, обратимых и непродуктовых decision classes. Материальные product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration решения policy не покрывает. Policy имеет те же identity, staleness и audit guarantees и не отменяет Panel, Code Review или integration acceptance.
+- Альтернатива: разрешить планировщику фиксировать assumptions и считать PASS панели подтверждением намерения пользователя либо использовать один бессрочный флаг autonomous.
+- Обоснование: панель может доказать внутреннее качество решения, но не право модели принять его. Точная identity не позволяет повторно применить старое approval после изменения ответа, scope, anchor или Ticket DAG; ограниченная policy сохраняет автономность для заранее разрешённых мелких решений без скрытого расширения полномочий.
+- Источники:
+  - issue #4, human alignment gates;
+  - 01-core-flows.md, раздел «Согласование решений человеком»;
+  - 03-technical-plan.md, alignment state и metadata contracts.
 
 ## Оставшиеся риски, не решения
 
