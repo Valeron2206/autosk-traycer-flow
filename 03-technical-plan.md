@@ -80,6 +80,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
 | intake | classification валиден | select_next |
+| await_alignment / record_alignment / present_tickets_breakdown / freeze_artifact / fix_artifact / record_artifact_pass | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest != recorded new_ticket_set_digest | atomically phase=old_bindings_void, clear new digest, alignment_records.tickets=stale, artifact_pass.tickets=void, review cycle full required; draft_artifact до нового breakdown/panel |
 | select_next | `aggregate_remediation.phase != closed` | record_aggregate_remediation; recorded prefix продолжается, old/partial new Tickets не dispatch'ятся |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record текущей project/Epic/kind/anchor/scope/subject identity отсутствует | записать kind, создать review_cycles[kind] если absent, clarify_alignment |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record уже существует | записать kind, создать review_cycles[kind] если absent, draft_artifact |
@@ -1463,6 +1464,7 @@ Resume contract:
 - crash после resume_intent consumed/waiting flag cleared и до transit verify повторно входит в идемпотентный consumed guard и не застревает на rebuild_code_anchor;
 - planning dispatch создаёт отдельный ticket_repair_op до replacement preparation; переход dispatch_ticket_dag→resume_repaired_tickets зарегистрирован, op закрывает только ticket_join;
 - aggregate remediation crash after proposed/choice/void/proposal phases always resumes same creation binding; select_next/dispatch reject every non-closed prefix;
+- Tickets proposal drift during await_alignment/panel fix/freeze/PASS resets remediation to old_bindings_void before any approval/PASS consumer and repeats draft→breakdown→full panel;
 - policy revoke between replacement_ready and resume_repaired_tickets rejects authorityGuard before resume/enroll/block; revoke waits while a valid guarded batch executes;
 - fresh Ticket DAG использует ту же ticket_repair_op с empty human set; все Tickets проходят replacement_ready→enrolled/blockers→ticket_join без repair-only precondition;
 - human recovery Ticket с прямой/транзитивной зависимостью от replacement каскадно классифицируется replacement до создания op; workers=1 и workers>=4 дают одинаковый DAG;
