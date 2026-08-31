@@ -82,7 +82,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 Глобальный пакет никогда не записывает внутрь себя проектные данные. Проект A не может ссылаться на task/session/evidence path проекта B; cross-project blocker и cross-project PASS binding запрещены.
 
-Единственное integrity-исключение к физическому project root — rollback-resistant daemon secure store: он хранит только project/Epic-keyed `{authority_head,dependency_head,intent_head,consumed_nonce_head}` hashes/counters без decision/task payload. Логически heads project-owned, cross-project lookup запрещён; это anti-rollback anchor, не mutable status ledger.
+Единственное integrity-исключение к project root — daemon secure store с `{authority_head,dependency_head,intent_head,consumed_nonce_head,metadata_head,result_head}` hashes/counters без decision/task payload. Workflow scope — Epic либо Quick, custody heads task-keyed. Это anti-rollback/custody anchor, не task-status ledger.
 
 ## 3. Почему панель — дочерние задачи
 
@@ -171,8 +171,9 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 <canonical-project-root>/.autosk/sessions/<session-id>.jsonl
 <canonical-project-root>/.autosk/user-decisions/<record-id>.json
 <canonical-project-root>/.autosk/autosk-flow/alignment-policies/<policy-id>.json
-<canonical-project-root>/.autosk/autosk-flow/authority-dependencies/<epic-id>.jsonl
-<canonical-project-root>/.autosk/autosk-flow/intent-events/<epic-id>.jsonl
+<canonical-project-root>/.autosk/autosk-flow/authority-dependencies/<scope-id>.jsonl
+<canonical-project-root>/.autosk/autosk-flow/intent-events/<scope-id>.jsonl
+<canonical-project-root>/.autosk/autosk-flow/gate-results/<child-task-id>.jsonl
 <canonical-project-root>/.autosk/autosk-flow/provider-sessions/
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
@@ -236,7 +237,7 @@ Installer/cache хранит bundle versions content-addressed по digest, по
 <absolute-project-root>/.autosk-evidence/<epic-id>/<task-id>/<round>/<agent>/
 ~~~
 
-Каталог игнорируется Git по умолчанию и содержит только созданные проверками логи, screenshots и verdict records. В metadata хранится абсолютный canonical path и hash каждого принятого verdict/evidence record. Sandbox cwd для разрешения evidence path не используется. Сырые ответы модели остаются в session transcript.
+Каталог игнорируется Git и содержит logs/screenshots/evidence mirrors. Accepted verdict authority — daemon gate-result receipt + protected result head; metadata хранит receipt ref и optional evidence path/hash. Editable evidence/session transcript не является outcome source.
 
 ### Состояние интеграции
 
@@ -355,14 +356,16 @@ verdict binding =
   + reviewer task id
   + reviewer session id
   + reviewer family
-  + verdict record hash
+  + daemon gate-result receipt id/hash/result head
 ~~~
 
 Перед commit и integration identity вычисляется заново. Совпадение текста комментария PASS без этих полей ничего не разрешает.
 
-`controlling_anchor_digest` связывает protected `dependency_head`, current dependency projection/terminal dispositions, manifests/classifier/projector, Epic `intent_head`, consumed correction watermark, anchor и protocol. Global authority head reconciles committed record bytes, но unrelated record другого Epic не входит в current dependency projection. Exact daemon `supersede` меняет current set/head и требует новый anchor binding; historical entry остаётся audit evidence, но revoked superseded record не удовлетворяет guard и не создаёт вечный deadlock. Direct metadata edit расходится с protected head. Extension adapters и каждый deterministic prologue re-resolve heads; mismatch aborts live tools and enters blocked-anchor recovery.
+`scope-id` закрыт: `epic:<epic-id>` для Planned и `quick:<task-id>` для standalone Quick. `controlling_anchor_digest` связывает scope-keyed dependency head/current projection, intent head, manifests/classifier/projector, anchor и protocol. appendIntentEvent выбирает stream по этой identity. Global authority journal reconciles integrity; unrelated scope не stales projection. Direct metadata/comment edit расходится с protected heads.
 
 Authority/dependency/user-instruction/correction appends, graph repair mutations и Git target-ref CAS имеют одну daemon-owned точку линеаризации. `authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,digest)` держит project mutex; daemon reconciles global authority head for integrity, но сравнивает only current Epic projection so unrelated record не stales it. `integrateApproved` под тем же mutex re-resolves projection/heads/classifier/auth record и выполняет Git update-ref. Competing append ждёт mutex; lock не хранит task status.
+
+Третий upstream primitive — daemon workflow custody. Namespace `autosk_flow` принимает mutation только с step-capability `{task_id,workflow,step,expected_metadata_head}`; daemon CAS-двигает task-keyed protected metadata head. Direct task.json edit расходится с head. Gate result append advances protected result head. Parent join читает daemon receipt. Author/implementer uses custom worktree-scoped read/write/exec adapters; raw shell/autosk CLI and canonical-root `.autosk` access are absent. Exec sandbox permits only worktree + explicit toolchain paths; completion/transition request goes host driver.
 
 ## 8. Worktree identity и read-only review
 
@@ -381,7 +384,7 @@ Authority/dependency/user-instruction/correction appends, graph repair mutations
 Текущий autosk не обеспечивает OS-level read-only mount на уровне engine. Поэтому gate-роли получают только custom snapshot-rooted read tools и единственный host-mediated `submit_gate_result`; прямой transit, mutating builtin tools, `autosk_task`, arbitrary comments и shell отключены. Submit tool принимает только закрытую схему результата текущей task и сам ничего не пишет. Deterministic tail GateAgent AgentDefinition повторно проверяет project boundary перед записью и каждым fs/RPC side effect, host-side записывает/read-back immutable record и лишь затем передаёт управление validator. Дополнительно:
 
 1. reviewer child task получает отдельный pinned worktree, созданный из snapshot commit точного tree OID;
-2. до и после сессии детерминированный шаг сравнивает HEAD, tree, status/untracked set и parent/sibling store hashes.
+2. до и после сессии детерминированный шаг сравнивает HEAD, tree, status/untracked set и immutable creation/session bindings; параллельные sibling lifecycle/result writes допускаются только как daemon custody receipts с monotonic provenance/version, full live sibling store hash не считается immutable.
 
 Любая неожиданная запись превращает результат в blocking non-verdict. Ограниченный набор capabilities предотвращает известные пути записи, а pre/post hashes остаются защитой от ошибки driver; контейнерный read-only mount можно добавить позже только если измерения покажут необходимость.
 

@@ -4,7 +4,7 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension без отдельного scheduler fork. Обязательные upstream primitive sets ровно два: creation-key/binding-hash из ADR-014 и signed authority stack из ADR-023, включая canonical challenge persistence, protected authority/dependency/intent heads, project authority guard и serialized `integrateApproved`. Остальной workflow остаётся extension-owned.
+- Решение: реализовать процесс как TypeScript extension без отдельного scheduler fork. Обязательные upstream primitive sets ровно три: creation identity ADR-014, signed authority/intent stack ADR-023 и daemon workflow custody ADR-025. Без любого preflight запрещает model workflow.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
@@ -86,7 +86,7 @@
 
 ## ADR-010: PASS только по точной идентичности
 
-- Решение: planning verdict связан с artifact snapshot; code verdict — с base/pathspec/tree OID/anchor/attempt. Отдельный deterministic record_artifact_pass атомарно записывает PASS перед select_next. Перед commit/integration identity пересчитывается. commit-on-pass сначала распознаёт уже выполненный CAS по approved tree и восстанавливает metadata после crash.
+- Решение: planning verdict связан с artifact snapshot; code verdict — с base/pathspec/tree OID/anchor/attempt. До private-branch CAS deterministic host фиксирует canonical commit recipe и exact expected commit OID. Recovery принимает только этот OID с recorded parent/base/recipe; same tree с другим commit — foreign movement.
 - Альтернатива: считать достаточным последний комментарий PASS или имя ветки.
 - Обоснование: branch и файлы изменяемы; OID и hash обнаруживают stale verdict.
 - Источники:
@@ -179,9 +179,9 @@
 
 ## ADR-020: single-writer Epic metadata через correction inbox
 
-- Решение: только parent deterministic steps пишут Epic `autosk_flow` metadata, но authority dependency projection не доверяет этим last-write-wins bytes. Daemon-only monotonic dependency journal + protected head фиксируют `add|supersede`; Epic metadata хранит projection/ref. Пользователь, модели и Tickets append'ят correction events через daemon intent append, который двигает protected Epic intent head; parent consume'ит их по id/hash/watermark. Ticket resume начинается только после завершения parent metadata step.
-- Альтернатива: конкурентные `metadata set` с заявленным compare-and-swap.
-- Обоснование: autosk metadata write — last-write-wins и не поддерживает expected-hash CAS; append-only events предотвращают потерю поздней correction без второго ledger.
+- Решение: только deterministic owning steps с ADR-025 step-capability + expected protected metadata head пишут `autosk_flow`; model/Ticket connections rejected. Dependency/intent/result journals have protected heads, metadata carries projections/refs. Ticket resume starts after parent CAS write.
+- Альтернатива: current last-write-wins metadata set, tool convention or concurrent model writes.
+- Обоснование: existing autosk lacks expected-hash ownership; ADR-025 is mandatory because append-only intent alone does not protect verdict/review/repair state.
 - Источники:
   - autosk metadata/comment store behavior;
   - full re-panel finding G-H-02.
@@ -227,9 +227,19 @@
   - first panel findings intent-01 и arch-01;
   - 03-technical-plan.md, Quick reclassification.
 
+## ADR-025: daemon workflow custody
+
+- Решение: daemon enforce'ит `autosk_flow` writes через step-capability + expected protected metadata head; direct task.json edit mismatches head. Gate outcome — write-once result receipt/head. WorkAgent получает custom worktree-scoped fs/test exec sandbox without raw shell, `.autosk`, task/comment/metadata or arbitrary CLI; host owns transitions.
+- Альтернатива: доверять tool allowlist, same-UID filesystem и self-consistent metadata/hash bytes.
+- Обоснование: model с shell иначе может подделать PASS, очистить pending_anchor или заменить repair op после pre/post check. Human authority и Git dirt этого не обнаруживают.
+- Источники:
+  - v6 panel findings architecture-02 и SUPPLEMENTARY-01;
+  - ADR-020/021;
+  - 02-architecture.md, operational truth и gate custody.
+
 ## Оставшиеся риски, не решения
 
-1. Custom gate driver предотвращает известные write-capabilities, а pre/post hashes обнаруживают ошибку driver, но OS-level read-only mount пока отсутствует. Если измерения покажут необнаруживаемый путь записи, добавить container mount отдельным этапом.
+1. Daemon workflow custody отклоняет model-side operational writes; OS-level read-only mount остаётся defense-in-depth для project store. Если измерения покажут side channel вне daemon API, добавить container mount отдельным этапом.
 2. block/enroll и остальные child-task операции остаются многошаговыми, поэтому receipts и crash-matrix обязательны. Сам create становится идемпотентным через atomic daemon-owned creation_key+binding hash; полный write API рассматривается после MVP.
 3. Pi auth check не понимает custom Cursor/Claude provider state. Готовность этих маршрутов подтверждается только live synthetic calls.
 4. autosk не замораживает workflow graph. Protocol bytes будут pinned; исчезновение workflow/step корректно паркует task в human, но полная graph snapshot остаётся возможным будущим core enhancement.
