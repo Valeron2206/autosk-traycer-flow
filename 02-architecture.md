@@ -52,7 +52,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 ### Pi-провайдеры
 
-Выполняют только модельные роли. Author/implementer использует обычный разрешённый переход, но ни одна model session не получает trusted-client decision capability. Gate-роли не меняют workflow или task store напрямую: они возвращают structured result через единственный host-mediated `submit_gate_result`; driver записывает и перечитывает immutable record, после чего deterministic validator выполняет разрешённый переход. Shell/TTY/CLI из model process не могут создать `actor=user` record.
+Выполняют только модельные роли. WorkAgent author/implementer возвращает submit_work_result, а переход/metadata CAS выполняет host с ADR-025 capability; model session не получает `.autosk`/CLI/decision capability. Gate-роли возвращают submit_gate_result, host append'ит daemon receipt и validator transits.
 
 ### Git
 
@@ -326,7 +326,8 @@ alignment approval identity =
     + scope hash
     + subject hash
     + approved material manifest hash
-    + post-draft projector hash
+    + projector version/hash/inputs proof
+    + separate post-draft projection staleness check
     + user decision record id/hash/provenance
     + decision-classifier version/hash
     + current policy issuance/disposition hashes or null

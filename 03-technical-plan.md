@@ -52,7 +52,7 @@ execution:
   -> accept -> integrate -> aggregate_verify -> cleanup -> done
   aggregate_verify -> record_aggregate_remediation
   select_next -> record_aggregate_remediation
-  record_aggregate_remediation -> aggregate_verify | dispatch_ticket_dag | draft_artifact
+  record_aggregate_remediation -> record_aggregate_remediation | aggregate_verify | dispatch_ticket_dag | draft_artifact | present_tickets_breakdown
 
 recovery:
   prepare_anchor_impact -> await_anchor_impact_approval (human)
@@ -104,6 +104,9 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | draft_artifact | kind=tickets, proposal bytes и dependency view записаны, scope чист; aggregate remediation absent/closed | present_tickets_breakdown |
 | draft_artifact | kind=tickets, aggregate_remediation phase=old_bindings_void, new proposal bytes/DAG/scope valid | atomically записать new_ticket_set_digest + phase=proposal_ready, present_tickets_breakdown |
 | draft_artifact | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest совпадает | идемпотентно present_tickets_breakdown |
+| draft_artifact | kind=tickets, aggregate_remediation phase=proposal_ready и proposal digest изменился | atomically clear new digest + phase=old_bindings_void, draft_artifact; approval/panel ещё отсутствуют |
+| draft_artifact | provider/model недоступен после retry | human с park.reason=artifact_draft_provider_unavailable |
+| draft_artifact | output missing/invalid или out-of-scope mutation | human с park.reason=artifact_draft_result_invalid либо artifact_draft_scope_invalid; normative bytes/PASS не создаются |
 | draft_artifact | kind=brief/core_flow/tech_plan, post-draft projected material manifest отличается от approved manifest либо projector/classifier proof изменён | atomically alignment status=stale, artifact остаётся non-normative proposal, clarify_alignment |
 | draft_artifact | kind=brief/core_flow/tech_plan, alignment current, projected manifest byte-identical, bytes/scope чисты и Arena re-expression complete/not-required | freeze_artifact |
 | present_tickets_breakdown | не показан полный set/DAG/scopes/outcomes/order/exclusions | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
@@ -113,6 +116,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | present_tickets_breakdown | daemon decision отсутствует; policy candidate указан, но invalid/current coverage не доказан | await_alignment и human с park.reason=alignment_policy_out_of_scope |
 | present_tickets_breakdown | approval stale/mismatched либо daemon decision и policy candidate отсутствуют | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
 | freeze_artifact | alignment отсутствует/stale либо recomputed material manifest/projector/classifier не совпадает с current identity | human с park.reason=alignment_record_stale; Brief/Core Flow/Tech Plan возвращаются в clarify_alignment, Tickets — в present_tickets_breakdown |
+| freeze_artifact | scope/pathspec/tree identity mint invalid или changed during mint | human с park.reason=artifact_freeze_invalid; panel child/PASS не создаются |
 | freeze_artifact | panel waiver candidate указан, но daemon signature/identity/scope/expiry невалидны | human с park.reason=panel_waiver_required; panel child не создаётся |
 | freeze_artifact | signed panel waiver mode=full_skip exact current artifact/alignment identity валиден | record_artifact_pass с disposition=waived; panel child не создаётся |
 | freeze_artifact | current_cycle.full_panel_required=true или current_cycle.narrow=false | dispatch_panel |
@@ -235,7 +239,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | integrate | obstruction | human с park.reason=integration_obstruction |
 | integrate | foreign movement/indeterminate/reattach | integration_recovery или human по классификации |
 | integration_recovery | pending receipt + target/reflog proves exact new OID | daemon marks committed, atomically advances completed-prefix/current target; integrate (which may aggregate or require new authorization) |
-| integration_recovery | pending receipt + target still exact expected_old | daemon marks not_applied; integrate without advancing prefix |
+| integration_recovery | pending receipt + operation-bound reflog proves CAS never occurred and no movement after recorded watermark; target exact expected_old | daemon marks not_applied; integrate without advancing prefix |
 | integration_recovery | состояние осталось foreign/indeterminate | human или cancel; обычный retry запрещён |
 | aggregate_verify | controlling digest mismatch или pending_anchor | human с park.reason=blocked_anchor |
 | aggregate_verify | все epic-критерии PASS | cleanup |
@@ -323,7 +327,7 @@ Parent Ticket блокируется review child и после разблоки
 
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
-| Quick intake/implement/verify/fix/freeze/record_code_verdict/accept/integrate | schema-valid planned_trigger либо полная повторная classification нарушает любое Quick condition | invalidate_quick_classification; обычный success/integration исход исключён |
+| Quick intake/implement/verify/fix/freeze/record_code_verdict/accept | schema-valid planned_trigger либо полная повторная classification нарушает любое Quick condition | invalidate_quick_classification; обычный success/integration исход исключён |
 | Quick/Ticket implement/verify/fix/freeze/dispatch_review/review_join/record_code_verdict/commit_on_pass | current controlling_anchor_digest отличается от task/candidate binding | ensure pending_anchor; Ticket with parent -> rebuild_code_anchor handoff, standalone Quick -> rebuild_code_anchor; candidate/verdict/waiver void |
 | invalidate_quick_classification | open handoff существует и binding совпадает | продолжить recorded phase без нового replacement/base |
 | invalidate_quick_classification | trigger/project/original-base/worktree receipt invalid либо creation collision | human с park.reason=quick_classification_invalid; Quick commit/integrate запрещены |
@@ -393,6 +397,8 @@ Quick `integrate` prologue до любого чтения target ref или др
 
 Quick tail:
 
+Эта таблица — единственная каноническая для Quick `integrate`; pending receipt безусловно разрешается раньше reclassification, authorization и handoff. Общая Quick/Ticket строка выше к integrate не применяется.
+
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
 | integrate | daemon integration operation receipt phase=pending/indeterminate | integration_recovery before Quick reclassification/auth check |
@@ -406,7 +412,9 @@ Quick tail:
 | integrate | precondition | human с integration_precondition |
 | integrate | obstruction | human с integration_obstruction |
 | integrate | foreign movement/indeterminate/reattach | integration_recovery или human по классификации |
-| integration_recovery | pending receipt proves exact new OID | finalize daemon receipt/prefix, cleanup; if not_applied -> integrate |
+| integration_recovery | pending receipt proves exact new OID | finalize daemon receipt/prefix, cleanup |
+| integration_recovery | operation-bound reflog proves CAS never occurred, no movement after watermark, target=expected_old | mark not_applied, integrate |
+| integration_recovery | target returned new→expected_old, reflog absent/ambiguous or post-watermark movement | human foreign/indeterminate; retry forbidden |
 | integration_recovery | foreign/indeterminate сохраняется | human; cancel отдельной status-операцией |
 | cleanup | dirty=false и sandbox removed/absent | done |
 | cleanup | dirty=true при force=false | human с cleanup_dirty |
@@ -1151,8 +1159,8 @@ Panel, contest, narrow Lead, code-review и Judge получают snapshot-root
 1. берёт чистую целевую ветку и её recorded base OID;
 2. строит merge commit без движения целевой ref;
 3. вычисляет merge tree и сверяет approved tree;
-4. daemon under mutex writes durable integration operation receipt phase=pending binding authorization, expected_old/new, heads and prefix before Git CAS;
-5. performs update-ref, then marks receipt committed/not_applied; crash leaves pending receipt that recovery resolves by exact ref/reflog before expiry/reclassification checks;
+4. daemon under mutex writes pending operation receipt binding authorization, expected_old/new, heads, prefix and pre-CAS reflog watermark before Git CAS;
+5. performs update-ref, then marks committed/not_applied; crash recovery uses operation-bound reflog. not_applied requires proof CAS never occurred and no later movement; new→old/ambiguous is foreign;
 6. only committed advances prefix/next Ticket; foreign/indeterminate parks.
 
 State path создаётся отдельно для каждой operation под `<canonical-project-root>/.autosk/autosk-flow/integration-state/` и связывается с project_root_sha256. Никакой integration state не хранится в глобальной пользовательской папке или соседнем проекте.
@@ -1297,6 +1305,8 @@ Resume contract:
 | implementation_scope_invalid | implement либо invalidate_quick_classification | out-of-scope dirt сохранён как evidence; expanded scope повторно классифицирован; Planned-trigger никогда не продолжает Quick |
 | fix_provider_unavailable / fix_result_invalid / fix_scope_invalid | fix | тот же candidate/findings identity, attempt+1; provider/output/scope evidence исправлены, старый PASS не создаётся |
 | artifact_fix_provider_unavailable / artifact_fix_result_invalid / artifact_fix_scope_invalid | fix_artifact | тот же artifact candidate/findings identity, attempt+1; invalid bytes остаются non-normative |
+| artifact_draft_provider_unavailable / artifact_draft_result_invalid / artifact_draft_scope_invalid | draft_artifact | same proposal/alignment identity, attempt+1; invalid/out-of-scope bytes remain non-normative |
+| artifact_freeze_invalid | freeze_artifact | scope/pathspec/tree re-minted for same current artifact/alignment; no panel child or PASS from failed mint |
 | verification_environment_failed | verify | runner/environment восстановлен и candidate identity неизменна |
 | verification_record_invalid | verify | evidence record пересоздан для той же candidate identity |
 | verification_cap | fix | новый daemon-attributed cap decision и verification findings сохранены |
@@ -1348,7 +1358,7 @@ Resume contract:
 - editorial classifier отклоняет config/schema/security/prompt/governance и behavior-defining paths;
 - freeze precedence различает initial editorial exemption и anchor_rebuild forced full review через full_review_reason;
 - record_editorial_exemption recheck non-editorial routes dispatch_review; signed exact IntegrationAuthorizationRecord mirrors record_code_verdict behavior, project policy rejected;
-- Planned fix_artifact и Quick/Ticket implement/verify/fix/freeze имеют взаимно исключающие success/human exits для provider/output/scope/evidence/environment/identity failures;
+- Planned draft_artifact/fix_artifact/freeze_artifact и Quick/Ticket implement/verify/fix/freeze имеют mutually exclusive success/human exits for provider/output/scope/evidence/environment/identity failures;
 - каждый workflow graph регистрирует common repair_protocol_snapshot и возвращает только в recorded pre-failure step;
 - daemon-owned creation_key и creation_binding_hash write-once; key кодирует project/parent/run/seat, hash связывает artifact/session/workflow target;
 - concurrent create с одним creation_key возвращает один task ID; тот же key с другим binding fail-closed;
@@ -1490,6 +1500,7 @@ Resume contract:
 - accept без signed exact IntegrationAuthorizationRecord действительно паркует human; resume требует authorization той же identity;
 - Planned authorization expiry after partial transition stores prefix/current ref and requires new record for remaining transitions before further Git read;
 - authority revoke racing target update cannot commit between revalidation and CAS: integrateApproved serializes both under the project mutex, crash outcome resolves by exact target ref/reflog;
+- pending CAS followed by external new→expected_old ABA or ambiguous/missing operation-bound reflog is foreign/indeterminate, never not_applied/retry;
 - aggregate NOT_PASS set-changing choice atomically voids old Tickets PASS/alignment before present_tickets_breakdown; select_next cannot redispatch old DAG;
 - dependency DAG запускает только готовые Tickets;
 - sandboxCleanupStep вызывается с force=false; dirty worktree не удаляется без явного разрешения.
