@@ -1,0 +1,14 @@
+{
+  "name": "autosk-traycer-flow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/validate-traycer-parity.test.mjs",
+    "validate:migration": "node scripts/validate-traycer-parity.mjs",
+    "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope origin/main"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
