@@ -25,7 +25,7 @@ human alignment before normative planning:
   -> record_alignment -> draft_artifact
 
 artifact full panel:
-  draft_artifact -> freeze_artifact -> dispatch_panel
+  draft_artifact -> draft_artifact | freeze_artifact -> dispatch_panel
   -> panel_join -> synthesize_panel -> record_artifact_pass
 
 tickets proposal and alignment:
@@ -67,6 +67,7 @@ recovery:
   repair_protocol_snapshot -> recorded pre-failure step | human
   authority_recovery -> recorded pre-failure step | human
   integration_recovery -> integrate | human
+  Quick integration_recovery -> integrate | cleanup | human
 ~~~
 
 Brief, Core Flow, Tech Plan и весь комплект Tickets — четыре значения current_artifact.kind и проходят один artifact cycle. `clarify_alignment`, `await_alignment` и `record_alignment` общие, но проверяют закрытую схему текущего kind. `clarify_alignment` принимает только brief/core_flow/tech_plan. Tickets всегда сначала получают proposal bytes и входят через `present_tickets_breakdown`; subject/scope change во время ожидания возвращает туда же, а не в clarify. Отдельных tickets-panel steps нет.
@@ -80,6 +81,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
 | intake | classification валиден | select_next |
+| freeze_artifact / Quick freeze / Ticket freeze | created/changed behavior-defining path outside four canonical artifacts lacks exactly one valid governance mapping to current named manifest decision IDs, mapping ambiguous/stale, or contains extra unmapped normative content | human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction |
+| freeze_artifact / Quick freeze / Ticket freeze | every external behavior-defining path has valid current mapping, but mapping proof not yet bound | atomically record path/content/target-kind/decision-ref/rule-version proof in controlling anchor/candidate identity; repeat same freeze step |
 | await_alignment / record_alignment / present_tickets_breakdown / freeze_artifact / fix_artifact / record_artifact_pass | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest != recorded new_ticket_set_digest | atomically phase=old_bindings_void, clear new digest, alignment_records.tickets=stale, artifact_pass.tickets=void, review cycle full required; draft_artifact до нового breakdown/panel |
 | select_next | `aggregate_remediation.phase != closed` | record_aggregate_remediation; recorded prefix продолжается, old/partial new Tickets не dispatch'ятся |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record текущей project/Epic/kind/anchor/scope/subject identity отсутствует | записать kind, создать review_cycles[kind] если absent, clarify_alignment |
@@ -101,13 +104,13 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; новый daemon decision либо re-resolved exact policy валиден для current identity | старый authority/approval hash остаётся audit evidence; atomically записать новый current record и перейти в draft_artifact |
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; current alignment record уже валиден и identity byte-identical | идемпотентно draft_artifact без перезаписи record |
 | record_alignment | kind=tickets, daemon-attributed breakdown approval либо re-resolved policy валидны для той же proposal/classifier identity | старый authority/approval hash остаётся audit evidence; atomically записать alignment_records.tickets, current_alignment=null, freeze_artifact |
+| draft_artifact | provider/model недоступен после retry | human с park.reason=artifact_draft_provider_unavailable |
+| draft_artifact | output missing/invalid или out-of-scope mutation | human с park.reason=artifact_draft_result_invalid либо artifact_draft_scope_invalid; normative bytes/PASS не создаются |
 | draft_artifact | arena re-expression required, но Decision Record/graft list не отражены в новых Tech Plan bytes либо identity равна pre-arena | human с park.reason=arena_reexpression_missing |
 | draft_artifact | kind=tickets, proposal bytes и dependency view записаны, scope чист; aggregate remediation absent/closed | present_tickets_breakdown |
 | draft_artifact | kind=tickets, aggregate_remediation phase=old_bindings_void, new proposal bytes/DAG/scope valid | atomically записать new_ticket_set_digest + phase=proposal_ready, present_tickets_breakdown |
 | draft_artifact | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest совпадает | идемпотентно present_tickets_breakdown |
 | draft_artifact | kind=tickets, aggregate_remediation phase=proposal_ready и proposal digest изменился | atomically clear new digest + phase=old_bindings_void, draft_artifact; approval/panel ещё отсутствуют |
-| draft_artifact | provider/model недоступен после retry | human с park.reason=artifact_draft_provider_unavailable |
-| draft_artifact | output missing/invalid или out-of-scope mutation | human с park.reason=artifact_draft_result_invalid либо artifact_draft_scope_invalid; normative bytes/PASS не создаются |
 | draft_artifact | kind=brief/core_flow/tech_plan, post-draft projected material manifest отличается от approved manifest либо projector/classifier proof изменён | atomically alignment status=stale, artifact остаётся non-normative proposal, clarify_alignment |
 | draft_artifact | kind=brief/core_flow/tech_plan, alignment current, projected manifest byte-identical, bytes/scope чисты и Arena re-expression complete/not-required | freeze_artifact |
 | present_tickets_breakdown | не показан полный set/DAG/scopes/outcomes/order/exclusions | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
@@ -591,6 +594,8 @@ Exact imported Traycer baseline хранится только локально �
 Все поля живут под одним namespace, чтобы не конфликтовать с autosk и другими extensions.
 
 Единственный машинный enum ArtifactKind: brief | core_flow | tech_plan | tickets. Имена файлов могут содержать дефисы, metadata и переходы — никогда.
+
+Other behavior-defining paths do not add ArtifactKind. Closed mapping record: `{path_hash,content_hash,target_kind,decision_id_refs,mapping_rule_version,proof_hash,status:current|stale}`. Deterministic classifier/projector verifies exactly one `autosk-governance-mapping` block, target in four-value enum, all refs current in named manifest and no unmapped normative section. Proof enters controlling anchor/candidate. Unknown/ambiguous mapping is `artifact_mapping_required`, not panelable standalone.
 
 В mode=planned classification fields `tech_plan` и `tickets` имеют schema const=true; optional только brief/core_flow. `tickets=false` делает metadata invalid и требует возврата в intake/Quick reclassification, поэтому select_next не имеет silent skip branch.
 
@@ -1181,6 +1186,7 @@ State path создаётся отдельно для каждой operation п�
 - Нормативный draft Brief/Core Flow/Tech Plan запрещён без valid alignment proposal/manifest identity. Freeze/panel дополнительно требуют, чтобы post-draft material projection exact bytes совпадал с approved manifest и project/Epic/kind/anchor/scope/user-record/classifier/projector/policy/protocol identity. Tickets до approval только proposal.
 - `record_alignment` принимает только daemon-attributed `UserDecisionRecord` либо exact current project policy projection; Git/comment authorship, model label/self-approval, assumption, unknown/ambiguous/forbidden class и material decision за пределами policy отклоняются.
 - `freeze_artifact`, full/narrow Panel dispatch/join и `record_artifact_pass` требуют current alignment + recomputed material manifest в controlling anchor pack. Изменившийся user record, subject/manifest, classifier/projector input/version, scope, anchor или policy disposition делает его stale раньше model fan-out.
+- every freeze also inventories created/changed behavior-defining paths outside canonical four artifacts and requires current governance mapping proof in controlling anchor; unknown/ambiguous/stale mapping blocks candidate/panel/PASS.
 - Tickets не исполняются без current Tickets artifact disposition=pass|waived; waived требует signed full-skip authority current identity.
 - Ticket Panel не стартует, а `dispatch_ticket_dag` не создаёт child/blocker side effects без breakdown approval того же canonical Ticket set/DAG/scopes/outcomes/order/exclusions subject hash. Panel PASS не заменяет этот approval.
 - Quick-flow не проверяет alignment records, пока classification остаётся valid. Каждый pre-integration gate повторяет closed rules; Planned-trigger исключает обычный переход и ведёт только в `invalidate_quick_classification`. Quick с open/failed handoff не может commit/integrate.
@@ -1267,8 +1273,9 @@ Resume contract:
 | core_flow_decision_required | record_alignment | каждое material behavior decision закрыто daemon record; model self-approval отсутствует |
 | tech_plan_readiness_required | record_alignment | current readiness record, classifier proof и daemon decision/current policy совпадают |
 | tickets_breakdown_alignment_required | record_alignment | current Ticket set/DAG/scopes/outcomes/order/exclusions показаны и daemon approval subject hash совпадает |
-| alignment_policy_out_of_scope | clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets | daemon user decision либо новая trusted-client-issued exact policy; Epic cache/модель старую policy не меняют |
+| alignment_policy_out_of_scope | clarify_alignment for brief/core_flow/tech_plan; present_tickets_breakdown for tickets | trusted client signs only exact challenge; autoskd commits UserDecisionRecord then issues current daemon policy projection. Direct client policy bytes/stale signed policy rejected |
 | alignment_record_stale | clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets | новая anchor version/daemon impact disposition и current authority/alignment/classifier record; старые candidate/verdict/PASS bindings void или явно re-bound как unchanged |
+| artifact_mapping_required | clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick | decision expressed in named manifest and aligned; external document reduced to verified non-normative mirror with current mapping proof, or removed from behavior-defining scope |
 | quick_classification_invalid | invalidate_quick_classification | schema-valid trigger, original base/worktree receipt и одна daemon-owned creation binding Planned replacement; Quick commit/integrate остаются запрещены |
 | panel_join_invalid | dispatch_panel | invalid child IDs записаны, attempt+1; старые bindings void |
 | gate_provider_unavailable | исходный gate model step | exact route снова проходит synthetic smoke; прежняя session продолжается либо explicit replacement записан |
@@ -1350,6 +1357,7 @@ Resume contract:
 - Quick classification проверяется на каждом pre-integration gate; handoff op/creation key/retry создают ровно один Planned replacement и никогда не интегрируют old Quick bytes;
 - Quick handoff prepared binding includes intent head + candidate/review/accept/waiver/integration hashes and atomically voids them before child create or any Git read;
 - canonical ArtifactKind enum и artifact_pass binding;
+- external behavior-defining path mapping block/proof is deterministic, bound to candidate, and fail-closed on unknown/stale/extra normative content;
 - независимый review_cycles entry для каждого ArtifactKind;
 - atomic record_artifact_pass, включая malformed autosk-arena без частичной записи;
 - artifact/code `pass|waived` dispositions взаимоисключаемы; waiver branch требует signed current authority и создаёт ноль review children;
@@ -1376,6 +1384,8 @@ Resume contract:
 - project binding обязателен для parent/child/blocker/session/verdict/evidence refs;
 - protected dependency/intent heads, current dependency projection и closed controlling_anchor_digest входят в Ticket/candidate/verdict/commit bindings и re-resolve at every side-effect boundary;
 - canonical signed-challenge bytes survive restart golden vectors; authority projection/effects are impossible before authority+nonce head commit;
+- integration authorization restart lookup verifies daemon file/protected head/content/expiry/revoke/replace; operation state cannot satisfy authority;
+- model-process boundary tests deny signer RPC/keychain/accessibility/ptrace and secure-state reads; unsupported deployment/headless blocks model launch;
 - direct dependency projection removal/reorder fails protected-head reconciliation; add/supersede current-set golden vectors preserve history without accepting revoked current records;
 - aggregate_remediation creation key/binding и phases fail-closed on every crash prefix; set-changing void precedes new proposal/breakdown;
 - waived code disposition сохраняет waived_review_mode/reason;
@@ -1514,6 +1524,7 @@ Resume contract:
 - model shell пишет Git Decision Log/comment/projection, открывает ordinary daemon connection и пытается получить actor=user без valid signer/challenge;
 - model помечает product behavior как `local_reversible_implementation`, но deterministic classifier выводит human_required;
 - model сохраняет readiness summary, но вставляет в prose новый material API/data/destructive decision, отсутствующий в approved manifest;
+- Quick/Ticket creates a fifth behavior-defining document without mapping or with new unmapped decision; freeze creates no candidate/review/PASS and routes named lifecycle correction;
 - stale Epic cache пытается применить revoked project policy;
 - model edits Epic metadata projection to remove/reorder dependency; protected dependency head mismatch blocks every consumer;
 - re-bind policy->user decision without daemon supersede tries to keep old candidate PASS; current dependency projection/head mismatch voids it;

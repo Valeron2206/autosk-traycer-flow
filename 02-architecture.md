@@ -251,7 +251,7 @@ Installer/cache хранит bundle versions content-addressed по digest, по
 <canonical-project-root>/.autosk/autosk-flow/integration-state/<operation-id>.json
 ~~~
 
-State file хранит canonical root и отказывается продолжать операцию при несовпадении. Worktree никогда не выбирается источником project identity.
+State file хранит only CAS operation/prefix/outcome and canonical root. Authorization authority is resolved separately from daemon `integration-authorizations/<scope-id>/<record-id>.json` under protected head; operation state cannot substitute it.
 
 ### Изоляция параллельных проектов
 
@@ -330,12 +330,13 @@ alignment approval identity =
     + subject hash
     + approved material manifest hash
     + projector version/hash/inputs proof
-    + separate post-draft projection staleness check
     + user decision record id/hash/provenance
     + decision-classifier version/hash
     + current policy issuance/disposition hashes or null
     + protocol hash)
 ~~~
+
+Post-draft projection is a separate staleness check over exact artifact bytes; it is not an approval-identity preimage field.
 
 Поле `approval_identity` не входит в собственный preimage. Для всех four kinds canonical material manifest перечисляет planned material decisions до prose draft. Artifact содержит один fenced `autosk-material-decisions` block; material section refs указывают stable IDs. Prompt compiler/Ticket trace используют block, а unreferenced prose не является authority. После draft/Arena/fix projector парсит exact block+refs; mismatch/unknown/unmapped stales approval до freeze. Tickets manifest также связывает files/DAG/scopes/outcomes/order/exclusions. Любое несовпадение provenance/projection/identity делает approval stale.
 
