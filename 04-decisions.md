@@ -4,7 +4,7 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension без отдельного scheduler/daemon fork. Обязательные upstream primitive sets ровно два: creation-key/binding-hash из ADR-014 и signed user-authority/project-policy stack из ADR-023. Остальной workflow остаётся extension-owned.
+- Решение: реализовать процесс как TypeScript extension без отдельного scheduler fork. Обязательные upstream primitive sets ровно два: creation-key/binding-hash из ADR-014 и signed user-authority/project-policy stack из ADR-023, включая project authority guard и authority-serialized `integrateApproved`. Остальной workflow остаётся extension-owned.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
@@ -104,7 +104,7 @@
 
 ## ADR-012: автономная детерминированная интеграция
 
-- Решение: перенести проверенную CAS/reflog-логику и тесты integrate-approved в autosk-owned adapter. State file хранить под canonical project root `.autosk/autosk-flow`, вне worktree.
+- Решение: перенести проверенную CAS/reflog-логику и тесты integrate-approved в autosk-owned adapter. Target-ref CAS выполняет daemon `integrateApproved` под project authority mutex с expected dependency digest/secure heads и exact integration authorization; state file хранится под canonical project root `.autosk/autosk-flow`, вне worktree.
 - Альтернатива: runtime-вызов Traycer binary либо новая prompt-driven merge-логика.
 - Обоснование: перенос сохраняет доказанные failure contracts, но устраняет runtime-зависимость от Traycer и глобальный cross-project state.
 - Источники:
@@ -113,9 +113,9 @@
 
 ## ADR-013: human gate перед интеграцией
 
-- Решение: accept — statusStep("human") после pass/waived review disposition и до движения target. Current auto-integration policy позволяет ticket_join, record_code_verdict или initial editorial exemption перейти сразу в integrate после всех identity/anchor/classification guards; иначе нужен signed acceptance той же identity.
+- Решение: accept — statusStep("human") после pass/waived review disposition и до движения target. Прямой переход из ticket_join, record_code_verdict или initial editorial exemption разрешает только signed `IntegrationAuthorizationRecord`, связанный с exact run, target/base, ordered commits, каждым expected-old/new ref transition, final tree, controlling digest и expiry. Project alignment policy integration не покрывает.
 - Альтернатива: всегда автоматически интегрировать после PASS.
-- Обоснование: review подтверждает кандидат, но не всегда разрешает изменение пользовательской ветки. Явная policy убирает повторный вопрос для доверенных проектов.
+- Обоснование: review подтверждает кандидат, но не всегда разрешает изменение пользовательской ветки. Exact signed record совмещает acceptance и разрешение CAS без бессрочного project-level полномочия.
 - Источники:
   - autosk statusStep human;
   - связанный разговор, этап Human / Merge.
@@ -208,7 +208,7 @@
 
 ## ADR-023: daemon-attributed user authority
 
-- Решение: trusted init pin'ит signer key; autoskd выдаёт exact nonce challenge; client подписывает non-exportable `UserPresenceSigner`; daemon append'ит signed project journal. Previous head+next sequence входят в signature, а rollback-resistant project-keyed authority/correction heads живут в daemon private secure store вне model-readable tree. Short/deleted/regressed chain fail-closed; valid journal-ahead crash-tail может CAS-advance head. Rekey/lost-key void approvals. Git/comments — mirrors; policy имеет одну daemon projection.
+- Решение: trusted init pin'ит signer key; autoskd выдаёт exact nonce challenge; client подписывает non-exportable `UserPresenceSigner`; daemon append'ит signed project journal. Domain-separated signature включает project, unique record ID/nonce/expiry, previous head и exact next sequence; replay at another head невозможен. Rollback-resistant project-keyed authority/correction heads живут в daemon private secure store вне model-readable tree. Short/deleted/regressed committed chain fail-closed; valid journal-ahead crash-tail может CAS-advance head, invalid uncommitted tail quarantine'ится и отсекается до committed head. Stack также даёт `authorityGuard(expected_dependency_digest)` для bounded graph mutations и authority-serialized `integrateApproved`; оба блокируют concurrent authority append. Rekey/lost-key void approvals. Git/comments — mirrors; policy имеет одну daemon projection.
 - Альтернатива: считать user-authored любой Git/comment запись с подходящим текстом либо проверять наличие TTY.
 - Обоснование: author/implementer имеет shell и может записать Git/comment, открыть обычную daemon connection или получить TTY; hash доказывает bytes, но не authorship. Подписанный exact challenge + daemon journal делает replay/forge механически проверяемым. Headless без signer остаётся blocked. Residual assumption: sandbox не имеет signer/accessibility/ptrace доступа к trusted client при общем OS UID. Issue #35 позже добавляет общий decision queue/UI/status поверх primitive, но не меняет trust boundary.
 - Источники:
