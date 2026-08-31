@@ -460,7 +460,7 @@
         <mxCell id="a-bundle" value="Governance bundle&#xa;Guide + 12 protocol files&#xa;manifest + attestation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="a-global">
           <mxGeometry x="325" y="60" width="250" height="100" as="geometry" />
         </mxCell>
-        <mxCell id="a-autoskd" value="autoskd&#xa;projects + scheduler&#xa;global worker pool&#xa;secure heads + authority guard&#xa;authority-serialized Git CAS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="a-global">
+        <mxCell id="a-autoskd" value="autoskd&#xa;projects + scheduler&#xa;global worker pool&#xa;authority / dependency / intent heads&#xa;serialized graph + Git CAS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="a-global">
           <mxGeometry x="620" y="50" width="240" height="130" as="geometry" />
         </mxCell>
         <mxCell id="a-shared" value="Общие только:&#xa;provider credentials&#xa;worker capacity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="a-global">

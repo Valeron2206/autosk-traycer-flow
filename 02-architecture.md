@@ -82,7 +82,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 Глобальный пакет никогда не записывает внутрь себя проектные данные. Проект A не может ссылаться на task/session/evidence path проекта B; cross-project blocker и cross-project PASS binding запрещены.
 
-Единственное integrity-исключение к физическому project root — rollback-resistant daemon secure store: он хранит только `{project_root_sha256, authority_head, correction_head}` без decision/task payload. Логически heads project-owned, cross-project lookup запрещён; это anti-rollback anchor, не mutable status ledger.
+Единственное integrity-исключение к физическому project root — rollback-resistant daemon secure store: он хранит только project/Epic-keyed `{authority_head,dependency_head,intent_head,consumed_nonce_head}` hashes/counters без decision/task payload. Логически heads project-owned, cross-project lookup запрещён; это anti-rollback anchor, не mutable status ledger.
 
 ## 3. Почему панель — дочерние задачи
 
@@ -171,13 +171,15 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 <canonical-project-root>/.autosk/sessions/<session-id>.jsonl
 <canonical-project-root>/.autosk/user-decisions/<record-id>.json
 <canonical-project-root>/.autosk/autosk-flow/alignment-policies/<policy-id>.json
+<canonical-project-root>/.autosk/autosk-flow/authority-dependencies/<epic-id>.jsonl
+<canonical-project-root>/.autosk/autosk-flow/intent-events/<epic-id>.jsonl
 <canonical-project-root>/.autosk/autosk-flow/provider-sessions/
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
 Дополнительный task/status-ledger не создаётся. `UserDecisionRecord` — узкий authority record, а не копия workflow state. Project init через trusted client создаёт daemon-owned write-once public-key pin до enroll любого model task; workflow TOFU/re-pin запрещены. Rekey требует signatures old+new keys; lost-key recovery void'ит dependent approvals. Autoskd выдаёт nonce+expiry challenge exact decision identity; trusted client показывает packet и подписывает через `UserPresenceSigner`. Production signer использует non-exportable project-bound OS key с user-presence access control; тесты получают fake signer. Private key не передаётся daemon child/model processes. Unpinned/headless project fail-closed до model launch.
 
-Daemon append'ит signed record в project-owned hash-chain journal, затем CAS-обновляет rollback-resistant secure head `{project_hash,sequence,head_hash}` в signer/daemon private store outside model-readable project tree. Signature связывает domain-separated project, unique record ID/nonce/expiry, previous head и exact next sequence. Projection публикуется после head commit. Recovery принимает journal-ahead только как contiguous valid signed crash-tail от committed head и CAS-forward. Invalid/replayed/unverifiable uncommitted tail quarantine'ится и отсекается до secure head; secure-head-ahead, missing committed record, shorter prefix/deletion или regressed sequence fail-closed. Такой же external monotonic digest/head защищает append-only correction inbox watermark. Store содержит только project-keyed anti-rollback hashes/counters, не task status или decision payload, поэтому не является вторым ledger.
+Daemon сохраняет canonical signed challenge bytes, append'ит signed record и CAS-обновляет rollback-resistant authority/nonce heads до публикации projection или workflow effect. Signature связывает project, record ID/raw nonce/expiry, request/Epic/task/anchor/subject/payload, previous head и exact next sequence. Recovery принимает journal-ahead только после byte-exact signature verification и head/nonce CAS; invalid tail не имел applied effects, quarantine'ится и не освобождает nonce. Project/Epic dependency journal имеет daemon-only `add|supersede` append и protected dependency head; normalized user instruction/correction append имеет protected intent head. Metadata — проверяемая projection этих journals. Store содержит только hashes/counters, не task status или payload, поэтому не является вторым ledger.
 
 Project policy issuance/revocation используют signed records; `.autosk/autosk-flow/alignment-policies` — daemon projection, которую gate перечитывает. Epic metadata хранит ref/hash, не active-копию. Git/comments — mirrors. Residual assumption: model sandbox не имеет signer/secure-head/keychain/accessibility/ptrace capability несмотря на общий OS UID.
 
@@ -358,9 +360,9 @@ verdict binding =
 
 Перед commit и integration identity вычисляется заново. Совпадение текста комментария PASS без этих полей ничего не разрешает.
 
-`controlling_anchor_digest` связывает append-only Epic `authority_dependency_set`, current terminal dispositions/projections всех его record IDs, manifests/classifier/projector, consumed correction hashes/watermark, anchor и protocol. Project secure heads обязаны reconcile до вычисления, но сами не входят в preimage. Dependency set не сжимается при re-bind, поэтому revoke прежнего policy ref остаётся видимым, а unrelated project decision не stales Epic. Extension-owned tool/process adapters и каждый Ticket/parent deterministic prologue re-resolve dependencies; daemon не сканирует Epic metadata и не пишет workflow comments. Mismatch aborts live model tools, marks bytes untrusted and enters blocked-anchor handoff before review/commit/join/integration.
+`controlling_anchor_digest` связывает protected `dependency_head`, current dependency projection/terminal dispositions, manifests/classifier/projector, Epic `intent_head`, consumed correction watermark, anchor и protocol. Global authority head reconciles committed record bytes, но unrelated record другого Epic не входит в current dependency projection. Exact daemon `supersede` меняет current set/head и требует новый anchor binding; historical entry остаётся audit evidence, но revoked superseded record не удовлетворяет guard и не создаёт вечный deadlock. Direct metadata edit расходится с protected head. Extension adapters и каждый deterministic prologue re-resolve heads; mismatch aborts live tools and enters blocked-anchor recovery.
 
-Authority updates, graph repair mutations и Git target-ref CAS имеют одну daemon-owned точку линеаризации. `authorityGuard(expected_dependency_digest)` держит project mutex на время bounded resume/enroll/block batch; `integrateApproved` под тем же mutex reconciles heads, re-resolves dependencies и exact `IntegrationAuthorizationRecord`, затем выполняет Git `update-ref <target> <new> <expected-old>`. Authority append ждёт mutex. Crash outcome восстанавливается по target ref/reflog; lock не хранит task status и не является вторым ledger.
+Authority/dependency/user-instruction/correction appends, graph repair mutations и Git target-ref CAS имеют одну daemon-owned точку линеаризации. `authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,digest)` держит project mutex; daemon reconciles global authority head for integrity, но сравнивает only current Epic projection so unrelated record не stales it. `integrateApproved` под тем же mutex re-resolves projection/heads/classifier/auth record и выполняет Git update-ref. Competing append ждёт mutex; lock не хранит task status.
 
 ## 8. Worktree identity и read-only review
 

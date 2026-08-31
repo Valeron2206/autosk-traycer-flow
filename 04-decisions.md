@@ -4,7 +4,7 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension без отдельного scheduler fork. Обязательные upstream primitive sets ровно два: creation-key/binding-hash из ADR-014 и signed user-authority/project-policy stack из ADR-023, включая project authority guard и authority-serialized `integrateApproved`. Остальной workflow остаётся extension-owned.
+- Решение: реализовать процесс как TypeScript extension без отдельного scheduler fork. Обязательные upstream primitive sets ровно два: creation-key/binding-hash из ADR-014 и signed authority stack из ADR-023, включая canonical challenge persistence, protected authority/dependency/intent heads, project authority guard и serialized `integrateApproved`. Остальной workflow остаётся extension-owned.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
@@ -179,7 +179,7 @@
 
 ## ADR-020: single-writer Epic metadata через correction inbox
 
-- Решение: только parent deterministic steps пишут Epic `autosk_flow` metadata. Пользователь, модели и Tickets append'ят immutable structured correction events в native Epic comments; parent consume'ит их по id/hash/watermark. Ticket resume начинается только после завершения parent metadata step.
+- Решение: только parent deterministic steps пишут Epic `autosk_flow` metadata, но authority dependency projection не доверяет этим last-write-wins bytes. Daemon-only monotonic dependency journal + protected head фиксируют `add|supersede`; Epic metadata хранит projection/ref. Пользователь, модели и Tickets append'ят correction events через daemon intent append, который двигает protected Epic intent head; parent consume'ит их по id/hash/watermark. Ticket resume начинается только после завершения parent metadata step.
 - Альтернатива: конкурентные `metadata set` с заявленным compare-and-swap.
 - Обоснование: autosk metadata write — last-write-wins и не поддерживает expected-hash CAS; append-only events предотвращают потерю поздней correction без второго ledger.
 - Источники:
@@ -208,7 +208,7 @@
 
 ## ADR-023: daemon-attributed user authority
 
-- Решение: trusted init pin'ит signer key; autoskd выдаёт exact nonce challenge; client подписывает non-exportable `UserPresenceSigner`; daemon append'ит signed project journal. Domain-separated signature включает project, unique record ID/nonce/expiry, previous head и exact next sequence; replay at another head невозможен. Rollback-resistant project-keyed authority/correction heads живут в daemon private secure store вне model-readable tree. Short/deleted/regressed committed chain fail-closed; valid journal-ahead crash-tail может CAS-advance head, invalid uncommitted tail quarantine'ится и отсекается до committed head. Stack также даёт `authorityGuard(expected_dependency_digest)` для bounded graph mutations и authority-serialized `integrateApproved`; оба блокируют concurrent authority append. Rekey/lost-key void approvals. Git/comments — mirrors; policy имеет одну daemon projection.
+- Решение: trusted init pin'ит signer key; autoskd сохраняет exact canonical challenge bytes, коммитит authority+nonce heads до projection/effects. Dependency `add|supersede` и intent journals имеют protected heads. `authorityGuard`/`integrateApproved` под project mutex reconciles global authority journal, но сравнивают relevant Epic authority projection + dependency/intent heads, поэтому unrelated project decision не stales Epic; competing appends ждут. Invalid tail never had effects/nonce reuse; missing committed bytes fail-closed. Git/comments/metadata — projections.
 - Альтернатива: считать user-authored любой Git/comment запись с подходящим текстом либо проверять наличие TTY.
 - Обоснование: author/implementer имеет shell и может записать Git/comment, открыть обычную daemon connection или получить TTY; hash доказывает bytes, но не authorship. Подписанный exact challenge + daemon journal делает replay/forge механически проверяемым. Headless без signer остаётся blocked. Residual assumption: sandbox не имеет signer/accessibility/ptrace доступа к trusted client при общем OS UID. Issue #35 позже добавляет общий decision queue/UI/status поверх primitive, но не меняет trust boundary.
 - Источники:
@@ -219,7 +219,7 @@
 
 ## ADR-024: Quick reclassification через Planned replacement
 
-- Решение: Quick classification перепроверяется на каждом pre-integration gate. Planned-trigger запускает idempotent `invalidate_quick_classification`: old Quick запрещает commit/integrate, передаёт modified worktree в evidence-retention replacement по exact ownership receipt и создаёт один Planned replacement от original base по daemon creation key. Old Quick завершается с outcome=reclassified, не PASS, только после read-back replacement/receipt.
+- Решение: Quick classification перепроверяется на каждом pre-integration gate. Planned-trigger запускает idempotent `invalidate_quick_classification`: первый durable handoff record связывает current intent head, candidate/review/accept/waiver/integration hashes и atomically void'ит Quick review/accept/authorization + запрещает Git read/commit/integrate до child create. Затем один Planned replacement создаётся от original base по daemon creation key; retry продолжает тот же record. Old Quick завершается outcome=reclassified только после read-back replacement/ownership receipt.
 - Альтернатива: разрешить material scope expansion внутри Quick либо менять workflow текущей task in place.
 - Обоснование: продолжение Quick обходит четыре alignment/panel gates; in-place switch не поддержан доказанным autosk primitive и усложняет recovery. Replacement сохраняет точную lineage, не доверяет ранним bytes и восстанавливается после crash без duplicate Epic.
 - Источники:
