@@ -4,7 +4,7 @@
 
 ## ADR-001: расширение поверх autosk v2
 
-- Решение: реализовать процесс как TypeScript extension; autoskd core не форкать. Единственное обязательное upstream-изменение — узкий совместимый creation-key/binding-hash primitive из ADR-014.
+- Решение: реализовать процесс как TypeScript extension без отдельного scheduler fork. Обязательные upstream primitive sets ровно три: creation identity ADR-014, signed authority/intent stack ADR-023 и daemon workflow custody ADR-025. Без любого preflight запрещает model workflow.
 - Альтернатива: отдельный оркестратор или глубокая модификация scheduler.
 - Обоснование: registerWorkflow, AgentDefinition, onTransit, blockers, sessions и sandbox уже дают необходимые примитивы. Extension сохраняет обновляемость upstream.
 - Источники:
@@ -79,14 +79,14 @@
 
 - Решение: Arena запускается только для pending entry в каноническом autosk-arena JSON block с ordered decisions array и rubric 3–6 критериев. record_artifact_pass механически ведёт монотонную map по decision_id. Default candidates — Grok и Codex; Judge — отдельный Kimi либо Opus вне candidate set.
 - Альтернатива: Arena всей feature либо выбор подхода одним планировщиком.
-- Обоснование: локальная Arena решает конкретный спор без удвоения всей разработки. Judge выбирает базу, но изменённый Tech Plan получает новую полную панель, а итоговый код — обычный review.
+- Обоснование: локальная Arena исследует конкретный спор без удвоения всей разработки. Judge рекомендует базу; material choice подтверждает пользователь или допустимая exact policy, затем изменённый Tech Plan получает новую полную панель, а итоговый код — обычный review.
 - Источники:
   - 01-core-flows.md, раздел «Arena/Judge»;
   - 03-technical-plan.md, workflows `autosk-arena-candidate` и `autosk-arena-judge`.
 
 ## ADR-010: PASS только по точной идентичности
 
-- Решение: planning verdict связан с artifact snapshot; code verdict — с base/pathspec/tree OID/anchor/attempt. Отдельный deterministic record_artifact_pass атомарно записывает PASS перед select_next. Перед commit/integration identity пересчитывается. commit-on-pass сначала распознаёт уже выполненный CAS по approved tree и восстанавливает metadata после crash.
+- Решение: planning verdict связан с artifact snapshot; artifact/code candidate identity напрямую включает ordered `governance_mapping_set_digest` exact tree, отдельно от parent-derived controlling anchor. Code verdict также связан с base/pathspec/tree OID/anchor/controlling_anchor_digest/attempt и daemon gate-result receipt ID/hash/result head. Freeze, record_artifact_pass/record_code_verdict и commit/integration recompute mapping digest; drift voids verdict до side effect. До branch CAS host фиксирует exact commit recipe/OID; recovery accepts only that OID/parent/recipe.
 - Альтернатива: считать достаточным последний комментарий PASS или имя ветки.
 - Обоснование: branch и файлы изменяемы; OID и hash обнаруживают stale verdict.
 - Источники:
@@ -104,7 +104,7 @@
 
 ## ADR-012: автономная детерминированная интеграция
 
-- Решение: перенести проверенную CAS/reflog-логику и тесты integrate-approved в autosk-owned adapter. State file хранить под canonical project root `.autosk/autosk-flow`, вне worktree.
+- Решение: перенести проверенную CAS/reflog-логику и тесты integrate-approved в autosk-owned adapter. Target-ref CAS выполняет daemon `integrateApproved` под project authority mutex с expected dependency digest/secure heads и exact integration authorization; state file хранится под canonical project root `.autosk/autosk-flow`, вне worktree.
 - Альтернатива: runtime-вызов Traycer binary либо новая prompt-driven merge-логика.
 - Обоснование: перенос сохраняет доказанные failure contracts, но устраняет runtime-зависимость от Traycer и глобальный cross-project state.
 - Источники:
@@ -113,9 +113,9 @@
 
 ## ADR-013: human gate перед интеграцией
 
-- Решение: accept — statusStep("human") после PASS и до движения целевой ветки. Auto-integration policy позволяет ticket_join перейти сразу в integrate; иначе только resume --to integrate с acceptance той же identity.
+- Решение: accept — statusStep("human") после pass/waived review disposition и до движения target. Прямой переход из ticket_join, record_code_verdict или initial editorial exemption разрешает только signed `IntegrationAuthorizationRecord`, связанный с exact run, target/base, ordered commits, каждым expected-old/new ref transition, final tree, controlling digest и expiry. Project alignment policy integration не покрывает.
 - Альтернатива: всегда автоматически интегрировать после PASS.
-- Обоснование: review подтверждает кандидат, но не всегда разрешает изменение пользовательской ветки. Явная policy убирает повторный вопрос для доверенных проектов.
+- Обоснование: review подтверждает кандидат, но не всегда разрешает изменение пользовательской ветки. Exact signed record совмещает acceptance и разрешение CAS без бессрочного project-level полномочия.
 - Источники:
   - autosk statusStep human;
   - связанный разговор, этап Human / Merge.
@@ -179,9 +179,9 @@
 
 ## ADR-020: single-writer Epic metadata через correction inbox
 
-- Решение: только parent deterministic steps пишут Epic `autosk_flow` metadata. Пользователь, модели и Tickets append'ят immutable structured correction events в native Epic comments; parent consume'ит их по id/hash/watermark. Ticket resume начинается только после завершения parent metadata step.
-- Альтернатива: конкурентные `metadata set` с заявленным compare-and-swap.
-- Обоснование: autosk metadata write — last-write-wins и не поддерживает expected-hash CAS; append-only events предотвращают потерю поздней correction без второго ledger.
+- Решение: только deterministic owning steps с ADR-025 step-capability + expected protected metadata head пишут `autosk_flow`; model/Ticket connections rejected. Dependency/intent/result journals have protected heads, metadata carries projections/refs. Ticket resume starts after parent CAS write.
+- Альтернатива: current last-write-wins metadata set, tool convention or concurrent model writes.
+- Обоснование: existing autosk lacks expected-hash ownership; ADR-025 is mandatory because append-only intent alone does not protect verdict/review/repair state.
 - Источники:
   - autosk metadata/comment store behavior;
   - full re-panel finding G-H-02.
@@ -195,9 +195,51 @@
   - autosk Pi tools/runtime behavior;
   - full re-panel finding G-H-03.
 
+## ADR-022: human alignment до нормативного planning artifact
+
+- Решение: до prose draft Brief/Core Flow/Tech Plan получают structured proposal и canonical `material_decision_manifest`; approval связывает manifest, daemon authority, classifier/projector и policy. После draft/Arena/fix manifest повторно извлекается из exact bytes; mismatch stales alignment до freeze/panel. Tickets сначала создаются как proposal и связывают полный breakdown/DAG manifest до Ticket Panel. Модельная панель остаётся отдельным последующим gate.
+- Автономный режим: пользователь может заранее выдать exact project/run policy только для перечисленных локальных, обратимых и непродуктовых decision classes. Материальные product/UX, architecture/one-way-door, security/privacy/data, destructive, delivery/release, scope-reduction, waiver и integration решения policy не покрывает. Policy имеет те же identity, staleness и audit guarantees и не отменяет Panel, Code Review или integration acceptance.
+- Альтернатива: разрешить планировщику фиксировать assumptions и считать PASS панели подтверждением намерения пользователя либо использовать один бессрочный флаг autonomous.
+- Обоснование: панель может доказать внутреннее качество решения, но не право модели принять его. Точная identity не позволяет повторно применить старое approval после изменения ответа, scope, anchor или Ticket DAG; ограниченная policy сохраняет автономность для заранее разрешённых мелких решений без скрытого расширения полномочий.
+- Источники:
+  - issue #4, human alignment gates;
+  - 01-core-flows.md, раздел «Согласование решений человеком»;
+  - 03-technical-plan.md, alignment state и metadata contracts.
+
+## ADR-023: daemon-attributed user authority
+
+- Решение: trusted init pin'ит signer key; autoskd сохраняет exact canonical challenge bytes, коммитит authority+nonce heads до projection/effects. Dependency `add|supersede` и intent journals имеют protected heads. `authorityGuard`/`integrateApproved` под project mutex reconciles global authority journal, но сравнивают relevant Epic authority projection + dependency/intent heads, поэтому unrelated project decision не stales Epic; competing appends ждут. Invalid tail never had effects/nonce reuse; missing committed bytes fail-closed. Git/comments/metadata — projections.
+- Альтернатива: считать user-authored любой Git/comment запись с подходящим текстом либо проверять наличие TTY.
+- Обоснование: signer и secure store обязаны работать в separate OS security boundary (privileged helper/separate account or hardware-backed enclave) недоступной model process. Sandbox profile запрещает model accessibility/ptrace/keychain access; deployment без доказуемой boundary/headless signer fail-closed. Boundary tests cover signer and secure-state access. Issue #35 only adds UI.
+- Источники:
+  - issue #4, invariant «модель не подтверждает своё решение»;
+  - first panel findings feasibility-01 и arch-02;
+  - second panel finding arch-01;
+  - 02-architecture.md, daemon/user decision boundary.
+
+## ADR-024: Quick reclassification через Planned replacement
+
+- Решение: Quick classification перепроверяется на каждом pre-integration gate. Planned-trigger запускает idempotent `invalidate_quick_classification`: первый durable handoff record связывает current intent head, candidate/review/accept/waiver/integration hashes и atomically void'ит Quick review/accept/authorization + запрещает Git read/commit/integrate до child create. Затем один Planned replacement создаётся от original base по daemon creation key; retry продолжает тот же record. Old Quick завершается outcome=reclassified только после read-back replacement/ownership receipt.
+- Альтернатива: разрешить material scope expansion внутри Quick либо менять workflow текущей task in place.
+- Обоснование: продолжение Quick обходит четыре alignment/panel gates; in-place switch не поддержан доказанным autosk primitive и усложняет recovery. Replacement сохраняет точную lineage, не доверяет ранним bytes и восстанавливается после crash без duplicate Epic.
+- Источники:
+  - issue #4, Quick exemption only while classification valid;
+  - first panel findings intent-01 и arch-01;
+  - 03-technical-plan.md, Quick reclassification.
+
+## ADR-025: daemon workflow custody
+
+- Решение: own-task writes use step-capability+expected head. Parent repair/dispatch uses separate `orchestrateChildBatch` capability bound to parent step/op, exact child set/heads and closed patch schema; daemon records monotonic child receipts and never mints forged child step capability. Gate outcome is write-once receipt/head. WorkAgent is worktree-only.
+- Альтернатива: доверять tool allowlist, same-UID filesystem и self-consistent metadata/hash bytes.
+- Обоснование: model с shell иначе может подделать PASS, очистить pending_anchor или заменить repair op после pre/post check. Human authority и Git dirt этого не обнаруживают.
+- Источники:
+  - v6 panel findings architecture-02 и SUPPLEMENTARY-01;
+  - ADR-020/021;
+  - 02-architecture.md, operational truth и gate custody.
+
 ## Оставшиеся риски, не решения
 
-1. Custom gate driver предотвращает известные write-capabilities, а pre/post hashes обнаруживают ошибку driver, но OS-level read-only mount пока отсутствует. Если измерения покажут необнаруживаемый путь записи, добавить container mount отдельным этапом.
+1. Daemon workflow custody отклоняет model-side operational writes; OS-level read-only mount остаётся defense-in-depth для project store. Если измерения покажут side channel вне daemon API, добавить container mount отдельным этапом.
 2. block/enroll и остальные child-task операции остаются многошаговыми, поэтому receipts и crash-matrix обязательны. Сам create становится идемпотентным через atomic daemon-owned creation_key+binding hash; полный write API рассматривается после MVP.
 3. Pi auth check не понимает custom Cursor/Claude provider state. Готовность этих маршрутов подтверждается только live synthetic calls.
 4. autosk не замораживает workflow graph. Protocol bytes будут pinned; исчезновение workflow/step корректно паркует task в human, но полная graph snapshot остаётся возможным будущим core enhancement.
