@@ -104,6 +104,7 @@ const REQUIRED = Object.freeze({
     "Issue #13",
     "canonical JSON means recursively sorted object keys",
     "autosk-flow/reflog-prefix/v1\\0",
+    "autosk-flow/reflog-entry/v1\\0",
     "autosk-flow/planning-observation/v1\\0",
     "autosk-flow/planning-receipt/v1\\0",
     "autosk-flow/planning-commit-recipe/v1\\0",
@@ -297,6 +298,21 @@ function reflogPrefixDigest(entryCount, prefixBytes) {
   ]));
 }
 
+export function planningReflogEntryDigest(operation) {
+  const actor = operation.commit_recipe.committer;
+  const checkpoint = operation.reflog_checkpoint;
+  const entry = Buffer.from(
+    `${checkpoint.expected_old_oid} ${checkpoint.expected_new_oid} ` +
+    `${actor.name_utf8} <${actor.email_ascii}> ${actor.timestamp_seconds} ${actor.timezone}\t` +
+    `${checkpoint.expected_update_message}\n`,
+    "utf8",
+  );
+  return sha256(Buffer.concat([
+    Buffer.from("autosk-flow/reflog-entry/v1\0", "utf8"),
+    entry,
+  ]));
+}
+
 export function planningObservationDigest(receiptKind, observation) {
   return sha256(
     `autosk-flow/planning-observation/v1\0${receiptKind}\0${canonicalStringify(observation)}`,
@@ -473,6 +489,36 @@ export function validatePlanningPublicationOperation(example, schema) {
       }
       if (receipt.receipt_hash !== planningReceiptHash(example.operation_id, slot, observationDigest)) {
         errors.push(`${slot} receipt_hash mismatch`);
+      }
+      const expectedObservation = {
+        commit_object: {
+          object_format: example.commit_recipe?.object_format,
+          object_oid: example.expected_commit_oid,
+          object_bytes_sha256: example.commit_recipe?.commit_object_bytes_sha256,
+        },
+        ref_cas: {
+          planning_ref: example.planning_ref,
+          expected_old_oid: example.reflog_checkpoint?.expected_old_oid,
+          observed_new_oid: example.reflog_checkpoint?.expected_new_oid,
+          expected_update_message: example.reflog_checkpoint?.expected_update_message,
+        },
+        reflog_after: {
+          before_entry_count: example.reflog_checkpoint?.before_entry_count,
+          after_entry_count: (example.reflog_checkpoint?.before_entry_count ?? -1) + 1,
+          before_prefix_sha256: example.reflog_checkpoint?.before_prefix_sha256,
+          appended_entry_sha256: planningReflogEntryDigest(example),
+        },
+        verification: {
+          planning_ref: example.planning_ref,
+          commit_oid: example.expected_commit_oid,
+          tree_oid: example.candidate_tree_oid,
+          reflog_after_receipt_hash: example.receipts?.reflog_after?.receipt_hash,
+        },
+      }[slot];
+      for (const key of observationKeys[slot]) {
+        if (canonicalStringify(receipt.observation?.[key]) !== canonicalStringify(expectedObservation[key])) {
+          errors.push(`${slot} observation.${key} does not match containing operation`);
+        }
       }
     }
   }

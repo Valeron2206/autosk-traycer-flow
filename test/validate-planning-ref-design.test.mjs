@@ -7,6 +7,7 @@ import {
   OPERATION_SCHEMA_PATH,
   loadPlanningRefFiles,
   planningObservationDigest,
+  planningReflogEntryDigest,
   planningReceiptHash,
   planningRefDesignDigest,
   validatePlanningPublicationOperation,
@@ -366,6 +367,88 @@ test("generic recovered-operation validation binds receipt observation and hashe
   const changedObservation = structuredClone(operation);
   changedObservation.receipts.commit_object.observation.object_oid = "4".repeat(40);
   assert.match(validatePlanningPublicationOperation(changedObservation, schema).join("\n"), /observation_sha256/u);
+});
+
+test("recovered receipts are bound to their containing operation values", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  const receipt = (kind, observation) => {
+    const observationSha256 = planningObservationDigest(kind, observation);
+    return {
+      schema: 1,
+      operation_id: operation.operation_id,
+      receipt_kind: kind,
+      observation,
+      observation_sha256: observationSha256,
+      receipt_hash: planningReceiptHash(operation.operation_id, kind, observationSha256),
+    };
+  };
+  operation.phase = "ref_advanced";
+  operation.receipts.commit_object = receipt("commit_object", {
+    object_format: operation.commit_recipe.object_format,
+    object_oid: operation.expected_commit_oid,
+    object_bytes_sha256: operation.commit_recipe.commit_object_bytes_sha256,
+  });
+  operation.receipts.ref_cas = receipt("ref_cas", {
+    planning_ref: operation.planning_ref,
+    expected_old_oid: operation.reflog_checkpoint.expected_old_oid,
+    observed_new_oid: operation.reflog_checkpoint.expected_new_oid,
+    expected_update_message: operation.reflog_checkpoint.expected_update_message,
+  });
+  operation.receipts.reflog_after = receipt("reflog_after", {
+    before_entry_count: operation.reflog_checkpoint.before_entry_count,
+    after_entry_count: operation.reflog_checkpoint.before_entry_count + 1,
+    before_prefix_sha256: operation.reflog_checkpoint.before_prefix_sha256,
+    appended_entry_sha256: planningReflogEntryDigest(operation),
+  });
+  assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
+
+  for (const [slot, key, value] of [
+    ["commit_object", "object_format", "sha256"],
+    ["commit_object", "object_oid", "4".repeat(40)],
+    ["commit_object", "object_bytes_sha256", "4".repeat(64)],
+    ["ref_cas", "planning_ref", `refs/autosk/epics/${"4".repeat(64)}/planning`],
+    ["ref_cas", "expected_old_oid", "4".repeat(40)],
+    ["ref_cas", "observed_new_oid", "4".repeat(40)],
+    ["ref_cas", "expected_update_message", "different update"],
+    ["reflog_after", "before_entry_count", 2],
+    ["reflog_after", "after_entry_count", 3],
+    ["reflog_after", "before_prefix_sha256", "4".repeat(64)],
+    ["reflog_after", "appended_entry_sha256", "4".repeat(64)],
+  ]) {
+    const changed = structuredClone(operation);
+    changed.receipts[slot].observation[key] = value;
+    const observationSha256 = planningObservationDigest(slot, changed.receipts[slot].observation);
+    changed.receipts[slot].observation_sha256 = observationSha256;
+    changed.receipts[slot].receipt_hash = planningReceiptHash(changed.operation_id, slot, observationSha256);
+    assert.match(validatePlanningPublicationOperation(changed, schema).join("\n"), new RegExp(key, "u"));
+  }
+
+  operation.phase = "verified";
+  operation.receipts.verification = receipt("verification", {
+    planning_ref: operation.planning_ref,
+    commit_oid: operation.expected_commit_oid,
+    tree_oid: operation.candidate_tree_oid,
+    reflog_after_receipt_hash: operation.receipts.reflog_after.receipt_hash,
+  });
+  assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
+  for (const [key, value] of [
+    ["planning_ref", `refs/autosk/epics/${"5".repeat(64)}/planning`],
+    ["commit_oid", "5".repeat(40)],
+    ["tree_oid", "5".repeat(40)],
+    ["reflog_after_receipt_hash", "5".repeat(64)],
+  ]) {
+    const changed = structuredClone(operation);
+    changed.receipts.verification.observation[key] = value;
+    const observationSha256 = planningObservationDigest("verification", changed.receipts.verification.observation);
+    changed.receipts.verification.observation_sha256 = observationSha256;
+    changed.receipts.verification.receipt_hash = planningReceiptHash(
+      changed.operation_id,
+      "verification",
+      observationSha256,
+    );
+    assert.match(validatePlanningPublicationOperation(changed, schema).join("\n"), new RegExp(key, "u"));
+  }
 });
 
 test("raw commit bytes must equal the structured commit recipe", () => {
