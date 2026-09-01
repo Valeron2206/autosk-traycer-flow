@@ -27,7 +27,9 @@ jobs:
           node-version: 24
 
       - name: Apply deterministic design patch
-        run: python3 .github/tmp/apply-issue-5-design.py
+        run: |
+          python3 .github/tmp/apply-issue-5-design.py
+          python3 .github/tmp/fix-issue-5-validator.py
 
       - name: Verify generated program documentation remains stable
         run: npm run generate:capabilities
@@ -44,6 +46,7 @@ jobs:
         run: |
           rm .github/workflows/apply-issue-5-design.yml
           rm .github/tmp/apply-issue-5-design.py
+          rm .github/tmp/fix-issue-5-validator.py
           rmdir .github/tmp 2>/dev/null || true
           git add -A
           git diff --cached --check
