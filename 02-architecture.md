@@ -59,7 +59,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 Хранит нормативные артефакты и код. Git object database даёт tree/commit OID для неизменяемой идентичности. Branch name никогда не считается идентичностью.
 
-Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic-uuid>/planning`. Его verified head — единственная текущая Git-проекция принятых planning artifacts; detached snapshot object и metadata verdict без ref publication недостаточны. Ref создаёт и CAS-продвигает только deterministic host adapter. Target branch, другие Epic refs и refs другого canonical project root не затрагиваются.
+Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic_ref_key>/planning`. Key — domain-separated SHA-256 canonical `{project_root_sha256,epic_id}`, сохраняемый в metadata и повторно вычисляемый перед каждым ref side effect; display ID, slug и model bytes в ref не входят. Его verified head — единственная текущая Git-проекция принятых planning artifacts; detached snapshot object и metadata verdict без ref publication недостаточны. Ref создаёт и CAS-продвигает только deterministic host adapter. Target branch, другие Epic refs и refs другого canonical project root не затрагиваются.
 
 ### Planning publication adapter
 
@@ -167,7 +167,7 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
       T02-<slug>.md
 ~~~
 
-Текущая принятая проекция этих файлов определяется verified head `refs/autosk/epics/<epic-uuid>/planning`. Каждый artifact PASS получает отдельный single-parent descendant commit; следующий author base обязан совпадать с этим head. Detached snapshot commit остаётся review identity, но не считается опубликованным. Anchor invalidation создаёт новый descendant commit, а не rewrites history. Final Tickets publication фиксирует exact `planning_head` для downstream execution/staging.
+Текущая принятая проекция этих файлов определяется verified head `refs/autosk/epics/<epic_ref_key>/planning`. Каждый artifact PASS получает отдельный single-parent descendant commit; следующий author base обязан совпадать с этим head. Detached snapshot commit остаётся review identity, но не считается опубликованным. Anchor invalidation создаёт новый descendant commit, а не rewrites history. Final Tickets publication фиксирует exact `planning_head` для downstream execution/staging.
 
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
 

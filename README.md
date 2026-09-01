@@ -38,7 +38,7 @@
 14. Источником пользовательского решения служит signed daemon `UserDecisionRecord`: trusted init pin'ит key, client подписывает exact nonce challenge, daemon append'ит hash-chain journal и CAS-обновляет rollback-resistant secure head. Short/deleted prefix fail-closed; workflow TOFU/re-pin и text mirrors не дают authority.
 15. Quick освобождён от planning gates только пока его classification валидна. Planned-trigger, найденный на любом шаге до integration, детерминированно останавливает Quick и создаёт project-bound Planned replacement; расширить material scope и продолжить Quick нельзя.
 16. Операционная truth защищена daemon workflow custody: model sessions не получают `.autosk`, task/comment/metadata/refs или raw CLI. Host writes требуют step-bound capability + expected protected metadata head; gate outcomes — write-once daemon receipts под result head. Preflight требует одновременно ADR-014 creation identity, ADR-023 authority/intent и ADR-025 custody; без любого model workflow не запускается.
-17. Planning verdict не завершает артефакт сам по себе. `record_artifact_pass` создаёт recorded-unpublished binding и durable operation; только host-owned `publish_artifact_pass` может CAS-продвинуть `refs/autosk/epics/<epic-uuid>/planning`, проверить descendant commit/tree и разрешить `select_next`. Target branch при этом не меняется.
+17. Planning verdict не завершает артефакт сам по себе. `record_artifact_pass` создаёт recorded-unpublished binding и durable operation; только host-owned `publish_artifact_pass` может CAS-продвинуть `refs/autosk/epics/<epic_ref_key>/planning`, проверить descendant commit/tree и разрешить `select_next`. Target branch при этом не меняется.
 
 ## Состав пакета
 
@@ -59,7 +59,7 @@
 
 ## Контракт Epic planning ref
 
-`docs/contracts/epic-planning-ref.md` фиксирует issue #5: Planned Epic создаёт приватный `refs/autosk/epics/<epic-uuid>/planning`, каждый approved artifact публикуется отдельным first-parent descendant commit, а `select_next` видит kind завершённым только после read-back verified CAS. Recorded verdict/waiver без публикации не является planning PASS. Anchor rebuild не rewinds ref и использует descendant invalidation commit; target branch остаётся неизменной до будущего staging/final-CAS contract issues #8–#9.
+`docs/contracts/epic-planning-ref.md` фиксирует issue #5: Planned Epic создаёт приватный `refs/autosk/epics/<epic_ref_key>/planning`, где key детерминированно выводится из project/Epic identity; каждый approved artifact публикуется отдельным first-parent descendant commit, а `select_next` видит kind завершённым только после read-back verified CAS. Recorded verdict/waiver без публикации не является planning PASS. Anchor rebuild не rewinds ref и использует descendant invalidation commit; target branch остаётся неизменной до будущего staging/final-CAS contract issues #8–#9.
 
 Проверка связи design-документов:
 

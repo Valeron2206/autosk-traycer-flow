@@ -45,7 +45,8 @@ arena:
   select_next -> dispatch_arena -> arena_join
   -> apply_arena_decision -> clarify_alignment -> await_alignment (human)
   -> record_alignment -> draft_artifact
-  -> freeze_artifact -> dispatch_panel
+  -> freeze_artifact -> dispatch_panel -> panel_join -> synthesize_panel
+  -> record_artifact_pass -> publish_artifact_pass
 
 execution:
   select_next -> dispatch_ticket_dag -> resume_repaired_tickets -> ticket_join
@@ -179,6 +180,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | narrow_review_join | Lead status=done, verdict PASS текущей identity | record_artifact_pass |
 | narrow_review_join | cancel/missing/invalid | human с park.reason=narrow_join_invalid |
 | record_artifact_pass | alignment record текущей identity отсутствует/stale | human с park.reason=alignment_record_stale; ничего не записано |
+| record_artifact_pass | atomic pass-and-operation capability unavailable in pinned autoskd/SDK | human с park.reason=planning_ref_capability_missing; ArtifactPassRecord/publication operation/model or Git side effects отсутствуют |
 | record_artifact_pass | pending_anchor | human с park.reason=blocked_anchor; ничего не записано |
 | record_artifact_pass | kind=tech_plan и autosk-arena block missing/malformed/history mismatch | human с park.reason=arena_contract_invalid; ничего не записано |
 | record_artifact_pass | disposition=waived, waiver revalidation failed | human с park.reason=panel_waiver_required; ничего не записано |
@@ -305,7 +307,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 
 <!-- planning-ref-contract:v1 -->
 
-Полный нормативный контракт находится в `docs/contracts/epic-planning-ref.md`. Planned Epic имеет private append-only `refs/autosk/epics/<epic-uuid>/planning`; `init_planning_ref` CAS-создаёт его от immutable planning base. Каждый planning candidate обязан иметь base=current verified head. `record_artifact_pass` сохраняет только recorded-unpublished disposition и immutable recipe; `publish_artifact_pass` создаёт exact single-parent commit, expected-old CAS-продвигает ref и read-back проверяет commit/tree/parent/trailers до `verified`. Target ref не меняется.
+Полный нормативный контракт находится в `docs/contracts/epic-planning-ref.md`. Planned Epic имеет private append-only `refs/autosk/epics/<epic_ref_key>/planning`; `init_planning_ref` CAS-создаёт его от immutable planning base. Каждый planning candidate обязан иметь base=current verified head. `record_artifact_pass` сохраняет только recorded-unpublished disposition и immutable recipe; `publish_artifact_pass` создаёт exact single-parent commit, expected-old CAS-продвигает ref и read-back проверяет commit/tree/parent/trailers до `verified`. Target ref не меняется.
 
 `planning_ref_init_op` имеет phases `prepared -> ref_created -> verified` и требует operation-specific reflog proof before adopting a ref already at base. `planning_publication_op` имеет typed payload=`artifact_pass|anchor_invalidation`, full persisted/read-back exact commit recipe including `commit_object_bytes_base64`, phases `prepared -> commit_created -> ref_advanced -> verified`, terminal `voided_before_ref`, exact expected parent/tree/commit, `reflog_checkpoint` and monotonic receipts. Ref at expected commit after crash is accepted only after full object+reflog verification; changed prefix/ABA/other movement parks `planning_ref_foreign_movement`. Missing/corrupt claimed durable state parks `planning_publication_corrupt`. No re-sign/recompute-from-latest, rebase/reset/force/cherry-pick/adopt-current recovery exists.
 
@@ -663,7 +665,8 @@ Optional `correlation_id` — только UUID по закрытой схеме
     "epic_id": "epic-001",
     "correlation_id": null,
     "planning": {
-      "ref": "refs/autosk/epics/<epic-uuid>/planning",
+      "epic_ref_key": "sha256",
+      "ref": "refs/autosk/epics/<epic_ref_key>/planning",
       "base_oid": "...",
       "head_oid": "...",
       "head_tree_oid": "...",

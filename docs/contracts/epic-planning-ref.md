@@ -11,10 +11,12 @@ Every approved planning artifact must become reachable, ordered Git history befo
 The Planned workflow therefore owns one private, append-only Git line per Epic:
 
 ```text
-refs/autosk/epics/<epic-uuid>/planning
+refs/autosk/epics/<epic_ref_key>/planning
 ```
 
-The ref is internal control-plane state. It is never the user's target branch and is never selected by a human-readable slug. `<epic-uuid>` is the canonical immutable Epic identifier already bound to `project_root_sha256`; the ref name is derived by a closed encoder and rejects traversal, ref metacharacters, Unicode ambiguity, case-fold collisions, or user-provided path fragments.
+The ref is internal control-plane state. It is never the user's target branch and is never selected by a human-readable ID or slug.
+
+`epic_ref_key = SHA-256("autosk-flow/epic-ref-key/v1\0" + canonical JSON {project_root_sha256, epic_id})`, encoded as 64 lowercase hex characters. The closed derivation prevents traversal, ref metacharacters, Unicode/case-fold ambiguity and collisions between equal display IDs in different project/Epic identities. The host recomputes the key before every ref operation; metadata mismatch is `planning_ref_init_invalid`.
 
 ## 2. Non-goals
 
@@ -61,7 +63,8 @@ It first persists a complete `planning_ref_init_op` before touching Git:
   "operation_id": "uuid",
   "project_root_sha256": "sha256",
   "epic_id": "uuid",
-  "planning_ref": "refs/autosk/epics/<uuid>/planning",
+  "epic_ref_key": "sha256",
+  "planning_ref": "refs/autosk/epics/<epic_ref_key>/planning",
   "planning_base_oid": "git-oid",
   "planning_base_tree_oid": "git-oid",
   "object_format": "sha1-or-sha256",
@@ -87,7 +90,7 @@ prepared
 
 1. resolves the canonical repository and project identity;
 2. validates that `planning_base_oid` is a commit in that repository and records its exact tree;
-3. derives and validates the private ref from the immutable Epic UUID;
+3. derives `epic_ref_key` from the immutable project/Epic identity and validates the exact private ref;
 4. discovers the repository object format and uses Git's object-format-neutral missing-old-value form rather than a hard-coded 40-zero OID;
 5. creates the ref with an exact missing-old-value CAS and `--create-reflog`, using the operation-specific reflog message;
 6. records `phase=ref_created` only after the ref command has returned or exact ref/reflog observations prove that this operation already created it;
@@ -145,6 +148,8 @@ draft_artifact
 4. records the deterministic commit recipe and expected commit OID;
 5. transitions only to `publish_artifact_pass`.
 
+This boundary requires one daemon-owned atomic capability, `recordArtifactPassAndPreparePublication`, that writes the `ArtifactPassRecord` and immutable phase=`prepared` operation under one expected metadata head, then reads both back before transition. If the pinned autoskd/SDK lacks this capability, preflight parks `planning_ref_capability_missing` and runtime implementation of issue #5 remains blocked. Two ordinary CLI calls are not equivalent and cannot be used as a fallback.
+
 It does **not**:
 
 - set the kind to completed;
@@ -158,6 +163,8 @@ It does **not**:
 
 ## 7. Planning publication operation
 
+The closed machine contract is `resources/planning-publication/publish-artifact-pass-operation.schema.json`; `publish-artifact-pass-operation.example.json` is the canonical phase=`prepared` example. Prose, Schema and example are one contract. A field or enum change is behavior-defining and requires validator/test update plus a new review candidate.
+
 The protected Epic metadata contains exactly one open operation:
 
 ```json
@@ -167,7 +174,8 @@ The protected Epic metadata contains exactly one open operation:
   "operation_type": "artifact_pass",
   "project_root_sha256": "sha256",
   "epic_id": "uuid",
-  "planning_ref": "refs/autosk/epics/<uuid>/planning",
+  "epic_ref_key": "sha256",
+  "planning_ref": "refs/autosk/epics/<epic_ref_key>/planning",
   "payload": {
     "kind": "artifact_pass",
     "artifact_kind": "brief",
@@ -245,6 +253,8 @@ prepared
 
 Fields preceding `phase` are write-once. The complete canonical `commit_recipe`, including exact commit object bytes, is persisted and read back before phase=`prepared`; a digest or recomputation from mutable configuration alone is insufficient. Receipts are monotonic, operation-bound and written only by deterministic host code under daemon workflow custody. A retry may advance a phase or reconstruct a missing receipt from exact Git observations; it may not change the recipe, expected parent, candidate tree, expected commit, payload kind or target step.
 
+Each non-null receipt uses the closed envelope `{schema,operation_id,receipt_kind,observation_sha256,receipt_hash}`. `receipt_kind` is exactly `commit_object|ref_cas|reflog_after|verification` and must match its slot. The observation hash binds the typed host observation retained by the operation journal; a receipt from another operation or slot is invalid.
+
 For `payload.kind=anchor_invalidation`, the payload replaces artifact-pass fields with an ordered `affected_artifact_kinds`, approved impact record ID/hash, exact invalidation projection digest and recorded post-publication target step. Unknown payload fields or a payload/operation-type mismatch park `planning_publication_invalid`.
 
 Only one non-terminal planning-ref operation may exist for an Epic. A second operation, an unknown phase, a mutable identity field, or conflicting operation ID parks with `planning_publication_invalid`.
@@ -278,7 +288,7 @@ The commit has no merge parent and cannot include changes outside the candidate 
 | phase=`prepared`, object absent, ref=expected parent | write exact commit object; verify OID; record `commit_created` |
 | phase=`prepared`, expected object already exists | verify bytes/tree/parent/message; record `commit_created` |
 | phase=`commit_created`, ref=expected parent and reflog prefix equals the persisted checkpoint | CAS ref from parent to expected commit with `--create-reflog` and the operation-specific message; record `ref_advanced` only after ref/reflog observation |
-| phase=`prepared|commit_created`, ref=expected commit and exactly one new matching reflog entry follows the checkpoint | reconstruct a successful CAS receipt only after exact commit verification; record `ref_advanced` |
+| phase=`prepared` or phase=`commit_created`, ref=expected commit and exactly one new matching reflog entry follows the checkpoint | reconstruct a successful CAS receipt only after exact commit verification; record `ref_advanced` |
 | phase=`ref_advanced`, ref=expected commit | verify ref, commit, parent, tree, exact commit bytes, trailers, reflog transition and all current controlling bindings; record `verified` |
 | phase=`verified`, metadata finalization incomplete | repeat only read-back/finalization; never create another commit or move the ref |
 | ref=expected parent but reflog prefix/count changed since the checkpoint | park `planning_ref_foreign_movement`; this detects move-away-and-back/ABA instead of repeating CAS |

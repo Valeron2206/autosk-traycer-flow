@@ -64,7 +64,7 @@ intake / classify
   -> Core Flow?   -> human behavior alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
   -> Tech Plan    -> human readiness alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
   -> Arena?       -> candidates -> Judge recommendation -> human readiness alignment
-                  -> Decision Record / changed Tech Plan -> new full panel -> publish planning commit
+                  -> Decision Record / changed Tech Plan -> new full panel -> record PASS -> publish planning commit
   -> Tickets      -> draft + dependency view -> human breakdown alignment
                   -> separate panel/fix/re-review -> record PASS -> publish planning commit
   -> verified planning_head
@@ -95,7 +95,7 @@ Brief и Core Flow пропускаются только по objective classifi
 
 <!-- planning-ref-contract:v1 -->
 
-У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic-uuid>/planning`. Она инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
+У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic_ref_key>/planning`. `epic_ref_key` — lowercase SHA-256 canonical project/Epic identity, а не display ID или пользовательский slug. Линия инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
 
 После panel/narrow verdict `record_artifact_pass` ещё не завершает kind: он записывает `publication_status=recorded_unpublished` и immutable `planning_publication_op`. Детерминированный host step `publish_artifact_pass` создаёт single-parent commit с exact candidate tree, CAS-продвигает planning ref от ожидаемого parent, перечитывает ref/commit/tree/identity и только затем ставит publication `verified` и возвращает workflow в `select_next`. Поэтому recorded PASS не является завершённым артефактом до Git publication.
 
