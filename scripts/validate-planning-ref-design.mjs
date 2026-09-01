@@ -353,7 +353,7 @@ function expectedPublicationMessage(example) {
   return `autosk-flow planning publication\n\n${trailers.map(([key, value]) => `${key}: ${value}`).join("\n")}\n`;
 }
 
-export function validatePlanningPublicationOperationExample(example, schema) {
+export function validatePlanningPublicationOperation(example, schema) {
   const errors = [];
   if (!example || typeof example !== "object" || Array.isArray(example)) return ["operation example must be an object"];
   for (const error of validateJsonSchema(example, schema, schema, "operation")) {
@@ -450,20 +450,30 @@ export function validatePlanningPublicationOperationExample(example, schema) {
       example.reflog_checkpoint?.expected_new_oid !== example.expected_commit_oid) {
     errors.push("reflog checkpoint old/new OIDs do not match operation");
   }
-  const reflogGoldenPrefix = Buffer.from(
-    "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==",
-    "base64",
-  );
-  if (example.reflog_checkpoint?.before_entry_count !== 1 ||
-      example.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(1, reflogGoldenPrefix)) {
-    errors.push("canonical reflog checkpoint golden vector mismatch");
-  }
   const receiptSlots = ["commit_object", "ref_cas", "reflog_after", "verification"];
+  const observationKeys = {
+    commit_object: ["object_format", "object_oid", "object_bytes_sha256"],
+    ref_cas: ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message"],
+    reflog_after: ["before_entry_count", "after_entry_count", "before_prefix_sha256", "appended_entry_sha256"],
+    verification: ["planning_ref", "commit_oid", "tree_oid", "reflog_after_receipt_hash"],
+  };
   for (const slot of receiptSlots) {
     const receipt = example.receipts?.[slot];
     if (receipt !== null && receipt !== undefined &&
         (receipt.receipt_kind !== slot || receipt.operation_id !== example.operation_id)) {
       errors.push(`${slot} receipt must match its slot and containing operation_id`);
+    }
+    if (receipt !== null && receipt !== undefined) {
+      if (!exactKeys(receipt.observation, observationKeys[slot])) {
+        errors.push(`${slot} receipt observation fields are not closed for receipt_kind`);
+      }
+      const observationDigest = planningObservationDigest(slot, receipt.observation);
+      if (receipt.observation_sha256 !== observationDigest) {
+        errors.push(`${slot} receipt observation_sha256 mismatch`);
+      }
+      if (receipt.receipt_hash !== planningReceiptHash(example.operation_id, slot, observationDigest)) {
+        errors.push(`${slot} receipt_hash mismatch`);
+      }
     }
   }
   const presentReceipts = receiptSlots.filter((slot) => example.receipts?.[slot] !== null);
@@ -483,6 +493,19 @@ export function validatePlanningPublicationOperationExample(example, schema) {
   }
   if (example.operation_type !== example.payload?.kind) errors.push("operation_type and payload.kind mismatch");
   if (schema?.additionalProperties !== false) errors.push("operation Schema must be closed");
+  return errors;
+}
+
+export function validatePlanningPublicationOperationExample(example, schema) {
+  const errors = validatePlanningPublicationOperation(example, schema);
+  const reflogGoldenPrefix = Buffer.from(
+    "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==",
+    "base64",
+  );
+  if (example.reflog_checkpoint?.before_entry_count !== 1 ||
+      example.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(1, reflogGoldenPrefix)) {
+    errors.push("canonical reflog checkpoint golden vector mismatch");
+  }
   return errors;
 }
 

@@ -301,6 +301,53 @@
         }
       }
     },
+    "typed_observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["object_format", "object_oid", "object_bytes_sha256"],
+          "properties": {
+            "object_format": { "enum": ["sha1", "sha256"] },
+            "object_oid": { "$ref": "#/$defs/oid" },
+            "object_bytes_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message"],
+          "properties": {
+            "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
+            "expected_old_oid": { "$ref": "#/$defs/oid" },
+            "observed_new_oid": { "$ref": "#/$defs/oid" },
+            "expected_update_message": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["before_entry_count", "after_entry_count", "before_prefix_sha256", "appended_entry_sha256"],
+          "properties": {
+            "before_entry_count": { "type": "integer", "minimum": 0 },
+            "after_entry_count": { "type": "integer", "minimum": 1 },
+            "before_prefix_sha256": { "$ref": "#/$defs/sha256" },
+            "appended_entry_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["planning_ref", "commit_oid", "tree_oid", "reflog_after_receipt_hash"],
+          "properties": {
+            "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
+            "commit_oid": { "$ref": "#/$defs/oid" },
+            "tree_oid": { "$ref": "#/$defs/oid" },
+            "reflog_after_receipt_hash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    },
     "receipt": {
       "type": "object",
       "additionalProperties": false,
@@ -308,6 +355,7 @@
         "schema",
         "operation_id",
         "receipt_kind",
+        "observation",
         "observation_sha256",
         "receipt_hash"
       ],
@@ -317,6 +365,7 @@
         "receipt_kind": {
           "enum": ["commit_object", "ref_cas", "reflog_after", "verification"]
         },
+        "observation": { "$ref": "#/$defs/typed_observation" },
         "observation_sha256": { "$ref": "#/$defs/sha256" },
         "receipt_hash": { "$ref": "#/$defs/sha256" }
       }

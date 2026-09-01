@@ -9,6 +9,7 @@ import {
   planningObservationDigest,
   planningReceiptHash,
   planningRefDesignDigest,
+  validatePlanningPublicationOperation,
   validatePlanningPublicationOperationExample,
   validatePlanningRefDesign,
 } from "../scripts/validate-planning-ref-design.mjs";
@@ -332,6 +333,39 @@ test("operation Schema closes receipt slots and phase prefixes", () => {
     validatePlanningPublicationOperationExample(verifiedWithoutReceipts, schema).join("\n"),
     /verified.*receipts|receipts.*verified/u,
   );
+});
+
+test("generic recovered-operation validation binds receipt observation and hashes", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  const observation = {
+    object_format: "sha1",
+    object_oid: operation.expected_commit_oid,
+    object_bytes_sha256: operation.commit_recipe.commit_object_bytes_sha256,
+  };
+  const observationSha256 = planningObservationDigest("commit_object", observation);
+  operation.phase = "commit_created";
+  operation.receipts.commit_object = {
+    schema: 1,
+    operation_id: operation.operation_id,
+    receipt_kind: "commit_object",
+    observation,
+    observation_sha256: observationSha256,
+    receipt_hash: planningReceiptHash(operation.operation_id, "commit_object", observationSha256),
+  };
+  assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
+
+  const badHash = structuredClone(operation);
+  badHash.receipts.commit_object.receipt_hash = "0".repeat(64);
+  assert.match(validatePlanningPublicationOperation(badHash, schema).join("\n"), /receipt_hash/u);
+
+  const foreign = structuredClone(operation);
+  foreign.receipts.commit_object.operation_id = "33333333-3333-4333-8333-333333333333";
+  assert.match(validatePlanningPublicationOperation(foreign, schema).join("\n"), /containing operation_id/u);
+
+  const changedObservation = structuredClone(operation);
+  changedObservation.receipts.commit_object.observation.object_oid = "4".repeat(40);
+  assert.match(validatePlanningPublicationOperation(changedObservation, schema).join("\n"), /observation_sha256/u);
 });
 
 test("raw commit bytes must equal the structured commit recipe", () => {
