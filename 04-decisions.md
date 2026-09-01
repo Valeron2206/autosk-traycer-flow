@@ -86,7 +86,7 @@
 
 ## ADR-010: PASS только по точной идентичности
 
-- Решение: planning verdict связан с artifact snapshot; code verdict — с base/pathspec/tree OID/anchor/controlling_anchor_digest/attempt и daemon gate-result receipt ID/hash/result head. До branch CAS host фиксирует exact commit recipe/OID; recovery accepts only that OID/parent/recipe.
+- Решение: planning verdict связан с artifact snapshot; artifact/code candidate identity напрямую включает ordered `governance_mapping_set_digest` exact tree, отдельно от parent-derived controlling anchor. Code verdict также связан с base/pathspec/tree OID/anchor/controlling_anchor_digest/attempt и daemon gate-result receipt ID/hash/result head. Freeze, record_artifact_pass/record_code_verdict и commit/integration recompute mapping digest; drift voids verdict до side effect. До branch CAS host фиксирует exact commit recipe/OID; recovery accepts only that OID/parent/recipe.
 - Альтернатива: считать достаточным последний комментарий PASS или имя ветки.
 - Обоснование: branch и файлы изменяемы; OID и hash обнаруживают stale verdict.
 - Источники:

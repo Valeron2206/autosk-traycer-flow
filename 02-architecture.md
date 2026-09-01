@@ -312,6 +312,7 @@ artifact identity =
   + declared pathspec
   + candidate tree OID
   + artifact sha256 set
+  + governance mapping set digest
   + anchor version
   + protocol hash
   + attempt
@@ -349,10 +350,13 @@ candidate identity =
   + base commit OID
   + declared pathspec
   + candidate tree OID
+  + governance mapping set digest
   + anchor version
   + controlling anchor digest
   + attempt
 ~~~
+
+`governance_mapping_set_digest` — domain-separated SHA-256 canonical ordered set доказательств только для дополнительных плановых/управляющих документов в exact candidate tree; пустой set имеет канонический digest. Закрытый classifier отдельно выдаёт `ordinary_implementation` для source/config/schema/prompt/test/migration paths из declared implementation scope, поэтому такие файлы не требуют mapping. Text artifact хранит embedded mapping block, non-embeddable artifact — связанный companion JSON; orphan/mismatch sidecar fail-closed. Digest не входит в parent-derived `controlling_anchor_digest`: он вычисляется из exact tree и classifier rule version и напрямую входит в artifact/code candidate, а значит также в verdict binding. Freeze, record_artifact_pass/record_code_verdict и commit/integration заново вычисляют set; любое отличие делает прежний verdict stale.
 
 ### Verdict
 

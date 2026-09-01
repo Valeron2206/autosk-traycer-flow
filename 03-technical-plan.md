@@ -81,8 +81,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
 | intake | classification валиден | select_next |
-| freeze_artifact / Quick freeze / Ticket freeze | created/changed behavior-defining path outside four canonical artifacts lacks exactly one valid governance mapping to current named manifest decision IDs, mapping ambiguous/stale, or contains extra unmapped normative content | human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction |
-| freeze_artifact / Quick freeze / Ticket freeze | every external behavior-defining path has valid current mapping, but mapping proof not yet bound | atomically record path/content/target-kind/decision-ref/rule-version proof in controlling anchor/candidate identity; repeat same freeze step |
+| freeze_artifact / Quick freeze / Ticket freeze | closed path-role classifier returns `unknown` for a document/governance surface, or `additional_normative` lacks exactly one valid governance mapping to current named manifest decision IDs, mapping/sidecar is orphaned, ambiguous or stale, or document contains extra unmapped normative content | human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths do not match this guard. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction |
+| freeze_artifact / Quick freeze / Ticket freeze | every `additional_normative` path has valid current mapping, but ordered proof-set digest is not yet bound to current artifact/code candidate | atomically record exact-tree proofs in task-owned protected metadata, bind `governance_mapping_set_digest` to candidate identity and repeat same freeze step |
 | await_alignment / record_alignment / present_tickets_breakdown / freeze_artifact / fix_artifact / record_artifact_pass | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest != recorded new_ticket_set_digest | atomically phase=old_bindings_void, clear new digest, alignment_records.tickets=stale, artifact_pass.tickets=void, review cycle full required; draft_artifact до нового breakdown/panel |
 | select_next | `aggregate_remediation.phase != closed` | record_aggregate_remediation; recorded prefix продолжается, old/partial new Tickets не dispatch'ятся |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record текущей project/Epic/kind/anchor/scope/subject identity отсутствует | записать kind, создать review_cycles[kind] если absent, clarify_alignment |
@@ -595,7 +595,11 @@ Exact imported Traycer baseline хранится только локально �
 
 Единственный машинный enum ArtifactKind: brief | core_flow | tech_plan | tickets. Имена файлов могут содержать дефисы, metadata и переходы — никогда.
 
-Other behavior-defining paths do not add ArtifactKind. Closed mapping record: `{path_hash,content_hash,target_kind,decision_id_refs,mapping_rule_version,proof_hash,status:current|stale}`. Deterministic classifier/projector verifies exactly one `autosk-governance-mapping` block, target in four-value enum, all refs current in named manifest and no unmapped normative section. Proof enters controlling anchor/candidate. Unknown/ambiguous mapping is `artifact_mapping_required`, not panelable standalone.
+Other planning/governance documents do not add ArtifactKind. Versioned closed classifier evaluates every created/changed path with precedence `canonical_artifact -> governance_mapping_sidecar -> additional_normative -> ordinary_implementation -> unknown`. `additional_normative` is selected for documentation/diagram/spec/ADR/requirements/design/policy/governance surfaces or an escalated completion declaration; model output may escalate but never downgrade it. `ordinary_implementation` is selected only for declared implementation-scope source/config/schema/prompt/test/migration paths not claimed by a higher rule. Unknown document/governance paths fail closed; ordinary implementation continues code review without mapping.
+
+Closed mapping record: `{path_hash,content_hash,path_role,target_kind,decision_id_refs,mapping_rule_version,mapping_payload_hash,proof_hash,status:current|stale}`. Text formats contain exactly one `autosk-governance-mapping` block. Non-embeddable bytes use `<path>.autosk-governance-mapping.json`, which binds exact target path/content hash and is classified as a sidecar only when its target exists and schema/hash match; otherwise it is orphaned and fails closed. Classifier/projector verifies target in the four-value enum, all refs current in named manifest and no unmapped normative section.
+
+`governance_mapping_set_digest = SHA-256("autosk-flow/governance-mapping-set/v1" + canonical ordered current proof records)`; ordering is by normalized target path and the empty set has a fixed golden value. The digest is derived from the exact candidate tree and classifier version, stored in task-owned protected metadata, and enters artifact identity or code candidate identity directly, not `controlling_anchor_digest`. Every freeze, reviewer dispatch/join, record_artifact_pass/record_code_verdict, commit_on_pass and integration recomputes it; mismatch voids candidate/verdict before side effects.
 
 В mode=planned classification fields `tech_plan` и `tickets` имеют schema const=true; optional только brief/core_flow. `tickets=false` делает metadata invalid и требует возврата в intake/Quick reclassification, поэтому select_next не имеет silent skip branch.
 
@@ -851,6 +855,7 @@ Workflow custody exposes `mutateAutoskFlow(own_step_capability,expected_head,pat
       "attempt": 1,
       "tree_oid": "...",
       "snapshot_commit": "...",
+      "governance_mapping_set_digest": "...",
       "controlling_anchor_digest": "..."
     },
     "review_cycle": {
@@ -1120,7 +1125,7 @@ record_artifact_pass — deterministic AgentDefinition step, а не onTransit h
 
 Разрешённые metadata status каждого entry: pending, recommended, applied, fallback. `recommended` — transient host-owned status и не допускается в нормативном autosk-arena block: он блокирует draft до `record_alignment`. Только `record_alignment` добавляет Decision Record reference и делает status applied/fallback. Terminal status для decision_id неизменяем; новая спорная развилка получает новый decision_id и отдельную полную панель.
 
-record_code_verdict выполняет аналогичную повторную валидацию code identity. Для disposition=verdict он требует session/verdict binding; для disposition=waived — signed daemon review waiver exact candidate identity и записывает `review.status=waived` с authority hashes. Только после валидной branch он сбрасывает full_review_required и выбирает переход. При провале flags не меняются и task паркуется code_verdict_invalid либо review_waiver_invalid.
+record_code_verdict выполняет аналогичную повторную валидацию code identity, включая recomputed `governance_mapping_set_digest`. Для disposition=verdict он требует session/verdict binding; для disposition=waived — signed daemon review waiver exact candidate identity и записывает `review.status=waived` с authority hashes. Только после валидной branch он сбрасывает full_review_required и выбирает переход. При провале flags не меняются и task паркуется code_verdict_invalid либо review_waiver_invalid.
 
 ### Freeze
 
@@ -1149,7 +1154,7 @@ Panel, contest, narrow Lead, code-review и Judge получают snapshot-root
 
 После PASS:
 
-1. повторно mint worktree и approved tree;
+1. повторно mint worktree/approved tree и recompute exact `governance_mapping_set_digest`; mismatch с reviewed candidate запрещает branch side effect;
 2. до CAS зафиксировать canonical commit recipe: recorded parent/base, tree, message bytes, author/committer identity и timestamps; `git commit-tree` вычисляет exact expected commit OID;
 3. если private branch уже exact expected OID и parent/recipe совпадают, восстановить metadata идемпотентно;
 4. если branch на recorded base, CAS update только к expected OID;
@@ -1186,7 +1191,7 @@ State path создаётся отдельно для каждой operation п�
 - Нормативный draft Brief/Core Flow/Tech Plan запрещён без valid alignment proposal/manifest identity. Freeze/panel дополнительно требуют, чтобы post-draft material projection exact bytes совпадал с approved manifest и project/Epic/kind/anchor/scope/user-record/classifier/projector/policy/protocol identity. Tickets до approval только proposal.
 - `record_alignment` принимает только daemon-attributed `UserDecisionRecord` либо exact current project policy projection; Git/comment authorship, model label/self-approval, assumption, unknown/ambiguous/forbidden class и material decision за пределами policy отклоняются.
 - `freeze_artifact`, full/narrow Panel dispatch/join и `record_artifact_pass` требуют current alignment + recomputed material manifest в controlling anchor pack. Изменившийся user record, subject/manifest, classifier/projector input/version, scope, anchor или policy disposition делает его stale раньше model fan-out.
-- every freeze also inventories created/changed behavior-defining paths outside canonical four artifacts and requires current governance mapping proof in controlling anchor; unknown/ambiguous/stale mapping blocks candidate/panel/PASS.
+- every freeze runs the closed path-role classifier; ordinary implementation proceeds to code review, while additional normative documents require current mapping proof and direct candidate-bound `governance_mapping_set_digest`; unknown/orphan/ambiguous/stale mapping blocks candidate/panel/PASS.
 - Tickets не исполняются без current Tickets artifact disposition=pass|waived; waived требует signed full-skip authority current identity.
 - Ticket Panel не стартует, а `dispatch_ticket_dag` не создаёт child/blocker side effects без breakdown approval того же canonical Ticket set/DAG/scopes/outcomes/order/exclusions subject hash. Panel PASS не заменяет этот approval.
 - Quick-flow не проверяет alignment records, пока classification остаётся valid. Каждый pre-integration gate повторяет closed rules; Planned-trigger исключает обычный переход и ведёт только в `invalidate_quick_classification`. Quick с open/failed handoff не может commit/integrate.
@@ -1357,7 +1362,9 @@ Resume contract:
 - Quick classification проверяется на каждом pre-integration gate; handoff op/creation key/retry создают ровно один Planned replacement и никогда не интегрируют old Quick bytes;
 - Quick handoff prepared binding includes intent head + candidate/review/accept/waiver/integration hashes and atomically voids them before child create or any Git read;
 - canonical ArtifactKind enum и artifact_pass binding;
-- external behavior-defining path mapping block/proof is deterministic, bound to candidate, and fail-closed on unknown/stale/extra normative content;
+- path-role classifier golden vectors distinguish ordinary source/config/schema/prompt/test/migration changes from additional normative documents; model declaration can escalate but cannot downgrade;
+- embedded and companion-sidecar mapping proofs are deterministic, ordered and bound by `governance_mapping_set_digest`; unknown/stale/orphan/extra normative content fails closed;
+- mapping digest drift between freeze->review, review->record_code_verdict and review->commit_on_pass invalidates the candidate/verdict before side effects;
 - независимый review_cycles entry для каждого ArtifactKind;
 - atomic record_artifact_pass, включая malformed autosk-arena без частичной записи;
 - artifact/code `pass|waived` dispositions взаимоисключаемы; waiver branch требует signed current authority и создаёт ноль review children;
@@ -1524,7 +1531,9 @@ Resume contract:
 - model shell пишет Git Decision Log/comment/projection, открывает ordinary daemon connection и пытается получить actor=user без valid signer/challenge;
 - model помечает product behavior как `local_reversible_implementation`, но deterministic classifier выводит human_required;
 - model сохраняет readiness summary, но вставляет в prose новый material API/data/destructive decision, отсутствующий в approved manifest;
-- Quick/Ticket creates a fifth behavior-defining document without mapping or with new unmapped decision; freeze creates no candidate/review/PASS and routes named lifecycle correction;
+- Quick/Ticket changes ordinary implementation source/config/schema/prompt/test/migration files; freeze does not require governance mapping and proceeds to code review;
+- Quick/Ticket creates a fifth planning/governance document without mapping, with orphan sidecar or new unmapped decision; freeze creates no candidate/review/PASS and routes named lifecycle correction;
+- mapping proof/rule version changes after freeze or review while tree bytes otherwise match; record_code_verdict/commit_on_pass rejects the stale digest;
 - stale Epic cache пытается применить revoked project policy;
 - model edits Epic metadata projection to remove/reorder dependency; protected dependency head mismatch blocks every consumer;
 - re-bind policy->user decision without daemon supersede tries to keep old candidate PASS; current dependency projection/head mismatch voids it;
