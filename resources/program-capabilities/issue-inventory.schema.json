@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/program-capabilities/issue-inventory.schema.json",
+  "title": "autosk-flow pinned program issue inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "inventory_version",
+    "repository",
+    "captured_at_utc",
+    "source_main_commit",
+    "issue_range",
+    "canonical_digest",
+    "issues"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./issue-inventory.schema.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "inventory_version": {
+      "const": "program-issue-inventory.v1"
+    },
+    "repository": {
+      "const": "Valeron2206/autosk-traycer-flow"
+    },
+    "captured_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_main_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "issue_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "const": 3
+        },
+        "to": {
+          "const": 39
+        }
+      }
+    },
+    "canonical_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "issues": {
+      "type": "array",
+      "minItems": 37,
+      "maxItems": 37,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issue_number",
+          "issue_title",
+          "priority"
+        ],
+        "properties": {
+          "issue_number": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 39
+          },
+          "issue_title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "priority": {
+            "enum": [
+              "P0",
+              "P1",
+              "P2"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

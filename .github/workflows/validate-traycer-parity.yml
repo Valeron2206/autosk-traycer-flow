@@ -1,4 +1,4 @@
-name: Validate Traycer parity registry
+name: Validate program design registries
 
 on:
   push:
@@ -25,8 +25,11 @@ jobs:
       - name: Run adversarial tests
         run: npm test
 
-      - name: Validate registry
+      - name: Validate Traycer source parity registry
         run: npm run validate:migration
+
+      - name: Validate program capability matrix
+        run: npm run validate:capabilities
 
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'

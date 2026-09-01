@@ -73,6 +73,24 @@ npm run validate:migration
 
 Шесть записей отнесены к `post_v1`: Autobuild, Reflect, Debate, Housekeeping и Changeset Walkthrough остаются неактивными до соответствующих issues. Два отсутствующих архива сохранены как открытые source-evidence gaps, а не объявлены найденными.
 
+## Матрица программных возможностей
+
+Source parity и program delivery — разные измерения. Каноническая issue-level матрица отдельно классифицирует ровно issues #3–#39:
+
+- `required_for_v1`: 31 — design disposition входит в #39, а невыполненная implementation/release obligation блокирует autonomous MVP;
+- `planned_after_v1`: 6 — Autobuild (#28), Reflect (#29), Housekeeping (#30), Debate (#31), Changeset Walkthrough (#33) и полный typed SDK write API (#38) явно не обещаются v1, но остаются обязательными после #36;
+- `intentionally_deferred`: 0 — ни одна program capability не снята с обязательств.
+
+Машиночитаемая матрица находится в `resources/program-capabilities/matrix.v1.json`, pinned issue inventory и закрытые схемы — рядом, а детерминированная сводка — в `docs/program-capability-matrix.md`. Матрица не хранит текущий open/closed/PR state и не становится вторым roadmap: живой progress остаётся в GitHub issue #40.
+
+Проверка:
+
+```text
+npm run validate:capabilities
+```
+
+Изменение lifecycle classification является behavior-defining program decision и требует нового reviewed candidate.
+
 ## Источники
 
 - исходный код [wierdbytes/autosk](https://github.com/wierdbytes/autosk);

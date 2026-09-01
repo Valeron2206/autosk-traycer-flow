@@ -1,0 +1,243 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  DOC_PATH,
+  INVENTORY_PATH,
+  MATRIX_PATH,
+  PARITY_PATH,
+  POST_V1_ISSUES,
+  canonicalStringify,
+  parseJson,
+  renderDocumentation,
+  sha256,
+  validateAll,
+  validateDocumentation,
+  validateInventory,
+  validateMatrix,
+} from "../scripts/validate-program-capability-matrix.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+function fixture() {
+  return {
+    matrix: parseJson(MATRIX_PATH),
+    inventory: parseJson(INVENTORY_PATH),
+    parityRegistry: parseJson(PARITY_PATH),
+    documentation: readFileSync(DOC_PATH, "utf8"),
+  };
+}
+
+function messages(errors) {
+  return errors.join("\n");
+}
+
+test("committed capability matrix, issue inventory, source parity links and docs validate", () => {
+  assert.deepEqual(validateAll(fixture()), []);
+});
+
+test("matrix covers exactly issues #3–#39", () => {
+  const data = fixture();
+  data.matrix.records.pop();
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /exactly 37 records/);
+});
+
+test("duplicate issue number is rejected", () => {
+  const data = fixture();
+  data.matrix.records[1].issue_number = data.matrix.records[0].issue_number;
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /duplicates #3/);
+});
+
+test("issue #40 or a PR-shaped entry cannot enter the program matrix", () => {
+  const data = fixture();
+  const record = data.matrix.records.at(-1);
+  record.issue_number = 40;
+  record.issue_title = "docs: fake pull request";
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /outside #3–#39|exactly issues #3–#39/);
+});
+
+test("stale issue title and priority are rejected against the pinned inventory", () => {
+  const data = fixture();
+  data.matrix.records[4].issue_title += " stale";
+  data.matrix.records[4].priority = "P2";
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /issue_title is stale/);
+  assert.match(result, /priority is stale/);
+});
+
+test("inventory title priority must agree", () => {
+  const data = fixture();
+  data.inventory.issues[0].priority = "P2";
+  assert.match(messages(validateInventory(data.inventory)), /priority does not match title/);
+});
+
+test("inventory canonical digest detects mutation", () => {
+  const data = fixture();
+  data.inventory.issues[0].issue_title += " changed";
+  assert.match(messages(validateInventory(data.inventory)), /canonical_digest mismatch/);
+});
+
+test("invalid lifecycle is rejected", () => {
+  const data = fixture();
+  data.matrix.records[20].lifecycle = "maybe";
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /lifecycle is invalid/);
+});
+
+test("every P0 remains required_for_v1 in matrix v1", () => {
+  const data = fixture();
+  const record = data.matrix.records.find((item) => item.issue_number === 13);
+  record.lifecycle = "planned_after_v1";
+  record.release_blocking = false;
+  record.target_milestone = "full_parity_post_v1";
+  record.gate_role = "post_v1_capability";
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /P0 issue #13 cannot be moved after v1/);
+});
+
+test("planned_after_v1 requires the post-v1 milestone, trigger and non-blocking role", () => {
+  const data = fixture();
+  const record = data.matrix.records.find((item) => item.issue_number === 28);
+  record.release_blocking = true;
+  record.target_milestone = "autonomous_mvp";
+  record.gate_role = "design_and_mvp_input";
+  record.activation_trigger = "";
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /activation_trigger must be explicit/);
+  assert.match(result, /planned_after_v1 must not block/);
+  assert.match(result, /target must be full_parity_post_v1/);
+  assert.match(result, /gate_role must be post_v1_capability/);
+});
+
+test("intentionally_deferred requires an immutable decision reference and reviewed policy change", () => {
+  const data = fixture();
+  const record = data.matrix.records.find((item) => item.issue_number === 28);
+  record.lifecycle = "intentionally_deferred";
+  record.target_milestone = "deferred";
+  record.gate_role = "post_v1_capability";
+  record.decision_reference = null;
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /requires an immutable user\/external decision reference/);
+  assert.match(result, /matrix v1 intentionally defers no program issue/);
+});
+
+test("release-blocking contradiction is rejected", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 19).release_blocking = false;
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /required_for_v1 must be release_blocking/);
+});
+
+test("dependency outside the program range is rejected", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 7).dependencies.push(43);
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /out-of-range issue 43/);
+});
+
+test("dependency self-cycle is rejected", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 7).dependencies.push(7);
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /cannot contain self #7/);
+});
+
+test("multi-node dependency cycle is rejected", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 3).dependencies.push(39);
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /dependency cycle/);
+});
+
+test("reverse downstream projection must match dependencies exactly", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 5).downstream_blockers = [];
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /downstream_blockers is not the exact reverse dependency projection/);
+});
+
+test("canonical roadmap edges are enforced", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 9).dependencies =
+    data.matrix.records.find((item) => item.issue_number === 9).dependencies.filter((number) => number !== 17);
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /issue #9 must depend on #17/);
+});
+
+test("design gate does not depend on runtime completion of the E2E release gate", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 39).dependencies.push(36);
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /must not depend on runtime completion of #36/);
+});
+
+test("#36 and #39 preserve their release/design gate roles", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 36).gate_role = "design_and_mvp_input";
+  data.matrix.records.find((item) => item.issue_number === 39).target_milestone = "autonomous_mvp";
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /issue #36 must be required_for_v1/);
+  assert.match(result, /issue #39 must be required_for_v1/);
+});
+
+test("planned_after_v1 set is exact for matrix v1", () => {
+  const data = fixture();
+  const record = data.matrix.records.find((item) => item.issue_number === 32);
+  record.lifecycle = "planned_after_v1";
+  record.release_blocking = false;
+  record.target_milestone = "full_parity_post_v1";
+  record.gate_role = "post_v1_capability";
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /planned_after_v1 set must be exactly/);
+  assert.deepEqual(POST_V1_ISSUES, [28, 29, 30, 31, 33, 38]);
+});
+
+test("source parity logical IDs are derived exactly from registry issueRefs", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 24).source_parity_ids.pop();
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /source_parity_ids differs from registry issueRefs for #24/);
+});
+
+test("source registry v1/post_v1 classification must agree with issue lifecycle", () => {
+  const data = fixture();
+  const source = data.parityRegistry.sources.find((item) => item.id === "skill.autobuild");
+  source.classification = "v1";
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /skill\.autobuild is v1 but targets planned_after_v1 issue #28/);
+});
+
+test("matrix canonical digest detects any classification mutation", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 33).classification_risk += " changed";
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /matrix canonical_digest mismatch/);
+});
+
+test("canonical serialization is key-order independent and array-order sensitive", () => {
+  assert.equal(canonicalStringify({ b: 2, a: 1 }), canonicalStringify({ a: 1, b: 2 }));
+  assert.notEqual(canonicalStringify([1, 2]), canonicalStringify([2, 1]));
+  assert.equal(sha256("same"), sha256("same"));
+});
+
+test("human-readable summary is deterministic and drift is rejected", () => {
+  const data = fixture();
+  assert.equal(renderDocumentation(data.matrix), data.documentation);
+  assert.deepEqual(validateDocumentation(data.matrix, `${data.documentation}\nmanual drift\n`), [
+    "docs/program-capability-matrix.md is stale; regenerate with npm run generate:capabilities",
+  ]);
+});
+
+test("matrix does not become a live task-state ledger", () => {
+  const data = fixture();
+  data.matrix.records[0].state = "closed";
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)), /keys differ from the closed v1 record shape|state is forbidden/);
+});
+
+test("schema and data files are present under the dedicated program-capabilities namespace", () => {
+  for (const relative of [
+    "resources/program-capabilities/issue-inventory.schema.json",
+    "resources/program-capabilities/issue-inventory.v1.json",
+    "resources/program-capabilities/matrix.schema.json",
+    "resources/program-capabilities/matrix.v1.json",
+    "docs/program-capability-matrix.md",
+  ]) {
+    assert.equal(readFileSync(path.join(ROOT, relative), "utf8").length > 0, true, relative);
+  }
+});
