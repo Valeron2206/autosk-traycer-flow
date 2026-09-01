@@ -47,6 +47,24 @@ test("direct prose transition from record-artifact-pass to select-next is reject
   assert.match(validatePlanningRefDesign(files).join("\n"), /prose.*record_artifact_pass.*select_next/u);
 });
 
+test("successful record-artifact-pass rows must target publication", () => {
+  const files = fixture();
+  files["03-technical-plan.md"] = files["03-technical-plan.md"].replace(
+    "create immutable planning_publication_op phase=prepared with exact recipe/OID; publish_artifact_pass",
+    "create immutable planning_publication_op phase=prepared with exact recipe/OID; dispatch_ticket_dag",
+  );
+  assert.match(validatePlanningRefDesign(files).join("\n"), /successful record_artifact_pass.*publish_artifact_pass/u);
+});
+
+test("publish-artifact-pass cannot select-next before verified publication", () => {
+  const files = fixture();
+  files["03-technical-plan.md"] = files["03-technical-plan.md"].replace(
+    "write persisted exact commit_object_bytes; verify Git returns expected OID; atomically phase=commit_created; publish_artifact_pass",
+    "write persisted exact commit_object_bytes; verify Git returns expected OID; atomically phase=commit_created; select_next",
+  );
+  assert.match(validatePlanningRefDesign(files).join("\n"), /publish_artifact_pass.*verified.*select_next/u);
+});
+
 test("Arena re-expression returns through recorded and published PASS", () => {
   const files = fixture();
   files["01-core-flows.md"] = files["01-core-flows.md"].replace(

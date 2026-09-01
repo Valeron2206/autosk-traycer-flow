@@ -136,6 +136,31 @@ function exactKeys(value, expected) {
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
+function splitMarkdownRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return null;
+  const cells = [];
+  let cell = "";
+  let escaped = false;
+  for (let index = 1; index < trimmed.length - 1; index += 1) {
+    const character = trimmed[index];
+    if (escaped) {
+      cell += `\\${character}`;
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  if (escaped) cell += "\\";
+  cells.push(cell.trim());
+  return cells;
+}
+
 function schemaTypeMatches(value, type) {
   if (type === "null") return value === null;
   if (type === "array") return Array.isArray(value);
@@ -370,6 +395,46 @@ export function validatePlanningRefDesign(files) {
     ?.split("record_code_verdict")[0] ?? "";
   if (/переходит в select_next/u.test(recordPassProse)) {
     errors.push("03-technical-plan.md: prose directly transitions record_artifact_pass to select_next");
+  }
+  const planLines = plan.split("\n");
+  const transitionHeader = planLines.findIndex(
+    (line) => line.trim() === "| Текущий шаг | Условие | Следующий шаг |",
+  );
+  const transitionRows = [];
+  if (transitionHeader < 0) {
+    errors.push("03-technical-plan.md: canonical transition table header is missing");
+  } else {
+    for (const line of planLines.slice(transitionHeader + 1)) {
+      const cells = splitMarkdownRow(line);
+      if (!cells) break;
+      if (cells.every((cell) => /^-+$/u.test(cell))) continue;
+      if (cells.length === 3) transitionRows.push(cells);
+    }
+  }
+  const recordPassSuccess = transitionRows.filter(
+    ([step, , action]) => step === "record_artifact_pass" && !action.startsWith("human "),
+  );
+  if (recordPassSuccess.length !== 2 ||
+      recordPassSuccess.some(([, , action]) => !/;\s*publish_artifact_pass$/u.test(action))) {
+    errors.push("03-technical-plan.md: every successful record_artifact_pass row must target publish_artifact_pass");
+  }
+  const publishSelectRows = transitionRows.filter(
+    ([step, , action]) => step === "publish_artifact_pass" && /\bselect_next\b/u.test(action),
+  );
+  const verifiedPublishTransition = ([, condition, action]) => {
+    const selectIndex = action.lastIndexOf("select_next");
+    if (!/[,;]\s*select_next$/u.test(action)) return false;
+    if (condition.includes("phase=verified")) {
+      return action.includes("read-back") && selectIndex > action.indexOf("read-back");
+    }
+    return condition.includes("phase=ref_advanced") &&
+      action.includes("atomically phase=verified") &&
+      action.includes("publication_status=verified") &&
+      selectIndex > action.indexOf("atomically phase=verified") &&
+      selectIndex > action.indexOf("publication_status=verified");
+  };
+  if (publishSelectRows.length !== 2 || publishSelectRows.some((row) => !verifiedPublishTransition(row))) {
+    errors.push("03-technical-plan.md: publish_artifact_pass requires verified publication before select_next");
   }
   let expectedPipes = null;
   for (const line of plan.split("\n")) {
