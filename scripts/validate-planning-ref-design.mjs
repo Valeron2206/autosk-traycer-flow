@@ -130,6 +130,105 @@ function exactKeys(value, expected) {
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
+function schemaTypeMatches(value, type) {
+  if (type === "null") return value === null;
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (type === "integer") return Number.isInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  return typeof value === type;
+}
+
+function resolveSchemaRef(rootSchema, reference) {
+  if (!reference.startsWith("#/")) throw new Error(`unsupported Schema reference ${reference}`);
+  return reference
+    .slice(2)
+    .split("/")
+    .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"))
+    .reduce((value, key) => value?.[key], rootSchema);
+}
+
+export function validateJsonSchema(value, schema, rootSchema = schema, instancePath = "$") {
+  const errors = [];
+  if (!schema || typeof schema !== "object") return [`${instancePath}: invalid Schema node`];
+  if (schema.$ref) {
+    try {
+      return validateJsonSchema(value, resolveSchemaRef(rootSchema, schema.$ref), rootSchema, instancePath);
+    } catch (error) {
+      return [`${instancePath}: ${error.message}`];
+    }
+  }
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!types.some((type) => schemaTypeMatches(value, type))) {
+      return [`${instancePath} must have type ${types.join("|")}`];
+    }
+  }
+  if (schema.const !== undefined && canonicalStringify(value) !== canonicalStringify(schema.const)) {
+    errors.push(`${instancePath} must equal ${JSON.stringify(schema.const)}`);
+  }
+  if (Array.isArray(schema.enum) &&
+      !schema.enum.some((item) => canonicalStringify(item) === canonicalStringify(value))) {
+    errors.push(`${instancePath} is outside enum`);
+  }
+  if (typeof value === "string") {
+    if (schema.minLength !== undefined && Array.from(value).length < schema.minLength) {
+      errors.push(`${instancePath} must contain at least ${schema.minLength} characters`);
+    }
+    if (schema.pattern !== undefined && !new RegExp(schema.pattern, "u").test(value)) {
+      errors.push(`${instancePath} does not match pattern`);
+    }
+  }
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) errors.push(`${instancePath} is below minimum`);
+    if (schema.maximum !== undefined && value > schema.maximum) errors.push(`${instancePath} is above maximum`);
+  }
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) errors.push(`${instancePath} has too few items`);
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) errors.push(`${instancePath} has too many items`);
+    if (schema.uniqueItems) {
+      const encoded = value.map(canonicalStringify);
+      if (new Set(encoded).size !== encoded.length) errors.push(`${instancePath} items must be unique`);
+    }
+    if (schema.items) {
+      value.forEach((item, index) => errors.push(
+        ...validateJsonSchema(item, schema.items, rootSchema, `${instancePath}[${index}]`),
+      ));
+    }
+  }
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    for (const key of schema.required ?? []) {
+      if (!(key in value)) errors.push(`${instancePath}.${key} is required`);
+    }
+    for (const [key, item] of Object.entries(value)) {
+      if (schema.properties?.[key]) {
+        errors.push(...validateJsonSchema(item, schema.properties[key], rootSchema, `${instancePath}.${key}`));
+      } else if (schema.additionalProperties === false) {
+        errors.push(`${instancePath}.${key} is not allowed`);
+      }
+    }
+  }
+  for (const branch of schema.allOf ?? []) {
+    errors.push(...validateJsonSchema(value, branch, rootSchema, instancePath));
+  }
+  if (Array.isArray(schema.oneOf)) {
+    const branchErrors = schema.oneOf.map((branch) => validateJsonSchema(value, branch, rootSchema, instancePath));
+    if (branchErrors.filter((items) => items.length === 0).length !== 1) {
+      errors.push(`${instancePath} must match exactly one Schema branch`);
+      errors.push(...branchErrors.flat());
+    }
+  }
+  if (schema.if) {
+    const conditionMatches = validateJsonSchema(value, schema.if, rootSchema, instancePath).length === 0;
+    if (conditionMatches && schema.then) {
+      errors.push(...validateJsonSchema(value, schema.then, rootSchema, instancePath));
+    } else if (!conditionMatches && schema.else) {
+      errors.push(...validateJsonSchema(value, schema.else, rootSchema, instancePath));
+    }
+  }
+  return errors;
+}
+
 function deriveEpicRefKey(projectRootSha256, epicId) {
   return sha256(
     "autosk-flow/epic-ref-key/v1\0" +
@@ -140,6 +239,9 @@ function deriveEpicRefKey(projectRootSha256, epicId) {
 export function validatePlanningPublicationOperationExample(example, schema) {
   const errors = [];
   if (!example || typeof example !== "object" || Array.isArray(example)) return ["operation example must be an object"];
+  for (const error of validateJsonSchema(example, schema, schema, "operation")) {
+    errors.push(`Schema: ${error}`);
+  }
   const required = Array.isArray(schema?.required) ? schema.required : [];
   if (!exactKeys(example, required)) errors.push("operation example keys differ from closed Schema");
   for (const key of required) {
@@ -240,6 +342,26 @@ export function validatePlanningRefDesign(files) {
   for (const line of plan.split("\n")) {
     if (/^\|\s*record_artifact_pass\s*\|/u.test(line.trim()) && /\bselect_next\b/u.test(line)) {
       errors.push("03-technical-plan.md: direct record_artifact_pass → select_next transition remains");
+    }
+  }
+  let expectedPipes = null;
+  for (const line of plan.split("\n")) {
+    if (!line.trim().startsWith("|")) {
+      expectedPipes = null;
+      continue;
+    }
+    let pipes = 0;
+    for (let index = 0; index < line.length; index += 1) {
+      if (line[index] === "\\") {
+        index += 1;
+        continue;
+      }
+      if (line[index] === "|") pipes += 1;
+    }
+    if (expectedPipes === null) expectedPipes = pipes;
+    if (pipes !== expectedPipes) {
+      errors.push("03-technical-plan.md transition table must keep exactly three columns");
+      break;
     }
   }
 

@@ -63,6 +63,15 @@ test("CAS recovery table keeps exactly two Markdown columns", () => {
   assert.match(validatePlanningRefDesign(files).join("\n"), /CAS recovery table.*two columns/u);
 });
 
+test("canonical transition table keeps exactly three Markdown columns", () => {
+  const files = fixture();
+  files["03-technical-plan.md"] = files["03-technical-plan.md"].replace(
+    "phase=prepared or phase=ref_created",
+    "phase=prepared|ref_created",
+  );
+  assert.match(validatePlanningRefDesign(files).join("\n"), /transition table.*three columns/u);
+});
+
 test("initialization and publication phase documentation is monotonic", () => {
   const files = fixture();
   files["docs/contracts/epic-planning-ref.md"] = files["docs/contracts/epic-planning-ref.md"]
@@ -131,4 +140,31 @@ test("operation schema validator rejects unsafe ref, phase, OID and digest shape
   assert.match(result, /phase/u);
   assert.match(result, /expected_parent_oid/u);
   assert.match(result, /project_instruction_digest/u);
+});
+
+test("operation Schema enforces signing-mode replayability", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const exactWithoutSignature = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  exactWithoutSignature.commit_recipe.signing.mode = "exact";
+  assert.match(
+    validatePlanningPublicationOperationExample(exactWithoutSignature, schema).join("\n"),
+    /signature_header_base64/u,
+  );
+
+  const noneWithSignature = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  noneWithSignature.commit_recipe.signing.signature_header_base64 = "c2lnbmF0dXJl";
+  assert.match(
+    validatePlanningPublicationOperationExample(noneWithSignature, schema).join("\n"),
+    /signature_header_base64/u,
+  );
+});
+
+test("complete Schema validation rejects a changed artifact target step", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  example.payload.recorded_target_step = "dispatch_ticket_dag";
+  assert.match(
+    validatePlanningPublicationOperationExample(example, schema).join("\n"),
+    /payload\.recorded_target_step/u,
+  );
 });

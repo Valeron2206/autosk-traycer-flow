@@ -180,7 +180,35 @@
           "type": ["string", "null"],
           "pattern": "^[A-Za-z0-9+/]*={0,2}$"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "mode": { "const": "exact" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": {
+              "signature_header_base64": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "mode": { "const": "none" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": {
+              "signature_header_base64": { "type": "null" }
+            }
+          }
+        }
+      ]
     },
     "commit_recipe": {
       "type": "object",
