@@ -42,8 +42,9 @@ autosk v2 остаётся движком задач и переходов. Но
 - создание дочерних задач панели, Arena и Tickets;
 - компиляцию сообщений из замороженного протокола;
 - проверку structured verdict;
-- атомарную запись artifact PASS и механическое извлечение autosk-arena block;
-- привязку PASS к hash/OID;
+- запись валидированного artifact verdict как `recorded_unpublished` и механическое извлечение autosk-arena block;
+- host-owned и crash-safe публикацию approved artifact commit в private Epic planning ref;
+- привязку PASS к hash/OID и verified planning-head CAS receipt;
 - лимиты раундов и human escalation;
 - собственные Ticket workflows: implement, verify, freeze, review, fix, commit и integration;
 - freeze, commit-on-pass и собственный детерминированный интеграционный адаптер.
@@ -57,6 +58,14 @@ autosk v2 остаётся движком задач и переходов. Но
 ### Git
 
 Хранит нормативные артефакты и код. Git object database даёт tree/commit OID для неизменяемой идентичности. Branch name никогда не считается идентичностью.
+
+Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic-uuid>/planning`. Его verified head — единственная текущая Git-проекция принятых planning artifacts; detached snapshot object и metadata verdict без ref publication недостаточны. Ref создаёт и CAS-продвигает только deterministic host adapter. Target branch, другие Epic refs и refs другого canonical project root не затрагиваются.
+
+### Planning publication adapter
+
+<!-- planning-ref-contract:v1 -->
+
+Общий adapter обслуживает `init_planning_ref`, `publish_artifact_pass` и `publish_planning_invalidation`. Он строит object-format-aware deterministic commit recipe, пишет exact commit object, выполняет expected-old CAS private ref, читает ref/commit/tree обратно и монотонно продвигает `planning_publication_op` через `prepared -> commit_created -> ref_advanced -> verified`. Model process не получает ref capability. Foreign/indeterminate movement не ретраится как обычная ошибка и не разрешается rebase/reset/force fallback.
 
 ### autosk-owned integration adapter
 
@@ -75,6 +84,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 - daemon-attributed user decision journal и единый project policy/revocation projection;
 - Decision Log/policy mirrors;
 - Brief, Core Flow, Tech Plan, Decision Log и Tickets;
+- private per-Epic planning refs и reachable publication/invalidation commits;
 - task metadata, blockers, comments и sessions;
 - provider session directory;
 - protocol snapshots и per-Epic lock;
@@ -157,6 +167,8 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
       T02-<slug>.md
 ~~~
 
+Текущая принятая проекция этих файлов определяется verified head `refs/autosk/epics/<epic-uuid>/planning`. Каждый artifact PASS получает отдельный single-parent descendant commit; следующий author base обязан совпадать с этим head. Detached snapshot commit остаётся review identity, но не считается опубликованным. Anchor invalidation создаёт новый descendant commit, а не rewrites history. Final Tickets publication фиксирует exact `planning_head` для downstream execution/staging.
+
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
 
 Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. `docs/autosk/policies` — человекочитаемое project-level зеркало issuance/revocation; Epic Decision Log зеркалит только Epic-scoped решения. Git bytes принимаются как нормативный текст лишь после hash-binding к daemon-attributed record и сами по себе не дают approval.
@@ -179,6 +191,8 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 <canonical-project-root>/.autosk/autosk-flow/provider-sessions/
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
+
+`planning_ref_init_op` и `planning_publication_op` живут в protected namespaced Epic metadata и содержат только operation identity, expected Git observations, phases и receipts. Они не дублируют содержание артефактов или task status. Git ref/object database остаётся source of truth для опубликованной planning line; metadata связывает её с workflow state.
 
 Дополнительный task/status-ledger не создаётся. Trusted client only displays/signs exact challenge. Production signer/secure store runs in separate OS security boundary (privileged helper/separate account or hardware enclave); model sandbox is denied accessibility/ptrace/keychain. Deployment without enforceable boundary, or headless/unpinned project, blocks model launch.
 
@@ -308,6 +322,8 @@ artifact identity =
   project identity
   + epic id
   + artifact kind
+  + private planning ref name
+  + expected verified planning head OID
   + base commit OID
   + declared pathspec
   + candidate tree OID
