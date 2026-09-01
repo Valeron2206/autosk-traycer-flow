@@ -41,10 +41,13 @@ jobs:
           npm run validate:capabilities
           npm run validate:planning-ref
 
-      - name: Commit final issue 5 candidate and remove one-time files
+      - name: Commit canonical design files
         shell: bash
         run: |
-          rm .github/workflows/apply-issue-5-design.yml
+          # The ordinary GITHUB_TOKEN cannot update workflow files. Keep both
+          # workflow files byte-identical here; the trusted repository client
+          # will update the permanent validator and remove this one afterward.
+          git restore .github/workflows/validate-traycer-parity.yml
           rm .github/tmp/apply-issue-5-design.py
           rm .github/tmp/fix-issue-5-validator.py
           rmdir .github/tmp 2>/dev/null || true
