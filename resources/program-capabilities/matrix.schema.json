@@ -73,7 +73,7 @@
       "allOf":[
         {
           "if":{"properties":{"lifecycle":{"const":"required_for_v1"}},"required":["lifecycle"]},
-          "then":{"properties":{"release_blocking":{"const":true},"target_milestone":{"enum":["phase_0_complete","design_ready","autonomous_mvp"]}}}
+          "then":{"properties":{"release_blocking":{"const":true},"target_milestone":{"enum":["phase_0_complete","design_ready","autonomous_mvp"]},"gate_role":{"enum":["phase_0_gate","design_and_mvp_input","design_gate","mvp_release_gate"]}}}
         },
         {
           "if":{"properties":{"lifecycle":{"const":"planned_after_v1"}},"required":["lifecycle"]},

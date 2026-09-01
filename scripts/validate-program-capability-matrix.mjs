@@ -46,7 +46,12 @@ const MILESTONES = new Set(["phase_0_complete", "design_ready", "autonomous_mvp"
 const GATE_ROLES = new Set(["phase_0_gate", "design_and_mvp_input", "design_gate", "mvp_release_gate", "post_v1_capability"]);
 
 function sorted(values) {
-  return [...values].sort((a, b) => typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b)));
+  return [...values].sort((a, b) => {
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    const left = String(a);
+    const right = String(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
 }
 
 function nonEmpty(value, minimum = 1) {
@@ -268,9 +273,15 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
   errors.push(...parity.errors);
   const recordsByNumber = new Map();
   const numbers = [];
+  const validRecords = [];
 
   for (const [index, record] of matrix.records.entries()) {
     const prefix = `records[${index}]`;
+    if (!record || typeof record !== "object" || Array.isArray(record)) {
+      errors.push(`${prefix} must be an object`);
+      continue;
+    }
+    validRecords.push(record);
     if (!exactKeys(record, RECORD_KEYS)) errors.push(`${prefix} keys differ from the closed v1 record shape`);
     const number = record.issue_number;
     if (!Number.isInteger(number) || number < ISSUE_MIN || number > ISSUE_MAX) errors.push(`${prefix}.issue_number is outside #3–#39`);
@@ -317,6 +328,9 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
     if (record.lifecycle === "required_for_v1") {
       if (record.release_blocking !== true) errors.push(`${prefix}: required_for_v1 must be release_blocking`);
       if (!["phase_0_complete", "design_ready", "autonomous_mvp"].includes(record.target_milestone)) errors.push(`${prefix}: required_for_v1 target milestone is invalid`);
+      if (!["phase_0_gate", "design_and_mvp_input", "design_gate", "mvp_release_gate"].includes(record.gate_role)) {
+        errors.push(`${prefix}: required_for_v1 gate_role cannot be post_v1_capability`);
+      }
     }
     if (record.lifecycle === "planned_after_v1") {
       if (record.release_blocking !== false) errors.push(`${prefix}: planned_after_v1 must not block the v1 release`);
@@ -347,9 +361,11 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
 
   const derivedReverse = new Map(issueRange().map((number) => [number, []]));
   for (const [number, record] of recordsByNumber) {
-    for (const dependency of record.dependencies ?? []) derivedReverse.get(dependency)?.push(number);
+    if (!Array.isArray(record.dependencies)) continue;
+    for (const dependency of record.dependencies) derivedReverse.get(dependency)?.push(number);
   }
   for (const [number, record] of recordsByNumber) {
+    if (!Array.isArray(record.downstream_blockers)) continue;
     const expectedBlockers = sorted(derivedReverse.get(number) ?? []);
     if (record.downstream_blockers.length !== expectedBlockers.length ||
         record.downstream_blockers.some((item, index) => item !== expectedBlockers[index])) {
@@ -359,11 +375,11 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
 
   validateRequiredEdges(recordsByNumber, errors);
 
-  const actualPostV1 = sorted(matrix.records.filter((record) => record.lifecycle === "planned_after_v1").map((record) => record.issue_number));
+  const actualPostV1 = sorted(validRecords.filter((record) => record.lifecycle === "planned_after_v1").map((record) => record.issue_number));
   if (actualPostV1.length !== POST_V1_ISSUES.length || actualPostV1.some((number, index) => number !== POST_V1_ISSUES[index])) {
     errors.push(`planned_after_v1 set must be exactly ${POST_V1_ISSUES.map((number) => `#${number}`).join(", ")} for matrix v1`);
   }
-  if (matrix.records.some((record) => record.lifecycle === "intentionally_deferred")) {
+  if (validRecords.some((record) => record.lifecycle === "intentionally_deferred")) {
     errors.push("matrix v1 intentionally defers no program issue; add a reviewed decision before using intentionally_deferred");
   }
 
@@ -380,17 +396,17 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
   }
 
   const expectedSummary = {
-    required_for_v1: matrix.records.filter((record) => record.lifecycle === "required_for_v1").length,
-    planned_after_v1: matrix.records.filter((record) => record.lifecycle === "planned_after_v1").length,
-    intentionally_deferred: matrix.records.filter((record) => record.lifecycle === "intentionally_deferred").length,
-    release_blocking: matrix.records.filter((record) => record.release_blocking === true).length,
+    required_for_v1: validRecords.filter((record) => record.lifecycle === "required_for_v1").length,
+    planned_after_v1: validRecords.filter((record) => record.lifecycle === "planned_after_v1").length,
+    intentionally_deferred: validRecords.filter((record) => record.lifecycle === "intentionally_deferred").length,
+    release_blocking: validRecords.filter((record) => record.release_blocking === true).length,
   };
   if (canonicalStringify(matrix.summary) !== canonicalStringify(expectedSummary)) errors.push("matrix summary does not match records");
   if (expectedSummary.required_for_v1 !== 31 || expectedSummary.planned_after_v1 !== 6 || expectedSummary.intentionally_deferred !== 0) {
     errors.push("matrix v1 totals must be 31 required_for_v1, 6 planned_after_v1, 0 intentionally_deferred");
   }
 
-  const lifecycleByIssue = new Map(matrix.records.map((record) => [record.issue_number, record.lifecycle]));
+  const lifecycleByIssue = new Map(validRecords.map((record) => [record.issue_number, record.lifecycle]));
   for (const source of parityRegistry.sources ?? []) {
     const issueRefs = source?.autoskTarget?.issueRefs ?? [];
     if (source.classification === "post_v1") {
@@ -509,11 +525,12 @@ export function validateDocumentation(matrix, documentation) {
 }
 
 export function validateAll({ matrix, inventory, parityRegistry, documentation }) {
-  const errors = [
-    ...validateInventory(inventory),
-    ...validateMatrix(matrix, inventory, parityRegistry),
-  ];
-  if (typeof documentation === "string") errors.push(...validateDocumentation(matrix, documentation));
+  const inventoryErrors = validateInventory(inventory);
+  const matrixErrors = validateMatrix(matrix, inventory, parityRegistry);
+  const errors = [...inventoryErrors, ...matrixErrors];
+  const canRender = Array.isArray(matrix?.records) &&
+    matrix.records.every((record) => record && typeof record === "object" && !Array.isArray(record));
+  if (typeof documentation === "string" && canRender) errors.push(...validateDocumentation(matrix, documentation));
   return errors;
 }
 

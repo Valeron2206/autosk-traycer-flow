@@ -11,6 +11,7 @@ import {
   PARITY_PATH,
   POST_V1_ISSUES,
   canonicalStringify,
+  deriveParityIdsByIssue,
   parseJson,
   renderDocumentation,
   sha256,
@@ -214,6 +215,77 @@ test("canonical serialization is key-order independent and array-order sensitive
   assert.equal(canonicalStringify({ b: 2, a: 1 }), canonicalStringify({ a: 1, b: 2 }));
   assert.notEqual(canonicalStringify([1, 2]), canonicalStringify([2, 1]));
   assert.equal(sha256("same"), sha256("same"));
+});
+
+test("canonical parity identifier ordering is locale-invariant code-unit order", () => {
+  const registry = {
+    sources: [
+      { id: "ä", autoskTarget: { issueRefs: [3] } },
+      { id: "z", autoskTarget: { issueRefs: [3] } },
+      { id: "A", autoskTarget: { issueRefs: [3] } },
+    ],
+  };
+  const { byIssue, errors } = deriveParityIdsByIssue(registry);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(byIssue.get(3), ["A", "z", "ä"]);
+});
+
+test("required_for_v1 cannot use the post-v1 gate role", () => {
+  const data = fixture();
+  const record = data.matrix.records.find((item) => item.issue_number === 19);
+  record.gate_role = "post_v1_capability";
+  assert.match(
+    messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)),
+    /required_for_v1 gate_role cannot be post_v1_capability/,
+  );
+});
+
+test("malformed records return validation errors instead of throwing", () => {
+  const nullRecord = fixture();
+  nullRecord.matrix.records[0] = null;
+  assert.doesNotThrow(() => validateMatrix(nullRecord.matrix, nullRecord.inventory, nullRecord.parityRegistry));
+  assert.doesNotThrow(() => validateAll(nullRecord));
+  assert.match(
+    messages(validateMatrix(nullRecord.matrix, nullRecord.inventory, nullRecord.parityRegistry)),
+    /records\[0\] must be an object/,
+  );
+
+  for (const malformed of [undefined, null, "not-an-array"]) {
+    const data = fixture();
+    if (malformed === undefined) delete data.matrix.records[0].downstream_blockers;
+    else data.matrix.records[0].downstream_blockers = malformed;
+    assert.doesNotThrow(() => validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+    assert.doesNotThrow(() => validateAll(data));
+    assert.match(
+      messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)),
+      /records\[0\]\.downstream_blockers must be an array/,
+    );
+  }
+});
+
+test("JSON schemas pin exact UTC timestamps and required lifecycle roles", () => {
+  const inventorySchema = JSON.parse(
+    readFileSync(path.join(ROOT, "resources/program-capabilities/issue-inventory.schema.json"), "utf8"),
+  );
+  const matrixSchema = JSON.parse(
+    readFileSync(path.join(ROOT, "resources/program-capabilities/matrix.schema.json"), "utf8"),
+  );
+  const timestampPattern = inventorySchema.properties.captured_at_utc.pattern;
+  assert.equal(timestampPattern, "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$");
+  const timestamp = new RegExp(timestampPattern, "u");
+  assert.equal(timestamp.test("2026-09-01T02:12:40Z"), true);
+  assert.equal(timestamp.test("2026-09-01T02:12:40.5Z"), false);
+  assert.equal(timestamp.test("2026-09-01T02:12:40+03:00"), false);
+
+  const requiredBranch = matrixSchema.$defs.record.allOf.find(
+    (entry) => entry.if?.properties?.lifecycle?.const === "required_for_v1",
+  );
+  assert.deepEqual(requiredBranch.then.properties.gate_role.enum, [
+    "phase_0_gate",
+    "design_and_mvp_input",
+    "design_gate",
+    "mvp_release_gate",
+  ]);
 });
 
 test("human-readable summary is deterministic and drift is rejected", () => {

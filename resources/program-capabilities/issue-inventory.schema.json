@@ -30,7 +30,8 @@
     },
     "captured_at_utc": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
     },
     "source_main_commit": {
       "type": "string",
