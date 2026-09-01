@@ -60,7 +60,7 @@ recovery:
   -> record_anchor_impact_approval -> rebuild_anchor
   rebuild_anchor -> publish_planning_invalidation | clarify_alignment | present_tickets_breakdown | draft_artifact | dispatch_arena | select_next | resume_repaired_tickets | ticket_join | human
   init_planning_ref -> select_next | human
-  publish_artifact_pass -> select_next | human
+  publish_artifact_pass -> select_next | prepare_anchor_impact | human
   publish_planning_invalidation -> recorded rebuild target | human
   resume_repaired_tickets -> ticket_join
   panel_join_wait -> panel_join
@@ -94,8 +94,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | freeze_artifact / Quick freeze / Ticket freeze | closed path-role classifier returns `unknown` for a document/governance surface, or `additional_normative` lacks exactly one valid governance mapping to current named manifest decision IDs, mapping/sidecar is orphaned, ambiguous or stale, or document contains extra unmapped normative content | human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths do not match this guard. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction |
 | freeze_artifact / Quick freeze / Ticket freeze | every `additional_normative` path has valid current mapping, but ordered proof-set digest is not yet bound to current artifact/code candidate | atomically record exact-tree proofs in task-owned protected metadata, bind `governance_mapping_set_digest` to candidate identity and repeat same freeze step |
 | await_alignment / record_alignment / present_tickets_breakdown / freeze_artifact / fix_artifact / record_artifact_pass | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest != recorded new_ticket_set_digest | atomically phase=old_bindings_void, clear new digest, alignment_records.tickets=stale, artifact_pass.tickets=void, review cycle full required; draft_artifact до нового breakdown/panel |
-| select_next | `aggregate_remediation.phase != closed` | record_aggregate_remediation; recorded prefix продолжается, old/partial new Tickets не dispatch'ятся |
 | select_next | current artifact PASS/waiver имеет publication_status=recorded_unpublished либо open matching planning_publication_op phase != verified | publish_artifact_pass; kind ещё не завершён |
+| select_next | `aggregate_remediation.phase != closed` и matching open planning_publication_op отсутствует | record_aggregate_remediation; recorded prefix продолжается, old/partial new Tickets не dispatch'ятся |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record текущей project/Epic/kind/anchor/scope/subject identity отсутствует | записать kind, создать review_cycles[kind] если absent, clarify_alignment |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record уже существует | записать kind, создать review_cycles[kind] если absent, draft_artifact |
 | select_next | Tech Plan passed и существует arena.decisions entry status=pending | выбрать первый stable decision_id, записать current_decision_id, dispatch_arena |
@@ -179,8 +179,10 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | narrow_review_join | Lead status=done, NOT_PASS/findings и round < cap | fix_artifact |
 | narrow_review_join | Lead status=done, verdict PASS текущей identity | record_artifact_pass |
 | narrow_review_join | cancel/missing/invalid | human с park.reason=narrow_join_invalid |
+| record_artifact_pass | matching recorded_unpublished PASS and open prepared planning_publication_op exact current identity already exist after atomic write | read-back both records without rewriting; publish_artifact_pass |
 | record_artifact_pass | alignment record текущей identity отсутствует/stale | human с park.reason=alignment_record_stale; ничего не записано |
 | record_artifact_pass | atomic pass-and-operation capability unavailable in pinned autoskd/SDK | human с park.reason=planning_ref_capability_missing; ArtifactPassRecord/publication operation/model or Git side effects отсутствуют |
+| record_artifact_pass | locked delivery policy requires exact signing and trusted signer cannot materialize replayable signature bytes | human с park.reason=planning_signing_unavailable; ArtifactPassRecord/publication operation/Git side effects отсутствуют |
 | record_artifact_pass | pending_anchor | human с park.reason=blocked_anchor; ничего не записано |
 | record_artifact_pass | kind=tech_plan и autosk-arena block missing/malformed/history mismatch | human с park.reason=arena_contract_invalid; ничего не записано |
 | record_artifact_pass | disposition=waived, waiver revalidation failed | human с park.reason=panel_waiver_required; ничего не записано |
@@ -188,17 +190,18 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_artifact_pass | disposition=pass, identity/anchor/roster или verdict binding невалидны | human с park.reason=artifact_pass_invalid; ничего не записано |
 | record_artifact_pass | disposition=pass, verdict binding текущей identity валиден; для tech_plan Arena block валиден | atomically artifact_pass[kind]={disposition:pass,identity,verdict_hash,publication_status:recorded_unpublished}, arena fields обновлены; create immutable planning_publication_op phase=prepared with exact recipe/OID; publish_artifact_pass |
 | publish_artifact_pass | open operation absent/multiple, payload/identity/full recipe/expected parent/tree/OID changed, unknown phase or another non-terminal planning operation open | human с park.reason=planning_publication_invalid; ref movement отсутствует |
-| publish_artifact_pass | locked delivery policy requires exact signed recipe but trusted signer/replayable signature bytes unavailable before prepared | human с park.reason=planning_signing_unavailable; object/ref side effects absent |
+| publish_artifact_pass | current binding drift before ref movement, ref=expected parent and reflog prefix=checkpoint | atomically phase=voided_before_ref, terminal_reason=binding_drift, recovery_target_step=prepare_anchor_impact, artifact_pass=void and ensure pending_anchor; preserve audit/object evidence; prepare_anchor_impact |
 | publish_artifact_pass | phase=prepared and ref=expected parent and reflog prefix=checkpoint | write persisted exact commit_object_bytes; verify Git returns expected OID; atomically phase=commit_created; publish_artifact_pass |
 | publish_artifact_pass | phase=prepared or phase=commit_created and ref=expected commit with exact object bytes and one matching reflog transition | reconstruct monotonic receipts, atomically phase=ref_advanced; publish_artifact_pass |
+| publish_artifact_pass | phase=commit_created and expected object absent, ref=expected parent and reflog prefix=checkpoint | rewrite persisted exact commit_object_bytes; verify same expected OID; retain phase=commit_created; publish_artifact_pass |
 | publish_artifact_pass | phase=commit_created and ref=expected parent and reflog prefix=checkpoint | expected-old CAS with operation message/create-reflog; read ref/reflog; atomically phase=ref_advanced; publish_artifact_pass |
-| publish_artifact_pass | current binding drift before ref movement, ref=expected parent and reflog prefix=checkpoint | atomically phase=voided_before_ref, artifact_pass=void, preserve audit/object evidence; route correction/alignment cycle |
-| publish_artifact_pass | current binding drift after expected ref transition is proven | finish exact publication verification; ensure pending_anchor; no downstream draft/dispatch before descendant invalidation |
+| publish_artifact_pass | current binding drift after expected ref transition is proven and recorded operation bytes/ref/reflog remain exact | atomically phase=verified against recorded bindings, planning head/tree/generation and historical artifact publication updated, ensure pending_anchor, current_artifact=null; prepare_anchor_impact |
 | publish_artifact_pass | ref neither expected parent nor expected commit, reflog prefix changed while ref returned to parent, or unknown reflog transition exists | human с park.reason=planning_ref_foreign_movement; no reset/rebase/force/adopt fallback |
 | publish_artifact_pass | claimed durable recipe/object/ref/reflog phase missing, corrupt or indeterminate | human с park.reason=planning_publication_corrupt; operation remains open for explicit recovery |
 | publish_artifact_pass | phase=ref_advanced and ref/commit/exact bytes/parent/tree/signature/trailers/reflog/current bindings exact | atomically phase=verified, planning head/tree/generation, artifact_pass publication_status=verified/published_commit_oid/op_id; close current Tickets remediation only here; current_artifact=null; select_next |
+| publish_artifact_pass | phase=verified and pending_anchor was bound by post-CAS publication drift | read-back same commit/ref/reflog and historical publication projection; prepare_anchor_impact |
 | publish_artifact_pass | phase=verified and final metadata/transition incomplete | read-back same commit/ref/reflog, finalize only missing monotonic projection, select_next |
-| publish_artifact_pass | phase=voided_before_ref | idempotently retain void disposition and recorded recovery target; operation is terminal and cannot move ref |
+| publish_artifact_pass | phase=voided_before_ref and recovery_target_step=prepare_anchor_impact | idempotently retain void disposition; operation is terminal and cannot move ref; prepare_anchor_impact |
 | dispatch_arena | candidates и judge task настроены/enrolled, Judge blocked candidates и parent имеет exact blockers всех Arena children | arena_join |
 | arena_join | pending_anchor, anchor mismatch или любой candidate/judge result=BLOCKED_ANCHOR | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
 | arena_join | любой Arena child status=new/work/human | join prologue обеспечивает exact blocker, arena_join_wait; human child возобновляет пользователь |
@@ -214,13 +217,14 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_anchor_impact_approval | signature/proposal identity invalid или authority отсутствует | human с park.reason=anchor_impact_approval_required; status остаётся proposed |
 | record_anchor_impact_approval | correction/status/hash drift после proposal | atomically status=stale, prepare_anchor_impact; approval не записывается |
 | record_anchor_impact_approval | authority и current snapshot валидны | atomically status=approved + approval record ID/hash, read-back, rebuild_anchor |
+| rebuild_anchor | anchor_rebuild_op phase=ready_to_transit, recorded target=publish_planning_invalidation and matching anchor_invalidation planning_publication_op phase non-terminal exists | read-back both operation bindings without minting another operation; publish_planning_invalidation |
 | rebuild_anchor | anchor_rebuild_op открыт | validate op binding; продолжить записанные per-ticket phases/dispositions без повторной классификации; phase=ready_to_transit повторяет только recorded target |
 | rebuild_anchor | approved staged anchor_impact/daemon record отсутствуют либо proposal hash не совпадает | human с park.reason=anchor_impact_approval_required; side effects отсутствуют |
 | rebuild_anchor | status snapshot/correction watermark изменились после approval | atomically anchor_impact.status=stale, prepare_anchor_impact; side effects отсутствуют |
 | rebuild_anchor | approved anchor_impact incomplete, current in-flight kind без current PASS не affected, cascade нарушен, hash claimed-unaffected изменён или Ticket task re-binding не подтверждён | human с park.reason=anchor_impact_invalid |
 | rebuild_anchor | любой Ticket expected execution set status=work | human с park.reason=anchor_repair_ticket_live; parent не пишет metadata ни affected, ни unaffected live Ticket, pending_anchor сохраняется |
 | rebuild_anchor | affected Ticket status=human, но это не waiting_parent_anchor с suspension receipt и не blocked_anchor с обоснованным pending до absorption | human с park.reason=anchor_impact_invalid; никаких mutation |
-| rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes/alignments only by approved impact; void affected bindings; prepare typed descendant planning_publication_op payload.kind=anchor_invalidation with ordered affected kinds, approved impact ID/hash, invalidation projection digest and recorded next target; publish_planning_invalidation |
+| rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes/alignments only by approved impact; void affected bindings; atomically prepare typed descendant planning_publication_op payload.kind=anchor_invalidation and set anchor_rebuild_op phase=ready_to_transit with operation ID/recorded target=publish_planning_invalidation; publish_planning_invalidation |
 | publish_planning_invalidation | payload/impact/projection/full recipe invalid, ref/reflog foreign, exact object/receipt corrupt or affected projection differs from approved impact | human с planning_publication_invalid, planning_ref_foreign_movement или planning_publication_corrupt; no rewind/force |
 | publish_planning_invalidation | pre-CAS impact/anchor drift and ref/reflog still at checkpoint | terminal phase=voided_before_ref; prepare_anchor_impact; no ref movement |
 | publish_planning_invalidation | same exact-byte/object/CAS/reflog/read-back phases verified | atomically planning head/tree/generation updated, invalidation op closed, current kind=earliest affected/current_cycle full required; recorded target clarify_alignment либо present_tickets_breakdown |
@@ -662,7 +666,7 @@ Optional `correlation_id` — только UUID по закрытой схеме
       "project_root_sha256": "..."
     },
     "mode": "planned",
-    "epic_id": "epic-001",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
     "correlation_id": null,
     "planning": {
       "epic_ref_key": "sha256",
@@ -1321,6 +1325,8 @@ State path создаётся отдельно для каждой operation п�
 | Loop cap достигнут | human, без автоматического PASS |
 | Integration obstruction | ничего не удалять; переместить помеху восстанавливаемо только по решению человека |
 | Foreign movement/indeterminate | остановка и расследование; повтор запрещён |
+| Planning ref init/capability/base failure | exact park reason сохраняется; resume только через зарегистрированный planning target и evidence ниже |
+| Planning publication invalid/corrupt/signing failure | exact operation/recipe/ref evidence сохраняется; ordinary retry без resume contract запрещён |
 | Daemon restart | tasks, blockers, metadata и sessions восстанавливают позицию; idempotent steps завершают незаконченные действия |
 
 Resume contract:
@@ -1342,6 +1348,13 @@ Resume contract:
 | gate BLOCKED_ANCHOR | parent join после child done | immutable blocked result current identity; join ensures pending_anchor и не оставляет human child blocker |
 | arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid | соответствующий build/verify/freeze step | тот же candidate attempt восстановим и identity неизменна; иначе новая Arena attempt через parent |
 | project_boundary_invalid | исходный deterministic step | project binding/path исправлены и повторный pre-side-effect assert PASS |
+| planning_ref_init_invalid | init_planning_ref | exact immutable base/project/Epic/init-operation bytes восстановлены из committed source; ref/reflog unchanged or absent as recorded; adopt/reset запрещены |
+| planning_ref_capability_missing | recorded planning recovery step: init_planning_ref or record_artifact_pass | required object-format-neutral ref/reflog or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged |
+| planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass only after signed investigation disposition | exact investigation record binds ref/reflog observations; ordinary retry/adopt/reset forbidden; if foreign movement remains, only separate cancel status operation is legal |
+| planning_candidate_base_stale | draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets | old candidate/verdict absent or void; new author base equals current verified planning head and pathspec identity is re-minted |
+| planning_publication_invalid | record_artifact_pass or rebuild_anchor recorded pre-failure step | exact no-ref-side-effect proof and missing operation rebuilt only from committed bytes, or conflicting operation explicitly voided; otherwise remain human |
+| planning_publication_corrupt | publish_artifact_pass or publish_planning_invalidation recorded operation kind | exact committed recipe/receipt bytes restored, or missing pre-CAS object rewritable from persisted exact bytes with unchanged ref/reflog checkpoint; foreign/indeterminate state remains human |
+| planning_signing_unavailable | record_artifact_pass | current locked delivery policy and trusted signer materialize exact replayable signature bytes before the atomic PASS+operation write; no prior PASS/object/ref side effect exists |
 | authority/dependency/intent journal truncated, projection/head mismatch или invalid uncommitted tail | authority_recovery | valid authority tail verified from stored challenge then heads commit before projection; invalid suffix without effects quarantine; missing committed dependency/intent/authority bytes restored only from exact backup or fail-closed |
 | child_creation_key_invalid | исходный dispatch step | daemon-owned key+binding hash исправлены; остаётся ровно одна matching task, title/description не используются |
 | panel_waiver_required | freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster | retry route либо daemon-attributed waiver current identity; reduced roster также фиксирует actual roster/external Lead |

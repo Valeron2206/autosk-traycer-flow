@@ -18,7 +18,7 @@
   "anchor_version": 1,
   "protocol_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "runtime_lock_digest": "0000000000000000000000000000000000000000000000000000000000000000",
-  "project_instruction_digest": null,
+  "project_instruction_digest": "9999999999999999999999999999999999999999999999999999999999999999",
   "governance_mapping_set_digest": "1111111111111111111111111111111111111111111111111111111111111111",
   "expected_parent_oid": "3333333333333333333333333333333333333333",
   "expected_parent_tree_oid": "4444444444444444444444444444444444444444",
@@ -27,7 +27,9 @@
     "schema": 1,
     "object_format": "sha1",
     "tree_oid": "2222222222222222222222222222222222222222",
-    "parent_oids": ["3333333333333333333333333333333333333333"],
+    "parent_oids": [
+      "3333333333333333333333333333333333333333"
+    ],
     "author": {
       "name_utf8": "autosk-flow",
       "email_ascii": "autosk@example.invalid",
@@ -40,26 +42,27 @@
       "timestamp_seconds": 0,
       "timezone": "+0000"
     },
-    "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgcHVibGljYXRpb24K",
+    "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgcHVibGljYXRpb24KCkF1dG9zay1BbmNob3ItVmVyc2lvbjogMQpBdXRvc2stQXJ0aWZhY3QtSWRlbnRpdHk6IGJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIKQXV0b3NrLUVwaWMtSUQ6IDIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMgpBdXRvc2stT3BlcmF0aW9uLUlEOiAxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEKQXV0b3NrLVBheWxvYWQtS2luZDogYXJ0aWZhY3RfcGFzcwpBdXRvc2stUHJvamVjdC1JbnN0cnVjdGlvbi1EaWdlc3Q6IDk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTkKQXV0b3NrLVByb2plY3QtUm9vdC1TSEEyNTY6IGFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEKQXV0b3NrLVByb3RvY29sLURpZ2VzdDogZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZgpBdXRvc2stUnVudGltZS1Mb2NrLURpZ2VzdDogMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMApBdXRvc2stVmVyZGljdC1Pci1XYWl2ZXItRGlnZXN0OiBlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlCg==",
     "signing": {
       "mode": "none",
       "policy_digest": "5555555555555555555555555555555555555555555555555555555555555555",
       "signature_header_base64": null
     },
-    "commit_object_bytes_base64": "dHJlZSAyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyCnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIHB1YmxpY2F0aW9uCg==",
-    "commit_object_bytes_sha256": "66e29b14c87374f096a4187d56f48eab9726b9038ca3210097a7851961a861bf"
+    "commit_object_bytes_base64": "dHJlZSAyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyCnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIHB1YmxpY2F0aW9uCgpBdXRvc2stQW5jaG9yLVZlcnNpb246IDEKQXV0b3NrLUFydGlmYWN0LUlkZW50aXR5OiBiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiCkF1dG9zay1FcGljLUlEOiAyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIKQXV0b3NrLU9wZXJhdGlvbi1JRDogMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExCkF1dG9zay1QYXlsb2FkLUtpbmQ6IGFydGlmYWN0X3Bhc3MKQXV0b3NrLVByb2plY3QtSW5zdHJ1Y3Rpb24tRGlnZXN0OiA5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5CkF1dG9zay1Qcm9qZWN0LVJvb3QtU0hBMjU2OiBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhCkF1dG9zay1Qcm90b2NvbC1EaWdlc3Q6IGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYKQXV0b3NrLVJ1bnRpbWUtTG9jay1EaWdlc3Q6IDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAKQXV0b3NrLVZlcmRpY3QtT3ItV2FpdmVyLURpZ2VzdDogZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZQo=",
+    "commit_object_bytes_sha256": "fffa1a2b18a241c35f468507bf3dca39cd010bc825dcc1b4e479ec68267803a7"
   },
-  "commit_recipe_digest": "c5188bca64927e85dededb2b719c1624d1477467afdffae768c317f79d1c4efe",
-  "expected_commit_oid": "3498788ed602d6cac851ccc0b750903c0f4c1a8e",
+  "commit_recipe_digest": "bfe115216f174b19244a91601ac8719b609ac6ecb243380f4b8e05d498df4cc8",
+  "expected_commit_oid": "220f8a42d7897c5c45fd8a773966e8c2cde33994",
   "reflog_checkpoint": {
-    "before_entry_count": 0,
-    "before_prefix_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "before_entry_count": 1,
+    "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
     "expected_old_oid": "3333333333333333333333333333333333333333",
-    "expected_new_oid": "3498788ed602d6cac851ccc0b750903c0f4c1a8e",
+    "expected_new_oid": "220f8a42d7897c5c45fd8a773966e8c2cde33994",
     "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111"
   },
   "phase": "prepared",
   "terminal_reason": null,
+  "recovery_target_step": null,
   "created_at_utc": "2026-09-01T00:00:00Z",
   "receipts": {
     "commit_object": null,

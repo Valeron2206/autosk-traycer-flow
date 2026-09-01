@@ -27,6 +27,7 @@
     "reflog_checkpoint",
     "phase",
     "terminal_reason",
+    "recovery_target_step",
     "created_at_utc",
     "receipts"
   ],
@@ -45,12 +46,7 @@
     "anchor_version": { "type": "integer", "minimum": 1 },
     "protocol_digest": { "$ref": "#/$defs/sha256" },
     "runtime_lock_digest": { "$ref": "#/$defs/sha256" },
-    "project_instruction_digest": {
-      "oneOf": [
-        { "$ref": "#/$defs/sha256" },
-        { "type": "null" }
-      ]
-    },
+    "project_instruction_digest": { "$ref": "#/$defs/sha256" },
     "governance_mapping_set_digest": { "$ref": "#/$defs/sha256" },
     "expected_parent_oid": { "$ref": "#/$defs/oid" },
     "expected_parent_tree_oid": { "$ref": "#/$defs/oid" },
@@ -66,6 +62,7 @@
       "type": ["string", "null"],
       "minLength": 1
     },
+    "recovery_target_step": { "enum": ["prepare_anchor_impact", null] },
     "created_at_utc": {
       "type": "string",
       "format": "date-time",
@@ -76,10 +73,10 @@
       "additionalProperties": false,
       "required": ["commit_object", "ref_cas", "reflog_after", "verification"],
       "properties": {
-        "commit_object": { "$ref": "#/$defs/receipt_or_null" },
-        "ref_cas": { "$ref": "#/$defs/receipt_or_null" },
-        "reflog_after": { "$ref": "#/$defs/receipt_or_null" },
-        "verification": { "$ref": "#/$defs/receipt_or_null" }
+        "commit_object": { "$ref": "#/$defs/commit_object_receipt_or_null" },
+        "ref_cas": { "$ref": "#/$defs/ref_cas_receipt_or_null" },
+        "reflog_after": { "$ref": "#/$defs/reflog_after_receipt_or_null" },
+        "verification": { "$ref": "#/$defs/verification_receipt_or_null" }
       }
     }
   },
@@ -157,7 +154,11 @@
       "additionalProperties": false,
       "required": ["name_utf8", "email_ascii", "timestamp_seconds", "timezone"],
       "properties": {
-        "name_utf8": { "type": "string", "minLength": 1 },
+        "name_utf8": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n<>]+$"
+        },
         "email_ascii": {
           "type": "string",
           "pattern": "^[\\x21-\\x7e]+@[\\x21-\\x7e]+$"
@@ -325,6 +326,50 @@
         { "$ref": "#/$defs/receipt" },
         { "type": "null" }
       ]
+    },
+    "commit_object_receipt_or_null": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/receipt" },
+            { "properties": { "receipt_kind": { "const": "commit_object" } } }
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "ref_cas_receipt_or_null": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/receipt" },
+            { "properties": { "receipt_kind": { "const": "ref_cas" } } }
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "reflog_after_receipt_or_null": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/receipt" },
+            { "properties": { "receipt_kind": { "const": "reflog_after" } } }
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "verification_receipt_or_null": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/receipt" },
+            { "properties": { "receipt_kind": { "const": "verification" } } }
+          ]
+        },
+        { "type": "null" }
+      ]
     }
   },
   "allOf": [
@@ -361,12 +406,93 @@
       },
       "then": {
         "properties": {
-          "terminal_reason": { "type": "string", "minLength": 1 }
+          "terminal_reason": { "type": "string", "minLength": 1 },
+          "recovery_target_step": { "const": "prepare_anchor_impact" },
+          "receipts": {
+            "properties": {
+              "ref_cas": { "type": "null" },
+              "reflog_after": { "type": "null" },
+              "verification": { "type": "null" }
+            }
+          }
         }
       },
       "else": {
         "properties": {
-          "terminal_reason": { "type": "null" }
+          "terminal_reason": { "type": "null" },
+          "recovery_target_step": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "const": "prepared" } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "receipts": {
+            "properties": {
+              "commit_object": { "type": "null" },
+              "ref_cas": { "type": "null" },
+              "reflog_after": { "type": "null" },
+              "verification": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "const": "commit_created" } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "receipts": {
+            "properties": {
+              "commit_object": { "type": "object" },
+              "ref_cas": { "type": "null" },
+              "reflog_after": { "type": "null" },
+              "verification": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "const": "ref_advanced" } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "receipts": {
+            "properties": {
+              "commit_object": { "type": "object" },
+              "ref_cas": { "type": "object" },
+              "reflog_after": { "type": "object" },
+              "verification": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "const": "verified" } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "receipts": {
+            "properties": {
+              "commit_object": { "type": "object" },
+              "ref_cas": { "type": "object" },
+              "reflog_after": { "type": "object" },
+              "verification": { "type": "object" }
+            }
+          }
         }
       }
     }

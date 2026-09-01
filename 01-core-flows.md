@@ -298,6 +298,13 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
 | Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection |
 | Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
+| planning_ref_init_invalid | init_planning_ref | immutable base/project/Epic/init-operation bytes restored from committed source; recorded ref/reflog state exact; no adopt/reset |
+| planning_ref_capability_missing | recorded planning recovery step: init_planning_ref or record_artifact_pass | pinned required ref/reflog or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged |
+| planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass only after signed investigation disposition | exact ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation |
+| planning_candidate_base_stale | draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets | stale candidate/verdict absent or void; author base re-minted from current verified planning head |
+| planning_publication_invalid | record_artifact_pass or rebuild_anchor recorded pre-failure step | no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human |
+| planning_publication_corrupt | publish_artifact_pass or publish_planning_invalidation recorded operation kind | committed recipe/receipt restored, or missing pre-CAS object rewritten from exact persisted bytes with unchanged checkpoint |
+| planning_signing_unavailable | record_artifact_pass | trusted signer produced exact replayable signature bytes under current locked policy before PASS/operation/object/ref side effects |
 | Quick classification invalid, Planned handoff не завершён | invalidate_quick_classification | schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |
 | Недоступная code-review child | review_candidate | тот же route, новый attempt; parent остаётся blocked |

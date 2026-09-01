@@ -100,6 +100,14 @@ const REQUIRED = Object.freeze({
     "Issue #7",
     "Issue #8",
     "Issue #9",
+    "Issue #12",
+    "Issue #13",
+    "canonical JSON means recursively sorted object keys",
+    "autosk-flow/reflog-prefix/v1\\0",
+    "autosk-flow/planning-observation/v1\\0",
+    "autosk-flow/planning-receipt/v1\\0",
+    "autosk-flow/planning-commit-recipe/v1\\0",
+    "closed v1 bootstrap delivery policy",
   ],
   "resources/planning-publication/publish-artifact-pass-operation.schema.json": [
     "\"additionalProperties\": false",
@@ -112,7 +120,8 @@ const REQUIRED = Object.freeze({
     "\"operation_type\": \"artifact_pass\"",
     "\"phase\": \"prepared\"",
     "\"epic_ref_key\"",
-    "\"project_instruction_digest\": null",
+    "\"project_instruction_digest\": \"9999999999999999999999999999999999999999999999999999999999999999\"",
+    "\"recovery_target_step\": null",
   ],
 });
 
@@ -278,6 +287,72 @@ function deriveEpicRefKey(projectRootSha256, epicId) {
   );
 }
 
+function reflogPrefixDigest(entryCount, prefixBytes) {
+  const count = Buffer.alloc(8);
+  count.writeBigUInt64BE(BigInt(entryCount));
+  return sha256(Buffer.concat([
+    Buffer.from("autosk-flow/reflog-prefix/v1\0", "utf8"),
+    count,
+    prefixBytes,
+  ]));
+}
+
+export function planningObservationDigest(receiptKind, observation) {
+  return sha256(
+    `autosk-flow/planning-observation/v1\0${receiptKind}\0${canonicalStringify(observation)}`,
+  );
+}
+
+export function planningReceiptHash(operationId, receiptKind, observationSha256) {
+  return sha256(
+    "autosk-flow/planning-receipt/v1\0" + canonicalStringify({
+      schema: 1,
+      operation_id: operationId,
+      receipt_kind: receiptKind,
+      observation_sha256: observationSha256,
+    }),
+  );
+}
+
+function decodeBase64Exact(value, label, errors) {
+  if (typeof value !== "string") {
+    errors.push(`${label} must be base64 text`);
+    return Buffer.alloc(0);
+  }
+  const decoded = Buffer.from(value, "base64");
+  if (decoded.toString("base64") !== value) errors.push(`${label} is not canonical base64`);
+  return decoded;
+}
+
+function expectedPublicationMessage(example) {
+  const payload = example.payload ?? {};
+  const identityName = payload.kind === "anchor_invalidation"
+    ? "Autosk-Impact-Identity"
+    : "Autosk-Artifact-Identity";
+  const identityValue = payload.kind === "anchor_invalidation"
+    ? payload.invalidation_projection_digest
+    : payload.artifact_identity;
+  const dispositionName = payload.kind === "anchor_invalidation"
+    ? "Autosk-Impact-Digest"
+    : "Autosk-Verdict-Or-Waiver-Digest";
+  const dispositionValue = payload.kind === "anchor_invalidation"
+    ? payload.approved_impact_record_hash
+    : payload.verdict_or_waiver_digest;
+  const trailers = [
+    ["Autosk-Anchor-Version", String(example.anchor_version)],
+    [identityName, identityValue],
+    ["Autosk-Epic-ID", example.epic_id],
+    ["Autosk-Operation-ID", example.operation_id],
+    ["Autosk-Payload-Kind", payload.kind],
+    ["Autosk-Project-Instruction-Digest", example.project_instruction_digest],
+    ["Autosk-Project-Root-SHA256", example.project_root_sha256],
+    ["Autosk-Protocol-Digest", example.protocol_digest],
+    ["Autosk-Runtime-Lock-Digest", example.runtime_lock_digest],
+    [dispositionName, dispositionValue],
+  ].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  return `autosk-flow planning publication\n\n${trailers.map(([key, value]) => `${key}: ${value}`).join("\n")}\n`;
+}
+
 export function validatePlanningPublicationOperationExample(example, schema) {
   const errors = [];
   if (!example || typeof example !== "object" || Array.isArray(example)) return ["operation example must be an object"];
@@ -301,7 +376,7 @@ export function validatePlanningPublicationOperationExample(example, schema) {
   ]) {
     if (!SHA256_RE.test(example[key] ?? "")) errors.push(`${key} is invalid`);
   }
-  if (example.project_instruction_digest !== null && !SHA256_RE.test(example.project_instruction_digest ?? "")) {
+  if (!SHA256_RE.test(example.project_instruction_digest ?? "")) {
     errors.push("project_instruction_digest is invalid");
   }
   const expectedRefKey = deriveEpicRefKey(example.project_root_sha256, example.epic_id);
@@ -334,7 +409,33 @@ export function validatePlanningPublicationOperationExample(example, schema) {
   );
   if (example.commit_recipe_digest !== recipeDigest) errors.push("commit_recipe_digest mismatch");
   try {
-    const commitBytes = Buffer.from(recipe.commit_object_bytes_base64, "base64");
+    const messageBytes = decodeBase64Exact(recipe.message_utf8_base64, "message_utf8_base64", errors);
+    const expectedMessage = Buffer.from(expectedPublicationMessage(example), "utf8");
+    if (!messageBytes.equals(expectedMessage)) errors.push("commit message differs from closed structured trailers");
+    let signatureBytes = Buffer.alloc(0);
+    if (recipe.signing?.mode === "exact") {
+      signatureBytes = decodeBase64Exact(
+        recipe.signing.signature_header_base64,
+        "signature_header_base64",
+        errors,
+      );
+      if (!signatureBytes.toString("utf8").startsWith("gpgsig ") ||
+          !signatureBytes.toString("utf8").endsWith("\n")) {
+        errors.push("signature_header_base64 must encode one LF-terminated gpgsig header");
+      }
+    }
+    const headerBytes = Buffer.from(
+      `tree ${recipe.tree_oid}\n` +
+      `parent ${recipe.parent_oids[0]}\n` +
+      `author ${recipe.author.name_utf8} <${recipe.author.email_ascii}> ${recipe.author.timestamp_seconds} ${recipe.author.timezone}\n` +
+      `committer ${recipe.committer.name_utf8} <${recipe.committer.email_ascii}> ${recipe.committer.timestamp_seconds} ${recipe.committer.timezone}\n`,
+      "utf8",
+    );
+    const expectedCommitBytes = Buffer.concat([headerBytes, signatureBytes, Buffer.from("\n"), messageBytes]);
+    const commitBytes = decodeBase64Exact(recipe.commit_object_bytes_base64, "commit_object_bytes_base64", errors);
+    if (!commitBytes.equals(expectedCommitBytes)) {
+      errors.push("commit object bytes differ from structured recipe");
+    }
     if (sha256(commitBytes) !== recipe.commit_object_bytes_sha256) {
       errors.push("commit_object_bytes_sha256 mismatch");
     }
@@ -348,6 +449,37 @@ export function validatePlanningPublicationOperationExample(example, schema) {
   if (example.reflog_checkpoint?.expected_old_oid !== example.expected_parent_oid ||
       example.reflog_checkpoint?.expected_new_oid !== example.expected_commit_oid) {
     errors.push("reflog checkpoint old/new OIDs do not match operation");
+  }
+  const reflogGoldenPrefix = Buffer.from(
+    "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==",
+    "base64",
+  );
+  if (example.reflog_checkpoint?.before_entry_count !== 1 ||
+      example.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(1, reflogGoldenPrefix)) {
+    errors.push("canonical reflog checkpoint golden vector mismatch");
+  }
+  const receiptSlots = ["commit_object", "ref_cas", "reflog_after", "verification"];
+  for (const slot of receiptSlots) {
+    const receipt = example.receipts?.[slot];
+    if (receipt !== null && receipt !== undefined &&
+        (receipt.receipt_kind !== slot || receipt.operation_id !== example.operation_id)) {
+      errors.push(`${slot} receipt must match its slot and containing operation_id`);
+    }
+  }
+  const presentReceipts = receiptSlots.filter((slot) => example.receipts?.[slot] !== null);
+  const allowedReceiptPrefix = {
+    prepared: [],
+    commit_created: ["commit_object"],
+    ref_advanced: ["commit_object", "ref_cas", "reflog_after"],
+    verified: receiptSlots,
+  };
+  if (example.phase !== "voided_before_ref" &&
+      canonicalStringify(presentReceipts) !== canonicalStringify(allowedReceiptPrefix[example.phase] ?? [])) {
+    errors.push(`${example.phase} phase receipts do not match the closed prefix`);
+  }
+  if (example.phase === "voided_before_ref" &&
+      presentReceipts.some((slot) => slot !== "commit_object")) {
+    errors.push("voided_before_ref phase receipts may contain only commit_object");
   }
   if (example.operation_type !== example.payload?.kind) errors.push("operation_type and payload.kind mismatch");
   if (schema?.additionalProperties !== false) errors.push("operation Schema must be closed");
@@ -414,9 +546,48 @@ export function validatePlanningRefDesign(files) {
   const recordPassSuccess = transitionRows.filter(
     ([step, , action]) => step === "record_artifact_pass" && !action.startsWith("human "),
   );
-  if (recordPassSuccess.length !== 2 ||
+  if (recordPassSuccess.length < 3 ||
       recordPassSuccess.some(([, , action]) => !/;\s*publish_artifact_pass$/u.test(action))) {
     errors.push("03-technical-plan.md: every successful record_artifact_pass row must target publish_artifact_pass");
+  }
+  if (!recordPassSuccess.some(([, condition]) =>
+    condition.includes("matching recorded_unpublished PASS and open prepared planning_publication_op"))) {
+    errors.push("03-technical-plan.md: record_artifact_pass idempotent prepared-operation re-entry is missing");
+  }
+  const transitionIndex = (step, conditionFragment) => transitionRows.findIndex(
+    ([rowStep, condition]) => rowStep === step && condition.includes(conditionFragment),
+  );
+  const preCasDriftIndex = transitionIndex("publish_artifact_pass", "current binding drift before ref movement");
+  const preparedWriteIndex = transitionIndex("publish_artifact_pass", "phase=prepared and ref=expected parent");
+  const commitCasIndex = transitionIndex("publish_artifact_pass", "phase=commit_created and ref=expected parent");
+  if (preCasDriftIndex < 0 || preCasDriftIndex > preparedWriteIndex || preCasDriftIndex > commitCasIndex) {
+    errors.push("03-technical-plan.md: pre-CAS drift guard must precede object/ref side effects");
+  }
+  const postCasDriftIndex = transitionIndex("publish_artifact_pass", "current binding drift after expected ref transition");
+  const exactVerificationIndex = transitionIndex("publish_artifact_pass", "phase=ref_advanced and ref/commit/exact bytes");
+  if (postCasDriftIndex < 0 || exactVerificationIndex < 0 || postCasDriftIndex > exactVerificationIndex) {
+    errors.push("03-technical-plan.md: post-CAS drift guard must precede exact-binding verification");
+  }
+  const publicationRecoveryIndex = transitionIndex("select_next", "publication_status=recorded_unpublished");
+  const remediationIndex = transitionIndex("select_next", "aggregate_remediation.phase != closed");
+  if (publicationRecoveryIndex < 0 || remediationIndex < 0 || publicationRecoveryIndex > remediationIndex) {
+    errors.push("03-technical-plan.md: select_next publication recovery must precede aggregate remediation");
+  }
+  for (const [conditionFragment, actionFragment] of [
+    ["phase=voided_before_ref and recovery_target_step=prepare_anchor_impact", "prepare_anchor_impact"],
+    ["current binding drift after expected ref transition", "atomically phase=verified"],
+    ["phase=commit_created and expected object absent", "rewrite persisted exact commit_object_bytes"],
+  ]) {
+    const row = transitionRows.find(
+      ([step, condition]) => step === "publish_artifact_pass" && condition.includes(conditionFragment),
+    );
+    if (!row || !row[2].includes(actionFragment) || !row[2].endsWith("prepare_anchor_impact") &&
+        conditionFragment.includes("drift after")) {
+      errors.push(`03-technical-plan.md: publish_artifact_pass recovery row missing ${conditionFragment}`);
+    }
+  }
+  if (transitionIndex("rebuild_anchor", "matching anchor_invalidation planning_publication_op") < 0) {
+    errors.push("03-technical-plan.md: rebuild_anchor publication-operation re-entry is missing");
   }
   const publishSelectRows = transitionRows.filter(
     ([step, , action]) => step === "publish_artifact_pass" && /\bselect_next\b/u.test(action),
@@ -466,6 +637,25 @@ export function validatePlanningRefDesign(files) {
   }
   if (!core.includes("recorded PASS не является завершённым артефактом")) {
     errors.push("01-core-flows.md: recorded-vs-published PASS distinction missing");
+  }
+  const planningParkReasons = [
+    "planning_ref_init_invalid",
+    "planning_ref_capability_missing",
+    "planning_ref_foreign_movement",
+    "planning_candidate_base_stale",
+    "planning_publication_invalid",
+    "planning_publication_corrupt",
+    "planning_signing_unavailable",
+  ];
+  const technicalResume = plan.split("Resume contract:")[1] ?? "";
+  const coreResume = core.split("## 8. Возобновление из human")[1] ?? "";
+  for (const reason of planningParkReasons) {
+    if (!technicalResume.includes(`| ${reason} |`) || !coreResume.includes(`| ${reason} |`)) {
+      errors.push(`planning resume catalogs missing ${reason}`);
+    }
+  }
+  if (/"epic_id":\s*"epic-001"/u.test(plan)) {
+    errors.push("03-technical-plan.md: Epic metadata must use UUID epic_id, not display slug");
   }
   const publishedPassFragments = [
     "publication_status=verified",
