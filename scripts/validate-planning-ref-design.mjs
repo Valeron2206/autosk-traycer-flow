@@ -45,6 +45,12 @@ const REQUIRED = Object.freeze({
     "Planning publication adapter",
     "refs/autosk/epics/<epic_ref_key>/planning",
     "planning_publication_op",
+    "typed payload",
+    "immutable bindings",
+    "complete commit_recipe",
+    "exact commit bytes",
+    "expected commit OID",
+    "reflog checkpoint",
   ],
   "03-technical-plan.md": [
     "<!-- planning-ref-contract:v1 -->",
@@ -177,6 +183,17 @@ export function validateJsonSchema(value, schema, rootSchema = schema, instanceP
     }
     if (schema.pattern !== undefined && !new RegExp(schema.pattern, "u").test(value)) {
       errors.push(`${instancePath} does not match pattern`);
+    }
+    if (schema.format !== undefined) {
+      if (schema.format !== "date-time") {
+        errors.push(`${instancePath} uses unsupported Schema format ${schema.format}`);
+      } else {
+        const parsed = new Date(value);
+        const canonical = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(value) &&
+          !Number.isNaN(parsed.valueOf()) &&
+          parsed.toISOString() === value.replace(/Z$/u, ".000Z");
+        if (!canonical) errors.push(`${instancePath} must be a valid date-time`);
+      }
     }
   }
   if (typeof value === "number") {
@@ -343,6 +360,16 @@ export function validatePlanningRefDesign(files) {
     if (/^\|\s*record_artifact_pass\s*\|/u.test(line.trim()) && /\bselect_next\b/u.test(line)) {
       errors.push("03-technical-plan.md: direct record_artifact_pass → select_next transition remains");
     }
+    if (!line.trim().startsWith("|") &&
+        /\brecord_artifact_pass\b.*(?:переходит|->|→).*\bselect_next\b/u.test(line)) {
+      errors.push("03-technical-plan.md: prose directly transitions record_artifact_pass to select_next");
+    }
+  }
+  const recordPassProse = plan
+    .split("### Record artifact PASS и Arena markers")[1]
+    ?.split("record_code_verdict")[0] ?? "";
+  if (/переходит в select_next/u.test(recordPassProse)) {
+    errors.push("03-technical-plan.md: prose directly transitions record_artifact_pass to select_next");
   }
   let expectedPipes = null;
   for (const line of plan.split("\n")) {
@@ -374,6 +401,22 @@ export function validatePlanningRefDesign(files) {
   }
   if (!core.includes("recorded PASS не является завершённым артефактом")) {
     errors.push("01-core-flows.md: recorded-vs-published PASS distinction missing");
+  }
+  const publishedPassFragments = [
+    "publication_status=verified",
+    "matching planning_publication_op phase=verified",
+    "published_commit_oid",
+    "published tree",
+    "live private planning ref",
+    "current publication bindings",
+  ];
+  const plannedGuard = plan.split("\n").find((line) => line.startsWith("- Planned implementation запрещён")) ?? "";
+  const ticketsGuard = plan.split("\n").find((line) => line.startsWith("- Tickets не исполняются")) ?? "";
+  if (!publishedPassFragments.every((fragment) => plannedGuard.includes(fragment))) {
+    errors.push("03-technical-plan.md: Planned implementation guard must require Published PASS");
+  }
+  if (!publishedPassFragments.every((fragment) => ticketsGuard.includes(fragment))) {
+    errors.push("03-technical-plan.md: Tickets guard must require Published PASS");
   }
   for (const [relative, text] of Object.entries(files)) {
     if (/refs\/autosk\/epics\/<(?:epic-uuid|uuid)>\/planning/u.test(text)) {

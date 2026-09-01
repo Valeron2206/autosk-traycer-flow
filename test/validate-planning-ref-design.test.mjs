@@ -40,6 +40,13 @@ test("direct transition is rejected even when predicate and action wording chang
   assert.match(validatePlanningRefDesign(files).join("\n"), /direct record_artifact_pass/u);
 });
 
+test("direct prose transition from record-artifact-pass to select-next is rejected", () => {
+  const files = fixture();
+  files["03-technical-plan.md"] +=
+    "\nrecord_artifact_pass после успешной атомарной записи переходит в select_next.\n";
+  assert.match(validatePlanningRefDesign(files).join("\n"), /prose.*record_artifact_pass.*select_next/u);
+});
+
 test("Arena re-expression returns through recorded and published PASS", () => {
   const files = fixture();
   files["01-core-flows.md"] = files["01-core-flows.md"].replace(
@@ -118,6 +125,25 @@ test("PASS record and prepared publication operation require one atomic daemon w
   assert.match(files["03-technical-plan.md"], /atomic pass-and-operation capability unavailable/u);
 });
 
+test("implementation and Tickets guards require a verified published PASS", () => {
+  const files = fixture();
+  files["03-technical-plan.md"] = files["03-technical-plan.md"]
+    .replaceAll("publication_status=verified", "publication_status=recorded_unpublished")
+    .replaceAll("matching planning_publication_op phase=verified", "matching planning_publication_op phase=prepared");
+  const result = validatePlanningRefDesign(files).join("\n");
+  assert.match(result, /Planned implementation.*Published PASS/u);
+  assert.match(result, /Tickets.*Published PASS/u);
+});
+
+test("architecture operation summary retains every recovery-critical field", () => {
+  const files = fixture();
+  files["02-architecture.md"] = files["02-architecture.md"].replace(
+    "complete commit_recipe",
+    "recipe digest",
+  );
+  assert.match(validatePlanningRefDesign(files).join("\n"), /complete commit_recipe/u);
+});
+
 test("closed publication-operation schema and example match the prose contract", () => {
   const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
   const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
@@ -167,4 +193,16 @@ test("complete Schema validation rejects a changed artifact target step", () => 
     validatePlanningPublicationOperationExample(example, schema).join("\n"),
     /payload\.recorded_target_step/u,
   );
+});
+
+test("operation Schema date-time validation rejects impossible calendar dates", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  for (const invalid of ["2026-99-99T99:99:99Z", "2025-02-29T00:00:00Z"]) {
+    const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+    example.created_at_utc = invalid;
+    assert.match(
+      validatePlanningPublicationOperationExample(example, schema).join("\n"),
+      /created_at_utc.*date-time/u,
+    );
+  }
 });

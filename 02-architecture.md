@@ -192,7 +192,7 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
 
-`planning_ref_init_op` и `planning_publication_op` живут в protected namespaced Epic metadata и содержат только operation identity, expected Git observations, phases и receipts. Они не дублируют содержание артефактов или task status. Git ref/object database остаётся source of truth для опубликованной planning line; metadata связывает её с workflow state.
+`planning_ref_init_op` и `planning_publication_op` живут в protected namespaced Epic metadata. Помимо operation identity, expected Git observations, phases и receipts, публикационная операция хранит typed payload, immutable bindings, complete commit_recipe, exact commit bytes, expected commit OID и reflog checkpoint, необходимые для детерминированного восстановления. Не дублируются только содержание артефактов и task status. Git ref/object database остаётся source of truth для опубликованной planning line; metadata связывает её с workflow state.
 
 Дополнительный task/status-ledger не создаётся. Trusted client only displays/signs exact challenge. Production signer/secure store runs in separate OS security boundary (privileged helper/separate account or hardware enclave); model sandbox is denied accessibility/ptrace/keychain. Deployment without enforceable boundary, or headless/unpinned project, blocks model launch.
 
