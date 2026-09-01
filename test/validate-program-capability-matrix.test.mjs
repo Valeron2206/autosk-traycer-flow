@@ -110,7 +110,7 @@ test("planned_after_v1 requires the post-v1 milestone, trigger and non-blocking 
   record.gate_role = "design_and_mvp_input";
   record.activation_trigger = "";
   const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
-  assert.match(result, /activation_trigger must be explicit/);
+  assert.match(result, /activation_trigger must contain at least 20 characters/);
   assert.match(result, /planned_after_v1 must not block/);
   assert.match(result, /target must be full_parity_post_v1/);
   assert.match(result, /gate_role must be post_v1_capability/);
@@ -276,6 +276,12 @@ test("JSON schemas pin exact UTC timestamps and required lifecycle roles", () =>
   assert.equal(timestamp.test("2026-09-01T02:12:40Z"), true);
   assert.equal(timestamp.test("2026-09-01T02:12:40.5Z"), false);
   assert.equal(timestamp.test("2026-09-01T02:12:40+03:00"), false);
+  assert.deepEqual(
+    inventorySchema.properties.issues.items.required,
+    ["issue_number", "github_node_id", "entity_kind", "issue_title", "priority"],
+  );
+  assert.equal(inventorySchema.properties.issues.items.properties.entity_kind.const, "issue");
+  assert.equal(inventorySchema.properties.issues.items.properties.github_node_id.pattern, "^I_[A-Za-z0-9_-]+$");
 
   const requiredBranch = matrixSchema.$defs.record.allOf.find(
     (entry) => entry.if?.properties?.lifecycle?.const === "required_for_v1",
@@ -286,6 +292,55 @@ test("JSON schemas pin exact UTC timestamps and required lifecycle roles", () =>
     "design_gate",
     "mvp_release_gate",
   ]);
+  assert.equal(matrixSchema.$defs.record.properties.full_program_required.const, true);
+  assert.equal(matrixSchema.$defs.record.required.includes("full_program_required"), true);
+});
+
+test("runtime validation matches closed nested schema constraints", () => {
+  const data = fixture();
+  data.matrix.issue_range.extra = true;
+  data.matrix.classification_policy.extra = "schema drift";
+  const record = data.matrix.records.find((item) => item.issue_number === 19);
+  record.rationale = "r".repeat(25);
+  record.classification_risk = "c".repeat(25);
+  const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(result, /matrix issue_range keys differ from the closed v1 schema/);
+  assert.match(result, /matrix classification_policy keys differ from the closed v1 schema/);
+  assert.match(result, /rationale must contain at least 30 characters/);
+  assert.match(result, /classification_risk must contain at least 30 characters/);
+});
+
+test("inventory binds every record to an issue entity and GitHub node identity", () => {
+  const data = fixture();
+  const record = data.inventory.issues[0];
+  record.entity_kind = "pull_request";
+  record.github_node_id = "PR_kwDOExample";
+  const result = messages(validateInventory(data.inventory));
+  assert.match(result, /entity_kind must be issue/);
+  assert.match(result, /github_node_id must identify a GitHub issue/);
+});
+
+test("post-v1 activation cannot bypass the MVP release gate", () => {
+  const data = fixture();
+  const record = data.matrix.records.find((item) => item.issue_number === 28);
+  record.activation_trigger = "Begin before issue #36 closes when requested.";
+  assert.match(
+    messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)),
+    /planned_after_v1 activation must start only after issue #36 closes/,
+  );
+  assert.doesNotMatch(
+    data.matrix.records.find((item) => item.issue_number === 31).activation_trigger,
+    /or earlier/u,
+  );
+});
+
+test("full program obligation is explicit and cannot be disabled", () => {
+  const data = fixture();
+  data.matrix.records.find((item) => item.issue_number === 28).full_program_required = false;
+  assert.match(
+    messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)),
+    /full_program_required must be true/,
+  );
 });
 
 test("human-readable summary is deterministic and drift is rejected", () => {

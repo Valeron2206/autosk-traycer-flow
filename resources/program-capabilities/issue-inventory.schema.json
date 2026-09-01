@@ -66,6 +66,8 @@
         "additionalProperties": false,
         "required": [
           "issue_number",
+          "github_node_id",
+          "entity_kind",
           "issue_title",
           "priority"
         ],
@@ -74,6 +76,13 @@
             "type": "integer",
             "minimum": 3,
             "maximum": 39
+          },
+          "github_node_id": {
+            "type": "string",
+            "pattern": "^I_[A-Za-z0-9_-]+$"
+          },
+          "entity_kind": {
+            "const": "issue"
           },
           "issue_title": {
             "type": "string",

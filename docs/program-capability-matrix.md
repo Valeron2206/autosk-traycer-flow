@@ -26,45 +26,45 @@
 
 ## Все program issues
 
-| Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker |
-| ---: | :---: | --- | --- | --- | --- | :---: |
-| #3 Создать полный migration/parity registry Traycer → autosk-flow | P0 | required_for_v1 | phase_0_complete | phase_0_gate | — | yes |
-| #4 Добавить human alignment gates перед Brief, Core Flow, Tech Plan и Tickets | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3 | yes |
-| #5 Добавить Epic planning ref и commit-on-PASS для каждого планового артефакта | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #4 | yes |
-| #6 Добавить канонический machine-readable Tickets manifest и JSON Schema | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #5 | yes |
-| #7 Формировать execution base Ticket из approved transitive dependencies | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #5, #6 | yes |
-| #8 Заменить full-tree equality на approved-delta integration и перенести adversarial CAS test suite | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #7 | yes |
-| #9 Ввести private Epic staging ref и выполнять aggregate verification до final target CAS | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #8, #17 | yes |
-| #10 Закреплять extension/workflow code identity на весь Epic и добавить явную миграцию | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3 | yes |
-| #11 Реализовать в autoskd атомарный creation_key + creation_binding_hash для idempotent child fan-out | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10 | yes |
-| #12 Зафиксировать project instruction set и запретить неявную model-specific загрузку | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #4 | yes |
-| #13 Зафиксировать реализуемую safeProjectFs стратегию для macOS/Linux | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10 | yes |
-| #14 Обобщить panel lifecycle на все behavior-defining artifacts | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #12 | yes |
-| #15 Определить immutable task-store projection для параллельных gate-задач | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #11, #12, #18 | yes |
-| #16 Реализовать canonical finding registry, merge/triage/contest и late-finding semantics | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #14, #15, #18 | yes |
-| #17 Добавить project delivery profile preflight: branch policy, CI, signatures, DCO и integration mode | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #12 | yes |
-| #18 Сделать все model-owned результаты структурированными, а transitions — host-mediated | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #12 | yes |
-| #19 Реализовать stage→protocol carrier matrix и attribution echo для каждого handoff | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #12, #14, #18, #37 | yes |
-| #20 Добавить clearance manifest и fail-closed сканирование сериализованного handoff | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #19 | yes |
-| #21 Добавить immutable snapshots и drift guard для внешних/non-Git источников | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #12, #13 | yes |
-| #22 Портировать verified artifact writes: receipts, quarantine и reconciliation | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #13, #18 | yes |
-| #23 Реализовать project verification doc workflow по protocol/verification/template.md | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #14, #19, #22 | yes |
-| #24 Сделать work-type playbooks исполняемыми prerequisites и evidence gates | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #6, #19, #22, #23 | yes |
-| #25 Реализовать requirement revision propagation: product → technical → Tickets → implemented work | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #6, #14, #16, #35 | yes |
-| #26 Усилить provider preflight: exact route/effort, capability isolation, time budgets и failure domains | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #19, #20 | yes |
-| #27 Определить evidence lifecycle: schema, redaction, retention, tombstones и durable/transient classes | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #13, #20, #22 | yes |
-| #28 Реализовать autosk-native Autobuild Generator/Evaluator workflow | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #6, #16, #19, #20, #23, #24, #25, #26, #27, #32, #35, #36, #37 | no |
-| #29 Реализовать Reflect + cost-watch для управляемой эволюции governance | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #14, #16, #20, #26, #27, #36, #37 | no |
-| #30 Добавить безопасный Housekeeping workflow для worktrees, snapshots и orphan state | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #13, #27, #34, #36 | no |
-| #31 Добавить отдельный Debate workflow для non-empirical one-way-door решений | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #4, #14, #16, #19, #20, #26, #35, #36 | no |
-| #32 Перенести bounded loop protocol и четыре обязательных escalation trigger | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #18, #24, #26 | yes |
-| #33 Добавить user-approved Changeset Walkthrough, привязанный к final staging identity | P2 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #9, #20, #27, #35, #36 | no |
-| #34 Добавить `autosk-flow doctor` для fail-fast проверки проекта, runtime и recovery state | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #11, #12, #13, #17, #19, #20, #26, #27, #37 | yes |
-| #35 Добавить human decision queue и детерминированный status/reporting contract | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #12, #18 | yes |
-| #36 Добавить clean-room E2E: полный flow без Traycer, multi-project isolation и crash recovery | P0 | required_for_v1 | autonomous_mvp | mvp_release_gate | #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #32, #34, #35, #37, #39 | yes |
-| #37 Реализовать governance bundle import/build/release lifecycle с аттестацией | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #10, #12, #13, #14 | yes |
-| #38 Расширить autosk extension SDK типизированным write API и убрать CLI из correctness-critical paths | P2 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #11, #18, #36 | no |
-| #39 Пересобрать спецификацию и получить новый four-model PASS после архитектурных dispositions | P0 | required_for_v1 | design_ready | design_gate | #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18 | yes |
+| Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |
+| ---: | :---: | --- | --- | --- | --- | :---: | :---: |
+| #3 Создать полный migration/parity registry Traycer → autosk-flow | P0 | required_for_v1 | phase_0_complete | phase_0_gate | — | yes | yes |
+| #4 Добавить human alignment gates перед Brief, Core Flow, Tech Plan и Tickets | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3 | yes | yes |
+| #5 Добавить Epic planning ref и commit-on-PASS для каждого планового артефакта | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #4 | yes | yes |
+| #6 Добавить канонический machine-readable Tickets manifest и JSON Schema | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #5 | yes | yes |
+| #7 Формировать execution base Ticket из approved transitive dependencies | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #5, #6 | yes | yes |
+| #8 Заменить full-tree equality на approved-delta integration и перенести adversarial CAS test suite | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #7 | yes | yes |
+| #9 Ввести private Epic staging ref и выполнять aggregate verification до final target CAS | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #8, #17 | yes | yes |
+| #10 Закреплять extension/workflow code identity на весь Epic и добавить явную миграцию | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3 | yes | yes |
+| #11 Реализовать в autoskd атомарный creation_key + creation_binding_hash для idempotent child fan-out | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10 | yes | yes |
+| #12 Зафиксировать project instruction set и запретить неявную model-specific загрузку | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #4 | yes | yes |
+| #13 Зафиксировать реализуемую safeProjectFs стратегию для macOS/Linux | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10 | yes | yes |
+| #14 Обобщить panel lifecycle на все behavior-defining artifacts | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #12 | yes | yes |
+| #15 Определить immutable task-store projection для параллельных gate-задач | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #11, #12, #18 | yes | yes |
+| #16 Реализовать canonical finding registry, merge/triage/contest и late-finding semantics | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #14, #15, #18 | yes | yes |
+| #17 Добавить project delivery profile preflight: branch policy, CI, signatures, DCO и integration mode | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #12 | yes | yes |
+| #18 Сделать все model-owned результаты структурированными, а transitions — host-mediated | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #12 | yes | yes |
+| #19 Реализовать stage→protocol carrier matrix и attribution echo для каждого handoff | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #12, #14, #18, #37 | yes | yes |
+| #20 Добавить clearance manifest и fail-closed сканирование сериализованного handoff | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #19 | yes | yes |
+| #21 Добавить immutable snapshots и drift guard для внешних/non-Git источников | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #12, #13 | yes | yes |
+| #22 Портировать verified artifact writes: receipts, quarantine и reconciliation | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #13, #18 | yes | yes |
+| #23 Реализовать project verification doc workflow по protocol/verification/template.md | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #14, #19, #22 | yes | yes |
+| #24 Сделать work-type playbooks исполняемыми prerequisites и evidence gates | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #6, #19, #22, #23 | yes | yes |
+| #25 Реализовать requirement revision propagation: product → technical → Tickets → implemented work | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #6, #14, #16, #35 | yes | yes |
+| #26 Усилить provider preflight: exact route/effort, capability isolation, time budgets и failure domains | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #19, #20 | yes | yes |
+| #27 Определить evidence lifecycle: schema, redaction, retention, tombstones и durable/transient classes | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #13, #20, #22 | yes | yes |
+| #28 Реализовать autosk-native Autobuild Generator/Evaluator workflow | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #6, #16, #19, #20, #23, #24, #25, #26, #27, #32, #35, #36, #37 | no | yes |
+| #29 Реализовать Reflect + cost-watch для управляемой эволюции governance | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #14, #16, #20, #26, #27, #36, #37 | no | yes |
+| #30 Добавить безопасный Housekeeping workflow для worktrees, snapshots и orphan state | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #13, #27, #34, #36 | no | yes |
+| #31 Добавить отдельный Debate workflow для non-empirical one-way-door решений | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #4, #14, #16, #19, #20, #26, #35, #36 | no | yes |
+| #32 Перенести bounded loop protocol и четыре обязательных escalation trigger | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #18, #24, #26 | yes | yes |
+| #33 Добавить user-approved Changeset Walkthrough, привязанный к final staging identity | P2 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #9, #20, #27, #35, #36 | no | yes |
+| #34 Добавить `autosk-flow doctor` для fail-fast проверки проекта, runtime и recovery state | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #11, #12, #13, #17, #19, #20, #26, #27, #37 | yes | yes |
+| #35 Добавить human decision queue и детерминированный status/reporting contract | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #12, #18 | yes | yes |
+| #36 Добавить clean-room E2E: полный flow без Traycer, multi-project isolation и crash recovery | P0 | required_for_v1 | autonomous_mvp | mvp_release_gate | #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #32, #34, #35, #37, #39 | yes | yes |
+| #37 Реализовать governance bundle import/build/release lifecycle с аттестацией | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #10, #12, #13, #14 | yes | yes |
+| #38 Расширить autosk extension SDK типизированным write API и убрать CLI из correctness-critical paths | P2 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #11, #18, #36 | no | yes |
+| #39 Пересобрать спецификацию и получить новый four-model PASS после архитектурных dispositions | P0 | required_for_v1 | design_ready | design_gate | #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18 | yes | yes |
 
 ## Planned after v1
 
@@ -110,7 +110,7 @@
 
 **Риск:** V1 must escalate such questions to a human without structured multi-perspective debate.
 
-**Условие активации:** Begin after issue #36 closes or earlier only by explicit user request for the Debate capability.
+**Условие активации:** Begin after issue #36 closes and the autonomous MVP release is attested.
 
 **Обязанность до #39:** Before #39 mark Debate inactive_in_v1 and preserve the human-decision fallback without false capability claims.
 
@@ -158,7 +158,7 @@ npm test
 npm run validate:capabilities
 ```
 
-Inventory digest: `003899bce88cdc838541280461aa48713d4efcd8cba3b1c95c4749881aa12331`
+Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `e133b1c5244bc83a3fcf0abef0c000b6b82841f705ec0e97ad0e320bfe5747c7`
+Matrix digest: `e0e3b15a22147689bb24e211b3e4dac216cce9b1ee66be21d665d2d73c814fd3`
 

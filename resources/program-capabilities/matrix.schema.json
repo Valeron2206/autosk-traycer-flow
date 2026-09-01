@@ -48,7 +48,7 @@
     "strings":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},
     "record":{
       "type":"object","additionalProperties":false,
-      "required":["issue_number","issue_title","priority","lifecycle","target_milestone","gate_role","rationale","classification_risk","owner","activation_trigger","design_obligation_before_issue_39","implementation_obligation_before_mvp","release_blocking","dependencies","downstream_blockers","source_parity_ids","supersession_or_split","decision_reference","verification_expectation"],
+      "required":["issue_number","issue_title","priority","lifecycle","target_milestone","gate_role","rationale","classification_risk","owner","activation_trigger","design_obligation_before_issue_39","implementation_obligation_before_mvp","release_blocking","full_program_required","dependencies","downstream_blockers","source_parity_ids","supersession_or_split","decision_reference","verification_expectation"],
       "properties":{
         "issue_number":{"type":"integer","minimum":3,"maximum":39},
         "issue_title":{"type":"string","minLength":1},
@@ -63,6 +63,7 @@
         "design_obligation_before_issue_39":{"type":"string","minLength":20},
         "implementation_obligation_before_mvp":{"type":"string","minLength":20},
         "release_blocking":{"type":"boolean"},
+        "full_program_required":{"const":true},
         "dependencies":{"$ref":"#/$defs/issueRefs"},
         "downstream_blockers":{"$ref":"#/$defs/issueRefs"},
         "source_parity_ids":{"$ref":"#/$defs/strings"},

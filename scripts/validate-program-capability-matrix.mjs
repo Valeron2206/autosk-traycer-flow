@@ -32,6 +32,7 @@ const RECORD_KEYS = Object.freeze([
   "design_obligation_before_issue_39",
   "implementation_obligation_before_mvp",
   "release_blocking",
+  "full_program_required",
   "dependencies",
   "downstream_blockers",
   "source_parity_ids",
@@ -128,16 +129,15 @@ export function validateInventory(inventory) {
   const numbers = [];
   for (const [index, issue] of inventory.issues.entries()) {
     const prefix = `inventory.issues[${index}]`;
-    if (!exactKeys(issue, ["issue_number", "issue_title", "priority"].sort())) errors.push(`${prefix} must use the closed issue snapshot shape`);
+    if (!exactKeys(issue, ["issue_number", "github_node_id", "entity_kind", "issue_title", "priority"].sort())) errors.push(`${prefix} must use the closed issue snapshot shape`);
     if (!Number.isInteger(issue.issue_number) || issue.issue_number < ISSUE_MIN || issue.issue_number > ISSUE_MAX) errors.push(`${prefix}.issue_number is outside #3–#39`);
     else numbers.push(issue.issue_number);
     if (!nonEmpty(issue.issue_title)) errors.push(`${prefix}.issue_title must be non-empty`);
     if (!PRIORITIES.has(issue.priority)) errors.push(`${prefix}.priority is invalid`);
+    if (issue.entity_kind !== "issue") errors.push(`${prefix}.entity_kind must be issue`);
+    if (!/^I_[A-Za-z0-9_-]+$/u.test(issue.github_node_id ?? "")) errors.push(`${prefix}.github_node_id must identify a GitHub issue`);
     const titlePriority = priorityFromTitle(issue.issue_title);
     if (titlePriority !== issue.priority) errors.push(`${prefix}.priority does not match title`);
-    if ("pull_request" in issue || issue.issue_title?.startsWith("docs:") || issue.issue_title?.startsWith("feat:")) {
-      errors.push(`${prefix} looks like a pull request rather than a program issue`);
-    }
   }
 
   const actual = sorted(new Set(numbers));
@@ -252,6 +252,7 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
   if (matrix.schema_version !== 1) errors.push("matrix.schema_version must be 1");
   if (matrix.matrix_version !== "program-capability-matrix.v1") errors.push("matrix.matrix_version must be program-capability-matrix.v1");
   if (matrix.repository !== inventory.repository) errors.push("matrix repository must match issue inventory");
+  if (!exactKeys(matrix.issue_range, ["from", "to"])) errors.push("matrix issue_range keys differ from the closed v1 schema");
   if (matrix.issue_range?.from !== ISSUE_MIN || matrix.issue_range?.to !== ISSUE_MAX) errors.push("matrix issue_range must be #3–#39");
   if (matrix.source_main_commit !== inventory.source_main_commit) errors.push("matrix source_main_commit must match issue inventory");
   if (matrix.issue_inventory_path !== "resources/program-capabilities/issue-inventory.v1.json") errors.push("matrix issue_inventory_path is not canonical");
@@ -259,6 +260,9 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
   if (matrix.issue_inventory_digest !== inventory.canonical_digest) errors.push("matrix issue_inventory_digest does not match inventory");
   if (!matrix.classification_policy || typeof matrix.classification_policy !== "object") errors.push("matrix classification_policy must be an object");
   else {
+    if (!exactKeys(matrix.classification_policy, ["required_for_v1", "planned_after_v1", "intentionally_deferred", "full_program_rule"].sort())) {
+      errors.push("matrix classification_policy keys differ from the closed v1 schema");
+    }
     for (const key of ["required_for_v1", "planned_after_v1", "intentionally_deferred", "full_program_rule"]) {
       if (!nonEmpty(matrix.classification_policy[key], 20)) errors.push(`classification_policy.${key} must be explicit`);
     }
@@ -301,14 +305,20 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
     if (!LIFECYCLES.has(record.lifecycle)) errors.push(`${prefix}.lifecycle is invalid`);
     if (!MILESTONES.has(record.target_milestone)) errors.push(`${prefix}.target_milestone is invalid`);
     if (!GATE_ROLES.has(record.gate_role)) errors.push(`${prefix}.gate_role is invalid`);
-    for (const field of [
-      "rationale", "classification_risk", "owner", "activation_trigger",
-      "design_obligation_before_issue_39", "implementation_obligation_before_mvp",
-      "verification_expectation",
-    ]) {
-      if (!nonEmpty(record[field], field === "owner" ? 3 : 20)) errors.push(`${prefix}.${field} must be explicit`);
+    const textMinimums = {
+      rationale: 30,
+      classification_risk: 30,
+      owner: 3,
+      activation_trigger: 20,
+      design_obligation_before_issue_39: 20,
+      implementation_obligation_before_mvp: 20,
+      verification_expectation: 20,
+    };
+    for (const [field, minimum] of Object.entries(textMinimums)) {
+      if (!nonEmpty(record[field], minimum)) errors.push(`${prefix}.${field} must contain at least ${minimum} characters`);
     }
     if (typeof record.release_blocking !== "boolean") errors.push(`${prefix}.release_blocking must be boolean`);
+    if (record.full_program_required !== true) errors.push(`${prefix}.full_program_required must be true`);
     const dependencies = validateIssueRefs(record.dependencies, `${prefix}.dependencies`, errors, number);
     const blockers = validateIssueRefs(record.downstream_blockers, `${prefix}.downstream_blockers`, errors, number);
     if (!Array.isArray(record.source_parity_ids) || record.source_parity_ids.some((id) => !nonEmpty(id))) errors.push(`${prefix}.source_parity_ids must be a string array`);
@@ -337,6 +347,9 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
       if (record.target_milestone !== "full_parity_post_v1") errors.push(`${prefix}: planned_after_v1 target must be full_parity_post_v1`);
       if (record.gate_role !== "post_v1_capability") errors.push(`${prefix}: planned_after_v1 gate_role must be post_v1_capability`);
       if (record.decision_reference !== null) errors.push(`${prefix}: planned_after_v1 is scheduled work, not an intentional-defer decision`);
+      if (!record.activation_trigger.startsWith("Begin after issue #36 closes")) {
+        errors.push(`${prefix}: planned_after_v1 activation must start only after issue #36 closes`);
+      }
     }
     if (record.lifecycle === "intentionally_deferred") {
       if (record.release_blocking !== false || record.target_milestone !== "deferred") errors.push(`${prefix}: intentionally_deferred must be non-blocking with target=deferred`);
@@ -463,11 +476,11 @@ export function renderDocumentation(matrix) {
     "",
     "## Все program issues",
     "",
-    "| Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker |",
-    "| ---: | :---: | --- | --- | --- | --- | :---: |",
+    "| Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |",
+    "| ---: | :---: | --- | --- | --- | --- | :---: | :---: |",
   ];
   for (const record of matrix.records) {
-    lines.push(`| #${record.issue_number} ${mdEscape(record.issue_title.replace(/^\[P[012]\](?:\[DESIGN GATE\])?\s*/u, ""))} | ${record.priority} | ${record.lifecycle} | ${record.target_milestone} | ${record.gate_role} | ${record.dependencies.length ? record.dependencies.map((number) => `#${number}`).join(", ") : "—"} | ${record.release_blocking ? "yes" : "no"} |`);
+    lines.push(`| #${record.issue_number} ${mdEscape(record.issue_title.replace(/^\[P[012]\](?:\[DESIGN GATE\])?\s*/u, ""))} | ${record.priority} | ${record.lifecycle} | ${record.target_milestone} | ${record.gate_role} | ${record.dependencies.length ? record.dependencies.map((number) => `#${number}`).join(", ") : "—"} | ${record.release_blocking ? "yes" : "no"} | ${record.full_program_required ? "yes" : "no"} |`);
   }
 
   lines.push("", "## Planned after v1", "");

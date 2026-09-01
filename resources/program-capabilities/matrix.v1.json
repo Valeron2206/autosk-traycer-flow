@@ -9,7 +9,7 @@
   },
   "source_main_commit": "c48f38570f19a5ba2a1312038d10e77f0ca1d9fc",
   "issue_inventory_path": "resources/program-capabilities/issue-inventory.v1.json",
-  "issue_inventory_digest": "003899bce88cdc838541280461aa48713d4efcd8cba3b1c95c4749881aa12331",
+  "issue_inventory_digest": "9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2",
   "source_parity_registry_path": "resources/traycer-parity/registry.v1.json",
   "classification_policy": {
     "required_for_v1": "The design disposition must be represented in issue #39 and every stated implementation/release obligation must be satisfied before the autonomous MVP, unless a reviewed split moves an exact non-critical remainder after v1.",
@@ -39,11 +39,20 @@
       "implementation_obligation_before_mvp": "No new runtime code is required by this issue; all subsequent parity claims must keep its validator green.",
       "release_blocking": true,
       "dependencies": [],
-      "downstream_blockers": [4,5,10,12,19,37,39],
+      "downstream_blockers": [
+        4,
+        5,
+        10,
+        12,
+        19,
+        37,
+        39
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Schema, coverage, privacy, digest and source-evidence tests remain green; any source addition without a registry record fails CI."
+      "verification_expectation": "Schema, coverage, privacy, digest and source-evidence tests remain green; any source addition without a registry record fails CI.",
+      "full_program_required": true
     },
     {
       "issue_number": 4,
@@ -59,12 +68,28 @@
       "design_obligation_before_issue_39": "Carry the signed UserDecisionRecord, stale identity, policy scope and four named alignment lifecycles into the #39 design candidate.",
       "implementation_obligation_before_mvp": "Implement and test the four alignment gates, Quick→Planned reclassification, signed authority records and fail-closed resume behavior before MVP.",
       "release_blocking": true,
-      "dependencies": [3],
-      "downstream_blockers": [5,12,14,25,31,35,39],
-      "source_parity_ids": ["skill.core-flows","skill.epic-brief","skill.tech-plan","skill.ticket-breakdown"],
+      "dependencies": [
+        3
+      ],
+      "downstream_blockers": [
+        5,
+        12,
+        14,
+        25,
+        31,
+        35,
+        39
+      ],
+      "source_parity_ids": [
+        "skill.core-flows",
+        "skill.epic-brief",
+        "skill.tech-plan",
+        "skill.ticket-breakdown"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "E2E proves no normative artifact or Ticket Panel proceeds without current alignment or an exact permitted policy."
+      "verification_expectation": "E2E proves no normative artifact or Ticket Panel proceeds without current alignment or an exact permitted policy.",
+      "full_program_required": true
     },
     {
       "issue_number": 5,
@@ -80,12 +105,21 @@
       "design_obligation_before_issue_39": "Specify commit-on-PASS, CAS publication, foreign movement, recovery phases and retention in the design candidate.",
       "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root.",
       "release_blocking": true,
-      "dependencies": [3,4],
-      "downstream_blockers": [6,7,36,39],
+      "dependencies": [
+        3,
+        4
+      ],
+      "downstream_blockers": [
+        6,
+        7,
+        36,
+        39
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Fault tests cover crash before/after commit/CAS, retry, foreign movement, GC reachability and anchor rebuild descendants."
+      "verification_expectation": "Fault tests cover crash before/after commit/CAS, retry, foreign movement, GC reachability and anchor rebuild descendants.",
+      "full_program_required": true
     },
     {
       "issue_number": 6,
@@ -101,12 +135,25 @@
       "design_obligation_before_issue_39": "Define schema, canonicalization, Markdown consistency, graph validation and candidate identity before #39.",
       "implementation_obligation_before_mvp": "Ship the versioned schema/validator and require one frozen manifest+docs candidate before Ticket Panel and dispatch.",
       "release_blocking": true,
-      "dependencies": [5],
-      "downstream_blockers": [7,24,25,28,36,39],
-      "source_parity_ids": ["skill.execute","skill.ticket-breakdown"],
+      "dependencies": [
+        5
+      ],
+      "downstream_blockers": [
+        7,
+        24,
+        25,
+        28,
+        36,
+        39
+      ],
+      "source_parity_ids": [
+        "skill.execute",
+        "skill.ticket-breakdown"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Negative tests cover IDs, cycles, dangling edges, path scope, AC/evidence mapping, unknown versions and canonical digests."
+      "verification_expectation": "Negative tests cover IDs, cycles, dangling edges, path scope, AC/evidence mapping, unknown versions and canonical digests.",
+      "full_program_required": true
     },
     {
       "issue_number": 7,
@@ -122,12 +169,24 @@
       "design_obligation_before_issue_39": "Define deterministic composition order, base identity, conflict handling, reachability and invalidation semantics.",
       "implementation_obligation_before_mvp": "Build and verify per-Ticket execution-base commits/trees before enrollment; invalidate descendants when a predecessor changes.",
       "release_blocking": true,
-      "dependencies": [5,6],
-      "downstream_blockers": [8,36,39],
-      "source_parity_ids": ["skill.execute","skill.implement","skill.ticket-breakdown"],
+      "dependencies": [
+        5,
+        6
+      ],
+      "downstream_blockers": [
+        8,
+        36,
+        39
+      ],
+      "source_parity_ids": [
+        "skill.execute",
+        "skill.implement",
+        "skill.ticket-breakdown"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Linear, diamond, overlapping-path, supersession, retry and worker-count tests produce identical verified trees."
+      "verification_expectation": "Linear, diamond, overlapping-path, supersession, retry and worker-count tests produce identical verified trees.",
+      "full_program_required": true
     },
     {
       "issue_number": 8,
@@ -143,12 +202,24 @@
       "design_obligation_before_issue_39": "Define canonical delta entries, digest, apply proof, inherited Git environment neutralization and recovery classes.",
       "implementation_obligation_before_mvp": "Implement the autosk-owned adapter and port the Traycer adversarial CAS/reflog/obstruction/fault suite without runtime dependency.",
       "release_blocking": true,
-      "dependencies": [7],
-      "downstream_blockers": [9,36,39],
-      "source_parity_ids": ["command.integrate-approved","executable.traycer-protocol","test-suite.integrate-approved","test-suite.traycer-protocol"],
+      "dependencies": [
+        7
+      ],
+      "downstream_blockers": [
+        9,
+        36,
+        39
+      ],
+      "source_parity_ids": [
+        "command.integrate-approved",
+        "executable.traycer-protocol",
+        "test-suite.integrate-approved",
+        "test-suite.traycer-protocol"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover multiple Tickets, rename/mode/binary/symlink/submodule cases, foreign movement, indeterminate outcomes and every durable phase."
+      "verification_expectation": "Tests cover multiple Tickets, rename/mode/binary/symlink/submodule cases, foreign movement, indeterminate outcomes and every durable phase.",
+      "full_program_required": true
     },
     {
       "issue_number": 9,
@@ -164,12 +235,23 @@
       "design_obligation_before_issue_39": "Specify staging lineage, receipts, integration-fix lifecycle, aggregate binding, acceptance identity and single final CAS.",
       "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy.",
       "release_blocking": true,
-      "dependencies": [8,17],
-      "downstream_blockers": [33,36,39],
-      "source_parity_ids": ["command.integrate-approved","test-suite.integrate-approved"],
+      "dependencies": [
+        8,
+        17
+      ],
+      "downstream_blockers": [
+        33,
+        36,
+        39
+      ],
+      "source_parity_ids": [
+        "command.integrate-approved",
+        "test-suite.integrate-approved"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "E2E proves aggregate failure never moves target and crash/retry around staging, acceptance and final CAS is idempotent."
+      "verification_expectation": "E2E proves aggregate failure never moves target and crash/retry around staging, acceptance and final CAS is idempotent.",
+      "full_program_required": true
     },
     {
       "issue_number": 10,
@@ -185,12 +267,29 @@
       "design_obligation_before_issue_39": "Define content-addressed distribution/runtime locks, graph/schema/helper digests, retention and migration receipts.",
       "implementation_obligation_before_mvp": "Implement exact runtime identity checks on dispatch/resume/transition and an explicit crash-safe migration path.",
       "release_blocking": true,
-      "dependencies": [3],
-      "downstream_blockers": [11,13,15,18,34,36,37,39],
-      "source_parity_ids": ["command.identity-check","command.identity-mint","executable.traycer-protocol","test-suite.traycer-protocol"],
+      "dependencies": [
+        3
+      ],
+      "downstream_blockers": [
+        11,
+        13,
+        15,
+        18,
+        34,
+        36,
+        37,
+        39
+      ],
+      "source_parity_ids": [
+        "command.identity-check",
+        "command.identity-mint",
+        "executable.traycer-protocol",
+        "test-suite.traycer-protocol"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover same-version different bytes, hot reload, missing/corrupt old distribution, concurrent versions and migration rollback."
+      "verification_expectation": "Tests cover same-version different bytes, hot reload, missing/corrupt old distribution, concurrent versions and migration rollback.",
+      "full_program_required": true
     },
     {
       "issue_number": 11,
@@ -206,12 +305,21 @@
       "design_obligation_before_issue_39": "Finalize the atomic create semantics, capability preflight, binding coverage, deletion policy and upstream dependency before #39.",
       "implementation_obligation_before_mvp": "Implement the autoskd/API/CLI primitive, pin the compatible upstream commit and block fan-out when unavailable.",
       "release_blocking": true,
-      "dependencies": [10],
-      "downstream_blockers": [15,34,36,38,39],
+      "dependencies": [
+        10
+      ],
+      "downstream_blockers": [
+        15,
+        34,
+        36,
+        38,
+        39
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Concurrency and fault-injection tests prove one task per key, conflict on hash mismatch and no mutation through update/reconcile."
+      "verification_expectation": "Concurrency and fault-injection tests prove one task per key, conflict on hash mismatch and no mutation through update/reconcile.",
+      "full_program_required": true
     },
     {
       "issue_number": 12,
@@ -227,12 +335,31 @@
       "design_obligation_before_issue_39": "Define discovery, scoped precedence, conflict handling, lock identity, drift impact and implicit-loading prohibition.",
       "implementation_obligation_before_mvp": "Implement instruction discovery/locking/compilation and include its digest in every applicable candidate and result binding.",
       "release_blocking": true,
-      "dependencies": [3,4],
-      "downstream_blockers": [14,15,17,18,19,21,34,35,36,37,39],
-      "source_parity_ids": ["guide.agent-selection","protocol.principles-digest"],
+      "dependencies": [
+        3,
+        4
+      ],
+      "downstream_blockers": [
+        14,
+        15,
+        17,
+        18,
+        19,
+        21,
+        34,
+        35,
+        36,
+        37,
+        39
+      ],
+      "source_parity_ids": [
+        "guide.agent-selection",
+        "protocol.principles-digest"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover nested scopes, provider-only files, mid-review drift, secrets, symlinks, conflicts and cross-project isolation."
+      "verification_expectation": "Tests cover nested scopes, provider-only files, mid-review drift, secrets, symlinks, conflicts and cross-project isolation.",
+      "full_program_required": true
     },
     {
       "issue_number": 13,
@@ -248,12 +375,27 @@
       "design_obligation_before_issue_39": "Choose and document helper/addon strategy, threat model, API, packaging identity, capability matrix and residual risks.",
       "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible.",
       "release_blocking": true,
-      "dependencies": [10],
-      "downstream_blockers": [21,22,27,30,34,36,37,39],
-      "source_parity_ids": ["command.size","command.write-verify"],
+      "dependencies": [
+        10
+      ],
+      "downstream_blockers": [
+        21,
+        22,
+        27,
+        30,
+        34,
+        36,
+        37,
+        39
+      ],
+      "source_parity_ids": [
+        "command.size",
+        "command.write-verify"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Adversarial tests cover symlink/intermediate swaps, special files, case/Unicode, mount boundaries, fsync/rename crashes and helper tampering."
+      "verification_expectation": "Adversarial tests cover symlink/intermediate swaps, special files, case/Unicode, mount boundaries, fsync/rename crashes and helper tampering.",
+      "full_program_required": true
     },
     {
       "issue_number": 14,
@@ -269,12 +411,36 @@
       "design_obligation_before_issue_39": "Define a versioned Artifact Registry, classifier, dependency graph, lifecycle contract and unknown-class fail-closed behavior.",
       "implementation_obligation_before_mvp": "Implement registry-driven authoring, identity, gates, publication, impact and retention for all v1 artifact classes.",
       "release_blocking": true,
-      "dependencies": [4,12],
-      "downstream_blockers": [16,19,23,25,29,31,36,37,39],
-      "source_parity_ids": ["command.identity-check","command.identity-mint","protocol.arena.arena-stage","protocol.arena.judge-brief","skill.artifact-critique","skill.core-flows","skill.epic-brief","skill.tech-plan","skill.ticket-breakdown"],
+      "dependencies": [
+        4,
+        12
+      ],
+      "downstream_blockers": [
+        16,
+        19,
+        23,
+        25,
+        29,
+        31,
+        36,
+        37,
+        39
+      ],
+      "source_parity_ids": [
+        "command.identity-check",
+        "command.identity-mint",
+        "protocol.arena.arena-stage",
+        "protocol.arena.judge-brief",
+        "skill.artifact-critique",
+        "skill.core-flows",
+        "skill.epic-brief",
+        "skill.tech-plan",
+        "skill.ticket-breakdown"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover behavior/editorial ADRs, migration and verification changes, multi-file packs, unknown classes and registry drift."
+      "verification_expectation": "Tests cover behavior/editorial ADRs, migration and verification changes, multi-file packs, unknown classes and registry drift.",
+      "full_program_required": true
     },
     {
       "issue_number": 15,
@@ -290,12 +456,22 @@
       "design_obligation_before_issue_39": "Specify GateStoreProjection fields, canonical hash, allowed concurrent host mutations and provenance checks.",
       "implementation_obligation_before_mvp": "Implement pre/post projection and mutation provenance validation for every gate task.",
       "release_blocking": true,
-      "dependencies": [10,11,12,18],
-      "downstream_blockers": [16,36,39],
+      "dependencies": [
+        10,
+        11,
+        12,
+        18
+      ],
+      "downstream_blockers": [
+        16,
+        36,
+        39
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Concurrency tests vary seat completion order and host updates while detecting reviewer/driver mutation and schema mismatch."
+      "verification_expectation": "Concurrency tests vary seat completion order and host updates while detecting reviewer/driver mutation and schema mismatch.",
+      "full_program_required": true
     },
     {
       "issue_number": 16,
@@ -311,12 +487,31 @@
       "design_obligation_before_issue_39": "Define raw/canonical schemas, merge rules, citable dispositions, contest, gate predicate, debt and late finding flows.",
       "implementation_obligation_before_mvp": "Implement one finding registry used by Panel and Code Review, including correction work after staging/integration/release.",
       "release_blocking": true,
-      "dependencies": [14,15,18],
-      "downstream_blockers": [25,28,29,31,36,39],
-      "source_parity_ids": ["protocol.arena.arena-stage","protocol.arena.judge-brief","skill.artifact-critique","skill.review","validation.external-review","validation.external-review-2"],
+      "dependencies": [
+        14,
+        15,
+        18
+      ],
+      "downstream_blockers": [
+        25,
+        28,
+        29,
+        31,
+        36,
+        39
+      ],
+      "source_parity_ids": [
+        "protocol.arena.arena-stage",
+        "protocol.arena.judge-brief",
+        "skill.artifact-critique",
+        "skill.review",
+        "validation.external-review",
+        "validation.external-review-2"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover duplicates, severity disagreement, invalid rejection, contest outage, Medium dispositions and late stale/current findings."
+      "verification_expectation": "Tests cover duplicates, severity disagreement, invalid rejection, contest outage, Medium dispositions and late stale/current findings.",
+      "full_program_required": true
     },
     {
       "issue_number": 17,
@@ -332,12 +527,23 @@
       "design_obligation_before_issue_39": "Define delivery-profile discovery, human completion, lock/drift, supported modes and unsupported-policy fail-closed behavior.",
       "implementation_obligation_before_mvp": "Implement local/PR delivery profiles needed by v1 and bind aggregate acceptance/final promotion to the current profile.",
       "release_blocking": true,
-      "dependencies": [12],
-      "downstream_blockers": [9,34,36,39],
-      "source_parity_ids": ["command.integrate-approved","test-suite.integrate-approved"],
+      "dependencies": [
+        12
+      ],
+      "downstream_blockers": [
+        9,
+        34,
+        36,
+        39
+      ],
+      "source_parity_ids": [
+        "command.integrate-approved",
+        "test-suite.integrate-approved"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover protected and unprotected branches, PR-only, merge modes, signing/DCO, ruleset drift and unavailable discovery."
+      "verification_expectation": "Tests cover protected and unprotected branches, PR-only, merge modes, signing/DCO, ruleset drift and unavailable discovery.",
+      "full_program_required": true
     },
     {
       "issue_number": 18,
@@ -353,12 +559,34 @@
       "design_obligation_before_issue_39": "Define result schemas, role capabilities, record/read-back order, missing/multiple-submit handling and deterministic mappings.",
       "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step.",
       "release_blocking": true,
-      "dependencies": [10,12],
-      "downstream_blockers": [15,16,19,22,32,35,36,38,39],
-      "source_parity_ids": ["command.identity-check","command.identity-mint","protocol.arena.arena-stage","protocol.arena.judge-brief","skill.artifact-critique","skill.implement","skill.review"],
+      "dependencies": [
+        10,
+        12
+      ],
+      "downstream_blockers": [
+        15,
+        16,
+        19,
+        22,
+        32,
+        35,
+        36,
+        38,
+        39
+      ],
+      "source_parity_ids": [
+        "command.identity-check",
+        "command.identity-mint",
+        "protocol.arena.arena-stage",
+        "protocol.arena.judge-brief",
+        "skill.artifact-critique",
+        "skill.implement",
+        "skill.review"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Fake-provider tests cover malformed/multiple/missing submissions, scope mismatch, target injection and crash around record/transit."
+      "verification_expectation": "Fake-provider tests cover malformed/multiple/missing submissions, scope mismatch, target injection and crash around record/transit.",
+      "full_program_required": true
     },
     {
       "issue_number": 19,
@@ -374,12 +602,33 @@
       "design_obligation_before_issue_39": "Classify as v1-required and include carrier registry, attribution echo and bundle coverage contracts in the #39 design.",
       "implementation_obligation_before_mvp": "Implement deterministic carrier resolution/serialization for all v1 roles and mark post-v1 mappings inactive but explicit.",
       "release_blocking": true,
-      "dependencies": [3,12,14,18,37],
-      "downstream_blockers": [20,23,24,26,28,31,34,36],
-      "source_parity_ids": ["guide.agent-selection","protocol.principles-digest","protocol.writing.technical-writing","protocol.writing.unslop"],
+      "dependencies": [
+        3,
+        12,
+        14,
+        18,
+        37
+      ],
+      "downstream_blockers": [
+        20,
+        23,
+        24,
+        26,
+        28,
+        31,
+        34,
+        36
+      ],
+      "source_parity_ids": [
+        "guide.agent-selection",
+        "protocol.principles-digest",
+        "protocol.writing.technical-writing",
+        "protocol.writing.unslop"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover missing/forbidden fragments, stale echoes, ordering, prompt budgets, Judge secrecy and byte-identical Panel anchors."
+      "verification_expectation": "Tests cover missing/forbidden fragments, stale echoes, ordering, prompt budgets, Judge secrecy and byte-identical Panel anchors.",
+      "full_program_required": true
     },
     {
       "issue_number": 20,
@@ -395,12 +644,24 @@
       "design_obligation_before_issue_39": "Include exact-body clearance, scanner self-test, data policy and send-digest binding in the v1 design.",
       "implementation_obligation_before_mvp": "Implement fail-closed secret/data clearance and sanitized evidence for every external provider dispatch.",
       "release_blocking": true,
-      "dependencies": [19],
-      "downstream_blockers": [26,27,28,29,31,33,34,36],
+      "dependencies": [
+        19
+      ],
+      "downstream_blockers": [
+        26,
+        27,
+        28,
+        29,
+        31,
+        33,
+        34,
+        36
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover scanner failure, fake/real patterns, personal data, redaction, mutation between scan/send, binary input and stale exceptions."
+      "verification_expectation": "Tests cover scanner failure, fake/real patterns, personal data, redaction, mutation between scan/send, binary input and stale exceptions.",
+      "full_program_required": true
     },
     {
       "issue_number": 21,
@@ -416,12 +677,18 @@
       "design_obligation_before_issue_39": "Define source kinds, copy/identity receipts, storage/retention, drift and supersession semantics before #39.",
       "implementation_obligation_before_mvp": "Implement snapshot mint/check for v1-supported text and binary inputs before they can enter an anchor pack.",
       "release_blocking": true,
-      "dependencies": [12,13],
-      "downstream_blockers": [36],
+      "dependencies": [
+        12,
+        13
+      ],
+      "downstream_blockers": [
+        36
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover modification/deletion/symlink swap, binary/PDF/image bytes, concurrency, corruption, dedup and pre-PASS drift."
+      "verification_expectation": "Tests cover modification/deletion/symlink swap, binary/PDF/image bytes, concurrency, corruption, dedup and pre-PASS drift.",
+      "full_program_required": true
     },
     {
       "issue_number": 22,
@@ -437,12 +704,26 @@
       "design_obligation_before_issue_39": "Define write phases, receipts, quarantine, reconciliation truth and safeProjectFs use in the design.",
       "implementation_obligation_before_mvp": "Implement host-owned verified writes for every canonical artifact/manifest/lock created by v1.",
       "release_blocking": true,
-      "dependencies": [13,18],
-      "downstream_blockers": [23,24,27,36],
-      "source_parity_ids": ["command.size","command.write-verify","executable.traycer-protocol","test-suite.traycer-protocol"],
+      "dependencies": [
+        13,
+        18
+      ],
+      "downstream_blockers": [
+        23,
+        24,
+        27,
+        36
+      ],
+      "source_parity_ids": [
+        "command.size",
+        "command.write-verify",
+        "executable.traycer-protocol",
+        "test-suite.traycer-protocol"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Fault tests cover disk/permission failure, crash around fsync/rename/receipt, external mutation, special/oversized files and conflicts."
+      "verification_expectation": "Fault tests cover disk/permission failure, crash around fsync/rename/receipt, external mutation, special/oversized files and conflicts.",
+      "full_program_required": true
     },
     {
       "issue_number": 23,
@@ -458,12 +739,23 @@
       "design_obligation_before_issue_39": "Include verification-doc artifact class, feature-map schema, self-proof and Ticket linkage in the v1 design.",
       "implementation_obligation_before_mvp": "Implement recipe generation/validation/self-proof and require mapped evidence before Ticket acceptance.",
       "release_blocking": true,
-      "dependencies": [14,19,22],
-      "downstream_blockers": [24,28,36],
-      "source_parity_ids": ["protocol.verification.template"],
+      "dependencies": [
+        14,
+        19,
+        22
+      ],
+      "downstream_blockers": [
+        24,
+        28,
+        36
+      ],
+      "source_parity_ids": [
+        "protocol.verification.template"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover fresh projects, missing/drifted recipes, wrong surfaces, infrastructure failures, cleanup and evidence redaction."
+      "verification_expectation": "Tests cover fresh projects, missing/drifted recipes, wrong surfaces, infrastructure failures, cleanup and evidence redaction.",
+      "full_program_required": true
     },
     {
       "issue_number": 24,
@@ -479,12 +771,30 @@
       "design_obligation_before_issue_39": "Define typed work-type fields, mixed-work split rules and pre/post validators before #39.",
       "implementation_obligation_before_mvp": "Implement feature, bug-fix, refactoring and performance gates in manifest dispatch, result validation and review identity.",
       "release_blocking": true,
-      "dependencies": [6,19,22,23],
-      "downstream_blockers": [28,32,36],
-      "source_parity_ids": ["protocol.playbooks.bug-fix","protocol.playbooks.feature","protocol.playbooks.perf","protocol.playbooks.refactoring","skill.execute","skill.implement","skill.review"],
+      "dependencies": [
+        6,
+        19,
+        22,
+        23
+      ],
+      "downstream_blockers": [
+        28,
+        32,
+        36
+      ],
+      "source_parity_ids": [
+        "protocol.playbooks.bug-fix",
+        "protocol.playbooks.feature",
+        "protocol.playbooks.perf",
+        "protocol.playbooks.refactoring",
+        "skill.execute",
+        "skill.implement",
+        "skill.review"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Per-type positive/negative matrices cover stale evidence, wrong surface, exceptions, mixed types and provider success without proof."
+      "verification_expectation": "Per-type positive/negative matrices cover stale evidence, wrong surface, exceptions, mixed types and provider success without proof.",
+      "full_program_required": true
     },
     {
       "issue_number": 25,
@@ -500,12 +810,24 @@
       "design_obligation_before_issue_39": "Define revision classification, user decisions, layered re-panels, consistency sweep and staged/integrated dispositions.",
       "implementation_obligation_before_mvp": "Implement the semantic revision front-end and connect its approved impact plan to crash-safe rebuild operations.",
       "release_blocking": true,
-      "dependencies": [4,6,14,16,35],
-      "downstream_blockers": [28,36],
-      "source_parity_ids": ["skill.revise-requirements"],
+      "dependencies": [
+        4,
+        6,
+        14,
+        16,
+        35
+      ],
+      "downstream_blockers": [
+        28,
+        36
+      ],
+      "source_parity_ids": [
+        "skill.revise-requirements"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover product/technical/security changes at every lifecycle point, rapid supersession and defer/new-Epic/rework decisions."
+      "verification_expectation": "Tests cover product/technical/security changes at every lifecycle point, rapid supersession and defer/new-Epic/rework decisions.",
+      "full_program_required": true
     },
     {
       "issue_number": 26,
@@ -521,12 +843,25 @@
       "design_obligation_before_issue_39": "Include capability registry, attestable/residual fields, bounded retries and process lifecycle in the v1 design.",
       "implementation_obligation_before_mvp": "Implement preflight/runtime enforcement for all v1 model routes without silent substitution or effort downgrade.",
       "release_blocking": true,
-      "dependencies": [19,20],
-      "downstream_blockers": [28,29,31,32,34,36],
-      "source_parity_ids": ["guide.agent-selection"],
+      "dependencies": [
+        19,
+        20
+      ],
+      "downstream_blockers": [
+        28,
+        29,
+        31,
+        32,
+        34,
+        36
+      ],
+      "source_parity_ids": [
+        "guide.agent-selection"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Fake-provider tests cover model/effort drop, auth, timeout/orphans, session corruption, permission rejection and shared-domain outage."
+      "verification_expectation": "Fake-provider tests cover model/effort drop, auth, timeout/orphans, session corruption, permission rejection and shared-domain outage.",
+      "full_program_required": true
     },
     {
       "issue_number": 27,
@@ -542,12 +877,24 @@
       "design_obligation_before_issue_39": "Define evidence classes, manifests, retention locks, redaction, dependent invalidation and repair before #39.",
       "implementation_obligation_before_mvp": "Implement durable/transient evidence lifecycle for v1 gates, verification, integration, approvals and cleanup.",
       "release_blocking": true,
-      "dependencies": [13,20,22],
-      "downstream_blockers": [28,29,30,33,34,36],
+      "dependencies": [
+        13,
+        20,
+        22
+      ],
+      "downstream_blockers": [
+        28,
+        29,
+        30,
+        33,
+        34,
+        36
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover active-reference expiry, corruption, redaction failure, size/truncation, concurrent cleanup and cross-project injection."
+      "verification_expectation": "Tests cover active-reference expiry, corruption, redaction failure, size/truncation, concurrent cleanup and cross-project injection.",
+      "full_program_required": true
     },
     {
       "issue_number": 28,
@@ -563,12 +910,30 @@
       "design_obligation_before_issue_39": "Before #39 mark the workflow and bundled protocol as inactive_in_v1 with an explicit post-v1 contract and no readiness claim.",
       "implementation_obligation_before_mvp": "None before MVP; after #36 implement the approved run contract, budgets, sprint Tickets, evaluation and recovery.",
       "release_blocking": false,
-      "dependencies": [6,16,19,20,23,24,25,26,27,32,35,36,37],
+      "dependencies": [
+        6,
+        16,
+        19,
+        20,
+        23,
+        24,
+        25,
+        26,
+        27,
+        32,
+        35,
+        36,
+        37
+      ],
       "downstream_blockers": [],
-      "source_parity_ids": ["protocol.autobuild.run-contract","skill.autobuild"],
+      "source_parity_ids": [
+        "protocol.autobuild.run-contract",
+        "skill.autobuild"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Post-v1 E2E covers immutable contract, budgets/no-progress, generator/evaluator independence, crash recovery and normal gates."
+      "verification_expectation": "Post-v1 E2E covers immutable contract, budgets/no-progress, generator/evaluator independence, crash recovery and normal gates.",
+      "full_program_required": true
     },
     {
       "issue_number": 29,
@@ -584,12 +949,23 @@
       "design_obligation_before_issue_39": "Before #39 document inactive_in_v1 status and the rule that no automatic governance mutation is implied.",
       "implementation_obligation_before_mvp": "None before MVP; after #36 implement sanitized retrospectives, cost-watch and panel-governed bundle changes.",
       "release_blocking": false,
-      "dependencies": [14,16,20,26,27,36,37],
+      "dependencies": [
+        14,
+        16,
+        20,
+        26,
+        27,
+        36,
+        37
+      ],
       "downstream_blockers": [],
-      "source_parity_ids": ["protocol.reflect.reviewer-brief"],
+      "source_parity_ids": [
+        "protocol.reflect.reviewer-brief"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Post-v1 tests cover concurrent append, malformed/truncated history, speculative rules, evidence locators and keep/relax/remove history."
+      "verification_expectation": "Post-v1 tests cover concurrent append, malformed/truncated history, speculative rules, evidence locators and keep/relax/remove history.",
+      "full_program_required": true
     },
     {
       "issue_number": 30,
@@ -605,12 +981,20 @@
       "design_obligation_before_issue_39": "Before #39 distinguish mandatory scoped cleanup from the inactive post-v1 host-wide Housekeeping workflow.",
       "implementation_obligation_before_mvp": "None before MVP beyond safe scoped cleanup; after #36 implement inventory/classification/approval/revalidation deletion.",
       "release_blocking": false,
-      "dependencies": [13,27,34,36],
+      "dependencies": [
+        13,
+        27,
+        34,
+        36
+      ],
       "downstream_blockers": [],
-      "source_parity_ids": ["skill.housekeeping"],
+      "source_parity_ids": [
+        "skill.housekeeping"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Post-v1 adversarial tests cover in-use, dirty, detached, submodule, orphan, unknown and report-to-delete races."
+      "verification_expectation": "Post-v1 adversarial tests cover in-use, dirty, detached, submodule, orphan, unknown and report-to-delete races.",
+      "full_program_required": true
     },
     {
       "issue_number": 31,
@@ -622,16 +1006,28 @@
       "rationale": "Debate addresses non-empirical one-way-door trade-offs and is optional beyond the core alignment/Panel/Arena lifecycle.",
       "classification_risk": "V1 must escalate such questions to a human without structured multi-perspective debate.",
       "owner": "autosk-flow maintainers",
-      "activation_trigger": "Begin after issue #36 closes or earlier only by explicit user request for the Debate capability.",
+      "activation_trigger": "Begin after issue #36 closes and the autonomous MVP release is attested.",
       "design_obligation_before_issue_39": "Before #39 mark Debate inactive_in_v1 and preserve the human-decision fallback without false capability claims.",
       "implementation_obligation_before_mvp": "None before MVP; after #36 implement two approval gates, participant rounds, mediator synthesis and impact handoff.",
       "release_blocking": false,
-      "dependencies": [4,14,16,19,20,26,35,36],
+      "dependencies": [
+        4,
+        14,
+        16,
+        19,
+        20,
+        26,
+        35,
+        36
+      ],
       "downstream_blockers": [],
-      "source_parity_ids": ["skill.debate"],
+      "source_parity_ids": [
+        "skill.debate"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Post-v1 tests cover roster/route rejection, persistent disagreement, caps, false consensus, secrecy and Arena-vs-Debate classification."
+      "verification_expectation": "Post-v1 tests cover roster/route rejection, persistent disagreement, caps, false consensus, secrecy and Arena-vs-Debate classification.",
+      "full_program_required": true
     },
     {
       "issue_number": 32,
@@ -647,12 +1043,20 @@
       "design_obligation_before_issue_39": "Include iteration schema, progress identity, four triggers and crash-safe counters in the v1 design.",
       "implementation_obligation_before_mvp": "Implement the controller across planning repair, debugging, implementation, fix and verification support.",
       "release_blocking": true,
-      "dependencies": [18,24,26],
-      "downstream_blockers": [28,36],
+      "dependencies": [
+        18,
+        24,
+        26
+      ],
+      "downstream_blockers": [
+        28,
+        36
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover repeated errors, new hypotheses, no-op edits, each escalation trigger, provider retry distinction and crash/cap behavior."
+      "verification_expectation": "Tests cover repeated errors, new hypotheses, no-op edits, each escalation trigger, provider retry distinction and crash/cap behavior.",
+      "full_program_required": true
     },
     {
       "issue_number": 33,
@@ -668,12 +1072,21 @@
       "design_obligation_before_issue_39": "Before #39 mark the artifact explanatory and inactive_in_v1, with no effect on completion or PASS.",
       "implementation_obligation_before_mvp": "None before MVP; after #36 implement user opt-in generation, fact validation and staging/target identity binding.",
       "release_blocking": false,
-      "dependencies": [9,20,27,35,36],
+      "dependencies": [
+        9,
+        20,
+        27,
+        35,
+        36
+      ],
       "downstream_blockers": [],
-      "source_parity_ids": ["skill.changeset-walkthrough"],
+      "source_parity_ids": [
+        "skill.changeset-walkthrough"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Post-v1 tests cover user decline, stale staging, incorrect links/claims, redaction and final target binding."
+      "verification_expectation": "Post-v1 tests cover user decline, stale staging, incorrect links/claims, redaction and final target binding.",
+      "full_program_required": true
     },
     {
       "issue_number": 34,
@@ -689,12 +1102,27 @@
       "design_obligation_before_issue_39": "Define read-only check registry, required check sets, provenance/expiry and JSON output in the v1 design.",
       "implementation_obligation_before_mvp": "Implement doctor for autoskd, locks, filesystem, provider, Git/delivery, clearance, evidence and recovery state.",
       "release_blocking": true,
-      "dependencies": [10,11,12,13,17,19,20,26,27,37],
-      "downstream_blockers": [30,36],
+      "dependencies": [
+        10,
+        11,
+        12,
+        13,
+        17,
+        19,
+        20,
+        26,
+        27,
+        37
+      ],
+      "downstream_blockers": [
+        30,
+        36
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover clean and degraded projects, no-write behavior, redaction, open operations and partial provider/network outage."
+      "verification_expectation": "Tests cover clean and degraded projects, no-write behavior, redaction, open operations and partial provider/network outage.",
+      "full_program_required": true
     },
     {
       "issue_number": 35,
@@ -710,12 +1138,23 @@
       "design_obligation_before_issue_39": "Define HumanDecisionRequest, immutable answer, status snapshot, staleness and idempotent resume before #39.",
       "implementation_obligation_before_mvp": "Implement CLI/API decision queue and status projection for every v1 human gate and recovery path.",
       "release_blocking": true,
-      "dependencies": [4,12,18],
-      "downstream_blockers": [25,28,31,33,36],
+      "dependencies": [
+        4,
+        12,
+        18
+      ],
+      "downstream_blockers": [
+        25,
+        28,
+        31,
+        33,
+        36
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover stale/duplicate answers, concurrent decisions, irreversible flags, correction while waiting and cross-project isolation."
+      "verification_expectation": "Tests cover stale/duplicate answers, concurrent decisions, irreversible flags, correction while waiting and cross-project isolation.",
+      "full_program_required": true
     },
     {
       "issue_number": 36,
@@ -731,12 +1170,49 @@
       "design_obligation_before_issue_39": "Before #39 finalize the test architecture and fault matrix as a mandatory release gate, without requiring runtime code yet.",
       "implementation_obligation_before_mvp": "After implementation, pass the full Planned/Quick/multi-project/fault matrix on macOS and supported Linux before MVP release.",
       "release_blocking": true,
-      "dependencies": [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,32,34,35,37,39],
-      "downstream_blockers": [28,29,30,31,33,38],
+      "dependencies": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        32,
+        34,
+        35,
+        37,
+        39
+      ],
+      "downstream_blockers": [
+        28,
+        29,
+        30,
+        31,
+        33,
+        38
+      ],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "One canonical CI command proves exact refs/trees/locks/receipts/evidence and negative no-Traycer assertions."
+      "verification_expectation": "One canonical CI command proves exact refs/trees/locks/receipts/evidence and negative no-Traycer assertions.",
+      "full_program_required": true
     },
     {
       "issue_number": 37,
@@ -752,12 +1228,33 @@
       "design_obligation_before_issue_39": "Define source/adaptation/release separation, canonical build, panel attestation, CAS current pointer and rollback/retention.",
       "implementation_obligation_before_mvp": "Implement the governance CLI/pipeline and release the exact v1 bundle used by clean-room E2E.",
       "release_blocking": true,
-      "dependencies": [3,10,12,13,14],
-      "downstream_blockers": [19,28,29,34,36],
-      "source_parity_ids": ["command.digest","executable.traycer-protocol","guide.agent-selection","protocol.principles-digest","protocol.writing.technical-writing","protocol.writing.unslop","test-suite.traycer-protocol"],
+      "dependencies": [
+        3,
+        10,
+        12,
+        13,
+        14
+      ],
+      "downstream_blockers": [
+        19,
+        28,
+        29,
+        34,
+        36
+      ],
+      "source_parity_ids": [
+        "command.digest",
+        "executable.traycer-protocol",
+        "guide.agent-selection",
+        "protocol.principles-digest",
+        "protocol.writing.technical-writing",
+        "protocol.writing.unslop",
+        "test-suite.traycer-protocol"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Tests cover reproducible builds, path/line ending order, leaks, panel fixes, release conflicts, old locks and forged/corrupt attestations."
+      "verification_expectation": "Tests cover reproducible builds, path/line ending order, leaks, panel fixes, release conflicts, old locks and forged/corrupt attestations.",
+      "full_program_required": true
     },
     {
       "issue_number": 38,
@@ -773,12 +1270,17 @@
       "design_obligation_before_issue_39": "Before #39 document the conditional escalation rule and ensure v1 never relies on a human-oriented untyped outcome for correctness.",
       "implementation_obligation_before_mvp": "None by default before MVP; immediately split/promote any required typed primitive that #11/#18 or another accepted contract cannot safely provide.",
       "release_blocking": false,
-      "dependencies": [11,18,36],
+      "dependencies": [
+        11,
+        18,
+        36
+      ],
       "downstream_blockers": [],
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Post-v1 tests cover CAS, idempotency, transaction failure, capability scope, daemon restart and CLI/SDK semantic parity."
+      "verification_expectation": "Post-v1 tests cover CAS, idempotency, transaction failure, capability scope, daemon restart and CLI/SDK semantic parity.",
+      "full_program_required": true
     },
     {
       "issue_number": 39,
@@ -794,13 +1296,36 @@
       "design_obligation_before_issue_39": "Freeze one internally consistent design candidate after all required design dispositions and publish a full attestation.",
       "implementation_obligation_before_mvp": "No product runtime implementation is owned here; implementation backlog may start only after this gate closes.",
       "release_blocking": true,
-      "dependencies": [3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
-      "downstream_blockers": [36],
-      "source_parity_ids": ["validation.external-review","validation.external-review-2"],
+      "dependencies": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18
+      ],
+      "downstream_blockers": [
+        36
+      ],
+      "source_parity_ids": [
+        "validation.external-review",
+        "validation.external-review-2"
+      ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "GPT/Grok/Kimi/Opus review one exact tree, all Critical/High close, every Medium is fixed or explicitly deferred, and attestation is schema-valid."
+      "verification_expectation": "GPT/Grok/Kimi/Opus review one exact tree, all Critical/High close, every Medium is fixed or explicitly deferred, and attestation is schema-valid.",
+      "full_program_required": true
     }
   ],
-  "canonical_digest": "e133b1c5244bc83a3fcf0abef0c000b6b82841f705ec0e97ad0e320bfe5747c7"
+  "canonical_digest": "e0e3b15a22147689bb24e211b3e4dac216cce9b1ee66be21d665d2d73c814fd3"
 }
