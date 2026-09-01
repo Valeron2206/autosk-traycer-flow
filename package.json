@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/validate-traycer-parity.test.mjs",
+    "test": "node --test test/*.test.mjs",
     "validate:migration": "node scripts/validate-traycer-parity.mjs",
+    "validate:capabilities": "node scripts/validate-program-capability-matrix.mjs",
+    "generate:capabilities": "node scripts/validate-program-capability-matrix.mjs --write-docs",
     "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope"
   },
   "engines": {

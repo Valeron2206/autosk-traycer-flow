@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/program-capabilities/matrix.schema.json",
+  "title": "autosk-flow program capability matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema","schema_version","matrix_version","repository","issue_range","source_main_commit","issue_inventory_path","issue_inventory_digest","source_parity_registry_path","classification_policy","summary","records","canonical_digest"],
+  "properties": {
+    "$schema": {"const":"./matrix.schema.json"},
+    "schema_version": {"const":1},
+    "matrix_version": {"const":"program-capability-matrix.v1"},
+    "repository": {"const":"Valeron2206/autosk-traycer-flow"},
+    "issue_range": {
+      "type":"object",
+      "additionalProperties":false,
+      "required":["from","to"],
+      "properties":{"from":{"const":3},"to":{"const":39}}
+    },
+    "source_main_commit":{"type":"string","pattern":"^[0-9a-f]{40}$"},
+    "issue_inventory_path":{"const":"resources/program-capabilities/issue-inventory.v1.json"},
+    "issue_inventory_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "source_parity_registry_path":{"const":"resources/traycer-parity/registry.v1.json"},
+    "classification_policy":{
+      "type":"object","additionalProperties":false,
+      "required":["required_for_v1","planned_after_v1","intentionally_deferred","full_program_rule","evolution_rule"],
+      "properties":{
+        "required_for_v1":{"type":"string","minLength":20},
+        "planned_after_v1":{"type":"string","minLength":20},
+        "intentionally_deferred":{"type":"string","minLength":20},
+        "full_program_rule":{"type":"string","minLength":20},
+        "evolution_rule":{"type":"string","minLength":20}
+      }
+    },
+    "summary":{
+      "type":"object","additionalProperties":false,
+      "required":["required_for_v1","planned_after_v1","intentionally_deferred","release_blocking"],
+      "properties":{
+        "required_for_v1":{"type":"integer","minimum":0},
+        "planned_after_v1":{"type":"integer","minimum":0},
+        "intentionally_deferred":{"type":"integer","minimum":0},
+        "release_blocking":{"type":"integer","minimum":0}
+      }
+    },
+    "records":{"type":"array","minItems":37,"maxItems":37,"items":{"$ref":"#/$defs/record"}},
+    "canonical_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"}
+  },
+  "$defs":{
+    "issueRefs":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":3,"maximum":39}},
+    "strings":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},
+    "record":{
+      "type":"object","additionalProperties":false,
+      "required":["issue_number","issue_title","priority","lifecycle","target_milestone","gate_role","rationale","classification_risk","owner","activation_trigger","design_obligation_before_issue_39","implementation_obligation_before_mvp","release_blocking","full_program_required","dependencies","downstream_blockers","source_parity_ids","supersession_or_split","decision_reference","verification_expectation"],
+      "properties":{
+        "issue_number":{"type":"integer","minimum":3,"maximum":39},
+        "issue_title":{"type":"string","minLength":1},
+        "priority":{"enum":["P0","P1","P2"]},
+        "lifecycle":{"enum":["required_for_v1","planned_after_v1","intentionally_deferred"]},
+        "target_milestone":{"enum":["phase_0_complete","design_ready","autonomous_mvp","full_parity_post_v1","deferred"]},
+        "gate_role":{"enum":["phase_0_gate","design_and_mvp_input","design_gate","mvp_release_gate","post_v1_capability"]},
+        "rationale":{"type":"string","minLength":30},
+        "classification_risk":{"type":"string","minLength":30},
+        "owner":{"type":"string","minLength":3},
+        "activation_trigger":{"type":"string","minLength":20},
+        "design_obligation_before_issue_39":{"type":"string","minLength":20},
+        "implementation_obligation_before_mvp":{"type":"string","minLength":20},
+        "release_blocking":{"type":"boolean"},
+        "full_program_required":{"const":true},
+        "dependencies":{"$ref":"#/$defs/issueRefs"},
+        "downstream_blockers":{"$ref":"#/$defs/issueRefs"},
+        "source_parity_ids":{"$ref":"#/$defs/strings"},
+        "supersession_or_split":{"type":["string","null"],"minLength":1},
+        "decision_reference":{"type":["string","null"],"minLength":1},
+        "verification_expectation":{"type":"string","minLength":20}
+      },
+      "allOf":[
+        {
+          "if":{"properties":{"lifecycle":{"const":"required_for_v1"}},"required":["lifecycle"]},
+          "then":{"properties":{"release_blocking":{"const":true},"target_milestone":{"enum":["phase_0_complete","design_ready","autonomous_mvp"]},"gate_role":{"enum":["phase_0_gate","design_and_mvp_input","design_gate","mvp_release_gate"]}}}
+        },
+        {
+          "if":{"properties":{"lifecycle":{"const":"planned_after_v1"}},"required":["lifecycle"]},
+          "then":{"properties":{"release_blocking":{"const":false},"target_milestone":{"const":"full_parity_post_v1"},"gate_role":{"const":"post_v1_capability"},"decision_reference":{"type":"null"}}}
+        },
+        {
+          "if":{"properties":{"lifecycle":{"const":"intentionally_deferred"}},"required":["lifecycle"]},
+          "then":{"properties":{"release_blocking":{"const":false},"target_milestone":{"const":"deferred"},"decision_reference":{"type":"string","minLength":1}}}
+        }
+      ]
+    }
+  }
+}
