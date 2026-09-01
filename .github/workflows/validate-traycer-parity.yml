@@ -31,6 +31,9 @@ jobs:
       - name: Validate program capability matrix
         run: npm run validate:capabilities
 
+      - name: Validate Epic planning-ref design contract
+        run: npm run validate:planning-ref
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
