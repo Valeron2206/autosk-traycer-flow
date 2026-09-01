@@ -18,7 +18,7 @@
 
 ~~~text
 intake
- -> select_next
+ -> init_planning_ref -> select_next
 
 human alignment before normative planning:
   select_next -> clarify_alignment -> await_alignment (human)
@@ -26,7 +26,7 @@ human alignment before normative planning:
 
 artifact full panel:
   draft_artifact -> draft_artifact | freeze_artifact -> dispatch_panel
-  -> panel_join -> synthesize_panel -> record_artifact_pass
+  -> panel_join -> synthesize_panel -> record_artifact_pass -> publish_artifact_pass
 
 tickets proposal and alignment:
   select_next -> draft_artifact -> present_tickets_breakdown
@@ -35,7 +35,7 @@ tickets proposal and alignment:
 artifact fix:
   synthesize_panel -> fix_artifact -> freeze_artifact
   -> dispatch_narrow_review -> narrow_review_join
-  -> record_artifact_pass
+  -> record_artifact_pass -> publish_artifact_pass
 
 contest:
   synthesize_panel -> dispatch_contest -> contest_join
@@ -57,7 +57,10 @@ execution:
 recovery:
   prepare_anchor_impact -> await_anchor_impact_approval (human)
   -> record_anchor_impact_approval -> rebuild_anchor
-  rebuild_anchor -> clarify_alignment | present_tickets_breakdown | draft_artifact | dispatch_arena | select_next | resume_repaired_tickets | ticket_join | human
+  rebuild_anchor -> publish_planning_invalidation | clarify_alignment | present_tickets_breakdown | draft_artifact | dispatch_arena | select_next | resume_repaired_tickets | ticket_join | human
+  init_planning_ref -> select_next | human
+  publish_artifact_pass -> select_next | human
+  publish_planning_invalidation -> recorded rebuild target | human
   resume_repaired_tickets -> ticket_join
   panel_join_wait -> panel_join
   contest_join_wait -> contest_join
@@ -80,11 +83,15 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
-| intake | classification валиден | select_next |
+| intake | classification валиден и workflow=autosk-planned | init_planning_ref |
+| init_planning_ref | prepared init operation отсутствует, exact planning base/ref/project binding невалидны | human с park.reason=planning_ref_init_invalid; Git side effects отсутствуют |
+| init_planning_ref | ref отсутствует либо уже равен recorded planning base и init operation binding валиден | persist exact operation before side effect; CAS create from zero OID when absent; read-back commit/tree/ref; atomically planning.init_status=verified/head=base/generation=0; select_next |
+| init_planning_ref | ref существует на OID, отличном от recorded base | human с park.reason=planning_ref_foreign_movement; reset/delete/adopt запрещены |
 | freeze_artifact / Quick freeze / Ticket freeze | closed path-role classifier returns `unknown` for a document/governance surface, or `additional_normative` lacks exactly one valid governance mapping to current named manifest decision IDs, mapping/sidecar is orphaned, ambiguous or stale, or document contains extra unmapped normative content | human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths do not match this guard. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction |
 | freeze_artifact / Quick freeze / Ticket freeze | every `additional_normative` path has valid current mapping, but ordered proof-set digest is not yet bound to current artifact/code candidate | atomically record exact-tree proofs in task-owned protected metadata, bind `governance_mapping_set_digest` to candidate identity and repeat same freeze step |
 | await_alignment / record_alignment / present_tickets_breakdown / freeze_artifact / fix_artifact / record_artifact_pass | kind=tickets, aggregate_remediation phase=proposal_ready и current proposal digest != recorded new_ticket_set_digest | atomically phase=old_bindings_void, clear new digest, alignment_records.tickets=stale, artifact_pass.tickets=void, review cycle full required; draft_artifact до нового breakdown/panel |
 | select_next | `aggregate_remediation.phase != closed` | record_aggregate_remediation; recorded prefix продолжается, old/partial new Tickets не dispatch'ятся |
+| select_next | current artifact PASS/waiver имеет publication_status=recorded_unpublished либо open matching planning_publication_op phase != verified | publish_artifact_pass; kind ещё не завершён |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record текущей project/Epic/kind/anchor/scope/subject identity отсутствует | записать kind, создать review_cycles[kind] если absent, clarify_alignment |
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record уже существует | записать kind, создать review_cycles[kind] если absent, draft_artifact |
 | select_next | Tech Plan passed и существует arena.decisions entry status=pending | выбрать первый stable decision_id, записать current_decision_id, dispatch_arena |
@@ -104,6 +111,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; новый daemon decision либо re-resolved exact policy валиден для current identity | старый authority/approval hash остаётся audit evidence; atomically записать новый current record и перейти в draft_artifact |
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; current alignment record уже валиден и identity byte-identical | идемпотентно draft_artifact без перезаписи record |
 | record_alignment | kind=tickets, daemon-attributed breakdown approval либо re-resolved policy валидны для той же proposal/classifier identity | старый authority/approval hash остаётся audit evidence; atomically записать alignment_records.tickets, current_alignment=null, freeze_artifact |
+| draft_artifact | current author worktree/base OID или live private planning ref не равны verified planning.head_oid/tree | human с park.reason=planning_candidate_base_stale; provider не вызывается, candidate/PASS отсутствуют |
 | draft_artifact | provider/model недоступен после retry | human с park.reason=artifact_draft_provider_unavailable |
 | draft_artifact | output missing/invalid или out-of-scope mutation | human с park.reason=artifact_draft_result_invalid либо artifact_draft_scope_invalid; normative bytes/PASS не создаются |
 | draft_artifact | arena re-expression required, но Decision Record/graft list не отражены в новых Tech Plan bytes либо identity равна pre-arena | human с park.reason=arena_reexpression_missing |
@@ -120,6 +128,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | present_tickets_breakdown | daemon decision отсутствует; policy candidate указан, но invalid/current coverage не доказан | await_alignment и human с park.reason=alignment_policy_out_of_scope |
 | present_tickets_breakdown | approval stale/mismatched либо daemon decision и policy candidate отсутствуют | await_alignment и human с park.reason=tickets_breakdown_alignment_required |
 | freeze_artifact | alignment отсутствует/stale либо recomputed material manifest/projector/classifier не совпадает с current identity | human с park.reason=alignment_record_stale; Brief/Core Flow/Tech Plan возвращаются в clarify_alignment, Tickets — в present_tickets_breakdown |
+| freeze_artifact | candidate.base_oid/base_tree или live planning ref не совпадают с verified planning head | human с park.reason=planning_candidate_base_stale; panel child/PASS не создаются |
 | freeze_artifact | scope/pathspec/tree identity mint invalid или changed during mint | human с park.reason=artifact_freeze_invalid; panel child/PASS не создаются |
 | freeze_artifact | panel waiver candidate указан, но daemon signature/identity/scope/expiry невалидны | human с park.reason=panel_waiver_required; panel child не создаётся |
 | freeze_artifact | signed panel waiver mode=full_skip exact current artifact/alignment identity валиден | record_artifact_pass с disposition=waived; panel child не создаётся |
@@ -170,9 +179,17 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_artifact_pass | pending_anchor | human с park.reason=blocked_anchor; ничего не записано |
 | record_artifact_pass | kind=tech_plan и autosk-arena block missing/malformed/history mismatch | human с park.reason=arena_contract_invalid; ничего не записано |
 | record_artifact_pass | disposition=waived, waiver revalidation failed | human с park.reason=panel_waiver_required; ничего не записано |
-| record_artifact_pass | disposition=waived и signed panel waiver mode=full_skip exact current identity валиден | validate/merge Arena fields identically to pass; atomically artifact_pass[kind]={disposition:waived,identity,waiver_record_id,waiver_record_hash}; if kind=tickets and remediation phase=proposal_ready, verify new set digest and set phase=closed; select_next |
+| record_artifact_pass | disposition=waived и signed panel waiver mode=full_skip exact current identity валиден | validate/merge Arena fields identically to pass; atomically artifact_pass[kind]={disposition:waived,identity,waiver_record_id,waiver_record_hash,publication_status:recorded_unpublished}; create immutable planning_publication_op phase=prepared with exact recipe/OID; publish_artifact_pass |
 | record_artifact_pass | disposition=pass, identity/anchor/roster или verdict binding невалидны | human с park.reason=artifact_pass_invalid; ничего не записано |
-| record_artifact_pass | disposition=pass, verdict binding текущей identity валиден; для tech_plan Arena block валиден | atomically artifact_pass[kind]={disposition:pass,identity,verdict_hash}, arena fields обновлены; if kind=tickets and remediation phase=proposal_ready, verify new set digest and set phase=closed; select_next |
+| record_artifact_pass | disposition=pass, verdict binding текущей identity валиден; для tech_plan Arena block валиден | atomically artifact_pass[kind]={disposition:pass,identity,verdict_hash,publication_status:recorded_unpublished}, arena fields обновлены; create immutable planning_publication_op phase=prepared with exact recipe/OID; publish_artifact_pass |
+| publish_artifact_pass | open operation absent/multiple, identity/recipe/expected parent/tree/OID changed, unknown phase or another planning operation open | human с park.reason=planning_publication_invalid; ref movement отсутствует |
+| publish_artifact_pass | phase=prepared and ref=expected parent | write/verify exact deterministic commit object; atomically phase=commit_created; publish_artifact_pass |
+| publish_artifact_pass | phase=prepared|commit_created and ref=expected commit with exact object bytes | reconstruct monotonic receipt, atomically phase=ref_advanced; publish_artifact_pass |
+| publish_artifact_pass | phase=commit_created and ref=expected parent | expected-old CAS to expected commit; read ref; atomically phase=ref_advanced; publish_artifact_pass |
+| publish_artifact_pass | ref neither expected parent nor expected commit | human с park.reason=planning_ref_foreign_movement; no reset/rebase/force/adopt fallback |
+| publish_artifact_pass | claimed durable object/ref phase missing, corrupt or indeterminate | human с park.reason=planning_publication_corrupt; operation remains open for explicit recovery |
+| publish_artifact_pass | phase=ref_advanced and ref/commit/parent/tree/trailers/current bindings exact | atomically phase=verified, planning head/tree/generation, artifact_pass publication_status=verified/published_commit_oid/op_id; close current Tickets remediation only here; current_artifact=null; select_next |
+| publish_artifact_pass | phase=verified and final metadata/transition incomplete | read-back same commit/ref, finalize only missing monotonic projection, select_next |
 | dispatch_arena | candidates и judge task настроены/enrolled, Judge blocked candidates и parent имеет exact blockers всех Arena children | arena_join |
 | arena_join | pending_anchor, anchor mismatch или любой candidate/judge result=BLOCKED_ANCHOR | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
 | arena_join | любой Arena child status=new/work/human | join prologue обеспечивает exact blocker, arena_join_wait; human child возобновляет пользователь |
@@ -194,7 +211,9 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | rebuild_anchor | approved anchor_impact incomplete, current in-flight kind без current PASS не affected, cascade нарушен, hash claimed-unaffected изменён или Ticket task re-binding не подтверждён | human с park.reason=anchor_impact_invalid |
 | rebuild_anchor | любой Ticket expected execution set status=work | human с park.reason=anchor_repair_ticket_live; parent не пишет metadata ни affected, ни unaffected live Ticket, pending_anchor сохраняется |
 | rebuild_anchor | affected Ticket status=human, но это не waiting_parent_anchor с suspension receipt и не blocked_anchor с обоснованным pending до absorption | human с park.reason=anchor_impact_invalid; никаких mutation |
-| rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes/alignments только по exact daemon-attributed impact approval, void affected bindings и alignment records, current kind=earliest affected, current_cycle full required, clarify_alignment; для affected Tickets после proposal — present_tickets_breakdown |
+| rebuild_anchor | affected planning kinds не пусты | bump anchor, re-bind unchanged unaffected passes/alignments только по exact daemon-attributed impact approval, void affected bindings/alignment records; prepare descendant planning_publication_op type=anchor_invalidation from current verified head with exact affected projection and recorded next target; publish_planning_invalidation |
+| publish_planning_invalidation | operation invalid, ref foreign, object/receipt corrupt or affected projection differs from approved impact | human с planning_publication_invalid, planning_ref_foreign_movement или planning_publication_corrupt; no rewind/force |
+| publish_planning_invalidation | same object/CAS/read-back phases verified | atomically planning head/tree/generation updated, invalidation op closed, current kind=earliest affected/current_cycle full required; recorded target clarify_alignment либо present_tickets_breakdown |
 | rebuild_anchor | planning unchanged, affected Ticket code bindings, affected Tickets human in allowed recovery state | orchestrateChildBatch bound to anchor_rebuild_op/exact child heads writes receipts/anchors; ready_to_transit(resume_repaired_tickets) |
 | rebuild_anchor | code-only replacement dispositions, no expected Ticket status=work | orchestrateChildBatch applies exact supersede/create/configure child patches to replacement_ready; no enroll/blockers; ready_to_transit |
 | rebuild_anchor | affected bindings пусты, active Arena decision pending/running | bump/re-bind, void old Arena run binding, arena attempt+1, dispatch_arena |
@@ -272,7 +291,17 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | cleanup | dirty=true при force=false | human с park.reason=cleanup_dirty |
 | done | terminal | нет переходов |
 
-Строки каждого шага применяются строго сверху вниз; predicates взаимно исключаются и явно закрывают unmatched state. select_next считает kind завершённым только если artifact_pass disposition=pass|waived и binding совпадает с current anchor/protocol/artifact/alignment identity; waived branch дополнительно re-resolves authority. Tickets не входят в planning-kind search и появляются только после того, как все arena.decisions terminal. Stable pending order задаёт порядок entries; terminal entry не запускается повторно.
+Строки каждого шага применяются строго сверху вниз; predicates взаимно исключаются и явно закрывают unmatched state. select_next считает kind завершённым только если artifact_pass disposition=pass|waived, publication_status=verified, published commit/tree совпадают с live private planning ref/head и binding совпадает с current anchor/protocol/runtime/instruction/artifact/alignment identity; waived branch дополнительно re-resolves authority. Tickets не входят в planning-kind search и появляются только после того, как все arena.decisions terminal. Stable pending order задаёт порядок entries; terminal entry не запускается повторно.
+
+### Epic planning ref и commit-on-PASS
+
+<!-- planning-ref-contract:v1 -->
+
+Полный нормативный контракт находится в `docs/contracts/epic-planning-ref.md`. Planned Epic имеет private append-only `refs/autosk/epics/<epic-uuid>/planning`; `init_planning_ref` CAS-создаёт его от immutable planning base. Каждый planning candidate обязан иметь base=current verified head. `record_artifact_pass` сохраняет только recorded-unpublished disposition и immutable recipe; `publish_artifact_pass` создаёт exact single-parent commit, expected-old CAS-продвигает ref и read-back проверяет commit/tree/parent/trailers до `verified`. Target ref не меняется.
+
+`planning_publication_op` имеет operation_type=`artifact_pass|anchor_invalidation`, write-once identity/recipe, phases `prepared -> commit_created -> ref_advanced -> verified`, exact expected parent/tree/commit and monotonic receipts. Ref at expected commit after crash is accepted only after full object verification; any other movement parks `planning_ref_foreign_movement`. Missing/corrupt claimed durable state parks `planning_publication_corrupt`. No rebase/reset/force/cherry-pick/adopt-current recovery exists.
+
+Anchor rebuild first publishes a descendant invalidation through `publish_planning_invalidation`; only then may it redraft. Previous accepted bytes remain ancestry, stale projections are removed from the current tree, and later accepted versions append descendants. Verified Tickets publication supplies `planning_head` to issues #6–#9.
 
 ### autosk-quick
 
@@ -539,6 +568,8 @@ autosk-flow/
       quick-reclassification.ts
       anchor-rebuild.ts
       artifact-identity.ts
+      planning-ref.ts
+      planning-publication.ts
       record-artifact-pass.ts
       record-code-verdict.ts
       verdicts.ts
@@ -557,6 +588,7 @@ autosk-flow/
       material-decision-manifest.ts
       autonomous-policy.ts
       quick-handoff.ts
+      planning-publication.ts
       metadata.ts
   resources/
     governance/
@@ -599,7 +631,7 @@ Other planning/governance documents do not add ArtifactKind. Versioned closed cl
 
 Closed mapping record: `{path_hash,content_hash,path_role,target_kind,decision_id_refs,mapping_rule_version,mapping_payload_hash,proof_hash,status:current|stale}`. Text formats contain exactly one `autosk-governance-mapping` block. Non-embeddable bytes use `<path>.autosk-governance-mapping.json`, which binds exact target path/content hash and is classified as a sidecar only when its target exists and schema/hash match; otherwise it is orphaned and fails closed. Classifier/projector verifies target in the four-value enum, all refs current in named manifest and no unmapped normative section.
 
-`governance_mapping_set_digest = SHA-256("autosk-flow/governance-mapping-set/v1" + canonical ordered current proof records)`; ordering is by normalized target path and the empty set has a fixed golden value. The digest is derived from the exact candidate tree and classifier version, stored in task-owned protected metadata, and enters artifact identity or code candidate identity directly, not `controlling_anchor_digest`. Every freeze, reviewer dispatch/join, record_artifact_pass/record_code_verdict, commit_on_pass and integration recomputes it; mismatch voids candidate/verdict before side effects.
+`governance_mapping_set_digest = SHA-256("autosk-flow/governance-mapping-set/v1" + canonical ordered current proof records)`; ordering is by normalized target path and the empty set has a fixed golden value. The digest is derived from the exact candidate tree and classifier version, stored in task-owned protected metadata, and enters artifact identity or code candidate identity directly, not `controlling_anchor_digest`. Every freeze, reviewer dispatch/join, record_artifact_pass/publish_artifact_pass/record_code_verdict, commit_on_pass and integration recomputes it; mismatch voids candidate/verdict before side effects.
 
 В mode=planned classification fields `tech_plan` и `tickets` имеют schema const=true; optional только brief/core_flow. `tickets=false` делает metadata invalid и требует возврата в intake/Quick reclassification, поэтому select_next не имеет silent skip branch.
 
@@ -622,6 +654,16 @@ Optional `correlation_id` — только UUID по закрытой схеме
     "mode": "planned",
     "epic_id": "epic-001",
     "correlation_id": null,
+    "planning": {
+      "ref": "refs/autosk/epics/<epic-uuid>/planning",
+      "base_oid": "...",
+      "head_oid": "...",
+      "head_tree_oid": "...",
+      "generation": 0,
+      "init_status": "verified",
+      "init_operation": null,
+      "publication_operation": null
+    },
     "session": {
       "provider_session_id": "...",
       "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
@@ -787,7 +829,7 @@ Alignment record content write-once. Source enum закрыт: `user_decision|pr
 
 `integration_authorization` — daemon-owned signed record stored at `.autosk/autosk-flow/integration-authorizations/<scope-id>/<record-id>.json`, chained under protected `integration_authorization_head`: `{schema,record_id,scope_id,project_root_sha256,epic_id|null,quick_task_id?,run_id,target_ref,initial_target_oid,completed_prefix_receipt_hash?,remaining_start_index,ordered_ticket_commit_oids,ordered_ref_transitions,final_tree_oid,integration_plan_hash,relevant_authority_projection_hash,dependency_head_hash,intent_head_hash,controlling_anchor_digest,classifier_proof_hash,expires_at,terminal_disposition,previous_authorization_head_hash,user_decision_record_id,user_decision_record_hash}`. Autoskd resolves by scope+ID and verifies file/head/expiry/revoke/replace. Missing/changed bytes restore only exact committed record or return integration_authorization_required. integration-state stores operation state only.
 
-`artifact_pass[kind]` — historical field name с closed `disposition=pass|waived`: обе ветви связывают current artifact/alignment identity, но первая содержит verdict hash/roster, вторая — signed waiver record ID/hash и никогда не называется model PASS. Code review аналогично хранит `status=pass|waived` с взаимоисключающими verdict/waiver bindings.
+`artifact_pass[kind]` — historical field name с closed `disposition=pass|waived`: обе ветви связывают current artifact/alignment identity, но первая содержит verdict hash/roster, вторая — signed waiver record ID/hash и никогда не называется model PASS. Обе сначала имеют `publication_status=recorded_unpublished`; kind не completed. Только matching `planning_publication_op` phase=verified добавляет `published_commit_oid`, `publication_operation_id` и status=verified after exact live-ref read-back. Code review аналогично хранит `status=pass|waived` с взаимоисключающими verdict/waiver bindings, но не использует planning publication.
 
 `anchor_impact` — staged proposal, а не свободный user map: `{proposal_id,from_anchor_version,pending_anchor_hash,correction_watermark,status_snapshot_hash,cascade_rules_hash,planning_dispositions,ticket_dispositions,proposal_hash,status:proposed|approved|stale,approval_record_id?,approval_record_hash?}`. `prepare_anchor_impact` единолично пишет proposed map без rebuild side effects. Trusted client подписывает exact proposal hash; `record_anchor_impact_approval` проверяет signature/current snapshot и atomically ставит approved + authority hashes. Любая новая correction/status/hash change делает proposal stale и требует нового prepare/approval.
 

@@ -86,7 +86,7 @@
 
 ## ADR-010: PASS только по точной идентичности
 
-- Решение: planning verdict связан с artifact snapshot; artifact/code candidate identity напрямую включает ordered `governance_mapping_set_digest` exact tree, отдельно от parent-derived controlling anchor. Code verdict также связан с base/pathspec/tree OID/anchor/controlling_anchor_digest/attempt и daemon gate-result receipt ID/hash/result head. Freeze, record_artifact_pass/record_code_verdict и commit/integration recompute mapping digest; drift voids verdict до side effect. До branch CAS host фиксирует exact commit recipe/OID; recovery accepts only that OID/parent/recipe.
+- Решение: planning verdict связан с artifact snapshot; artifact/code candidate identity напрямую включает ordered `governance_mapping_set_digest` exact tree, отдельно от parent-derived controlling anchor. Code verdict также связан с base/pathspec/tree OID/anchor/controlling_anchor_digest/attempt и daemon gate-result receipt ID/hash/result head. Freeze, record_artifact_pass/publish_artifact_pass/record_code_verdict и commit/integration recompute mapping digest; drift voids verdict до side effect. До branch CAS host фиксирует exact commit recipe/OID; recovery accepts only that OID/parent/recipe.
 - Альтернатива: считать достаточным последний комментарий PASS или имя ветки.
 - Обоснование: branch и файлы изменяемы; OID и hash обнаруживают stale verdict.
 - Источники:
@@ -236,6 +236,19 @@
   - v6 panel findings architecture-02 и SUPPLEMENTARY-01;
   - ADR-020/021;
   - 02-architecture.md, operational truth и gate custody.
+
+## ADR-026: private Epic planning ref и commit-on-PASS
+
+- Решение: каждый Planned Epic создаёт private append-only `refs/autosk/epics/<epic-uuid>/planning` от immutable planning base. Artifact verdict/waiver сначала получает status recorded_unpublished. Host-only `publish_artifact_pass` строит object-format-aware deterministic single-parent commit, expected-old CAS-продвигает ref и read-back проверяет exact parent/tree/trailers/current bindings; только phase=verified завершает kind и разрешает select_next. Anchor invalidation также публикуется descendant commit через тот же adapter; rewind/reset/force/rebase/adopt-current запрещены.
+- Альтернатива: считать detached snapshot или metadata PASS достаточным; коммитить все planning docs одним commit в конце; двигать target после каждого PASS; при correction возвращать private ref назад.
+- Обоснование: detached objects могут стать unreachable, dirty worktree смешивает артефакты, следующий author не имеет однозначной базы, а crash между object write и ref/metadata создаёт ambiguous outcome. Append-only planning line даёт reachable ordered history, exact `planning_head` для Tickets/staging и идемпотентное recovery без движения пользовательской ветки.
+- Recovery: protected `planning_publication_op` имеет write-once recipe и phases `prepared -> commit_created -> ref_advanced -> verified`. Ref at expected commit after crash принимается только после byte/tree/parent verification; иной OID — `planning_ref_foreign_movement`, corrupt/indeterminate durable state — `planning_publication_corrupt`.
+- Границы: issue #6 определяет Tickets manifest, #7 dependency bases, #8 approved deltas, #9 staging/final CAS, #14 generic artifact projection, #17 base/delivery policy, #25 semantic revision ordering.
+- Источники:
+  - issue #5;
+  - `docs/contracts/epic-planning-ref.md`;
+  - 01-core-flows.md, раздел «Публикация утверждённых артефактов в planning ref»;
+  - 03-technical-plan.md, steps `init_planning_ref`, `publish_artifact_pass`, `publish_planning_invalidation`.
 
 ## Оставшиеся риски, не решения
 

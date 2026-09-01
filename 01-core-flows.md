@@ -60,13 +60,14 @@ Quick classification проверяется не только на intake, а п
 
 ~~~text
 intake / classify
-  -> Brief?       -> human framing alignment -> draft -> four-model panel -> fix -> narrow re-review
-  -> Core Flow?   -> human behavior alignment -> draft -> four-model panel -> fix -> narrow re-review
-  -> Tech Plan    -> human readiness alignment -> draft -> four-model panel -> fix -> narrow re-review
+  -> Brief?       -> human framing alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
+  -> Core Flow?   -> human behavior alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
+  -> Tech Plan    -> human readiness alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
   -> Arena?       -> candidates -> Judge recommendation -> human readiness alignment
-                  -> Decision Record / changed Tech Plan -> new full four-model panel
+                  -> Decision Record / changed Tech Plan -> new full panel -> publish planning commit
   -> Tickets      -> draft + dependency view -> human breakdown alignment
-                  -> separate four-model panel -> fix -> narrow re-review
+                  -> separate panel/fix/re-review -> record PASS -> publish planning commit
+  -> verified planning_head
   -> ticket DAG execution
 ~~~
 
@@ -89,6 +90,20 @@ Brief и Core Flow пропускаются только по objective classifi
 Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на конкретные пункты Brief, сценарии Core Flow и решения Tech Plan, содержит scope in/out, зависимости, критерии приёмки и требуемые доказательства.
 
 Весь комплект Tickets проходит отдельную четырёхмодельную панель. Панель проверяет и каждый Ticket, и согласованность набора.
+
+### Публикация утверждённых артефактов в planning ref
+
+<!-- planning-ref-contract:v1 -->
+
+У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic-uuid>/planning`. Она инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
+
+После panel/narrow verdict `record_artifact_pass` ещё не завершает kind: он записывает `publication_status=recorded_unpublished` и immutable `planning_publication_op`. Детерминированный host step `publish_artifact_pass` создаёт single-parent commit с exact candidate tree, CAS-продвигает planning ref от ожидаемого parent, перечитывает ref/commit/tree/identity и только затем ставит publication `verified` и возвращает workflow в `select_next`. Поэтому recorded PASS не является завершённым артефактом до Git publication.
+
+Если process падает между object write, phase write, CAS, receipt или metadata finalization, retry продолжает ту же operation и тот же expected commit OID. Ref, отличный от expected parent и expected commit, считается foreign movement и паркует Epic с `planning_ref_foreign_movement`; rebase/reset/force/adopt-current запрещены. Candidate, созданный не от current verified head, получает `planning_candidate_base_stale` до panel.
+
+Anchor rebuild не перемещает ref назад. Approved impact сначала публикует descendant invalidation commit через тот же CAS adapter, затем новые версии артефактов становятся следующими descendants. Прежние accepted bytes остаются в ancestry, но stale projection не остаётся current. После verified Tickets publication полученный commit становится `planning_head`, от которого issue #7 построит Ticket execution bases, а issue #9 — private staging. Пользовательская target branch на этой стадии не меняется.
+
+Полный нормативный контракт, operation schema, recovery table, retention и test matrix находятся в `docs/contracts/epic-planning-ref.md`.
 
 ### Согласование решений человеком
 
