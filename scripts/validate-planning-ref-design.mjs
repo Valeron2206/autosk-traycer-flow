@@ -41,11 +41,18 @@ const REQUIRED = Object.freeze({
     "init_planning_ref",
     "publish_artifact_pass",
     "publish_planning_invalidation",
+    "planning_ref_init_op",
+    "ref_created",
     "planning_publication_op",
+    "commit_object_bytes_base64",
+    "reflog_checkpoint",
+    "voided_before_ref",
     "recorded_unpublished",
     "planning_candidate_base_stale",
+    "planning_ref_capability_missing",
     "planning_ref_foreign_movement",
     "planning_publication_corrupt",
+    "planning_signing_unavailable",
   ],
   "04-decisions.md": [
     "ADR-026: private Epic planning ref и commit-on-PASS",
@@ -58,10 +65,16 @@ const REQUIRED = Object.freeze({
   ],
   "docs/contracts/epic-planning-ref.md": [
     "<!-- planning-ref-contract:v1 -->",
+    "planning_ref_init_op",
+    "ref_created",
     "prepared",
     "commit_created",
     "ref_advanced",
     "verified",
+    "commit_object_bytes_base64",
+    "reflog_checkpoint",
+    "voided_before_ref",
+    "anchor_invalidation",
     "planning_ref_foreign_movement",
     "planning_publication_corrupt",
     "Issue #6",
@@ -112,9 +125,19 @@ export function validatePlanningRefDesign(files) {
   }
 
   const contract = files["docs/contracts/epic-planning-ref.md"] ?? "";
+  const initPhaseSequence = "prepared\n→ ref_created\n→ verified";
+  if (!contract.includes(initPhaseSequence)) {
+    errors.push("planning-ref initialization phases are missing or not documented in monotonic order");
+  }
   const canonicalPhaseSequence = "prepared\n→ commit_created\n→ ref_advanced\n→ verified";
   if (!contract.includes(canonicalPhaseSequence)) {
     errors.push("planning publication phases are missing or not documented in monotonic order");
+  }
+  if (!contract.includes("complete canonical `commit_recipe`") || !contract.includes("exact commit object bytes")) {
+    errors.push("planning publication recovery must persist the complete exact commit recipe, not only a digest");
+  }
+  if (!contract.includes("`voided_before_ref` is the only unsuccessful terminal phase")) {
+    errors.push("planning publication pre-CAS drift must have a terminal void phase");
   }
 
   return errors;

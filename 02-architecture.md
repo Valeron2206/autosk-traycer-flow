@@ -65,7 +65,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 <!-- planning-ref-contract:v1 -->
 
-Общий adapter обслуживает `init_planning_ref`, `publish_artifact_pass` и `publish_planning_invalidation`. Он строит object-format-aware deterministic commit recipe, пишет exact commit object, выполняет expected-old CAS private ref, читает ref/commit/tree обратно и монотонно продвигает `planning_publication_op` через `prepared -> commit_created -> ref_advanced -> verified`. Model process не получает ref capability. Foreign/indeterminate movement не ретраится как обычная ошибка и не разрешается rebase/reset/force fallback.
+Общий adapter обслуживает `init_planning_ref`, `publish_artifact_pass` и `publish_planning_invalidation`. До side effect он сохраняет и read-back проверяет полный object-format-aware recipe с exact commit bytes, expected OID, signing-policy binding и reflog checkpoint. Затем пишет только эти bytes, выполняет expected-old CAS private ref с operation-specific reflog entry, читает ref/commit/tree/reflog обратно и монотонно продвигает `planning_publication_op` через `prepared -> commit_created -> ref_advanced -> verified` либо terminal `voided_before_ref`. Model process не получает ref capability. Foreign/ABA/indeterminate movement не ретраится как обычная ошибка и не разрешается rebase/reset/force fallback.
 
 ### autosk-owned integration adapter
 
