@@ -23,10 +23,6 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function clone(value) {
-  return structuredClone(value);
-}
-
 function fixture() {
   return {
     matrix: parseJson(MATRIX_PATH),
@@ -241,6 +237,11 @@ test("required_for_v1 cannot use the post-v1 gate role", () => {
 });
 
 test("malformed records return validation errors instead of throwing", () => {
+  const malformedInventory = fixture();
+  malformedInventory.inventory.issues = null;
+  assert.doesNotThrow(() => validateAll(malformedInventory));
+  assert.match(messages(validateAll(malformedInventory)), /inventory issues must be an array/);
+
   const nullRecord = fixture();
   nullRecord.matrix.records[0] = null;
   assert.doesNotThrow(() => validateMatrix(nullRecord.matrix, nullRecord.inventory, nullRecord.parityRegistry));
@@ -298,12 +299,17 @@ test("JSON schemas pin exact UTC timestamps and required lifecycle roles", () =>
 
 test("runtime validation matches closed nested schema constraints", () => {
   const data = fixture();
+  data.inventory.issue_range.extra = true;
   data.matrix.issue_range.extra = true;
   data.matrix.classification_policy.extra = "schema drift";
   const record = data.matrix.records.find((item) => item.issue_number === 19);
   record.rationale = "r".repeat(25);
   record.classification_risk = "c".repeat(25);
   const result = messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+  assert.match(
+    messages(validateInventory(data.inventory)),
+    /inventory issue_range keys differ from the closed v1 schema/,
+  );
   assert.match(result, /matrix issue_range keys differ from the closed v1 schema/);
   assert.match(result, /matrix classification_policy keys differ from the closed v1 schema/);
   assert.match(result, /rationale must contain at least 30 characters/);
@@ -332,6 +338,11 @@ test("post-v1 activation cannot bypass the MVP release gate", () => {
     data.matrix.records.find((item) => item.issue_number === 31).activation_trigger,
     /or earlier/u,
   );
+  record.activation_trigger = "Begin after issue #36 closes; allow an exact subset earlier.";
+  assert.match(
+    messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)),
+    /planned_after_v1 activation must not contain a pre-MVP escape/,
+  );
 });
 
 test("full program obligation is explicit and cannot be disabled", () => {
@@ -341,6 +352,19 @@ test("full program obligation is explicit and cannot be disabled", () => {
     messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry)),
     /full_program_required must be true/,
   );
+});
+
+test("matrix evolution and #38 promotion require a reviewed successor candidate", () => {
+  const data = fixture();
+  assert.match(data.matrix.classification_policy.evolution_rule, /successor matrix version/u);
+  assert.match(data.matrix.classification_policy.evolution_rule, /new or split issue/u);
+  const sdk = data.matrix.records.find((item) => item.issue_number === 38);
+  assert.doesNotMatch(sdk.activation_trigger, /earlier|before/u);
+  assert.match(sdk.implementation_obligation_before_mvp, /explicit user decision/u);
+  assert.match(sdk.implementation_obligation_before_mvp, /successor matrix/u);
+  assert.match(sdk.implementation_obligation_before_mvp, /full panel/u);
+  assert.match(data.documentation, /source-parity.*intentionally_deferred.*planned_after_v1/u);
+  assert.match(data.documentation, /implementation\/execution ordering/u);
 });
 
 test("human-readable summary is deterministic and drift is rejected", () => {

@@ -22,12 +22,13 @@
     "source_parity_registry_path":{"const":"resources/traycer-parity/registry.v1.json"},
     "classification_policy":{
       "type":"object","additionalProperties":false,
-      "required":["required_for_v1","planned_after_v1","intentionally_deferred","full_program_rule"],
+      "required":["required_for_v1","planned_after_v1","intentionally_deferred","full_program_rule","evolution_rule"],
       "properties":{
         "required_for_v1":{"type":"string","minLength":20},
         "planned_after_v1":{"type":"string","minLength":20},
         "intentionally_deferred":{"type":"string","minLength":20},
-        "full_program_rule":{"type":"string","minLength":20}
+        "full_program_rule":{"type":"string","minLength":20},
+        "evolution_rule":{"type":"string","minLength":20}
       }
     },
     "summary":{

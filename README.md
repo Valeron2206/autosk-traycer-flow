@@ -81,6 +81,8 @@ Source parity и program delivery — разные измерения. Кано�
 - `planned_after_v1`: 6 — Autobuild (#28), Reflect (#29), Housekeeping (#30), Debate (#31), Changeset Walkthrough (#33) и полный typed SDK write API (#38) явно не обещаются v1, но остаются обязательными после #36;
 - `intentionally_deferred`: 0 — ни одна program capability не снята с обязательств.
 
+В source-parity registry одноимённая диспозиция `intentionally_deferred` означает только неактивный в v1 миграционный target; её program-lifecycle эквивалент — `planned_after_v1`. Освободить delivery obligation может только более строгая диспозиция program matrix.
+
 Машиночитаемая матрица находится в `resources/program-capabilities/matrix.v1.json`, pinned issue inventory и закрытые схемы — рядом, а детерминированная сводка — в `docs/program-capability-matrix.md`. Матрица не хранит текущий open/closed/PR state и не становится вторым roadmap: живой progress остаётся в GitHub issue #40.
 
 Проверка:
@@ -90,6 +92,8 @@ npm run validate:capabilities
 ```
 
 Изменение lifecycle classification является behavior-defining program decision и требует нового reviewed candidate.
+
+Новый program issue, split или promotion за пределами pinned #3–#39 не может стать v1/release blocker молча: сначала выпускается successor matrix version с обновлённым issue inventory и новой полной панелью.
 
 ## Источники
 

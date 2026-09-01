@@ -14,6 +14,9 @@
 - **planned_after_v1:** The capability is explicitly inactive in v1, remains mandatory for the full program, and starts at its recorded activation trigger after the autonomous MVP.
 - **intentionally_deferred:** Allowed only with an immutable external blocker or explicit user decision, complete risk/owner/return trigger, and no claim of full completion.
 - **Полная программа:** The program continues after the autonomous MVP until all planned_after_v1 work is complete; intentionally_deferred is not completion without a later explicit user disposition.
+- **Эволюция матрицы:** Any new or split issue outside the pinned inventory requires a successor matrix version, refreshed issue inventory, and full panel before it can become required_for_v1 or release-blocking.
+
+В source-parity registry диспозиция `intentionally_deferred` означает, что исходная возможность не активна в v1; её program-lifecycle эквивалент здесь — `planned_after_v1`. Только program capability matrix может освободить delivery obligation через собственный более строгий `intentionally_deferred`.
 
 ## Итог
 
@@ -25,6 +28,8 @@
 | release_blocking | 31 | Невыполненная обязанность запрещает autonomous MVP release. |
 
 ## Все program issues
+
+Поле `dependencies` задаёт implementation/execution ordering. Обязанности design gate до #39 задаются отдельно в `design_obligation_before_issue_39` каждой записи.
 
 | Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |
 | ---: | :---: | --- | --- | --- | --- | :---: | :---: |
@@ -134,11 +139,11 @@
 
 **Риск:** Keeping CLI boundaries longer increases parsing/process complexity; if any v1 atomic guarantee cannot be met, the necessary subset must be promoted before MVP.
 
-**Условие активации:** Begin after issue #36 closes; promote an exact subset earlier if a v1 atomic guarantee cannot be implemented safely without it.
+**Условие активации:** Begin after issue #36 closes and the autonomous MVP release is attested.
 
-**Обязанность до #39:** Before #39 document the conditional escalation rule and ensure v1 never relies on a human-oriented untyped outcome for correctness.
+**Обязанность до #39:** Before #39 document that any conditional SDK promotion requires an explicit user decision, a successor matrix classification, and a new full panel.
 
-**Работа после MVP:** None by default before MVP; immediately split/promote any required typed primitive that #11/#18 or another accepted contract cannot safely provide.
+**Работа после MVP:** No implementation before MVP. If a v1 atomic guarantee cannot be met, record an explicit user decision, split the exact typed primitive into a successor matrix, classify it required_for_v1, and pass a new full panel before implementation.
 
 ## Намеренно отложенные
 
@@ -160,5 +165,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `e0e3b15a22147689bb24e211b3e4dac216cce9b1ee66be21d665d2d73c814fd3`
+Matrix digest: `de159e2afb3374271c2da94e87fd3a63801dda8893e02fa64a7997fa70600c38`
 

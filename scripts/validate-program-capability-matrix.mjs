@@ -120,6 +120,7 @@ export function validateInventory(inventory) {
   if (inventory.repository !== "Valeron2206/autosk-traycer-flow") errors.push("inventory repository mismatch");
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(inventory.captured_at_utc ?? "")) errors.push("inventory captured_at_utc must be an exact UTC timestamp");
   if (!/^[0-9a-f]{40}$/u.test(inventory.source_main_commit ?? "")) errors.push("inventory source_main_commit must be a lowercase 40-hex commit");
+  if (!exactKeys(inventory.issue_range, ["from", "to"])) errors.push("inventory issue_range keys differ from the closed v1 schema");
   if (inventory.issue_range?.from !== ISSUE_MIN || inventory.issue_range?.to !== ISSUE_MAX) errors.push("inventory issue_range must be #3–#39");
   if (!Array.isArray(inventory.issues) || inventory.issues.length !== ISSUE_COUNT) {
     errors.push(`inventory must contain exactly ${ISSUE_COUNT} issue records`);
@@ -260,15 +261,19 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
   if (matrix.issue_inventory_digest !== inventory.canonical_digest) errors.push("matrix issue_inventory_digest does not match inventory");
   if (!matrix.classification_policy || typeof matrix.classification_policy !== "object") errors.push("matrix classification_policy must be an object");
   else {
-    if (!exactKeys(matrix.classification_policy, ["required_for_v1", "planned_after_v1", "intentionally_deferred", "full_program_rule"].sort())) {
+    if (!exactKeys(matrix.classification_policy, ["required_for_v1", "planned_after_v1", "intentionally_deferred", "full_program_rule", "evolution_rule"].sort())) {
       errors.push("matrix classification_policy keys differ from the closed v1 schema");
     }
-    for (const key of ["required_for_v1", "planned_after_v1", "intentionally_deferred", "full_program_rule"]) {
+    for (const key of ["required_for_v1", "planned_after_v1", "intentionally_deferred", "full_program_rule", "evolution_rule"]) {
       if (!nonEmpty(matrix.classification_policy[key], 20)) errors.push(`classification_policy.${key} must be explicit`);
     }
   }
   if (!Array.isArray(matrix.records) || matrix.records.length !== ISSUE_COUNT) {
     errors.push(`matrix must contain exactly ${ISSUE_COUNT} records`);
+    return errors;
+  }
+  if (!Array.isArray(inventory?.issues)) {
+    errors.push("inventory issues must be an array before matrix validation");
     return errors;
   }
 
@@ -349,6 +354,9 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
       if (record.decision_reference !== null) errors.push(`${prefix}: planned_after_v1 is scheduled work, not an intentional-defer decision`);
       if (!record.activation_trigger.startsWith("Begin after issue #36 closes")) {
         errors.push(`${prefix}: planned_after_v1 activation must start only after issue #36 closes`);
+      }
+      if (/\b(?:earlier|before)\b/iu.test(record.activation_trigger)) {
+        errors.push(`${prefix}: planned_after_v1 activation must not contain a pre-MVP escape`);
       }
     }
     if (record.lifecycle === "intentionally_deferred") {
@@ -464,6 +472,9 @@ export function renderDocumentation(matrix) {
     `- **planned_after_v1:** ${matrix.classification_policy.planned_after_v1}`,
     `- **intentionally_deferred:** ${matrix.classification_policy.intentionally_deferred}`,
     `- **Полная программа:** ${matrix.classification_policy.full_program_rule}`,
+    `- **Эволюция матрицы:** ${matrix.classification_policy.evolution_rule}`,
+    "",
+    "В source-parity registry диспозиция `intentionally_deferred` означает, что исходная возможность не активна в v1; её program-lifecycle эквивалент здесь — `planned_after_v1`. Только program capability matrix может освободить delivery obligation через собственный более строгий `intentionally_deferred`.",
     "",
     "## Итог",
     "",
@@ -475,6 +486,8 @@ export function renderDocumentation(matrix) {
     `| release_blocking | ${matrix.summary.release_blocking} | Невыполненная обязанность запрещает autonomous MVP release. |`,
     "",
     "## Все program issues",
+    "",
+    "Поле `dependencies` задаёт implementation/execution ordering. Обязанности design gate до #39 задаются отдельно в `design_obligation_before_issue_39` каждой записи.",
     "",
     "| Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |",
     "| ---: | :---: | --- | --- | --- | --- | :---: | :---: |",

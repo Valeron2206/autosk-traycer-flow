@@ -15,7 +15,8 @@
     "required_for_v1": "The design disposition must be represented in issue #39 and every stated implementation/release obligation must be satisfied before the autonomous MVP, unless a reviewed split moves an exact non-critical remainder after v1.",
     "planned_after_v1": "The capability is explicitly inactive in v1, remains mandatory for the full program, and starts at its recorded activation trigger after the autonomous MVP.",
     "intentionally_deferred": "Allowed only with an immutable external blocker or explicit user decision, complete risk/owner/return trigger, and no claim of full completion.",
-    "full_program_rule": "The program continues after the autonomous MVP until all planned_after_v1 work is complete; intentionally_deferred is not completion without a later explicit user disposition."
+    "full_program_rule": "The program continues after the autonomous MVP until all planned_after_v1 work is complete; intentionally_deferred is not completion without a later explicit user disposition.",
+    "evolution_rule": "Any new or split issue outside the pinned inventory requires a successor matrix version, refreshed issue inventory, and full panel before it can become required_for_v1 or release-blocking."
   },
   "summary": {
     "required_for_v1": 31,
@@ -1266,9 +1267,9 @@
       "rationale": "A complete typed extension write API is a post-MVP control-plane improvement when the accepted v1 primitives can be proven through narrower daemon APIs.",
       "classification_risk": "Keeping CLI boundaries longer increases parsing/process complexity; if any v1 atomic guarantee cannot be met, the necessary subset must be promoted before MVP.",
       "owner": "autosk upstream and extension SDK maintainers",
-      "activation_trigger": "Begin after issue #36 closes; promote an exact subset earlier if a v1 atomic guarantee cannot be implemented safely without it.",
-      "design_obligation_before_issue_39": "Before #39 document the conditional escalation rule and ensure v1 never relies on a human-oriented untyped outcome for correctness.",
-      "implementation_obligation_before_mvp": "None by default before MVP; immediately split/promote any required typed primitive that #11/#18 or another accepted contract cannot safely provide.",
+      "activation_trigger": "Begin after issue #36 closes and the autonomous MVP release is attested.",
+      "design_obligation_before_issue_39": "Before #39 document that any conditional SDK promotion requires an explicit user decision, a successor matrix classification, and a new full panel.",
+      "implementation_obligation_before_mvp": "No implementation before MVP. If a v1 atomic guarantee cannot be met, record an explicit user decision, split the exact typed primitive into a successor matrix, classify it required_for_v1, and pass a new full panel before implementation.",
       "release_blocking": false,
       "dependencies": [
         11,
@@ -1327,5 +1328,5 @@
       "full_program_required": true
     }
   ],
-  "canonical_digest": "e0e3b15a22147689bb24e211b3e4dac216cce9b1ee66be21d665d2d73c814fd3"
+  "canonical_digest": "de159e2afb3374271c2da94e87fd3a63801dda8893e02fa64a7997fa70600c38"
 }
