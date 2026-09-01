@@ -29,7 +29,7 @@
 
 ## Все program issues
 
-Поле `dependencies` задаёт implementation/execution ordering. Обязанности design gate до #39 задаются отдельно в `design_obligation_before_issue_39` каждой записи.
+Поле `dependencies` задаёт implementation/execution ordering. Для design gate #39 predecessor edge означает наличие frozen design contract, а не завершённой implementation; обязанности до #39 задаются в `design_obligation_before_issue_39` каждой записи.
 
 | Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |
 | ---: | :---: | --- | --- | --- | --- | :---: | :---: |

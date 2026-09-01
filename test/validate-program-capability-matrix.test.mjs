@@ -10,6 +10,7 @@ import {
   MATRIX_PATH,
   PARITY_PATH,
   POST_V1_ISSUES,
+  README_PATH,
   canonicalStringify,
   deriveParityIdsByIssue,
   parseJson,
@@ -19,6 +20,7 @@ import {
   validateDocumentation,
   validateInventory,
   validateMatrix,
+  validateReadme,
 } from "../scripts/validate-program-capability-matrix.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,6 +31,7 @@ function fixture() {
     inventory: parseJson(INVENTORY_PATH),
     parityRegistry: parseJson(PARITY_PATH),
     documentation: readFileSync(DOC_PATH, "utf8"),
+    readme: readFileSync(README_PATH, "utf8"),
   };
 }
 
@@ -314,6 +317,13 @@ test("runtime validation matches closed nested schema constraints", () => {
   assert.match(result, /matrix classification_policy keys differ from the closed v1 schema/);
   assert.match(result, /rationale must contain at least 30 characters/);
   assert.match(result, /classification_risk must contain at least 30 characters/);
+
+  const unicodeData = fixture();
+  unicodeData.matrix.records.find((item) => item.issue_number === 19).rationale = "𐐷".repeat(15);
+  assert.match(
+    messages(validateMatrix(unicodeData.matrix, unicodeData.inventory, unicodeData.parityRegistry)),
+    /rationale must contain at least 30 characters/,
+  );
 });
 
 test("inventory binds every record to an issue entity and GitHub node identity", () => {
@@ -373,6 +383,19 @@ test("human-readable summary is deterministic and drift is rejected", () => {
   assert.deepEqual(validateDocumentation(data.matrix, `${data.documentation}\nmanual drift\n`), [
     "docs/program-capability-matrix.md is stale; regenerate with npm run generate:capabilities",
   ]);
+});
+
+test("README capability totals and post-v1 set cannot drift", () => {
+  const data = fixture();
+  assert.deepEqual(validateReadme(data.matrix, data.readme), []);
+  assert.match(
+    messages(validateReadme(data.matrix, data.readme.replace("`required_for_v1`: 31", "`required_for_v1`: 30"))),
+    /README required_for_v1 total is stale/,
+  );
+  assert.match(
+    messages(validateReadme(data.matrix, data.readme.replace("typed SDK write API (#38)", "typed SDK write API"))),
+    /README post-v1 issue set is stale/,
+  );
 });
 
 test("matrix does not become a live task-state ledger", () => {

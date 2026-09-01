@@ -10,6 +10,7 @@ export const MATRIX_PATH = path.join(ROOT, "resources/program-capabilities/matri
 export const INVENTORY_PATH = path.join(ROOT, "resources/program-capabilities/issue-inventory.v1.json");
 export const PARITY_PATH = path.join(ROOT, "resources/traycer-parity/registry.v1.json");
 export const DOC_PATH = path.join(ROOT, "docs/program-capability-matrix.md");
+export const README_PATH = path.join(ROOT, "README.md");
 
 export const ISSUE_MIN = 3;
 export const ISSUE_MAX = 39;
@@ -56,7 +57,7 @@ function sorted(values) {
 }
 
 function nonEmpty(value, minimum = 1) {
-  return typeof value === "string" && value.trim().length >= minimum;
+  return typeof value === "string" && Array.from(value.trim()).length >= minimum;
 }
 
 function exactKeys(value, expected) {
@@ -487,7 +488,7 @@ export function renderDocumentation(matrix) {
     "",
     "## Все program issues",
     "",
-    "Поле `dependencies` задаёт implementation/execution ordering. Обязанности design gate до #39 задаются отдельно в `design_obligation_before_issue_39` каждой записи.",
+    "Поле `dependencies` задаёт implementation/execution ordering. Для design gate #39 predecessor edge означает наличие frozen design contract, а не завершённой implementation; обязанности до #39 задаются в `design_obligation_before_issue_39` каждой записи.",
     "",
     "| Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |",
     "| ---: | :---: | --- | --- | --- | --- | :---: | :---: |",
@@ -550,13 +551,30 @@ export function validateDocumentation(matrix, documentation) {
   return documentation === expected ? [] : ["docs/program-capability-matrix.md is stale; regenerate with npm run generate:capabilities"];
 }
 
-export function validateAll({ matrix, inventory, parityRegistry, documentation }) {
+export function validateReadme(matrix, readme) {
+  if (typeof readme !== "string") return ["README.md is missing"];
+  const errors = [];
+  for (const [key, value] of [
+    ["required_for_v1", matrix.summary.required_for_v1],
+    ["planned_after_v1", matrix.summary.planned_after_v1],
+    ["intentionally_deferred", matrix.summary.intentionally_deferred],
+  ]) {
+    if (!readme.includes(`\`${key}\`: ${value}`)) errors.push(`README ${key} total is stale`);
+  }
+  if (POST_V1_ISSUES.some((number) => !readme.includes(`(#${number})`))) {
+    errors.push("README post-v1 issue set is stale");
+  }
+  return errors;
+}
+
+export function validateAll({ matrix, inventory, parityRegistry, documentation, readme }) {
   const inventoryErrors = validateInventory(inventory);
   const matrixErrors = validateMatrix(matrix, inventory, parityRegistry);
   const errors = [...inventoryErrors, ...matrixErrors];
   const canRender = Array.isArray(matrix?.records) &&
     matrix.records.every((record) => record && typeof record === "object" && !Array.isArray(record));
   if (typeof documentation === "string" && canRender) errors.push(...validateDocumentation(matrix, documentation));
+  if (canRender) errors.push(...validateReadme(matrix, readme));
   return errors;
 }
 
@@ -608,7 +626,8 @@ function run(argv) {
   const parityRegistry = parseJson(args.parityPath);
   if (args.writeDocs) writeFileSync(args.docPath, renderDocumentation(matrix), "utf8");
   const documentation = existsSync(args.docPath) ? readFileSync(args.docPath, "utf8") : null;
-  const errors = validateAll({ matrix, inventory, parityRegistry, documentation });
+  const readme = existsSync(README_PATH) ? readFileSync(README_PATH, "utf8") : null;
+  const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme });
   if (documentation === null) errors.push(`missing documentation: ${args.docPath}`);
   if (errors.length) return fail(errors);
   console.log(`OK: ${matrix.records.length} program issues; ${matrix.summary.required_for_v1} required_for_v1; ${matrix.summary.planned_after_v1} planned_after_v1; digest ${matrix.canonical_digest}`);
