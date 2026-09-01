@@ -29,13 +29,25 @@ test("direct record-artifact-pass to select-next regression is rejected", () => 
   assert.match(validatePlanningRefDesign(files).join("\n"), /direct record_artifact_pass/u);
 });
 
-test("publication phase documentation is monotonic", () => {
+test("initialization and publication phase documentation is monotonic", () => {
   const files = fixture();
-  files["docs/contracts/epic-planning-ref.md"] = files["docs/contracts/epic-planning-ref.md"].replace(
-    "prepared\n→ commit_created\n→ ref_advanced\n→ verified",
-    "verified\n→ ref_advanced\n→ commit_created\n→ prepared",
-  );
-  assert.match(validatePlanningRefDesign(files).join("\n"), /monotonic order/u);
+  files["docs/contracts/epic-planning-ref.md"] = files["docs/contracts/epic-planning-ref.md"]
+    .replace("prepared\n→ ref_created\n→ verified", "verified\n→ ref_created\n→ prepared")
+    .replace("prepared\n→ commit_created\n→ ref_advanced\n→ verified", "verified\n→ ref_advanced\n→ commit_created\n→ prepared");
+  const result = validatePlanningRefDesign(files).join("\n");
+  assert.match(result, /initialization phases/u);
+  assert.match(result, /publication phases/u);
+});
+
+test("digest-only recipe and missing terminal void are rejected", () => {
+  const files = fixture();
+  files["docs/contracts/epic-planning-ref.md"] = files["docs/contracts/epic-planning-ref.md"]
+    .replace("complete canonical `commit_recipe`", "recipe digest")
+    .replace("exact commit object bytes", "recomputed commit")
+    .replace("`voided_before_ref` is the only unsuccessful terminal phase", "pre-CAS drift is retried");
+  const result = validatePlanningRefDesign(files).join("\n");
+  assert.match(result, /complete exact commit recipe/u);
+  assert.match(result, /terminal void phase/u);
 });
 
 test("recorded and published PASS distinction is required", () => {
