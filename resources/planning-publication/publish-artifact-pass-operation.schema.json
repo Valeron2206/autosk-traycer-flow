@@ -166,6 +166,7 @@
       "additionalProperties": false,
       "required": [
         "schema",
+        "operation_id",
         "candidate_identity",
         "ref",
         "observed_old_oid",
@@ -182,6 +183,9 @@
       "properties": {
         "schema": {
           "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
         },
         "candidate_identity": {
           "$ref": "#/$defs/sha256"
@@ -201,7 +205,7 @@
         },
         "expected_update_message": {
           "type": "string",
-          "pattern": "^autosk-flow keepalive [0-9a-f]{64}$"
+          "pattern": "^autosk-flow keepalive [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
         },
         "before_entry_count": {
           "const": 0
@@ -228,6 +232,7 @@
       "additionalProperties": false,
       "required": [
         "schema",
+        "operation_id",
         "candidate_identity",
         "ref",
         "expected_old_oid",
@@ -236,6 +241,8 @@
         "planning_reflog_after_receipt_hash",
         "planning_reflog_tail_observation_sha256",
         "transaction_observation_sha256",
+        "audit_candidate_ref",
+        "audit_candidate_oid",
         "ref_custody_generation",
         "ref_custody_policy_digest",
         "closure_verified",
@@ -244,6 +251,9 @@
       "properties": {
         "schema": {
           "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
         },
         "candidate_identity": {
           "$ref": "#/$defs/sha256"
@@ -271,6 +281,13 @@
         "transaction_observation_sha256": {
           "$ref": "#/$defs/sha256"
         },
+        "audit_candidate_ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$"
+        },
+        "audit_candidate_oid": {
+          "$ref": "#/$defs/oid"
+        },
         "ref_custody_generation": {
           "type": "integer",
           "minimum": 1
@@ -291,6 +308,7 @@
       "additionalProperties": false,
       "required": [
         "schema",
+        "operation_id",
         "candidate_identity",
         "ref",
         "object_format",
@@ -307,6 +325,9 @@
       "properties": {
         "schema": {
           "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
         },
         "candidate_identity": {
           "$ref": "#/$defs/sha256"
@@ -329,7 +350,7 @@
         },
         "expected_update_message": {
           "type": "string",
-          "pattern": "^autosk-flow keepalive [0-9a-f]{64}$"
+          "pattern": "^autosk-flow keepalive [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
         },
         "reflog_producer": {
           "$ref": "#/$defs/reflog_producer"

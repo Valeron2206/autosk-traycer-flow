@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "operation_id": "77777777-7777-4777-8777-777777777777",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+  "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+  "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+  "object_format": "sha1",
+  "snapshot_commit_oid": "7777777777777777777777777777777777777777",
+  "snapshot_tree_oid": "2222222222222222222222222222222222222222",
+  "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000"
+  },
+  "ref_custody_generation": 1,
+  "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "phase": "audit_retained",
+  "terminal_disposition": "audit_retained",
+  "create_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "observed_old_oid": null,
+    "observed_new_oid": "7777777777777777777777777777777777777777",
+    "snapshot_tree_oid": "2222222222222222222222222222222222222222",
+    "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+    "before_entry_count": 0,
+    "after_entry_count": 1,
+    "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+    "appended_entry_sha256": "9538f2d6e059d2b1bfbfc1a8b75ddec2e42e3967f36e2c5fd349206258d96ec4",
+    "observation_sha256": "9a344fc5aa78e8f45d0424b6f5d76ff0e28aa1f2179c3d0816e9d9f37518c7db",
+    "receipt_hash": "7e3f175a45ac40018ff5592b5155851ce0780b0cdfa765c58f6878a920f98725"
+  },
+  "audit_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "snapshot_commit_oid": "7777777777777777777777777777777777777777",
+    "reason": "panel_not_pass",
+    "ref_custody_generation": 1,
+    "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "observation_sha256": "7c50306e7492d3e295f61fc354798609dcfbcfb922a24087f3e2db24bcc93120",
+    "receipt_hash": "70fa8bbdfbe028b0bcc7ce9c9a0d743d20e6696f9fa6be458be8adb25f9209ef"
+  },
+  "created_at_utc": "2026-09-01T00:00:00Z"
+}

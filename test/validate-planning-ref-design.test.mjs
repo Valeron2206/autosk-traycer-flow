@@ -475,6 +475,7 @@ test("recovered receipts are bound to their containing operation values", () => 
   const tailObservationSha256 = planningReleaseTailObservationDigest(released);
   const releaseReceipt = {
     schema: 1,
+    operation_id: released.candidate_keepalive.operation_id,
     candidate_identity: released.candidate_keepalive.candidate_identity,
     ref: released.candidate_keepalive.ref,
     expected_old_oid: released.candidate_keepalive.snapshot_commit_oid,
@@ -486,6 +487,10 @@ test("recovered receipts are bound to their containing operation values", () => 
       released,
       tailObservationSha256,
     ),
+    audit_candidate_ref:
+      `refs/autosk/epics/${released.epic_ref_key}/audit/candidates/` +
+      released.candidate_keepalive.candidate_identity,
+    audit_candidate_oid: released.candidate_keepalive.snapshot_commit_oid,
     ref_custody_generation: released.ref_custody_generation,
     ref_custody_policy_digest: released.ref_custody_policy_digest,
     closure_verified: true,
@@ -630,7 +635,7 @@ test("invalidation transition rows close every publication phase and recovery ta
     "publish_planning_invalidation | phase=commit_created and ref=expected parent",
     "publish_planning_invalidation | phase=ref_advanced and current bindings drifted",
     "publish_planning_invalidation | phase=ref_advanced and current bindings exact",
-    "publish_planning_invalidation | phase=verified, candidate_keepalive phase=released and effective_target_step",
+    "publish_planning_invalidation | phase=verified, candidate_keepalive phase=released, anchor_rebuild_op phase=release_pending",
     "publish_planning_invalidation | phase=voided_before_ref",
   ]) assert.match(plan, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.match(plan, /planning_ref_foreign_movement \| init_planning_ref or publish_artifact_pass or publish_planning_invalidation/u);
@@ -649,8 +654,10 @@ test("pre-CAS void and invalidation drift close rebuild state and preserve histo
   const plan = fixture()["03-technical-plan.md"];
   assert.match(plan, /publication_status=voided_before_ref.*terminal_reason.*publication_operation_id/u);
   assert.match(plan, /publication_history/u);
-  assert.match(plan, /anchor_rebuild_op phase=voided_before_ref.*prepare_anchor_impact/u);
-  assert.match(plan, /effective_target_step=prepare_anchor_impact.*anchor_rebuild_op phase=closed_with_pending_anchor/u);
+  assert.match(plan, /planning_publication_op phase=voided_before_ref\/effective_target_step=prepare_anchor_impact.*anchor_rebuild_op phase=voided_before_ref/u);
+  assert.match(plan, /phase=voided_before_ref, candidate_keepalive_op phase=audit_retained.*prepare_anchor_impact/u);
+  assert.match(plan, /effective_target_step=prepare_anchor_impact.*anchor_rebuild_op phase=release_pending/u);
+  assert.match(plan, /candidate_keepalive phase=released.*close anchor_rebuild_op.*archive operations/u);
 });
 
 test("ArtifactPassRecord voiding preserves disposition and uses publication status", () => {
@@ -975,4 +982,84 @@ test("protected ref namespace has one enforceable OS-level writer", () => {
     schema.$defs.candidate_keepalive_release_receipt.required.includes("ref_custody_policy_digest"),
     true,
   );
+});
+
+test("invalidation archives only after keepalive release", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  const verified = plan.match(/^\| publish_planning_invalidation \| phase=ref_advanced and current bindings exact[^\n]+$/mu)?.[0] ?? "";
+  const released = plan.match(/^\| publish_planning_invalidation \| phase=verified, candidate_keepalive phase=released[^\n]+$/mu)?.[0] ?? "";
+  assert.doesNotMatch(verified, /archive operations/u);
+  assert.match(verified, /release_pending/u);
+  assert.match(released, /archive operations/u);
+});
+
+test("rejected candidates have a typed audit-retention lifecycle", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(plan, /candidate_keepalive.*panel NOT_PASS.*audit_retained/isu);
+  assert.match(plan, /cleanup.*unresolved current keepalive.*planning_candidate_keepalive_invalid/isu);
+  assert.match(plan, /cleanup.*audit_retained.*done/isu);
+  assert.match(contract, /audit\/candidates\/<candidate_identity>.*snapshot commit/isu);
+});
+
+test("ref-custody helper is an owned packaged runtime component", () => {
+  const files = fixture();
+  assert.match(files["02-architecture.md"], /autosk-flow-ref-custody.*Unix socket.*daemon capability/isu);
+  assert.match(files["03-technical-plan.md"], /src\/git\/ref-custody-helper\.ts/iu);
+  assert.match(files["03-technical-plan.md"], /Slice 1.*ref-custody helper.*stale-lock recovery/isu);
+  assert.match(files["docs/contracts/epic-planning-ref.md"], /issue #5 owns.*ref-custody helper/isu);
+});
+
+test("packed refs cannot contain the protected namespace", () => {
+  const files = fixture();
+  const contract = files["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /gc\.packRefs=false.*packed-refs.*refs\/autosk/isu);
+  assert.match(contract, /loose ref absent.*packed entry present.*planning_ref_capability_missing/isu);
+  assert.match(files["03-technical-plan.md"], /packed-refs contains refs\/autosk.*retain.*keepalive/isu);
+});
+
+test("snapshot commit remains reachable through an audit ref", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /release transaction.*create.*audit ref.*delete.*candidate keepalive/isu);
+  assert.match(contract, /candidate or verdict retention.*audit ref/isu);
+});
+
+test("release digests have literal golden vectors", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const releasedPath = path.join(directory, "publish-artifact-pass-operation.released.example.json");
+  const released = JSON.parse(readFileSync(releasedPath, "utf8"));
+  assert.equal(released.candidate_keepalive.phase, "released");
+  assert.equal(
+    released.candidate_keepalive.release_receipt.planning_reflog_tail_observation_sha256,
+    "2a62fc213614230da0e98be3d06e32f4a57373dbbbd30468d88a7db9d4ae2e04",
+  );
+  assert.equal(
+    released.candidate_keepalive.release_receipt.transaction_observation_sha256,
+    "e5e341152cc691fcd393f5143c08a0a27227781cfad61f7617a770da3861838c",
+  );
+});
+
+test("candidate keepalive operation has a closed standalone machine", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.schema.json"), "utf8"));
+  const example = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.example.json"), "utf8"));
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.properties.phase.enum, ["prepared", "ref_created", "verified", "audit_retained", "released"]);
+  assert.equal(example.phase, "verified");
+  assert.notEqual(example.create_receipt, null);
+  const audit = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.audit-retained.example.json"),
+    "utf8",
+  ));
+  assert.equal(audit.audit_receipt.observation_sha256, "7c50306e7492d3e295f61fc354798609dcfbcfb922a24087f3e2db24bcc93120");
+  assert.equal(audit.audit_receipt.receipt_hash, "70fa8bbdfbe028b0bcc7ce9c9a0d743d20e6696f9fa6be458be8adb25f9209ef");
+});
+
+test("keepalive create proof is operation-scoped and uses null missing-old", () => {
+  const publication = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  const init = JSON.parse(readFileSync(INIT_OPERATION_EXAMPLE_PATH, "utf8"));
+  assert.match(publication.candidate_keepalive.expected_update_message, new RegExp(publication.candidate_keepalive.operation_id, "u"));
+  assert.equal(publication.candidate_keepalive.create_receipt.operation_id, publication.candidate_keepalive.operation_id);
+  assert.equal(publication.candidate_keepalive.create_receipt.observed_old_oid, null);
+  assert.equal(init.receipts.ref_create.observation.observed_old_oid, null);
 });

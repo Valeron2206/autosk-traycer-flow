@@ -57,7 +57,7 @@
       "receipt_kind": "ref_create",
       "observation": {
         "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
-        "observed_old_oid": "0000000000000000000000000000000000000000",
+        "observed_old_oid": null,
         "observed_new_oid": "3333333333333333333333333333333333333333",
         "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000",
         "before_entry_count": 0,
@@ -65,8 +65,8 @@
         "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
         "appended_entry_sha256": "21ee56bcb6b04093ae040bfccc2e45e090389aadfc0aabe232306ba6b55f54c4"
       },
-      "observation_sha256": "eed2b9c0f8a59368b613528ce76ffcb8f67b39a352174e359476fb384dcd7eb5",
-      "receipt_hash": "727acb1deb974a99ae37b823478a23bc9a6ce99cd33728513407bb59db5052cd"
+      "observation_sha256": "90d63d751b005051ca3f7491a132af913eda1c9631be84e1317b257fe59b9bd3",
+      "receipt_hash": "81b26d4a4d4c69b8a59a20271aebfcddfee0c6012069328d31fcdee47f654bcc"
     },
     "verification": {
       "schema": 1,
@@ -76,10 +76,10 @@
         "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
         "commit_oid": "3333333333333333333333333333333333333333",
         "tree_oid": "4444444444444444444444444444444444444444",
-        "ref_create_receipt_hash": "727acb1deb974a99ae37b823478a23bc9a6ce99cd33728513407bb59db5052cd"
+        "ref_create_receipt_hash": "81b26d4a4d4c69b8a59a20271aebfcddfee0c6012069328d31fcdee47f654bcc"
       },
-      "observation_sha256": "a180aca45d4ccc408ff0a739e82c1790737ec1ccf39670a1b16564d382f13a94",
-      "receipt_hash": "214c049ce6bf49fd1556138f41da75dca31638111c49fd694dc143658ae9d2c8"
+      "observation_sha256": "1979a7b7d0d2de830c51dc30cd0d002cfcbcde63fe4f18f240e96bb15316b6f6",
+      "receipt_hash": "a04a841d29fcbd7b5c7723498e8a993da51e4ad2ba1389b39da716dcc3fe11a7"
     }
   }
 }

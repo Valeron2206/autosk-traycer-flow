@@ -26,6 +26,18 @@ export const INIT_OPERATION_EXAMPLE_PATH = path.join(
   ROOT,
   "resources/planning-publication/init-planning-ref-operation.example.json",
 );
+export const CANDIDATE_KEEPALIVE_SCHEMA_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/candidate-keepalive-operation.schema.json",
+);
+export const CANDIDATE_KEEPALIVE_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/candidate-keepalive-operation.example.json",
+);
+export const RELEASED_OPERATION_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
+);
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -40,6 +52,10 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/publish-planning-invalidation-operation.example.json",
   "resources/planning-publication/init-planning-ref-operation.schema.json",
   "resources/planning-publication/init-planning-ref-operation.example.json",
+  "resources/planning-publication/candidate-keepalive-operation.schema.json",
+  "resources/planning-publication/candidate-keepalive-operation.example.json",
+  "resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json",
+  "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -174,11 +190,33 @@ const REQUIRED = Object.freeze({
     "\"ref_storage_format\": \"files\"",
     "\"ref_custody_policy_digest\"",
   ],
+  "resources/planning-publication/candidate-keepalive-operation.schema.json": [
+    "\"prepared\"",
+    "\"ref_created\"",
+    "\"verified\"",
+    "\"audit_retained\"",
+    "\"released\"",
+  ],
+  "resources/planning-publication/candidate-keepalive-operation.example.json": [
+    "\"operation_id\"",
+    "\"phase\": \"verified\"",
+    "\"create_receipt\"",
+  ],
+  "resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json": [
+    "\"phase\": \"audit_retained\"",
+    "\"terminal_disposition\": \"audit_retained\"",
+    "\"audit_receipt\"",
+  ],
+  "resources/planning-publication/publish-artifact-pass-operation.released.example.json": [
+    "\"phase\": \"verified\"",
+    "\"candidate_keepalive\"",
+    "\"release_receipt\"",
+  ],
 });
 
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const OID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const REF_RE = /^refs\/autosk\/epics\/[0-9a-f]{64}\/planning$/u;
 
 export function codePointCompare(left, right) {
@@ -468,10 +506,11 @@ export function candidateKeepaliveReflogEntryDigest(operation) {
   ]));
 }
 
-export function candidateKeepaliveCreateReceiptHash(candidateIdentity, observationSha256) {
+export function candidateKeepaliveCreateReceiptHash(candidateIdentity, operationId, observationSha256) {
   return sha256(
     "autosk-flow/candidate-keepalive-receipt/v1\0" + canonicalStringify({
       candidate_identity: candidateIdentity,
+      operation_id: operationId,
       observation_sha256: observationSha256,
     }),
   );
@@ -489,8 +528,13 @@ export function planningReleaseTailObservationDigest(operation) {
 }
 
 export function candidateKeepaliveReleaseTransactionDigest(operation, tailObservationSha256) {
+  const auditCandidateRef =
+    `refs/autosk/epics/${operation.epic_ref_key}/audit/candidates/` +
+    operation.candidate_keepalive?.candidate_identity;
   return sha256(
     "autosk-flow/candidate-keepalive-release-transaction/v1\0" + canonicalStringify({
+      audit_candidate_oid: operation.candidate_keepalive?.snapshot_commit_oid,
+      audit_candidate_ref: auditCandidateRef,
       candidate_keepalive_oid: operation.candidate_keepalive?.snapshot_commit_oid,
       candidate_keepalive_ref: operation.candidate_keepalive?.ref,
       planning_ref: operation.planning_ref,
@@ -506,6 +550,28 @@ export function candidateKeepaliveReleaseReceiptHash(receipt) {
   const { receipt_hash: ignored, ...preimage } = receipt;
   return sha256(
     "autosk-flow/candidate-keepalive-release/v1\0" + canonicalStringify(preimage),
+  );
+}
+
+export function candidateKeepaliveAuditReceiptHash(receipt) {
+  const { receipt_hash: ignored, ...preimage } = receipt;
+  return sha256(
+    "autosk-flow/candidate-keepalive-audit/v1\0" + canonicalStringify(preimage),
+  );
+}
+
+export function candidateKeepaliveAuditObservationDigest(receipt) {
+  return sha256(
+    "autosk-flow/candidate-keepalive-audit-observation/v1\0" + canonicalStringify({
+      audit_ref: receipt.audit_ref,
+      candidate_identity: receipt.candidate_identity,
+      live_ref: receipt.live_ref,
+      operation_id: receipt.operation_id,
+      reason: receipt.reason,
+      ref_custody_generation: receipt.ref_custody_generation,
+      ref_custody_policy_digest: receipt.ref_custody_policy_digest,
+      snapshot_commit_oid: receipt.snapshot_commit_oid,
+    }),
   );
 }
 
@@ -618,7 +684,7 @@ export function validatePlanningPublicationOperation(example, schema) {
       keepalive.ref_custody_policy_digest !== example.ref_custody_policy_digest) {
     errors.push("candidate_keepalive ref custody binding mismatch");
   }
-  if (keepalive.expected_update_message !== `autosk-flow keepalive ${expectedCandidateIdentity}`) {
+  if (keepalive.expected_update_message !== `autosk-flow keepalive ${keepalive.operation_id}`) {
     errors.push("candidate_keepalive expected_update_message mismatch");
   }
   if (keepalive.reflog_producer?.git_committer_name !== "autosk-flow" ||
@@ -637,6 +703,7 @@ export function validatePlanningPublicationOperation(example, schema) {
     expected_update_message: keepalive.expected_update_message,
     observed_new_oid: keepalive.snapshot_commit_oid,
     observed_old_oid: null,
+    operation_id: keepalive.operation_id,
     ref: expectedKeepaliveRef,
     snapshot_tree_oid: example.candidate_tree_oid,
   };
@@ -650,7 +717,11 @@ export function validatePlanningPublicationOperation(example, schema) {
   }
   if (createReceipt.observation_sha256 !== createObservationSha256 ||
       createReceipt.receipt_hash !==
-        candidateKeepaliveCreateReceiptHash(expectedCandidateIdentity, createObservationSha256)) {
+        candidateKeepaliveCreateReceiptHash(
+          expectedCandidateIdentity,
+          keepalive.operation_id,
+          createObservationSha256,
+        )) {
     errors.push("candidate_keepalive create receipt digest mismatch");
   }
   if (keepalive.phase === "verified" && keepalive.release_receipt !== null) {
@@ -658,12 +729,15 @@ export function validatePlanningPublicationOperation(example, schema) {
   }
   if (keepalive.phase === "released") {
     const release = keepalive.release_receipt;
+    const expectedAuditRef =
+      `refs/autosk/epics/${example.epic_ref_key}/audit/candidates/${expectedCandidateIdentity}`;
     const tailObservationSha256 = planningReleaseTailObservationDigest(example);
     const transactionObservationSha256 = candidateKeepaliveReleaseTransactionDigest(
       example,
       tailObservationSha256,
     );
     if (example.phase !== "verified" || !release ||
+        release.operation_id !== keepalive.operation_id ||
         release.candidate_identity !== expectedCandidateIdentity ||
         release.ref !== expectedKeepaliveRef ||
         release.expected_old_oid !== keepalive.snapshot_commit_oid ||
@@ -672,6 +746,8 @@ export function validatePlanningPublicationOperation(example, schema) {
         release.planning_reflog_after_receipt_hash !== example.receipts?.reflog_after?.receipt_hash ||
         release.planning_reflog_tail_observation_sha256 !== tailObservationSha256 ||
         release.transaction_observation_sha256 !== transactionObservationSha256 ||
+        release.audit_candidate_ref !== expectedAuditRef ||
+        release.audit_candidate_oid !== keepalive.snapshot_commit_oid ||
         release.ref_custody_generation !== example.ref_custody_generation ||
         release.ref_custody_policy_digest !== example.ref_custody_policy_digest ||
         release.closure_verified !== true ||
@@ -882,6 +958,81 @@ export function validatePlanningPublicationOperation(example, schema) {
   return errors;
 }
 
+
+export function validateCandidateKeepaliveOperation(operation, schema) {
+  const errors = validateJsonSchema(operation, schema, schema, "candidate_keepalive_operation")
+    .map((error) => "Schema: " + error);
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  if (!exactKeys(operation, required)) errors.push("candidate keepalive operation keys differ from closed Schema");
+  const expectedRef = "refs/autosk/epics/" + operation.epic_ref_key +
+    "/candidates/" + operation.candidate_identity;
+  const expectedAuditRef = "refs/autosk/epics/" + operation.epic_ref_key +
+    "/audit/candidates/" + operation.candidate_identity;
+  if (operation.ref !== expectedRef || operation.audit_ref !== expectedAuditRef) {
+    errors.push("candidate keepalive operation ref identity mismatch");
+  }
+  if (operation.expected_update_message !== "autosk-flow keepalive " + operation.operation_id) {
+    errors.push("candidate keepalive operation message mismatch");
+  }
+  const create = operation.create_receipt;
+  if (create) {
+    const observation = {
+      after_entry_count: create.after_entry_count,
+      appended_entry_sha256: create.appended_entry_sha256,
+      before_entry_count: create.before_entry_count,
+      before_prefix_sha256: create.before_prefix_sha256,
+      candidate_identity: create.candidate_identity,
+      expected_update_message: create.expected_update_message,
+      observed_new_oid: create.observed_new_oid,
+      observed_old_oid: create.observed_old_oid,
+      operation_id: create.operation_id,
+      ref: create.ref,
+      snapshot_tree_oid: create.snapshot_tree_oid,
+    };
+    const observationSha256 = sha256(
+      "autosk-flow/candidate-keepalive-create/v1\0" + canonicalStringify(observation),
+    );
+    if (create.operation_id !== operation.operation_id ||
+        create.candidate_identity !== operation.candidate_identity ||
+        create.ref !== operation.ref || create.observed_old_oid !== null ||
+        create.observed_new_oid !== operation.snapshot_commit_oid ||
+        create.snapshot_tree_oid !== operation.snapshot_tree_oid ||
+        create.expected_update_message !== operation.expected_update_message ||
+        create.observation_sha256 !== observationSha256 ||
+        create.receipt_hash !== candidateKeepaliveCreateReceiptHash(
+          operation.candidate_identity,
+          operation.operation_id,
+          observationSha256,
+        )) {
+      errors.push("candidate keepalive create receipt mismatch");
+    }
+  }
+  const audit = operation.audit_receipt;
+  if (audit && (audit.operation_id !== operation.operation_id ||
+      audit.candidate_identity !== operation.candidate_identity ||
+      audit.live_ref !== operation.ref || audit.audit_ref !== operation.audit_ref ||
+      audit.snapshot_commit_oid !== operation.snapshot_commit_oid ||
+      audit.ref_custody_generation !== operation.ref_custody_generation ||
+      audit.ref_custody_policy_digest !== operation.ref_custody_policy_digest ||
+      audit.observation_sha256 !== candidateKeepaliveAuditObservationDigest(audit) ||
+      audit.receipt_hash !== candidateKeepaliveAuditReceiptHash(audit))) {
+    errors.push("candidate keepalive audit receipt mismatch");
+  }
+  const phaseRules = {
+    prepared: create === null && audit === null && operation.terminal_disposition === null,
+    ref_created: create !== null && audit === null && operation.terminal_disposition === null,
+    verified: create !== null && audit === null && operation.terminal_disposition === null,
+    audit_retained: create !== null && audit !== null &&
+      operation.terminal_disposition === "audit_retained",
+    released: create !== null && audit !== null &&
+      operation.terminal_disposition === "published_released",
+  };
+  if (phaseRules[operation.phase] !== true) {
+    errors.push("candidate keepalive phase receipt prefix mismatch");
+  }
+  return errors;
+}
+
 export function validatePlanningPublicationOperationExample(example, schema) {
   const errors = validatePlanningPublicationOperation(example, schema);
   const reflogGoldenPrefix = Buffer.from(
@@ -968,11 +1119,10 @@ export function validatePlanningRefInitOperation(operation, schema) {
     ref_create: ["planning_ref", "observed_old_oid", "observed_new_oid", "expected_update_message", "before_entry_count", "after_entry_count", "before_prefix_sha256", "appended_entry_sha256"],
     verification: ["planning_ref", "commit_oid", "tree_oid", "ref_create_receipt_hash"],
   };
-  const zeroOid = "0".repeat(operation.object_format === "sha256" ? 64 : 40);
   const expectedObservations = {
     ref_create: {
       planning_ref: operation.planning_ref,
-      observed_old_oid: zeroOid,
+      observed_old_oid: null,
       observed_new_oid: operation.planning_base_oid,
       expected_update_message: operation.expected_update_message,
       before_entry_count: 0,
@@ -1114,7 +1264,7 @@ export function validatePlanningRefDesign(files) {
     errors.push("03-technical-plan.md: select_next publication recovery must precede aggregate remediation");
   }
   for (const [conditionFragment, actionFragment] of [
-    ["phase=voided_before_ref and recovery_target_step=prepare_anchor_impact", "prepare_anchor_impact"],
+    ["phase=voided_before_ref, candidate_keepalive_op phase=audit_retained and recovery_target_step=prepare_anchor_impact", "prepare_anchor_impact"],
     ["current binding drift after expected ref transition", "publish_artifact_pass"],
     ["phase=commit_created and expected object absent", "rewrite persisted exact commit_object_bytes"],
   ]) {
@@ -1147,7 +1297,7 @@ export function validatePlanningRefDesign(files) {
     "phase=prepared or phase=commit_created and ref=expected commit",
     "phase=ref_advanced and current bindings drifted",
     "phase=ref_advanced and current bindings exact",
-    "phase=verified, candidate_keepalive phase=released and effective_target_step",
+    "phase=verified, candidate_keepalive phase=released, anchor_rebuild_op phase=release_pending",
     "phase=voided_before_ref",
     "unknown/ABA transition",
     "claimed durable recipe/object/ref/reflog/receipt missing",
@@ -1276,8 +1426,12 @@ export function validatePlanningRefDesign(files) {
     "complete commit/tree/blob closure",
     "candidate_keepalive phase=released",
     "atomic update-ref transaction verifies",
-    "atomic update-ref transaction verifies planning ref=expected commit and deletes candidate_keepalive",
+    "atomic update-ref transaction verifies planning ref=expected commit, creates the audit candidate ref",
     "ref custody ownership/mode/generation drift",
+    "anchor_rebuild_op phase=release_pending",
+    "phase=audit_retained",
+    "packed-refs contains refs/autosk",
+    "src/git/ref-custody-helper.ts",
   ]) {
     if (!plan.includes(fragment)) errors.push(`03-technical-plan.md: missing closed planning invariant ${fragment}`);
   }
@@ -1302,6 +1456,9 @@ export function validatePlanningRefDesign(files) {
     "planning_reflog_tail_observation_sha256",
     "autosk-flow/ref-custody-policy/v1\\0",
     "permission denied",
+    "candidate-keepalive-operation.schema.json",
+    "gc.packRefs=false",
+    "publish-artifact-pass-operation.released.example.json",
   ]) {
     if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
   }
@@ -1353,6 +1510,18 @@ export function validatePlanningRefDesign(files) {
     const initExample = JSON.parse(
       files["resources/planning-publication/init-planning-ref-operation.example.json"],
     );
+    const keepaliveSchema = JSON.parse(
+      files["resources/planning-publication/candidate-keepalive-operation.schema.json"],
+    );
+    const keepaliveExample = JSON.parse(
+      files["resources/planning-publication/candidate-keepalive-operation.example.json"],
+    );
+    const keepaliveAuditExample = JSON.parse(
+      files["resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json"],
+    );
+    const releasedExample = JSON.parse(
+      files["resources/planning-publication/publish-artifact-pass-operation.released.example.json"],
+    );
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
     }
@@ -1361,6 +1530,15 @@ export function validatePlanningRefDesign(files) {
     }
     for (const error of validatePlanningRefInitOperationExample(initExample, initSchema)) {
       errors.push(`planning init Schema/example: ${error}`);
+    }
+    for (const error of validateCandidateKeepaliveOperation(keepaliveExample, keepaliveSchema)) {
+      errors.push(`candidate keepalive Schema/example: ${error}`);
+    }
+    for (const error of validateCandidateKeepaliveOperation(keepaliveAuditExample, keepaliveSchema)) {
+      errors.push(`candidate keepalive audit Schema/example: ${error}`);
+    }
+    for (const error of validatePlanningPublicationOperation(releasedExample, schema)) {
+      errors.push(`released publication Schema/example: ${error}`);
     }
   } catch (error) {
     errors.push(`planning publication Schema/example is not valid JSON: ${error.message}`);

@@ -298,7 +298,7 @@
               "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$"
             },
             "observed_old_oid": {
-              "$ref": "#/$defs/oid"
+              "type": "null"
             },
             "observed_new_oid": {
               "$ref": "#/$defs/oid"

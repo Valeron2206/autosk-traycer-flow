@@ -41,7 +41,7 @@
       "inherit_git_environment": false,
       "update_ref_mode": "object_format_neutral_expected_old"
     },
-    "phase": "verified",
+    "phase": "released",
     "create_receipt": {
       "schema": 1,
       "after_entry_count": 1,
@@ -58,7 +58,24 @@
       "receipt_hash": "7e3f175a45ac40018ff5592b5155851ce0780b0cdfa765c58f6878a920f98725",
       "operation_id": "77777777-7777-4777-8777-777777777777"
     },
-    "release_receipt": null,
+    "release_receipt": {
+      "schema": 1,
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "expected_old_oid": "7777777777777777777777777777777777777777",
+      "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+      "verified_commit_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+      "planning_reflog_after_receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2",
+      "planning_reflog_tail_observation_sha256": "2a62fc213614230da0e98be3d06e32f4a57373dbbbd30468d88a7db9d4ae2e04",
+      "transaction_observation_sha256": "e5e341152cc691fcd393f5143c08a0a27227781cfad61f7617a770da3861838c",
+      "audit_candidate_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "audit_candidate_oid": "7777777777777777777777777777777777777777",
+      "ref_custody_generation": 1,
+      "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "closure_verified": true,
+      "receipt_hash": "197f7f391114b1b873b478f277cca9d20bb8e3deb17a3fa63201ad912ca1f8b7"
+    },
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
     "ref_custody_generation": 1,
     "operation_id": "77777777-7777-4777-8777-777777777777"
@@ -129,15 +146,64 @@
     "expected_new_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
     "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111"
   },
-  "phase": "prepared",
+  "phase": "verified",
   "terminal_reason": null,
   "recovery_target_step": null,
-  "effective_target_step": null,
+  "effective_target_step": "select_next",
   "created_at_utc": "2026-09-01T00:00:00Z",
   "receipts": {
-    "commit_object": null,
-    "ref_cas": null,
-    "reflog_after": null,
-    "verification": null
+    "commit_object": {
+      "schema": 1,
+      "operation_id": "11111111-1111-4111-8111-111111111111",
+      "receipt_kind": "commit_object",
+      "observation": {
+        "object_format": "sha1",
+        "object_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+        "object_bytes_sha256": "bc6c070b2858aa1ae8f8b3650b8633620a82e0644cc76af9c3e0506df734508f"
+      },
+      "observation_sha256": "9167690cbff40fecf1eede9e31f6b06583b61cb9da78032b23fa36bf710946c1",
+      "receipt_hash": "cf2af4b4d98e8d4c228a8058e1013d5181d66248238fe67da4f36f8b660ee29e"
+    },
+    "ref_cas": {
+      "schema": 1,
+      "operation_id": "11111111-1111-4111-8111-111111111111",
+      "receipt_kind": "ref_cas",
+      "observation": {
+        "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+        "expected_old_oid": "3333333333333333333333333333333333333333",
+        "observed_new_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+        "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111",
+        "candidate_keepalive_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+        "candidate_keepalive_oid": "7777777777777777777777777777777777777777"
+      },
+      "observation_sha256": "7c9a29fed50f1fd8161f5d9e55f9305e2833c5538a3e6a22dec7eda610ad26ec",
+      "receipt_hash": "2fa452a2ac312dff6dadd5875ca8f6ee21d31e366e04e59bd2fce54fd4f55b33"
+    },
+    "reflog_after": {
+      "schema": 1,
+      "operation_id": "11111111-1111-4111-8111-111111111111",
+      "receipt_kind": "reflog_after",
+      "observation": {
+        "before_entry_count": 1,
+        "after_entry_count": 2,
+        "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
+        "appended_entry_sha256": "42e9e7ecf077a7d1c63357e9a4bd2cc80f727b780b80bd129a0188fdfdeee6c8"
+      },
+      "observation_sha256": "79c9c65f438030cb2ba5d041e8bdd692d7f98de1668656583d099a6fbdd5ee8e",
+      "receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2"
+    },
+    "verification": {
+      "schema": 1,
+      "operation_id": "11111111-1111-4111-8111-111111111111",
+      "receipt_kind": "verification",
+      "observation": {
+        "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+        "commit_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+        "tree_oid": "2222222222222222222222222222222222222222",
+        "reflog_after_receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2"
+      },
+      "observation_sha256": "454f6bc696edf99d9acc4cda4b885e5b6b83dbec32c758f83e152640a9a3b691",
+      "receipt_hash": "7f7b16ee07d33548dbb080849b0c1ecf3f817a5fe650b937005cd06b8bb5b724"
+    }
   }
 }

@@ -63,6 +63,10 @@ autosk v2 остаётся движком задач и переходов. Но
 
 Enforceable boundary: a separate-account ref-custody helper is the only writer of `refs/autosk/**` and `logs/refs/autosk/**`. Namespace directories/files and the helper transaction lock are owned by that OS account; extension/model/author/reviewer and ordinary project accounts receive permission denied for direct create/update/delete/rename. Preflight actively proves owner/mode/ACL, helper executable identity, custody generation and a denied unauthorized write probe. Any drift parks `planning_ref_capability_missing` before model or ref side effects and retains every candidate keepalive. Host-local mutex without this OS boundary is insufficient and unsupported.
 
+Issue #5 owns the packaged `autosk-flow-ref-custody` component (`src/git/ref-custody-helper.ts`, client and closed protocol). The helper exposes a project-scoped Unix socket; only autoskd's non-inheritable daemon capability may authorize init, keepalive, planning-CAS, audit-retain and release requests. Models and extension subprocesses cannot open an authorized request. Each request binds project/Epic, custody generation, expected refs/OIDs, operation/candidate identity and nonce; append-only helper receipts are returned to the workflow. A helper-owned `flock` serializes transactions and releases on process death, so stale-lock recovery never guesses or deletes lock files.
+
+Files-backend packing is closed explicitly. Privileged bootstrap migrates existing packed refs to loose form, sets repository `gc.packRefs=false`, makes `.git/packed-refs` helper-owned, and establishes sticky/ACL parent-directory topology protecting the `autosk` child names while leaving ordinary loose project refs writable by their owner. The helper and every preflight reject any `refs/autosk/**` entry in packed-refs. Ordinary `git gc` therefore packs objects but not refs; direct `git pack-refs` from the project account is permission denied and documented as unsupported maintenance.
+
 ### Planning publication adapter
 
 <!-- planning-ref-contract:v1 -->

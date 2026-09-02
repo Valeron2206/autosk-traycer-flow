@@ -27,7 +27,7 @@
     "object_format": "sha1",
     "snapshot_commit_oid": "8888888888888888888888888888888888888888",
     "snapshot_tree_oid": "6666666666666666666666666666666666666666",
-    "expected_update_message": "autosk-flow keepalive 489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
+    "expected_update_message": "autosk-flow keepalive 88888888-8888-4888-8888-888888888888",
     "reflog_producer": {
       "git_committer_name": "autosk-flow",
       "git_committer_email": "autosk@example.invalid",
@@ -45,21 +45,23 @@
     "create_receipt": {
       "schema": 1,
       "after_entry_count": 1,
-      "appended_entry_sha256": "2fdc4ec1604fed5439e6453e627ae3da740e1faa33d67b429ec6dbaf5b5a77f1",
+      "appended_entry_sha256": "d916b5e0861f3298854bfed389a9bfab326750a75a6cb215d4349d875000c394",
       "before_entry_count": 0,
       "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
       "candidate_identity": "489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
-      "expected_update_message": "autosk-flow keepalive 489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
+      "expected_update_message": "autosk-flow keepalive 88888888-8888-4888-8888-888888888888",
       "observed_new_oid": "8888888888888888888888888888888888888888",
       "observed_old_oid": null,
       "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
       "snapshot_tree_oid": "6666666666666666666666666666666666666666",
-      "observation_sha256": "567108e61502383f57e5630fb1546a64e5e3ceb7a23004e54eed6b4601814839",
-      "receipt_hash": "b78ff645050898501b99f6aa3a2439c868ca7d42853a6272853e611f7adc4ec7"
+      "observation_sha256": "fd60710120c1010de71255e6aa860fc78d37d1beeb97f11ae0d10abd6a9191c4",
+      "receipt_hash": "2afd0585ec21575fa74199f90e462fba60eec5a64eda19d054ff75a89833afa2",
+      "operation_id": "88888888-8888-4888-8888-888888888888"
     },
     "release_receipt": null,
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-    "ref_custody_generation": 1
+    "ref_custody_generation": 1,
+    "operation_id": "88888888-8888-4888-8888-888888888888"
   },
   "payload": {
     "kind": "anchor_invalidation",
