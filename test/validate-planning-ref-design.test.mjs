@@ -1409,6 +1409,10 @@ test("ref-custody wire examples bind actual values, authorization and durable jo
     validateRefCustodyHelperWireExamples(forged, schema).join("\n"),
     /ref observations|value-bound response|journal/u,
   );
+  const foreignCheckpoint = structuredClone(wire);
+  foreignCheckpoint.actions[0].request.reflog_checkpoints[0].ref = "refs/heads/main";
+  assert.notDeepEqual(validateJsonSchema(foreignCheckpoint, schema), []);
+  assert.match(validateRefCustodyHelperWireExamples(foreignCheckpoint, schema).join("\n"), /reflog refs|topology/u);
 });
 
 test("exact signing accepts only one canonical gpgsig header", () => {
@@ -1443,6 +1447,14 @@ test("audit-retained keepalive rejects publication-verified reason", () => {
   operation.audit_receipt.reason = "publication_verified";
   assert.notDeepEqual(validateJsonSchema(operation, schema), []);
   assert.match(validateCandidateKeepaliveOperation(operation, schema).join("\n"), /phase receipt prefix/u);
+});
+
+test("released keepalive Schema requires publication-verified audit reason", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.schema.json"), "utf8"));
+  const operation = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.released.example.json"), "utf8"));
+  operation.audit_receipt.reason = "superseded";
+  assert.notDeepEqual(validateJsonSchema(operation, schema), []);
 });
 
 test("helper reflog observations are realizable files-backend states", () => {
@@ -1505,6 +1517,9 @@ test("helper journal has valid durable prefix examples", () => {
     assert.deepEqual(validateJsonSchema(prefix, schema.$defs.journal, schema), []);
     assert.deepEqual(prefix.fsync_order, prefix.phase === "request_committed" ? ["request"] : ["request", "refs"]);
   }
+  const reordered = structuredClone(prefixes.records[1]);
+  reordered.fsync_order = ["refs", "request"];
+  assert.notDeepEqual(validateJsonSchema(reordered, schema.$defs.journal, schema), []);
 });
 
 test("helper not-applied response is value-bound and maps to recovery parks", () => {

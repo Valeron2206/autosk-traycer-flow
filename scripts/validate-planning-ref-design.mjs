@@ -91,6 +91,7 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/ref-custody-helper-wire.schema.json",
   "resources/planning-publication/ref-custody-helper-wire.example.json",
   "resources/planning-publication/ref-custody-helper-wire.not-applied.example.json",
+  "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json",
   "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json",
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
   "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
@@ -297,6 +298,11 @@ const REQUIRED = Object.freeze({
     "\"status\": \"not_applied\"",
     "\"not_applied_reason\": \"expected_old_mismatch\"",
     "\"phase\": \"not_applied\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json": [
+    "\"action\": \"create_keepalive\"",
+    "\"operation_id\": \"88888888-8888-4888-8888-888888888888\"",
+    "\"candidate_identity\": \"b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0\"",
   ],
   "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json": [
     "\"phase\": \"request_committed\"",
@@ -1459,8 +1465,15 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     delete_expired_audit: ["delete"],
   };
   const actions = Array.isArray(wire?.actions) ? wire.actions : [];
-  if (canonicalStringify(actions.map((item) => item.action)) !== canonicalStringify(expectedActions)) {
+  const isolatedNotApplied = actions.length === 1 && actions[0]?.response?.status === "not_applied";
+  const isolatedCreateVariant = actions.length === 1 && actions[0]?.action === "create_keepalive" &&
+    actions[0]?.response?.status === "committed";
+  if (!isolatedNotApplied && !isolatedCreateVariant &&
+      canonicalStringify(actions.map((item) => item.action)) !== canonicalStringify(expectedActions)) {
     errors.push("ref-custody wire must contain the exact canonical six-action roster");
+  }
+  if (isolatedNotApplied && actions[0].action !== "advance_planning") {
+    errors.push("isolated not-applied golden must use advance_planning");
   }
   let publicKey;
   let publicKeySha256 = "";
@@ -1537,6 +1550,13 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
           return lengths.some((length) => length !== lengths[0]);
         })) {
       errors.push(`ref-custody ${action} Epic/action/message topology mismatch`);
+    }
+    const updateRefs = [...new Set(request?.ref_updates?.map((item) => item.ref) ?? [])].sort(codePointCompare);
+    const checkpointRefs = [...new Set(request?.reflog_checkpoints?.map((item) => item.ref) ?? [])].sort(codePointCompare);
+    const observationRefs = [...new Set(response?.reflog_observations?.map((item) => item.ref) ?? [])].sort(codePointCompare);
+    if (canonicalStringify(updateRefs) !== canonicalStringify(checkpointRefs) ||
+        canonicalStringify(updateRefs) !== canonicalStringify(observationRefs)) {
+      errors.push(`ref-custody ${action} reflog refs do not exactly match ref_updates`);
     }
     const expectedRefObservations = (request?.ref_updates ?? []).map((update) => ({
       operation: update.operation,
@@ -2195,6 +2215,9 @@ export function validatePlanningRefDesign(files) {
     const custodyWireNotAppliedExample = parseResource(
       "resources/planning-publication/ref-custody-helper-wire.not-applied.example.json",
     );
+    const custodyWireInvalidationExample = parseResource(
+      "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json",
+    );
     const supersessionSchema = parseResource(
       "resources/planning-publication/candidate-supersession-operation.schema.json",
     );
@@ -2243,7 +2266,11 @@ export function validatePlanningRefDesign(files) {
     for (const error of validateRefCustodyHelperWireExamples(custodyWireNotAppliedExample, custodyWireSchema)) {
       errors.push(`ref-custody helper not-applied Schema/example: ${error}`);
     }
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireInvalidationExample, custodyWireSchema)) {
+      errors.push(`ref-custody helper invalidation Schema/example: ${error}`);
+    }
     const wireByAction = Object.fromEntries(custodyWireExample.actions.map((item) => [item.action, item]));
+    const invalidationCreateExchange = custodyWireInvalidationExample.actions[0];
     const checkHelperEvidence = (receipt, action, label) => {
       if (!receipt) return;
       const exchange = wireByAction[action];
@@ -2264,7 +2291,19 @@ export function validatePlanningRefDesign(files) {
       ["voided publication", voidedExample],
       ["planning invalidation", invalidationExample],
     ]) {
-      checkHelperEvidence(operation.candidate_keepalive.create_receipt, "create_keepalive", `${label} keepalive create`);
+      if (operation === invalidationExample) {
+        const expected = {
+          request_id: invalidationCreateExchange.request.request_id,
+          nonce: invalidationCreateExchange.request.nonce,
+          transaction_value_observation_sha256: invalidationCreateExchange.response.transaction_value_observation_sha256,
+          helper_receipt_hash: invalidationCreateExchange.response.receipt_hash,
+        };
+        if (canonicalStringify(operation.candidate_keepalive.create_receipt.helper_evidence) !== canonicalStringify(expected)) {
+          errors.push(`${label} keepalive create helper evidence does not match invalidation helper receipt`);
+        }
+      } else {
+        checkHelperEvidence(operation.candidate_keepalive.create_receipt, "create_keepalive", `${label} keepalive create`);
+      }
       checkHelperEvidence(operation.receipts.ref_cas, "advance_planning", `${label} ref_cas`);
       checkHelperEvidence(operation.candidate_keepalive.release_receipt, "release_to_audit", `${label} release`);
       if (operation.candidate_keepalive.audit_receipt) {

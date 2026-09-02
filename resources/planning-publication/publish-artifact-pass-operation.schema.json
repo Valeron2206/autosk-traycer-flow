@@ -360,14 +360,7 @@
           "$ref": "#/$defs/sha256"
         },
         "helper_evidence": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/helper_evidence"
-            }
-          ]
+          "$ref": "#/$defs/helper_evidence"
         },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
@@ -447,14 +440,7 @@
           "const": true
         },
         "helper_evidence": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/helper_evidence"
-            }
-          ]
+          "$ref": "#/$defs/helper_evidence"
         },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
@@ -519,14 +505,7 @@
           "$ref": "#/$defs/sha256"
         },
         "helper_evidence": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/helper_evidence"
-            }
-          ]
+          "$ref": "#/$defs/helper_evidence"
         },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
@@ -664,7 +643,13 @@
         "ref_custody_policy_digest": {
           "$ref": "#/$defs/sha256"
         },
-        "phase": { "enum": ["verified", "audit_retained", "released"] },
+        "phase": {
+          "enum": [
+            "verified",
+            "audit_retained",
+            "released"
+          ]
+        },
         "terminal_disposition": {
           "enum": [
             "audit_retained",
@@ -709,7 +694,7 @@
           "if": {
             "properties": {
               "phase": {
-              "const": "verified"
+                "const": "verified"
               }
             }
           },
@@ -766,7 +751,7 @@
                 "$ref": "#/$defs/candidate_keepalive_release_receipt"
               },
               "audit_receipt": {
-                "$ref": "#/$defs/candidate_keepalive_audit_receipt"
+                "$ref": "#/$defs/candidate_keepalive_released_audit_receipt"
               }
             }
           }
@@ -1584,6 +1569,20 @@
           "$ref": "#/$defs/oid"
         }
       }
+    },
+    "candidate_keepalive_released_audit_receipt": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/candidate_keepalive_audit_receipt"
+        },
+        {
+          "properties": {
+            "reason": {
+              "const": "publication_verified"
+            }
+          }
+        }
+      ]
     }
   },
   "allOf": [

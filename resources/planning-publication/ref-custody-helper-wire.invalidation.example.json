@@ -1,0 +1,209 @@
+{
+  "schema": 1,
+  "public_key_spki_base64": "MCowBQYDK2VwAyEAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+  "actions": [
+    {
+      "action": "create_keepalive",
+      "request": {
+        "schema": 1,
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "action": "create_keepalive",
+        "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+        "operation_id": "88888888-8888-4888-8888-888888888888",
+        "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+        "custody_generation": 1,
+        "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "packed_refs_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "expected_update_message": "autosk-flow keepalive 88888888-8888-4888-8888-888888888888",
+        "reflog_producer": {
+          "git_committer_name": "autosk-flow",
+          "git_committer_email": "autosk@example.invalid",
+          "git_committer_date": "@0 +0000",
+          "lc_all": "C",
+          "tz": "UTC",
+          "git_config_system": "/dev/null",
+          "git_config_global": "/dev/null",
+          "git_config_nosystem": "1",
+          "hooks_path": "/dev/null",
+          "inherit_git_environment": false,
+          "update_ref_mode": "object_format_neutral_expected_old"
+        },
+        "ref_updates": [
+          {
+            "operation": "update",
+            "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+            "expected_old_oid": null,
+            "new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
+          }
+        ],
+        "body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+        "authorization": {
+          "scheme": "ed25519",
+          "key_id": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
+          "public_key_sha256": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
+          "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+          "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+          "signature_base64": "Nk9wes9MatyBxc+gMZOIHp+C/fEdhx+T8tseSmtu/yXiiVnJt0L8gZBT7ctPibrL8xkYtnDglB1A4XMVnekkAw=="
+        },
+        "epic_id": "22222222-2222-4222-8222-222222222222",
+        "reflog_checkpoints": [
+          {
+            "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+            "before_entry_count": 0,
+            "before_prefix_base64": "",
+            "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b"
+          }
+        ]
+      },
+      "response": {
+        "schema": 1,
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "action": "create_keepalive",
+        "status": "committed",
+        "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+        "custody_generation": 1,
+        "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "ref_observations": [
+          {
+            "operation": "update",
+            "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+            "expected_old_oid": null,
+            "requested_new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
+            "observed_old_oid": null,
+            "observed_new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
+          }
+        ],
+        "reflog_observations": [
+          {
+            "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+            "outcome": "appended",
+            "before_entry_count": 0,
+            "after_entry_count": 1,
+            "before_prefix_base64": "",
+            "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+            "raw_appended_entries_base64": [
+              "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCA1MjcwNTg4ZjNhMjJkNDEyZGRiOWU3MDAwOWM5NTdkMGQxZWE1YmU0IGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGtlZXBhbGl2ZSA4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgK"
+            ],
+            "appended_entry_sha256": [
+              "bdf927ad9cf54b72066cd2869cd04ebcd70f449534006a4d54eaa8faf17e887c"
+            ]
+          }
+        ],
+        "transaction_value_observation_sha256": "c78164a9ff0868da5d2cc8d9385b950976f42d9c93321dc2a0e8164d564b1b82",
+        "receipt_hash": "e5744e8f8a62143297fc6c1aad14721b9fa4ec9df084e27b3ed067817c18b0dc",
+        "not_applied_reason": null
+      },
+      "journal": {
+        "schema": 1,
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "action": "create_keepalive",
+        "phase": "receipt_committed",
+        "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+        "request": {
+          "schema": 1,
+          "request_id": "00000002-1111-4111-8111-000000000002",
+          "action": "create_keepalive",
+          "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+          "operation_id": "88888888-8888-4888-8888-888888888888",
+          "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+          "custody_generation": 1,
+          "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+          "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+          "packed_refs_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "expected_update_message": "autosk-flow keepalive 88888888-8888-4888-8888-888888888888",
+          "reflog_producer": {
+            "git_committer_name": "autosk-flow",
+            "git_committer_email": "autosk@example.invalid",
+            "git_committer_date": "@0 +0000",
+            "lc_all": "C",
+            "tz": "UTC",
+            "git_config_system": "/dev/null",
+            "git_config_global": "/dev/null",
+            "git_config_nosystem": "1",
+            "hooks_path": "/dev/null",
+            "inherit_git_environment": false,
+            "update_ref_mode": "object_format_neutral_expected_old"
+          },
+          "ref_updates": [
+            {
+              "operation": "update",
+              "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+              "expected_old_oid": null,
+              "new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
+            }
+          ],
+          "body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+          "authorization": {
+            "scheme": "ed25519",
+            "key_id": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
+            "public_key_sha256": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
+            "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+            "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+            "signature_base64": "Nk9wes9MatyBxc+gMZOIHp+C/fEdhx+T8tseSmtu/yXiiVnJt0L8gZBT7ctPibrL8xkYtnDglB1A4XMVnekkAw=="
+          },
+          "epic_id": "22222222-2222-4222-8222-222222222222",
+          "reflog_checkpoints": [
+            {
+              "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+              "before_entry_count": 0,
+              "before_prefix_base64": "",
+              "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b"
+            }
+          ]
+        },
+        "response": {
+          "schema": 1,
+          "request_id": "00000002-1111-4111-8111-000000000002",
+          "action": "create_keepalive",
+          "status": "committed",
+          "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+          "custody_generation": 1,
+          "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+          "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+          "ref_observations": [
+            {
+              "operation": "update",
+              "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+              "expected_old_oid": null,
+              "requested_new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
+              "observed_old_oid": null,
+              "observed_new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
+            }
+          ],
+          "reflog_observations": [
+            {
+              "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+              "outcome": "appended",
+              "before_entry_count": 0,
+              "after_entry_count": 1,
+              "before_prefix_base64": "",
+              "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+              "raw_appended_entries_base64": [
+                "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCA1MjcwNTg4ZjNhMjJkNDEyZGRiOWU3MDAwOWM5NTdkMGQxZWE1YmU0IGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGtlZXBhbGl2ZSA4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgK"
+              ],
+              "appended_entry_sha256": [
+                "bdf927ad9cf54b72066cd2869cd04ebcd70f449534006a4d54eaa8faf17e887c"
+              ]
+            }
+          ],
+          "transaction_value_observation_sha256": "c78164a9ff0868da5d2cc8d9385b950976f42d9c93321dc2a0e8164d564b1b82",
+          "receipt_hash": "e5744e8f8a62143297fc6c1aad14721b9fa4ec9df084e27b3ed067817c18b0dc",
+          "not_applied_reason": null
+        },
+        "fsync_order": [
+          "request",
+          "refs",
+          "receipt"
+        ],
+        "request_fsync_sha256": "5c5d305bc8dffe0be83229017818fe9c41ac86d3205d1adf9030700f3f3f643e",
+        "refs_commit_sha256": "9ff7e811dfa9ba015b46f58f7cc9114ad3e0cfae0205ae689ec946bc49d4e294",
+        "receipt_fsync_sha256": "9ef0aa4ee3050f338168d7274bf7d9863829487134ae35bc08f049667fbada0e",
+        "journal_hash": "85cabc84d4bc294a9adbeda79212a12b59a99fc0f2a177b7877779253e03068d"
+      }
+    }
+  ]
+}

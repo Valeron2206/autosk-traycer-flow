@@ -64,8 +64,8 @@
       "helper_evidence": {
         "request_id": "00000002-1111-4111-8111-000000000002",
         "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
-        "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
-        "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+        "transaction_value_observation_sha256": "c78164a9ff0868da5d2cc8d9385b950976f42d9c93321dc2a0e8164d564b1b82",
+        "helper_receipt_hash": "e5744e8f8a62143297fc6c1aad14721b9fa4ec9df084e27b3ed067817c18b0dc"
       }
     },
     "release_receipt": null,
