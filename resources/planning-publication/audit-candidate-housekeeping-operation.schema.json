@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
+  "title": "autosk-flow audit candidate housekeeping operation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation_id", "audit_ref", "expected_oid", "retention_policy_digest", "inventory_digest", "expires_at_utc", "operator_approval", "phase", "helper_evidence", "tombstone_receipt", "created_at_utc", "completed_at_utc"],
+  "properties": {
+    "schema": { "const": 1 },
+    "operation_id": { "$ref": "#/$defs/uuid" },
+    "audit_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$" },
+    "expected_oid": { "$ref": "#/$defs/oid" },
+    "retention_policy_digest": { "$ref": "#/$defs/sha256" },
+    "inventory_digest": { "$ref": "#/$defs/sha256" },
+    "expires_at_utc": { "$ref": "#/$defs/timestamp" },
+    "operator_approval": { "$ref": "#/$defs/operator_approval" },
+    "phase": { "enum": ["prepared", "ref_deleted", "tombstone_verified"] },
+    "helper_evidence": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/helper_evidence" }] },
+    "tombstone_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/tombstone_receipt" }] },
+    "created_at_utc": { "$ref": "#/$defs/timestamp" },
+    "completed_at_utc": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }] }
+  },
+  "allOf": [
+    { "if": { "properties": { "phase": { "const": "prepared" } } }, "then": { "properties": { "helper_evidence": { "type": "null" }, "tombstone_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "ref_deleted" } } }, "then": { "properties": { "helper_evidence": { "$ref": "#/$defs/helper_evidence" }, "tombstone_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "tombstone_verified" } } }, "then": { "properties": { "helper_evidence": { "$ref": "#/$defs/helper_evidence" }, "tombstone_receipt": { "$ref": "#/$defs/tombstone_receipt" }, "completed_at_utc": { "$ref": "#/$defs/timestamp" } } } }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "operator_approval": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_id", "approved_by", "approved_at_utc", "digest"],
+      "properties": {
+        "record_id": { "$ref": "#/$defs/uuid" }, "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at_utc": { "$ref": "#/$defs/timestamp" }, "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "helper_evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "nonce", "request_body_sha256", "transaction_value_observation_sha256", "helper_receipt_hash"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/uuid" }, "nonce": { "$ref": "#/$defs/sha256" },
+        "request_body_sha256": { "$ref": "#/$defs/sha256" }, "transaction_value_observation_sha256": { "$ref": "#/$defs/sha256" },
+        "helper_receipt_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "tombstone_receipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "operation_id", "deleted_audit_ref", "deleted_oid", "helper_receipt_hash", "inventory_digest", "retention_policy_digest", "deleted_at_utc", "receipt_hash"],
+      "properties": {
+        "schema": { "const": 1 }, "operation_id": { "$ref": "#/$defs/uuid" },
+        "deleted_audit_ref": { "type": "string" }, "deleted_oid": { "$ref": "#/$defs/oid" },
+        "helper_receipt_hash": { "$ref": "#/$defs/sha256" }, "inventory_digest": { "$ref": "#/$defs/sha256" },
+        "retention_policy_digest": { "$ref": "#/$defs/sha256" }, "deleted_at_utc": { "$ref": "#/$defs/timestamp" },
+        "receipt_hash": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

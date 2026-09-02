@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -26,6 +28,7 @@ import {
   reflogPrefixDigest,
   validateCandidateKeepaliveOperation,
   validateCandidateSupersessionOperation,
+  validateAuditHousekeepingOperation,
   validateRefCustodyHelperContract,
   validateRefCustodyHelperWireExamples,
   validatePlanningPublicationOperation,
@@ -1415,6 +1418,42 @@ test("ref-custody wire examples bind actual values, authorization and durable jo
   assert.match(validateRefCustodyHelperWireExamples(foreignCheckpoint, schema).join("\n"), /reflog refs|topology/u);
 });
 
+test("ref-custody helper rejects mixed object formats in one signed request", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const wire = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.example.json"), "utf8"));
+  const schema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.schema.json"), "utf8"));
+  const mixed = structuredClone(wire);
+  mixed.actions[4].request.ref_updates[1].new_oid = "a".repeat(64);
+  mixed.actions[4].response.ref_observations[1].requested_new_oid = "a".repeat(64);
+  mixed.actions[4].response.ref_observations[1].observed_new_oid = "a".repeat(64);
+  assert.match(validateRefCustodyHelperWireExamples(mixed, schema).join("\n"), /object format/u);
+  const publicationSchema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const publication = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  publication.expected_parent_tree_oid = "a".repeat(64);
+  assert.match(validatePlanningPublicationOperation(publication, publicationSchema).join("\n"), /object format/u);
+});
+
+test("pre-existing exact audit topology is a valid release variant", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const wire = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.example.json"), "utf8"));
+  const schema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.schema.json"), "utf8"));
+  const existing = structuredClone(wire);
+  const release = existing.actions.find(({ action }) => action === "release_to_audit");
+  release.request.ref_updates[1].operation = "verify";
+  release.request.ref_updates[1].expected_old_oid = release.request.ref_updates[1].new_oid;
+  const errors = validateRefCustodyHelperWireExamples(existing, schema).join("\n");
+  assert.doesNotMatch(errors, /action-specific ref update set mismatch/u);
+  const golden = JSON.parse(readFileSync(path.join(
+    directory,
+    "ref-custody-helper-wire.existing-audit.example.json",
+  ), "utf8"));
+  assert.deepEqual(validateRefCustodyHelperWireExamples(golden, schema), []);
+  for (const exchange of golden.actions) {
+    assert.ok(exchange.request.ref_updates.some((update) =>
+      update.operation === "verify" && update.ref.includes("/audit/candidates/")));
+  }
+});
+
 test("exact signing accepts only one canonical gpgsig header", () => {
   assert.equal(isCanonicalGpgsigHeader(Buffer.from("gpgsig signed-payload\n continuation\n", "utf8")), true);
   assert.equal(isCanonicalGpgsigHeader(Buffer.from("gpgsig signed-payload\nparent injected\n", "utf8")), false);
@@ -1432,6 +1471,7 @@ test("candidate supersession has a closed durable operation and receipt", () => 
     "utf8",
   ));
   assert.deepEqual(validateCandidateSupersessionOperation(operation, schema), []);
+  assert.match(operation.helper_request_binding.binding_hash, /^[0-9a-f]{64}$/u);
   const changed = structuredClone(operation);
   changed.audit_receipt.snapshot_commit_oid = "f".repeat(40);
   assert.match(validateCandidateSupersessionOperation(changed, schema).join("\n"), /audit receipt/u);
@@ -1481,6 +1521,90 @@ test("helper reflog observations are realizable files-backend states", () => {
   }
 });
 
+test("real Git files backend matches helper reflog and deletion semantics", () => {
+  const formats = ["sha1"];
+  const probe = mkdtempSync(path.join(tmpdir(), "autosk-ref-custody-probe-"));
+  try {
+    try {
+      execFileSync("git", ["init", "--quiet", "--object-format=sha256", probe]);
+      formats.push("sha256");
+    } catch {
+      // SHA-256 is capability-gated; SHA-1 remains mandatory on older Git.
+    }
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+
+  for (const format of formats) {
+    const repository = mkdtempSync(path.join(tmpdir(), `autosk-ref-custody-${format}-`));
+    const environment = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "autosk-flow",
+      GIT_AUTHOR_EMAIL: "autosk@example.invalid",
+      GIT_AUTHOR_DATE: "@1 +0000",
+      GIT_COMMITTER_NAME: "autosk-flow",
+      GIT_COMMITTER_EMAIL: "autosk@example.invalid",
+      GIT_COMMITTER_DATE: "@1 +0000",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      LC_ALL: "C",
+      TZ: "UTC",
+    };
+    const run = (args, options = {}) => execFileSync("git", ["-C", repository, ...args], {
+      encoding: "utf8",
+      env: environment,
+      ...options,
+    }).trim();
+    try {
+      execFileSync("git", ["init", "--quiet", `--object-format=${format}`, repository], { env: environment });
+      run(["config", "core.logAllRefUpdates", "always"]);
+      run(["config", "gc.packRefs", "false"]);
+      const tree = run(["hash-object", "-t", "tree", "--stdin"], { input: "" });
+      const first = run(["commit-tree", tree], { input: "first\n" });
+      const second = run(["commit-tree", tree, "-p", first], {
+        input: "second\n",
+        env: { ...environment, GIT_AUTHOR_DATE: "@2 +0000", GIT_COMMITTER_DATE: "@2 +0000" },
+      });
+      const ref = `refs/autosk/epics/${"e".repeat(64)}/planning`;
+      const message = "autosk-flow init 00000000-0000-4000-8000-000000000000";
+      run(["update-ref", "--create-reflog", "-m", message, ref, first]);
+      const logPath = path.join(repository, ".git", "logs", ref);
+      const created = readFileSync(logPath, "utf8");
+      assert.match(created, new RegExp(`^${"0".repeat(first.length)} ${first} autosk-flow <autosk@example\\.invalid> 1 \\+0000\\t${message}\\n$`, "u"));
+      run(["update-ref", "--stdin"], { input: `verify ${ref} ${first}\n` });
+      assert.equal(readFileSync(logPath, "utf8"), created);
+      const root = `refs/autosk/epics/${"e".repeat(64)}`;
+      const liveOne = `${root}/candidates/${"1".repeat(64)}`;
+      const auditOne = `${root}/audit/candidates/${"1".repeat(64)}`;
+      const liveTwo = `${root}/candidates/${"2".repeat(64)}`;
+      const auditTwo = `${root}/audit/candidates/${"2".repeat(64)}`;
+      const zero = "0".repeat(first.length);
+      run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 77777777-7777-4777-8777-777777777777", liveOne, first]);
+      run(["update-ref", "-m", "autosk-flow publish 11111111-1111-4111-8111-111111111111", "--stdin"], {
+        input: `start\nverify ${liveOne} ${first}\nupdate ${ref} ${second} ${first}\nprepare\ncommit\n`,
+      });
+      assert.equal(readFileSync(logPath, "utf8").split("\n").filter(Boolean).length, 2);
+      run(["update-ref", "-m", "autosk-flow keepalive 77777777-7777-4777-8777-777777777777", "--stdin"], {
+        input: `start\nupdate ${auditOne} ${first} ${zero}\ndelete ${liveOne} ${first}\nprepare\ncommit\n`,
+      });
+      assert.equal(existsSync(path.join(repository, ".git", "logs", liveOne)), false);
+      assert.equal(existsSync(path.join(repository, ".git", "logs", auditOne)), true);
+      run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 88888888-8888-4888-8888-888888888888", liveTwo, first]);
+      run(["update-ref", "-m", "autosk-flow keepalive 88888888-8888-4888-8888-888888888888", "--stdin"], {
+        input: `start\nverify ${ref} ${second}\nupdate ${auditTwo} ${first} ${zero}\ndelete ${liveTwo} ${first}\nprepare\ncommit\n`,
+      });
+      assert.equal(existsSync(path.join(repository, ".git", "logs", liveTwo)), false);
+      assert.equal(existsSync(path.join(repository, ".git", "logs", auditTwo)), true);
+      run(["update-ref", "-d", auditOne, first]);
+      run(["update-ref", "-d", auditTwo, first]);
+      assert.equal(existsSync(path.join(repository, ".git", "logs", auditOne)), false);
+      assert.equal(existsSync(path.join(repository, ".git", "logs", auditTwo)), false);
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  }
+});
+
 test("helper actions use workflow operation identity and exact update messages", () => {
   const wire = JSON.parse(readFileSync(
     path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"),
@@ -1516,10 +1640,22 @@ test("helper journal has valid durable prefix examples", () => {
   for (const prefix of prefixes.records) {
     assert.deepEqual(validateJsonSchema(prefix, schema.$defs.journal, schema), []);
     assert.deepEqual(prefix.fsync_order, prefix.phase === "request_committed" ? ["request"] : ["request", "refs"]);
+    if (prefix.phase === "refs_committed") assert.notEqual(prefix.response, null);
   }
   const reordered = structuredClone(prefixes.records[1]);
   reordered.fsync_order = ["refs", "request"];
   assert.notDeepEqual(validateJsonSchema(reordered, schema.$defs.journal, schema), []);
+  const files = fixture();
+  prefixes.records[1].response.ref_observations[0].observed_new_oid = "f".repeat(40);
+  files["resources/planning-publication/ref-custody-helper-journal-prefixes.example.json"] =
+    JSON.stringify(prefixes, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(files).join("\n"), /journal prefixes/u);
+  const crashRelative = "resources/planning-publication/ref-custody-helper-journal-crash.example.json";
+  const crash = JSON.parse(fixture()[crashRelative]);
+  crash.git_ref_transactions_during_recovery = 1;
+  const crashFiles = fixture();
+  crashFiles[crashRelative] = JSON.stringify(crash, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(crashFiles).join("\n"), /journal crash/u);
 });
 
 test("helper not-applied response is value-bound and maps to recovery parks", () => {
@@ -1531,9 +1667,45 @@ test("helper not-applied response is value-bound and maps to recovery parks", ()
   assert.equal(failed.response.not_applied_reason, "expected_old_mismatch");
   assert.equal(failed.journal.phase, "not_applied");
   assert.deepEqual(failed.journal.fsync_order, ["request", "receipt"]);
+  for (const observation of failed.response.ref_observations) {
+    assert.equal(observation.observed_new_oid, observation.observed_old_oid);
+  }
+  for (const observation of failed.response.reflog_observations) {
+    assert.equal(observation.outcome, "unchanged");
+    assert.equal(observation.after_entry_count, observation.before_entry_count);
+    assert.deepEqual(observation.raw_appended_entries_base64, []);
+  }
+  const sideEffect = structuredClone(wire);
+  sideEffect.actions[0].response.ref_observations[0].observed_new_oid = "f".repeat(40);
+  assert.match(
+    validateRefCustodyHelperWireExamples(sideEffect, schema).join("\n"),
+    /not_applied must prove zero/u,
+  );
   const plan = fixture()["03-technical-plan.md"];
   assert.match(plan, /status=not_applied and reason=expected_old_mismatch.*planning_ref_foreign_movement/isu);
   assert.match(plan, /status=not_applied and reason=packed_refs_drift\\\|authorization_invalid.*planning_ref_capability_missing/isu);
+});
+
+test("normative helper receipt preimage includes not-applied reason", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /receipt_hash.*not_applied_reason/isu);
+});
+
+test("audit expiry has a durable approval and tombstone operation", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "audit-candidate-housekeeping-operation.schema.json"), "utf8"));
+  const operation = JSON.parse(readFileSync(path.join(directory, "audit-candidate-housekeeping-operation.example.json"), "utf8"));
+  assert.deepEqual(validateAuditHousekeepingOperation(operation, schema), []);
+  assert.equal(operation.phase, "tombstone_verified");
+  assert.match(operation.operator_approval.digest, /^[0-9a-f]{64}$/u);
+  assert.equal(operation.helper_evidence.helper_receipt_hash.length, 64);
+  assert.equal(operation.tombstone_receipt.deleted_audit_ref, operation.audit_ref);
+  const unapproved = structuredClone(operation);
+  unapproved.operator_approval = null;
+  assert.notDeepEqual(validateJsonSchema(unapproved, schema), []);
+  const forged = structuredClone(operation);
+  forged.inventory_digest = "d".repeat(64);
+  assert.match(validateAuditHousekeepingOperation(forged, schema).join("\n"), /approval|tombstone/u);
 });
 
 test("planning receipts bind the exact journaled helper evidence", () => {

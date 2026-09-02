@@ -8,6 +8,16 @@
   "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
   "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
   "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+  "helper_request_binding": {
+    "schema": 1,
+    "supersession_operation_id": "99999999-9999-4999-8999-999999999999",
+    "replacement_intent_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "keepalive_operation_id": "77777777-7777-4777-8777-777777777777",
+    "helper_request_id": "00000004-1111-4111-8111-000000000004",
+    "helper_nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
+    "helper_request_body_sha256": "a5363f7bf315c80ce0042e14f867e1853ed5cc73c47b5e3e9db049224af13810",
+    "binding_hash": "a6acdeb4d2f5bafca29e495ef69cfad0431df206281954851243084be9399381"
+  },
   "phase": "archived",
   "audit_receipt": {
     "schema": 1,

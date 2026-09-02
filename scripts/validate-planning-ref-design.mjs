@@ -66,6 +66,14 @@ export const CANDIDATE_SUPERSESSION_EXAMPLE_PATH = path.join(
   ROOT,
   "resources/planning-publication/candidate-supersession-operation.example.json",
 );
+export const AUDIT_HOUSEKEEPING_SCHEMA_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
+);
+export const AUDIT_HOUSEKEEPING_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
+);
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -92,11 +100,15 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/ref-custody-helper-wire.example.json",
   "resources/planning-publication/ref-custody-helper-wire.not-applied.example.json",
   "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json",
+  "resources/planning-publication/ref-custody-helper-wire.existing-audit.example.json",
   "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json",
+  "resources/planning-publication/ref-custody-helper-journal-crash.example.json",
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
   "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
   "resources/planning-publication/candidate-supersession-operation.schema.json",
   "resources/planning-publication/candidate-supersession-operation.example.json",
+  "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
+  "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -304,10 +316,20 @@ const REQUIRED = Object.freeze({
     "\"operation_id\": \"88888888-8888-4888-8888-888888888888\"",
     "\"candidate_identity\": \"b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0\"",
   ],
+  "resources/planning-publication/ref-custody-helper-wire.existing-audit.example.json": [
+    "\"action\": \"retain_audit\"",
+    "\"action\": \"release_to_audit\"",
+    "\"operation\": \"verify\"",
+  ],
   "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json": [
     "\"phase\": \"request_committed\"",
     "\"phase\": \"refs_committed\"",
     "\"fsync_order\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-journal-crash.example.json": [
+    "\"scenario\": \"git_committed_before_refs_journal\"",
+    "\"recovery_decision\": \"persist_refs_committed_without_git_write\"",
+    "\"git_ref_transactions_during_recovery\": 0",
   ],
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json": [
     "\"phase\": \"prepared\"",
@@ -328,6 +350,16 @@ const REQUIRED = Object.freeze({
     "\"phase\": \"archived\"",
     "\"reason\": \"superseded\"",
     "\"audit_receipt\"",
+  ],
+  "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json": [
+    "\"prepared\"",
+    "\"ref_deleted\"",
+    "\"tombstone_verified\"",
+  ],
+  "resources/planning-publication/audit-candidate-housekeeping-operation.example.json": [
+    "\"phase\": \"tombstone_verified\"",
+    "\"operator_approval\"",
+    "\"tombstone_receipt\"",
   ],
 });
 
@@ -796,6 +828,9 @@ export function validatePlanningPublicationOperation(example, schema) {
   const oidLength = recipe.object_format === "sha1" ? 40 : recipe.object_format === "sha256" ? 64 : 0;
   const oidMatchesFormat = (value) => typeof value === "string" && value.length === oidLength && /^[0-9a-f]+$/u.test(value);
   if (!oidLength) errors.push("commit_recipe.object_format is invalid");
+  for (const key of ["expected_parent_oid", "expected_parent_tree_oid", "candidate_tree_oid", "expected_commit_oid"]) {
+    if (!oidMatchesFormat(example[key])) errors.push(`${key} does not match object format`);
+  }
   if (!oidMatchesFormat(recipe.tree_oid)) errors.push("commit_recipe.tree_oid does not match object format");
   if (!Array.isArray(recipe.parent_oids) || recipe.parent_oids.length !== 1 || !oidMatchesFormat(recipe.parent_oids[0])) {
     errors.push("commit_recipe.parent_oids must contain one OID matching object format");
@@ -1345,6 +1380,19 @@ export function validateCandidateSupersessionOperation(operation, schema) {
     errors.push("candidate supersession ref identity mismatch");
   }
   const receipt = operation.audit_receipt;
+  const requestBinding = operation.helper_request_binding;
+  if (requestBinding) {
+    const { binding_hash: ignored, ...preimage } = requestBinding;
+    const expectedHash = sha256(
+      "autosk-flow/candidate-supersession-request/v1\0" + canonicalStringify(preimage),
+    );
+    if (requestBinding.supersession_operation_id !== operation.operation_id ||
+        requestBinding.replacement_intent_digest !== operation.replacement_intent_digest ||
+        requestBinding.keepalive_operation_id !== operation.keepalive_operation_id ||
+        requestBinding.binding_hash !== expectedHash) {
+      errors.push("candidate supersession helper request binding mismatch");
+    }
+  }
   if (receipt && (receipt.operation_id !== operation.keepalive_operation_id ||
       receipt.candidate_identity !== operation.source_candidate_identity ||
       receipt.live_ref !== operation.live_ref || receipt.audit_ref !== operation.audit_ref ||
@@ -1373,6 +1421,11 @@ export function validateCandidateSupersessionOperation(operation, schema) {
         helperReceipt.helper_receipt_hash !== evidence.helper_receipt_hash) {
       errors.push("candidate supersession helper receipt is not bound to journal evidence");
     }
+    if (!requestBinding || helperReceipt.helper_request_id !== requestBinding.helper_request_id ||
+        helperReceipt.helper_nonce !== requestBinding.helper_nonce ||
+        evidence?.helper_receipt_hash !== helperReceipt.helper_receipt_hash) {
+      errors.push("candidate supersession helper receipt is not bound to prepared request");
+    }
   }
   const phaseValid = operation.phase === "prepared"
     ? receipt === null && helperReceipt === null && operation.archived_at_utc === null
@@ -1382,6 +1435,48 @@ export function validateCandidateSupersessionOperation(operation, schema) {
         ? receipt !== null && helperReceipt !== null && typeof operation.archived_at_utc === "string"
         : false;
   if (!phaseValid) errors.push("candidate supersession phase prefix mismatch");
+  return errors;
+}
+
+export function validateAuditHousekeepingOperation(operation, schema) {
+  const errors = validateJsonSchema(operation, schema, schema, "audit_housekeeping_operation")
+    .map((error) => "Schema: " + error);
+  const approval = operation.operator_approval;
+  if (approval) {
+    const approvalPreimage = {
+      operation_id: operation.operation_id,
+      audit_ref: operation.audit_ref,
+      expected_oid: operation.expected_oid,
+      retention_policy_digest: operation.retention_policy_digest,
+      inventory_digest: operation.inventory_digest,
+      expires_at_utc: operation.expires_at_utc,
+      operator_approval: {
+        record_id: approval.record_id,
+        approved_by: approval.approved_by,
+        approved_at_utc: approval.approved_at_utc,
+      },
+    };
+    if (approval.digest !== sha256(
+      "autosk-flow/audit-housekeeping-approval/v1\0" + canonicalStringify(approvalPreimage),
+    ) || Date.parse(approval.approved_at_utc) < Date.parse(operation.expires_at_utc)) {
+      errors.push("audit housekeeping operator approval mismatch");
+    }
+  }
+  const tombstone = operation.tombstone_receipt;
+  if (tombstone) {
+    const { receipt_hash: ignored, ...preimage } = tombstone;
+    if (tombstone.operation_id !== operation.operation_id ||
+        tombstone.deleted_audit_ref !== operation.audit_ref ||
+        tombstone.deleted_oid !== operation.expected_oid ||
+        tombstone.helper_receipt_hash !== operation.helper_evidence?.helper_receipt_hash ||
+        tombstone.inventory_digest !== operation.inventory_digest ||
+        tombstone.retention_policy_digest !== operation.retention_policy_digest ||
+        tombstone.receipt_hash !== sha256(
+          "autosk-flow/audit-housekeeping-tombstone/v1\0" + canonicalStringify(preimage),
+        )) {
+      errors.push("audit housekeeping tombstone receipt mismatch");
+    }
+  }
   return errors;
 }
 
@@ -1457,18 +1552,22 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     "release_to_audit", "delete_expired_audit",
   ];
   const expectedOperations = {
-    init: ["update"],
-    create_keepalive: ["update"],
-    advance_planning: ["verify", "update"],
-    retain_audit: ["update", "delete"],
-    release_to_audit: ["verify", "update", "delete"],
-    delete_expired_audit: ["delete"],
+    init: [["update"]],
+    create_keepalive: [["update"]],
+    advance_planning: [["verify", "update"]],
+    retain_audit: [["update", "delete"], ["verify", "delete"]],
+    release_to_audit: [["verify", "update", "delete"], ["verify", "verify", "delete"]],
+    delete_expired_audit: [["delete"]],
   };
   const actions = Array.isArray(wire?.actions) ? wire.actions : [];
   const isolatedNotApplied = actions.length === 1 && actions[0]?.response?.status === "not_applied";
   const isolatedCreateVariant = actions.length === 1 && actions[0]?.action === "create_keepalive" &&
     actions[0]?.response?.status === "committed";
-  if (!isolatedNotApplied && !isolatedCreateVariant &&
+  const isolatedExistingAuditVariant = actions.length >= 1 && actions.length <= 2 &&
+    actions.every((item) => ["retain_audit", "release_to_audit"].includes(item?.action) &&
+      item?.request?.ref_updates?.some((update) => update.operation === "verify" &&
+        update.ref.includes("/audit/candidates/")));
+  if (!isolatedNotApplied && !isolatedCreateVariant && !isolatedExistingAuditVariant &&
       canonicalStringify(actions.map((item) => item.action)) !== canonicalStringify(expectedActions)) {
     errors.push("ref-custody wire must contain the exact canonical six-action roster");
   }
@@ -1515,8 +1614,9 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     }
     if (nonces.has(request?.nonce)) errors.push(`ref-custody ${action} nonce is reused`);
     nonces.add(request?.nonce);
-    if (canonicalStringify(request?.ref_updates?.map((item) => item.operation)) !==
-        canonicalStringify(expectedOperations[action] ?? [])) {
+    const actualOperations = request?.ref_updates?.map((item) => item.operation);
+    if (!(expectedOperations[action] ?? []).some((expected) =>
+      canonicalStringify(actualOperations) === canonicalStringify(expected))) {
       errors.push(`ref-custody ${action} action-specific ref update set mismatch`);
     }
     const expectedEpicKey = deriveEpicRefKey(request?.project_root_sha256, request?.epic_id);
@@ -1524,18 +1624,23 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     const expectedPlanningRef = `${expectedRoot}planning`;
     const expectedLiveRef = `${expectedRoot}candidates/${request?.candidate_identity}`;
     const expectedAuditRef = `${expectedRoot}audit/candidates/${request?.candidate_identity}`;
-    const expectedRefTopology = {
-      init: [["update", expectedPlanningRef]],
-      create_keepalive: [["update", expectedLiveRef]],
-      advance_planning: [["verify", expectedLiveRef], ["update", expectedPlanningRef]],
-      retain_audit: [["update", expectedAuditRef], ["delete", expectedLiveRef]],
-      release_to_audit: [["verify", expectedPlanningRef], ["update", expectedAuditRef], ["delete", expectedLiveRef]],
-      delete_expired_audit: [["delete", expectedAuditRef]],
+    const expectedRefTopologies = {
+      init: [[['update', expectedPlanningRef]]],
+      create_keepalive: [[['update', expectedLiveRef]]],
+      advance_planning: [[['verify', expectedLiveRef], ['update', expectedPlanningRef]]],
+      retain_audit: [
+        [["update", expectedAuditRef], ["delete", expectedLiveRef]],
+        [["verify", expectedAuditRef], ["delete", expectedLiveRef]],
+      ],
+      release_to_audit: [
+        [["verify", expectedPlanningRef], ["update", expectedAuditRef], ["delete", expectedLiveRef]],
+        [["verify", expectedPlanningRef], ["verify", expectedAuditRef], ["delete", expectedLiveRef]],
+      ],
+      delete_expired_audit: [[['delete', expectedAuditRef]]],
     };
     const actualTopology = request?.ref_updates?.map((item) => [item.operation, item.ref]);
-    const releaseExistingAuditTopology = [["verify", expectedPlanningRef], ["verify", expectedAuditRef], ["delete", expectedLiveRef]];
-    const topologyValid = canonicalStringify(actualTopology) === canonicalStringify(expectedRefTopology[action] ?? []) ||
-      (action === "release_to_audit" && canonicalStringify(actualTopology) === canonicalStringify(releaseExistingAuditTopology));
+    const topologyValid = (expectedRefTopologies[action] ?? []).some((expected) =>
+      canonicalStringify(actualTopology) === canonicalStringify(expected));
     const expectedMessagePrefix = action === "init" ? "autosk-flow init "
       : action === "advance_planning" ? "autosk-flow publish "
         : action === "delete_expired_audit" ? "autosk-flow housekeeping "
@@ -1550,6 +1655,23 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
           return lengths.some((length) => length !== lengths[0]);
         })) {
       errors.push(`ref-custody ${action} Epic/action/message topology mismatch`);
+    }
+    const oidLengths = new Set();
+    const collectOid = (oid) => {
+      if (typeof oid === "string") oidLengths.add(oid.length);
+    };
+    for (const update of request?.ref_updates ?? []) {
+      collectOid(update.expected_old_oid);
+      collectOid(update.new_oid);
+    }
+    for (const observation of response?.ref_observations ?? []) {
+      collectOid(observation.expected_old_oid);
+      collectOid(observation.requested_new_oid);
+      collectOid(observation.observed_old_oid);
+      collectOid(observation.observed_new_oid);
+    }
+    if (oidLengths.size !== 1 || ![40, 64].includes([...oidLengths][0])) {
+      errors.push(`ref-custody ${action} object format mismatch`);
     }
     const updateRefs = [...new Set(request?.ref_updates?.map((item) => item.ref) ?? [])].sort(codePointCompare);
     const checkpointRefs = [...new Set(request?.reflog_checkpoints?.map((item) => item.ref) ?? [])].sort(codePointCompare);
@@ -1570,10 +1692,28 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
         canonicalStringify(response?.ref_observations) !== canonicalStringify(expectedRefObservations)) {
       errors.push(`ref-custody ${action} ref observations mismatch request values`);
     }
-    if (response?.status === "not_applied" &&
-        (!response.not_applied_reason ||
-          canonicalStringify(response.ref_observations) === canonicalStringify(expectedRefObservations))) {
-      errors.push(`ref-custody ${action} not_applied must bind reason and differing observed values`);
+    if (response?.status === "not_applied") {
+      const zeroWriteObservations = (request?.ref_updates ?? []).map((update) => {
+        const observed = response?.ref_observations?.find((item) => item.ref === update.ref);
+        return observed && observed.operation === update.operation &&
+          observed.expected_old_oid === update.expected_old_oid &&
+          observed.requested_new_oid === update.new_oid &&
+          observed.observed_new_oid === observed.observed_old_oid;
+      });
+      const unchangedReflogs = (request?.reflog_checkpoints ?? []).map((checkpoint) => {
+        const observed = response?.reflog_observations?.find((item) => item.ref === checkpoint.ref);
+        return observed && observed.outcome === "unchanged" &&
+          observed.before_entry_count === checkpoint.before_entry_count &&
+          observed.after_entry_count === checkpoint.before_entry_count &&
+          observed.before_prefix_base64 === checkpoint.before_prefix_base64 &&
+          observed.before_prefix_sha256 === checkpoint.before_prefix_sha256 &&
+          observed.raw_appended_entries_base64.length === 0 &&
+          observed.appended_entry_sha256.length === 0;
+      });
+      if (!response.not_applied_reason || zeroWriteObservations.some((value) => !value) ||
+          unchangedReflogs.some((value) => !value)) {
+        errors.push(`ref-custody ${action} not_applied must prove zero ref and reflog side effects`);
+      }
     }
     for (const observation of response?.reflog_observations ?? []) {
       const prefixBytes = Buffer.from(observation.before_prefix_base64 ?? "", "base64");
@@ -1678,6 +1818,64 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     }
   }
   return errors;
+}
+
+export function validateRefCustodyJournalPrefixes(prefixes, wire, schema) {
+  const errors = [];
+  const records = prefixes?.records ?? [];
+  const exchange = wire?.actions?.find(({ action }) => action === "init");
+  if (records.length !== 2 || records[0]?.phase !== "request_committed" ||
+      records[1]?.phase !== "refs_committed" || !exchange) {
+    return ["ref-custody journal prefixes must contain init request_committed and refs_committed"];
+  }
+  for (const record of records) {
+    errors.push(...validateJsonSchema(record, schema.$defs.journal, schema)
+      .map((error) => `ref-custody ${record.phase} Schema: ${error}`));
+    const requestFsync = sha256(
+      "autosk-flow/ref-custody/journal-request/v1\0" + canonicalStringify(record.request),
+    );
+    const response = record.response;
+    const refsCommit = response ? sha256(
+      "autosk-flow/ref-custody/journal-refs/v1\0" + canonicalStringify({
+        ref_observations: response.ref_observations,
+        reflog_observations: response.reflog_observations,
+      }),
+    ) : null;
+    const { journal_hash: ignoredJournalHash, ...preimage } = record;
+    const journalHash = sha256(
+      "autosk-flow/ref-custody/journal/v1\0" + canonicalStringify(preimage),
+    );
+    if (canonicalStringify(record.request) !== canonicalStringify(exchange.request) ||
+        record.request_fsync_sha256 !== requestFsync || record.journal_hash !== journalHash ||
+        (record.phase === "request_committed" && (response !== null || record.refs_commit_sha256 !== null)) ||
+        (record.phase === "refs_committed" &&
+          (canonicalStringify(response) !== canonicalStringify(exchange.response) ||
+            record.refs_commit_sha256 !== refsCommit))) {
+      errors.push(`ref-custody ${record.phase} prefix is not bound to exact request/observations`);
+    }
+  }
+  return errors;
+}
+
+export function validateRefCustodyJournalCrashExample(example, prefixes, wire) {
+  const requestRecord = prefixes?.records?.find(({ phase }) => phase === "request_committed");
+  const refsRecord = prefixes?.records?.find(({ phase }) => phase === "refs_committed");
+  const exchange = wire?.actions?.find(({ action }) => action === "init");
+  const expected = requestRecord && refsRecord && exchange ? {
+    schema: 1,
+    scenario: "git_committed_before_refs_journal",
+    request_id: exchange.request.request_id,
+    request_body_sha256: exchange.request.body_sha256,
+    request_committed_journal_hash: requestRecord.journal_hash,
+    observed_post_state_sha256: refsRecord.refs_commit_sha256,
+    committed_response_receipt_hash: exchange.response.receipt_hash,
+    recovery_decision: "persist_refs_committed_without_git_write",
+    git_ref_transactions_during_recovery: 0,
+    refs_committed_journal_hash: refsRecord.journal_hash,
+  } : null;
+  return expected && canonicalStringify(example) === canonicalStringify(expected)
+    ? []
+    : ["ref-custody journal crash vector does not bind the exact committed observations"];
 }
 
 export function validatePlanningPublicationOperationExample(example, schema) {
@@ -2218,11 +2416,26 @@ export function validatePlanningRefDesign(files) {
     const custodyWireInvalidationExample = parseResource(
       "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json",
     );
+    const custodyWireExistingAuditExample = parseResource(
+      "resources/planning-publication/ref-custody-helper-wire.existing-audit.example.json",
+    );
+    const custodyJournalPrefixes = parseResource(
+      "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json",
+    );
+    const custodyJournalCrashExample = parseResource(
+      "resources/planning-publication/ref-custody-helper-journal-crash.example.json",
+    );
     const supersessionSchema = parseResource(
       "resources/planning-publication/candidate-supersession-operation.schema.json",
     );
     const supersessionExample = parseResource(
       "resources/planning-publication/candidate-supersession-operation.example.json",
+    );
+    const housekeepingSchema = parseResource(
+      "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
+    );
+    const housekeepingExample = parseResource(
+      "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
     );
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
@@ -2268,6 +2481,15 @@ export function validatePlanningRefDesign(files) {
     }
     for (const error of validateRefCustodyHelperWireExamples(custodyWireInvalidationExample, custodyWireSchema)) {
       errors.push(`ref-custody helper invalidation Schema/example: ${error}`);
+    }
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireExistingAuditExample, custodyWireSchema)) {
+      errors.push(`ref-custody helper existing-audit Schema/example: ${error}`);
+    }
+    for (const error of validateRefCustodyJournalPrefixes(custodyJournalPrefixes, custodyWireExample, custodyWireSchema)) {
+      errors.push(`ref-custody helper journal prefixes: ${error}`);
+    }
+    for (const error of validateRefCustodyJournalCrashExample(custodyJournalCrashExample, custodyJournalPrefixes, custodyWireExample)) {
+      errors.push(`ref-custody helper journal crash: ${error}`);
     }
     const wireByAction = Object.fromEntries(custodyWireExample.actions.map((item) => [item.action, item]));
     const invalidationCreateExchange = custodyWireInvalidationExample.actions[0];
@@ -2317,6 +2539,30 @@ export function validatePlanningRefDesign(files) {
     }
     for (const error of validateCandidateSupersessionOperation(supersessionExample, supersessionSchema)) {
       errors.push(`candidate supersession Schema/example: ${error}`);
+    }
+    const retainRequest = wireByAction.retain_audit?.request;
+    const supersessionBinding = supersessionExample.helper_request_binding;
+    if (!retainRequest || supersessionBinding.helper_request_id !== retainRequest.request_id ||
+        supersessionBinding.helper_nonce !== retainRequest.nonce ||
+        supersessionBinding.helper_request_body_sha256 !== retainRequest.body_sha256 ||
+        supersessionBinding.keepalive_operation_id !== retainRequest.operation_id) {
+      errors.push("candidate supersession prepared request binding does not match retain_audit journal request");
+    }
+    for (const error of validateAuditHousekeepingOperation(housekeepingExample, housekeepingSchema)) {
+      errors.push(`audit housekeeping Schema/example: ${error}`);
+    }
+    const deleteExchange = wireByAction.delete_expired_audit;
+    const housekeepingEvidence = housekeepingExample.helper_evidence;
+    if (!deleteExchange || housekeepingExample.operation_id !== deleteExchange.request.operation_id ||
+        housekeepingExample.audit_ref !== deleteExchange.request.ref_updates[0].ref ||
+        housekeepingExample.expected_oid !== deleteExchange.request.ref_updates[0].expected_old_oid ||
+        housekeepingEvidence.request_id !== deleteExchange.request.request_id ||
+        housekeepingEvidence.nonce !== deleteExchange.request.nonce ||
+        housekeepingEvidence.request_body_sha256 !== deleteExchange.request.body_sha256 ||
+        housekeepingEvidence.transaction_value_observation_sha256 !==
+          deleteExchange.response.transaction_value_observation_sha256 ||
+        housekeepingEvidence.helper_receipt_hash !== deleteExchange.response.receipt_hash) {
+      errors.push("audit housekeeping operation is not bound to delete_expired_audit journal receipt");
     }
   } catch (error) {
     errors.push(`planning publication resource is not valid JSON: ${error.message}`);

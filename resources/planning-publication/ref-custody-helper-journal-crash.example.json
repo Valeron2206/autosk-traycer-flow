@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "scenario": "git_committed_before_refs_journal",
+  "request_id": "00000001-1111-4111-8111-000000000001",
+  "request_body_sha256": "71921b4b52e7637181e5270c9787ae8d8b47ce33df633550ac044b4bd68a41df",
+  "request_committed_journal_hash": "6e34866a768458d7b71ba05c760895141e0befe4dd9199b9ebedc6d70b6bf115",
+  "observed_post_state_sha256": "29313a78be82156e439494d0a3b31166b696bd86c7701efb124355ac37701326",
+  "committed_response_receipt_hash": "1f3956e867a88246e290edb622f384df3313bec5457cc6a0cb4d96746ae0a352",
+  "recovery_decision": "persist_refs_committed_without_git_write",
+  "git_ref_transactions_during_recovery": 0,
+  "refs_committed_journal_hash": "79ee8255b82be2e7a8765dde321d9e956aea26ea5b1266b72714f8b821104372"
+}
