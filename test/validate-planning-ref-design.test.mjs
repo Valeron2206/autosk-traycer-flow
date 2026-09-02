@@ -610,9 +610,15 @@ test("pre-CAS void and invalidation drift close rebuild state and preserve histo
 test("ArtifactPassRecord voiding preserves disposition and uses publication status", () => {
   const files = fixture();
   for (const text of [files["03-technical-plan.md"], files["docs/contracts/epic-planning-ref.md"]]) {
-    assert.doesNotMatch(text, /artifact(?:_pass| PASS)(?:(?:\.[a-z_]+)|(?:\[[^\]\r\n]+\]))?\s*=\s*`?void`?/iu);
+    assert.doesNotMatch(text, /artifact(?:_pass| PASS)\s*(?:(?:\.\s*[a-z_]+)|(?:\[[^\]\r\n]+\]))?\s*=\s*`?void`?/iu);
   }
-  for (const assignment of ["artifact PASS=`void`", "artifact_pass[kind]=void", "artifact_pass[tickets] = `void`"]) {
+  for (const assignment of [
+    "artifact PASS=`void`",
+    "artifact_pass[kind]=void",
+    "artifact_pass[tickets] = `void`",
+    "artifact_pass [kind] = void",
+    "artifact_pass .tickets = `void`",
+  ]) {
     const changed = structuredClone(files);
     changed["docs/contracts/epic-planning-ref.md"] += `\n${assignment}\n`;
     assert.match(validatePlanningRefDesign(changed).join("\n"), /unsupported ArtifactPassRecord void state/u);
