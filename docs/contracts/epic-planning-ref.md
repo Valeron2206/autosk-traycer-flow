@@ -328,7 +328,7 @@ The commit has no merge parent and cannot include changes outside the candidate 
 
 | Observation | Action |
 | --- | --- |
-| current controlling binding changed before ref movement, ref=expected parent and reflog prefix/count equal checkpoint | atomically set phase=`voided_before_ref`, terminal reason `binding_drift`, recovery target `prepare_anchor_impact`, artifact PASS=`void` and pending anchor; transition `prepare_anchor_impact` before any object/ref side effect |
+| current controlling binding changed before ref movement, ref=expected parent and reflog prefix/count equal checkpoint | atomically set phase=`voided_before_ref`, terminal reason `binding_drift`, recovery target `prepare_anchor_impact`; keep original ArtifactPassRecord disposition/identity and set `publication_status=voided_before_ref`, publication operation ID and supersession binding; ensure pending anchor and transition `prepare_anchor_impact` before any object/ref side effect |
 | phase=`prepared`, object absent, ref=expected parent | write exact commit object; verify OID; record `commit_created` |
 | phase=`prepared`, expected object already exists | verify bytes/tree/parent/message; record `commit_created` |
 | phase=`commit_created`, expected object was pruned, ref=expected parent and reflog prefix/count equal checkpoint | rewrite the persisted exact commit object bytes, require the same expected OID, retain `commit_created` and continue; this is reconstruction, not a new logical commit |

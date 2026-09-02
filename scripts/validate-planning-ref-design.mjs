@@ -1009,6 +1009,10 @@ export function validatePlanningRefDesign(files) {
   if (/"epic_id":\s*"epic-001"/u.test(plan)) {
     errors.push("03-technical-plan.md: Epic metadata must use UUID epic_id, not display slug");
   }
+  const unsupportedArtifactVoid = /artifact(?:_pass| PASS)(?:\.[a-z]+)?\s*=\s*`?void`?/iu;
+  if (unsupportedArtifactVoid.test(plan) || unsupportedArtifactVoid.test(files["docs/contracts/epic-planning-ref.md"] ?? "")) {
+    errors.push("unsupported ArtifactPassRecord void state; use publication_status=voided_before_ref");
+  }
   const publishedPassFragments = [
     "publication_status=verified",
     "matching planning_publication_op phase=verified",

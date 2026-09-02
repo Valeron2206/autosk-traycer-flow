@@ -607,6 +607,15 @@ test("pre-CAS void and invalidation drift close rebuild state and preserve histo
   assert.match(plan, /anchor_rebuild_op phase=closed_with_pending_anchor.*prepare_anchor_impact/u);
 });
 
+test("ArtifactPassRecord voiding preserves disposition and uses publication status", () => {
+  const files = fixture();
+  for (const text of [files["03-technical-plan.md"], files["docs/contracts/epic-planning-ref.md"]]) {
+    assert.doesNotMatch(text, /artifact(?:_pass| PASS)(?:\.[a-z]+)?\s*=\s*`?void`?/iu);
+  }
+  files["docs/contracts/epic-planning-ref.md"] += "\nartifact PASS=`void`\n";
+  assert.match(validatePlanningRefDesign(files).join("\n"), /unsupported ArtifactPassRecord void state/u);
+});
+
 test("reflog producer, expiry and ref backend rules are normative", () => {
   const contract = fixture()["docs/contracts/epic-planning-ref.md"];
   assert.match(contract, /GIT_COMMITTER_NAME.*GIT_COMMITTER_EMAIL.*GIT_COMMITTER_DATE/u);
