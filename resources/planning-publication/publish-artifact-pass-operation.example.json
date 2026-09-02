@@ -20,6 +20,45 @@
     "inherit_git_environment": false,
     "update_ref_mode": "object_format_neutral_expected_old"
   },
+  "candidate_keepalive": {
+    "schema": 1,
+    "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "object_format": "sha1",
+    "snapshot_commit_oid": "7777777777777777777777777777777777777777",
+    "snapshot_tree_oid": "2222222222222222222222222222222222222222",
+    "expected_update_message": "autosk-flow keepalive 4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "reflog_producer": {
+      "git_committer_name": "autosk-flow",
+      "git_committer_email": "autosk@example.invalid",
+      "git_committer_date": "@0 +0000",
+      "lc_all": "C",
+      "tz": "UTC",
+      "git_config_system": "/dev/null",
+      "git_config_global": "/dev/null",
+      "git_config_nosystem": "1",
+      "hooks_path": "/dev/null",
+      "inherit_git_environment": false,
+      "update_ref_mode": "object_format_neutral_expected_old"
+    },
+    "phase": "verified",
+    "create_receipt": {
+      "schema": 1,
+      "after_entry_count": 1,
+      "appended_entry_sha256": "72863df61fc1f18561feb2deb47df432540237cf7564cfbe99e02e0fba62d0c6",
+      "before_entry_count": 0,
+      "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+      "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "expected_update_message": "autosk-flow keepalive 4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "observed_new_oid": "7777777777777777777777777777777777777777",
+      "observed_old_oid": null,
+      "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "snapshot_tree_oid": "2222222222222222222222222222222222222222",
+      "observation_sha256": "aed6b38d0993e63c3f2ed50d64f038a04da535c081708a06d0dc9648f50f8ed0",
+      "receipt_hash": "5c867944b0d1613cbe87cae56b850be773d3397f8921686207dde10c9c38e8f4"
+    },
+    "release_receipt": null
+  },
   "payload": {
     "kind": "artifact_pass",
     "artifact_kind": "brief",

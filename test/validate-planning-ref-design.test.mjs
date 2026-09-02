@@ -67,8 +67,8 @@ test("direct prose transition from record-artifact-pass to select-next is reject
 test("successful record-artifact-pass rows must target publication", () => {
   const files = fixture();
   files["03-technical-plan.md"] = files["03-technical-plan.md"].replace(
-    "create immutable planning_publication_op phase=prepared with exact recipe/OID; publish_artifact_pass",
-    "create immutable planning_publication_op phase=prepared with exact recipe/OID; dispatch_ticket_dag",
+    "create immutable planning_publication_op phase=prepared binding exact verified candidate_keepalive and recipe/OID; publish_artifact_pass",
+    "create immutable planning_publication_op phase=prepared binding exact verified candidate_keepalive and recipe/OID; dispatch_ticket_dag",
   );
   assert.match(validatePlanningRefDesign(files).join("\n"), /successful record_artifact_pass.*publish_artifact_pass/u);
 });
@@ -87,7 +87,7 @@ test("pre-CAS drift guard precedes publication side effects", () => {
   const plan = files["03-technical-plan.md"];
   const drift = plan.indexOf("current binding drift before ref movement");
   const objectWrite = plan.indexOf("phase=prepared and expected object absent, ref=expected parent and reflog prefix=checkpoint");
-  const cas = plan.indexOf("phase=commit_created and ref=expected parent and reflog prefix=checkpoint");
+  const cas = plan.indexOf("phase=commit_created and ref=expected parent, candidate_keepalive ref=snapshot commit and reflog prefix=checkpoint");
   assert.equal(drift >= 0 && drift < objectWrite && drift < cas, true);
 });
 
@@ -407,6 +407,8 @@ test("recovered receipts are bound to their containing operation values", () => 
     expected_old_oid: operation.reflog_checkpoint.expected_old_oid,
     observed_new_oid: operation.reflog_checkpoint.expected_new_oid,
     expected_update_message: operation.reflog_checkpoint.expected_update_message,
+    candidate_keepalive_ref: operation.candidate_keepalive.ref,
+    candidate_keepalive_oid: operation.candidate_keepalive.snapshot_commit_oid,
   });
   operation.receipts.reflog_after = receipt("reflog_after", {
     before_entry_count: operation.reflog_checkpoint.before_entry_count,
@@ -424,6 +426,8 @@ test("recovered receipts are bound to their containing operation values", () => 
     ["ref_cas", "expected_old_oid", "4".repeat(40)],
     ["ref_cas", "observed_new_oid", "4".repeat(40)],
     ["ref_cas", "expected_update_message", "different update"],
+    ["ref_cas", "candidate_keepalive_ref", `refs/autosk/epics/${"4".repeat(64)}/candidates/${"4".repeat(64)}`],
+    ["ref_cas", "candidate_keepalive_oid", "4".repeat(40)],
     ["reflog_after", "before_entry_count", 2],
     ["reflog_after", "after_entry_count", 3],
     ["reflog_after", "before_prefix_sha256", "4".repeat(64)],
@@ -589,7 +593,7 @@ test("invalidation transition rows close every publication phase and recovery ta
     "publish_planning_invalidation | phase=commit_created and ref=expected parent",
     "publish_planning_invalidation | phase=ref_advanced and current bindings drifted",
     "publish_planning_invalidation | phase=ref_advanced and current bindings exact",
-    "publish_planning_invalidation | phase=verified and effective_target_step",
+    "publish_planning_invalidation | phase=verified, candidate_keepalive phase=released and effective_target_step",
     "publish_planning_invalidation | phase=voided_before_ref",
   ]) assert.match(plan, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.match(plan, /planning_ref_foreign_movement \| init_planning_ref or publish_artifact_pass or publish_planning_invalidation/u);
@@ -609,7 +613,7 @@ test("pre-CAS void and invalidation drift close rebuild state and preserve histo
   assert.match(plan, /publication_status=voided_before_ref.*terminal_reason.*publication_operation_id/u);
   assert.match(plan, /publication_history/u);
   assert.match(plan, /anchor_rebuild_op phase=voided_before_ref.*prepare_anchor_impact/u);
-  assert.match(plan, /anchor_rebuild_op phase=closed_with_pending_anchor.*prepare_anchor_impact/u);
+  assert.match(plan, /effective_target_step=prepare_anchor_impact.*anchor_rebuild_op phase=closed_with_pending_anchor/u);
 });
 
 test("ArtifactPassRecord voiding preserves disposition and uses publication status", () => {
@@ -829,4 +833,81 @@ test("terminal planning operations have typed history containers", () => {
 test("governance mapping attestation placement is explicit", () => {
   const contract = fixture()["docs/contracts/epic-planning-ref.md"];
   assert.match(contract, /governance_mapping_set_digest.*operation-only.*retained operation history/isu);
+});
+
+test("frozen candidate object closure stays reachable until publication verification", () => {
+  const files = fixture();
+  const plan = files["03-technical-plan.md"];
+  const contract = files["docs/contracts/epic-planning-ref.md"];
+  assert.match(plan, /candidate_keepalive.*complete commit\/tree\/blob closure/isu);
+  assert.match(plan, /candidate_keepalive phase=released.*planning ref.*verified/isu);
+  assert.match(plan, /atomic update-ref transaction verifies.*keepalive.*CAS-advances planning ref/isu);
+  assert.match(contract, /refs\/autosk\/epics\/<epic_ref_key>\/candidates\/<candidate_identity>/u);
+  assert.match(contract, /Git GC cannot prune.*complete candidate object closure/isu);
+  assert.match(contract, /verify <candidate_keepalive_ref> <snapshot_commit_oid>.*update <planning_ref>/isu);
+});
+
+test("publication operation binds a verified candidate keepalive", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  for (const pathName of [OPERATION_EXAMPLE_PATH, INVALIDATION_EXAMPLE_PATH]) {
+    const operation = JSON.parse(readFileSync(pathName, "utf8"));
+    assert.equal(operation.candidate_keepalive.phase, "verified");
+    assert.equal(operation.candidate_keepalive.snapshot_tree_oid, operation.candidate_tree_oid);
+    assert.match(operation.candidate_keepalive.ref, /^refs\/autosk\/epics\/[0-9a-f]{64}\/candidates\/[0-9a-f]{64}$/u);
+    assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
+
+    const changed = structuredClone(operation);
+    changed.candidate_keepalive.snapshot_tree_oid = changed.expected_parent_tree_oid;
+    assert.match(
+      validatePlanningPublicationOperation(changed, schema).join("\n"),
+      /candidate_keepalive.*tree/u,
+    );
+    const releasedWithoutReceipt = structuredClone(operation);
+    releasedWithoutReceipt.candidate_keepalive.phase = "released";
+    assert.match(
+      validatePlanningPublicationOperation(releasedWithoutReceipt, schema).join("\n"),
+      /candidate_keepalive release receipt/u,
+    );
+  }
+});
+
+test("operation IDs, update messages and Git timestamps use one closed grammar", () => {
+  const publication = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const init = JSON.parse(readFileSync(INIT_OPERATION_SCHEMA_PATH, "utf8"));
+  assert.equal(publication.$defs.uuid.pattern, init.$defs.uuid.pattern);
+  assert.match(publication.$defs.uuid.pattern, /-4\[0-9a-f\]/u);
+  assert.match(init.properties.expected_update_message.pattern, /autosk-flow init/u);
+  assert.match(init.$defs.reflog_checkpoint.properties.expected_update_message.pattern, /autosk-flow init/u);
+  assert.equal(publication.$defs.actor.properties.timezone.const, "+0000");
+  assert.match(publication.$defs.reflog_producer.properties.git_committer_date.pattern, /\\\+0000/u);
+  assert.match(init.$defs.reflog_producer.properties.git_committer_date.pattern, /\\\+0000/u);
+
+  const initOperation = JSON.parse(readFileSync(INIT_OPERATION_EXAMPLE_PATH, "utf8"));
+  initOperation.phase = "prepared";
+  initOperation.receipts.ref_create = null;
+  initOperation.receipts.verification = null;
+  initOperation.expected_update_message = "autosk-flow init 99999999-9999-4999-8999-999999999999";
+  initOperation.reflog_checkpoint.expected_update_message = initOperation.expected_update_message;
+  assert.match(
+    validatePlanningRefInitOperation(initOperation, init).join("\n"),
+    /expected_update_message|reflog checkpoint|Schema/u,
+  );
+
+  const nonUtc = JSON.parse(readFileSync(INIT_OPERATION_EXAMPLE_PATH, "utf8"));
+  nonUtc.reflog_producer.git_committer_date = "@123 +0530";
+  assert.match(validatePlanningRefInitOperation(nonUtc, init).join("\n"), /git_committer_date|reflog_producer/u);
+});
+
+test("init deletion and idle foreign movement have explicit recovery targets", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /init_planning_ref \| phase=ref_created, ref absent.*planning_ref_foreign_movement/iu);
+  assert.match(plan, /planning_ref_foreign_movement.*no open operation.*recorded detecting gate/isu);
+});
+
+test("invalidation object-exists recovery keeps ref and reflog guards", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(
+    plan,
+    /publish_planning_invalidation \| phase=prepared and expected object exists with exact bytes, ref=expected parent and reflog prefix=checkpoint/iu,
+  );
 });

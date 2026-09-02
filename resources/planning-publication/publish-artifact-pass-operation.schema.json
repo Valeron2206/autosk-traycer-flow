@@ -14,6 +14,7 @@
     "planning_ref",
     "ref_storage_format",
     "reflog_producer",
+    "candidate_keepalive",
     "payload",
     "anchor_version",
     "protocol_digest",
@@ -47,6 +48,7 @@
     },
     "ref_storage_format": { "const": "files" },
     "reflog_producer": { "$ref": "#/$defs/reflog_producer" },
+    "candidate_keepalive": { "$ref": "#/$defs/candidate_keepalive" },
     "payload": { "$ref": "#/$defs/payload" },
     "anchor_version": { "type": "integer", "minimum": 1 },
     "protocol_digest": { "$ref": "#/$defs/sha256" },
@@ -91,7 +93,7 @@
   "$defs": {
     "uuid": {
       "type": "string",
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
     "sha256": {
       "type": "string",
@@ -144,7 +146,7 @@
       "properties": {
         "git_committer_name": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n<>]+$" },
         "git_committer_email": { "type": "string", "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$" },
-        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ [+-](?:0[0-9]|1[0-4])[0-5][0-9]$" },
+        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ \\+0000$" },
         "lc_all": { "const": "C" },
         "tz": { "const": "UTC" },
         "git_config_system": { "const": "/dev/null" },
@@ -153,6 +155,177 @@
         "hooks_path": { "const": "/dev/null" },
         "inherit_git_environment": { "const": false },
         "update_ref_mode": { "const": "object_format_neutral_expected_old" }
+      }
+    },
+    "candidate_keepalive_create_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "candidate_identity",
+        "ref",
+        "observed_old_oid",
+        "observed_new_oid",
+        "snapshot_tree_oid",
+        "expected_update_message",
+        "before_entry_count",
+        "after_entry_count",
+        "before_prefix_sha256",
+        "appended_entry_sha256",
+        "observation_sha256",
+        "receipt_hash"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "candidate_identity": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "observed_old_oid": {
+          "type": "null"
+        },
+        "observed_new_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "snapshot_tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "expected_update_message": {
+          "type": "string",
+          "pattern": "^autosk-flow keepalive [0-9a-f]{64}$"
+        },
+        "before_entry_count": {
+          "const": 0
+        },
+        "after_entry_count": {
+          "const": 1
+        },
+        "before_prefix_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "appended_entry_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "candidate_keepalive_release_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "candidate_identity",
+        "ref",
+        "expected_old_oid",
+        "planning_ref",
+        "verified_commit_oid",
+        "closure_verified",
+        "receipt_hash"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "candidate_identity": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "expected_old_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "planning_ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$"
+        },
+        "verified_commit_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "closure_verified": {
+          "const": true
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "candidate_keepalive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "candidate_identity",
+        "ref",
+        "object_format",
+        "snapshot_commit_oid",
+        "snapshot_tree_oid",
+        "expected_update_message",
+        "reflog_producer",
+        "phase",
+        "create_receipt",
+        "release_receipt"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "candidate_identity": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "snapshot_commit_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "snapshot_tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "expected_update_message": {
+          "type": "string",
+          "pattern": "^autosk-flow keepalive [0-9a-f]{64}$"
+        },
+        "reflog_producer": {
+          "$ref": "#/$defs/reflog_producer"
+        },
+        "phase": {
+          "enum": [
+            "verified",
+            "released"
+          ]
+        },
+        "create_receipt": {
+          "$ref": "#/$defs/candidate_keepalive_create_receipt"
+        },
+        "release_receipt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/candidate_keepalive_release_receipt"
+            }
+          ]
+        }
       }
     },
     "verdict_or_waiver_binding": {
@@ -270,10 +443,7 @@
           "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$"
         },
         "timestamp_seconds": { "type": "integer" },
-        "timezone": {
-          "type": "string",
-          "pattern": "^[+-](?:0[0-9]|1[0-4])[0-5][0-9]$"
-        }
+        "timezone": { "const": "+0000" }
       }
     },
     "signing": {
@@ -422,7 +592,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message"],
+          "required": ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message", "candidate_keepalive_ref", "candidate_keepalive_oid"],
           "properties": {
             "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
             "expected_old_oid": { "$ref": "#/$defs/oid" },
@@ -430,7 +600,9 @@
             "expected_update_message": {
               "type": "string",
               "pattern": "^autosk-flow publish [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-            }
+            },
+            "candidate_keepalive_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$" },
+            "candidate_keepalive_oid": { "$ref": "#/$defs/oid" }
           }
         },
         {

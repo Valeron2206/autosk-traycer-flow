@@ -53,6 +53,7 @@ const REQUIRED = Object.freeze({
     "record_artifact_pass",
     "publish_artifact_pass",
     "planning_ref_foreign_movement",
+    "candidate_keepalive",
     "verified planning_head",
   ],
   "02-architecture.md": [
@@ -66,6 +67,7 @@ const REQUIRED = Object.freeze({
     "exact commit bytes",
     "expected commit OID",
     "reflog checkpoint",
+    "candidate keepalive",
   ],
   "03-technical-plan.md": [
     "<!-- planning-ref-contract:v1 -->",
@@ -84,6 +86,7 @@ const REQUIRED = Object.freeze({
     "planning_ref_foreign_movement",
     "planning_publication_corrupt",
     "planning_signing_unavailable",
+    "candidate_keepalive_op",
   ],
   "04-decisions.md": [
     "ADR-026: private Epic planning ref и commit-on-PASS",
@@ -124,6 +127,7 @@ const REQUIRED = Object.freeze({
     "autosk-flow/planning-receipt/v1\\0",
     "autosk-flow/planning-commit-recipe/v1\\0",
     "closed v1 bootstrap delivery policy",
+    "refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>",
   ],
   "resources/planning-publication/publish-artifact-pass-operation.schema.json": [
     "\"additionalProperties\": false",
@@ -134,6 +138,7 @@ const REQUIRED = Object.freeze({
     "\"ref_storage_format\"",
     "\"reflog_producer\"",
     "\"effective_target_step\"",
+    "\"candidate_keepalive\"",
   ],
   "resources/planning-publication/publish-artifact-pass-operation.example.json": [
     "\"operation_type\": \"artifact_pass\"",
@@ -143,12 +148,14 @@ const REQUIRED = Object.freeze({
     "\"recovery_target_step\": null",
     "\"artifact_pathspec\"",
     "\"ref_storage_format\": \"files\"",
+    "\"candidate_keepalive\"",
   ],
   "resources/planning-publication/publish-planning-invalidation-operation.example.json": [
     "\"operation_type\": \"anchor_invalidation\"",
     "\"projection_mutations\"",
     "\"recorded_target_step\": \"clarify_alignment\"",
     "\"invalidation_projection_digest\"",
+    "\"candidate_keepalive\"",
   ],
   "resources/planning-publication/init-planning-ref-operation.schema.json": [
     "\"operation_type\"",
@@ -422,6 +429,57 @@ export function verdictOrWaiverDigest(payload) {
   );
 }
 
+export function planningCandidateIdentity(operation) {
+  const payloadDigest = operation.payload?.kind === "anchor_invalidation"
+    ? operation.payload.invalidation_projection_digest
+    : operation.payload?.artifact_pathspec_digest;
+  return sha256(
+    "autosk-flow/planning-candidate/v1\0" + canonicalStringify({
+      anchor_version: operation.anchor_version,
+      candidate_tree_oid: operation.candidate_tree_oid,
+      epic_id: operation.epic_id,
+      kind: operation.payload?.kind,
+      pathspec_or_projection_digest: payloadDigest,
+      project_root_sha256: operation.project_root_sha256,
+      snapshot_commit_oid: operation.candidate_keepalive?.snapshot_commit_oid,
+    }),
+  );
+}
+
+export function candidateKeepaliveReflogEntryDigest(operation) {
+  const keepalive = operation.candidate_keepalive;
+  const producer = keepalive?.reflog_producer;
+  if (!producer || typeof producer.git_committer_date !== "string") return "";
+  const [timestampSeconds, timezone] = producer.git_committer_date.slice(1).split(" ");
+  const zeroOid = "0".repeat(keepalive.object_format === "sha256" ? 64 : 40);
+  const entry = Buffer.from(
+    `${zeroOid} ${keepalive.snapshot_commit_oid} ` +
+    `${producer.git_committer_name} <${producer.git_committer_email}> ${timestampSeconds} ${timezone}\t` +
+    `${keepalive.expected_update_message}\n`,
+    "utf8",
+  );
+  return sha256(Buffer.concat([
+    Buffer.from("autosk-flow/reflog-entry/v1\0", "utf8"),
+    entry,
+  ]));
+}
+
+export function candidateKeepaliveCreateReceiptHash(candidateIdentity, observationSha256) {
+  return sha256(
+    "autosk-flow/candidate-keepalive-receipt/v1\0" + canonicalStringify({
+      candidate_identity: candidateIdentity,
+      observation_sha256: observationSha256,
+    }),
+  );
+}
+
+export function candidateKeepaliveReleaseReceiptHash(receipt) {
+  const { receipt_hash: ignored, ...preimage } = receipt;
+  return sha256(
+    "autosk-flow/candidate-keepalive-release/v1\0" + canonicalStringify(preimage),
+  );
+}
+
 function decodeBase64Exact(value, label, errors) {
   if (typeof value !== "string") {
     errors.push(`${label} must be base64 text`);
@@ -513,6 +571,69 @@ export function validatePlanningPublicationOperation(example, schema) {
   if (recipe.tree_oid !== example.candidate_tree_oid) errors.push("commit_recipe tree differs from candidate_tree_oid");
   if (recipe.parent_oids?.[0] !== example.expected_parent_oid) errors.push("commit_recipe parent differs from expected_parent_oid");
   if (example.ref_storage_format !== "files") errors.push("ref_storage_format must be files for raw reflog v1");
+  const keepalive = example.candidate_keepalive ?? {};
+  const expectedCandidateIdentity = planningCandidateIdentity(example);
+  const expectedKeepaliveRef = `refs/autosk/epics/${example.epic_ref_key}/candidates/${expectedCandidateIdentity}`;
+  if (keepalive.candidate_identity !== expectedCandidateIdentity || keepalive.ref !== expectedKeepaliveRef) {
+    errors.push("candidate_keepalive identity/ref mismatch");
+  }
+  if (keepalive.object_format !== recipe.object_format ||
+      keepalive.snapshot_tree_oid !== example.candidate_tree_oid) {
+    errors.push("candidate_keepalive object format or tree mismatch");
+  }
+  if (keepalive.expected_update_message !== `autosk-flow keepalive ${expectedCandidateIdentity}`) {
+    errors.push("candidate_keepalive expected_update_message mismatch");
+  }
+  if (keepalive.reflog_producer?.git_committer_name !== "autosk-flow" ||
+      keepalive.reflog_producer?.git_committer_email !== "autosk@example.invalid" ||
+      !/^@[0-9]+ \+0000$/u.test(keepalive.reflog_producer?.git_committer_date ?? "")) {
+    errors.push("candidate_keepalive reflog producer differs from locked host identity");
+  }
+  const createReceipt = keepalive.create_receipt ?? {};
+  const zeroOid = "0".repeat(recipe.object_format === "sha256" ? 64 : 40);
+  const createObservation = {
+    after_entry_count: 1,
+    appended_entry_sha256: candidateKeepaliveReflogEntryDigest(example),
+    before_entry_count: 0,
+    before_prefix_sha256: reflogPrefixDigest(0, Buffer.alloc(0)),
+    candidate_identity: expectedCandidateIdentity,
+    expected_update_message: keepalive.expected_update_message,
+    observed_new_oid: keepalive.snapshot_commit_oid,
+    observed_old_oid: null,
+    ref: expectedKeepaliveRef,
+    snapshot_tree_oid: example.candidate_tree_oid,
+  };
+  const createObservationSha256 = sha256(
+    "autosk-flow/candidate-keepalive-create/v1\0" + canonicalStringify(createObservation),
+  );
+  for (const [key, value] of Object.entries(createObservation)) {
+    if (canonicalStringify(createReceipt[key]) !== canonicalStringify(value)) {
+      errors.push(`candidate_keepalive create_receipt.${key} mismatch`);
+    }
+  }
+  if (createReceipt.observation_sha256 !== createObservationSha256 ||
+      createReceipt.receipt_hash !==
+        candidateKeepaliveCreateReceiptHash(expectedCandidateIdentity, createObservationSha256)) {
+    errors.push("candidate_keepalive create receipt digest mismatch");
+  }
+  if (keepalive.phase === "verified" && keepalive.release_receipt !== null) {
+    errors.push("candidate_keepalive verified phase cannot have a release receipt");
+  }
+  if (keepalive.phase === "released") {
+    const release = keepalive.release_receipt;
+    if (example.phase !== "verified" || !release ||
+        release.candidate_identity !== expectedCandidateIdentity ||
+        release.ref !== expectedKeepaliveRef ||
+        release.expected_old_oid !== keepalive.snapshot_commit_oid ||
+        release.planning_ref !== example.planning_ref ||
+        release.verified_commit_oid !== example.expected_commit_oid ||
+        release.closure_verified !== true ||
+        release.receipt_hash !== candidateKeepaliveReleaseReceiptHash(release)) {
+      errors.push("candidate_keepalive release receipt mismatch");
+    }
+  } else if (example.phase !== "verified" && keepalive.phase !== "verified") {
+    errors.push("candidate_keepalive must remain verified before publication verification");
+  }
   const expectedProducer = {
     git_committer_name: recipe.committer?.name_utf8,
     git_committer_email: recipe.committer?.email_ascii,
@@ -576,7 +697,7 @@ export function validatePlanningPublicationOperation(example, schema) {
   const receiptSlots = ["commit_object", "ref_cas", "reflog_after", "verification"];
   const observationKeys = {
     commit_object: ["object_format", "object_oid", "object_bytes_sha256"],
-    ref_cas: ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message"],
+    ref_cas: ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message", "candidate_keepalive_ref", "candidate_keepalive_oid"],
     reflog_after: ["before_entry_count", "after_entry_count", "before_prefix_sha256", "appended_entry_sha256"],
     verification: ["planning_ref", "commit_oid", "tree_oid", "reflog_after_receipt_hash"],
   };
@@ -608,6 +729,8 @@ export function validatePlanningPublicationOperation(example, schema) {
           expected_old_oid: example.reflog_checkpoint?.expected_old_oid,
           observed_new_oid: example.reflog_checkpoint?.expected_new_oid,
           expected_update_message: example.reflog_checkpoint?.expected_update_message,
+          candidate_keepalive_ref: example.candidate_keepalive?.ref,
+          candidate_keepalive_oid: example.candidate_keepalive?.snapshot_commit_oid,
         },
         reflog_after: {
           before_entry_count: example.reflog_checkpoint?.before_entry_count,
@@ -786,7 +909,7 @@ export function validatePlanningRefInitOperation(operation, schema) {
   const producer = operation.reflog_producer ?? {};
   if (producer.git_committer_name !== "autosk-flow" ||
       producer.git_committer_email !== "autosk@example.invalid" ||
-      !/^@[0-9]+ [+-](?:0[0-9]|1[0-4])[0-5][0-9]$/u.test(producer.git_committer_date ?? "")) {
+      !/^@[0-9]+ \+0000$/u.test(producer.git_committer_date ?? "")) {
     errors.push("init reflog_producer differs from locked bootstrap identity");
   }
   const slots = ["ref_create", "verification"];
@@ -941,14 +1064,13 @@ export function validatePlanningRefDesign(files) {
   }
   for (const [conditionFragment, actionFragment] of [
     ["phase=voided_before_ref and recovery_target_step=prepare_anchor_impact", "prepare_anchor_impact"],
-    ["current binding drift after expected ref transition", "atomically phase=verified"],
+    ["current binding drift after expected ref transition", "publish_artifact_pass"],
     ["phase=commit_created and expected object absent", "rewrite persisted exact commit_object_bytes"],
   ]) {
     const row = transitionRows.find(
       ([step, condition]) => step === "publish_artifact_pass" && condition.includes(conditionFragment),
     );
-    if (!row || !row[2].includes(actionFragment) || !row[2].endsWith("prepare_anchor_impact") &&
-        conditionFragment.includes("drift after")) {
+    if (!row || !row[2].includes(actionFragment)) {
       errors.push(`03-technical-plan.md: publish_artifact_pass recovery row missing ${conditionFragment}`);
     }
   }
@@ -974,7 +1096,7 @@ export function validatePlanningRefDesign(files) {
     "phase=prepared or phase=commit_created and ref=expected commit",
     "phase=ref_advanced and current bindings drifted",
     "phase=ref_advanced and current bindings exact",
-    "phase=verified and effective_target_step",
+    "phase=verified, candidate_keepalive phase=released and effective_target_step",
     "phase=voided_before_ref",
     "unknown/ABA transition",
     "claimed durable recipe/object/ref/reflog/receipt missing",
@@ -996,7 +1118,7 @@ export function validatePlanningRefDesign(files) {
     errors.push("03-technical-plan.md: invalidation foreign-movement resume target missing");
   }
   const publishSelectRows = transitionRows.filter(
-    ([step, , action]) => step === "publish_artifact_pass" && /\bselect_next\b/u.test(action),
+    ([step, , action]) => step === "publish_artifact_pass" && /[,;]\s*select_next$/u.test(action),
   );
   const verifiedPublishTransition = ([, condition, action]) => {
     const selectIndex = action.lastIndexOf("select_next");
@@ -1010,7 +1132,8 @@ export function validatePlanningRefDesign(files) {
       selectIndex > action.indexOf("atomically phase=verified") &&
       selectIndex > action.indexOf("publication_status=verified");
   };
-  if (publishSelectRows.length !== 2 || publishSelectRows.some((row) => !verifiedPublishTransition(row))) {
+  if (publishSelectRows.length !== 1 || publishSelectRows.some((row) => !verifiedPublishTransition(row)) ||
+      !publishSelectRows[0][1].includes("candidate_keepalive phase=released")) {
     errors.push("03-technical-plan.md: publish_artifact_pass requires verified publication before select_next");
   }
   let expectedPipes = null;
@@ -1048,6 +1171,7 @@ export function validatePlanningRefDesign(files) {
     "planning_ref_init_invalid",
     "planning_ref_capability_missing",
     "planning_ref_foreign_movement",
+    "planning_candidate_keepalive_invalid",
     "planning_candidate_base_stale",
     "planning_publication_invalid",
     "planning_publication_corrupt",
@@ -1097,6 +1221,10 @@ export function validatePlanningRefDesign(files) {
     "planning.publication_history",
     "planning.rebuild_history",
     "records immediate target=`publish_planning_invalidation`",
+    "candidate_keepalive_op phase=prepared",
+    "complete commit/tree/blob closure",
+    "candidate_keepalive phase=released",
+    "atomic update-ref transaction verifies",
   ]) {
     if (!plan.includes(fragment)) errors.push(`03-technical-plan.md: missing closed planning invariant ${fragment}`);
   }
@@ -1114,6 +1242,9 @@ export function validatePlanningRefDesign(files) {
     "autosk-flow/previous-projection/v1\\0",
     "No model-authored bytes enter the v1 commit object",
     "intentionally operation-only",
+    "Git GC cannot prune the complete candidate object closure",
+    "candidate-keepalive-receipt/v1\\0",
+    "verify <candidate_keepalive_ref> <snapshot_commit_oid>",
   ]) {
     if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
   }

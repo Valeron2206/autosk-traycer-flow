@@ -46,7 +46,7 @@
 - [02-architecture.md](02-architecture.md) — компоненты, границы ответственности и хранение.
 - [03-technical-plan.md](03-technical-plan.md) — реализуемый план расширения autosk v2.
 - [04-decisions.md](04-decisions.md) — предлагаемые ADR и оставшиеся риски; статус станет accepted только после решения пользователя и PASS панели.
-- [docs/contracts/epic-planning-ref.md](docs/contracts/epic-planning-ref.md) — нормативный контракт private planning ref, commit-on-PASS, CAS и crash recovery для issue #5.
+- [docs/contracts/epic-planning-ref.md](docs/contracts/epic-planning-ref.md) — нормативный контракт private planning ref, candidate keepalive всей Git object closure, commit-on-PASS, CAS и crash recovery для issue #5.
 - [diagrams/autosk-flow.drawio](diagrams/autosk-flow.drawio) — редактируемая двухстраничная диаграмма.
 - [diagrams/autosk-flow-workflow.png](diagrams/autosk-flow-workflow.png) — обзор workflow.
 - [diagrams/autosk-flow-architecture.png](diagrams/autosk-flow-architecture.png) — global/project архитектура.
