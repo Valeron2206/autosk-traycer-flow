@@ -48,6 +48,48 @@
     "audit_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/audit_receipt" }] },
     "created_at_utc": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "phase": { "const": "prepared" } } },
+      "then": {
+        "properties": {
+          "terminal_disposition": { "type": "null" },
+          "create_receipt": { "type": "null" },
+          "audit_receipt": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "phase": { "enum": ["ref_created", "verified"] } } },
+      "then": {
+        "properties": {
+          "terminal_disposition": { "type": "null" },
+          "create_receipt": { "$ref": "#/$defs/create_receipt" },
+          "audit_receipt": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "audit_retained" } } },
+      "then": {
+        "properties": {
+          "terminal_disposition": { "const": "audit_retained" },
+          "create_receipt": { "$ref": "#/$defs/create_receipt" },
+          "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "released" } } },
+      "then": {
+        "properties": {
+          "terminal_disposition": { "const": "published_released" },
+          "create_receipt": { "$ref": "#/$defs/create_receipt" },
+          "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
+        }
+      }
+    }
+  ],
   "$defs": {
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

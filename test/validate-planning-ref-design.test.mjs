@@ -25,6 +25,7 @@ import {
   validatePlanningRefInitOperation,
   validatePlanningRefInitOperationExample,
   validatePlanningRefDesign,
+  validateJsonSchema,
 } from "../scripts/validate-planning-ref-design.mjs";
 
 function fixture() {
@@ -1053,6 +1054,16 @@ test("candidate keepalive operation has a closed standalone machine", () => {
   ));
   assert.equal(audit.audit_receipt.observation_sha256, "7c50306e7492d3e295f61fc354798609dcfbcfb922a24087f3e2db24bcc93120");
   assert.equal(audit.audit_receipt.receipt_hash, "70fa8bbdfbe028b0bcc7ce9c9a0d743d20e6696f9fa6be458be8adb25f9209ef");
+  const invalidPrepared = structuredClone(audit);
+  invalidPrepared.phase = "prepared";
+  invalidPrepared.terminal_disposition = "published_released";
+  assert.notDeepEqual(validateJsonSchema(invalidPrepared, schema), []);
+  const invalidReleased = structuredClone(example);
+  invalidReleased.phase = "released";
+  invalidReleased.terminal_disposition = null;
+  invalidReleased.create_receipt = null;
+  invalidReleased.audit_receipt = null;
+  assert.notDeepEqual(validateJsonSchema(invalidReleased, schema), []);
 });
 
 test("keepalive create proof is operation-scoped and uses null missing-old", () => {
