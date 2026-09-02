@@ -229,6 +229,9 @@
         "expected_old_oid",
         "planning_ref",
         "verified_commit_oid",
+        "planning_reflog_after_receipt_hash",
+        "planning_reflog_tail_observation_sha256",
+        "transaction_observation_sha256",
         "closure_verified",
         "receipt_hash"
       ],
@@ -252,6 +255,15 @@
         },
         "verified_commit_oid": {
           "$ref": "#/$defs/oid"
+        },
+        "planning_reflog_after_receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "planning_reflog_tail_observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "transaction_observation_sha256": {
+          "$ref": "#/$defs/sha256"
         },
         "closure_verified": {
           "const": true

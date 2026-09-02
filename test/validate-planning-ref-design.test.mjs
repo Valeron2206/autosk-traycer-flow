@@ -11,12 +11,15 @@ import {
   INIT_OPERATION_SCHEMA_PATH,
   INVALIDATION_EXAMPLE_PATH,
   artifactPathspecDigest,
+  candidateKeepaliveReleaseReceiptHash,
+  candidateKeepaliveReleaseTransactionDigest,
   canonicalStringify,
   loadPlanningRefFiles,
   planningObservationDigest,
   planningReflogEntryDigest,
   planningReceiptHash,
   planningRefDesignDigest,
+  planningReleaseTailObservationDigest,
   validatePlanningPublicationOperation,
   validatePlanningPublicationOperationExample,
   validatePlanningRefInitOperation,
@@ -467,6 +470,38 @@ test("recovered receipts are bound to their containing operation values", () => 
     );
     assert.match(validatePlanningPublicationOperation(changed, schema).join("\n"), new RegExp(key, "u"));
   }
+
+  const released = structuredClone(operation);
+  const tailObservationSha256 = planningReleaseTailObservationDigest(released);
+  const releaseReceipt = {
+    schema: 1,
+    candidate_identity: released.candidate_keepalive.candidate_identity,
+    ref: released.candidate_keepalive.ref,
+    expected_old_oid: released.candidate_keepalive.snapshot_commit_oid,
+    planning_ref: released.planning_ref,
+    verified_commit_oid: released.expected_commit_oid,
+    planning_reflog_after_receipt_hash: released.receipts.reflog_after.receipt_hash,
+    planning_reflog_tail_observation_sha256: tailObservationSha256,
+    transaction_observation_sha256: candidateKeepaliveReleaseTransactionDigest(
+      released,
+      tailObservationSha256,
+    ),
+    closure_verified: true,
+    receipt_hash: "",
+  };
+  releaseReceipt.receipt_hash = candidateKeepaliveReleaseReceiptHash(releaseReceipt);
+  released.candidate_keepalive.phase = "released";
+  released.candidate_keepalive.release_receipt = releaseReceipt;
+  assert.deepEqual(validatePlanningPublicationOperation(released, schema), []);
+
+  const movedBeforeRelease = structuredClone(released);
+  movedBeforeRelease.candidate_keepalive.release_receipt.verified_commit_oid = "6".repeat(40);
+  movedBeforeRelease.candidate_keepalive.release_receipt.receipt_hash =
+    candidateKeepaliveReleaseReceiptHash(movedBeforeRelease.candidate_keepalive.release_receipt);
+  assert.match(
+    validatePlanningPublicationOperation(movedBeforeRelease, schema).join("\n"),
+    /candidate_keepalive release receipt/u,
+  );
 });
 
 test("raw commit bytes must equal the structured commit recipe", () => {
@@ -842,9 +877,11 @@ test("frozen candidate object closure stays reachable until publication verifica
   assert.match(plan, /candidate_keepalive.*complete commit\/tree\/blob closure/isu);
   assert.match(plan, /candidate_keepalive phase=released.*planning ref.*verified/isu);
   assert.match(plan, /atomic update-ref transaction verifies.*keepalive.*CAS-advances planning ref/isu);
+  assert.match(plan, /atomic update-ref transaction verifies planning ref.*deletes.*candidate_keepalive/isu);
   assert.match(contract, /refs\/autosk\/epics\/<epic_ref_key>\/candidates\/<candidate_identity>/u);
   assert.match(contract, /Git GC cannot prune.*complete candidate object closure/isu);
   assert.match(contract, /verify <candidate_keepalive_ref> <snapshot_commit_oid>.*update <planning_ref>/isu);
+  assert.match(contract, /verify <planning_ref> <expected_commit_oid>.*delete <candidate_keepalive_ref>/isu);
 });
 
 test("publication operation binds a verified candidate keepalive", () => {
@@ -853,6 +890,10 @@ test("publication operation binds a verified candidate keepalive", () => {
     const operation = JSON.parse(readFileSync(pathName, "utf8"));
     assert.equal(operation.candidate_keepalive.phase, "verified");
     assert.equal(operation.candidate_keepalive.snapshot_tree_oid, operation.candidate_tree_oid);
+    assert.deepEqual(
+      schema.$defs.candidate_keepalive_release_receipt.required.includes("planning_reflog_tail_observation_sha256"),
+      true,
+    );
     assert.match(operation.candidate_keepalive.ref, /^refs\/autosk\/epics\/[0-9a-f]{64}\/candidates\/[0-9a-f]{64}$/u);
     assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
 

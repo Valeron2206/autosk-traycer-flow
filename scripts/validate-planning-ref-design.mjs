@@ -473,6 +473,29 @@ export function candidateKeepaliveCreateReceiptHash(candidateIdentity, observati
   );
 }
 
+export function planningReleaseTailObservationDigest(operation) {
+  return sha256(
+    "autosk-flow/candidate-keepalive-release-tail/v1\0" + canonicalStringify({
+      after_entry_count: (operation.reflog_checkpoint?.before_entry_count ?? -1) + 1,
+      appended_entry_sha256: planningReflogEntryDigest(operation),
+      before_prefix_sha256: operation.reflog_checkpoint?.before_prefix_sha256,
+      planning_reflog_after_receipt_hash: operation.receipts?.reflog_after?.receipt_hash,
+    }),
+  );
+}
+
+export function candidateKeepaliveReleaseTransactionDigest(operation, tailObservationSha256) {
+  return sha256(
+    "autosk-flow/candidate-keepalive-release-transaction/v1\0" + canonicalStringify({
+      candidate_keepalive_oid: operation.candidate_keepalive?.snapshot_commit_oid,
+      candidate_keepalive_ref: operation.candidate_keepalive?.ref,
+      planning_ref: operation.planning_ref,
+      planning_ref_expected_oid: operation.expected_commit_oid,
+      planning_reflog_tail_observation_sha256: tailObservationSha256,
+    }),
+  );
+}
+
 export function candidateKeepaliveReleaseReceiptHash(receipt) {
   const { receipt_hash: ignored, ...preimage } = receipt;
   return sha256(
@@ -621,12 +644,20 @@ export function validatePlanningPublicationOperation(example, schema) {
   }
   if (keepalive.phase === "released") {
     const release = keepalive.release_receipt;
+    const tailObservationSha256 = planningReleaseTailObservationDigest(example);
+    const transactionObservationSha256 = candidateKeepaliveReleaseTransactionDigest(
+      example,
+      tailObservationSha256,
+    );
     if (example.phase !== "verified" || !release ||
         release.candidate_identity !== expectedCandidateIdentity ||
         release.ref !== expectedKeepaliveRef ||
         release.expected_old_oid !== keepalive.snapshot_commit_oid ||
         release.planning_ref !== example.planning_ref ||
         release.verified_commit_oid !== example.expected_commit_oid ||
+        release.planning_reflog_after_receipt_hash !== example.receipts?.reflog_after?.receipt_hash ||
+        release.planning_reflog_tail_observation_sha256 !== tailObservationSha256 ||
+        release.transaction_observation_sha256 !== transactionObservationSha256 ||
         release.closure_verified !== true ||
         release.receipt_hash !== candidateKeepaliveReleaseReceiptHash(release)) {
       errors.push("candidate_keepalive release receipt mismatch");
@@ -1225,6 +1256,7 @@ export function validatePlanningRefDesign(files) {
     "complete commit/tree/blob closure",
     "candidate_keepalive phase=released",
     "atomic update-ref transaction verifies",
+    "atomic update-ref transaction verifies planning ref=expected commit and deletes candidate_keepalive",
   ]) {
     if (!plan.includes(fragment)) errors.push(`03-technical-plan.md: missing closed planning invariant ${fragment}`);
   }
@@ -1245,6 +1277,8 @@ export function validatePlanningRefDesign(files) {
     "Git GC cannot prune the complete candidate object closure",
     "candidate-keepalive-receipt/v1\\0",
     "verify <candidate_keepalive_ref> <snapshot_commit_oid>",
+    "verify <planning_ref> <expected_commit_oid>",
+    "planning_reflog_tail_observation_sha256",
   ]) {
     if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
   }
