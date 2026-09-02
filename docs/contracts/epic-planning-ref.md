@@ -105,13 +105,15 @@ prepared
 5. creates the ref with an exact missing-old-value CAS and `--create-reflog`, using the operation-specific reflog message;
 6. records `phase=ref_created` only after the ref command has returned or exact ref/reflog observations prove that this operation already created it;
 7. reads back the ref, commit, tree and exact reflog tail;
-8. records `phase=verified`, then atomically projects `planning.base_oid`, `planning.head_oid`, `planning.head_tree_oid`, `planning.generation=0` and `planning.init_status=verified`;
+8. records `phase=verified`, then atomically projects `planning.base_oid`, `planning.head_oid`, `planning.head_tree_oid`, `planning.generation=0`, `planning.init_status=verified` and the exact `planning.last_verified_reflog_tail`;
 9. only then transitions to `select_next`.
 
 Retry semantics:
 
 - ref absent + valid phase=`prepared`: perform the CAS;
 - ref equals the recorded base + exact operation-specific `zero → base` reflog entry: reconstruct the missing receipt and continue idempotently;
+- phase=`verified` with exact receipts/ref/tree but incomplete archive/projection: read back only, archive if needed and transition `select_next` with zero Git writes;
+- `planning.init_status=verified` with the init operation already archived: validate the archived receipts plus `last_verified_reflog_tail`, then transition `select_next` with zero Git writes;
 - ref equals the base but no matching persisted operation/reflog proof exists: do not adopt it; park `planning_ref_foreign_movement`;
 - ref exists at any other OID, the reflog has an unexpected entry, or an ABA move is observed: `planning_ref_foreign_movement`;
 - required reflog creation/inspection is unsupported: `planning_ref_capability_missing` before the Epic drafts an artifact;
@@ -132,6 +134,8 @@ candidate.base_commit_oid == planning.head_oid
 candidate.base_tree_oid   == planning.head_tree_oid
 current planning ref      == planning.head_oid
 ```
+
+Protected metadata also stores `planning.last_verified_reflog_tail={head_oid,entry_count,prefix_sha256,receipt_hash}`. Verified init and every verified publication atomically replace it with the exact live tail they proved. This check runs before every planning gate and before minting a new operation: host code compares the live ref, entry count and raw-prefix digest to that record. Unknown entries, truncation or move-away-and-back, including same-OID ABA between closed operations, park `planning_ref_foreign_movement`; the next operation may not adopt the changed tail as its checkpoint.
 
 The candidate tree must equal the planning-head tree plus only declared pathspec changes. Dirty, ignored-new, untracked, submodule, mode, symlink, case-normalization, or out-of-scope changes are handled by the existing fail-closed freeze rules.
 
@@ -171,7 +175,7 @@ It does **not**:
 - move the target branch;
 - transition directly to `select_next`.
 
-`select_next` has a recovery-first guard: any current valid recorded PASS whose publication is not verified routes to `publish_artifact_pass`. It considers a kind complete only when the operation is verified and the live planning ref still equals its published commit.
+`select_next` has a recovery-first guard: any current valid recorded PASS whose publication is not verified routes to `publish_artifact_pass`. It considers a kind complete only when the operation is verified, `published_commit_oid` remains reachable on the live planning ref first-parent chain, the commit tree equals the recorded candidate tree and current bindings remain exact. Only the newest verified publication must equal `planning.head_oid`; publishing Core Flow therefore does not make the earlier Brief incomplete.
 
 ## 7. Planning publication operation
 
@@ -197,6 +201,7 @@ The protected Epic metadata contains exactly one open operation:
     "artifact_pathspec": ["normalized/repository-relative/path"],
     "artifact_pathspec_digest": "sha256",
     "alignment_identity": "sha256",
+    "verdict_or_waiver_binding": "closed exact verdict-or-waiver record",
     "verdict_or_waiver_digest": "sha256",
     "recorded_target_step": "select_next"
   },
@@ -288,13 +293,13 @@ Every init/publication operation persists a closed `reflog_producer`. Host code 
 
 Raw reflog-byte v1 supports only Git `files` ref storage. Preflight records `ref_storage_format=files`; reftable or an unprovable backend parks `planning_ref_capability_missing` before any Git side effect. The repository must pin `gc."refs/autosk/epics/*/planning".reflogExpire=never` and `gc."refs/autosk/epics/*/planning".reflogExpireUnreachable=never`; missing/unprovable retention also parks capability-missing. Unexpected prefix truncation remains foreign/corrupt evidence and is never silently adopted.
 
-The phase=`prepared` example uses `before_entry_count=1`. Its exact raw reflog-prefix bytes are Base64 `MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==`; the formula above yields `1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42`. The same example pins commit-recipe digest `bfe115216f174b19244a91601ac8719b609ac6ecb243380f4b8e05d498df4cc8`, exact commit OID `220f8a42d7897c5c45fd8a773966e8c2cde33994` and exact commit-bytes SHA-256 `fffa1a2b18a241c35f468507bf3dca39cd010bc825dcc1b4e479ec68267803a7`.
+The phase=`prepared` example uses `before_entry_count=1`. Its exact raw reflog-prefix bytes are Base64 `MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==`; the formula above yields `1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42`. The same example pins commit-recipe digest `fb78e2c0d41ba07c70c1d93d9dbc08a548d4a69b765825af33d365a0ca59c46e`, exact commit OID `cc745247722ff2fe151303f31113281e0fcd9c70` and exact commit-bytes SHA-256 `bc6c070b2858aa1ae8f8b3650b8633620a82e0644cc76af9c3e0506df734508f`.
 
-For the example operation, typed `commit_object` observation `{object_bytes_sha256:"fffa1a2b18a241c35f468507bf3dca39cd010bc825dcc1b4e479ec68267803a7",object_format:"sha1",object_oid:"220f8a42d7897c5c45fd8a773966e8c2cde33994"}` yields `observation_sha256=863bbbe1ea26dbbc3f6d1eb7e837151b3a47c3248f5b9566bb42fe62f79ef319`; its receipt preimage yields `receipt_hash=0900511622fb2ffb35b35f985dae50ef3ca12362d44ef152f72cfaedcd68147e`.
+For the example operation, typed `commit_object` observation `{object_bytes_sha256:"bc6c070b2858aa1ae8f8b3650b8633620a82e0644cc76af9c3e0506df734508f",object_format:"sha1",object_oid:"cc745247722ff2fe151303f31113281e0fcd9c70"}` yields `observation_sha256=9167690cbff40fecf1eede9e31f6b06583b61cb9da78032b23fa36bf710946c1`; its receipt preimage yields `receipt_hash=cf2af4b4d98e8d4c228a8058e1013d5181d66248238fe67da4f36f8b660ee29e`.
 
-For artifact PASS, `artifact_pathspec` is a non-empty code-point-sorted unique array of normalized repository-relative POSIX paths: no absolute path, `..`, repeated separator, Git pathspec magic, `.lock` suffix, symlink or implicit glob. `artifact_pathspec_digest = SHA-256("autosk-flow/artifact-pathspec/v1\0" + canonical JSON {artifact_kind,pathspec})`.
+For artifact PASS, `artifact_pathspec` is a non-empty code-point-sorted unique array of normalized repository-relative POSIX paths: no absolute path, `.` or `..` component, trailing/repeated separator, Git pathspec magic, `.lock` suffix, symlink or implicit glob. `artifact_pathspec_digest = SHA-256("autosk-flow/artifact-pathspec/v1\0" + canonical JSON {artifact_kind,pathspec})`. `verdict_or_waiver_binding` is a closed object with `disposition=pass|waived` and an exact closed `record`: pass stores `{kind:"verdict",verdict_hash}`, waiver stores `{kind:"waiver",waiver_record_id,waiver_record_hash}`. `verdict_or_waiver_digest = SHA-256("autosk-flow/verdict-or-waiver/v1\0" + canonical JSON {artifact_identity,artifact_kind,disposition,record})`; the generic validator recomputes it and host code matches the binding to the retained ArtifactPassRecord before phase advance.
 
-For `payload.kind=anchor_invalidation`, the payload replaces artifact-pass fields with `affected_artifact_kinds` in canonical ArtifactKind order `brief, core_flow, tech_plan, tickets`, a non-empty ordered `projection_mutations` array, approved impact record ID/hash, exact invalidation projection digest and recorded post-publication target step. Each mutation binds artifact kind, remove/replace action, previous projection digest and pathspec digest. `invalidation_projection_digest = SHA-256("autosk-flow/invalidation-projection/v1\0" + canonical JSON {affected_artifact_kinds,projection_mutations})`. The mutation kinds must equal the affected-kind array, and the invalidation candidate tree must differ from its parent. An empty/no-op projection is rejected before operation creation and follows the approved no-bindings/redraft disposition. Unknown payload fields or a payload/operation-type mismatch park `planning_publication_invalid`.
+For `payload.kind=anchor_invalidation`, the payload replaces artifact-pass fields with `affected_artifact_kinds` in canonical ArtifactKind order `brief, core_flow, tech_plan, tickets`, a non-empty ordered `projection_mutations` array, approved impact record ID/hash, exact invalidation projection digest and recorded post-publication target step. Each mutation binds artifact kind, remove/replace action, previous projection digest and pathspec digest. `previous_projection_digest = SHA-256("autosk-flow/previous-projection/v1\0" + canonical JSON {artifact_kind,expected_parent_tree_oid,pathspec,pathspec_digest})`; the parent tree plus closed pathspec identifies the exact pre-invalidation bytes, and the generic validator recomputes the digest. `invalidation_projection_digest = SHA-256("autosk-flow/invalidation-projection/v1\0" + canonical JSON {affected_artifact_kinds,projection_mutations})`. The mutation kinds must equal the affected-kind array, and the invalidation candidate tree must differ from its parent. An empty/no-op projection is rejected before operation creation and follows the approved no-bindings/redraft disposition. Unknown payload fields or a payload/operation-type mismatch park `planning_publication_invalid`.
 
 `recorded_target_step` is the nominal success target written with the payload. `effective_target_step` is null before a terminal phase and is atomically recorded as nominal target on ordinary verification or `prepare_anchor_impact` on drift/void. Recovery after a terminal phase follows only this stored effective target; it never re-derives drift or target from mutable metadata.
 
@@ -320,7 +325,7 @@ For signing mode `exact`, `signature_header_base64` decodes to the exact LF-term
 
 If the delivery profile requires signed ancestry, the trusted signer must produce the exact replayable signature header before the atomic PASS+operation write; its public signature bytes are stored in the recipe. If this cannot be done without an unrecorded re-sign after a crash, `record_artifact_pass` parks `planning_signing_unavailable` before PASS, operation, Git object or ref side effects. Issue #17 may replace the section 3 bootstrap policy only through a locked exact policy binding.
 
-The commit has no merge parent and cannot include changes outside the candidate tree. Model output may propose a human summary only before recipe mint; its exact normalized bytes then become immutable recipe input. A digest without the complete exact bytes is not a recovery record.
+The commit has no merge parent and cannot include changes outside the candidate tree. No model-authored bytes enter the v1 commit object: its message is exactly the fixed subject, blank line and closed sorted trailers above. `governance_mapping_set_digest` is intentionally operation-only rather than a commit trailer: it remains bound by the immutable operation and retained operation history, is recomputed before every phase advance, and is recoverable with the commit through that typed history. A digest without the complete exact bytes is not a recovery record.
 
 ## 9. CAS and verification
 
@@ -328,13 +333,13 @@ The commit has no merge parent and cannot include changes outside the candidate 
 
 | Observation | Action |
 | --- | --- |
-| current controlling binding changed before ref movement, ref=expected parent and reflog prefix/count equal checkpoint | atomically set phase=`voided_before_ref`, terminal reason `binding_drift`, recovery target `prepare_anchor_impact`; keep original ArtifactPassRecord disposition/identity and set `publication_status=voided_before_ref`, publication operation ID and supersession binding; ensure pending anchor and transition `prepare_anchor_impact` before any object/ref side effect |
+| phase=`prepared` or phase=`commit_created`, current controlling binding changed before ref movement, ref=expected parent and reflog prefix/count equal checkpoint | atomically set phase=`voided_before_ref`, terminal reason `binding_drift`, recovery target `prepare_anchor_impact`; keep original ArtifactPassRecord disposition/identity and set `publication_status=voided_before_ref`, publication operation ID and supersession binding; ensure pending anchor and transition `prepare_anchor_impact` before any object/ref side effect |
 | phase=`prepared`, object absent, ref=expected parent | write exact commit object; verify OID; record `commit_created` |
 | phase=`prepared`, expected object already exists | verify bytes/tree/parent/message; record `commit_created` |
 | phase=`commit_created`, expected object was pruned, ref=expected parent and reflog prefix/count equal checkpoint | rewrite the persisted exact commit object bytes, require the same expected OID, retain `commit_created` and continue; this is reconstruction, not a new logical commit |
 | phase=`commit_created`, ref=expected parent and reflog prefix equals the persisted checkpoint | CAS ref from parent to expected commit with `--create-reflog` and the operation-specific message; record `ref_advanced` only after ref/reflog observation |
 | phase=`prepared` or phase=`commit_created`, ref=expected commit and exactly one new matching reflog entry follows the checkpoint | reconstruct a successful CAS receipt only after exact commit verification; record `ref_advanced` |
-| phase=`ref_advanced`, expected commit/ref/reflog match the recorded operation but current controlling binding changed | verify against the recorded binding, atomically record historical publication `verified`, update planning head/tree/generation, ensure pending anchor and transition `prepare_anchor_impact`; no downstream draft/dispatch |
+| phase=`ref_advanced`, expected commit/ref/reflog match the recorded operation but current controlling binding changed | verify against the recorded binding, atomically record historical publication `verified`, update planning head/tree/generation and `last_verified_reflog_tail`, ensure pending anchor and transition `prepare_anchor_impact`; no downstream draft/dispatch |
 | phase=`ref_advanced`, ref=expected commit and current controlling bindings exact | verify ref, commit, parent, tree, exact commit bytes, trailers and reflog transition; record `verified` |
 | phase=`verified` with publication-drift pending anchor and metadata finalization incomplete | repeat exact read-back/finalization and transition `prepare_anchor_impact` |
 | phase=`verified`, metadata finalization incomplete | repeat only read-back/finalization; never create another commit or move the ref |
@@ -351,6 +356,7 @@ After phase `verified`, host atomically records:
 - `planning.head_oid=expected_commit_oid`;
 - `planning.head_tree_oid=candidate_tree_oid`;
 - `planning.generation += 1`;
+- `planning.last_verified_reflog_tail` from the exact verification receipt;
 - `artifact_pass[kind].publication_status=verified`;
 - `artifact_pass[kind].published_commit_oid`;
 - `artifact_pass[kind].publication_operation_id`;
@@ -388,7 +394,7 @@ The candidate invalidation tree is based on the current verified planning head a
 
 Invalidation executes the full section 9 phase machine, with explicit rows in the canonical transition table. Pre-CAS drift atomically terminalizes the publication operation and rebuild operation as `voided_before_ref`, preserves/creates a bound pending anchor, archives both records and transitions to `prepare_anchor_impact`. Post-CAS drift verifies the historical descendant against recorded bindings, updates planning head/tree/generation, closes the rebuild operation as `closed_with_pending_anchor`, archives records and transitions to `prepare_anchor_impact`. Ordinary verification closes it as `closed` and follows only the stored effective target. Foreign/ABA recovery resumes through `publish_planning_invalidation` only for operation type anchor_invalidation after signed investigation; unresolved movement permits only cancel. A voided operation never later writes/ref-advances, and a post-CAS operation is never voided or rewound.
 
-If no current published projection mutation exists, or the candidate tree equals its parent, no invalidation operation is created. The approved impact is reclassified through the no-bindings/redraft path or parks `anchor_impact_invalid`; v1 does not publish an empty audit-only descendant.
+If an affected binding is only `recorded_unpublished` or `voided_before_ref`, it is an unpublished affected binding, not a published projection. `prepare_anchor_impact` and `rebuild_anchor` deterministically close it through the no-bindings/redraft path; a first-ever publication void therefore returns to `clarify_alignment` without an `anchor_impact_invalid` loop. If a claimed current published projection mutation is malformed, or the candidate tree equals its parent despite a claimed mutation, no invalidation operation is created and the state parks `anchor_impact_invalid`. v1 does not publish an empty audit-only descendant.
 
 `publish_planning_invalidation` uses the same deterministic recipe, CAS and verification adapter. Only after its descendant commit is verified may redrafting begin. The private ref is never rewound or force-updated.
 
@@ -435,7 +441,7 @@ The planning ref and every commit/object referenced by:
 
 are retained and protected from cleanup.
 
-Normal Ticket or Epic worktree cleanup does not delete the planning ref or its append-only operation history. Deletion is a separate operator-approved Housekeeping action after reference inventory and retention expiry. It leaves a tombstone with project/Epic/ref/final-head identity. Git GC may prune the pre-CAS object because exact bytes remain in the protected operation, but retry must rewrite those bytes to the same OID before CAS. Git GC must not make current or post-CAS audit-required planning objects unreachable. The planning-ref reflog is retained with both scoped expiry values `never`; ordinary maintenance must not truncate its load-bearing prefix. Unexpected truncation is explicit foreign/corrupt evidence, never normal adoption.
+Normal Ticket or Epic worktree cleanup does not delete the planning ref or its typed append-only operation histories: `planning.init_history` retains terminal init operation/receipts, `planning.publication_history` retains artifact and invalidation operations/recipes/receipts, and `planning.rebuild_history` retains terminal anchor-rebuild dispositions and publication bindings. Deletion is a separate operator-approved Housekeeping action after reference inventory and retention expiry. It leaves a tombstone with project/Epic/ref/final-head identity. Git GC may prune the pre-CAS object because exact bytes remain in the protected operation, but retry must rewrite those bytes to the same OID before CAS. Git GC must not make current or post-CAS audit-required planning objects unreachable. The planning-ref reflog is retained with both scoped expiry values `never`; ordinary maintenance must not truncate its load-bearing prefix. Unexpected truncation is explicit foreign/corrupt evidence, never normal adoption.
 
 ## 13. Required runtime tests
 
@@ -471,7 +477,13 @@ Implementation of issue #5 is release-blocking and must include at least:
 28. execute every invalidation phase, pre/post-CAS drift, void retry, foreign/ABA resume and rebuild-op closure;
 29. reject empty invalidation projection and replay the stored effective target;
 30. reject Git ident delimiter emails and verify parsed author/committer;
-31. accept files ref storage and fail before side effects for reftable/unprovable backend.
+31. accept files ref storage and fail before side effects for reftable/unprovable backend;
+32. keep Brief complete after publishing a later Core Flow descendant by first-parent reachability and exact recorded tree;
+33. reject same-OID ABA inserted after one verified operation and before the next operation is minted;
+34. re-enter both current phase=`verified` and archived `init_status=verified` with zero Git writes;
+35. accept a non-epoch persisted init timestamp while keeping epoch zero exclusive to the golden vector;
+36. reject another operation ID or control byte in `expected_update_message`, substituted verdict/waiver bindings and substituted previous-projection digests;
+37. route a first-ever `voided_before_ref` publication to deterministic redraft without an `anchor_impact_invalid` loop.
 
 ## 14. Acceptance mapping for issue #5
 

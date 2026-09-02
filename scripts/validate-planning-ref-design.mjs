@@ -399,6 +399,29 @@ export function invalidationProjectionDigest(affectedArtifactKinds, projectionMu
   );
 }
 
+export function previousProjectionDigest(expectedParentTreeOid, mutation) {
+  return sha256(
+    "autosk-flow/previous-projection/v1\0" + canonicalStringify({
+      artifact_kind: mutation.artifact_kind,
+      expected_parent_tree_oid: expectedParentTreeOid,
+      pathspec: mutation.pathspec,
+      pathspec_digest: mutation.pathspec_digest,
+    }),
+  );
+}
+
+export function verdictOrWaiverDigest(payload) {
+  const binding = payload.verdict_or_waiver_binding ?? {};
+  return sha256(
+    "autosk-flow/verdict-or-waiver/v1\0" + canonicalStringify({
+      artifact_identity: payload.artifact_identity,
+      artifact_kind: payload.artifact_kind,
+      disposition: binding.disposition,
+      record: binding.record,
+    }),
+  );
+}
+
 function decodeBase64Exact(value, label, errors) {
   if (typeof value !== "string") {
     errors.push(`${label} must be base64 text`);
@@ -546,6 +569,10 @@ export function validatePlanningPublicationOperation(example, schema) {
       example.reflog_checkpoint?.expected_new_oid !== example.expected_commit_oid) {
     errors.push("reflog checkpoint old/new OIDs do not match operation");
   }
+  if (example.reflog_checkpoint?.expected_update_message !==
+      `autosk-flow publish ${example.operation_id}`) {
+    errors.push("expected_update_message does not match containing operation_id");
+  }
   const receiptSlots = ["commit_object", "ref_cas", "reflog_after", "verification"];
   const observationKeys = {
     commit_object: ["object_format", "object_oid", "object_bytes_sha256"],
@@ -633,6 +660,14 @@ export function validatePlanningPublicationOperation(example, schema) {
         artifactPathspecDigest(example.payload.artifact_kind, pathspec)) {
       errors.push("artifact_pathspec_digest mismatch");
     }
+    if (example.payload.verdict_or_waiver_digest !== verdictOrWaiverDigest(example.payload)) {
+      errors.push("verdict_or_waiver_digest mismatch");
+    }
+    const binding = example.payload.verdict_or_waiver_binding;
+    if ((binding?.disposition === "pass" && binding.record?.kind !== "verdict") ||
+        (binding?.disposition === "waived" && binding.record?.kind !== "waiver")) {
+      errors.push("verdict_or_waiver_binding disposition does not match record kind");
+    }
     if (example.phase === "verified" &&
         !["select_next", "prepare_anchor_impact"].includes(example.effective_target_step)) {
       errors.push("verified artifact_pass effective_target_step is invalid");
@@ -655,6 +690,10 @@ export function validatePlanningPublicationOperation(example, schema) {
           canonicalStringify([...mutation.pathspec].sort(codePointCompare)) ||
           mutation.pathspec_digest !== artifactPathspecDigest(mutation.artifact_kind, mutation.pathspec)) {
         errors.push(`projection_mutations ${mutation.artifact_kind} pathspec/digest mismatch`);
+      }
+      if (mutation.previous_projection_digest !==
+          previousProjectionDigest(example.expected_parent_tree_oid, mutation)) {
+        errors.push(`projection_mutations ${mutation.artifact_kind} previous_projection_digest mismatch`);
       }
     }
     if (example.payload.invalidation_projection_digest !== invalidationProjectionDigest(kinds, mutations)) {
@@ -747,7 +786,7 @@ export function validatePlanningRefInitOperation(operation, schema) {
   const producer = operation.reflog_producer ?? {};
   if (producer.git_committer_name !== "autosk-flow" ||
       producer.git_committer_email !== "autosk@example.invalid" ||
-      producer.git_committer_date !== "@0 +0000") {
+      !/^@[0-9]+ [+-](?:0[0-9]|1[0-4])[0-5][0-9]$/u.test(producer.git_committer_date ?? "")) {
     errors.push("init reflog_producer differs from locked bootstrap identity");
   }
   const slots = ["ref_create", "verification"];
@@ -804,6 +843,9 @@ export function validatePlanningRefInitOperation(operation, schema) {
 
 export function validatePlanningRefInitOperationExample(operation, schema) {
   const errors = validatePlanningRefInitOperation(operation, schema);
+  if (operation.reflog_producer?.git_committer_date !== "@0 +0000") {
+    errors.push("init golden vector must use epoch-zero producer timestamp");
+  }
   if (operation.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(0, Buffer.alloc(0))) {
     errors.push("init empty reflog prefix golden vector mismatch");
   }
@@ -882,7 +924,7 @@ export function validatePlanningRefDesign(files) {
     ([rowStep, condition]) => rowStep === step && condition.includes(conditionFragment),
   );
   const preCasDriftIndex = transitionIndex("publish_artifact_pass", "current binding drift before ref movement");
-  const preparedWriteIndex = transitionIndex("publish_artifact_pass", "phase=prepared and ref=expected parent");
+  const preparedWriteIndex = transitionIndex("publish_artifact_pass", "phase=prepared and expected object absent");
   const commitCasIndex = transitionIndex("publish_artifact_pass", "phase=commit_created and ref=expected parent");
   if (preCasDriftIndex < 0 || preCasDriftIndex > preparedWriteIndex || preCasDriftIndex > commitCasIndex) {
     errors.push("03-technical-plan.md: pre-CAS drift guard must precede object/ref side effects");
@@ -912,6 +954,18 @@ export function validatePlanningRefDesign(files) {
   }
   if (transitionIndex("rebuild_anchor", "matching anchor_invalidation planning_publication_op") < 0) {
     errors.push("03-technical-plan.md: rebuild_anchor publication-operation re-entry is missing");
+  }
+  for (const [step, condition, action] of [
+    ["init_planning_ref", "phase=verified", "zero Git writes; select_next"],
+    ["init_planning_ref", "init_status=verified", "zero Git writes; select_next"],
+    ["publish_artifact_pass", "phase=prepared and expected object exists with exact bytes", "phase=commit_created"],
+  ]) {
+    const row = transitionRows.find(
+      ([rowStep, rowCondition]) => rowStep === step && rowCondition.includes(condition),
+    );
+    if (!row || !row[2].includes(action)) {
+      errors.push(`03-technical-plan.md: recovery row missing ${step} ${condition}`);
+    }
   }
   const invalidationFragments = [
     "phase=prepared and expected object absent",
@@ -1019,6 +1073,8 @@ export function validatePlanningRefDesign(files) {
     "published_commit_oid",
     "published tree",
     "live private planning ref",
+    "first-parent chain",
+    "recorded candidate tree",
     "current publication bindings",
   ];
   const plannedGuard = plan.split("\n").find((line) => line.startsWith("- Planned implementation запрещён")) ?? "";
@@ -1029,6 +1085,21 @@ export function validatePlanningRefDesign(files) {
   if (!publishedPassFragments.every((fragment) => ticketsGuard.includes(fragment))) {
     errors.push("03-technical-plan.md: Tickets guard must require Published PASS");
   }
+  if (plan.includes("published commit/tree совпадают с live private planning ref/head") ||
+      (files["docs/contracts/epic-planning-ref.md"] ?? "")
+        .includes("live planning ref still equals its published commit")) {
+    errors.push("planning kind completion must use first-parent reachability, not live-head equality");
+  }
+  for (const fragment of [
+    "last_verified_reflog_tail",
+    "same-OID ABA between closed operations",
+    "planning.init_history",
+    "planning.publication_history",
+    "planning.rebuild_history",
+    "records immediate target=`publish_planning_invalidation`",
+  ]) {
+    if (!plan.includes(fragment)) errors.push(`03-technical-plan.md: missing closed planning invariant ${fragment}`);
+  }
   for (const [relative, text] of Object.entries(files)) {
     if (/refs\/autosk\/epics\/<(?:epic-uuid|uuid)>\/planning/u.test(text)) {
       errors.push(`${relative}: planning ref still uses display/UUID placeholder instead of epic_ref_key`);
@@ -1036,6 +1107,16 @@ export function validatePlanningRefDesign(files) {
   }
 
   const contract = files["docs/contracts/epic-planning-ref.md"] ?? "";
+  for (const fragment of [
+    "reachable on the live planning ref first-parent chain",
+    "before every planning gate and before minting a new operation",
+    "autosk-flow/verdict-or-waiver/v1\\0",
+    "autosk-flow/previous-projection/v1\\0",
+    "No model-authored bytes enter the v1 commit object",
+    "intentionally operation-only",
+  ]) {
+    if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
+  }
   const initPhaseSequence = "prepared\n→ ref_created\n→ verified";
   if (!contract.includes(initPhaseSequence)) {
     errors.push("planning-ref initialization phases are missing or not documented in monotonic order");

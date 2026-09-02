@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -25,6 +26,10 @@ import {
 
 function fixture() {
   return structuredClone(loadPlanningRefFiles());
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 test("current planning-ref design contract is internally connected", () => {
@@ -81,7 +86,7 @@ test("pre-CAS drift guard precedes publication side effects", () => {
   const files = fixture();
   const plan = files["03-technical-plan.md"];
   const drift = plan.indexOf("current binding drift before ref movement");
-  const objectWrite = plan.indexOf("phase=prepared and ref=expected parent and reflog prefix=checkpoint");
+  const objectWrite = plan.indexOf("phase=prepared and expected object absent, ref=expected parent and reflog prefix=checkpoint");
   const cas = plan.indexOf("phase=commit_created and ref=expected parent and reflog prefix=checkpoint");
   assert.equal(drift >= 0 && drift < objectWrite && drift < cas, true);
 });
@@ -249,18 +254,18 @@ test("normative digest preimages and v1 downstream boundaries are closed", () =>
 test("receipt digest golden vector is reproducible", () => {
   const observation = {
     object_format: "sha1",
-    object_oid: "220f8a42d7897c5c45fd8a773966e8c2cde33994",
-    object_bytes_sha256: "fffa1a2b18a241c35f468507bf3dca39cd010bc825dcc1b4e479ec68267803a7",
+    object_oid: "cc745247722ff2fe151303f31113281e0fcd9c70",
+    object_bytes_sha256: "bc6c070b2858aa1ae8f8b3650b8633620a82e0644cc76af9c3e0506df734508f",
   };
   const observationDigest = planningObservationDigest("commit_object", observation);
-  assert.equal(observationDigest, "863bbbe1ea26dbbc3f6d1eb7e837151b3a47c3248f5b9566bb42fe62f79ef319");
+  assert.equal(observationDigest, "9167690cbff40fecf1eede9e31f6b06583b61cb9da78032b23fa36bf710946c1");
   assert.equal(
     planningReceiptHash(
       "11111111-1111-4111-8111-111111111111",
       "commit_object",
       observationDigest,
     ),
-    "0900511622fb2ffb35b35f985dae50ef3ca12362d44ef152f72cfaedcd68147e",
+    "cf2af4b4d98e8d4c228a8058e1013d5181d66248238fe67da4f36f8b660ee29e",
   );
 });
 
@@ -665,4 +670,163 @@ test("empty invalidation projections and mutable effective targets are rejected"
   const result = validatePlanningPublicationOperation(example, schema).join("\n");
   assert.match(result, /projection_mutations/u);
   assert.match(result, /candidate_tree_oid/u);
+});
+
+test("published kinds remain complete after later descendant publications", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(plan, /published_commit_oid.*first-parent chain.*published tree.*recorded candidate tree/isu);
+  assert.match(contract, /reachable on the live planning ref first-parent chain/iu);
+  assert.doesNotMatch(plan, /published commit\/tree совпадают с live private planning ref\/head/iu);
+});
+
+test("verified planning state guards reflog continuity between operations", () => {
+  const files = fixture();
+  const plan = files["03-technical-plan.md"];
+  const contract = files["docs/contracts/epic-planning-ref.md"];
+  assert.match(plan, /last_verified_reflog_tail/iu);
+  assert.match(plan, /same-OID ABA.*planning_ref_foreign_movement/isu);
+  assert.match(contract, /before every planning gate and before minting a new operation/iu);
+});
+
+test("init verified re-entry reaches select-next without another Git write", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /init_planning_ref \| phase=verified.*zero Git writes.*select_next/iu);
+  assert.match(plan, /init_planning_ref \| init_status=verified.*archived.*select_next/iu);
+  assert.equal(plan.indexOf("init_status=verified") < plan.indexOf("closed init Schema/example validation fails"), true);
+});
+
+test("generic init validation accepts a persisted non-golden producer timestamp", () => {
+  const schema = JSON.parse(readFileSync(INIT_OPERATION_SCHEMA_PATH, "utf8"));
+  const operation = JSON.parse(readFileSync(INIT_OPERATION_EXAMPLE_PATH, "utf8"));
+  operation.phase = "prepared";
+  operation.receipts.ref_create = null;
+  operation.receipts.verification = null;
+  operation.reflog_producer.git_committer_date = "@123 +0000";
+  assert.deepEqual(validatePlanningRefInitOperation(operation, schema), []);
+});
+
+test("publication update message is bound to the operation id", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  operation.reflog_checkpoint.expected_update_message = "autosk-flow publish 99999999-9999-4999-8999-999999999999";
+  assert.match(validatePlanningPublicationOperation(operation, schema).join("\n"), /expected_update_message/u);
+});
+
+test("rebuild-anchor cannot bypass descendant invalidation publication", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /rebuild_anchor.*records immediate target=publish_planning_invalidation/isu);
+  assert.match(plan, /post_publication_target_step.*clarify_alignment.*present_tickets_breakdown/isu);
+  assert.doesNotMatch(plan, /rebuild_anchor[\s\S]*records target=clarify_alignment/iu);
+});
+
+test("publication binding digests have recomputable preimages", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const artifact = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  const binding = artifact.payload.verdict_or_waiver_binding;
+  assert.ok(binding);
+  assert.equal(
+    artifact.payload.verdict_or_waiver_digest,
+    sha256("autosk-flow/verdict-or-waiver/v1\0" + canonicalStringify({
+      artifact_identity: artifact.payload.artifact_identity,
+      artifact_kind: artifact.payload.artifact_kind,
+      disposition: binding.disposition,
+      record: binding.record,
+    })),
+  );
+  assert.deepEqual(validatePlanningPublicationOperation(artifact, schema), []);
+  const mismatchedBinding = structuredClone(artifact);
+  mismatchedBinding.payload.verdict_or_waiver_binding.disposition = "waived";
+  mismatchedBinding.payload.verdict_or_waiver_digest = sha256(
+    "autosk-flow/verdict-or-waiver/v1\0" + canonicalStringify({
+      artifact_identity: mismatchedBinding.payload.artifact_identity,
+      artifact_kind: mismatchedBinding.payload.artifact_kind,
+      disposition: mismatchedBinding.payload.verdict_or_waiver_binding.disposition,
+      record: mismatchedBinding.payload.verdict_or_waiver_binding.record,
+    }),
+  );
+  assert.match(
+    validatePlanningPublicationOperation(mismatchedBinding, schema).join("\n"),
+    /disposition.*record kind/u,
+  );
+
+  const invalidation = JSON.parse(readFileSync(INVALIDATION_EXAMPLE_PATH, "utf8"));
+  const mutation = invalidation.payload.projection_mutations[0];
+  const expectedPrevious = sha256(
+    "autosk-flow/previous-projection/v1\0" + canonicalStringify({
+      artifact_kind: mutation.artifact_kind,
+      expected_parent_tree_oid: invalidation.expected_parent_tree_oid,
+      pathspec: mutation.pathspec,
+      pathspec_digest: mutation.pathspec_digest,
+    }),
+  );
+  assert.equal(mutation.previous_projection_digest, expectedPrevious);
+  mutation.previous_projection_digest = "0".repeat(64);
+  invalidation.payload.invalidation_projection_digest = sha256(
+    "autosk-flow/invalidation-projection/v1\0" + canonicalStringify({
+      affected_artifact_kinds: invalidation.payload.affected_artifact_kinds,
+      projection_mutations: invalidation.payload.projection_mutations,
+    }),
+  );
+  assert.match(validatePlanningPublicationOperation(invalidation, schema).join("\n"), /previous_projection_digest/u);
+});
+
+test("v1 commit recipe excludes model-authored message bytes", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /No model-authored bytes enter the v1 commit object/u);
+  assert.doesNotMatch(contract, /Model output may propose a human summary/u);
+});
+
+test("voided first publication returns to deterministic redraft", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /recorded_unpublished\\?\|voided_before_ref.*unpublished affected binding.*clarify_alignment/isu);
+  assert.match(plan, /first-ever publication.*without.*anchor_impact_invalid/isu);
+});
+
+test("artifact publication distinguishes absent and existing prepared objects", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /publish_artifact_pass \| phase=prepared and expected object absent/iu);
+  assert.match(plan, /publish_artifact_pass \| phase=prepared and expected object exists with exact bytes/iu);
+});
+
+test("publication drift rows are phase-qualified", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /publish_artifact_pass \| phase=prepared or phase=commit_created and current binding drift before ref movement/iu);
+  assert.match(plan, /publish_artifact_pass \| phase=ref_advanced and current binding drift after expected ref transition/iu);
+});
+
+test("closed safe paths reject degenerate and trailing-slash values", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  for (const unsafe of [".", "docs/"]) {
+    const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+    operation.payload.artifact_pathspec = [unsafe];
+    operation.payload.artifact_pathspec_digest = sha256(
+      "autosk-flow/artifact-pathspec/v1\0" + canonicalStringify({
+        artifact_kind: operation.payload.artifact_kind,
+        pathspec: operation.payload.artifact_pathspec,
+      }),
+    );
+    assert.match(validatePlanningPublicationOperation(operation, schema).join("\n"), /artifact_pathspec|safe_relative_path|Schema/u);
+  }
+});
+
+test("init and publication share one reflog producer identity rule", () => {
+  const initSchema = JSON.parse(readFileSync(INIT_OPERATION_SCHEMA_PATH, "utf8"));
+  const publicationSchema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  assert.equal(
+    initSchema.$defs.reflog_producer.properties.git_committer_email.pattern,
+    publicationSchema.$defs.reflog_producer.properties.git_committer_email.pattern,
+  );
+});
+
+test("terminal planning operations have typed history containers", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /"init_history": \[\]/u);
+  assert.match(plan, /"publication_history": \[\]/u);
+  assert.match(plan, /"rebuild_history": \[\]/u);
+});
+
+test("governance mapping attestation placement is explicit", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /governance_mapping_set_digest.*operation-only.*retained operation history/isu);
 });

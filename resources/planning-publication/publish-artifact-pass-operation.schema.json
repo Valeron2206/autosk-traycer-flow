@@ -106,7 +106,7 @@
     },
     "safe_relative_path": {
       "type": "string",
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)(?!.*@\\{)(?!.*\\.lock$)[A-Za-z0-9._/-]+$"
+      "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//)(?!.*@\\{)(?!.*\\.lock$)(?!.*\\/$)[A-Za-z0-9._/-]+$"
     },
     "projection_mutation": {
       "type": "object",
@@ -155,6 +155,37 @@
         "update_ref_mode": { "const": "object_format_neutral_expected_old" }
       }
     },
+    "verdict_or_waiver_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "record"],
+      "properties": {
+        "disposition": { "enum": ["pass", "waived"] },
+        "record": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "verdict_hash"],
+              "properties": {
+                "kind": { "const": "verdict" },
+                "verdict_hash": { "$ref": "#/$defs/sha256" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "waiver_record_id", "waiver_record_hash"],
+              "properties": {
+                "kind": { "const": "waiver" },
+                "waiver_record_id": { "$ref": "#/$defs/uuid" },
+                "waiver_record_hash": { "$ref": "#/$defs/sha256" }
+              }
+            }
+          ]
+        }
+      }
+    },
     "payload": {
       "oneOf": [
         {
@@ -167,6 +198,7 @@
             "artifact_pathspec",
             "artifact_pathspec_digest",
             "alignment_identity",
+            "verdict_or_waiver_binding",
             "verdict_or_waiver_digest",
             "recorded_target_step"
           ],
@@ -182,6 +214,7 @@
             },
             "artifact_pathspec_digest": { "$ref": "#/$defs/sha256" },
             "alignment_identity": { "$ref": "#/$defs/sha256" },
+            "verdict_or_waiver_binding": { "$ref": "#/$defs/verdict_or_waiver_binding" },
             "verdict_or_waiver_digest": { "$ref": "#/$defs/sha256" },
             "recorded_target_step": { "const": "select_next" }
           }
@@ -370,7 +403,7 @@
         "expected_new_oid": { "$ref": "#/$defs/oid" },
         "expected_update_message": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^autosk-flow publish [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
         }
       }
     },
@@ -394,7 +427,10 @@
             "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
             "expected_old_oid": { "$ref": "#/$defs/oid" },
             "observed_new_oid": { "$ref": "#/$defs/oid" },
-            "expected_update_message": { "type": "string", "minLength": 1 }
+            "expected_update_message": {
+              "type": "string",
+              "pattern": "^autosk-flow publish [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
           }
         },
         {
