@@ -45,7 +45,7 @@
       "inherit_git_environment": false,
       "update_ref_mode": "object_format_neutral_expected_old"
     },
-    "phase": "verified",
+    "phase": "audit_retained",
     "create_receipt": {
       "schema": 1,
       "after_entry_count": 1,
@@ -63,8 +63,20 @@
       "operation_id": "77777777-7777-4777-8777-777777777777"
     },
     "release_receipt": null,
-    "audit_receipt": null,
-    "terminal_disposition": null,
+    "audit_receipt": {
+      "schema": 1,
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "candidate_identity": "1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+      "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+      "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+      "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+      "reason": "voided_before_ref",
+      "ref_custody_generation": 1,
+      "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "observation_sha256": "28d0745a01c57c7325ad32b8b035c357ebf3e94cc465193ae52a9c566b74ae5a",
+      "receipt_hash": "4e12b4fe551c8dee799473e5924b1cdab950767aa686cf76e76c7db9734d54d1"
+    },
+    "terminal_disposition": "audit_retained",
     "created_at_utc": "2026-09-01T00:00:00Z",
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
     "ref_custody_generation": 1,
@@ -175,10 +187,10 @@
     "expected_new_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
     "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111"
   },
-  "phase": "prepared",
-  "terminal_reason": null,
-  "recovery_target_step": null,
-  "effective_target_step": null,
+  "phase": "voided_before_ref",
+  "terminal_reason": "binding_drift",
+  "recovery_target_step": "prepare_anchor_impact",
+  "effective_target_step": "prepare_anchor_impact",
   "created_at_utc": "2026-09-01T00:01:00Z",
   "receipts": {
     "commit_object": null,

@@ -87,5 +87,15 @@
     "commit_object_bytes_base64": "dHJlZSAyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyCnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
     "commit_object_bytes_sha256": "f98f6871a033cf372824ef4c7d0ec76c60bd969985913baad0654431e12010b1",
     "expected_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
+  },
+  "snapshot_object_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "object_format": "sha1",
+    "object_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+    "object_bytes_sha256": "f98f6871a033cf372824ef4c7d0ec76c60bd969985913baad0654431e12010b1",
+    "tree_oid": "2222222222222222222222222222222222222222",
+    "parent_oid": "3333333333333333333333333333333333333333",
+    "receipt_hash": "29f452c46264c2ab6c0ec93df87cb3412d1dcb10de30085b9c0e828b109163ee"
   }
 }

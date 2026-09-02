@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/ref-custody-helper-wire.schema.json",
+  "title": "autosk-flow ref-custody helper concrete wire examples",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "public_key_spki_base64", "actions"],
+  "properties": {
+    "schema": { "const": 1 },
+    "public_key_spki_base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+    "actions": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/action_exchange" }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "oid_or_null": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }] },
+    "action": { "enum": ["init", "create_keepalive", "advance_planning", "retain_audit", "release_to_audit", "delete_expired_audit"] },
+    "reflog_producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git_committer_name", "git_committer_email", "git_committer_date", "lc_all", "tz", "git_config_system", "git_config_global", "git_config_nosystem", "hooks_path", "inherit_git_environment", "update_ref_mode"],
+      "properties": {
+        "git_committer_name": { "type": "string", "minLength": 1 },
+        "git_committer_email": { "type": "string", "minLength": 3 },
+        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ \\+0000$" },
+        "lc_all": { "const": "C" },
+        "tz": { "const": "UTC" },
+        "git_config_system": { "const": "/dev/null" },
+        "git_config_global": { "const": "/dev/null" },
+        "git_config_nosystem": { "const": "1" },
+        "hooks_path": { "const": "/dev/null" },
+        "inherit_git_environment": { "const": false },
+        "update_ref_mode": { "const": "object_format_neutral_expected_old" }
+      }
+    },
+    "ref_update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "ref", "expected_old_oid", "new_oid"],
+      "properties": {
+        "operation": { "enum": ["verify", "update", "delete"] },
+        "ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64})$" },
+        "expected_old_oid": { "$ref": "#/$defs/oid_or_null" },
+        "new_oid": { "$ref": "#/$defs/oid_or_null" }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "key_id", "public_key_sha256", "request_body_sha256", "nonce", "signature_base64"],
+      "properties": {
+        "scheme": { "const": "ed25519" },
+        "key_id": { "$ref": "#/$defs/sha256" },
+        "public_key_sha256": { "$ref": "#/$defs/sha256" },
+        "request_body_sha256": { "$ref": "#/$defs/sha256" },
+        "nonce": { "$ref": "#/$defs/sha256" },
+        "signature_base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "action", "project_root_sha256", "epic_ref_key", "operation_id", "candidate_identity", "custody_generation", "policy_digest", "nonce", "packed_refs_sha256", "expected_update_message", "reflog_producer", "reflog_checkpoint", "ref_updates", "body_sha256", "authorization"],
+      "properties": {
+        "schema": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/action" },
+        "project_root_sha256": { "$ref": "#/$defs/sha256" },
+        "epic_ref_key": { "$ref": "#/$defs/sha256" },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "candidate_identity": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "custody_generation": { "type": "integer", "minimum": 1 },
+        "policy_digest": { "$ref": "#/$defs/sha256" },
+        "nonce": { "$ref": "#/$defs/sha256" },
+        "packed_refs_sha256": { "$ref": "#/$defs/sha256" },
+        "expected_update_message": { "type": "string", "minLength": 1 },
+        "reflog_producer": { "$ref": "#/$defs/reflog_producer" },
+        "reflog_checkpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "before_entry_count", "before_prefix_sha256"],
+          "properties": {
+            "ref": { "type": "string" },
+            "before_entry_count": { "type": "integer", "minimum": 0 },
+            "before_prefix_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "ref_updates": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/ref_update" } },
+        "body_sha256": { "$ref": "#/$defs/sha256" },
+        "authorization": { "$ref": "#/$defs/authorization" }
+      }
+    },
+    "ref_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "ref", "expected_old_oid", "requested_new_oid", "observed_old_oid", "observed_new_oid"],
+      "properties": {
+        "operation": { "enum": ["verify", "update", "delete"] },
+        "ref": { "type": "string" },
+        "expected_old_oid": { "$ref": "#/$defs/oid_or_null" },
+        "requested_new_oid": { "$ref": "#/$defs/oid_or_null" },
+        "observed_old_oid": { "$ref": "#/$defs/oid_or_null" },
+        "observed_new_oid": { "$ref": "#/$defs/oid_or_null" }
+      }
+    },
+    "reflog_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "before_entry_count", "after_entry_count", "before_prefix_sha256", "raw_appended_entries_base64", "appended_entry_sha256"],
+      "properties": {
+        "ref": { "type": "string" },
+        "before_entry_count": { "type": "integer", "minimum": 0 },
+        "after_entry_count": { "type": "integer", "minimum": 0 },
+        "before_prefix_sha256": { "$ref": "#/$defs/sha256" },
+        "raw_appended_entries_base64": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" } },
+        "appended_entry_sha256": { "type": "array", "items": { "$ref": "#/$defs/sha256" } }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "action", "status", "request_body_sha256", "custody_generation", "policy_digest", "nonce", "ref_observations", "reflog_observations", "transaction_value_observation_sha256", "receipt_hash"],
+      "properties": {
+        "schema": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/action" },
+        "status": { "enum": ["committed", "not_applied"] },
+        "request_body_sha256": { "$ref": "#/$defs/sha256" },
+        "custody_generation": { "type": "integer", "minimum": 1 },
+        "policy_digest": { "$ref": "#/$defs/sha256" },
+        "nonce": { "$ref": "#/$defs/sha256" },
+        "ref_observations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/ref_observation" } },
+        "reflog_observations": { "type": "array", "items": { "$ref": "#/$defs/reflog_observation" } },
+        "transaction_value_observation_sha256": { "$ref": "#/$defs/sha256" },
+        "receipt_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "journal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "action", "phase", "request_body_sha256", "request", "response", "fsync_order", "request_fsync_sha256", "refs_commit_sha256", "receipt_fsync_sha256", "journal_hash"],
+      "properties": {
+        "schema": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/action" },
+        "phase": { "enum": ["request_committed", "refs_committed", "receipt_committed"] },
+        "request_body_sha256": { "$ref": "#/$defs/sha256" },
+        "request": { "$ref": "#/$defs/request" },
+        "response": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/response" }] },
+        "fsync_order": { "type": "array", "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "request" }, { "const": "refs" }, { "const": "receipt" }] },
+        "request_fsync_sha256": { "$ref": "#/$defs/sha256" },
+        "refs_commit_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "receipt_fsync_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "journal_hash": { "$ref": "#/$defs/sha256" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "phase": { "const": "request_committed" } } },
+          "then": { "properties": { "response": { "type": "null" }, "refs_commit_sha256": { "type": "null" }, "receipt_fsync_sha256": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "phase": { "const": "refs_committed" } } },
+          "then": { "properties": { "response": { "type": "null" }, "refs_commit_sha256": { "$ref": "#/$defs/sha256" }, "receipt_fsync_sha256": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "phase": { "const": "receipt_committed" } } },
+          "then": { "properties": { "response": { "$ref": "#/$defs/response" }, "refs_commit_sha256": { "$ref": "#/$defs/sha256" }, "receipt_fsync_sha256": { "$ref": "#/$defs/sha256" } } }
+        }
+      ]
+    },
+    "action_exchange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "request", "response", "journal"],
+      "properties": {
+        "action": { "$ref": "#/$defs/action" },
+        "request": { "$ref": "#/$defs/request" },
+        "response": { "$ref": "#/$defs/response" },
+        "journal": { "$ref": "#/$defs/journal" }
+      }
+    }
+  }
+}

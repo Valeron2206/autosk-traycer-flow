@@ -97,6 +97,16 @@
       "commit_object_bytes_base64": "dHJlZSA2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2CnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
       "commit_object_bytes_sha256": "e7688a7ed0bba095f02c14907f09090c9623a25e40276aa9952d917103619bc2",
       "expected_commit_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
+    },
+    "snapshot_object_receipt": {
+      "schema": 1,
+      "operation_id": "88888888-8888-4888-8888-888888888888",
+      "object_format": "sha1",
+      "object_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
+      "object_bytes_sha256": "e7688a7ed0bba095f02c14907f09090c9623a25e40276aa9952d917103619bc2",
+      "tree_oid": "6666666666666666666666666666666666666666",
+      "parent_oid": "3333333333333333333333333333333333333333",
+      "receipt_hash": "43bac1446cf68c0ddf55181578825aaa140c34407c53e5842ea6719b427dab96"
     }
   },
   "payload": {
@@ -181,7 +191,7 @@
   "terminal_reason": null,
   "recovery_target_step": null,
   "effective_target_step": null,
-  "created_at_utc": "2026-09-01T00:00:00Z",
+  "created_at_utc": "2026-09-01T00:01:00Z",
   "receipts": {
     "commit_object": null,
     "ref_cas": null,

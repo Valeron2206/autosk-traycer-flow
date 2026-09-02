@@ -17,6 +17,7 @@
     "snapshot_commit_oid",
     "snapshot_tree_oid",
     "snapshot_commit_recipe",
+    "snapshot_object_receipt",
     "expected_update_message",
     "reflog_producer",
     "ref_custody_generation",
@@ -41,11 +42,12 @@
     "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
     "snapshot_tree_oid": { "$ref": "#/$defs/oid" },
     "snapshot_commit_recipe": { "$ref": "#/$defs/snapshot_commit_recipe" },
+    "snapshot_object_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/snapshot_object_receipt" }] },
     "expected_update_message": { "type": "string", "pattern": "^autosk-flow keepalive [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
     "reflog_producer": { "$ref": "#/$defs/reflog_producer" },
     "ref_custody_generation": { "type": "integer", "minimum": 1 },
     "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
-    "phase": { "enum": ["prepared", "ref_created", "verified", "audit_retained", "released"] },
+    "phase": { "enum": ["prepared", "object_written", "ref_created", "verified", "audit_retained", "released"] },
     "terminal_disposition": { "enum": ["audit_retained", "published_released", null] },
     "create_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/create_receipt" }] },
     "release_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/release_receipt" }] },
@@ -58,6 +60,19 @@
       "then": {
         "properties": {
           "terminal_disposition": { "type": "null" },
+          "snapshot_object_receipt": { "type": "null" },
+          "create_receipt": { "type": "null" },
+          "release_receipt": { "type": "null" },
+          "audit_receipt": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "object_written" } } },
+      "then": {
+        "properties": {
+          "terminal_disposition": { "type": "null" },
+          "snapshot_object_receipt": { "$ref": "#/$defs/snapshot_object_receipt" },
           "create_receipt": { "type": "null" },
           "release_receipt": { "type": "null" },
           "audit_receipt": { "type": "null" }
@@ -69,6 +84,7 @@
       "then": {
         "properties": {
           "terminal_disposition": { "type": "null" },
+          "snapshot_object_receipt": { "$ref": "#/$defs/snapshot_object_receipt" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
           "release_receipt": { "type": "null" },
           "audit_receipt": { "type": "null" }
@@ -80,6 +96,7 @@
       "then": {
         "properties": {
           "terminal_disposition": { "const": "audit_retained" },
+          "snapshot_object_receipt": { "$ref": "#/$defs/snapshot_object_receipt" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
           "release_receipt": { "type": "null" },
           "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
@@ -91,6 +108,7 @@
       "then": {
         "properties": {
           "terminal_disposition": { "const": "published_released" },
+          "snapshot_object_receipt": { "$ref": "#/$defs/snapshot_object_receipt" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
           "release_receipt": { "$ref": "#/$defs/release_receipt" },
           "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
@@ -139,6 +157,21 @@
         "commit_object_bytes_base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
         "commit_object_bytes_sha256": { "$ref": "#/$defs/sha256" },
         "expected_commit_oid": { "$ref": "#/$defs/oid" }
+      }
+    },
+    "snapshot_object_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "object_format", "object_oid", "object_bytes_sha256", "tree_oid", "parent_oid", "receipt_hash"],
+      "properties": {
+        "schema": { "const": 1 },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "object_format": { "enum": ["sha1", "sha256"] },
+        "object_oid": { "$ref": "#/$defs/oid" },
+        "object_bytes_sha256": { "$ref": "#/$defs/sha256" },
+        "tree_oid": { "$ref": "#/$defs/oid" },
+        "parent_oid": { "$ref": "#/$defs/oid" },
+        "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
     },
     "reflog_producer": {

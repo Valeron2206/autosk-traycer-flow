@@ -23,23 +23,8 @@
     "inherit_git_environment": false,
     "update_ref_mode": "object_format_neutral_expected_old"
   },
-  "phase": "verified",
-  "create_receipt": {
-    "schema": 1,
-    "after_entry_count": 1,
-    "appended_entry_sha256": "330ae724227aa55ac451bbc44e104059d946474f2a2339df0c10e1f8f3c1e38c",
-    "before_entry_count": 0,
-    "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
-    "candidate_identity": "1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
-    "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
-    "observed_new_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
-    "observed_old_oid": null,
-    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
-    "snapshot_tree_oid": "2222222222222222222222222222222222222222",
-    "observation_sha256": "35db5200f9c5ac8af9974d1aec6448496f769f481ef522ca07150a5494152ad2",
-    "receipt_hash": "4f278ae3291146d0a96c703a03773b94a26e6b5578fed82d1a4a6543bdc23583",
-    "operation_id": "77777777-7777-4777-8777-777777777777"
-  },
+  "phase": "prepared",
+  "create_receipt": null,
   "release_receipt": null,
   "audit_receipt": null,
   "terminal_disposition": null,
@@ -76,14 +61,5 @@
     "commit_object_bytes_sha256": "f98f6871a033cf372824ef4c7d0ec76c60bd969985913baad0654431e12010b1",
     "expected_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
   },
-  "snapshot_object_receipt": {
-    "schema": 1,
-    "operation_id": "77777777-7777-4777-8777-777777777777",
-    "object_format": "sha1",
-    "object_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
-    "object_bytes_sha256": "f98f6871a033cf372824ef4c7d0ec76c60bd969985913baad0654431e12010b1",
-    "tree_oid": "2222222222222222222222222222222222222222",
-    "parent_oid": "3333333333333333333333333333333333333333",
-    "receipt_hash": "29f452c46264c2ab6c0ec93df87cb3412d1dcb10de30085b9c0e828b109163ee"
-  }
+  "snapshot_object_receipt": null
 }

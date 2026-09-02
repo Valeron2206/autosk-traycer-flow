@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,22 @@ export const REF_CUSTODY_CONTRACT_EXAMPLE_PATH = path.join(
   ROOT,
   "resources/planning-publication/ref-custody-helper-contract.example.json",
 );
+export const REF_CUSTODY_WIRE_SCHEMA_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/ref-custody-helper-wire.schema.json",
+);
+export const REF_CUSTODY_WIRE_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/ref-custody-helper-wire.example.json",
+);
+export const CANDIDATE_SUPERSESSION_SCHEMA_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/candidate-supersession-operation.schema.json",
+);
+export const CANDIDATE_SUPERSESSION_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/candidate-supersession-operation.example.json",
+);
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -69,8 +85,15 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json",
   "resources/planning-publication/candidate-keepalive-operation.released.example.json",
   "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
+  "resources/planning-publication/publish-artifact-pass-operation.voided.example.json",
   "resources/planning-publication/ref-custody-helper-contract.schema.json",
   "resources/planning-publication/ref-custody-helper-contract.example.json",
+  "resources/planning-publication/ref-custody-helper-wire.schema.json",
+  "resources/planning-publication/ref-custody-helper-wire.example.json",
+  "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
+  "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
+  "resources/planning-publication/candidate-supersession-operation.schema.json",
+  "resources/planning-publication/candidate-supersession-operation.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -99,6 +122,7 @@ const REQUIRED = Object.freeze({
     "expected commit OID",
     "reflog checkpoint",
     "candidate keepalive",
+    "planning.candidate_history",
     "separate-account ref-custody helper",
   ],
   "03-technical-plan.md": [
@@ -207,6 +231,7 @@ const REQUIRED = Object.freeze({
   ],
   "resources/planning-publication/candidate-keepalive-operation.schema.json": [
     "\"prepared\"",
+    "\"object_written\"",
     "\"ref_created\"",
     "\"verified\"",
     "\"audit_retained\"",
@@ -235,6 +260,11 @@ const REQUIRED = Object.freeze({
     "\"candidate_keepalive\"",
     "\"release_receipt\"",
   ],
+  "resources/planning-publication/publish-artifact-pass-operation.voided.example.json": [
+    "\"phase\": \"voided_before_ref\"",
+    "\"phase\": \"audit_retained\"",
+    "\"reason\": \"voided_before_ref\"",
+  ],
   "resources/planning-publication/ref-custody-helper-contract.schema.json": [
     "\"action_contract\"",
     "\"request_required\"",
@@ -248,6 +278,38 @@ const REQUIRED = Object.freeze({
     "\"action\": \"retain_audit\"",
     "\"action\": \"release_to_audit\"",
     "\"action\": \"delete_expired_audit\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-wire.schema.json": [
+    "\"authorization\"",
+    "\"ref_observations\"",
+    "\"transaction_value_observation_sha256\"",
+    "\"journal\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-wire.example.json": [
+    "\"scheme\": \"ed25519\"",
+    "\"phase\": \"receipt_committed\"",
+    "\"fsync_order\"",
+    "\"transaction_value_observation_sha256\"",
+  ],
+  "resources/planning-publication/candidate-keepalive-operation.prepared.example.json": [
+    "\"phase\": \"prepared\"",
+    "\"snapshot_object_receipt\": null",
+    "\"create_receipt\": null",
+  ],
+  "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json": [
+    "\"phase\": \"ref_created\"",
+    "\"snapshot_object_receipt\"",
+    "\"create_receipt\"",
+  ],
+  "resources/planning-publication/candidate-supersession-operation.schema.json": [
+    "\"prepared\"",
+    "\"audit_transferred\"",
+    "\"archived\"",
+  ],
+  "resources/planning-publication/candidate-supersession-operation.example.json": [
+    "\"phase\": \"archived\"",
+    "\"reason\": \"superseded\"",
+    "\"audit_receipt\"",
   ],
 });
 
@@ -553,6 +615,13 @@ export function candidateKeepaliveCreateReceiptHash(candidateIdentity, operation
   );
 }
 
+export function candidateSnapshotObjectReceiptHash(receipt) {
+  const { receipt_hash: ignored, ...preimage } = receipt;
+  return sha256(
+    "autosk-flow/candidate-snapshot-object/v1\0" + canonicalStringify(preimage),
+  );
+}
+
 export function planningReleaseTailObservationDigest(operation) {
   return sha256(
     "autosk-flow/candidate-keepalive-release-tail/v1\0" + canonicalStringify({
@@ -620,6 +689,15 @@ function decodeBase64Exact(value, label, errors) {
   const decoded = Buffer.from(value, "base64");
   if (decoded.toString("base64") !== value) errors.push(`${label} is not canonical base64`);
   return decoded;
+}
+
+export function isCanonicalGpgsigHeader(signatureBytes) {
+  if (!Buffer.isBuffer(signatureBytes)) return false;
+  const text = signatureBytes.toString("utf8");
+  if (!text.endsWith("\n") || text.includes("\r") || text.includes("\n\n")) return false;
+  const lines = text.slice(0, -1).split("\n");
+  if (lines.length < 1 || !/^gpgsig [^\n]+$/u.test(lines[0])) return false;
+  return lines.slice(1).every((line) => /^ [^\n]*$/u.test(line));
 }
 
 function expectedPublicationMessage(example) {
@@ -717,11 +795,20 @@ export function validatePlanningPublicationOperation(example, schema) {
   }
   if (keepalive.project_root_sha256 !== example.project_root_sha256 ||
       keepalive.epic_id !== example.epic_id || keepalive.epic_ref_key !== example.epic_ref_key ||
-      keepalive.audit_ref !== expectedKeepaliveAuditRef ||
-      keepalive.created_at_utc !== example.created_at_utc) {
+      keepalive.audit_ref !== expectedKeepaliveAuditRef) {
     errors.push("candidate_keepalive authoritative record binding mismatch");
   }
   errors.push(...validateSnapshotCommitRecipe(keepalive));
+  const snapshotObject = keepalive.snapshot_object_receipt;
+  if (!snapshotObject || snapshotObject.operation_id !== keepalive.operation_id ||
+      snapshotObject.object_format !== keepalive.object_format ||
+      snapshotObject.object_oid !== keepalive.snapshot_commit_oid ||
+      snapshotObject.object_bytes_sha256 !== keepalive.snapshot_commit_recipe?.commit_object_bytes_sha256 ||
+      snapshotObject.tree_oid !== keepalive.snapshot_tree_oid ||
+      snapshotObject.parent_oid !== keepalive.snapshot_commit_recipe?.parent_oids?.[0] ||
+      snapshotObject.receipt_hash !== candidateSnapshotObjectReceiptHash(snapshotObject)) {
+    errors.push("candidate_keepalive snapshot object receipt mismatch");
+  }
   if (keepalive.object_format !== recipe.object_format ||
       keepalive.snapshot_tree_oid !== example.candidate_tree_oid ||
       keepalive.snapshot_commit_recipe?.parent_oids?.[0] !== example.expected_parent_oid) {
@@ -818,6 +905,12 @@ export function validatePlanningPublicationOperation(example, schema) {
         audit.receipt_hash !== candidateKeepaliveAuditReceiptHash(audit)) {
       errors.push("candidate_keepalive released audit receipt mismatch");
     }
+  } else if (keepalive.phase === "audit_retained") {
+    if (example.phase !== "voided_before_ref" || keepalive.terminal_disposition !== "audit_retained" ||
+        !keepalive.audit_receipt || keepalive.audit_receipt.reason !== "voided_before_ref" ||
+        keepalive.release_receipt !== null) {
+      errors.push("candidate_keepalive voided audit-retained state mismatch");
+    }
   } else if (example.phase !== "verified" && keepalive.phase !== "verified") {
     errors.push("candidate_keepalive must remain verified before publication verification");
   }
@@ -846,9 +939,8 @@ export function validatePlanningPublicationOperation(example, schema) {
         "signature_header_base64",
         errors,
       );
-      if (!signatureBytes.toString("utf8").startsWith("gpgsig ") ||
-          !signatureBytes.toString("utf8").endsWith("\n")) {
-        errors.push("signature_header_base64 must encode one LF-terminated gpgsig header");
+      if (!isCanonicalGpgsigHeader(signatureBytes)) {
+        errors.push("signature_header_base64 must encode one canonical gpgsig header with only space-prefixed continuations");
       }
     }
     const headerBytes = Buffer.from(
@@ -1080,6 +1172,10 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
     .map((error) => "Schema: " + error);
   const required = Array.isArray(schema?.required) ? schema.required : [];
   if (!exactKeys(operation, required)) errors.push("candidate keepalive operation keys differ from closed Schema");
+  const expectedRefKey = deriveEpicRefKey(operation.project_root_sha256, operation.epic_id);
+  if (operation.epic_ref_key !== expectedRefKey) {
+    errors.push("candidate keepalive epic_ref_key derivation mismatch");
+  }
   const expectedRef = "refs/autosk/epics/" + operation.epic_ref_key +
     "/candidates/" + operation.candidate_identity;
   const expectedAuditRef = "refs/autosk/epics/" + operation.epic_ref_key +
@@ -1091,6 +1187,16 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
     errors.push("candidate keepalive operation message mismatch");
   }
   errors.push(...validateSnapshotCommitRecipe(operation));
+  const snapshotObject = operation.snapshot_object_receipt;
+  if (snapshotObject && (snapshotObject.operation_id !== operation.operation_id ||
+      snapshotObject.object_format !== operation.object_format ||
+      snapshotObject.object_oid !== operation.snapshot_commit_oid ||
+      snapshotObject.object_bytes_sha256 !== operation.snapshot_commit_recipe?.commit_object_bytes_sha256 ||
+      snapshotObject.tree_oid !== operation.snapshot_tree_oid ||
+      snapshotObject.parent_oid !== operation.snapshot_commit_recipe?.parent_oids?.[0] ||
+      snapshotObject.receipt_hash !== candidateSnapshotObjectReceiptHash(snapshotObject))) {
+    errors.push("candidate keepalive snapshot object receipt mismatch");
+  }
   const create = operation.create_receipt;
   if (create) {
     const expectedEntrySha256 = candidateKeepaliveReflogEntryDigest({ candidate_keepalive: operation });
@@ -1163,12 +1269,17 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
     errors.push("candidate keepalive audit receipt mismatch");
   }
   const phaseRules = {
-    prepared: create === null && release === null && audit === null && operation.terminal_disposition === null,
-    ref_created: create !== null && release === null && audit === null && operation.terminal_disposition === null,
-    verified: create !== null && release === null && audit === null && operation.terminal_disposition === null,
-    audit_retained: create !== null && release === null && audit !== null &&
+    prepared: snapshotObject === null && create === null && release === null && audit === null &&
+      operation.terminal_disposition === null,
+    object_written: snapshotObject !== null && create === null && release === null && audit === null &&
+      operation.terminal_disposition === null,
+    ref_created: snapshotObject !== null && create !== null && release === null && audit === null &&
+      operation.terminal_disposition === null,
+    verified: snapshotObject !== null && create !== null && release === null && audit === null &&
+      operation.terminal_disposition === null,
+    audit_retained: snapshotObject !== null && create !== null && release === null && audit !== null &&
       operation.terminal_disposition === "audit_retained",
-    released: create !== null && release !== null && audit !== null &&
+    released: snapshotObject !== null && create !== null && release !== null && audit !== null &&
       audit.reason === "publication_verified" && release.audit_candidate_ref === audit.audit_ref &&
       release.audit_candidate_oid === audit.snapshot_commit_oid &&
       operation.terminal_disposition === "published_released",
@@ -1179,35 +1290,54 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
   return errors;
 }
 
+export function validateCandidateSupersessionOperation(operation, schema) {
+  const errors = validateJsonSchema(operation, schema, schema, "candidate_supersession_operation")
+    .map((error) => "Schema: " + error);
+  const candidateSuffix = `/${operation.source_candidate_identity}`;
+  if (!operation.live_ref?.endsWith(candidateSuffix) || !operation.audit_ref?.endsWith(candidateSuffix)) {
+    errors.push("candidate supersession ref identity mismatch");
+  }
+  const receipt = operation.audit_receipt;
+  if (receipt && (receipt.operation_id !== operation.keepalive_operation_id ||
+      receipt.candidate_identity !== operation.source_candidate_identity ||
+      receipt.live_ref !== operation.live_ref || receipt.audit_ref !== operation.audit_ref ||
+      receipt.snapshot_commit_oid !== operation.snapshot_commit_oid || receipt.reason !== "superseded" ||
+      receipt.observation_sha256 !== candidateKeepaliveAuditObservationDigest(receipt) ||
+      receipt.receipt_hash !== candidateKeepaliveAuditReceiptHash(receipt))) {
+    errors.push("candidate supersession audit receipt mismatch");
+  }
+  const phaseValid = operation.phase === "prepared"
+    ? receipt === null && operation.archived_at_utc === null
+    : operation.phase === "audit_transferred"
+      ? receipt !== null && operation.archived_at_utc === null
+      : operation.phase === "archived"
+        ? receipt !== null && typeof operation.archived_at_utc === "string"
+        : false;
+  if (!phaseValid) errors.push("candidate supersession phase prefix mismatch");
+  return errors;
+}
+
 export function validateRefCustodyHelperContract(contract, schema) {
   const errors = validateJsonSchema(contract, schema, schema, "ref_custody_helper_contract")
     .map((error) => "Schema: " + error);
   const commonRequest = [
-    "action", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key",
-    "expected_refs", "expected_update_message", "new_refs", "nonce", "operation_id",
-    "packed_refs_sha256", "policy_digest", "project_root_sha256", "reflog_checkpoint",
+    "action", "authorization", "body_sha256", "candidate_identity", "custody_generation",
+    "epic_ref_key", "expected_update_message", "nonce", "operation_id", "packed_refs_sha256",
+    "policy_digest", "project_root_sha256", "ref_updates", "reflog_checkpoint",
     "reflog_producer", "request_id", "schema",
-  ];
+  ].sort(codePointCompare);
   const commonResponse = [
-    "action", "after_entry_count", "appended_entry_sha256", "before_entry_count",
-    "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id",
-    "schema", "status", "transaction_observation_sha256",
+    "action", "custody_generation", "nonce", "policy_digest", "receipt_hash",
+    "ref_observations", "reflog_observations", "request_body_sha256", "request_id",
+    "schema", "status", "transaction_value_observation_sha256",
   ].sort(codePointCompare);
   const actionExtras = {
-    init: ["new_oid", "planning_ref"],
-    create_keepalive: ["candidate_identity", "candidate_ref", "new_oid"],
-    advance_planning: [
-      "candidate_identity", "candidate_ref", "expected_candidate_oid", "expected_planning_oid",
-      "new_planning_oid", "planning_ref",
-    ],
-    retain_audit: ["audit_ref", "candidate_identity", "live_ref", "reason", "snapshot_commit_oid"],
-    release_to_audit: [
-      "audit_ref", "candidate_identity", "expected_planning_oid", "live_ref", "planning_ref",
-      "snapshot_commit_oid",
-    ],
-    delete_expired_audit: [
-      "audit_ref", "candidate_identity", "expected_audit_oid", "retention_tombstone_hash",
-    ],
+    init: [],
+    create_keepalive: [],
+    advance_planning: [],
+    retain_audit: [],
+    release_to_audit: [],
+    delete_expired_audit: [],
   };
   const actions = Array.isArray(contract?.actions) ? contract.actions : [];
   if (canonicalStringify(actions.map((item) => item.action)) !==
@@ -1224,28 +1354,170 @@ export function validateRefCustodyHelperContract(contract, schema) {
       errors.push(`ref-custody ${action.action} request/response field contract mismatch`);
       continue;
     }
-    const requestDomain = `autosk-flow/ref-custody/${action.action}/request/v1\\0`;
-    const observationDomain = `autosk-flow/ref-custody/${action.action}/observation/v1\\0`;
-    const receiptDomain = `autosk-flow/ref-custody/${action.action}/receipt/v1\\0`;
-    const requestSha256 = sha256(
+    const requestDomain = `autosk-flow/ref-custody/${action.action}/request-shape/v1\\0`;
+    const observationDomain = `autosk-flow/ref-custody/${action.action}/response-shape/v1\\0`;
+    const receiptDomain = `autosk-flow/ref-custody/${action.action}/receipt-shape/v1\\0`;
+    const requestShapeSha256 = sha256(
       requestDomain + canonicalStringify({ action: action.action, request_required: requestRequired }),
     );
-    const transactionObservationSha256 = sha256(
+    const responseShapeSha256 = sha256(
       observationDomain + canonicalStringify({ action: action.action, response_required: commonResponse }),
     );
-    const receiptHash = sha256(
+    const receiptShapeSha256 = sha256(
       receiptDomain + canonicalStringify({
         action: action.action,
-        request_sha256: requestSha256,
-        transaction_observation_sha256: transactionObservationSha256,
+        request_shape_sha256: requestShapeSha256,
+        response_shape_sha256: responseShapeSha256,
       }),
     );
     if (action.request_domain !== requestDomain || action.observation_domain !== observationDomain ||
         action.receipt_domain !== receiptDomain ||
-        action.golden?.request_sha256 !== requestSha256 ||
-        action.golden?.transaction_observation_sha256 !== transactionObservationSha256 ||
-        action.golden?.receipt_hash !== receiptHash) {
+        action.golden?.request_shape_sha256 !== requestShapeSha256 ||
+        action.golden?.response_shape_sha256 !== responseShapeSha256 ||
+        action.golden?.receipt_shape_sha256 !== receiptShapeSha256) {
       errors.push(`ref-custody ${action.action} domain or literal golden vector mismatch`);
+    }
+  }
+  return errors;
+}
+
+export function validateRefCustodyHelperWireExamples(wire, schema) {
+  const errors = validateJsonSchema(wire, schema, schema, "ref_custody_helper_wire")
+    .map((error) => "Schema: " + error);
+  const expectedActions = [
+    "init", "create_keepalive", "advance_planning", "retain_audit",
+    "release_to_audit", "delete_expired_audit",
+  ];
+  const expectedOperations = {
+    init: ["update"],
+    create_keepalive: ["update"],
+    advance_planning: ["verify", "update"],
+    retain_audit: ["update", "delete"],
+    release_to_audit: ["verify", "update", "delete"],
+    delete_expired_audit: ["delete"],
+  };
+  const actions = Array.isArray(wire?.actions) ? wire.actions : [];
+  if (canonicalStringify(actions.map((item) => item.action)) !== canonicalStringify(expectedActions)) {
+    errors.push("ref-custody wire must contain the exact canonical six-action roster");
+  }
+  let publicKey;
+  let publicKeySha256 = "";
+  try {
+    const publicDer = Buffer.from(wire.public_key_spki_base64, "base64");
+    publicKey = createPublicKey({ key: publicDer, format: "der", type: "spki" });
+    publicKeySha256 = sha256(publicDer);
+  } catch {
+    errors.push("ref-custody wire public key is invalid");
+  }
+  const nonces = new Set();
+  for (const exchange of actions) {
+    const { request, response, journal, action } = exchange;
+    const { body_sha256: ignoredBodyHash, authorization, ...body } = request ?? {};
+    const bodySha256 = sha256(
+      "autosk-flow/ref-custody/request-body/v1\0" + canonicalStringify(body),
+    );
+    const signedBytes = Buffer.from(
+      `autosk-flow/ref-custody-authorization/v1\0${bodySha256}\0${request?.nonce}`,
+      "utf8",
+    );
+    let signatureValid = false;
+    try {
+      signatureValid = verify(
+        null,
+        signedBytes,
+        publicKey,
+        Buffer.from(authorization?.signature_base64 ?? "", "base64"),
+      );
+    } catch {
+      signatureValid = false;
+    }
+    if (request?.action !== action || response?.action !== action || journal?.action !== action ||
+        request?.body_sha256 !== bodySha256 || authorization?.scheme !== "ed25519" ||
+        authorization?.request_body_sha256 !== bodySha256 || authorization?.nonce !== request?.nonce ||
+        authorization?.public_key_sha256 !== publicKeySha256 ||
+        authorization?.key_id !== publicKeySha256 || !signatureValid) {
+      errors.push(`ref-custody ${action} request body or authorization mismatch`);
+    }
+    if (nonces.has(request?.nonce)) errors.push(`ref-custody ${action} nonce is reused`);
+    nonces.add(request?.nonce);
+    if (canonicalStringify(request?.ref_updates?.map((item) => item.operation)) !==
+        canonicalStringify(expectedOperations[action] ?? [])) {
+      errors.push(`ref-custody ${action} action-specific ref update set mismatch`);
+    }
+    const expectedRefObservations = (request?.ref_updates ?? []).map((update) => ({
+      operation: update.operation,
+      ref: update.ref,
+      expected_old_oid: update.expected_old_oid,
+      requested_new_oid: update.new_oid,
+      observed_old_oid: update.expected_old_oid,
+      observed_new_oid: update.operation === "delete" ? null : update.new_oid,
+    }));
+    if (canonicalStringify(response?.ref_observations) !== canonicalStringify(expectedRefObservations)) {
+      errors.push(`ref-custody ${action} ref observations mismatch request values`);
+    }
+    for (const observation of response?.reflog_observations ?? []) {
+      if (observation.raw_appended_entries_base64.length !== observation.appended_entry_sha256.length ||
+          observation.raw_appended_entries_base64.some((raw, index) =>
+            sha256(Buffer.from(raw, "base64")) !== observation.appended_entry_sha256[index])) {
+        errors.push(`ref-custody ${action} raw reflog observation mismatch`);
+      }
+    }
+    const observationPreimage = {
+      action,
+      request_id: request?.request_id,
+      status: response?.status,
+      request_body_sha256: bodySha256,
+      custody_generation: request?.custody_generation,
+      policy_digest: request?.policy_digest,
+      nonce: request?.nonce,
+      ref_observations: response?.ref_observations,
+      reflog_observations: response?.reflog_observations,
+    };
+    const observationSha256 = sha256(
+      `autosk-flow/ref-custody/${action}/value-observation/v1\0` +
+      canonicalStringify(observationPreimage),
+    );
+    const receiptHash = sha256(
+      `autosk-flow/ref-custody/${action}/value-receipt/v1\0` + canonicalStringify({
+        action,
+        request_id: request?.request_id,
+        request_body_sha256: bodySha256,
+        status: response?.status,
+        transaction_value_observation_sha256: observationSha256,
+      }),
+    );
+    if (response?.request_id !== request?.request_id ||
+        response?.request_body_sha256 !== bodySha256 ||
+        response?.custody_generation !== request?.custody_generation ||
+        response?.policy_digest !== request?.policy_digest || response?.nonce !== request?.nonce ||
+        response?.transaction_value_observation_sha256 !== observationSha256 ||
+        response?.receipt_hash !== receiptHash) {
+      errors.push(`ref-custody ${action} value-bound response digest mismatch`);
+    }
+    const requestFsync = sha256(
+      "autosk-flow/ref-custody/journal-request/v1\0" + canonicalStringify(request),
+    );
+    const refsCommit = sha256(
+      "autosk-flow/ref-custody/journal-refs/v1\0" + canonicalStringify({
+        ref_observations: response?.ref_observations,
+        reflog_observations: response?.reflog_observations,
+      }),
+    );
+    const receiptFsync = sha256(
+      "autosk-flow/ref-custody/journal-receipt/v1\0" + canonicalStringify(response),
+    );
+    const { journal_hash: ignoredJournalHash, ...journalBase } = journal ?? {};
+    const journalHash = sha256(
+      "autosk-flow/ref-custody/journal/v1\0" + canonicalStringify(journalBase),
+    );
+    if (journal?.phase !== "receipt_committed" ||
+        canonicalStringify(journal?.fsync_order) !== canonicalStringify(["request", "refs", "receipt"]) ||
+        journal?.request_body_sha256 !== bodySha256 ||
+        canonicalStringify(journal?.request) !== canonicalStringify(request) ||
+        canonicalStringify(journal?.response) !== canonicalStringify(response) ||
+        journal?.request_fsync_sha256 !== requestFsync || journal?.refs_commit_sha256 !== refsCommit ||
+        journal?.receipt_fsync_sha256 !== receiptFsync || journal?.journal_hash !== journalHash) {
+      errors.push(`ref-custody ${action} durable journal mismatch`);
     }
   }
   return errors;
@@ -1603,6 +1875,15 @@ export function validatePlanningRefDesign(files) {
       errors.push(`planning resume catalogs missing ${reason}`);
     }
   }
+  for (const reason of ["planning_ref_capability_missing", "planning_candidate_keepalive_invalid"]) {
+    const technicalRow = technicalResume.split("\n").find((line) => line.startsWith(`| ${reason} |`));
+    const coreRow = coreResume.split("\n").find((line) => line.startsWith(`| ${reason} |`));
+    const technicalTarget = technicalRow?.split("|")[2]?.trim();
+    const coreTarget = coreRow?.split("|")[2]?.trim();
+    if (technicalTarget !== coreTarget) {
+      errors.push(`planning resume catalogs disagree on targets for ${reason}`);
+    }
+  }
   if (/"epic_id":\s*"epic-001"/u.test(plan)) {
     errors.push("03-technical-plan.md: Epic metadata must use UUID epic_id, not display slug");
   }
@@ -1679,6 +1960,7 @@ export function validatePlanningRefDesign(files) {
     "publish-artifact-pass-operation.released.example.json",
     "candidate-keepalive-operation.released.example.json",
     "ref-custody-helper-contract.schema.json",
+    "ref-custody-helper-wire.schema.json",
   ]) {
     if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
   }
@@ -1749,14 +2031,35 @@ export function validatePlanningRefDesign(files) {
     const keepaliveReleasedExample = parseResource(
       "resources/planning-publication/candidate-keepalive-operation.released.example.json",
     );
+    const keepalivePreparedExample = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
+    );
+    const keepaliveRefCreatedExample = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
+    );
     const releasedExample = parseResource(
       "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
+    );
+    const voidedExample = parseResource(
+      "resources/planning-publication/publish-artifact-pass-operation.voided.example.json",
     );
     const custodyContractSchema = parseResource(
       "resources/planning-publication/ref-custody-helper-contract.schema.json",
     );
     const custodyContractExample = parseResource(
       "resources/planning-publication/ref-custody-helper-contract.example.json",
+    );
+    const custodyWireSchema = parseResource(
+      "resources/planning-publication/ref-custody-helper-wire.schema.json",
+    );
+    const custodyWireExample = parseResource(
+      "resources/planning-publication/ref-custody-helper-wire.example.json",
+    );
+    const supersessionSchema = parseResource(
+      "resources/planning-publication/candidate-supersession-operation.schema.json",
+    );
+    const supersessionExample = parseResource(
+      "resources/planning-publication/candidate-supersession-operation.example.json",
     );
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
@@ -1776,14 +2079,29 @@ export function validatePlanningRefDesign(files) {
     for (const error of validateCandidateKeepaliveOperation(keepaliveReleasedExample, keepaliveSchema)) {
       errors.push(`candidate keepalive released Schema/example: ${error}`);
     }
+    for (const error of validateCandidateKeepaliveOperation(keepalivePreparedExample, keepaliveSchema)) {
+      errors.push(`candidate keepalive prepared Schema/example: ${error}`);
+    }
+    for (const error of validateCandidateKeepaliveOperation(keepaliveRefCreatedExample, keepaliveSchema)) {
+      errors.push(`candidate keepalive ref-created Schema/example: ${error}`);
+    }
     for (const error of validatePlanningPublicationOperation(releasedExample, schema)) {
       errors.push(`released publication Schema/example: ${error}`);
+    }
+    for (const error of validatePlanningPublicationOperation(voidedExample, schema)) {
+      errors.push(`voided publication Schema/example: ${error}`);
     }
     for (const error of validateRefCustodyHelperContract(
       custodyContractExample,
       custodyContractSchema,
     )) {
       errors.push(`ref-custody helper Schema/example: ${error}`);
+    }
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireExample, custodyWireSchema)) {
+      errors.push(`ref-custody helper wire Schema/example: ${error}`);
+    }
+    for (const error of validateCandidateSupersessionOperation(supersessionExample, supersessionSchema)) {
+      errors.push(`candidate supersession Schema/example: ${error}`);
     }
   } catch (error) {
     errors.push(`planning publication resource is not valid JSON: ${error.message}`);

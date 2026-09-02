@@ -10,6 +10,7 @@ import {
   INIT_OPERATION_EXAMPLE_PATH,
   INIT_OPERATION_SCHEMA_PATH,
   INVALIDATION_EXAMPLE_PATH,
+  isCanonicalGpgsigHeader,
   artifactPathspecDigest,
   candidateKeepaliveAuditObservationDigest,
   candidateKeepaliveAuditReceiptHash,
@@ -23,7 +24,9 @@ import {
   planningRefDesignDigest,
   planningReleaseTailObservationDigest,
   validateCandidateKeepaliveOperation,
+  validateCandidateSupersessionOperation,
   validateRefCustodyHelperContract,
+  validateRefCustodyHelperWireExamples,
   validatePlanningPublicationOperation,
   validatePlanningPublicationOperationExample,
   validatePlanningRefInitOperation,
@@ -1066,7 +1069,7 @@ test("candidate keepalive operation has a closed standalone machine", () => {
   const schema = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.schema.json"), "utf8"));
   const example = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.example.json"), "utf8"));
   assert.equal(schema.additionalProperties, false);
-  assert.deepEqual(schema.properties.phase.enum, ["prepared", "ref_created", "verified", "audit_retained", "released"]);
+  assert.deepEqual(schema.properties.phase.enum, ["prepared", "object_written", "ref_created", "verified", "audit_retained", "released"]);
   assert.equal(example.phase, "verified");
   assert.notEqual(example.create_receipt, null);
   const audit = JSON.parse(readFileSync(
@@ -1098,7 +1101,7 @@ test("keepalive create proof is operation-scoped and uses null missing-old", () 
 
 test("terminal keepalive recovery precedes the active live-ref guard", () => {
   const plan = fixture()["03-technical-plan.md"];
-  const liveGuard = plan.indexOf("publish_artifact_pass | candidate_keepalive phase=prepared\\|ref_created\\|verified and live ref is absent/moved");
+  const liveGuard = plan.indexOf("publish_artifact_pass | candidate_keepalive phase=prepared\\|object_written\\|ref_created\\|verified and live ref is absent/moved");
   const released = plan.indexOf("publish_artifact_pass | phase=verified, candidate_keepalive phase=released");
   const auditRetained = plan.indexOf("publish_artifact_pass | phase=voided_before_ref, candidate_keepalive_op phase=audit_retained");
   assert.ok(released >= 0 && auditRetained >= 0 && liveGuard > released && liveGuard > auditRetained);
@@ -1161,6 +1164,7 @@ test("publication embeds the authoritative standalone keepalive record verbatim"
     "publish-artifact-pass-operation.example.json",
     "publish-planning-invalidation-operation.example.json",
     "publish-artifact-pass-operation.released.example.json",
+    "publish-artifact-pass-operation.voided.example.json",
   ]) {
     const publication = JSON.parse(readFileSync(path.join(directory, name), "utf8"));
     assert.deepEqual(validateCandidateKeepaliveOperation(publication.candidate_keepalive, standalone), []);
@@ -1201,6 +1205,9 @@ test("malformed planning resources report the exact filename", () => {
 test("all abandoned candidates transfer to audit and helper callers have resume targets", () => {
   const plan = fixture()["03-technical-plan.md"];
   assert.match(plan, /superseded.*rebuild_anchor.*record_artifact_pass.*new candidate/isu);
+  assert.match(plan, /candidate_supersession_op phase=prepared.*reason=superseded.*phase=audit_transferred/isu);
+  assert.match(plan, /candidate_supersession_op phase=audit_transferred.*planning\.candidate_history.*phase=archived/isu);
+  assert.match(plan, /cleanup.*audit namespace.*supersession operation/isu);
   assert.match(plan, /synthesize_panel.*planning_candidate_keepalive_invalid/isu);
   assert.match(plan, /narrow_review_join.*planning_candidate_keepalive_invalid/isu);
   assert.match(plan, /cleanup.*planning_candidate_keepalive_invalid/isu);
@@ -1236,7 +1243,7 @@ test("ref-custody helper has six machine-validated action contracts and literal 
     "delete_expired_audit",
   ]);
   const forged = structuredClone(example);
-  forged.actions[4].golden.receipt_hash = "0".repeat(64);
+  forged.actions[4].golden.receipt_shape_sha256 = "0".repeat(64);
   assert.match(validateRefCustodyHelperContract(forged, schema).join("\n"), /golden vector/u);
 });
 
@@ -1259,4 +1266,135 @@ test("successful publication archives its operation and literal release receipt 
     released.candidate_keepalive.release_receipt.receipt_hash,
     "22974e47283579946191982d83a1195b36352acd0973f7db593f9df6ba5fea67",
   );
+});
+
+test("archived terminal publications re-enter before the absent-operation guard", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  for (const step of ["publish_artifact_pass", "publish_planning_invalidation"]) {
+    const archived = plan.indexOf(`${step} | archived verified publication operation`);
+    const absent = plan.indexOf(`${step} | open operation absent`);
+    assert.ok(archived >= 0 && absent >= 0 && archived < absent, `${step} archived recovery order`);
+  }
+  assert.match(plan, /archived verified publication operation.*zero Git writes.*stored effective target/isu);
+});
+
+test("active keepalive guard precedes publication object and CAS side effects", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  for (const step of ["publish_artifact_pass", "publish_planning_invalidation"]) {
+    const guard = plan.indexOf(`${step} | candidate_keepalive phase=prepared\\|object_written\\|ref_created\\|verified`);
+    const objectWrite = plan.indexOf(`${step} | phase=prepared and expected object absent`);
+    const cas = plan.indexOf(`${step} | phase=commit_created and ref=expected parent`);
+    assert.ok(guard >= 0 && guard < objectWrite && guard < cas, `${step} active keepalive guard order`);
+  }
+});
+
+test("snapshot object write is a durable keepalive phase before ref creation", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.schema.json"),
+    "utf8",
+  ));
+  assert.deepEqual(schema.properties.phase.enum, [
+    "prepared", "object_written", "ref_created", "verified", "audit_retained", "released",
+  ]);
+  assert.equal(schema.required.includes("snapshot_object_receipt"), true);
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /freeze_artifact \| candidate_keepalive_op phase=prepared and snapshot object absent.*phase=object_written/iu);
+  assert.match(plan, /freeze_artifact \| candidate_keepalive_op phase=object_written and snapshot object exact.*phase=ref_created/isu);
+});
+
+test("publication accepts earlier keepalive timestamp and represents audit-retained terminal state", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  operation.created_at_utc = "2026-09-01T00:01:00Z";
+  assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
+  assert.equal(schema.$defs.candidate_keepalive.properties.phase.enum.includes("audit_retained"), true);
+  assert.equal(
+    schema.$defs.candidate_keepalive_audit_receipt.properties.reason.enum.includes("voided_before_ref"),
+    true,
+  );
+});
+
+test("planning resume catalogs carry identical helper recovery targets", () => {
+  const files = fixture();
+  for (const reason of ["planning_ref_capability_missing", "planning_candidate_keepalive_invalid"]) {
+    const core = files["01-core-flows.md"].split("\n").find((line) => line.startsWith(`| ${reason} |`));
+    const plan = files["03-technical-plan.md"].split("\n").find((line) => line.startsWith(`| ${reason} |`));
+    assert.equal(core?.split("|")[2].trim(), plan?.split("|")[2].trim());
+  }
+  assert.match(files["02-architecture.md"], /planning\.candidate_history/iu);
+});
+
+test("standalone keepalive derives epic key and ships prepared/ref-created vectors", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.schema.json"),
+    "utf8",
+  ));
+  for (const name of [
+    "candidate-keepalive-operation.prepared.example.json",
+    "candidate-keepalive-operation.ref-created.example.json",
+  ]) {
+    const operation = JSON.parse(readFileSync(path.join(directory, name), "utf8"));
+    assert.deepEqual(validateCandidateKeepaliveOperation(operation, schema), []);
+  }
+  const foreign = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.example.json"),
+    "utf8",
+  ));
+  foreign.epic_ref_key = "f".repeat(64);
+  foreign.ref = `refs/autosk/epics/${foreign.epic_ref_key}/candidates/${foreign.candidate_identity}`;
+  foreign.audit_ref = `refs/autosk/epics/${foreign.epic_ref_key}/audit/candidates/${foreign.candidate_identity}`;
+  assert.match(validateCandidateKeepaliveOperation(foreign, schema).join("\n"), /epic_ref_key/u);
+});
+
+test("ref-custody wire examples bind actual values, authorization and durable journal", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const wire = JSON.parse(readFileSync(
+    path.join(directory, "ref-custody-helper-wire.example.json"),
+    "utf8",
+  ));
+  const schema = JSON.parse(readFileSync(
+    path.join(directory, "ref-custody-helper-wire.schema.json"),
+    "utf8",
+  ));
+  assert.deepEqual(validateRefCustodyHelperWireExamples(wire, schema), []);
+  assert.equal(wire.actions.length, 6);
+  for (const action of wire.actions) {
+    assert.equal(action.request.authorization.scheme, "ed25519");
+    assert.match(action.request.body_sha256, /^[0-9a-f]{64}$/u);
+    assert.equal(action.request.authorization.request_body_sha256, action.request.body_sha256);
+    assert.ok(action.response.ref_observations.length >= 1);
+    assert.match(action.response.transaction_value_observation_sha256, /^[0-9a-f]{64}$/u);
+    assert.equal(action.journal.phase, "receipt_committed");
+    assert.deepEqual(action.journal.fsync_order, ["request", "refs", "receipt"]);
+  }
+  const forged = structuredClone(wire);
+  forged.actions[4].response.ref_observations[1].observed_new_oid = "f".repeat(40);
+  assert.match(
+    validateRefCustodyHelperWireExamples(forged, schema).join("\n"),
+    /ref observations|value-bound response|journal/u,
+  );
+});
+
+test("exact signing accepts only one canonical gpgsig header", () => {
+  assert.equal(isCanonicalGpgsigHeader(Buffer.from("gpgsig signed-payload\n continuation\n", "utf8")), true);
+  assert.equal(isCanonicalGpgsigHeader(Buffer.from("gpgsig signed-payload\nparent injected\n", "utf8")), false);
+  assert.equal(isCanonicalGpgsigHeader(Buffer.from("gpgsig signed-payload\n\nauthor injected\n", "utf8")), false);
+});
+
+test("candidate supersession has a closed durable operation and receipt", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(
+    path.join(directory, "candidate-supersession-operation.schema.json"),
+    "utf8",
+  ));
+  const operation = JSON.parse(readFileSync(
+    path.join(directory, "candidate-supersession-operation.example.json"),
+    "utf8",
+  ));
+  assert.deepEqual(validateCandidateSupersessionOperation(operation, schema), []);
+  const changed = structuredClone(operation);
+  changed.audit_receipt.snapshot_commit_oid = "f".repeat(40);
+  assert.match(validateCandidateSupersessionOperation(changed, schema).join("\n"), /audit receipt/u);
 });
