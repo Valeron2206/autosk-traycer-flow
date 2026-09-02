@@ -321,6 +321,12 @@
         "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
     },
+    "candidate_keepalive_audit_retained_receipt": {
+      "allOf": [
+        { "$ref": "#/$defs/candidate_keepalive_audit_receipt" },
+        { "properties": { "reason": { "enum": ["panel_not_pass", "narrow_not_pass", "voided_before_ref", "superseded"] } } }
+      ]
+    },
     "candidate_keepalive": {
       "type": "object",
       "additionalProperties": false,
@@ -442,7 +448,7 @@
             "properties": {
               "terminal_disposition": { "const": "audit_retained" },
               "release_receipt": { "type": "null" },
-              "audit_receipt": { "$ref": "#/$defs/candidate_keepalive_audit_receipt" }
+              "audit_receipt": { "$ref": "#/$defs/candidate_keepalive_audit_retained_receipt" }
             }
           }
         },

@@ -39,7 +39,15 @@
             "receipt_shape_sha256": { "$ref": "#/$defs/sha256" }
           }
         }
-      }
+      },
+      "oneOf": [
+        { "properties": { "action": { "const": "init" }, "request_domain": { "const": "autosk-flow/ref-custody/init/request-shape/v1\\0" }, "observation_domain": { "const": "autosk-flow/ref-custody/init/response-shape/v1\\0" }, "receipt_domain": { "const": "autosk-flow/ref-custody/init/receipt-shape/v1\\0" } } },
+        { "properties": { "action": { "const": "create_keepalive" }, "request_domain": { "const": "autosk-flow/ref-custody/create_keepalive/request-shape/v1\\0" }, "observation_domain": { "const": "autosk-flow/ref-custody/create_keepalive/response-shape/v1\\0" }, "receipt_domain": { "const": "autosk-flow/ref-custody/create_keepalive/receipt-shape/v1\\0" } } },
+        { "properties": { "action": { "const": "advance_planning" }, "request_domain": { "const": "autosk-flow/ref-custody/advance_planning/request-shape/v1\\0" }, "observation_domain": { "const": "autosk-flow/ref-custody/advance_planning/response-shape/v1\\0" }, "receipt_domain": { "const": "autosk-flow/ref-custody/advance_planning/receipt-shape/v1\\0" } } },
+        { "properties": { "action": { "const": "retain_audit" }, "request_domain": { "const": "autosk-flow/ref-custody/retain_audit/request-shape/v1\\0" }, "observation_domain": { "const": "autosk-flow/ref-custody/retain_audit/response-shape/v1\\0" }, "receipt_domain": { "const": "autosk-flow/ref-custody/retain_audit/receipt-shape/v1\\0" } } },
+        { "properties": { "action": { "const": "release_to_audit" }, "request_domain": { "const": "autosk-flow/ref-custody/release_to_audit/request-shape/v1\\0" }, "observation_domain": { "const": "autosk-flow/ref-custody/release_to_audit/response-shape/v1\\0" }, "receipt_domain": { "const": "autosk-flow/ref-custody/release_to_audit/receipt-shape/v1\\0" } } },
+        { "properties": { "action": { "const": "delete_expired_audit" }, "request_domain": { "const": "autosk-flow/ref-custody/delete_expired_audit/request-shape/v1\\0" }, "observation_domain": { "const": "autosk-flow/ref-custody/delete_expired_audit/response-shape/v1\\0" }, "receipt_domain": { "const": "autosk-flow/ref-custody/delete_expired_audit/receipt-shape/v1\\0" } } }
+      ]
     }
   }
 }

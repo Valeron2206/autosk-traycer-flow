@@ -4,7 +4,7 @@
   "title": "autosk-flow candidate supersession operation",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "operation_id", "source_step", "source_candidate_identity", "replacement_intent_digest", "keepalive_operation_id", "live_ref", "audit_ref", "snapshot_commit_oid", "phase", "audit_receipt", "created_at_utc", "archived_at_utc"],
+  "required": ["schema", "operation_id", "source_step", "source_candidate_identity", "replacement_intent_digest", "keepalive_operation_id", "live_ref", "audit_ref", "snapshot_commit_oid", "phase", "audit_receipt", "helper_transaction_receipt", "created_at_utc", "archived_at_utc"],
   "properties": {
     "schema": { "const": 1 },
     "operation_id": { "$ref": "#/$defs/uuid" },
@@ -17,13 +17,14 @@
     "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
     "phase": { "enum": ["prepared", "audit_transferred", "archived"] },
     "audit_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/audit_receipt" }] },
+    "helper_transaction_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/helper_transaction_receipt" }] },
     "created_at_utc": { "$ref": "#/$defs/timestamp" },
     "archived_at_utc": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }] }
   },
   "allOf": [
-    { "if": { "properties": { "phase": { "const": "prepared" } } }, "then": { "properties": { "audit_receipt": { "type": "null" }, "archived_at_utc": { "type": "null" } } } },
-    { "if": { "properties": { "phase": { "const": "audit_transferred" } } }, "then": { "properties": { "audit_receipt": { "$ref": "#/$defs/audit_receipt" }, "archived_at_utc": { "type": "null" } } } },
-    { "if": { "properties": { "phase": { "const": "archived" } } }, "then": { "properties": { "audit_receipt": { "$ref": "#/$defs/audit_receipt" }, "archived_at_utc": { "$ref": "#/$defs/timestamp" } } } }
+    { "if": { "properties": { "phase": { "const": "prepared" } } }, "then": { "properties": { "audit_receipt": { "type": "null" }, "helper_transaction_receipt": { "type": "null" }, "archived_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "audit_transferred" } } }, "then": { "properties": { "audit_receipt": { "$ref": "#/$defs/audit_receipt" }, "helper_transaction_receipt": { "$ref": "#/$defs/helper_transaction_receipt" }, "archived_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "archived" } } }, "then": { "properties": { "audit_receipt": { "$ref": "#/$defs/audit_receipt" }, "helper_transaction_receipt": { "$ref": "#/$defs/helper_transaction_receipt" }, "archived_at_utc": { "$ref": "#/$defs/timestamp" } } } }
   ],
   "$defs": {
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
@@ -46,6 +47,16 @@
         "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
         "observation_sha256": { "$ref": "#/$defs/sha256" },
         "receipt_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "helper_transaction_receipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "supersession_operation_id", "replacement_intent_digest", "live_ref", "audit_ref", "snapshot_commit_oid", "audit_receipt_hash", "receipt_hash"],
+      "properties": {
+        "schema": { "const": 1 }, "supersession_operation_id": { "$ref": "#/$defs/uuid" },
+        "replacement_intent_digest": { "$ref": "#/$defs/sha256" }, "live_ref": { "type": "string" },
+        "audit_ref": { "type": "string" }, "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
+        "audit_receipt_hash": { "$ref": "#/$defs/sha256" }, "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
     }
   }

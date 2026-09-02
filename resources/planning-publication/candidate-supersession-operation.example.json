@@ -22,6 +22,16 @@
     "observation_sha256": "169404faa483ffa9c8a459c4a49ba28890b8d0db5bfe4c1e48abb90d04439c78",
     "receipt_hash": "f3168a1d964ebae5272eedf0ab29daeec0093bac5853a6c96585e0f04c489269"
   },
+  "helper_transaction_receipt": {
+    "schema": 1,
+    "supersession_operation_id": "99999999-9999-4999-8999-999999999999",
+    "replacement_intent_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+    "audit_receipt_hash": "f3168a1d964ebae5272eedf0ab29daeec0093bac5853a6c96585e0f04c489269",
+    "receipt_hash": "9eab2d65ef37e8e0e1010927fa7273b3a091bda3ee968b19e384fa3305eaaeb3"
+  },
   "created_at_utc": "2026-09-01T00:02:00Z",
   "archived_at_utc": "2026-09-01T00:02:01Z"
 }

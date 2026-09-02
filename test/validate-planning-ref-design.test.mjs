@@ -1245,6 +1245,9 @@ test("ref-custody helper has six machine-validated action contracts and literal 
   const forged = structuredClone(example);
   forged.actions[4].golden.receipt_shape_sha256 = "0".repeat(64);
   assert.match(validateRefCustodyHelperContract(forged, schema).join("\n"), /golden vector/u);
+  const swapped = structuredClone(example);
+  swapped.actions[0].request_domain = swapped.actions[2].request_domain;
+  assert.notDeepEqual(validateJsonSchema(swapped, schema), []);
 });
 
 test("invalidation and retention prose follow release-before-archive", () => {
@@ -1397,4 +1400,16 @@ test("candidate supersession has a closed durable operation and receipt", () => 
   const changed = structuredClone(operation);
   changed.audit_receipt.snapshot_commit_oid = "f".repeat(40);
   assert.match(validateCandidateSupersessionOperation(changed, schema).join("\n"), /audit receipt/u);
+  const reused = structuredClone(operation);
+  reused.replacement_intent_digest = "b".repeat(64);
+  assert.match(validateCandidateSupersessionOperation(reused, schema).join("\n"), /helper transaction receipt/u);
+});
+
+test("audit-retained keepalive rejects publication-verified reason", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.schema.json"), "utf8"));
+  const operation = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.audit-retained.example.json"), "utf8"));
+  operation.audit_receipt.reason = "publication_verified";
+  assert.notDeepEqual(validateJsonSchema(operation, schema), []);
+  assert.match(validateCandidateKeepaliveOperation(operation, schema).join("\n"), /phase receipt prefix/u);
 });

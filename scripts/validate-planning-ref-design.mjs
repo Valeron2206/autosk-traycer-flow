@@ -1278,6 +1278,7 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
     verified: snapshotObject !== null && create !== null && release === null && audit === null &&
       operation.terminal_disposition === null,
     audit_retained: snapshotObject !== null && create !== null && release === null && audit !== null &&
+      ["panel_not_pass", "narrow_not_pass", "voided_before_ref", "superseded"].includes(audit.reason) &&
       operation.terminal_disposition === "audit_retained",
     released: snapshotObject !== null && create !== null && release !== null && audit !== null &&
       audit.reason === "publication_verified" && release.audit_candidate_ref === audit.audit_ref &&
@@ -1306,12 +1307,26 @@ export function validateCandidateSupersessionOperation(operation, schema) {
       receipt.receipt_hash !== candidateKeepaliveAuditReceiptHash(receipt))) {
     errors.push("candidate supersession audit receipt mismatch");
   }
+  const helperReceipt = operation.helper_transaction_receipt;
+  if (helperReceipt) {
+    const { receipt_hash: ignored, ...preimage } = helperReceipt;
+    const expectedHash = sha256(
+      "autosk-flow/candidate-supersession-helper/v1\0" + canonicalStringify(preimage),
+    );
+    if (helperReceipt.supersession_operation_id !== operation.operation_id ||
+        helperReceipt.replacement_intent_digest !== operation.replacement_intent_digest ||
+        helperReceipt.live_ref !== operation.live_ref || helperReceipt.audit_ref !== operation.audit_ref ||
+        helperReceipt.snapshot_commit_oid !== operation.snapshot_commit_oid ||
+        helperReceipt.audit_receipt_hash !== receipt?.receipt_hash || helperReceipt.receipt_hash !== expectedHash) {
+      errors.push("candidate supersession helper transaction receipt mismatch");
+    }
+  }
   const phaseValid = operation.phase === "prepared"
-    ? receipt === null && operation.archived_at_utc === null
+    ? receipt === null && helperReceipt === null && operation.archived_at_utc === null
     : operation.phase === "audit_transferred"
-      ? receipt !== null && operation.archived_at_utc === null
+      ? receipt !== null && helperReceipt !== null && operation.archived_at_utc === null
       : operation.phase === "archived"
-        ? receipt !== null && typeof operation.archived_at_utc === "string"
+        ? receipt !== null && helperReceipt !== null && typeof operation.archived_at_utc === "string"
         : false;
   if (!phaseValid) errors.push("candidate supersession phase prefix mismatch");
   return errors;
@@ -1460,6 +1475,23 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
           observation.raw_appended_entries_base64.some((raw, index) =>
             sha256(Buffer.from(raw, "base64")) !== observation.appended_entry_sha256[index])) {
         errors.push(`ref-custody ${action} raw reflog observation mismatch`);
+      }
+      const update = request?.ref_updates?.find((item) => item.ref === observation.ref && item.operation !== "verify");
+      for (const raw of observation.raw_appended_entries_base64) {
+        const text = Buffer.from(raw, "base64").toString("utf8");
+        const match = /^([0-9a-f]+) ([0-9a-f]+) ([^\n<>]+) <([^\n<>]+)> ([0-9]+) (\+0000)\t([^\n]+)\n$/u.exec(text);
+        const oidLength = (update?.expected_old_oid ?? update?.new_oid ?? "").length;
+        const zeroOid = "0".repeat(oidLength);
+        const expectedOld = update?.expected_old_oid ?? zeroOid;
+        const expectedNew = update?.operation === "delete" ? zeroOid : update?.new_oid;
+        const [timestamp, timezone] = request.reflog_producer.git_committer_date.slice(1).split(" ");
+        if (!match || match[1] !== expectedOld || match[2] !== expectedNew ||
+            match[3] !== request.reflog_producer.git_committer_name ||
+            match[4] !== request.reflog_producer.git_committer_email ||
+            match[5] !== timestamp || match[6] !== timezone ||
+            match[7] !== request.expected_update_message) {
+          errors.push(`ref-custody ${action} raw reflog fields mismatch request values`);
+        }
       }
     }
     const observationPreimage = {

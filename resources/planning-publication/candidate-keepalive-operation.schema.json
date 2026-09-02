@@ -99,7 +99,7 @@
           "snapshot_object_receipt": { "$ref": "#/$defs/snapshot_object_receipt" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
           "release_receipt": { "type": "null" },
-          "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
+          "audit_receipt": { "$ref": "#/$defs/audit_retained_receipt" }
         }
       }
     },
@@ -230,6 +230,12 @@
         "observation_sha256": { "$ref": "#/$defs/sha256" },
         "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
+    },
+    "audit_retained_receipt": {
+      "allOf": [
+        { "$ref": "#/$defs/audit_receipt" },
+        { "properties": { "reason": { "enum": ["panel_not_pass", "narrow_not_pass", "voided_before_ref", "superseded"] } } }
+      ]
     },
     "release_receipt": {
       "type": "object",
