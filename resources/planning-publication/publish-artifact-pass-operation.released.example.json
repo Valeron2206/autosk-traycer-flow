@@ -60,7 +60,13 @@
       "snapshot_tree_oid": "2222222222222222222222222222222222222222",
       "observation_sha256": "35db5200f9c5ac8af9974d1aec6448496f769f481ef522ca07150a5494152ad2",
       "receipt_hash": "4f278ae3291146d0a96c703a03773b94a26e6b5578fed82d1a4a6543bdc23583",
-      "operation_id": "77777777-7777-4777-8777-777777777777"
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "helper_evidence": {
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
+        "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+      }
     },
     "release_receipt": {
       "schema": 1,
@@ -78,7 +84,13 @@
       "ref_custody_generation": 1,
       "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
       "closure_verified": true,
-      "receipt_hash": "22974e47283579946191982d83a1195b36352acd0973f7db593f9df6ba5fea67"
+      "receipt_hash": "006492053a596e92b083d8a3a034a697830ea1eddfaa4c6383385915a8a93c14",
+      "helper_evidence": {
+        "request_id": "00000005-1111-4111-8111-000000000005",
+        "nonce": "a4110b6120ca215efb4d4f924a1e88c6fc642953fdf8bf2b7f97fed55bbf4408",
+        "transaction_value_observation_sha256": "ef5ef3df34c96f303094f1a4eb6610e8c823f93267fd0346626932486a8dacd5",
+        "helper_receipt_hash": "691900b9dab58500718de6301dc20abf8a0c3b148691356cb1d9548dd2b34656"
+      }
     },
     "audit_receipt": {
       "schema": 1,
@@ -91,7 +103,13 @@
       "ref_custody_generation": 1,
       "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
       "observation_sha256": "ce3fa328737be01321178e27084bce97733ff5af220bec6ee1d1fd844a7d43bc",
-      "receipt_hash": "dbb948825b090eeb4df33f185f0ca1988d580b9625b0d6355b9217c6b73550aa"
+      "receipt_hash": "45ad9946b4f328d1ec1500c139231a98fc605bdf67258955ea6bc4b447ff9955",
+      "helper_evidence": {
+        "request_id": "00000005-1111-4111-8111-000000000005",
+        "nonce": "a4110b6120ca215efb4d4f924a1e88c6fc642953fdf8bf2b7f97fed55bbf4408",
+        "transaction_value_observation_sha256": "ef5ef3df34c96f303094f1a4eb6610e8c823f93267fd0346626932486a8dacd5",
+        "helper_receipt_hash": "691900b9dab58500718de6301dc20abf8a0c3b148691356cb1d9548dd2b34656"
+      }
     },
     "terminal_disposition": "published_released",
     "created_at_utc": "2026-09-01T00:00:00Z",
@@ -136,6 +154,15 @@
       "tree_oid": "2222222222222222222222222222222222222222",
       "parent_oid": "3333333333333333333333333333333333333333",
       "receipt_hash": "29f452c46264c2ab6c0ec93df87cb3412d1dcb10de30085b9c0e828b109163ee"
+    },
+    "candidate_identity_preimage": {
+      "anchor_version": 1,
+      "candidate_tree_oid": "2222222222222222222222222222222222222222",
+      "epic_id": "22222222-2222-4222-8222-222222222222",
+      "kind": "artifact_pass",
+      "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+      "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
     }
   },
   "payload": {
@@ -220,7 +247,8 @@
         "object_bytes_sha256": "bc6c070b2858aa1ae8f8b3650b8633620a82e0644cc76af9c3e0506df734508f"
       },
       "observation_sha256": "9167690cbff40fecf1eede9e31f6b06583b61cb9da78032b23fa36bf710946c1",
-      "receipt_hash": "cf2af4b4d98e8d4c228a8058e1013d5181d66248238fe67da4f36f8b660ee29e"
+      "receipt_hash": "cf2af4b4d98e8d4c228a8058e1013d5181d66248238fe67da4f36f8b660ee29e",
+      "helper_evidence": null
     },
     "ref_cas": {
       "schema": 1,
@@ -235,7 +263,13 @@
         "candidate_keepalive_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
       },
       "observation_sha256": "29cfd3149dbe3b20dc9bb1b3a50b7fc06784fc8e5187966cf4ee541eb603f182",
-      "receipt_hash": "ac7dfe00d9fe4f79a498b5ad4a89c2f318b6613a4506d9be6cc6ea25a80c2b51"
+      "receipt_hash": "ac7dfe00d9fe4f79a498b5ad4a89c2f318b6613a4506d9be6cc6ea25a80c2b51",
+      "helper_evidence": {
+        "request_id": "00000003-1111-4111-8111-000000000003",
+        "nonce": "76a406f2e52fff5d98dd6b51e894b7a42fa6318feb5e90c536804545fd1c7965",
+        "transaction_value_observation_sha256": "fbe358c6afeae2b58faba433030802f20c0ab3ee1a961a2ab6cf61fe33e09f6d",
+        "helper_receipt_hash": "ba6d855f33e2db426654e53fb12a53704cb1f2661088e3b84743beb77f010b57"
+      }
     },
     "reflog_after": {
       "schema": 1,
@@ -248,7 +282,8 @@
         "appended_entry_sha256": "42e9e7ecf077a7d1c63357e9a4bd2cc80f727b780b80bd129a0188fdfdeee6c8"
       },
       "observation_sha256": "79c9c65f438030cb2ba5d041e8bdd692d7f98de1668656583d099a6fbdd5ee8e",
-      "receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2"
+      "receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2",
+      "helper_evidence": null
     },
     "verification": {
       "schema": 1,
@@ -261,7 +296,8 @@
         "reflog_after_receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2"
       },
       "observation_sha256": "454f6bc696edf99d9acc4cda4b885e5b6b83dbec32c758f83e152640a9a3b691",
-      "receipt_hash": "7f7b16ee07d33548dbb080849b0c1ecf3f817a5fe650b937005cd06b8bb5b724"
+      "receipt_hash": "7f7b16ee07d33548dbb080849b0c1ecf3f817a5fe650b937005cd06b8bb5b724",
+      "helper_evidence": null
     }
   }
 }

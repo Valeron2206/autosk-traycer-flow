@@ -357,6 +357,7 @@
         "receipt_kind",
         "observation",
         "observation_sha256",
+        "helper_evidence",
         "receipt_hash"
       ],
       "properties": {
@@ -378,10 +379,16 @@
         "observation_sha256": {
           "$ref": "#/$defs/sha256"
         },
+        "helper_evidence": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/helper_evidence" }] },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
         }
       }
+    },
+    "helper_evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "nonce", "transaction_value_observation_sha256", "helper_receipt_hash"],
+      "properties": { "request_id": { "$ref": "#/$defs/uuid" }, "nonce": { "$ref": "#/$defs/sha256" }, "transaction_value_observation_sha256": { "$ref": "#/$defs/sha256" }, "helper_receipt_hash": { "$ref": "#/$defs/sha256" } }
     },
     "ref_create_receipt_or_null": {
       "oneOf": [

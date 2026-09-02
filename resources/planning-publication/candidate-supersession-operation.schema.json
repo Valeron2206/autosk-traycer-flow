@@ -34,7 +34,7 @@
     "audit_receipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "operation_id", "candidate_identity", "live_ref", "audit_ref", "snapshot_commit_oid", "reason", "ref_custody_generation", "ref_custody_policy_digest", "observation_sha256", "receipt_hash"],
+      "required": ["schema", "operation_id", "candidate_identity", "live_ref", "audit_ref", "snapshot_commit_oid", "reason", "ref_custody_generation", "ref_custody_policy_digest", "observation_sha256", "helper_evidence", "receipt_hash"],
       "properties": {
         "schema": { "const": 1 },
         "operation_id": { "$ref": "#/$defs/uuid" },
@@ -46,17 +46,25 @@
         "ref_custody_generation": { "type": "integer", "minimum": 1 },
         "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
         "observation_sha256": { "$ref": "#/$defs/sha256" },
+        "helper_evidence": { "$ref": "#/$defs/helper_evidence" },
         "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
     },
+    "helper_evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "nonce", "transaction_value_observation_sha256", "helper_receipt_hash"],
+      "properties": { "request_id": { "$ref": "#/$defs/uuid" }, "nonce": { "$ref": "#/$defs/sha256" }, "transaction_value_observation_sha256": { "$ref": "#/$defs/sha256" }, "helper_receipt_hash": { "$ref": "#/$defs/sha256" } }
+    },
     "helper_transaction_receipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["schema", "supersession_operation_id", "replacement_intent_digest", "live_ref", "audit_ref", "snapshot_commit_oid", "audit_receipt_hash", "receipt_hash"],
+      "required": ["schema", "supersession_operation_id", "replacement_intent_digest", "live_ref", "audit_ref", "snapshot_commit_oid", "audit_receipt_hash", "helper_request_id", "helper_nonce", "helper_transaction_value_observation_sha256", "helper_receipt_hash", "receipt_hash"],
       "properties": {
         "schema": { "const": 1 }, "supersession_operation_id": { "$ref": "#/$defs/uuid" },
         "replacement_intent_digest": { "$ref": "#/$defs/sha256" }, "live_ref": { "type": "string" },
         "audit_ref": { "type": "string" }, "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
-        "audit_receipt_hash": { "$ref": "#/$defs/sha256" }, "receipt_hash": { "$ref": "#/$defs/sha256" }
+        "audit_receipt_hash": { "$ref": "#/$defs/sha256" }, "helper_request_id": { "$ref": "#/$defs/uuid" },
+        "helper_nonce": { "$ref": "#/$defs/sha256" }, "helper_transaction_value_observation_sha256": { "$ref": "#/$defs/sha256" },
+        "helper_receipt_hash": { "$ref": "#/$defs/sha256" }, "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
     }
   }

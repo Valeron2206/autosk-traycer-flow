@@ -23,6 +23,7 @@ import {
   planningReceiptHash,
   planningRefDesignDigest,
   planningReleaseTailObservationDigest,
+  reflogPrefixDigest,
   validateCandidateKeepaliveOperation,
   validateCandidateSupersessionOperation,
   validateRefCustodyHelperContract,
@@ -376,6 +377,7 @@ test("generic recovered-operation validation binds receipt observation and hashe
     receipt_kind: "commit_object",
     observation,
     observation_sha256: observationSha256,
+    helper_evidence: null,
     receipt_hash: planningReceiptHash(operation.operation_id, "commit_object", observationSha256),
   };
   assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
@@ -396,6 +398,17 @@ test("generic recovered-operation validation binds receipt observation and hashe
 test("recovered receipts are bound to their containing operation values", () => {
   const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
   const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  const helperWire = JSON.parse(readFileSync(
+    path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"),
+    "utf8",
+  ));
+  const advance = helperWire.actions.find(({ action }) => action === "advance_planning");
+  const refCasHelperEvidence = {
+    request_id: advance.request.request_id,
+    nonce: advance.request.nonce,
+    transaction_value_observation_sha256: advance.response.transaction_value_observation_sha256,
+    helper_receipt_hash: advance.response.receipt_hash,
+  };
   const receipt = (kind, observation) => {
     const observationSha256 = planningObservationDigest(kind, observation);
     return {
@@ -404,6 +417,7 @@ test("recovered receipts are bound to their containing operation values", () => 
       receipt_kind: kind,
       observation,
       observation_sha256: observationSha256,
+      helper_evidence: kind === "ref_cas" ? refCasHelperEvidence : null,
       receipt_hash: planningReceiptHash(operation.operation_id, kind, observationSha256),
     };
   };
@@ -480,6 +494,13 @@ test("recovered receipts are bound to their containing operation values", () => 
   }
 
   const released = structuredClone(operation);
+  const releaseExchange = helperWire.actions.find(({ action }) => action === "release_to_audit");
+  const releaseHelperEvidence = {
+    request_id: releaseExchange.request.request_id,
+    nonce: releaseExchange.request.nonce,
+    transaction_value_observation_sha256: releaseExchange.response.transaction_value_observation_sha256,
+    helper_receipt_hash: releaseExchange.response.receipt_hash,
+  };
   const tailObservationSha256 = planningReleaseTailObservationDigest(released);
   const releaseReceipt = {
     schema: 1,
@@ -502,6 +523,7 @@ test("recovered receipts are bound to their containing operation values", () => 
     ref_custody_generation: released.ref_custody_generation,
     ref_custody_policy_digest: released.ref_custody_policy_digest,
     closure_verified: true,
+    helper_evidence: releaseHelperEvidence,
     receipt_hash: "",
   };
   releaseReceipt.receipt_hash = candidateKeepaliveReleaseReceiptHash(releaseReceipt);
@@ -516,6 +538,7 @@ test("recovered receipts are bound to their containing operation values", () => 
     ref_custody_generation: released.ref_custody_generation,
     ref_custody_policy_digest: released.ref_custody_policy_digest,
     observation_sha256: "",
+    helper_evidence: releaseHelperEvidence,
     receipt_hash: "",
   };
   auditReceipt.observation_sha256 = candidateKeepaliveAuditObservationDigest(auditReceipt);
@@ -1077,7 +1100,7 @@ test("candidate keepalive operation has a closed standalone machine", () => {
     "utf8",
   ));
   assert.equal(audit.audit_receipt.observation_sha256, "0087d4d0fcabdf872c5ba08cd1570ea8bd2cac56a3a1f777b2200f653a500c42");
-  assert.equal(audit.audit_receipt.receipt_hash, "d80a5e894090b21ef9803d553af4b91a667adb44d243f1c769ae45312a4fdbdb");
+  assert.equal(audit.audit_receipt.receipt_hash, "101f4b8d751fc04f7059dff44a724fbd13e74e4c9cd83a956de90281820f3cc9");
   const invalidPrepared = structuredClone(audit);
   invalidPrepared.phase = "prepared";
   invalidPrepared.terminal_disposition = "published_released";
@@ -1267,7 +1290,7 @@ test("successful publication archives its operation and literal release receipt 
   ));
   assert.equal(
     released.candidate_keepalive.release_receipt.receipt_hash,
-    "22974e47283579946191982d83a1195b36352acd0973f7db593f9df6ba5fea67",
+    "006492053a596e92b083d8a3a034a697830ea1eddfaa4c6383385915a8a93c14",
   );
 });
 
@@ -1311,6 +1334,8 @@ test("publication accepts earlier keepalive timestamp and represents audit-retai
   const operation = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
   operation.created_at_utc = "2026-09-01T00:01:00Z";
   assert.deepEqual(validatePlanningPublicationOperation(operation, schema), []);
+  operation.created_at_utc = "2026-08-31T23:59:59Z";
+  assert.match(validatePlanningPublicationOperation(operation, schema).join("\n"), /created_at_utc/u);
   assert.equal(schema.$defs.candidate_keepalive.properties.phase.enum.includes("audit_retained"), true);
   assert.equal(
     schema.$defs.candidate_keepalive_audit_receipt.properties.reason.enum.includes("voided_before_ref"),
@@ -1349,6 +1374,12 @@ test("standalone keepalive derives epic key and ships prepared/ref-created vecto
   foreign.ref = `refs/autosk/epics/${foreign.epic_ref_key}/candidates/${foreign.candidate_identity}`;
   foreign.audit_ref = `refs/autosk/epics/${foreign.epic_ref_key}/audit/candidates/${foreign.candidate_identity}`;
   assert.match(validateCandidateKeepaliveOperation(foreign, schema).join("\n"), /epic_ref_key/u);
+  const changedPreimage = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.example.json"),
+    "utf8",
+  ));
+  changedPreimage.candidate_identity_preimage.anchor_version += 1;
+  assert.match(validateCandidateKeepaliveOperation(changedPreimage, schema).join("\n"), /candidate_identity preimage/u);
 });
 
 test("ref-custody wire examples bind actual values, authorization and durable journal", () => {
@@ -1412,4 +1443,89 @@ test("audit-retained keepalive rejects publication-verified reason", () => {
   operation.audit_receipt.reason = "publication_verified";
   assert.notDeepEqual(validateJsonSchema(operation, schema), []);
   assert.match(validateCandidateKeepaliveOperation(operation, schema).join("\n"), /phase receipt prefix/u);
+});
+
+test("helper reflog observations are realizable files-backend states", () => {
+  const wire = JSON.parse(readFileSync(
+    path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"),
+    "utf8",
+  ));
+  for (const exchange of wire.actions) {
+    for (const observation of exchange.response.reflog_observations) {
+      const prefix = Buffer.from(observation.before_prefix_base64, "base64");
+      assert.equal(prefix.toString("utf8").split("\n").filter(Boolean).length, observation.before_entry_count);
+      assert.equal(reflogPrefixDigest(observation.before_entry_count, prefix), observation.before_prefix_sha256);
+      if (observation.outcome === "log_removed") {
+        assert.equal(observation.after_entry_count, null);
+        assert.deepEqual(observation.raw_appended_entries_base64, []);
+      } else if (observation.outcome === "unchanged") {
+        assert.equal(observation.after_entry_count, observation.before_entry_count);
+        assert.deepEqual(observation.raw_appended_entries_base64, []);
+      } else {
+        assert.equal(observation.outcome, "appended");
+        assert.equal(observation.after_entry_count, observation.before_entry_count + 1);
+      }
+    }
+  }
+});
+
+test("helper actions use workflow operation identity and exact update messages", () => {
+  const wire = JSON.parse(readFileSync(
+    path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"),
+    "utf8",
+  ));
+  const byAction = Object.fromEntries(wire.actions.map((item) => [item.action, item.request]));
+  assert.equal(byAction.init.operation_id, "00000000-0000-4000-8000-000000000000");
+  assert.equal(byAction.init.expected_update_message, `autosk-flow init ${byAction.init.operation_id}`);
+  assert.equal(byAction.create_keepalive.operation_id, "77777777-7777-4777-8777-777777777777");
+  assert.equal(byAction.create_keepalive.expected_update_message, `autosk-flow keepalive ${byAction.create_keepalive.operation_id}`);
+  assert.equal(byAction.advance_planning.operation_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(byAction.advance_planning.expected_update_message, `autosk-flow publish ${byAction.advance_planning.operation_id}`);
+});
+
+test("lost helper transfer reconstructs before the active missing-live guard", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  for (const step of ["publish_artifact_pass", "publish_planning_invalidation"] ) {
+    const recovery = plan.indexOf(`${step} | phase=verified, candidate_keepalive phase=verified, live candidate ref absent, exact audit ref present`);
+    const guard = plan.indexOf(`${step} | candidate_keepalive phase=prepared\\|object_written\\|ref_created\\|verified and live ref is absent/moved`);
+    assert.ok(recovery >= 0 && recovery < guard, `${step} lost helper response recovery order`);
+  }
+});
+
+test("object-written keepalive rewrites a GC-pruned snapshot before ref CAS", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /freeze_artifact \| candidate_keepalive_op phase=object_written and snapshot object absent and keepalive ref absent.*rewrite persisted exact snapshot bytes.*same expected OID.*retain phase=object_written/iu);
+});
+
+test("helper journal has valid durable prefix examples", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.schema.json"), "utf8"));
+  const prefixes = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-journal-prefixes.example.json"), "utf8"));
+  for (const prefix of prefixes.records) {
+    assert.deepEqual(validateJsonSchema(prefix, schema.$defs.journal, schema), []);
+    assert.deepEqual(prefix.fsync_order, prefix.phase === "request_committed" ? ["request"] : ["request", "refs"]);
+  }
+});
+
+test("helper not-applied response is value-bound and maps to recovery parks", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.schema.json"), "utf8"));
+  const wire = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.not-applied.example.json"), "utf8"));
+  assert.deepEqual(validateRefCustodyHelperWireExamples(wire, schema), []);
+  const failed = wire.actions.find(({ response }) => response.status === "not_applied");
+  assert.equal(failed.response.not_applied_reason, "expected_old_mismatch");
+  assert.equal(failed.journal.phase, "not_applied");
+  assert.deepEqual(failed.journal.fsync_order, ["request", "receipt"]);
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /status=not_applied and reason=expected_old_mismatch.*planning_ref_foreign_movement/isu);
+  assert.match(plan, /status=not_applied and reason=packed_refs_drift\\\|authorization_invalid.*planning_ref_capability_missing/isu);
+});
+
+test("planning receipts bind the exact journaled helper evidence", () => {
+  const files = fixture();
+  const relative = "resources/planning-publication/publish-artifact-pass-operation.released.example.json";
+  const operation = JSON.parse(files[relative]);
+  operation.candidate_keepalive.release_receipt.helper_evidence.helper_receipt_hash = "f".repeat(64);
+  files[relative] = JSON.stringify(operation, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(files).join("\n"), /helper evidence.*release_to_audit/u);
 });

@@ -20,7 +20,13 @@
     "ref_custody_generation": 1,
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
     "observation_sha256": "169404faa483ffa9c8a459c4a49ba28890b8d0db5bfe4c1e48abb90d04439c78",
-    "receipt_hash": "f3168a1d964ebae5272eedf0ab29daeec0093bac5853a6c96585e0f04c489269"
+    "receipt_hash": "82d33d46e5fa35111d14ea5e6b5ccc4c18722864d6a01af71771248bf0fbdb66",
+    "helper_evidence": {
+      "request_id": "00000004-1111-4111-8111-000000000004",
+      "nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
+      "transaction_value_observation_sha256": "97952889b5b05f83dcfa844888cefe795f09bccf92787ae41ec2edfcb4cc7f34",
+      "helper_receipt_hash": "d58e24b991b078a2a7f31da90ade46d130497b303bd077fbb9cf2fad1e8a535b"
+    }
   },
   "helper_transaction_receipt": {
     "schema": 1,
@@ -29,8 +35,12 @@
     "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
-    "audit_receipt_hash": "f3168a1d964ebae5272eedf0ab29daeec0093bac5853a6c96585e0f04c489269",
-    "receipt_hash": "9eab2d65ef37e8e0e1010927fa7273b3a091bda3ee968b19e384fa3305eaaeb3"
+    "audit_receipt_hash": "82d33d46e5fa35111d14ea5e6b5ccc4c18722864d6a01af71771248bf0fbdb66",
+    "helper_request_id": "00000004-1111-4111-8111-000000000004",
+    "helper_nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
+    "helper_transaction_value_observation_sha256": "97952889b5b05f83dcfa844888cefe795f09bccf92787ae41ec2edfcb4cc7f34",
+    "helper_receipt_hash": "d58e24b991b078a2a7f31da90ade46d130497b303bd077fbb9cf2fad1e8a535b",
+    "receipt_hash": "ce1dbd6ce13e28021af7e0997d4f7aed176c2e267f993e2615c2be16ecd9319e"
   },
   "created_at_utc": "2026-09-01T00:02:00Z",
   "archived_at_utc": "2026-09-01T00:02:01Z"

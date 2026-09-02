@@ -61,5 +61,14 @@
     "commit_object_bytes_sha256": "f98f6871a033cf372824ef4c7d0ec76c60bd969985913baad0654431e12010b1",
     "expected_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
   },
-  "snapshot_object_receipt": null
+  "snapshot_object_receipt": null,
+  "candidate_identity_preimage": {
+    "anchor_version": 1,
+    "candidate_tree_oid": "2222222222222222222222222222222222222222",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "kind": "artifact_pass",
+    "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+    "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
+  }
 }

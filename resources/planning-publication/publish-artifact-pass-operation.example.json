@@ -60,7 +60,13 @@
       "snapshot_tree_oid": "2222222222222222222222222222222222222222",
       "observation_sha256": "35db5200f9c5ac8af9974d1aec6448496f769f481ef522ca07150a5494152ad2",
       "receipt_hash": "4f278ae3291146d0a96c703a03773b94a26e6b5578fed82d1a4a6543bdc23583",
-      "operation_id": "77777777-7777-4777-8777-777777777777"
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "helper_evidence": {
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
+        "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+      }
     },
     "release_receipt": null,
     "audit_receipt": null,
@@ -107,6 +113,15 @@
       "tree_oid": "2222222222222222222222222222222222222222",
       "parent_oid": "3333333333333333333333333333333333333333",
       "receipt_hash": "29f452c46264c2ab6c0ec93df87cb3412d1dcb10de30085b9c0e828b109163ee"
+    },
+    "candidate_identity_preimage": {
+      "anchor_version": 1,
+      "candidate_tree_oid": "2222222222222222222222222222222222222222",
+      "epic_id": "22222222-2222-4222-8222-222222222222",
+      "kind": "artifact_pass",
+      "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+      "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
     }
   },
   "payload": {

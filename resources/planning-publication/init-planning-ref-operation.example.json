@@ -66,7 +66,13 @@
         "appended_entry_sha256": "21ee56bcb6b04093ae040bfccc2e45e090389aadfc0aabe232306ba6b55f54c4"
       },
       "observation_sha256": "90d63d751b005051ca3f7491a132af913eda1c9631be84e1317b257fe59b9bd3",
-      "receipt_hash": "81b26d4a4d4c69b8a59a20271aebfcddfee0c6012069328d31fcdee47f654bcc"
+      "receipt_hash": "81b26d4a4d4c69b8a59a20271aebfcddfee0c6012069328d31fcdee47f654bcc",
+      "helper_evidence": {
+        "request_id": "00000001-1111-4111-8111-000000000001",
+        "nonce": "69e85b207e38d799b8df9d9679fb42eca29c21c2c6b180b34313ff2753faa342",
+        "transaction_value_observation_sha256": "a60967ca77716ba45122e5bac123c1cdca7937cd3627ba6a285ba5cdb89393e6",
+        "helper_receipt_hash": "1f3956e867a88246e290edb622f384df3313bec5457cc6a0cb4d96746ae0a352"
+      }
     },
     "verification": {
       "schema": 1,
@@ -79,7 +85,8 @@
         "ref_create_receipt_hash": "81b26d4a4d4c69b8a59a20271aebfcddfee0c6012069328d31fcdee47f654bcc"
       },
       "observation_sha256": "1979a7b7d0d2de830c51dc30cd0d002cfcbcde63fe4f18f240e96bb15316b6f6",
-      "receipt_hash": "a04a841d29fcbd7b5c7723498e8a993da51e4ad2ba1389b39da716dcc3fe11a7"
+      "receipt_hash": "a04a841d29fcbd7b5c7723498e8a993da51e4ad2ba1389b39da716dcc3fe11a7",
+      "helper_evidence": null
     }
   }
 }

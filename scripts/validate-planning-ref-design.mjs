@@ -90,6 +90,8 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/ref-custody-helper-contract.example.json",
   "resources/planning-publication/ref-custody-helper-wire.schema.json",
   "resources/planning-publication/ref-custody-helper-wire.example.json",
+  "resources/planning-publication/ref-custody-helper-wire.not-applied.example.json",
+  "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json",
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
   "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
   "resources/planning-publication/candidate-supersession-operation.schema.json",
@@ -291,6 +293,16 @@ const REQUIRED = Object.freeze({
     "\"fsync_order\"",
     "\"transaction_value_observation_sha256\"",
   ],
+  "resources/planning-publication/ref-custody-helper-wire.not-applied.example.json": [
+    "\"status\": \"not_applied\"",
+    "\"not_applied_reason\": \"expected_old_mismatch\"",
+    "\"phase\": \"not_applied\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json": [
+    "\"phase\": \"request_committed\"",
+    "\"phase\": \"refs_committed\"",
+    "\"fsync_order\"",
+  ],
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json": [
     "\"phase\": \"prepared\"",
     "\"snapshot_object_receipt\": null",
@@ -485,7 +497,7 @@ function deriveEpicRefKey(projectRootSha256, epicId) {
   );
 }
 
-function reflogPrefixDigest(entryCount, prefixBytes) {
+export function reflogPrefixDigest(entryCount, prefixBytes) {
   const count = Buffer.alloc(8);
   count.writeBigUInt64BE(BigInt(entryCount));
   return sha256(Buffer.concat([
@@ -787,16 +799,33 @@ export function validatePlanningPublicationOperation(example, schema) {
   if (example.ref_storage_format !== "files") errors.push("ref_storage_format must be files for raw reflog v1");
   const keepalive = example.candidate_keepalive ?? {};
   const expectedCandidateIdentity = planningCandidateIdentity(example);
+  const expectedCandidatePreimage = {
+    anchor_version: example.anchor_version,
+    candidate_tree_oid: example.candidate_tree_oid,
+    epic_id: example.epic_id,
+    kind: example.payload?.kind,
+    pathspec_or_projection_digest: example.payload?.kind === "anchor_invalidation"
+      ? example.payload.invalidation_projection_digest
+      : example.payload?.artifact_pathspec_digest,
+    project_root_sha256: example.project_root_sha256,
+    snapshot_commit_oid: keepalive.snapshot_commit_oid,
+  };
   const expectedKeepaliveRef = `refs/autosk/epics/${example.epic_ref_key}/candidates/${expectedCandidateIdentity}`;
   const expectedKeepaliveAuditRef =
     `refs/autosk/epics/${example.epic_ref_key}/audit/candidates/${expectedCandidateIdentity}`;
   if (keepalive.candidate_identity !== expectedCandidateIdentity || keepalive.ref !== expectedKeepaliveRef) {
     errors.push("candidate_keepalive identity/ref mismatch");
   }
+  if (canonicalStringify(keepalive.candidate_identity_preimage) !== canonicalStringify(expectedCandidatePreimage)) {
+    errors.push("candidate_keepalive candidate_identity preimage mismatch");
+  }
   if (keepalive.project_root_sha256 !== example.project_root_sha256 ||
       keepalive.epic_id !== example.epic_id || keepalive.epic_ref_key !== example.epic_ref_key ||
       keepalive.audit_ref !== expectedKeepaliveAuditRef) {
     errors.push("candidate_keepalive authoritative record binding mismatch");
+  }
+  if (Date.parse(keepalive.created_at_utc) > Date.parse(example.created_at_utc)) {
+    errors.push("candidate_keepalive created_at_utc must not be later than publication created_at_utc");
   }
   errors.push(...validateSnapshotCommitRecipe(keepalive));
   const snapshotObject = keepalive.snapshot_object_receipt;
@@ -1173,6 +1202,17 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
   const required = Array.isArray(schema?.required) ? schema.required : [];
   if (!exactKeys(operation, required)) errors.push("candidate keepalive operation keys differ from closed Schema");
   const expectedRefKey = deriveEpicRefKey(operation.project_root_sha256, operation.epic_id);
+  const identityPreimage = operation.candidate_identity_preimage;
+  const expectedIdentity = identityPreimage && sha256(
+    "autosk-flow/planning-candidate/v1\0" + canonicalStringify(identityPreimage),
+  );
+  if (!identityPreimage || identityPreimage.project_root_sha256 !== operation.project_root_sha256 ||
+      identityPreimage.epic_id !== operation.epic_id ||
+      identityPreimage.snapshot_commit_oid !== operation.snapshot_commit_oid ||
+      identityPreimage.candidate_tree_oid !== operation.snapshot_tree_oid ||
+      operation.candidate_identity !== expectedIdentity) {
+    errors.push("candidate keepalive candidate_identity preimage mismatch");
+  }
   if (operation.epic_ref_key !== expectedRefKey) {
     errors.push("candidate keepalive epic_ref_key derivation mismatch");
   }
@@ -1320,6 +1360,13 @@ export function validateCandidateSupersessionOperation(operation, schema) {
         helperReceipt.audit_receipt_hash !== receipt?.receipt_hash || helperReceipt.receipt_hash !== expectedHash) {
       errors.push("candidate supersession helper transaction receipt mismatch");
     }
+    const evidence = receipt?.helper_evidence;
+    if (!evidence || helperReceipt.helper_request_id !== evidence.request_id ||
+        helperReceipt.helper_nonce !== evidence.nonce ||
+        helperReceipt.helper_transaction_value_observation_sha256 !== evidence.transaction_value_observation_sha256 ||
+        helperReceipt.helper_receipt_hash !== evidence.helper_receipt_hash) {
+      errors.push("candidate supersession helper receipt is not bound to journal evidence");
+    }
   }
   const phaseValid = operation.phase === "prepared"
     ? receipt === null && helperReceipt === null && operation.archived_at_utc === null
@@ -1337,12 +1384,12 @@ export function validateRefCustodyHelperContract(contract, schema) {
     .map((error) => "Schema: " + error);
   const commonRequest = [
     "action", "authorization", "body_sha256", "candidate_identity", "custody_generation",
-    "epic_ref_key", "expected_update_message", "nonce", "operation_id", "packed_refs_sha256",
-    "policy_digest", "project_root_sha256", "ref_updates", "reflog_checkpoint",
+    "epic_id", "epic_ref_key", "expected_update_message", "nonce", "operation_id", "packed_refs_sha256",
+    "policy_digest", "project_root_sha256", "ref_updates", "reflog_checkpoints",
     "reflog_producer", "request_id", "schema",
   ].sort(codePointCompare);
   const commonResponse = [
-    "action", "custody_generation", "nonce", "policy_digest", "receipt_hash",
+    "action", "custody_generation", "nonce", "not_applied_reason", "policy_digest", "receipt_hash",
     "ref_observations", "reflog_observations", "request_body_sha256", "request_id",
     "schema", "status", "transaction_value_observation_sha256",
   ].sort(codePointCompare);
@@ -1459,6 +1506,38 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
         canonicalStringify(expectedOperations[action] ?? [])) {
       errors.push(`ref-custody ${action} action-specific ref update set mismatch`);
     }
+    const expectedEpicKey = deriveEpicRefKey(request?.project_root_sha256, request?.epic_id);
+    const expectedRoot = `refs/autosk/epics/${expectedEpicKey}/`;
+    const expectedPlanningRef = `${expectedRoot}planning`;
+    const expectedLiveRef = `${expectedRoot}candidates/${request?.candidate_identity}`;
+    const expectedAuditRef = `${expectedRoot}audit/candidates/${request?.candidate_identity}`;
+    const expectedRefTopology = {
+      init: [["update", expectedPlanningRef]],
+      create_keepalive: [["update", expectedLiveRef]],
+      advance_planning: [["verify", expectedLiveRef], ["update", expectedPlanningRef]],
+      retain_audit: [["update", expectedAuditRef], ["delete", expectedLiveRef]],
+      release_to_audit: [["verify", expectedPlanningRef], ["update", expectedAuditRef], ["delete", expectedLiveRef]],
+      delete_expired_audit: [["delete", expectedAuditRef]],
+    };
+    const actualTopology = request?.ref_updates?.map((item) => [item.operation, item.ref]);
+    const releaseExistingAuditTopology = [["verify", expectedPlanningRef], ["verify", expectedAuditRef], ["delete", expectedLiveRef]];
+    const topologyValid = canonicalStringify(actualTopology) === canonicalStringify(expectedRefTopology[action] ?? []) ||
+      (action === "release_to_audit" && canonicalStringify(actualTopology) === canonicalStringify(releaseExistingAuditTopology));
+    const expectedMessagePrefix = action === "init" ? "autosk-flow init "
+      : action === "advance_planning" ? "autosk-flow publish "
+        : action === "delete_expired_audit" ? "autosk-flow housekeeping "
+          : "autosk-flow keepalive ";
+    if (request?.epic_ref_key !== expectedEpicKey ||
+        request?.expected_update_message !== expectedMessagePrefix + request?.operation_id ||
+        request?.ref_updates?.some((item) => !item.ref.startsWith(expectedRoot)) ||
+        (action === "init" ? request?.candidate_identity !== null : !request?.candidate_identity) ||
+        !topologyValid ||
+        request?.ref_updates?.some((item) => {
+          const lengths = [item.expected_old_oid, item.new_oid].filter(Boolean).map((oid) => oid.length);
+          return lengths.some((length) => length !== lengths[0]);
+        })) {
+      errors.push(`ref-custody ${action} Epic/action/message topology mismatch`);
+    }
     const expectedRefObservations = (request?.ref_updates ?? []).map((update) => ({
       operation: update.operation,
       ref: update.ref,
@@ -1467,16 +1546,36 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
       observed_old_oid: update.expected_old_oid,
       observed_new_oid: update.operation === "delete" ? null : update.new_oid,
     }));
-    if (canonicalStringify(response?.ref_observations) !== canonicalStringify(expectedRefObservations)) {
+    if (response?.status === "committed" &&
+        canonicalStringify(response?.ref_observations) !== canonicalStringify(expectedRefObservations)) {
       errors.push(`ref-custody ${action} ref observations mismatch request values`);
     }
+    if (response?.status === "not_applied" &&
+        (!response.not_applied_reason ||
+          canonicalStringify(response.ref_observations) === canonicalStringify(expectedRefObservations))) {
+      errors.push(`ref-custody ${action} not_applied must bind reason and differing observed values`);
+    }
     for (const observation of response?.reflog_observations ?? []) {
+      const prefixBytes = Buffer.from(observation.before_prefix_base64 ?? "", "base64");
+      const prefixLines = prefixBytes.toString("utf8").split("\n").filter(Boolean).length;
+      if (prefixLines !== observation.before_entry_count ||
+          reflogPrefixDigest(observation.before_entry_count, prefixBytes) !== observation.before_prefix_sha256) {
+        errors.push(`ref-custody ${action} reflog prefix/count mismatch`);
+      }
       if (observation.raw_appended_entries_base64.length !== observation.appended_entry_sha256.length ||
           observation.raw_appended_entries_base64.some((raw, index) =>
             sha256(Buffer.from(raw, "base64")) !== observation.appended_entry_sha256[index])) {
         errors.push(`ref-custody ${action} raw reflog observation mismatch`);
       }
-      const update = request?.ref_updates?.find((item) => item.ref === observation.ref && item.operation !== "verify");
+      const update = request?.ref_updates?.find((item) => item.ref === observation.ref);
+      if (response?.status === "committed" && ((update?.operation === "delete" && (observation.outcome !== "log_removed" ||
+          observation.after_entry_count !== null || observation.raw_appended_entries_base64.length !== 0)) ||
+          (update?.operation === "verify" && (observation.outcome !== "unchanged" ||
+            observation.after_entry_count !== observation.before_entry_count)) ||
+          (update?.operation === "update" && (observation.outcome !== "appended" ||
+            observation.after_entry_count !== observation.before_entry_count + 1)))) {
+        errors.push(`ref-custody ${action} reflog outcome mismatch ref operation`);
+      }
       for (const raw of observation.raw_appended_entries_base64) {
         const text = Buffer.from(raw, "base64").toString("utf8");
         const match = /^([0-9a-f]+) ([0-9a-f]+) ([^\n<>]+) <([^\n<>]+)> ([0-9]+) (\+0000)\t([^\n]+)\n$/u.exec(text);
@@ -1498,6 +1597,7 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
       action,
       request_id: request?.request_id,
       status: response?.status,
+      not_applied_reason: response?.not_applied_reason,
       request_body_sha256: bodySha256,
       custody_generation: request?.custody_generation,
       policy_digest: request?.policy_digest,
@@ -1515,6 +1615,7 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
         request_id: request?.request_id,
         request_body_sha256: bodySha256,
         status: response?.status,
+        not_applied_reason: response?.not_applied_reason,
         transaction_value_observation_sha256: observationSha256,
       }),
     );
@@ -1542,12 +1643,16 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     const journalHash = sha256(
       "autosk-flow/ref-custody/journal/v1\0" + canonicalStringify(journalBase),
     );
-    if (journal?.phase !== "receipt_committed" ||
-        canonicalStringify(journal?.fsync_order) !== canonicalStringify(["request", "refs", "receipt"]) ||
+    const notApplied = response?.status === "not_applied";
+    const expectedJournalPhase = notApplied ? "not_applied" : "receipt_committed";
+    const expectedFsyncOrder = notApplied ? ["request", "receipt"] : ["request", "refs", "receipt"];
+    if (journal?.phase !== expectedJournalPhase ||
+        canonicalStringify(journal?.fsync_order) !== canonicalStringify(expectedFsyncOrder) ||
         journal?.request_body_sha256 !== bodySha256 ||
         canonicalStringify(journal?.request) !== canonicalStringify(request) ||
         canonicalStringify(journal?.response) !== canonicalStringify(response) ||
-        journal?.request_fsync_sha256 !== requestFsync || journal?.refs_commit_sha256 !== refsCommit ||
+        journal?.request_fsync_sha256 !== requestFsync ||
+        journal?.refs_commit_sha256 !== (notApplied ? null : refsCommit) ||
         journal?.receipt_fsync_sha256 !== receiptFsync || journal?.journal_hash !== journalHash) {
       errors.push(`ref-custody ${action} durable journal mismatch`);
     }
@@ -2087,6 +2192,9 @@ export function validatePlanningRefDesign(files) {
     const custodyWireExample = parseResource(
       "resources/planning-publication/ref-custody-helper-wire.example.json",
     );
+    const custodyWireNotAppliedExample = parseResource(
+      "resources/planning-publication/ref-custody-helper-wire.not-applied.example.json",
+    );
     const supersessionSchema = parseResource(
       "resources/planning-publication/candidate-supersession-operation.schema.json",
     );
@@ -2131,6 +2239,42 @@ export function validatePlanningRefDesign(files) {
     }
     for (const error of validateRefCustodyHelperWireExamples(custodyWireExample, custodyWireSchema)) {
       errors.push(`ref-custody helper wire Schema/example: ${error}`);
+    }
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireNotAppliedExample, custodyWireSchema)) {
+      errors.push(`ref-custody helper not-applied Schema/example: ${error}`);
+    }
+    const wireByAction = Object.fromEntries(custodyWireExample.actions.map((item) => [item.action, item]));
+    const checkHelperEvidence = (receipt, action, label) => {
+      if (!receipt) return;
+      const exchange = wireByAction[action];
+      const expected = exchange && {
+        request_id: exchange.request.request_id,
+        nonce: exchange.request.nonce,
+        transaction_value_observation_sha256: exchange.response.transaction_value_observation_sha256,
+        helper_receipt_hash: exchange.response.receipt_hash,
+      };
+      if (canonicalStringify(receipt.helper_evidence) !== canonicalStringify(expected)) {
+        errors.push(`${label} helper evidence does not match journaled ${action} receipt`);
+      }
+    };
+    checkHelperEvidence(initExample.receipts.ref_create, "init", "planning init ref_create");
+    for (const [label, operation] of [
+      ["prepared publication", example],
+      ["released publication", releasedExample],
+      ["voided publication", voidedExample],
+      ["planning invalidation", invalidationExample],
+    ]) {
+      checkHelperEvidence(operation.candidate_keepalive.create_receipt, "create_keepalive", `${label} keepalive create`);
+      checkHelperEvidence(operation.receipts.ref_cas, "advance_planning", `${label} ref_cas`);
+      checkHelperEvidence(operation.candidate_keepalive.release_receipt, "release_to_audit", `${label} release`);
+      if (operation.candidate_keepalive.audit_receipt) {
+        checkHelperEvidence(
+          operation.candidate_keepalive.audit_receipt,
+          operation.candidate_keepalive.audit_receipt.reason === "publication_verified"
+            ? "release_to_audit" : "retain_audit",
+          `${label} audit`,
+        );
+      }
     }
     for (const error of validateCandidateSupersessionOperation(supersessionExample, supersessionSchema)) {
       errors.push(`candidate supersession Schema/example: ${error}`);

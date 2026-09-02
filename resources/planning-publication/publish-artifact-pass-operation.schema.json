@@ -38,44 +38,117 @@
     "receipts"
   ],
   "properties": {
-    "schema": { "const": 1 },
-    "operation_id": { "$ref": "#/$defs/uuid" },
-    "operation_type": { "enum": ["artifact_pass", "anchor_invalidation"] },
-    "project_root_sha256": { "$ref": "#/$defs/sha256" },
-    "epic_id": { "$ref": "#/$defs/uuid" },
-    "epic_ref_key": { "$ref": "#/$defs/sha256" },
+    "schema": {
+      "const": 1
+    },
+    "operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "operation_type": {
+      "enum": [
+        "artifact_pass",
+        "anchor_invalidation"
+      ]
+    },
+    "project_root_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "epic_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "epic_ref_key": {
+      "$ref": "#/$defs/sha256"
+    },
     "planning_ref": {
       "type": "string",
       "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$"
     },
-    "ref_storage_format": { "const": "files" },
-    "reflog_producer": { "$ref": "#/$defs/reflog_producer" },
-    "candidate_keepalive": { "$ref": "#/$defs/candidate_keepalive" },
-    "payload": { "$ref": "#/$defs/payload" },
-    "anchor_version": { "type": "integer", "minimum": 1 },
-    "protocol_digest": { "$ref": "#/$defs/sha256" },
-    "runtime_lock_digest": { "$ref": "#/$defs/sha256" },
-    "project_instruction_digest": { "$ref": "#/$defs/sha256" },
-    "governance_mapping_set_digest": { "$ref": "#/$defs/sha256" },
-    "ref_custody_generation": { "type": "integer", "minimum": 1 },
-    "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
-    "expected_parent_oid": { "$ref": "#/$defs/oid" },
-    "expected_parent_tree_oid": { "$ref": "#/$defs/oid" },
-    "candidate_tree_oid": { "$ref": "#/$defs/oid" },
-    "commit_recipe": { "$ref": "#/$defs/commit_recipe" },
-    "commit_recipe_digest": { "$ref": "#/$defs/sha256" },
-    "expected_commit_oid": { "$ref": "#/$defs/oid" },
-    "reflog_checkpoint": { "$ref": "#/$defs/reflog_checkpoint" },
+    "ref_storage_format": {
+      "const": "files"
+    },
+    "reflog_producer": {
+      "$ref": "#/$defs/reflog_producer"
+    },
+    "candidate_keepalive": {
+      "$ref": "#/$defs/candidate_keepalive"
+    },
+    "payload": {
+      "$ref": "#/$defs/payload"
+    },
+    "anchor_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "protocol_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "runtime_lock_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "project_instruction_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "governance_mapping_set_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "ref_custody_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ref_custody_policy_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "expected_parent_oid": {
+      "$ref": "#/$defs/oid"
+    },
+    "expected_parent_tree_oid": {
+      "$ref": "#/$defs/oid"
+    },
+    "candidate_tree_oid": {
+      "$ref": "#/$defs/oid"
+    },
+    "commit_recipe": {
+      "$ref": "#/$defs/commit_recipe"
+    },
+    "commit_recipe_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "expected_commit_oid": {
+      "$ref": "#/$defs/oid"
+    },
+    "reflog_checkpoint": {
+      "$ref": "#/$defs/reflog_checkpoint"
+    },
     "phase": {
-      "enum": ["prepared", "commit_created", "ref_advanced", "verified", "voided_before_ref"]
+      "enum": [
+        "prepared",
+        "commit_created",
+        "ref_advanced",
+        "verified",
+        "voided_before_ref"
+      ]
     },
     "terminal_reason": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1
     },
-    "recovery_target_step": { "enum": ["prepare_anchor_impact", null] },
+    "recovery_target_step": {
+      "enum": [
+        "prepare_anchor_impact",
+        null
+      ]
+    },
     "effective_target_step": {
-      "enum": ["select_next", "prepare_anchor_impact", "clarify_alignment", "present_tickets_breakdown", null]
+      "enum": [
+        "select_next",
+        "prepare_anchor_impact",
+        "clarify_alignment",
+        "present_tickets_breakdown",
+        null
+      ]
     },
     "created_at_utc": {
       "type": "string",
@@ -85,12 +158,25 @@
     "receipts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["commit_object", "ref_cas", "reflog_after", "verification"],
+      "required": [
+        "commit_object",
+        "ref_cas",
+        "reflog_after",
+        "verification"
+      ],
       "properties": {
-        "commit_object": { "$ref": "#/$defs/commit_object_receipt_or_null" },
-        "ref_cas": { "$ref": "#/$defs/ref_cas_receipt_or_null" },
-        "reflog_after": { "$ref": "#/$defs/reflog_after_receipt_or_null" },
-        "verification": { "$ref": "#/$defs/verification_receipt_or_null" }
+        "commit_object": {
+          "$ref": "#/$defs/commit_object_receipt_or_null"
+        },
+        "ref_cas": {
+          "$ref": "#/$defs/ref_cas_receipt_or_null"
+        },
+        "reflog_after": {
+          "$ref": "#/$defs/reflog_after_receipt_or_null"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification_receipt_or_null"
+        }
       }
     }
   },
@@ -108,7 +194,12 @@
       "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
     },
     "artifact_kind": {
-      "enum": ["brief", "core_flow", "tech_plan", "tickets"]
+      "enum": [
+        "brief",
+        "core_flow",
+        "tech_plan",
+        "tickets"
+      ]
     },
     "safe_relative_path": {
       "type": "string",
@@ -117,18 +208,37 @@
     "projection_mutation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifact_kind", "action", "previous_projection_digest", "pathspec", "pathspec_digest"],
+      "required": [
+        "artifact_kind",
+        "action",
+        "previous_projection_digest",
+        "pathspec",
+        "pathspec_digest"
+      ],
       "properties": {
-        "artifact_kind": { "$ref": "#/$defs/artifact_kind" },
-        "action": { "enum": ["remove", "replace"] },
-        "previous_projection_digest": { "$ref": "#/$defs/sha256" },
+        "artifact_kind": {
+          "$ref": "#/$defs/artifact_kind"
+        },
+        "action": {
+          "enum": [
+            "remove",
+            "replace"
+          ]
+        },
+        "previous_projection_digest": {
+          "$ref": "#/$defs/sha256"
+        },
         "pathspec": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/safe_relative_path" }
+          "items": {
+            "$ref": "#/$defs/safe_relative_path"
+          }
         },
-        "pathspec_digest": { "$ref": "#/$defs/sha256" }
+        "pathspec_digest": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "reflog_producer": {
@@ -148,17 +258,43 @@
         "update_ref_mode"
       ],
       "properties": {
-        "git_committer_name": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n<>]+$" },
-        "git_committer_email": { "type": "string", "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$" },
-        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ \\+0000$" },
-        "lc_all": { "const": "C" },
-        "tz": { "const": "UTC" },
-        "git_config_system": { "const": "/dev/null" },
-        "git_config_global": { "const": "/dev/null" },
-        "git_config_nosystem": { "const": "1" },
-        "hooks_path": { "const": "/dev/null" },
-        "inherit_git_environment": { "const": false },
-        "update_ref_mode": { "const": "object_format_neutral_expected_old" }
+        "git_committer_name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n<>]+$"
+        },
+        "git_committer_email": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$"
+        },
+        "git_committer_date": {
+          "type": "string",
+          "pattern": "^@[0-9]+ \\+0000$"
+        },
+        "lc_all": {
+          "const": "C"
+        },
+        "tz": {
+          "const": "UTC"
+        },
+        "git_config_system": {
+          "const": "/dev/null"
+        },
+        "git_config_global": {
+          "const": "/dev/null"
+        },
+        "git_config_nosystem": {
+          "const": "1"
+        },
+        "hooks_path": {
+          "const": "/dev/null"
+        },
+        "inherit_git_environment": {
+          "const": false
+        },
+        "update_ref_mode": {
+          "const": "object_format_neutral_expected_old"
+        }
       }
     },
     "candidate_keepalive_create_receipt": {
@@ -178,6 +314,7 @@
         "before_prefix_sha256",
         "appended_entry_sha256",
         "observation_sha256",
+        "helper_evidence",
         "receipt_hash"
       ],
       "properties": {
@@ -222,6 +359,16 @@
         "observation_sha256": {
           "$ref": "#/$defs/sha256"
         },
+        "helper_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/helper_evidence"
+            }
+          ]
+        },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
         }
@@ -246,6 +393,7 @@
         "ref_custody_generation",
         "ref_custody_policy_digest",
         "closure_verified",
+        "helper_evidence",
         "receipt_hash"
       ],
       "properties": {
@@ -298,6 +446,16 @@
         "closure_verified": {
           "const": true
         },
+        "helper_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/helper_evidence"
+            }
+          ]
+        },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
         }
@@ -306,25 +464,116 @@
     "candidate_keepalive_audit_receipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "operation_id", "candidate_identity", "live_ref", "audit_ref", "snapshot_commit_oid", "reason", "ref_custody_generation", "ref_custody_policy_digest", "observation_sha256", "receipt_hash"],
+      "required": [
+        "schema",
+        "operation_id",
+        "candidate_identity",
+        "live_ref",
+        "audit_ref",
+        "snapshot_commit_oid",
+        "reason",
+        "ref_custody_generation",
+        "ref_custody_policy_digest",
+        "observation_sha256",
+        "helper_evidence",
+        "receipt_hash"
+      ],
       "properties": {
-        "schema": { "const": 1 },
-        "operation_id": { "$ref": "#/$defs/uuid" },
-        "candidate_identity": { "$ref": "#/$defs/sha256" },
-        "live_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$" },
-        "audit_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$" },
-        "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
-        "reason": { "enum": ["panel_not_pass", "narrow_not_pass", "voided_before_ref", "publication_verified", "superseded"] },
-        "ref_custody_generation": { "type": "integer", "minimum": 1 },
-        "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
-        "observation_sha256": { "$ref": "#/$defs/sha256" },
-        "receipt_hash": { "$ref": "#/$defs/sha256" }
+        "schema": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "candidate_identity": {
+          "$ref": "#/$defs/sha256"
+        },
+        "live_ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$"
+        },
+        "snapshot_commit_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "reason": {
+          "enum": [
+            "panel_not_pass",
+            "narrow_not_pass",
+            "voided_before_ref",
+            "publication_verified",
+            "superseded"
+          ]
+        },
+        "ref_custody_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ref_custody_policy_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/helper_evidence"
+            }
+          ]
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "helper_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "nonce",
+        "transaction_value_observation_sha256",
+        "helper_receipt_hash"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "nonce": {
+          "$ref": "#/$defs/sha256"
+        },
+        "transaction_value_observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "candidate_keepalive_audit_retained_receipt": {
       "allOf": [
-        { "$ref": "#/$defs/candidate_keepalive_audit_receipt" },
-        { "properties": { "reason": { "enum": ["panel_not_pass", "narrow_not_pass", "voided_before_ref", "superseded"] } } }
+        {
+          "$ref": "#/$defs/candidate_keepalive_audit_receipt"
+        },
+        {
+          "properties": {
+            "reason": {
+              "enum": [
+                "panel_not_pass",
+                "narrow_not_pass",
+                "voided_before_ref",
+                "superseded"
+              ]
+            }
+          }
+        }
       ]
     },
     "candidate_keepalive": {
@@ -337,6 +586,7 @@
         "epic_id",
         "epic_ref_key",
         "candidate_identity",
+        "candidate_identity_preimage",
         "ref",
         "audit_ref",
         "object_format",
@@ -362,9 +612,15 @@
         "operation_id": {
           "$ref": "#/$defs/uuid"
         },
-        "project_root_sha256": { "$ref": "#/$defs/sha256" },
-        "epic_id": { "$ref": "#/$defs/uuid" },
-        "epic_ref_key": { "$ref": "#/$defs/sha256" },
+        "project_root_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "epic_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "epic_ref_key": {
+          "$ref": "#/$defs/sha256"
+        },
         "candidate_identity": {
           "$ref": "#/$defs/sha256"
         },
@@ -388,8 +644,12 @@
         "snapshot_tree_oid": {
           "$ref": "#/$defs/oid"
         },
-        "snapshot_commit_recipe": { "$ref": "#/$defs/snapshot_commit_recipe" },
-        "snapshot_object_receipt": { "$ref": "#/$defs/snapshot_object_receipt" },
+        "snapshot_commit_recipe": {
+          "$ref": "#/$defs/snapshot_commit_recipe"
+        },
+        "snapshot_object_receipt": {
+          "$ref": "#/$defs/snapshot_object_receipt"
+        },
         "expected_update_message": {
           "type": "string",
           "pattern": "^autosk-flow keepalive [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -404,8 +664,14 @@
         "ref_custody_policy_digest": {
           "$ref": "#/$defs/sha256"
         },
-        "phase": { "enum": ["prepared", "object_written", "ref_created", "verified", "audit_retained", "released"] },
-        "terminal_disposition": { "enum": ["audit_retained", "published_released", null] },
+        "phase": { "enum": ["verified", "audit_retained", "released"] },
+        "terminal_disposition": {
+          "enum": [
+            "audit_retained",
+            "published_released",
+            null
+          ]
+        },
         "create_receipt": {
           "$ref": "#/$defs/candidate_keepalive_create_receipt"
         },
@@ -421,44 +687,87 @@
         },
         "audit_receipt": {
           "oneOf": [
-            { "type": "null" },
-            { "$ref": "#/$defs/candidate_keepalive_audit_receipt" }
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/candidate_keepalive_audit_receipt"
+            }
           ]
         },
         "created_at_utc": {
           "type": "string",
           "format": "date-time",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "candidate_identity_preimage": {
+          "$ref": "#/$defs/candidate_identity_preimage"
         }
       },
       "allOf": [
         {
-          "if": { "properties": { "phase": { "enum": ["prepared", "object_written", "ref_created", "verified"] } } },
+          "if": {
+            "properties": {
+              "phase": {
+              "const": "verified"
+              }
+            }
+          },
           "then": {
             "properties": {
-              "terminal_disposition": { "type": "null" },
-              "release_receipt": { "type": "null" },
-              "audit_receipt": { "type": "null" }
+              "terminal_disposition": {
+                "type": "null"
+              },
+              "release_receipt": {
+                "type": "null"
+              },
+              "audit_receipt": {
+                "type": "null"
+              }
             }
           }
         },
         {
-          "if": { "properties": { "phase": { "const": "audit_retained" } } },
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "audit_retained"
+              }
+            }
+          },
           "then": {
             "properties": {
-              "terminal_disposition": { "const": "audit_retained" },
-              "release_receipt": { "type": "null" },
-              "audit_receipt": { "$ref": "#/$defs/candidate_keepalive_audit_retained_receipt" }
+              "terminal_disposition": {
+                "const": "audit_retained"
+              },
+              "release_receipt": {
+                "type": "null"
+              },
+              "audit_receipt": {
+                "$ref": "#/$defs/candidate_keepalive_audit_retained_receipt"
+              }
             }
           }
         },
         {
-          "if": { "properties": { "phase": { "const": "released" } } },
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "released"
+              }
+            }
+          },
           "then": {
             "properties": {
-              "terminal_disposition": { "const": "published_released" },
-              "release_receipt": { "$ref": "#/$defs/candidate_keepalive_release_receipt" },
-              "audit_receipt": { "$ref": "#/$defs/candidate_keepalive_audit_receipt" }
+              "terminal_disposition": {
+                "const": "published_released"
+              },
+              "release_receipt": {
+                "$ref": "#/$defs/candidate_keepalive_release_receipt"
+              },
+              "audit_receipt": {
+                "$ref": "#/$defs/candidate_keepalive_audit_receipt"
+              }
             }
           }
         }
@@ -467,28 +776,53 @@
     "verdict_or_waiver_binding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["disposition", "record"],
+      "required": [
+        "disposition",
+        "record"
+      ],
       "properties": {
-        "disposition": { "enum": ["pass", "waived"] },
+        "disposition": {
+          "enum": [
+            "pass",
+            "waived"
+          ]
+        },
         "record": {
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "verdict_hash"],
+              "required": [
+                "kind",
+                "verdict_hash"
+              ],
               "properties": {
-                "kind": { "const": "verdict" },
-                "verdict_hash": { "$ref": "#/$defs/sha256" }
+                "kind": {
+                  "const": "verdict"
+                },
+                "verdict_hash": {
+                  "$ref": "#/$defs/sha256"
+                }
               }
             },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "waiver_record_id", "waiver_record_hash"],
+              "required": [
+                "kind",
+                "waiver_record_id",
+                "waiver_record_hash"
+              ],
               "properties": {
-                "kind": { "const": "waiver" },
-                "waiver_record_id": { "$ref": "#/$defs/uuid" },
-                "waiver_record_hash": { "$ref": "#/$defs/sha256" }
+                "kind": {
+                  "const": "waiver"
+                },
+                "waiver_record_id": {
+                  "$ref": "#/$defs/uuid"
+                },
+                "waiver_record_hash": {
+                  "$ref": "#/$defs/sha256"
+                }
               }
             }
           ]
@@ -512,20 +846,38 @@
             "recorded_target_step"
           ],
           "properties": {
-            "kind": { "const": "artifact_pass" },
-            "artifact_kind": { "$ref": "#/$defs/artifact_kind" },
-            "artifact_identity": { "$ref": "#/$defs/sha256" },
+            "kind": {
+              "const": "artifact_pass"
+            },
+            "artifact_kind": {
+              "$ref": "#/$defs/artifact_kind"
+            },
+            "artifact_identity": {
+              "$ref": "#/$defs/sha256"
+            },
             "artifact_pathspec": {
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/safe_relative_path" }
+              "items": {
+                "$ref": "#/$defs/safe_relative_path"
+              }
             },
-            "artifact_pathspec_digest": { "$ref": "#/$defs/sha256" },
-            "alignment_identity": { "$ref": "#/$defs/sha256" },
-            "verdict_or_waiver_binding": { "$ref": "#/$defs/verdict_or_waiver_binding" },
-            "verdict_or_waiver_digest": { "$ref": "#/$defs/sha256" },
-            "recorded_target_step": { "const": "select_next" }
+            "artifact_pathspec_digest": {
+              "$ref": "#/$defs/sha256"
+            },
+            "alignment_identity": {
+              "$ref": "#/$defs/sha256"
+            },
+            "verdict_or_waiver_binding": {
+              "$ref": "#/$defs/verdict_or_waiver_binding"
+            },
+            "verdict_or_waiver_digest": {
+              "$ref": "#/$defs/sha256"
+            },
+            "recorded_target_step": {
+              "const": "select_next"
+            }
           }
         },
         {
@@ -541,24 +893,39 @@
             "recorded_target_step"
           ],
           "properties": {
-            "kind": { "const": "anchor_invalidation" },
+            "kind": {
+              "const": "anchor_invalidation"
+            },
             "affected_artifact_kinds": {
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/artifact_kind" }
+              "items": {
+                "$ref": "#/$defs/artifact_kind"
+              }
             },
             "projection_mutations": {
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/projection_mutation" }
+              "items": {
+                "$ref": "#/$defs/projection_mutation"
+              }
             },
-            "approved_impact_record_id": { "$ref": "#/$defs/uuid" },
-            "approved_impact_record_hash": { "$ref": "#/$defs/sha256" },
-            "invalidation_projection_digest": { "$ref": "#/$defs/sha256" },
+            "approved_impact_record_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "approved_impact_record_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "invalidation_projection_digest": {
+              "$ref": "#/$defs/sha256"
+            },
             "recorded_target_step": {
-              "enum": ["clarify_alignment", "present_tickets_breakdown"]
+              "enum": [
+                "clarify_alignment",
+                "present_tickets_breakdown"
+              ]
             }
           }
         }
@@ -567,7 +934,12 @@
     "actor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name_utf8", "email_ascii", "timestamp_seconds", "timezone"],
+      "required": [
+        "name_utf8",
+        "email_ascii",
+        "timestamp_seconds",
+        "timezone"
+      ],
       "properties": {
         "name_utf8": {
           "type": "string",
@@ -578,27 +950,51 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$"
         },
-        "timestamp_seconds": { "type": "integer" },
-        "timezone": { "const": "+0000" }
+        "timestamp_seconds": {
+          "type": "integer"
+        },
+        "timezone": {
+          "const": "+0000"
+        }
       }
     },
     "signing": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "policy_digest", "signature_header_base64"],
+      "required": [
+        "mode",
+        "policy_digest",
+        "signature_header_base64"
+      ],
       "properties": {
-        "mode": { "enum": ["none", "exact"] },
-        "policy_digest": { "$ref": "#/$defs/sha256" },
+        "mode": {
+          "enum": [
+            "none",
+            "exact"
+          ]
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/sha256"
+        },
         "signature_header_base64": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[A-Za-z0-9+/]*={0,2}$"
         }
       },
       "allOf": [
         {
           "if": {
-            "properties": { "mode": { "const": "exact" } },
-            "required": ["mode"]
+            "properties": {
+              "mode": {
+                "const": "exact"
+              }
+            },
+            "required": [
+              "mode"
+            ]
           },
           "then": {
             "properties": {
@@ -612,12 +1008,20 @@
         },
         {
           "if": {
-            "properties": { "mode": { "const": "none" } },
-            "required": ["mode"]
+            "properties": {
+              "mode": {
+                "const": "none"
+              }
+            },
+            "required": [
+              "mode"
+            ]
           },
           "then": {
             "properties": {
-              "signature_header_base64": { "type": "null" }
+              "signature_header_base64": {
+                "type": "null"
+              }
             }
           }
         }
@@ -639,53 +1043,92 @@
         "commit_object_bytes_sha256"
       ],
       "properties": {
-        "schema": { "const": 1 },
-        "object_format": { "enum": ["sha1", "sha256"] },
-        "tree_oid": { "$ref": "#/$defs/oid" },
+        "schema": {
+          "const": 1
+        },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
         "parent_oids": {
           "type": "array",
           "minItems": 1,
           "maxItems": 1,
-          "items": { "$ref": "#/$defs/oid" }
+          "items": {
+            "$ref": "#/$defs/oid"
+          }
         },
-        "author": { "$ref": "#/$defs/actor" },
-        "committer": { "$ref": "#/$defs/actor" },
+        "author": {
+          "$ref": "#/$defs/actor"
+        },
+        "committer": {
+          "$ref": "#/$defs/actor"
+        },
         "message_utf8_base64": {
           "type": "string",
           "pattern": "^[A-Za-z0-9+/]+={0,2}$"
         },
-        "signing": { "$ref": "#/$defs/signing" },
+        "signing": {
+          "$ref": "#/$defs/signing"
+        },
         "commit_object_bytes_base64": {
           "type": "string",
           "pattern": "^[A-Za-z0-9+/]+={0,2}$"
         },
-        "commit_object_bytes_sha256": { "$ref": "#/$defs/sha256" }
+        "commit_object_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
       },
       "allOf": [
         {
           "if": {
-            "properties": { "object_format": { "const": "sha1" } },
-            "required": ["object_format"]
+            "properties": {
+              "object_format": {
+                "const": "sha1"
+              }
+            },
+            "required": [
+              "object_format"
+            ]
           },
           "then": {
             "properties": {
-              "tree_oid": { "pattern": "^[0-9a-f]{40}$" },
+              "tree_oid": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
               "parent_oids": {
-                "items": { "pattern": "^[0-9a-f]{40}$" }
+                "items": {
+                  "pattern": "^[0-9a-f]{40}$"
+                }
               }
             }
           }
         },
         {
           "if": {
-            "properties": { "object_format": { "const": "sha256" } },
-            "required": ["object_format"]
+            "properties": {
+              "object_format": {
+                "const": "sha256"
+              }
+            },
+            "required": [
+              "object_format"
+            ]
           },
           "then": {
             "properties": {
-              "tree_oid": { "pattern": "^[0-9a-f]{64}$" },
+              "tree_oid": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
               "parent_oids": {
-                "items": { "pattern": "^[0-9a-f]{64}$" }
+                "items": {
+                  "pattern": "^[0-9a-f]{64}$"
+                }
               }
             }
           }
@@ -695,44 +1138,126 @@
     "snapshot_signing": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "policy_digest", "signature_header_base64"],
+      "required": [
+        "mode",
+        "policy_digest",
+        "signature_header_base64"
+      ],
       "properties": {
-        "mode": { "const": "none" },
-        "policy_digest": { "$ref": "#/$defs/sha256" },
-        "signature_header_base64": { "type": "null" }
+        "mode": {
+          "const": "none"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "signature_header_base64": {
+          "type": "null"
+        }
       }
     },
     "snapshot_commit_recipe": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "object_format", "tree_oid", "parent_oids", "author", "committer", "message_utf8_base64", "signing", "commit_object_bytes_base64", "commit_object_bytes_sha256", "expected_commit_oid"],
+      "required": [
+        "schema",
+        "object_format",
+        "tree_oid",
+        "parent_oids",
+        "author",
+        "committer",
+        "message_utf8_base64",
+        "signing",
+        "commit_object_bytes_base64",
+        "commit_object_bytes_sha256",
+        "expected_commit_oid"
+      ],
       "properties": {
-        "schema": { "const": 1 },
-        "object_format": { "enum": ["sha1", "sha256"] },
-        "tree_oid": { "$ref": "#/$defs/oid" },
-        "parent_oids": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/oid" } },
-        "author": { "$ref": "#/$defs/actor" },
-        "committer": { "$ref": "#/$defs/actor" },
-        "message_utf8_base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
-        "signing": { "$ref": "#/$defs/snapshot_signing" },
-        "commit_object_bytes_base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
-        "commit_object_bytes_sha256": { "$ref": "#/$defs/sha256" },
-        "expected_commit_oid": { "$ref": "#/$defs/oid" }
+        "schema": {
+          "const": 1
+        },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "parent_oids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/oid"
+          }
+        },
+        "author": {
+          "$ref": "#/$defs/actor"
+        },
+        "committer": {
+          "$ref": "#/$defs/actor"
+        },
+        "message_utf8_base64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "signing": {
+          "$ref": "#/$defs/snapshot_signing"
+        },
+        "commit_object_bytes_base64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "commit_object_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_commit_oid": {
+          "$ref": "#/$defs/oid"
+        }
       }
     },
     "snapshot_object_receipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "operation_id", "object_format", "object_oid", "object_bytes_sha256", "tree_oid", "parent_oid", "receipt_hash"],
+      "required": [
+        "schema",
+        "operation_id",
+        "object_format",
+        "object_oid",
+        "object_bytes_sha256",
+        "tree_oid",
+        "parent_oid",
+        "receipt_hash"
+      ],
       "properties": {
-        "schema": { "const": 1 },
-        "operation_id": { "$ref": "#/$defs/uuid" },
-        "object_format": { "enum": ["sha1", "sha256"] },
-        "object_oid": { "$ref": "#/$defs/oid" },
-        "object_bytes_sha256": { "$ref": "#/$defs/sha256" },
-        "tree_oid": { "$ref": "#/$defs/oid" },
-        "parent_oid": { "$ref": "#/$defs/oid" },
-        "receipt_hash": { "$ref": "#/$defs/sha256" }
+        "schema": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "object_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "object_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "parent_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "reflog_checkpoint": {
@@ -746,10 +1271,19 @@
         "expected_update_message"
       ],
       "properties": {
-        "before_entry_count": { "type": "integer", "minimum": 0 },
-        "before_prefix_sha256": { "$ref": "#/$defs/sha256" },
-        "expected_old_oid": { "$ref": "#/$defs/oid" },
-        "expected_new_oid": { "$ref": "#/$defs/oid" },
+        "before_entry_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "before_prefix_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_old_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "expected_new_oid": {
+          "$ref": "#/$defs/oid"
+        },
         "expected_update_message": {
           "type": "string",
           "pattern": "^autosk-flow publish [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -761,49 +1295,110 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["object_format", "object_oid", "object_bytes_sha256"],
+          "required": [
+            "object_format",
+            "object_oid",
+            "object_bytes_sha256"
+          ],
           "properties": {
-            "object_format": { "enum": ["sha1", "sha256"] },
-            "object_oid": { "$ref": "#/$defs/oid" },
-            "object_bytes_sha256": { "$ref": "#/$defs/sha256" }
+            "object_format": {
+              "enum": [
+                "sha1",
+                "sha256"
+              ]
+            },
+            "object_oid": {
+              "$ref": "#/$defs/oid"
+            },
+            "object_bytes_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["planning_ref", "expected_old_oid", "observed_new_oid", "expected_update_message", "candidate_keepalive_ref", "candidate_keepalive_oid"],
+          "required": [
+            "planning_ref",
+            "expected_old_oid",
+            "observed_new_oid",
+            "expected_update_message",
+            "candidate_keepalive_ref",
+            "candidate_keepalive_oid"
+          ],
           "properties": {
-            "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
-            "expected_old_oid": { "$ref": "#/$defs/oid" },
-            "observed_new_oid": { "$ref": "#/$defs/oid" },
+            "planning_ref": {
+              "type": "string",
+              "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$"
+            },
+            "expected_old_oid": {
+              "$ref": "#/$defs/oid"
+            },
+            "observed_new_oid": {
+              "$ref": "#/$defs/oid"
+            },
             "expected_update_message": {
               "type": "string",
               "pattern": "^autosk-flow publish [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
             },
-            "candidate_keepalive_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$" },
-            "candidate_keepalive_oid": { "$ref": "#/$defs/oid" }
+            "candidate_keepalive_ref": {
+              "type": "string",
+              "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+            },
+            "candidate_keepalive_oid": {
+              "$ref": "#/$defs/oid"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["before_entry_count", "after_entry_count", "before_prefix_sha256", "appended_entry_sha256"],
+          "required": [
+            "before_entry_count",
+            "after_entry_count",
+            "before_prefix_sha256",
+            "appended_entry_sha256"
+          ],
           "properties": {
-            "before_entry_count": { "type": "integer", "minimum": 0 },
-            "after_entry_count": { "type": "integer", "minimum": 1 },
-            "before_prefix_sha256": { "$ref": "#/$defs/sha256" },
-            "appended_entry_sha256": { "$ref": "#/$defs/sha256" }
+            "before_entry_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "after_entry_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "before_prefix_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "appended_entry_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["planning_ref", "commit_oid", "tree_oid", "reflog_after_receipt_hash"],
+          "required": [
+            "planning_ref",
+            "commit_oid",
+            "tree_oid",
+            "reflog_after_receipt_hash"
+          ],
           "properties": {
-            "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
-            "commit_oid": { "$ref": "#/$defs/oid" },
-            "tree_oid": { "$ref": "#/$defs/oid" },
-            "reflog_after_receipt_hash": { "$ref": "#/$defs/sha256" }
+            "planning_ref": {
+              "type": "string",
+              "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$"
+            },
+            "commit_oid": {
+              "$ref": "#/$defs/oid"
+            },
+            "tree_oid": {
+              "$ref": "#/$defs/oid"
+            },
+            "reflog_after_receipt_hash": {
+              "$ref": "#/$defs/sha256"
+            }
           }
         }
       ]
@@ -817,137 +1412,306 @@
         "receipt_kind",
         "observation",
         "observation_sha256",
+        "helper_evidence",
         "receipt_hash"
       ],
       "properties": {
-        "schema": { "const": 1 },
-        "operation_id": { "$ref": "#/$defs/uuid" },
-        "receipt_kind": {
-          "enum": ["commit_object", "ref_cas", "reflog_after", "verification"]
+        "schema": {
+          "const": 1
         },
-        "observation": { "$ref": "#/$defs/typed_observation" },
-        "observation_sha256": { "$ref": "#/$defs/sha256" },
-        "receipt_hash": { "$ref": "#/$defs/sha256" }
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "receipt_kind": {
+          "enum": [
+            "commit_object",
+            "ref_cas",
+            "reflog_after",
+            "verification"
+          ]
+        },
+        "observation": {
+          "$ref": "#/$defs/typed_observation"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/helper_evidence"
+            }
+          ]
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "receipt_or_null": {
       "oneOf": [
-        { "$ref": "#/$defs/receipt" },
-        { "type": "null" }
+        {
+          "$ref": "#/$defs/receipt"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "commit_object_receipt_or_null": {
       "oneOf": [
         {
           "allOf": [
-            { "$ref": "#/$defs/receipt" },
-            { "properties": { "receipt_kind": { "const": "commit_object" } } }
+            {
+              "$ref": "#/$defs/receipt"
+            },
+            {
+              "properties": {
+                "receipt_kind": {
+                  "const": "commit_object"
+                }
+              }
+            }
           ]
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
     "ref_cas_receipt_or_null": {
       "oneOf": [
         {
           "allOf": [
-            { "$ref": "#/$defs/receipt" },
-            { "properties": { "receipt_kind": { "const": "ref_cas" } } }
+            {
+              "$ref": "#/$defs/receipt"
+            },
+            {
+              "properties": {
+                "receipt_kind": {
+                  "const": "ref_cas"
+                }
+              }
+            }
           ]
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
     "reflog_after_receipt_or_null": {
       "oneOf": [
         {
           "allOf": [
-            { "$ref": "#/$defs/receipt" },
-            { "properties": { "receipt_kind": { "const": "reflog_after" } } }
+            {
+              "$ref": "#/$defs/receipt"
+            },
+            {
+              "properties": {
+                "receipt_kind": {
+                  "const": "reflog_after"
+                }
+              }
+            }
           ]
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
     "verification_receipt_or_null": {
       "oneOf": [
         {
           "allOf": [
-            { "$ref": "#/$defs/receipt" },
-            { "properties": { "receipt_kind": { "const": "verification" } } }
+            {
+              "$ref": "#/$defs/receipt"
+            },
+            {
+              "properties": {
+                "receipt_kind": {
+                  "const": "verification"
+                }
+              }
+            }
           ]
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
+    },
+    "candidate_identity_preimage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor_version",
+        "candidate_tree_oid",
+        "epic_id",
+        "kind",
+        "pathspec_or_projection_digest",
+        "project_root_sha256",
+        "snapshot_commit_oid"
+      ],
+      "properties": {
+        "anchor_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "epic_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "kind": {
+          "enum": [
+            "artifact_pass",
+            "anchor_invalidation"
+          ]
+        },
+        "pathspec_or_projection_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "project_root_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "snapshot_commit_oid": {
+          "$ref": "#/$defs/oid"
+        }
+      }
     }
   },
   "allOf": [
     {
       "if": {
-        "properties": { "operation_type": { "const": "artifact_pass" } },
-        "required": ["operation_type"]
+        "properties": {
+          "operation_type": {
+            "const": "artifact_pass"
+          }
+        },
+        "required": [
+          "operation_type"
+        ]
       },
       "then": {
         "properties": {
           "payload": {
-            "properties": { "kind": { "const": "artifact_pass" } }
+            "properties": {
+              "kind": {
+                "const": "artifact_pass"
+              }
+            }
           }
         }
       }
     },
     {
       "if": {
-        "properties": { "operation_type": { "const": "anchor_invalidation" } },
-        "required": ["operation_type"]
+        "properties": {
+          "operation_type": {
+            "const": "anchor_invalidation"
+          }
+        },
+        "required": [
+          "operation_type"
+        ]
       },
       "then": {
         "properties": {
           "payload": {
-            "properties": { "kind": { "const": "anchor_invalidation" } }
+            "properties": {
+              "kind": {
+                "const": "anchor_invalidation"
+              }
+            }
           }
         }
       }
     },
     {
       "if": {
-        "properties": { "phase": { "const": "voided_before_ref" } },
-        "required": ["phase"]
+        "properties": {
+          "phase": {
+            "const": "voided_before_ref"
+          }
+        },
+        "required": [
+          "phase"
+        ]
       },
       "then": {
         "properties": {
-          "terminal_reason": { "type": "string", "minLength": 1 },
-          "recovery_target_step": { "const": "prepare_anchor_impact" },
-          "effective_target_step": { "const": "prepare_anchor_impact" },
+          "terminal_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "recovery_target_step": {
+            "const": "prepare_anchor_impact"
+          },
+          "effective_target_step": {
+            "const": "prepare_anchor_impact"
+          },
           "receipts": {
             "properties": {
-              "ref_cas": { "type": "null" },
-              "reflog_after": { "type": "null" },
-              "verification": { "type": "null" }
+              "ref_cas": {
+                "type": "null"
+              },
+              "reflog_after": {
+                "type": "null"
+              },
+              "verification": {
+                "type": "null"
+              }
             }
           }
         }
       },
       "else": {
         "properties": {
-          "terminal_reason": { "type": "null" },
-          "recovery_target_step": { "type": "null" }
+          "terminal_reason": {
+            "type": "null"
+          },
+          "recovery_target_step": {
+            "type": "null"
+          }
         }
       }
     },
     {
       "if": {
-        "properties": { "phase": { "const": "prepared" } },
-        "required": ["phase"]
+        "properties": {
+          "phase": {
+            "const": "prepared"
+          }
+        },
+        "required": [
+          "phase"
+        ]
       },
       "then": {
         "properties": {
-          "effective_target_step": { "type": "null" },
+          "effective_target_step": {
+            "type": "null"
+          },
           "receipts": {
             "properties": {
-              "commit_object": { "type": "null" },
-              "ref_cas": { "type": "null" },
-              "reflog_after": { "type": "null" },
-              "verification": { "type": "null" }
+              "commit_object": {
+                "type": "null"
+              },
+              "ref_cas": {
+                "type": "null"
+              },
+              "reflog_after": {
+                "type": "null"
+              },
+              "verification": {
+                "type": "null"
+              }
             }
           }
         }
@@ -955,18 +1719,34 @@
     },
     {
       "if": {
-        "properties": { "phase": { "const": "commit_created" } },
-        "required": ["phase"]
+        "properties": {
+          "phase": {
+            "const": "commit_created"
+          }
+        },
+        "required": [
+          "phase"
+        ]
       },
       "then": {
         "properties": {
-          "effective_target_step": { "type": "null" },
+          "effective_target_step": {
+            "type": "null"
+          },
           "receipts": {
             "properties": {
-              "commit_object": { "type": "object" },
-              "ref_cas": { "type": "null" },
-              "reflog_after": { "type": "null" },
-              "verification": { "type": "null" }
+              "commit_object": {
+                "type": "object"
+              },
+              "ref_cas": {
+                "type": "null"
+              },
+              "reflog_after": {
+                "type": "null"
+              },
+              "verification": {
+                "type": "null"
+              }
             }
           }
         }
@@ -974,18 +1754,34 @@
     },
     {
       "if": {
-        "properties": { "phase": { "const": "ref_advanced" } },
-        "required": ["phase"]
+        "properties": {
+          "phase": {
+            "const": "ref_advanced"
+          }
+        },
+        "required": [
+          "phase"
+        ]
       },
       "then": {
         "properties": {
-          "effective_target_step": { "type": "null" },
+          "effective_target_step": {
+            "type": "null"
+          },
           "receipts": {
             "properties": {
-              "commit_object": { "type": "object" },
-              "ref_cas": { "type": "object" },
-              "reflog_after": { "type": "object" },
-              "verification": { "type": "null" }
+              "commit_object": {
+                "type": "object"
+              },
+              "ref_cas": {
+                "type": "object"
+              },
+              "reflog_after": {
+                "type": "object"
+              },
+              "verification": {
+                "type": "null"
+              }
             }
           }
         }
@@ -993,18 +1789,34 @@
     },
     {
       "if": {
-        "properties": { "phase": { "const": "verified" } },
-        "required": ["phase"]
+        "properties": {
+          "phase": {
+            "const": "verified"
+          }
+        },
+        "required": [
+          "phase"
+        ]
       },
       "then": {
         "properties": {
-          "effective_target_step": { "type": "string" },
+          "effective_target_step": {
+            "type": "string"
+          },
           "receipts": {
             "properties": {
-              "commit_object": { "type": "object" },
-              "ref_cas": { "type": "object" },
-              "reflog_after": { "type": "object" },
-              "verification": { "type": "object" }
+              "commit_object": {
+                "type": "object"
+              },
+              "ref_cas": {
+                "type": "object"
+              },
+              "reflog_after": {
+                "type": "object"
+              },
+              "verification": {
+                "type": "object"
+              }
             }
           }
         }
