@@ -211,11 +211,13 @@ const REQUIRED = Object.freeze({
     "\"verified\"",
     "\"audit_retained\"",
     "\"released\"",
+    "\"snapshot_commit_recipe\"",
   ],
   "resources/planning-publication/candidate-keepalive-operation.example.json": [
     "\"operation_id\"",
     "\"phase\": \"verified\"",
     "\"create_receipt\"",
+    "\"snapshot_commit_recipe\"",
   ],
   "resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json": [
     "\"phase\": \"audit_retained\"",
@@ -719,8 +721,10 @@ export function validatePlanningPublicationOperation(example, schema) {
       keepalive.created_at_utc !== example.created_at_utc) {
     errors.push("candidate_keepalive authoritative record binding mismatch");
   }
+  errors.push(...validateSnapshotCommitRecipe(keepalive));
   if (keepalive.object_format !== recipe.object_format ||
-      keepalive.snapshot_tree_oid !== example.candidate_tree_oid) {
+      keepalive.snapshot_tree_oid !== example.candidate_tree_oid ||
+      keepalive.snapshot_commit_recipe?.parent_oids?.[0] !== example.expected_parent_oid) {
     errors.push("candidate_keepalive object format or tree mismatch");
   }
   if (keepalive.ref_custody_generation !== example.ref_custody_generation ||
@@ -1019,6 +1023,58 @@ export function validatePlanningPublicationOperation(example, schema) {
 }
 
 
+function validateSnapshotCommitRecipe(operation) {
+  const errors = [];
+  const snapshotRecipe = operation.snapshot_commit_recipe;
+  try {
+    const oidLength = snapshotRecipe?.object_format === "sha256" ? 64 : 40;
+    const oidMatchesFormat = (value) =>
+      typeof value === "string" && value.length === oidLength && /^[0-9a-f]+$/u.test(value);
+    const messageBytes = decodeBase64Exact(
+      snapshotRecipe?.message_utf8_base64,
+      "snapshot_commit_recipe.message_utf8_base64",
+      errors,
+    );
+    const commitBytes = decodeBase64Exact(
+      snapshotRecipe?.commit_object_bytes_base64,
+      "snapshot_commit_recipe.commit_object_bytes_base64",
+      errors,
+    );
+    const expectedBytes = Buffer.from(
+      `tree ${snapshotRecipe?.tree_oid}\n` +
+      `parent ${snapshotRecipe?.parent_oids?.[0]}\n` +
+      `author ${snapshotRecipe?.author?.name_utf8} <${snapshotRecipe?.author?.email_ascii}> ` +
+      `${snapshotRecipe?.author?.timestamp_seconds} ${snapshotRecipe?.author?.timezone}\n` +
+      `committer ${snapshotRecipe?.committer?.name_utf8} <${snapshotRecipe?.committer?.email_ascii}> ` +
+      `${snapshotRecipe?.committer?.timestamp_seconds} ${snapshotRecipe?.committer?.timezone}\n\n` +
+      messageBytes.toString("utf8"),
+      "utf8",
+    );
+    const objectHash = createHash(snapshotRecipe?.object_format)
+      .update(Buffer.concat([Buffer.from(`commit ${commitBytes.length}\0`), commitBytes]))
+      .digest("hex");
+    if (!snapshotRecipe || snapshotRecipe.object_format !== operation.object_format ||
+        snapshotRecipe.tree_oid !== operation.snapshot_tree_oid ||
+        !Array.isArray(snapshotRecipe.parent_oids) || snapshotRecipe.parent_oids.length !== 1 ||
+        !oidMatchesFormat(snapshotRecipe.tree_oid) || !oidMatchesFormat(snapshotRecipe.parent_oids[0]) ||
+        snapshotRecipe.signing?.mode !== "none" ||
+        snapshotRecipe.signing?.signature_header_base64 !== null ||
+        !commitBytes.equals(expectedBytes) ||
+        sha256(commitBytes) !== snapshotRecipe.commit_object_bytes_sha256 ||
+        objectHash !== snapshotRecipe.expected_commit_oid ||
+        snapshotRecipe.expected_commit_oid !== operation.snapshot_commit_oid ||
+        snapshotRecipe.committer?.name_utf8 !== operation.reflog_producer?.git_committer_name ||
+        snapshotRecipe.committer?.email_ascii !== operation.reflog_producer?.git_committer_email ||
+        `@${snapshotRecipe.committer?.timestamp_seconds} ${snapshotRecipe.committer?.timezone}` !==
+          operation.reflog_producer?.git_committer_date) {
+      errors.push("candidate keepalive snapshot commit recipe mismatch");
+    }
+  } catch {
+    errors.push("candidate keepalive snapshot commit recipe is invalid");
+  }
+  return errors;
+}
+
 export function validateCandidateKeepaliveOperation(operation, schema) {
   const errors = validateJsonSchema(operation, schema, schema, "candidate_keepalive_operation")
     .map((error) => "Schema: " + error);
@@ -1034,6 +1090,7 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
   if (operation.expected_update_message !== "autosk-flow keepalive " + operation.operation_id) {
     errors.push("candidate keepalive operation message mismatch");
   }
+  errors.push(...validateSnapshotCommitRecipe(operation));
   const create = operation.create_receipt;
   if (create) {
     const expectedEntrySha256 = candidateKeepaliveReflogEntryDigest({ candidate_keepalive: operation });
@@ -1657,42 +1714,49 @@ export function validatePlanningRefDesign(files) {
     }
   }
 
+  const parseResource = (relative) => {
+    try {
+      return JSON.parse(files[relative]);
+    } catch (error) {
+      throw new Error(`${relative}: ${error.message}`);
+    }
+  };
   try {
-    const schema = JSON.parse(
-      files["resources/planning-publication/publish-artifact-pass-operation.schema.json"],
+    const schema = parseResource(
+      "resources/planning-publication/publish-artifact-pass-operation.schema.json",
     );
-    const example = JSON.parse(
-      files["resources/planning-publication/publish-artifact-pass-operation.example.json"],
+    const example = parseResource(
+      "resources/planning-publication/publish-artifact-pass-operation.example.json",
     );
-    const invalidationExample = JSON.parse(
-      files["resources/planning-publication/publish-planning-invalidation-operation.example.json"],
+    const invalidationExample = parseResource(
+      "resources/planning-publication/publish-planning-invalidation-operation.example.json",
     );
-    const initSchema = JSON.parse(
-      files["resources/planning-publication/init-planning-ref-operation.schema.json"],
+    const initSchema = parseResource(
+      "resources/planning-publication/init-planning-ref-operation.schema.json",
     );
-    const initExample = JSON.parse(
-      files["resources/planning-publication/init-planning-ref-operation.example.json"],
+    const initExample = parseResource(
+      "resources/planning-publication/init-planning-ref-operation.example.json",
     );
-    const keepaliveSchema = JSON.parse(
-      files["resources/planning-publication/candidate-keepalive-operation.schema.json"],
+    const keepaliveSchema = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.schema.json",
     );
-    const keepaliveExample = JSON.parse(
-      files["resources/planning-publication/candidate-keepalive-operation.example.json"],
+    const keepaliveExample = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.example.json",
     );
-    const keepaliveAuditExample = JSON.parse(
-      files["resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json"],
+    const keepaliveAuditExample = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json",
     );
-    const keepaliveReleasedExample = JSON.parse(
-      files["resources/planning-publication/candidate-keepalive-operation.released.example.json"],
+    const keepaliveReleasedExample = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.released.example.json",
     );
-    const releasedExample = JSON.parse(
-      files["resources/planning-publication/publish-artifact-pass-operation.released.example.json"],
+    const releasedExample = parseResource(
+      "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
     );
-    const custodyContractSchema = JSON.parse(
-      files["resources/planning-publication/ref-custody-helper-contract.schema.json"],
+    const custodyContractSchema = parseResource(
+      "resources/planning-publication/ref-custody-helper-contract.schema.json",
     );
-    const custodyContractExample = JSON.parse(
-      files["resources/planning-publication/ref-custody-helper-contract.example.json"],
+    const custodyContractExample = parseResource(
+      "resources/planning-publication/ref-custody-helper-contract.example.json",
     );
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
@@ -1722,7 +1786,7 @@ export function validatePlanningRefDesign(files) {
       errors.push(`ref-custody helper Schema/example: ${error}`);
     }
   } catch (error) {
-    errors.push(`planning publication Schema/example is not valid JSON: ${error.message}`);
+    errors.push(`planning publication resource is not valid JSON: ${error.message}`);
   }
 
   return errors;

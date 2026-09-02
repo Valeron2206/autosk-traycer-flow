@@ -1057,7 +1057,7 @@ test("release digests have literal golden vectors", () => {
   );
   assert.equal(
     released.candidate_keepalive.release_receipt.transaction_observation_sha256,
-    "e5e341152cc691fcd393f5143c08a0a27227781cfad61f7617a770da3861838c",
+    "b52a5b032d82a01975a1665e82c5fef351e2d3de4e7be0259c4723f2dc2bab32",
   );
 });
 
@@ -1073,8 +1073,8 @@ test("candidate keepalive operation has a closed standalone machine", () => {
     path.join(directory, "candidate-keepalive-operation.audit-retained.example.json"),
     "utf8",
   ));
-  assert.equal(audit.audit_receipt.observation_sha256, "7c50306e7492d3e295f61fc354798609dcfbcfb922a24087f3e2db24bcc93120");
-  assert.equal(audit.audit_receipt.receipt_hash, "70fa8bbdfbe028b0bcc7ce9c9a0d743d20e6696f9fa6be458be8adb25f9209ef");
+  assert.equal(audit.audit_receipt.observation_sha256, "0087d4d0fcabdf872c5ba08cd1570ea8bd2cac56a3a1f777b2200f653a500c42");
+  assert.equal(audit.audit_receipt.receipt_hash, "d80a5e894090b21ef9803d553af4b91a667adb44d243f1c769ae45312a4fdbdb");
   const invalidPrepared = structuredClone(audit);
   invalidPrepared.phase = "prepared";
   invalidPrepared.terminal_disposition = "published_released";
@@ -1167,6 +1167,37 @@ test("publication embeds the authoritative standalone keepalive record verbatim"
   }
 });
 
+test("snapshot commit recipe is complete, reproducible and required before keepalive creation", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const standalone = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.schema.json"),
+    "utf8",
+  ));
+  const publicationSchema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  assert.equal(standalone.required.includes("snapshot_commit_recipe"), true);
+  assert.equal(
+    publicationSchema.$defs.candidate_keepalive.required.includes("snapshot_commit_recipe"),
+    true,
+  );
+  const operation = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.example.json"),
+    "utf8",
+  ));
+  assert.deepEqual(validateCandidateKeepaliveOperation(operation, standalone), []);
+  const changed = structuredClone(operation);
+  changed.snapshot_commit_recipe.commit_object_bytes_base64 = Buffer.from("forged", "utf8").toString("base64");
+  assert.match(validateCandidateKeepaliveOperation(changed, standalone).join("\n"), /snapshot commit recipe/u);
+});
+
+test("malformed planning resources report the exact filename", () => {
+  const files = fixture();
+  files["resources/planning-publication/ref-custody-helper-contract.example.json"] = "{";
+  assert.match(
+    validatePlanningRefDesign(files).join("\n"),
+    /resource is not valid JSON: resources\/planning-publication\/ref-custody-helper-contract\.example\.json/u,
+  );
+});
+
 test("all abandoned candidates transfer to audit and helper callers have resume targets", () => {
   const plan = fixture()["03-technical-plan.md"];
   assert.match(plan, /superseded.*rebuild_anchor.*record_artifact_pass.*new candidate/isu);
@@ -1226,6 +1257,6 @@ test("successful publication archives its operation and literal release receipt 
   ));
   assert.equal(
     released.candidate_keepalive.release_receipt.receipt_hash,
-    "197f7f391114b1b873b478f277cca9d20bb8e3deb17a3fa63201ad912ca1f8b7",
+    "22974e47283579946191982d83a1195b36352acd0973f7db593f9df6ba5fea67",
   );
 });
