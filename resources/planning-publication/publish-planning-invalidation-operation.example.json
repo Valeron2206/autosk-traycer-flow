@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "operation_id": "66666666-6666-4666-8666-666666666666",
+  "operation_type": "anchor_invalidation",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+  "ref_storage_format": "files",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
+  "payload": {
+    "kind": "anchor_invalidation",
+    "affected_artifact_kinds": [
+      "core_flow",
+      "tech_plan"
+    ],
+    "projection_mutations": [
+      {
+        "artifact_kind": "core_flow",
+        "action": "remove",
+        "previous_projection_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "pathspec_digest": "8c80f0eea3c2621892ee0561c53afad6255ab6a7a6a6bf73e74b1b92a346c128",
+        "pathspec": [
+          "docs/autosk/epics/22222222-2222-4222-8222-222222222222/core-flow.md"
+        ]
+      },
+      {
+        "artifact_kind": "tech_plan",
+        "action": "remove",
+        "previous_projection_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "pathspec_digest": "f6ffcb59df75c1eba2461a2dfe794343d305cc785efb7dec508aebb981da8d5b",
+        "pathspec": [
+          "docs/autosk/epics/22222222-2222-4222-8222-222222222222/tech-plan.md"
+        ]
+      }
+    ],
+    "approved_impact_record_id": "33333333-3333-4333-8333-333333333333",
+    "approved_impact_record_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+    "invalidation_projection_digest": "bb5a8f79f51bef0177d0d166a7ba61c7789726ab0a82b2014460d6b62ff386f4",
+    "recorded_target_step": "clarify_alignment"
+  },
+  "anchor_version": 2,
+  "protocol_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "runtime_lock_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "project_instruction_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+  "governance_mapping_set_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+  "expected_parent_oid": "3333333333333333333333333333333333333333",
+  "expected_parent_tree_oid": "4444444444444444444444444444444444444444",
+  "candidate_tree_oid": "6666666666666666666666666666666666666666",
+  "commit_recipe": {
+    "schema": 1,
+    "object_format": "sha1",
+    "tree_oid": "6666666666666666666666666666666666666666",
+    "parent_oids": [
+      "3333333333333333333333333333333333333333"
+    ],
+    "author": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "committer": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgcHVibGljYXRpb24KCkF1dG9zay1BbmNob3ItVmVyc2lvbjogMgpBdXRvc2stRXBpYy1JRDogMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyCkF1dG9zay1JbXBhY3QtRGlnZXN0OiA4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4CkF1dG9zay1JbXBhY3QtSWRlbnRpdHk6IGJiNWE4Zjc5ZjUxYmVmMDE3N2QwZDE2NmE3YmE2MWM3Nzg5NzI2YWIwYTgyYjIwMTQ0NjBkNmI2MmZmMzg2ZjQKQXV0b3NrLU9wZXJhdGlvbi1JRDogNjY2NjY2NjYtNjY2Ni00NjY2LTg2NjYtNjY2NjY2NjY2NjY2CkF1dG9zay1QYXlsb2FkLUtpbmQ6IGFuY2hvcl9pbnZhbGlkYXRpb24KQXV0b3NrLVByb2plY3QtSW5zdHJ1Y3Rpb24tRGlnZXN0OiA5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5CkF1dG9zay1Qcm9qZWN0LVJvb3QtU0hBMjU2OiBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhCkF1dG9zay1Qcm90b2NvbC1EaWdlc3Q6IGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYKQXV0b3NrLVJ1bnRpbWUtTG9jay1EaWdlc3Q6IDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAK",
+    "signing": {
+      "mode": "none",
+      "policy_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+      "signature_header_base64": null
+    },
+    "commit_object_bytes_base64": "dHJlZSA2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2CnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIHB1YmxpY2F0aW9uCgpBdXRvc2stQW5jaG9yLVZlcnNpb246IDIKQXV0b3NrLUVwaWMtSUQ6IDIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMgpBdXRvc2stSW1wYWN0LURpZ2VzdDogODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OApBdXRvc2stSW1wYWN0LUlkZW50aXR5OiBiYjVhOGY3OWY1MWJlZjAxNzdkMGQxNjZhN2JhNjFjNzc4OTcyNmFiMGE4MmIyMDE0NDYwZDZiNjJmZjM4NmY0CkF1dG9zay1PcGVyYXRpb24tSUQ6IDY2NjY2NjY2LTY2NjYtNDY2Ni04NjY2LTY2NjY2NjY2NjY2NgpBdXRvc2stUGF5bG9hZC1LaW5kOiBhbmNob3JfaW52YWxpZGF0aW9uCkF1dG9zay1Qcm9qZWN0LUluc3RydWN0aW9uLURpZ2VzdDogOTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OQpBdXRvc2stUHJvamVjdC1Sb290LVNIQTI1NjogYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQpBdXRvc2stUHJvdG9jb2wtRGlnZXN0OiBmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmCkF1dG9zay1SdW50aW1lLUxvY2stRGlnZXN0OiAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwCg==",
+    "commit_object_bytes_sha256": "16e2bf37a92770addb3292406b2fc04e84457ef67b863f63d4d6e2683ccf8a20"
+  },
+  "commit_recipe_digest": "615184ab5e23adc80fa1d98257a5c7ded5cc5c3027f3e1a098934dcee66e1c91",
+  "expected_commit_oid": "9ea3276ed1b7c0b8a92a67aaed7843bfaaca1f39",
+  "reflog_checkpoint": {
+    "before_entry_count": 1,
+    "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
+    "expected_old_oid": "3333333333333333333333333333333333333333",
+    "expected_new_oid": "9ea3276ed1b7c0b8a92a67aaed7843bfaaca1f39",
+    "expected_update_message": "autosk-flow publish 66666666-6666-4666-8666-666666666666"
+  },
+  "phase": "prepared",
+  "terminal_reason": null,
+  "recovery_target_step": null,
+  "effective_target_step": null,
+  "created_at_utc": "2026-09-01T00:00:00Z",
+  "receipts": {
+    "commit_object": null,
+    "ref_cas": null,
+    "reflog_after": null,
+    "verification": null
+  }
+}

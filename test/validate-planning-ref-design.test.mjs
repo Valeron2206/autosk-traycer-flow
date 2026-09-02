@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
   OPERATION_EXAMPLE_PATH,
   OPERATION_SCHEMA_PATH,
+  INIT_OPERATION_EXAMPLE_PATH,
+  INIT_OPERATION_SCHEMA_PATH,
+  INVALIDATION_EXAMPLE_PATH,
+  artifactPathspecDigest,
+  canonicalStringify,
   loadPlanningRefFiles,
   planningObservationDigest,
   planningReflogEntryDigest,
@@ -12,6 +18,8 @@ import {
   planningRefDesignDigest,
   validatePlanningPublicationOperation,
   validatePlanningPublicationOperationExample,
+  validatePlanningRefInitOperation,
+  validatePlanningRefInitOperationExample,
   validatePlanningRefDesign,
 } from "../scripts/validate-planning-ref-design.mjs";
 
@@ -425,6 +433,7 @@ test("recovered receipts are bound to their containing operation values", () => 
   }
 
   operation.phase = "verified";
+  operation.effective_target_step = "select_next";
   operation.receipts.verification = receipt("verification", {
     planning_ref: operation.planning_ref,
     commit_oid: operation.expected_commit_oid,
@@ -487,4 +496,155 @@ test("operation Schema date-time validation rejects impossible calendar dates", 
       /created_at_utc.*date-time/u,
     );
   }
+});
+
+test("planning-ref init operation has closed Schema, example and design binding", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "init-planning-ref-operation.schema.json"), "utf8"));
+  const example = JSON.parse(readFileSync(path.join(directory, "init-planning-ref-operation.example.json"), "utf8"));
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(example.operation_type, "planning_ref_init");
+  assert.equal(example.selected_base_ref, "refs/heads/main");
+  assert.match(example.bootstrap_policy_digest, /^[0-9a-f]{64}$/u);
+  assert.equal(example.ref_storage_format, "files");
+  assert.equal(example.phase, "verified");
+  assert.notEqual(example.receipts.ref_create, null);
+  assert.notEqual(example.receipts.verification, null);
+  assert.deepEqual(validatePlanningRefInitOperationExample(example, schema), []);
+});
+
+test("init operation rejects substituted base authority, receipts and phase prefixes", () => {
+  const schema = JSON.parse(readFileSync(INIT_OPERATION_SCHEMA_PATH, "utf8"));
+  const original = JSON.parse(readFileSync(INIT_OPERATION_EXAMPLE_PATH, "utf8"));
+  for (const mutate of [
+    (value) => { value.selected_base_ref = "refs/heads/../main"; },
+    (value) => { value.bootstrap_policy_digest = "0".repeat(64); },
+    (value) => { value.receipts.ref_create.operation_id = "99999999-9999-4999-8999-999999999999"; },
+    (value) => { value.receipts.ref_create.observation.observed_new_oid = "5".repeat(40); },
+    (value) => { value.phase = "ref_created"; },
+  ]) {
+    const changed = structuredClone(original);
+    mutate(changed);
+    assert.notDeepEqual(validatePlanningRefInitOperation(changed, schema), []);
+  }
+});
+
+test("publication examples bind ref backend, producer and normalized pathspec identities", () => {
+  const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  assert.equal(example.ref_storage_format, "files");
+  assert.equal(example.reflog_producer.git_committer_name, example.commit_recipe.committer.name_utf8);
+  assert.equal(example.reflog_producer.git_committer_email, example.commit_recipe.committer.email_ascii);
+  assert.match(example.reflog_producer.git_committer_date, /^@[0-9]+ [+-][0-9]{4}$/u);
+  assert.deepEqual(example.payload.artifact_pathspec, [...example.payload.artifact_pathspec].sort());
+  assert.equal(example.payload.artifact_pathspec.length > 0, true);
+});
+
+test("invalidation operation has a deterministic non-empty golden vector", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const example = JSON.parse(readFileSync(
+    path.join(directory, "publish-planning-invalidation-operation.example.json"),
+    "utf8",
+  ));
+  assert.deepEqual(validatePlanningPublicationOperation(example, schema), []);
+  assert.equal(example.operation_type, "anchor_invalidation");
+  assert.notEqual(example.candidate_tree_oid, example.expected_parent_tree_oid);
+  assert.equal(example.payload.projection_mutations.length > 0, true);
+  assert.deepEqual(example.payload.affected_artifact_kinds, ["core_flow", "tech_plan"]);
+  assert.match(Buffer.from(example.commit_recipe.message_utf8_base64, "base64").toString("utf8"), /Autosk-Impact-Digest/u);
+});
+
+test("invalidation ordering, pathspec digests and stored targets are semantic", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const original = JSON.parse(readFileSync(INVALIDATION_EXAMPLE_PATH, "utf8"));
+  assert.equal(
+    original.payload.projection_mutations[0].pathspec_digest,
+    artifactPathspecDigest(
+      original.payload.projection_mutations[0].artifact_kind,
+      original.payload.projection_mutations[0].pathspec,
+    ),
+  );
+  for (const mutate of [
+    (value) => { value.payload.affected_artifact_kinds.reverse(); },
+    (value) => { value.payload.projection_mutations[0].pathspec_digest = "0".repeat(64); },
+    (value) => { value.payload.projection_mutations[0].pathspec = ["../escape.md"]; },
+    (value) => { value.payload.invalidation_projection_digest = "0".repeat(64); },
+  ]) {
+    const changed = structuredClone(original);
+    mutate(changed);
+    assert.notDeepEqual(validatePlanningPublicationOperation(changed, schema), []);
+  }
+});
+
+test("invalidation transition rows close every publication phase and recovery target", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  for (const marker of [
+    "publish_planning_invalidation | phase=prepared and expected object absent",
+    "publish_planning_invalidation | phase=commit_created and expected object absent",
+    "publish_planning_invalidation | phase=commit_created and ref=expected parent",
+    "publish_planning_invalidation | phase=ref_advanced and current bindings drifted",
+    "publish_planning_invalidation | phase=ref_advanced and current bindings exact",
+    "publish_planning_invalidation | phase=verified and effective_target_step",
+    "publish_planning_invalidation | phase=voided_before_ref",
+  ]) assert.match(plan, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(plan, /planning_ref_foreign_movement \| init_planning_ref or publish_artifact_pass or publish_planning_invalidation/u);
+});
+
+test("design validator rejects a collapsed invalidation recovery machine", () => {
+  const files = fixture();
+  files["03-technical-plan.md"] = files["03-technical-plan.md"].replace(
+    /^\| publish_planning_invalidation \| phase=commit_created and expected object absent[^\n]+\n/mu,
+    "",
+  );
+  assert.match(validatePlanningRefDesign(files).join("\n"), /invalidation phase row missing/u);
+});
+
+test("pre-CAS void and invalidation drift close rebuild state and preserve history", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /publication_status=voided_before_ref.*terminal_reason.*publication_operation_id/u);
+  assert.match(plan, /publication_history/u);
+  assert.match(plan, /anchor_rebuild_op phase=voided_before_ref.*prepare_anchor_impact/u);
+  assert.match(plan, /anchor_rebuild_op phase=closed_with_pending_anchor.*prepare_anchor_impact/u);
+});
+
+test("reflog producer, expiry and ref backend rules are normative", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /GIT_COMMITTER_NAME.*GIT_COMMITTER_EMAIL.*GIT_COMMITTER_DATE/u);
+  assert.match(contract, /gc\..*reflogExpire=never.*reflogExpireUnreachable=never/u);
+  assert.match(contract, /ref storage.*files.*reftable.*planning_ref_capability_missing/isu);
+  assert.match(contract, /autosk-flow\/artifact-pathspec\/v1\\0/u);
+  assert.match(contract, /canonical ArtifactKind order.*brief.*core_flow.*tech_plan.*tickets/isu);
+});
+
+test("actor email ident delimiters are rejected by the complete Schema", () => {
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  example.commit_recipe.author.email_ascii = "bad>ident@example.invalid";
+  assert.match(validatePlanningPublicationOperation(example, schema).join("\n"), /email_ascii/u);
+});
+
+test("canonical JSON comparison follows Unicode code-point order", () => {
+  const files = fixture();
+  files["docs/contracts/epic-planning-ref.md"] += "\ncanonical-json-probe: \\uE000 before \\u{10000}\n";
+  assert.doesNotMatch(validatePlanningRefDesign(files).join("\n"), /canonical JSON comparator/u);
+  const validator = readFileSync(
+    path.resolve(path.dirname(OPERATION_SCHEMA_PATH), "../../scripts/validate-planning-ref-design.mjs"),
+    "utf8",
+  );
+  assert.match(validator, /codePointCompare/u);
+  assert.equal(canonicalStringify({ "\u{10000}": 2, "\uE000": 1 }), "{\"\":1,\"𐀀\":2}");
+});
+
+test("empty invalidation projections and mutable effective targets are rejected", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const example = JSON.parse(readFileSync(
+    path.join(directory, "publish-planning-invalidation-operation.example.json"),
+    "utf8",
+  ));
+  example.payload.projection_mutations = [];
+  example.candidate_tree_oid = example.expected_parent_tree_oid;
+  const result = validatePlanningPublicationOperation(example, schema).join("\n");
+  assert.match(result, /projection_mutations/u);
+  assert.match(result, /candidate_tree_oid/u);
 });

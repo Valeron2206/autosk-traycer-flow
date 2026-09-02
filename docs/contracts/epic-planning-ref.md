@@ -32,7 +32,7 @@ This contract does not:
 
 ## 3. Terms
 
-- **Planning base** — the exact commit OID recorded for the Epic before the first planning artifact. The closed v1 bootstrap delivery policy requires the trusted host at Planned intake to resolve an explicitly selected local target ref, record that ref name plus its exact current commit/tree as `planning_base_oid`/`planning_base_tree_oid`, use fixed host identity `autosk-flow <autosk@example.invalid>`, record one whole-second UTC timestamp for both author and committer with timezone `+0000`, and use signing mode `none`. Its policy digest is bound to the operation. A project requiring custom identity, another base-selection rule or signed ancestry blocks issue #5 runtime work with `planning_ref_capability_missing` until issue #17 supplies and locks that policy; mutable branch names or ambient Git identity are never substituted.
+- **Planning base** — the exact commit OID recorded for the Epic before the first planning artifact. The closed v1 bootstrap delivery policy requires the trusted host at Planned intake to resolve an explicitly selected local target ref, record its daemon workflow-intake request ID/hash plus ref name and exact current commit/tree, use fixed host identity `autosk-flow <autosk@example.invalid>`, and signing mode `none`. Init records one whole-second UTC producer timestamp at init-operation creation. Each later publication records its own immutable whole-second UTC author/committer/reflog-producer timestamp before prepared; retries replay that operation timestamp. The policy digest is bound to the operation. A project requiring custom identity, another base-selection rule or signed ancestry blocks issue #5 runtime work with `planning_ref_capability_missing` until issue #17 supplies and locks that policy; mutable branch names or ambient Git identity are never substituted.
 - **Planning ref** — the private ref above.
 - **Planning head** — the commit currently referenced by the verified planning ref.
 - **Artifact candidate** — an exact tree built from the current verified planning head plus only the declared artifact pathspec.
@@ -55,6 +55,8 @@ intake
 
 `init_planning_ref` is deterministic host code.
 
+The closed machine contract is `resources/planning-publication/init-planning-ref-operation.schema.json`; `init-planning-ref-operation.example.json` is the verified golden vector. The Schema, example and prose are one behavior contract and are included in the planning design digest.
+
 It first persists a complete `planning_ref_init_op` before touching Git:
 
 ```json
@@ -65,15 +67,21 @@ It first persists a complete `planning_ref_init_op` before touching Git:
   "epic_id": "uuid",
   "epic_ref_key": "sha256",
   "planning_ref": "refs/autosk/epics/<epic_ref_key>/planning",
+  "selected_base_ref": "refs/heads/main",
+  "base_selection_policy": "closed object",
+  "base_selection_authority": "workflow intake request ID/hash",
   "planning_base_oid": "git-oid",
   "planning_base_tree_oid": "git-oid",
   "object_format": "sha1-or-sha256",
+  "bootstrap_policy_digest": "sha256",
+  "ref_storage_format": "files",
+  "reflog_producer": "closed exact Git environment",
   "expected_update_message": "autosk-flow init <operation-id>",
   "phase": "prepared",
   "created_at_utc": "whole-second UTC",
   "receipts": {
-    "ref_create": null,
-    "verification": null
+    "ref_create": "closed receipt-or-null",
+    "verification": "closed receipt-or-null"
   }
 }
 ```
@@ -86,10 +94,12 @@ prepared
 → verified
 ```
 
+`bootstrap_policy_digest = SHA-256("autosk-flow/planning-ref-init-policy/v1\0" + canonical JSON {base_selection_authority,base_selection_policy,planning_base_oid,planning_base_tree_oid,selected_base_ref})`. Init receipts use the same self-contained envelope and observation/receipt domains as publication. `ref_create.observation` binds exact planning ref, object-format zero old OID, base new OID, message, empty-prefix digest and one appended raw entry; `verification.observation` binds planning ref, base commit/tree and the ref-create receipt hash. Receipt prefixes are closed: prepared has none, ref_created only ref_create, verified both.
+
 `init_planning_ref` then:
 
 1. resolves the canonical repository and project identity;
-2. validates that `planning_base_oid` is a commit in that repository and records its exact tree;
+2. validates that the daemon-attributed workflow intake request selected one explicit local `refs/heads/...` base, stores its request ID/hash, selected ref, exact commit/tree and closed bootstrap policy digest; current branch/CWD and ambient config are not authority;
 3. derives `epic_ref_key` from the immutable project/Epic identity and validates the exact private ref;
 4. discovers the repository object format and uses Git's object-format-neutral missing-old-value form rather than a hard-coded 40-zero OID;
 5. creates the ref with an exact missing-old-value CAS and `--create-reflog`, using the operation-specific reflog message;
@@ -178,10 +188,13 @@ The protected Epic metadata contains exactly one open operation:
   "epic_id": "uuid",
   "epic_ref_key": "sha256",
   "planning_ref": "refs/autosk/epics/<epic_ref_key>/planning",
+  "ref_storage_format": "files",
+  "reflog_producer": "closed exact Git environment",
   "payload": {
     "kind": "artifact_pass",
     "artifact_kind": "brief",
     "artifact_identity": "sha256",
+    "artifact_pathspec": ["normalized/repository-relative/path"],
     "artifact_pathspec_digest": "sha256",
     "alignment_identity": "sha256",
     "verdict_or_waiver_digest": "sha256",
@@ -233,6 +246,7 @@ The protected Epic metadata contains exactly one open operation:
   "phase": "prepared",
   "terminal_reason": null,
   "recovery_target_step": null,
+  "effective_target_step": null,
   "created_at_utc": "whole-second UTC",
   "receipts": {
     "commit_object": null,
@@ -270,11 +284,19 @@ All load-bearing digests use the canonical JSON rule from section 1 and exact do
 
 Typed observations are closed by kind: `commit_object={object_format,object_oid,object_bytes_sha256}`; `ref_cas={planning_ref,expected_old_oid,observed_new_oid,expected_update_message}`; `reflog_after={before_entry_count,after_entry_count,before_prefix_sha256,appended_entry_sha256}`; `verification={planning_ref,commit_oid,tree_oid,reflog_after_receipt_hash}`. Before recovery or phase advance, deterministic host code must run the generic operation semantic validator over every non-null receipt, recompute both digests from the embedded observation, and compare every observation field to the containing operation: recipe format/OID/byte hash; planning ref/checkpoint old/new/message; checkpoint count/prefix plus exactly one appended entry; and final ref/commit/tree plus the sibling reflog receipt hash. Foreign operation IDs, slot mismatch, extra/missing observation fields, self-consistent substituted observations and phase-prefix mismatches are rejected. The example, its reflog prefix vector and validator tests are golden vectors for these formulas; implementations may not substitute parsed/locale-formatted reflog text.
 
+Every init/publication operation persists a closed `reflog_producer`. Host code launches Git with an empty inherited Git environment and exact `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`, `GIT_COMMITTER_DATE=@<timestamp_seconds> <timezone>`, `LC_ALL=C`, `TZ=UTC`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_SYSTEM=/dev/null`, `GIT_CONFIG_GLOBAL=/dev/null`; the verified common Git directory is supplied explicitly through `--git-dir`, never `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE`. It passes `-c core.hooksPath=/dev/null` and object-format-neutral expected-old values to `git update-ref --create-reflog -m <expected_update_message> <planning_ref> <new_oid> <old_oid>`. The producer timestamp is recorded once per operation before phase prepared and is replayed unchanged after arbitrary delay. Ambient identity/date/config/hooks are rejected. Phase advance requires exact raw appended-entry bytes to match `planningReflogEntryDigest` or the init equivalent. Golden vectors use epoch zero only for reproducibility; runtime operations use their recorded operation timestamp.
+
+Raw reflog-byte v1 supports only Git `files` ref storage. Preflight records `ref_storage_format=files`; reftable or an unprovable backend parks `planning_ref_capability_missing` before any Git side effect. The repository must pin `gc."refs/autosk/epics/*/planning".reflogExpire=never` and `gc."refs/autosk/epics/*/planning".reflogExpireUnreachable=never`; missing/unprovable retention also parks capability-missing. Unexpected prefix truncation remains foreign/corrupt evidence and is never silently adopted.
+
 The phase=`prepared` example uses `before_entry_count=1`. Its exact raw reflog-prefix bytes are Base64 `MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==`; the formula above yields `1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42`. The same example pins commit-recipe digest `bfe115216f174b19244a91601ac8719b609ac6ecb243380f4b8e05d498df4cc8`, exact commit OID `220f8a42d7897c5c45fd8a773966e8c2cde33994` and exact commit-bytes SHA-256 `fffa1a2b18a241c35f468507bf3dca39cd010bc825dcc1b4e479ec68267803a7`.
 
 For the example operation, typed `commit_object` observation `{object_bytes_sha256:"fffa1a2b18a241c35f468507bf3dca39cd010bc825dcc1b4e479ec68267803a7",object_format:"sha1",object_oid:"220f8a42d7897c5c45fd8a773966e8c2cde33994"}` yields `observation_sha256=863bbbe1ea26dbbc3f6d1eb7e837151b3a47c3248f5b9566bb42fe62f79ef319`; its receipt preimage yields `receipt_hash=0900511622fb2ffb35b35f985dae50ef3ca12362d44ef152f72cfaedcd68147e`.
 
-For `payload.kind=anchor_invalidation`, the payload replaces artifact-pass fields with an ordered `affected_artifact_kinds`, approved impact record ID/hash, exact invalidation projection digest and recorded post-publication target step. Unknown payload fields or a payload/operation-type mismatch park `planning_publication_invalid`.
+For artifact PASS, `artifact_pathspec` is a non-empty code-point-sorted unique array of normalized repository-relative POSIX paths: no absolute path, `..`, repeated separator, Git pathspec magic, `.lock` suffix, symlink or implicit glob. `artifact_pathspec_digest = SHA-256("autosk-flow/artifact-pathspec/v1\0" + canonical JSON {artifact_kind,pathspec})`.
+
+For `payload.kind=anchor_invalidation`, the payload replaces artifact-pass fields with `affected_artifact_kinds` in canonical ArtifactKind order `brief, core_flow, tech_plan, tickets`, a non-empty ordered `projection_mutations` array, approved impact record ID/hash, exact invalidation projection digest and recorded post-publication target step. Each mutation binds artifact kind, remove/replace action, previous projection digest and pathspec digest. `invalidation_projection_digest = SHA-256("autosk-flow/invalidation-projection/v1\0" + canonical JSON {affected_artifact_kinds,projection_mutations})`. The mutation kinds must equal the affected-kind array, and the invalidation candidate tree must differ from its parent. An empty/no-op projection is rejected before operation creation and follows the approved no-bindings/redraft disposition. Unknown payload fields or a payload/operation-type mismatch park `planning_publication_invalid`.
+
+`recorded_target_step` is the nominal success target written with the payload. `effective_target_step` is null before a terminal phase and is atomically recorded as nominal target on ordinary verification or `prepare_anchor_impact` on drift/void. Recovery after a terminal phase follows only this stored effective target; it never re-derives drift or target from mutable metadata.
 
 Only one non-terminal planning-ref operation may exist for an Epic. A second operation, an unknown phase, a mutable identity field, or conflicting operation ID parks with `planning_publication_invalid`.
 
@@ -287,12 +309,12 @@ Before phase=`prepared`, trusted host code materializes and read-back verifies t
 - exactly one parent = exact expected planning head;
 - author/committer identities = host identities pinned for the Epic by the locked delivery policy, never the model process; the closed v1 bootstrap values are defined in section 3;
 - author/committer seconds and timezone = exact persisted values;
-- UTF-8 commit message with LF endings, subject `autosk-flow planning publication`, one blank line and exactly these case-sensitive trailers sorted by trailer name: `Autosk-Anchor-Version`, `Autosk-Artifact-Identity` or `Autosk-Impact-Identity`, `Autosk-Epic-ID`, `Autosk-Operation-ID`, `Autosk-Payload-Kind`, `Autosk-Project-Instruction-Digest`, `Autosk-Project-Root-SHA256`, `Autosk-Protocol-Digest`, `Autosk-Runtime-Lock-Digest`, `Autosk-Verdict-Or-Waiver-Digest` or `Autosk-Impact-Digest`; duplicate/unknown/missing trailers are invalid;
+- UTF-8 commit message with LF endings, subject `autosk-flow planning publication`, one blank line and a closed trailer set sorted lexicographically by Unicode code point of the complete trailer name. The set is `Autosk-Anchor-Version`, `Autosk-Epic-ID`, `Autosk-Operation-ID`, `Autosk-Payload-Kind`, `Autosk-Project-Instruction-Digest`, `Autosk-Project-Root-SHA256`, `Autosk-Protocol-Digest`, `Autosk-Runtime-Lock-Digest` plus artifact fields `Autosk-Artifact-Identity=artifact_identity`, `Autosk-Verdict-Or-Waiver-Digest=verdict_or_waiver_digest`, or invalidation fields `Autosk-Impact-Digest=approved_impact_record_hash`, `Autosk-Impact-Identity=invalidation_projection_digest`. The listed set is not positional; the sort rule alone determines bytes. Duplicate/unknown/missing trailers are invalid;
 - delivery/signing policy digest;
 - exact signature header bytes when signing is required;
 - exact final commit object bytes and their SHA-256.
 
-The host asks the repository's Git implementation to calculate `expected_commit_oid` from the persisted exact bytes without writing, verifies the parsed tree/parent/message/signature fields against the structured recipe, and only then records phase=`prepared`. Publication writes those same bytes as a `commit` object and requires Git to return the recorded OID. No post-crash call may regenerate author data, timestamps, message text or signatures from latest configuration.
+The host asks the repository's Git implementation to calculate `expected_commit_oid` from the persisted exact bytes without writing, verifies the parsed tree, parent, author, committer, message and signature fields against the structured recipe, and only then records phase=`prepared`. Actor names/emails forbid CR/LF and Git ident delimiters; email has exactly one `@`. Publication writes those same bytes as a `commit` object and requires Git to return the recorded OID. No post-crash call may regenerate author data, timestamps, message text or signatures from latest configuration.
 
 For signing mode `exact`, `signature_header_base64` decodes to the exact LF-terminated `gpgsig ...` header bytes inserted between the committer header and the blank separator. For mode `none` it is null and no signature header exists. The host constructs the complete commit bytes from structured fields and requires byte-for-byte equality with `commit_object_bytes_base64` before `prepared`.
 
@@ -358,9 +380,15 @@ Before redrafting an affected planning artifact, `rebuild_anchor` prepares a `pl
 
 The common parent/tree/recipe/reflog fields and phases are identical to artifact publication. The payload kind is immutable and cannot be reinterpreted as an artifact PASS after recovery.
 
+`resources/planning-publication/publish-planning-invalidation-operation.example.json` is the canonical invalidation golden vector. It pins projection mutations, sorted impact trailers, exact message/commit bytes, recipe digest and expected commit OID; the common semantic validator verifies it against the same Schema.
+
 The candidate invalidation tree is based on the current verified planning head and removes or replaces only the exact current projections declared affected by the approved impact map. For the four v1 named artifacts, stale canonical files are removed from the current tree; their accepted bytes remain reachable in earlier planning commits. Issue #14 generalizes the per-artifact projection rule.
 
-`rebuild_anchor` creates the phase=`prepared` invalidation operation and atomically records `anchor_rebuild_op.phase=ready_to_transit`, the publication operation ID and target `publish_planning_invalidation`. A crash before transition therefore re-enters `rebuild_anchor`, reads back the matching open operation and repeats only that target; it never mints a second operation.
+`rebuild_anchor` creates the phase=`prepared` invalidation operation and atomically records `anchor_rebuild_op.phase=ready_to_transit`, the publication operation ID and stored post-publication target. A crash before transition therefore re-enters `rebuild_anchor`, reads back the matching open operation and repeats only `publish_planning_invalidation`; it never mints a second operation.
+
+Invalidation executes the full section 9 phase machine, with explicit rows in the canonical transition table. Pre-CAS drift atomically terminalizes the publication operation and rebuild operation as `voided_before_ref`, preserves/creates a bound pending anchor, archives both records and transitions to `prepare_anchor_impact`. Post-CAS drift verifies the historical descendant against recorded bindings, updates planning head/tree/generation, closes the rebuild operation as `closed_with_pending_anchor`, archives records and transitions to `prepare_anchor_impact`. Ordinary verification closes it as `closed` and follows only the stored effective target. Foreign/ABA recovery resumes through `publish_planning_invalidation` only for operation type anchor_invalidation after signed investigation; unresolved movement permits only cancel. A voided operation never later writes/ref-advances, and a post-CAS operation is never voided or rewound.
+
+If no current published projection mutation exists, or the candidate tree equals its parent, no invalidation operation is created. The approved impact is reclassified through the no-bindings/redraft path or parks `anchor_impact_invalid`; v1 does not publish an empty audit-only descendant.
 
 `publish_planning_invalidation` uses the same deterministic recipe, CAS and verification adapter. Only after its descendant commit is verified may redrafting begin. The private ref is never rewound or force-updated.
 
@@ -402,11 +430,12 @@ The planning ref and every commit/object referenced by:
 - staging/integration operation;
 - release/design attestation;
 - an open planning publication operation whose exact bytes may need pre-CAS reconstruction;
+- append-only terminal planning publication/init/rebuild history and any voided pre-CAS object during its audit period;
 - unexpired audit policy
 
 are retained and protected from cleanup.
 
-Normal Ticket or Epic worktree cleanup does not delete the planning ref. Deletion is a separate operator-approved Housekeeping action after reference inventory and retention expiry. It leaves a tombstone with project/Epic/ref/final-head identity. Git GC may prune the pre-CAS object because exact bytes remain in the protected operation, but retry must rewrite those bytes to the same OID before CAS. Git GC must not make current or post-CAS audit-required planning objects unreachable.
+Normal Ticket or Epic worktree cleanup does not delete the planning ref or its append-only operation history. Deletion is a separate operator-approved Housekeeping action after reference inventory and retention expiry. It leaves a tombstone with project/Epic/ref/final-head identity. Git GC may prune the pre-CAS object because exact bytes remain in the protected operation, but retry must rewrite those bytes to the same OID before CAS. Git GC must not make current or post-CAS audit-required planning objects unreachable. The planning-ref reflog is retained with both scoped expiry values `never`; ordinary maintenance must not truncate its load-bearing prefix. Unexpected truncation is explicit foreign/corrupt evidence, never normal adoption.
 
 ## 13. Required runtime tests
 
@@ -436,6 +465,13 @@ Implementation of issue #5 is release-blocking and must include at least:
 22. resume every planning park reason only through its registered target and required evidence;
 23. verify receipt slot/operation/phase prefixes and every published digest golden vector;
 24. retry after atomic PASS+prepared-operation write and after invalidation-operation write without minting a second operation.
+25. validate the closed init Schema/example, receipt prefixes, selected-base authority and SHA-1/SHA-256 zero-old proof;
+26. delay init/publication CAS and poison ambient Git identity/config while the persisted reflog producer still yields the golden raw entry;
+27. retain the planning reflog across ordinary expiry/GC and fail closed on forced truncation;
+28. execute every invalidation phase, pre/post-CAS drift, void retry, foreign/ABA resume and rebuild-op closure;
+29. reject empty invalidation projection and replay the stored effective target;
+30. reject Git ident delimiter emails and verify parsed author/committer;
+31. accept files ref storage and fail before side effects for reftable/unprovable backend.
 
 ## 14. Acceptance mapping for issue #5
 

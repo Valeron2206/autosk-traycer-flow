@@ -6,11 +6,26 @@
   "epic_id": "22222222-2222-4222-8222-222222222222",
   "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
   "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+  "ref_storage_format": "files",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
   "payload": {
     "kind": "artifact_pass",
     "artifact_kind": "brief",
     "artifact_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "artifact_pathspec_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "artifact_pathspec": ["docs/autosk/epics/22222222-2222-4222-8222-222222222222/brief.md"],
+    "artifact_pathspec_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
     "alignment_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "verdict_or_waiver_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "recorded_target_step": "select_next"
@@ -63,6 +78,7 @@
   "phase": "prepared",
   "terminal_reason": null,
   "recovery_target_step": null,
+  "effective_target_step": null,
   "created_at_utc": "2026-09-01T00:00:00Z",
   "receipts": {
     "commit_object": null,

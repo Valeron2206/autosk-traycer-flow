@@ -14,6 +14,18 @@ export const OPERATION_EXAMPLE_PATH = path.join(
   ROOT,
   "resources/planning-publication/publish-artifact-pass-operation.example.json",
 );
+export const INVALIDATION_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/publish-planning-invalidation-operation.example.json",
+);
+export const INIT_OPERATION_SCHEMA_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/init-planning-ref-operation.schema.json",
+);
+export const INIT_OPERATION_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/init-planning-ref-operation.example.json",
+);
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -25,6 +37,9 @@ export const CONTRACT_FILES = Object.freeze([
   "docs/contracts/epic-planning-ref.md",
   "resources/planning-publication/publish-artifact-pass-operation.schema.json",
   "resources/planning-publication/publish-artifact-pass-operation.example.json",
+  "resources/planning-publication/publish-planning-invalidation-operation.example.json",
+  "resources/planning-publication/init-planning-ref-operation.schema.json",
+  "resources/planning-publication/init-planning-ref-operation.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -116,6 +131,9 @@ const REQUIRED = Object.freeze({
     "\"project_instruction_digest\"",
     "\"voided_before_ref\"",
     "\"commit_object_bytes_base64\"",
+    "\"ref_storage_format\"",
+    "\"reflog_producer\"",
+    "\"effective_target_step\"",
   ],
   "resources/planning-publication/publish-artifact-pass-operation.example.json": [
     "\"operation_type\": \"artifact_pass\"",
@@ -123,6 +141,27 @@ const REQUIRED = Object.freeze({
     "\"epic_ref_key\"",
     "\"project_instruction_digest\": \"9999999999999999999999999999999999999999999999999999999999999999\"",
     "\"recovery_target_step\": null",
+    "\"artifact_pathspec\"",
+    "\"ref_storage_format\": \"files\"",
+  ],
+  "resources/planning-publication/publish-planning-invalidation-operation.example.json": [
+    "\"operation_type\": \"anchor_invalidation\"",
+    "\"projection_mutations\"",
+    "\"recorded_target_step\": \"clarify_alignment\"",
+    "\"invalidation_projection_digest\"",
+  ],
+  "resources/planning-publication/init-planning-ref-operation.schema.json": [
+    "\"operation_type\"",
+    "\"planning_ref_init\"",
+    "\"selected_base_ref\"",
+    "\"bootstrap_policy_digest\"",
+    "\"ref_create\"",
+  ],
+  "resources/planning-publication/init-planning-ref-operation.example.json": [
+    "\"operation_type\": \"planning_ref_init\"",
+    "\"selected_base_ref\": \"refs/heads/main\"",
+    "\"phase\": \"verified\"",
+    "\"ref_storage_format\": \"files\"",
   ],
 });
 
@@ -131,18 +170,28 @@ const OID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const REF_RE = /^refs\/autosk\/epics\/[0-9a-f]{64}\/planning$/u;
 
-function canonicalStringify(value) {
+export function codePointCompare(left, right) {
+  const leftPoints = Array.from(left);
+  const rightPoints = Array.from(right);
+  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
+    const difference = leftPoints[index].codePointAt(0) - rightPoints[index].codePointAt(0);
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
+export function canonicalStringify(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`).join(",")}}`;
+    return `{${Object.keys(value).sort(codePointCompare).map((key) => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
 
 function exactKeys(value, expected) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
+  const actual = Object.keys(value).sort(codePointCompare);
+  const wanted = [...expected].sort(codePointCompare);
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
@@ -299,11 +348,13 @@ function reflogPrefixDigest(entryCount, prefixBytes) {
 }
 
 export function planningReflogEntryDigest(operation) {
-  const actor = operation.commit_recipe.committer;
+  const producer = operation.reflog_producer;
+  if (!producer || typeof producer.git_committer_date !== "string" || !operation.reflog_checkpoint) return "";
+  const [timestampSeconds, timezone] = producer.git_committer_date.slice(1).split(" ");
   const checkpoint = operation.reflog_checkpoint;
   const entry = Buffer.from(
     `${checkpoint.expected_old_oid} ${checkpoint.expected_new_oid} ` +
-    `${actor.name_utf8} <${actor.email_ascii}> ${actor.timestamp_seconds} ${actor.timezone}\t` +
+    `${producer.git_committer_name} <${producer.git_committer_email}> ${timestampSeconds} ${timezone}\t` +
     `${checkpoint.expected_update_message}\n`,
     "utf8",
   );
@@ -326,6 +377,24 @@ export function planningReceiptHash(operationId, receiptKind, observationSha256)
       operation_id: operationId,
       receipt_kind: receiptKind,
       observation_sha256: observationSha256,
+    }),
+  );
+}
+
+export function artifactPathspecDigest(artifactKind, pathspec) {
+  return sha256(
+    "autosk-flow/artifact-pathspec/v1\0" + canonicalStringify({
+      artifact_kind: artifactKind,
+      pathspec,
+    }),
+  );
+}
+
+export function invalidationProjectionDigest(affectedArtifactKinds, projectionMutations) {
+  return sha256(
+    "autosk-flow/invalidation-projection/v1\0" + canonicalStringify({
+      affected_artifact_kinds: affectedArtifactKinds,
+      projection_mutations: projectionMutations,
     }),
   );
 }
@@ -365,7 +434,7 @@ function expectedPublicationMessage(example) {
     ["Autosk-Protocol-Digest", example.protocol_digest],
     ["Autosk-Runtime-Lock-Digest", example.runtime_lock_digest],
     [dispositionName, dispositionValue],
-  ].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  ].sort(([left], [right]) => codePointCompare(left, right));
   return `autosk-flow planning publication\n\n${trailers.map(([key, value]) => `${key}: ${value}`).join("\n")}\n`;
 }
 
@@ -420,6 +489,17 @@ export function validatePlanningPublicationOperation(example, schema) {
   }
   if (recipe.tree_oid !== example.candidate_tree_oid) errors.push("commit_recipe tree differs from candidate_tree_oid");
   if (recipe.parent_oids?.[0] !== example.expected_parent_oid) errors.push("commit_recipe parent differs from expected_parent_oid");
+  if (example.ref_storage_format !== "files") errors.push("ref_storage_format must be files for raw reflog v1");
+  const expectedProducer = {
+    git_committer_name: recipe.committer?.name_utf8,
+    git_committer_email: recipe.committer?.email_ascii,
+    git_committer_date: `@${recipe.committer?.timestamp_seconds} ${recipe.committer?.timezone}`,
+  };
+  for (const [key, value] of Object.entries(expectedProducer)) {
+    if (example.reflog_producer?.[key] !== value) {
+      errors.push(`reflog_producer.${key} does not match persisted committer`);
+    }
+  }
   const recipeDigest = sha256(
     "autosk-flow/planning-commit-recipe/v1\0" + canonicalStringify(recipe),
   );
@@ -537,6 +617,57 @@ export function validatePlanningPublicationOperation(example, schema) {
       presentReceipts.some((slot) => slot !== "commit_object")) {
     errors.push("voided_before_ref phase receipts may contain only commit_object");
   }
+  if (["prepared", "commit_created", "ref_advanced"].includes(example.phase) &&
+      example.effective_target_step !== null) {
+    errors.push("effective_target_step must remain null before terminal publication");
+  }
+  if (example.phase === "voided_before_ref" && example.effective_target_step !== "prepare_anchor_impact") {
+    errors.push("voided_before_ref effective_target_step must be prepare_anchor_impact");
+  }
+  if (example.payload?.kind === "artifact_pass") {
+    const pathspec = example.payload.artifact_pathspec;
+    if (!Array.isArray(pathspec) || canonicalStringify(pathspec) !==
+        canonicalStringify([...pathspec].sort(codePointCompare))) {
+      errors.push("artifact_pathspec must use canonical code-point order");
+    } else if (example.payload.artifact_pathspec_digest !==
+        artifactPathspecDigest(example.payload.artifact_kind, pathspec)) {
+      errors.push("artifact_pathspec_digest mismatch");
+    }
+    if (example.phase === "verified" &&
+        !["select_next", "prepare_anchor_impact"].includes(example.effective_target_step)) {
+      errors.push("verified artifact_pass effective_target_step is invalid");
+    }
+  }
+  if (example.payload?.kind === "anchor_invalidation") {
+    const order = ["brief", "core_flow", "tech_plan", "tickets"];
+    const kinds = example.payload.affected_artifact_kinds ?? [];
+    const sorted = [...kinds].sort((left, right) => order.indexOf(left) - order.indexOf(right));
+    if (canonicalStringify(kinds) !== canonicalStringify(sorted)) {
+      errors.push("affected_artifact_kinds must use canonical ArtifactKind order");
+    }
+    const mutations = example.payload.projection_mutations ?? [];
+    const mutationKinds = [...new Set(mutations.map((item) => item.artifact_kind))];
+    if (mutations.length === 0 || canonicalStringify(mutationKinds) !== canonicalStringify(kinds)) {
+      errors.push("projection_mutations must cover every affected_artifact_kind exactly in canonical order");
+    }
+    for (const mutation of mutations) {
+      if (!Array.isArray(mutation.pathspec) || canonicalStringify(mutation.pathspec) !==
+          canonicalStringify([...mutation.pathspec].sort(codePointCompare)) ||
+          mutation.pathspec_digest !== artifactPathspecDigest(mutation.artifact_kind, mutation.pathspec)) {
+        errors.push(`projection_mutations ${mutation.artifact_kind} pathspec/digest mismatch`);
+      }
+    }
+    if (example.payload.invalidation_projection_digest !== invalidationProjectionDigest(kinds, mutations)) {
+      errors.push("invalidation_projection_digest mismatch");
+    }
+    if (example.candidate_tree_oid === example.expected_parent_tree_oid) {
+      errors.push("anchor_invalidation candidate_tree_oid must differ from expected_parent_tree_oid");
+    }
+    if (example.phase === "verified" &&
+        ![example.payload.recorded_target_step, "prepare_anchor_impact"].includes(example.effective_target_step)) {
+      errors.push("verified anchor_invalidation effective_target_step is invalid");
+    }
+  }
   if (example.operation_type !== example.payload?.kind) errors.push("operation_type and payload.kind mismatch");
   if (schema?.additionalProperties !== false) errors.push("operation Schema must be closed");
   return errors;
@@ -551,6 +682,130 @@ export function validatePlanningPublicationOperationExample(example, schema) {
   if (example.reflog_checkpoint?.before_entry_count !== 1 ||
       example.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(1, reflogGoldenPrefix)) {
     errors.push("canonical reflog checkpoint golden vector mismatch");
+  }
+  return errors;
+}
+
+export function planningRefInitPolicyDigest(operation) {
+  return sha256(
+    "autosk-flow/planning-ref-init-policy/v1\0" + canonicalStringify({
+      base_selection_authority: operation.base_selection_authority,
+      base_selection_policy: operation.base_selection_policy,
+      planning_base_oid: operation.planning_base_oid,
+      planning_base_tree_oid: operation.planning_base_tree_oid,
+      selected_base_ref: operation.selected_base_ref,
+    }),
+  );
+}
+
+export function planningInitReflogEntryDigest(operation) {
+  const producer = operation.reflog_producer;
+  if (!producer || typeof producer.git_committer_date !== "string" || !operation.reflog_checkpoint) return "";
+  const [timestampSeconds, timezone] = producer.git_committer_date.slice(1).split(" ");
+  const zeroOid = "0".repeat(operation.object_format === "sha256" ? 64 : 40);
+  const entry = Buffer.from(
+    `${zeroOid} ${operation.planning_base_oid} ` +
+    `${producer.git_committer_name} <${producer.git_committer_email}> ${timestampSeconds} ${timezone}\t` +
+    `${operation.expected_update_message}\n`,
+    "utf8",
+  );
+  return sha256(Buffer.concat([
+    Buffer.from("autosk-flow/reflog-entry/v1\0", "utf8"),
+    entry,
+  ]));
+}
+
+export function validatePlanningRefInitOperation(operation, schema) {
+  const errors = validateJsonSchema(operation, schema, schema, "init_operation")
+    .map((error) => `Schema: ${error}`);
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  if (!exactKeys(operation, required)) errors.push("init operation keys differ from closed Schema");
+  const expectedRefKey = deriveEpicRefKey(operation.project_root_sha256, operation.epic_id);
+  if (operation.epic_ref_key !== expectedRefKey ||
+      operation.planning_ref !== `refs/autosk/epics/${expectedRefKey}/planning`) {
+    errors.push("init operation project/Epic/ref identity mismatch");
+  }
+  if (!/^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(operation.selected_base_ref ?? "") ||
+      /\.\.|\/\/|@\{|\.lock$|\/$/u.test(operation.selected_base_ref ?? "")) {
+    errors.push("selected_base_ref is not a safe explicit local branch ref");
+  }
+  if (operation.base_selection_policy?.selected_base_ref !== operation.selected_base_ref ||
+      operation.base_selection_policy?.expected_commit_oid !== operation.planning_base_oid ||
+      operation.base_selection_policy?.expected_tree_oid !== operation.planning_base_tree_oid) {
+    errors.push("base_selection_policy does not match containing init operation");
+  }
+  if (operation.bootstrap_policy_digest !== planningRefInitPolicyDigest(operation)) {
+    errors.push("bootstrap_policy_digest mismatch");
+  }
+  if (operation.ref_storage_format !== "files") errors.push("init ref_storage_format must be files");
+  if (operation.expected_update_message !== `autosk-flow init ${operation.operation_id}` ||
+      operation.reflog_checkpoint?.expected_update_message !== operation.expected_update_message ||
+      operation.reflog_checkpoint?.expected_new_oid !== operation.planning_base_oid ||
+      operation.reflog_checkpoint?.expected_old_oid !== null) {
+    errors.push("init reflog checkpoint does not match containing operation");
+  }
+  const producer = operation.reflog_producer ?? {};
+  if (producer.git_committer_name !== "autosk-flow" ||
+      producer.git_committer_email !== "autosk@example.invalid" ||
+      producer.git_committer_date !== "@0 +0000") {
+    errors.push("init reflog_producer differs from locked bootstrap identity");
+  }
+  const slots = ["ref_create", "verification"];
+  const expectedKeys = {
+    ref_create: ["planning_ref", "observed_old_oid", "observed_new_oid", "expected_update_message", "before_entry_count", "after_entry_count", "before_prefix_sha256", "appended_entry_sha256"],
+    verification: ["planning_ref", "commit_oid", "tree_oid", "ref_create_receipt_hash"],
+  };
+  const zeroOid = "0".repeat(operation.object_format === "sha256" ? 64 : 40);
+  const expectedObservations = {
+    ref_create: {
+      planning_ref: operation.planning_ref,
+      observed_old_oid: zeroOid,
+      observed_new_oid: operation.planning_base_oid,
+      expected_update_message: operation.expected_update_message,
+      before_entry_count: 0,
+      after_entry_count: 1,
+      before_prefix_sha256: operation.reflog_checkpoint?.before_prefix_sha256,
+      appended_entry_sha256: planningInitReflogEntryDigest(operation),
+    },
+    verification: {
+      planning_ref: operation.planning_ref,
+      commit_oid: operation.planning_base_oid,
+      tree_oid: operation.planning_base_tree_oid,
+      ref_create_receipt_hash: operation.receipts?.ref_create?.receipt_hash,
+    },
+  };
+  for (const slot of slots) {
+    const receipt = operation.receipts?.[slot];
+    if (receipt !== null && receipt !== undefined) {
+      if (receipt.operation_id !== operation.operation_id || receipt.receipt_kind !== slot ||
+          !exactKeys(receipt.observation, expectedKeys[slot])) {
+        errors.push(`${slot} init receipt binding or observation shape mismatch`);
+        continue;
+      }
+      const digest = planningObservationDigest(slot, receipt.observation);
+      if (receipt.observation_sha256 !== digest) errors.push(`${slot} init observation_sha256 mismatch`);
+      if (receipt.receipt_hash !== planningReceiptHash(operation.operation_id, slot, digest)) {
+        errors.push(`${slot} init receipt_hash mismatch`);
+      }
+      for (const key of expectedKeys[slot]) {
+        if (canonicalStringify(receipt.observation[key]) !== canonicalStringify(expectedObservations[slot][key])) {
+          errors.push(`${slot} init observation.${key} does not match containing operation`);
+        }
+      }
+    }
+  }
+  const present = slots.filter((slot) => operation.receipts?.[slot] !== null);
+  const allowed = { prepared: [], ref_created: ["ref_create"], verified: slots };
+  if (canonicalStringify(present) !== canonicalStringify(allowed[operation.phase] ?? [])) {
+    errors.push(`${operation.phase} init receipt prefix mismatch`);
+  }
+  return errors;
+}
+
+export function validatePlanningRefInitOperationExample(operation, schema) {
+  const errors = validatePlanningRefInitOperation(operation, schema);
+  if (operation.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(0, Buffer.alloc(0))) {
+    errors.push("init empty reflog prefix golden vector mismatch");
   }
   return errors;
 }
@@ -657,6 +912,34 @@ export function validatePlanningRefDesign(files) {
   }
   if (transitionIndex("rebuild_anchor", "matching anchor_invalidation planning_publication_op") < 0) {
     errors.push("03-technical-plan.md: rebuild_anchor publication-operation re-entry is missing");
+  }
+  const invalidationFragments = [
+    "phase=prepared and expected object absent",
+    "phase=commit_created and expected object absent",
+    "phase=commit_created and ref=expected parent",
+    "phase=prepared or phase=commit_created and ref=expected commit",
+    "phase=ref_advanced and current bindings drifted",
+    "phase=ref_advanced and current bindings exact",
+    "phase=verified and effective_target_step",
+    "phase=voided_before_ref",
+    "unknown/ABA transition",
+    "claimed durable recipe/object/ref/reflog/receipt missing",
+  ];
+  for (const fragment of invalidationFragments) {
+    if (transitionIndex("publish_planning_invalidation", fragment) < 0) {
+      errors.push(`03-technical-plan.md: invalidation phase row missing ${fragment}`);
+    }
+  }
+  const invalidationPreDrift = transitionIndex("publish_planning_invalidation", "pre-CAS impact/anchor/projection drift");
+  const invalidationWrite = transitionIndex("publish_planning_invalidation", "phase=prepared and expected object absent");
+  const invalidationPostDrift = transitionIndex("publish_planning_invalidation", "phase=ref_advanced and current bindings drifted");
+  const invalidationExact = transitionIndex("publish_planning_invalidation", "phase=ref_advanced and current bindings exact");
+  if (invalidationPreDrift < 0 || invalidationPreDrift > invalidationWrite ||
+      invalidationPostDrift < 0 || invalidationPostDrift > invalidationExact) {
+    errors.push("03-technical-plan.md: invalidation drift guards must precede normal phase side effects");
+  }
+  if (!plan.includes("publish_planning_invalidation according to recorded operation_type")) {
+    errors.push("03-technical-plan.md: invalidation foreign-movement resume target missing");
   }
   const publishSelectRows = transitionRows.filter(
     ([step, , action]) => step === "publish_artifact_pass" && /\bselect_next\b/u.test(action),
@@ -788,8 +1071,23 @@ export function validatePlanningRefDesign(files) {
     const example = JSON.parse(
       files["resources/planning-publication/publish-artifact-pass-operation.example.json"],
     );
+    const invalidationExample = JSON.parse(
+      files["resources/planning-publication/publish-planning-invalidation-operation.example.json"],
+    );
+    const initSchema = JSON.parse(
+      files["resources/planning-publication/init-planning-ref-operation.schema.json"],
+    );
+    const initExample = JSON.parse(
+      files["resources/planning-publication/init-planning-ref-operation.example.json"],
+    );
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
+    }
+    for (const error of validatePlanningPublicationOperationExample(invalidationExample, schema)) {
+      errors.push(`planning invalidation Schema/example: ${error}`);
+    }
+    for (const error of validatePlanningRefInitOperationExample(initExample, initSchema)) {
+      errors.push(`planning init Schema/example: ${error}`);
     }
   } catch (error) {
     errors.push(`planning publication Schema/example is not valid JSON: ${error.message}`);

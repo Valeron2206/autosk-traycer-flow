@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "operation_id": "00000000-0000-4000-8000-000000000000",
+  "operation_type": "planning_ref_init",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+  "selected_base_ref": "refs/heads/main",
+  "base_selection_policy": {
+    "mode": "explicit_local_ref",
+    "selected_base_ref": "refs/heads/main",
+    "expected_commit_oid": "3333333333333333333333333333333333333333",
+    "expected_tree_oid": "4444444444444444444444444444444444444444",
+    "host_identity": "autosk-flow <autosk@example.invalid>",
+    "signing_mode": "none"
+  },
+  "base_selection_authority": {
+    "source": "workflow_intake",
+    "request_id": "77777777-7777-4777-8777-777777777777",
+    "request_hash": "6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "planning_base_oid": "3333333333333333333333333333333333333333",
+  "planning_base_tree_oid": "4444444444444444444444444444444444444444",
+  "object_format": "sha1",
+  "bootstrap_policy_digest": "d21e3b7a5407d827e5c721e5282ef7233fec62d20a7eda61397148abb657e324",
+  "ref_storage_format": "files",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
+  "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000",
+  "reflog_checkpoint": {
+    "before_entry_count": 0,
+    "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+    "expected_old_oid": null,
+    "expected_new_oid": "3333333333333333333333333333333333333333",
+    "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000"
+  },
+  "phase": "verified",
+  "created_at_utc": "2026-09-01T00:00:00Z",
+  "receipts": {
+    "ref_create": {
+      "schema": 1,
+      "operation_id": "00000000-0000-4000-8000-000000000000",
+      "receipt_kind": "ref_create",
+      "observation": {
+        "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+        "observed_old_oid": "0000000000000000000000000000000000000000",
+        "observed_new_oid": "3333333333333333333333333333333333333333",
+        "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000",
+        "before_entry_count": 0,
+        "after_entry_count": 1,
+        "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+        "appended_entry_sha256": "21ee56bcb6b04093ae040bfccc2e45e090389aadfc0aabe232306ba6b55f54c4"
+      },
+      "observation_sha256": "eed2b9c0f8a59368b613528ce76ffcb8f67b39a352174e359476fb384dcd7eb5",
+      "receipt_hash": "727acb1deb974a99ae37b823478a23bc9a6ce99cd33728513407bb59db5052cd"
+    },
+    "verification": {
+      "schema": 1,
+      "operation_id": "00000000-0000-4000-8000-000000000000",
+      "receipt_kind": "verification",
+      "observation": {
+        "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+        "commit_oid": "3333333333333333333333333333333333333333",
+        "tree_oid": "4444444444444444444444444444444444444444",
+        "ref_create_receipt_hash": "727acb1deb974a99ae37b823478a23bc9a6ce99cd33728513407bb59db5052cd"
+      },
+      "observation_sha256": "a180aca45d4ccc408ff0a739e82c1790737ec1ccf39670a1b16564d382f13a94",
+      "receipt_hash": "214c049ce6bf49fd1556138f41da75dca31638111c49fd694dc143658ae9d2c8"
+    }
+  }
+}

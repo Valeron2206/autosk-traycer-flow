@@ -12,6 +12,8 @@
     "epic_id",
     "epic_ref_key",
     "planning_ref",
+    "ref_storage_format",
+    "reflog_producer",
     "payload",
     "anchor_version",
     "protocol_digest",
@@ -28,6 +30,7 @@
     "phase",
     "terminal_reason",
     "recovery_target_step",
+    "effective_target_step",
     "created_at_utc",
     "receipts"
   ],
@@ -42,6 +45,8 @@
       "type": "string",
       "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$"
     },
+    "ref_storage_format": { "const": "files" },
+    "reflog_producer": { "$ref": "#/$defs/reflog_producer" },
     "payload": { "$ref": "#/$defs/payload" },
     "anchor_version": { "type": "integer", "minimum": 1 },
     "protocol_digest": { "$ref": "#/$defs/sha256" },
@@ -63,6 +68,9 @@
       "minLength": 1
     },
     "recovery_target_step": { "enum": ["prepare_anchor_impact", null] },
+    "effective_target_step": {
+      "enum": ["select_next", "prepare_anchor_impact", "clarify_alignment", "present_tickets_breakdown", null]
+    },
     "created_at_utc": {
       "type": "string",
       "format": "date-time",
@@ -96,6 +104,57 @@
     "artifact_kind": {
       "enum": ["brief", "core_flow", "tech_plan", "tickets"]
     },
+    "safe_relative_path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)(?!.*@\\{)(?!.*\\.lock$)[A-Za-z0-9._/-]+$"
+    },
+    "projection_mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "action", "previous_projection_digest", "pathspec", "pathspec_digest"],
+      "properties": {
+        "artifact_kind": { "$ref": "#/$defs/artifact_kind" },
+        "action": { "enum": ["remove", "replace"] },
+        "previous_projection_digest": { "$ref": "#/$defs/sha256" },
+        "pathspec": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/safe_relative_path" }
+        },
+        "pathspec_digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "reflog_producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git_committer_name",
+        "git_committer_email",
+        "git_committer_date",
+        "lc_all",
+        "tz",
+        "git_config_system",
+        "git_config_global",
+        "git_config_nosystem",
+        "hooks_path",
+        "inherit_git_environment",
+        "update_ref_mode"
+      ],
+      "properties": {
+        "git_committer_name": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n<>]+$" },
+        "git_committer_email": { "type": "string", "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$" },
+        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ [+-](?:0[0-9]|1[0-4])[0-5][0-9]$" },
+        "lc_all": { "const": "C" },
+        "tz": { "const": "UTC" },
+        "git_config_system": { "const": "/dev/null" },
+        "git_config_global": { "const": "/dev/null" },
+        "git_config_nosystem": { "const": "1" },
+        "hooks_path": { "const": "/dev/null" },
+        "inherit_git_environment": { "const": false },
+        "update_ref_mode": { "const": "object_format_neutral_expected_old" }
+      }
+    },
     "payload": {
       "oneOf": [
         {
@@ -105,6 +164,7 @@
             "kind",
             "artifact_kind",
             "artifact_identity",
+            "artifact_pathspec",
             "artifact_pathspec_digest",
             "alignment_identity",
             "verdict_or_waiver_digest",
@@ -114,6 +174,12 @@
             "kind": { "const": "artifact_pass" },
             "artifact_kind": { "$ref": "#/$defs/artifact_kind" },
             "artifact_identity": { "$ref": "#/$defs/sha256" },
+            "artifact_pathspec": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/safe_relative_path" }
+            },
             "artifact_pathspec_digest": { "$ref": "#/$defs/sha256" },
             "alignment_identity": { "$ref": "#/$defs/sha256" },
             "verdict_or_waiver_digest": { "$ref": "#/$defs/sha256" },
@@ -126,6 +192,7 @@
           "required": [
             "kind",
             "affected_artifact_kinds",
+            "projection_mutations",
             "approved_impact_record_id",
             "approved_impact_record_hash",
             "invalidation_projection_digest",
@@ -138,6 +205,12 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": { "$ref": "#/$defs/artifact_kind" }
+            },
+            "projection_mutations": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/projection_mutation" }
             },
             "approved_impact_record_id": { "$ref": "#/$defs/uuid" },
             "approved_impact_record_hash": { "$ref": "#/$defs/sha256" },
@@ -161,7 +234,7 @@
         },
         "email_ascii": {
           "type": "string",
-          "pattern": "^[\\x21-\\x7e]+@[\\x21-\\x7e]+$"
+          "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$"
         },
         "timestamp_seconds": { "type": "integer" },
         "timezone": {
@@ -457,6 +530,7 @@
         "properties": {
           "terminal_reason": { "type": "string", "minLength": 1 },
           "recovery_target_step": { "const": "prepare_anchor_impact" },
+          "effective_target_step": { "const": "prepare_anchor_impact" },
           "receipts": {
             "properties": {
               "ref_cas": { "type": "null" },
@@ -480,6 +554,7 @@
       },
       "then": {
         "properties": {
+          "effective_target_step": { "type": "null" },
           "receipts": {
             "properties": {
               "commit_object": { "type": "null" },
@@ -498,6 +573,7 @@
       },
       "then": {
         "properties": {
+          "effective_target_step": { "type": "null" },
           "receipts": {
             "properties": {
               "commit_object": { "type": "object" },
@@ -516,6 +592,7 @@
       },
       "then": {
         "properties": {
+          "effective_target_step": { "type": "null" },
           "receipts": {
             "properties": {
               "commit_object": { "type": "object" },
@@ -534,6 +611,7 @@
       },
       "then": {
         "properties": {
+          "effective_target_step": { "type": "string" },
           "receipts": {
             "properties": {
               "commit_object": { "type": "object" },
