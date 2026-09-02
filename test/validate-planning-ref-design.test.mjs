@@ -1430,7 +1430,18 @@ test("ref-custody helper rejects mixed object formats in one signed request", ()
   const publicationSchema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
   const publication = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
   publication.expected_parent_tree_oid = "a".repeat(64);
+  assert.notDeepEqual(validateJsonSchema(publication, publicationSchema), []);
   assert.match(validatePlanningPublicationOperation(publication, publicationSchema).join("\n"), /object format/u);
+  const keepaliveSchema = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.schema.json"),
+    "utf8",
+  ));
+  const keepalive = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.released.example.json"),
+    "utf8",
+  ));
+  keepalive.release_receipt.verified_commit_oid = "a".repeat(64);
+  assert.notDeepEqual(validateJsonSchema(keepalive, keepaliveSchema), []);
 });
 
 test("pre-existing exact audit topology is a valid release variant", () => {
@@ -1523,10 +1534,22 @@ test("helper reflog observations are realizable files-backend states", () => {
 
 test("real Git files backend matches helper reflog and deletion semantics", () => {
   const formats = ["sha1"];
+  const gitLocationEnvironment = {
+    ...process.env,
+    GIT_DIR: undefined,
+    GIT_WORK_TREE: undefined,
+    GIT_OBJECT_DIRECTORY: undefined,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
+    GIT_INDEX_FILE: undefined,
+    GIT_COMMON_DIR: undefined,
+    GIT_CEILING_DIRECTORIES: undefined,
+  };
   const probe = mkdtempSync(path.join(tmpdir(), "autosk-ref-custody-probe-"));
   try {
     try {
-      execFileSync("git", ["init", "--quiet", "--object-format=sha256", probe]);
+      execFileSync("git", ["init", "--quiet", "--object-format=sha256", probe], {
+        env: gitLocationEnvironment,
+      });
       formats.push("sha256");
     } catch {
       // SHA-256 is capability-gated; SHA-1 remains mandatory on older Git.
@@ -1538,7 +1561,7 @@ test("real Git files backend matches helper reflog and deletion semantics", () =
   for (const format of formats) {
     const repository = mkdtempSync(path.join(tmpdir(), `autosk-ref-custody-${format}-`));
     const environment = {
-      ...process.env,
+      ...gitLocationEnvironment,
       GIT_AUTHOR_NAME: "autosk-flow",
       GIT_AUTHOR_EMAIL: "autosk@example.invalid",
       GIT_AUTHOR_DATE: "@1 +0000",
@@ -1681,6 +1704,11 @@ test("helper not-applied response is value-bound and maps to recovery parks", ()
     validateRefCustodyHelperWireExamples(sideEffect, schema).join("\n"),
     /not_applied must prove zero/u,
   );
+  const schemaSideEffect = structuredClone(wire.actions[0]);
+  schemaSideEffect.response.reflog_observations[0].outcome = "appended";
+  schemaSideEffect.response.reflog_observations[0].raw_appended_entries_base64 = ["YQo="];
+  schemaSideEffect.response.reflog_observations[0].appended_entry_sha256 = [sha256(Buffer.from("a\n"))];
+  assert.notDeepEqual(validateJsonSchema(schemaSideEffect, schema.$defs.action_exchange, schema), []);
   const plan = fixture()["03-technical-plan.md"];
   assert.match(plan, /status=not_applied and reason=expected_old_mismatch.*planning_ref_foreign_movement/isu);
   assert.match(plan, /status=not_applied and reason=packed_refs_drift\\\|authorization_invalid.*planning_ref_capability_missing/isu);
@@ -1689,6 +1717,33 @@ test("helper not-applied response is value-bound and maps to recovery parks", ()
 test("normative helper receipt preimage includes not-applied reason", () => {
   const contract = fixture()["docs/contracts/epic-planning-ref.md"];
   assert.match(contract, /receipt_hash.*not_applied_reason/isu);
+});
+
+test("shape domains use a real NUL separator and wire catalogs are explicitly independent", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const contract = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-contract.example.json"), "utf8"));
+  for (const action of contract.actions) {
+    assert.equal(action.request_domain.endsWith("\0"), true);
+    assert.equal(action.observation_domain.endsWith("\0"), true);
+    assert.equal(action.receipt_domain.endsWith("\0"), true);
+  }
+  for (const name of [
+    "ref-custody-helper-wire.example.json",
+    "ref-custody-helper-wire.existing-audit.example.json",
+  ]) {
+    const wire = JSON.parse(readFileSync(path.join(directory, name), "utf8"));
+    assert.equal(wire.composition, "independent_golden_exchanges");
+  }
+});
+
+test("delete recovery and housekeeping tombstone are closed in prose and Schema", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /delete_expired_audit.*absent audit ref.*absent reflog path.*absent packed-refs/isu);
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "audit-candidate-housekeeping-operation.schema.json"), "utf8"));
+  const operation = JSON.parse(readFileSync(path.join(directory, "audit-candidate-housekeeping-operation.example.json"), "utf8"));
+  operation.tombstone_receipt.deleted_audit_ref = "refs/heads/main";
+  assert.notDeepEqual(validateJsonSchema(operation, schema), []);
 });
 
 test("audit expiry has a durable approval and tombstone operation", () => {
@@ -1715,4 +1770,16 @@ test("planning receipts bind the exact journaled helper evidence", () => {
   operation.candidate_keepalive.release_receipt.helper_evidence.helper_receipt_hash = "f".repeat(64);
   files[relative] = JSON.stringify(operation, null, 2) + "\n";
   assert.match(validatePlanningRefDesign(files).join("\n"), /helper evidence.*release_to_audit/u);
+});
+
+test("custody request IDs and nonces cannot be reused for different bodies", () => {
+  const files = fixture();
+  const main = JSON.parse(files["resources/planning-publication/ref-custody-helper-wire.example.json"]);
+  const invalidationPath = "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json";
+  const invalidation = JSON.parse(files[invalidationPath]);
+  const original = main.actions.find(({ action }) => action === "create_keepalive").request;
+  invalidation.actions[0].request.request_id = original.request_id;
+  invalidation.actions[0].request.nonce = original.nonce;
+  files[invalidationPath] = JSON.stringify(invalidation, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(files).join("\n"), /request_id is reused|nonce is reused/u);
 });

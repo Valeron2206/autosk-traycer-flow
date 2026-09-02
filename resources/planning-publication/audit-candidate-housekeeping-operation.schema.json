@@ -52,7 +52,7 @@
       "required": ["schema", "operation_id", "deleted_audit_ref", "deleted_oid", "helper_receipt_hash", "inventory_digest", "retention_policy_digest", "deleted_at_utc", "receipt_hash"],
       "properties": {
         "schema": { "const": 1 }, "operation_id": { "$ref": "#/$defs/uuid" },
-        "deleted_audit_ref": { "type": "string" }, "deleted_oid": { "$ref": "#/$defs/oid" },
+        "deleted_audit_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$" }, "deleted_oid": { "$ref": "#/$defs/oid" },
         "helper_receipt_hash": { "$ref": "#/$defs/sha256" }, "inventory_digest": { "$ref": "#/$defs/sha256" },
         "retention_policy_digest": { "$ref": "#/$defs/sha256" }, "deleted_at_utc": { "$ref": "#/$defs/timestamp" },
         "receipt_hash": { "$ref": "#/$defs/sha256" }

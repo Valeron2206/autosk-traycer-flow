@@ -62,10 +62,10 @@
       "receipt_hash": "604dc25396d193f082c3251f9a038ba27c6aa08e89cd112d66dc348a6e85b69c",
       "operation_id": "88888888-8888-4888-8888-888888888888",
       "helper_evidence": {
-        "request_id": "00000002-1111-4111-8111-000000000002",
-        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
-        "transaction_value_observation_sha256": "c78164a9ff0868da5d2cc8d9385b950976f42d9c93321dc2a0e8164d564b1b82",
-        "helper_receipt_hash": "e5744e8f8a62143297fc6c1aad14721b9fa4ec9df084e27b3ed067817c18b0dc"
+        "request_id": "00000007-1111-4111-8111-000000000007",
+        "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
+        "transaction_value_observation_sha256": "66bad4ab3436b2f939d499e14e911fc929339eec00b9a0fd02dd073e00ebf2f3",
+        "helper_receipt_hash": "3c5f587fbeb62ab1cdcf7a8fc0766a231a7ad3095c4cc98588c25ee3d99c8344"
       }
     },
     "release_receipt": null,

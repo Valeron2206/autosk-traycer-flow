@@ -6,12 +6,16 @@
   "additionalProperties": false,
   "required": [
     "schema",
+    "composition",
     "public_key_spki_base64",
     "actions"
   ],
   "properties": {
     "schema": {
       "const": 1
+    },
+    "composition": {
+      "const": "independent_golden_exchanges"
     },
     "public_key_spki_base64": {
       "type": "string",
@@ -511,6 +515,28 @@
                   "packed_refs_drift",
                   "authorization_invalid"
                 ]
+              },
+              "reflog_observations": {
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/reflog_observation"
+                    },
+                    {
+                      "properties": {
+                        "outcome": {
+                          "const": "unchanged"
+                        },
+                        "raw_appended_entries_base64": {
+                          "maxItems": 0
+                        },
+                        "appended_entry_sha256": {
+                          "maxItems": 0
+                        }
+                      }
+                    }
+                  ]
+                }
               }
             }
           }

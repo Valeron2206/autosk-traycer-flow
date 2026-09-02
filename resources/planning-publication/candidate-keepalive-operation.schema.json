@@ -295,6 +295,224 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": [
+          "object_format"
+        ],
+        "properties": {
+          "object_format": {
+            "const": "sha1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "object_format": {
+            "const": "sha1"
+          },
+          "snapshot_commit_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "snapshot_tree_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "candidate_identity_preimage": {
+            "properties": {
+              "candidate_tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "snapshot_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "snapshot_commit_recipe": {
+            "properties": {
+              "tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "parent_oids": {
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              },
+              "expected_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "snapshot_object_receipt": {
+            "properties": {
+              "object_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "parent_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "create_receipt": {
+            "properties": {
+              "observed_new_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "snapshot_tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "audit_receipt": {
+            "properties": {
+              "snapshot_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "release_receipt": {
+            "properties": {
+              "expected_old_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "verified_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "audit_candidate_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "object_format"
+        ],
+        "properties": {
+          "object_format": {
+            "const": "sha256"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "object_format": {
+            "const": "sha256"
+          },
+          "snapshot_commit_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "snapshot_tree_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "candidate_identity_preimage": {
+            "properties": {
+              "candidate_tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "snapshot_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "snapshot_commit_recipe": {
+            "properties": {
+              "tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "parent_oids": {
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "expected_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "snapshot_object_receipt": {
+            "properties": {
+              "object_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "parent_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "create_receipt": {
+            "properties": {
+              "observed_new_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "snapshot_tree_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "audit_receipt": {
+            "properties": {
+              "snapshot_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "release_receipt": {
+            "properties": {
+              "expected_old_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "verified_commit_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "audit_candidate_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {

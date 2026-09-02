@@ -1,12 +1,13 @@
 {
   "schema": 1,
-  "public_key_spki_base64": "MCowBQYDK2VwAyEAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+  "composition": "independent_golden_exchanges",
+  "public_key_spki_base64": "MCowBQYDK2VwAyEAPWPcGt6Jv4p2jrDi77v1KcnuWajIVj49pd+fmtzyuHA=",
   "actions": [
     {
       "action": "create_keepalive",
       "request": {
         "schema": 1,
-        "request_id": "00000002-1111-4111-8111-000000000002",
+        "request_id": "00000007-1111-4111-8111-000000000007",
         "action": "create_keepalive",
         "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
@@ -14,7 +15,7 @@
         "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
         "custody_generation": 1,
         "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
         "packed_refs_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
         "expected_update_message": "autosk-flow keepalive 88888888-8888-4888-8888-888888888888",
         "reflog_producer": {
@@ -38,14 +39,14 @@
             "new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
           }
         ],
-        "body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+        "body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
         "authorization": {
           "scheme": "ed25519",
-          "key_id": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
-          "public_key_sha256": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
-          "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
-          "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
-          "signature_base64": "Nk9wes9MatyBxc+gMZOIHp+C/fEdhx+T8tseSmtu/yXiiVnJt0L8gZBT7ctPibrL8xkYtnDglB1A4XMVnekkAw=="
+          "key_id": "46eb27a229dd13bf7af43f78dd473b332d06a19d3cb7f60e502943dfed2ddc53",
+          "public_key_sha256": "46eb27a229dd13bf7af43f78dd473b332d06a19d3cb7f60e502943dfed2ddc53",
+          "request_body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
+          "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
+          "signature_base64": "BXc62nwbQVQ3AM1IqZ81zTQdLN3cRtdU5srcHlQKIRBHRnvrHv3NcjPddObVy9NWZEXU2r85MpQL1X1nt+L8CQ=="
         },
         "epic_id": "22222222-2222-4222-8222-222222222222",
         "reflog_checkpoints": [
@@ -59,13 +60,13 @@
       },
       "response": {
         "schema": 1,
-        "request_id": "00000002-1111-4111-8111-000000000002",
+        "request_id": "00000007-1111-4111-8111-000000000007",
         "action": "create_keepalive",
         "status": "committed",
-        "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+        "request_body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
         "custody_generation": 1,
         "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
         "ref_observations": [
           {
             "operation": "update",
@@ -92,19 +93,19 @@
             ]
           }
         ],
-        "transaction_value_observation_sha256": "c78164a9ff0868da5d2cc8d9385b950976f42d9c93321dc2a0e8164d564b1b82",
-        "receipt_hash": "e5744e8f8a62143297fc6c1aad14721b9fa4ec9df084e27b3ed067817c18b0dc",
+        "transaction_value_observation_sha256": "66bad4ab3436b2f939d499e14e911fc929339eec00b9a0fd02dd073e00ebf2f3",
+        "receipt_hash": "3c5f587fbeb62ab1cdcf7a8fc0766a231a7ad3095c4cc98588c25ee3d99c8344",
         "not_applied_reason": null
       },
       "journal": {
         "schema": 1,
-        "request_id": "00000002-1111-4111-8111-000000000002",
+        "request_id": "00000007-1111-4111-8111-000000000007",
         "action": "create_keepalive",
         "phase": "receipt_committed",
-        "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+        "request_body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
         "request": {
           "schema": 1,
-          "request_id": "00000002-1111-4111-8111-000000000002",
+          "request_id": "00000007-1111-4111-8111-000000000007",
           "action": "create_keepalive",
           "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
@@ -112,7 +113,7 @@
           "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
           "custody_generation": 1,
           "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-          "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+          "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
           "packed_refs_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
           "expected_update_message": "autosk-flow keepalive 88888888-8888-4888-8888-888888888888",
           "reflog_producer": {
@@ -136,14 +137,14 @@
               "new_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
             }
           ],
-          "body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+          "body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
           "authorization": {
             "scheme": "ed25519",
-            "key_id": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
-            "public_key_sha256": "a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
-            "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
-            "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
-            "signature_base64": "Nk9wes9MatyBxc+gMZOIHp+C/fEdhx+T8tseSmtu/yXiiVnJt0L8gZBT7ctPibrL8xkYtnDglB1A4XMVnekkAw=="
+            "key_id": "46eb27a229dd13bf7af43f78dd473b332d06a19d3cb7f60e502943dfed2ddc53",
+            "public_key_sha256": "46eb27a229dd13bf7af43f78dd473b332d06a19d3cb7f60e502943dfed2ddc53",
+            "request_body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
+            "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
+            "signature_base64": "BXc62nwbQVQ3AM1IqZ81zTQdLN3cRtdU5srcHlQKIRBHRnvrHv3NcjPddObVy9NWZEXU2r85MpQL1X1nt+L8CQ=="
           },
           "epic_id": "22222222-2222-4222-8222-222222222222",
           "reflog_checkpoints": [
@@ -157,13 +158,13 @@
         },
         "response": {
           "schema": 1,
-          "request_id": "00000002-1111-4111-8111-000000000002",
+          "request_id": "00000007-1111-4111-8111-000000000007",
           "action": "create_keepalive",
           "status": "committed",
-          "request_body_sha256": "c11336a2580d9049d31aeabf553dd7ee6180c6899d459ea2d27cbdecf0afdccb",
+          "request_body_sha256": "41def59871654f807f7c2c9de7c9536afe890e93c853e1a45b53de434802df46",
           "custody_generation": 1,
           "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-          "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+          "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
           "ref_observations": [
             {
               "operation": "update",
@@ -190,8 +191,8 @@
               ]
             }
           ],
-          "transaction_value_observation_sha256": "c78164a9ff0868da5d2cc8d9385b950976f42d9c93321dc2a0e8164d564b1b82",
-          "receipt_hash": "e5744e8f8a62143297fc6c1aad14721b9fa4ec9df084e27b3ed067817c18b0dc",
+          "transaction_value_observation_sha256": "66bad4ab3436b2f939d499e14e911fc929339eec00b9a0fd02dd073e00ebf2f3",
+          "receipt_hash": "3c5f587fbeb62ab1cdcf7a8fc0766a231a7ad3095c4cc98588c25ee3d99c8344",
           "not_applied_reason": null
         },
         "fsync_order": [
@@ -199,10 +200,10 @@
           "refs",
           "receipt"
         ],
-        "request_fsync_sha256": "5c5d305bc8dffe0be83229017818fe9c41ac86d3205d1adf9030700f3f3f643e",
+        "request_fsync_sha256": "11a13a7a2d1bfff333c2031468bd67074ef6365e892d896f4a2c23209f1fea14",
         "refs_commit_sha256": "9ff7e811dfa9ba015b46f58f7cc9114ad3e0cfae0205ae689ec946bc49d4e294",
-        "receipt_fsync_sha256": "9ef0aa4ee3050f338168d7274bf7d9863829487134ae35bc08f049667fbada0e",
-        "journal_hash": "85cabc84d4bc294a9adbeda79212a12b59a99fc0f2a177b7877779253e03068d"
+        "receipt_fsync_sha256": "d601288bdbacd92891ffb30b777461622ce7e8b4ddfce9b26a1377c3ed64ebea",
+        "journal_hash": "e2351f43f3b8ca545a5a5b70479f3f77341ea558839d7eb6ae93586074b78b0d"
       }
     }
   ]

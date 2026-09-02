@@ -1517,9 +1517,9 @@ export function validateRefCustodyHelperContract(contract, schema) {
       errors.push(`ref-custody ${action.action} request/response field contract mismatch`);
       continue;
     }
-    const requestDomain = `autosk-flow/ref-custody/${action.action}/request-shape/v1\\0`;
-    const observationDomain = `autosk-flow/ref-custody/${action.action}/response-shape/v1\\0`;
-    const receiptDomain = `autosk-flow/ref-custody/${action.action}/receipt-shape/v1\\0`;
+    const requestDomain = `autosk-flow/ref-custody/${action.action}/request-shape/v1\0`;
+    const observationDomain = `autosk-flow/ref-custody/${action.action}/response-shape/v1\0`;
+    const receiptDomain = `autosk-flow/ref-custody/${action.action}/receipt-shape/v1\0`;
     const requestShapeSha256 = sha256(
       requestDomain + canonicalStringify({ action: action.action, request_required: requestRequired }),
     );
@@ -1584,6 +1584,7 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     errors.push("ref-custody wire public key is invalid");
   }
   const nonces = new Set();
+  const requestIds = new Set();
   for (const exchange of actions) {
     const { request, response, journal, action } = exchange;
     const { body_sha256: ignoredBodyHash, authorization, ...body } = request ?? {};
@@ -1614,6 +1615,8 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     }
     if (nonces.has(request?.nonce)) errors.push(`ref-custody ${action} nonce is reused`);
     nonces.add(request?.nonce);
+    if (requestIds.has(request?.request_id)) errors.push(`ref-custody ${action} request_id is reused`);
+    requestIds.add(request?.request_id);
     const actualOperations = request?.ref_updates?.map((item) => item.operation);
     if (!(expectedOperations[action] ?? []).some((expected) =>
       canonicalStringify(actualOperations) === canonicalStringify(expected))) {
@@ -1858,21 +1861,54 @@ export function validateRefCustodyJournalPrefixes(prefixes, wire, schema) {
 }
 
 export function validateRefCustodyJournalCrashExample(example, prefixes, wire) {
-  const requestRecord = prefixes?.records?.find(({ phase }) => phase === "request_committed");
-  const refsRecord = prefixes?.records?.find(({ phase }) => phase === "refs_committed");
-  const exchange = wire?.actions?.find(({ action }) => action === "init");
-  const expected = requestRecord && refsRecord && exchange ? {
-    schema: 1,
-    scenario: "git_committed_before_refs_journal",
-    request_id: exchange.request.request_id,
-    request_body_sha256: exchange.request.body_sha256,
-    request_committed_journal_hash: requestRecord.journal_hash,
-    observed_post_state_sha256: refsRecord.refs_commit_sha256,
-    committed_response_receipt_hash: exchange.response.receipt_hash,
-    recovery_decision: "persist_refs_committed_without_git_write",
-    git_ref_transactions_during_recovery: 0,
-    refs_committed_journal_hash: refsRecord.journal_hash,
-  } : null;
+  const buildJournal = (exchange, phase) => {
+    const response = phase === "request_committed" ? null : exchange.response;
+    const record = {
+      ...exchange.journal,
+      phase,
+      response,
+      fsync_order: phase === "request_committed" ? ["request"] : ["request", "refs"],
+      refs_commit_sha256: phase === "request_committed" ? null : exchange.journal.refs_commit_sha256,
+      receipt_fsync_sha256: null,
+    };
+    const { journal_hash: ignored, ...preimage } = record;
+    record.journal_hash = sha256(
+      "autosk-flow/ref-custody/journal/v1\0" + canonicalStringify(preimage),
+    );
+    return record;
+  };
+  const actions = ["init", "delete_expired_audit"];
+  const expectedRecords = actions.map((action) => {
+    const exchange = wire?.actions?.find((item) => item.action === action);
+    if (!exchange) return null;
+    const requestRecord = buildJournal(exchange, "request_committed");
+    const refsRecord = buildJournal(exchange, "refs_committed");
+    const record = {
+      action,
+      scenario: action === "delete_expired_audit"
+        ? "delete_committed_before_refs_journal"
+        : "git_committed_before_refs_journal",
+      request_id: exchange.request.request_id,
+      request_body_sha256: exchange.request.body_sha256,
+      request_committed_journal_hash: requestRecord.journal_hash,
+      observed_post_state_sha256: refsRecord.refs_commit_sha256,
+      committed_response_receipt_hash: exchange.response.receipt_hash,
+      recovery_decision: "persist_refs_committed_without_git_write",
+      git_ref_transactions_during_recovery: 0,
+      refs_committed_journal_hash: refsRecord.journal_hash,
+    };
+    if (action === "delete_expired_audit") {
+      record.delete_post_state_proof = {
+        request_body_sha256: exchange.request.body_sha256,
+        nonce: exchange.request.nonce,
+        audit_ref_absent: true,
+        reflog_path_absent: true,
+        packed_refs_entry_absent: true,
+      };
+    }
+    return record;
+  });
+  const expected = expectedRecords.every(Boolean) ? { schema: 1, records: expectedRecords } : null;
   return expected && canonicalStringify(example) === canonicalStringify(expected)
     ? []
     : ["ref-custody journal crash vector does not bind the exact committed observations"];
@@ -2437,6 +2473,27 @@ export function validatePlanningRefDesign(files) {
     const housekeepingExample = parseResource(
       "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
     );
+    const seenCustodyIdentifiers = new Map();
+    for (const wire of [
+      custodyWireExample,
+      custodyWireNotAppliedExample,
+      custodyWireInvalidationExample,
+      custodyWireExistingAuditExample,
+    ]) {
+      for (const exchange of wire.actions) {
+        for (const [kind, value] of [
+          ["request_id", exchange.request.request_id],
+          ["nonce", exchange.request.nonce],
+        ]) {
+          const key = `${kind}:${value}`;
+          const previousBody = seenCustodyIdentifiers.get(key);
+          if (previousBody && previousBody !== exchange.request.body_sha256) {
+            errors.push(`ref-custody ${kind} is reused for a different request body`);
+          }
+          seenCustodyIdentifiers.set(key, exchange.request.body_sha256);
+        }
+      }
+    }
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
     }
