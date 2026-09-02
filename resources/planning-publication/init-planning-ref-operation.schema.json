@@ -20,6 +20,8 @@
     "object_format",
     "bootstrap_policy_digest",
     "ref_storage_format",
+    "ref_custody_generation",
+    "ref_custody_policy_digest",
     "reflog_producer",
     "expected_update_message",
     "reflog_checkpoint",
@@ -77,6 +79,13 @@
     },
     "ref_storage_format": {
       "const": "files"
+    },
+    "ref_custody_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ref_custody_policy_digest": {
+      "$ref": "#/$defs/sha256"
     },
     "reflog_producer": {
       "$ref": "#/$defs/reflog_producer"

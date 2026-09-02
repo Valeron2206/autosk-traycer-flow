@@ -21,6 +21,8 @@
     "runtime_lock_digest",
     "project_instruction_digest",
     "governance_mapping_set_digest",
+    "ref_custody_generation",
+    "ref_custody_policy_digest",
     "expected_parent_oid",
     "expected_parent_tree_oid",
     "candidate_tree_oid",
@@ -55,6 +57,8 @@
     "runtime_lock_digest": { "$ref": "#/$defs/sha256" },
     "project_instruction_digest": { "$ref": "#/$defs/sha256" },
     "governance_mapping_set_digest": { "$ref": "#/$defs/sha256" },
+    "ref_custody_generation": { "type": "integer", "minimum": 1 },
+    "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
     "expected_parent_oid": { "$ref": "#/$defs/oid" },
     "expected_parent_tree_oid": { "$ref": "#/$defs/oid" },
     "candidate_tree_oid": { "$ref": "#/$defs/oid" },
@@ -232,6 +236,8 @@
         "planning_reflog_after_receipt_hash",
         "planning_reflog_tail_observation_sha256",
         "transaction_observation_sha256",
+        "ref_custody_generation",
+        "ref_custody_policy_digest",
         "closure_verified",
         "receipt_hash"
       ],
@@ -265,6 +271,13 @@
         "transaction_observation_sha256": {
           "$ref": "#/$defs/sha256"
         },
+        "ref_custody_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ref_custody_policy_digest": {
+          "$ref": "#/$defs/sha256"
+        },
         "closure_verified": {
           "const": true
         },
@@ -285,6 +298,8 @@
         "snapshot_tree_oid",
         "expected_update_message",
         "reflog_producer",
+        "ref_custody_generation",
+        "ref_custody_policy_digest",
         "phase",
         "create_receipt",
         "release_receipt"
@@ -318,6 +333,13 @@
         },
         "reflog_producer": {
           "$ref": "#/$defs/reflog_producer"
+        },
+        "ref_custody_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ref_custody_policy_digest": {
+          "$ref": "#/$defs/sha256"
         },
         "phase": {
           "enum": [

@@ -61,6 +61,8 @@ autosk v2 остаётся движком задач и переходов. Но
 
 Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic_ref_key>/planning`. Key — domain-separated SHA-256 canonical `{project_root_sha256,epic_id}`, сохраняемый в metadata и повторно вычисляемый перед каждым ref side effect; display ID, slug и model bytes в ref не входят. Его verified head — единственная текущая Git-проекция принятых planning artifacts; detached snapshot object и metadata verdict без ref publication недостаточны. До publication каждый frozen candidate дополнительно владеет host-only `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>`, который удерживает snapshot commit и полную tree/blob closure от GC. Planning и candidate refs создаёт/CAS-двигает только deterministic host adapter. Target branch, другие Epic refs и refs другого canonical project root не затрагиваются.
 
+Enforceable boundary: a separate-account ref-custody helper is the only writer of `refs/autosk/**` and `logs/refs/autosk/**`. Namespace directories/files and the helper transaction lock are owned by that OS account; extension/model/author/reviewer and ordinary project accounts receive permission denied for direct create/update/delete/rename. Preflight actively proves owner/mode/ACL, helper executable identity, custody generation and a denied unauthorized write probe. Any drift parks `planning_ref_capability_missing` before model or ref side effects and retains every candidate keepalive. Host-local mutex without this OS boundary is insufficient and unsupported.
+
 ### Planning publication adapter
 
 <!-- planning-ref-contract:v1 -->

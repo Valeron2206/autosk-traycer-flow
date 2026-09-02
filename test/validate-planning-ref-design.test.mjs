@@ -486,6 +486,8 @@ test("recovered receipts are bound to their containing operation values", () => 
       released,
       tailObservationSha256,
     ),
+    ref_custody_generation: released.ref_custody_generation,
+    ref_custody_policy_digest: released.ref_custody_policy_digest,
     closure_verified: true,
     receipt_hash: "",
   };
@@ -950,5 +952,27 @@ test("invalidation object-exists recovery keeps ref and reflog guards", () => {
   assert.match(
     plan,
     /publish_planning_invalidation \| phase=prepared and expected object exists with exact bytes, ref=expected parent and reflog prefix=checkpoint/iu,
+  );
+});
+
+test("protected ref namespace has one enforceable OS-level writer", () => {
+  const files = fixture();
+  const architecture = files["02-architecture.md"];
+  const plan = files["03-technical-plan.md"];
+  const contract = files["docs/contracts/epic-planning-ref.md"];
+  const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  assert.match(architecture, /separate-account ref-custody helper.*only writer.*refs\/autosk/isu);
+  assert.match(plan, /ref custody ownership\/mode\/generation drift.*retain.*candidate_keepalive.*planning_ref_capability_missing/isu);
+  assert.match(contract, /refs\/autosk.*logs\/refs\/autosk.*permission denied.*uncoordinated writer/isu);
+  assert.equal(schema.required.includes("ref_custody_policy_digest"), true);
+  assert.match(example.ref_custody_policy_digest, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    schema.$defs.candidate_keepalive_release_receipt.required.includes("ref_custody_generation"),
+    true,
+  );
+  assert.equal(
+    schema.$defs.candidate_keepalive_release_receipt.required.includes("ref_custody_policy_digest"),
+    true,
   );
 });

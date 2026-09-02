@@ -68,6 +68,7 @@ const REQUIRED = Object.freeze({
     "expected commit OID",
     "reflog checkpoint",
     "candidate keepalive",
+    "separate-account ref-custody helper",
   ],
   "03-technical-plan.md": [
     "<!-- planning-ref-contract:v1 -->",
@@ -139,6 +140,7 @@ const REQUIRED = Object.freeze({
     "\"reflog_producer\"",
     "\"effective_target_step\"",
     "\"candidate_keepalive\"",
+    "\"ref_custody_policy_digest\"",
   ],
   "resources/planning-publication/publish-artifact-pass-operation.example.json": [
     "\"operation_type\": \"artifact_pass\"",
@@ -163,12 +165,14 @@ const REQUIRED = Object.freeze({
     "\"selected_base_ref\"",
     "\"bootstrap_policy_digest\"",
     "\"ref_create\"",
+    "\"ref_custody_policy_digest\"",
   ],
   "resources/planning-publication/init-planning-ref-operation.example.json": [
     "\"operation_type\": \"planning_ref_init\"",
     "\"selected_base_ref\": \"refs/heads/main\"",
     "\"phase\": \"verified\"",
     "\"ref_storage_format\": \"files\"",
+    "\"ref_custody_policy_digest\"",
   ],
 });
 
@@ -492,6 +496,8 @@ export function candidateKeepaliveReleaseTransactionDigest(operation, tailObserv
       planning_ref: operation.planning_ref,
       planning_ref_expected_oid: operation.expected_commit_oid,
       planning_reflog_tail_observation_sha256: tailObservationSha256,
+      ref_custody_generation: operation.ref_custody_generation,
+      ref_custody_policy_digest: operation.ref_custody_policy_digest,
     }),
   );
 }
@@ -561,12 +567,16 @@ export function validatePlanningPublicationOperation(example, schema) {
     "protocol_digest",
     "runtime_lock_digest",
     "governance_mapping_set_digest",
+    "ref_custody_policy_digest",
     "commit_recipe_digest",
   ]) {
     if (!SHA256_RE.test(example[key] ?? "")) errors.push(`${key} is invalid`);
   }
   if (!SHA256_RE.test(example.project_instruction_digest ?? "")) {
     errors.push("project_instruction_digest is invalid");
+  }
+  if (!Number.isInteger(example.ref_custody_generation) || example.ref_custody_generation < 1) {
+    errors.push("ref_custody_generation is invalid");
   }
   const expectedRefKey = deriveEpicRefKey(example.project_root_sha256, example.epic_id);
   if (example.epic_ref_key !== expectedRefKey) errors.push("epic_ref_key does not match canonical project/Epic identity");
@@ -603,6 +613,10 @@ export function validatePlanningPublicationOperation(example, schema) {
   if (keepalive.object_format !== recipe.object_format ||
       keepalive.snapshot_tree_oid !== example.candidate_tree_oid) {
     errors.push("candidate_keepalive object format or tree mismatch");
+  }
+  if (keepalive.ref_custody_generation !== example.ref_custody_generation ||
+      keepalive.ref_custody_policy_digest !== example.ref_custody_policy_digest) {
+    errors.push("candidate_keepalive ref custody binding mismatch");
   }
   if (keepalive.expected_update_message !== `autosk-flow keepalive ${expectedCandidateIdentity}`) {
     errors.push("candidate_keepalive expected_update_message mismatch");
@@ -658,6 +672,8 @@ export function validatePlanningPublicationOperation(example, schema) {
         release.planning_reflog_after_receipt_hash !== example.receipts?.reflog_after?.receipt_hash ||
         release.planning_reflog_tail_observation_sha256 !== tailObservationSha256 ||
         release.transaction_observation_sha256 !== transactionObservationSha256 ||
+        release.ref_custody_generation !== example.ref_custody_generation ||
+        release.ref_custody_policy_digest !== example.ref_custody_policy_digest ||
         release.closure_verified !== true ||
         release.receipt_hash !== candidateKeepaliveReleaseReceiptHash(release)) {
       errors.push("candidate_keepalive release receipt mismatch");
@@ -931,6 +947,10 @@ export function validatePlanningRefInitOperation(operation, schema) {
     errors.push("bootstrap_policy_digest mismatch");
   }
   if (operation.ref_storage_format !== "files") errors.push("init ref_storage_format must be files");
+  if (!Number.isInteger(operation.ref_custody_generation) || operation.ref_custody_generation < 1 ||
+      !SHA256_RE.test(operation.ref_custody_policy_digest ?? "")) {
+    errors.push("init ref custody binding is invalid");
+  }
   if (operation.expected_update_message !== `autosk-flow init ${operation.operation_id}` ||
       operation.reflog_checkpoint?.expected_update_message !== operation.expected_update_message ||
       operation.reflog_checkpoint?.expected_new_oid !== operation.planning_base_oid ||
@@ -1257,6 +1277,7 @@ export function validatePlanningRefDesign(files) {
     "candidate_keepalive phase=released",
     "atomic update-ref transaction verifies",
     "atomic update-ref transaction verifies planning ref=expected commit and deletes candidate_keepalive",
+    "ref custody ownership/mode/generation drift",
   ]) {
     if (!plan.includes(fragment)) errors.push(`03-technical-plan.md: missing closed planning invariant ${fragment}`);
   }
@@ -1279,6 +1300,8 @@ export function validatePlanningRefDesign(files) {
     "verify <candidate_keepalive_ref> <snapshot_commit_oid>",
     "verify <planning_ref> <expected_commit_oid>",
     "planning_reflog_tail_observation_sha256",
+    "autosk-flow/ref-custody-policy/v1\\0",
+    "permission denied",
   ]) {
     if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
   }

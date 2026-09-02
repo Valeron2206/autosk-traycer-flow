@@ -25,6 +25,8 @@
   "object_format": "sha1",
   "bootstrap_policy_digest": "d21e3b7a5407d827e5c721e5282ef7233fec62d20a7eda61397148abb657e324",
   "ref_storage_format": "files",
+  "ref_custody_generation": 1,
+  "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
   "reflog_producer": {
     "git_committer_name": "autosk-flow",
     "git_committer_email": "autosk@example.invalid",

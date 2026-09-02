@@ -76,6 +76,8 @@ It first persists a complete `planning_ref_init_op` before touching Git:
   "object_format": "sha1-or-sha256",
   "bootstrap_policy_digest": "sha256",
   "ref_storage_format": "files",
+  "ref_custody_generation": 1,
+  "ref_custody_policy_digest": "sha256",
   "reflog_producer": "closed exact Git environment",
   "expected_update_message": "autosk-flow init <operation-id>",
   "phase": "prepared",
@@ -154,9 +156,11 @@ refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>
 
 Freeze first persists one closed `candidate_keepalive_op` in protected candidate metadata, before any Git side effect. It binds candidate identity/ref, object format, snapshot commit/tree, exact sanitized reflog producer/message, empty-ref checkpoint, and closed create receipt. Its monotonic phases are `prepared -> ref_created -> verified`. From `prepared`, host performs a missing-old CAS that creates the keepalive ref at the snapshot commit. A lost response is accepted only when the ref, exact operation-specific create entry and stored producer prove that operation created it. Before `verified`, host parses the snapshot commit, requires its tree to equal `candidate_tree_oid`, enumerates the reachable commit/tree/blob closure and performs connectivity verification. A pre-existing, moved, deleted or move-away-and-back ref is `planning_candidate_keepalive_invalid`; it is never reset or adopted.
 
-The closed create observation is `{after_entry_count:1,appended_entry_sha256,before_entry_count:0,before_prefix_sha256,candidate_identity,expected_update_message,observed_new_oid:snapshot_commit_oid,observed_old_oid:null,ref,snapshot_tree_oid}`. `observation_sha256 = SHA-256("autosk-flow/candidate-keepalive-create/v1\0" + canonical JSON observation)` and `receipt_hash = SHA-256("autosk-flow/candidate-keepalive-receipt/v1\0" + canonical JSON {candidate_identity,observation_sha256})`. The release receipt is the closed object `{schema,candidate_identity,ref,expected_old_oid,planning_ref,verified_commit_oid,planning_reflog_after_receipt_hash,planning_reflog_tail_observation_sha256,transaction_observation_sha256,closure_verified:true,receipt_hash}`. The tail digest binds the exact recorded after-count, before-prefix, appended-entry and reflog receipt; the transaction digest binds planning ref/OID, keepalive ref/OID and that tail digest. The receipt hash uses `SHA-256("autosk-flow/candidate-keepalive-release/v1\0" + canonical JSON receipt-without-receipt_hash)`.
+The closed create observation is `{after_entry_count:1,appended_entry_sha256,before_entry_count:0,before_prefix_sha256,candidate_identity,expected_update_message,observed_new_oid:snapshot_commit_oid,observed_old_oid:null,ref,snapshot_tree_oid}`. `observation_sha256 = SHA-256("autosk-flow/candidate-keepalive-create/v1\0" + canonical JSON observation)` and `receipt_hash = SHA-256("autosk-flow/candidate-keepalive-receipt/v1\0" + canonical JSON {candidate_identity,observation_sha256})`. The release receipt is the closed object `{schema,candidate_identity,ref,expected_old_oid,planning_ref,verified_commit_oid,planning_reflog_after_receipt_hash,planning_reflog_tail_observation_sha256,transaction_observation_sha256,ref_custody_generation,ref_custody_policy_digest,closure_verified:true,receipt_hash}`. The tail digest binds the exact recorded after-count, before-prefix, appended-entry and reflog receipt; the transaction digest binds planning ref/OID, keepalive ref/OID, custody generation/policy and that tail digest. The receipt hash uses `SHA-256("autosk-flow/candidate-keepalive-release/v1\0" + canonical JSON receipt-without-receipt_hash)`.
 
 The candidate ref uses the same files-ref custody and scoped reflog-retention rules as the planning ref. `gc."refs/autosk/epics/*/candidates/*".reflogExpire=never` and `reflogExpireUnreachable=never` remain pinned until release. Because the verified keepalive points to the snapshot commit, Git GC cannot prune the complete candidate object closure even if every review worktree and pseudoref disappears. Panel/waiver dispatch and `recordArtifactPassAndPreparePublication` require phase=`verified`; the atomic PASS write copies the exact verified keepalive record into the publication operation.
+
+The supported deployment has one enforceable writer boundary for this namespace. A separate OS account owns `refs/autosk/**`, `logs/refs/autosk/**` and the helper transaction lock; only the pinned ref-custody helper running as that account can create/update/delete/rename those refs. Extension/model/author/reviewer and ordinary project accounts receive permission denied even if they invoke Git directly, so an uncoordinated writer cannot enter the release race in a supported deployment. Preflight verifies helper binary identity, owner/mode/ACL, files-ref backend, custody generation and an unauthorized-write denial probe. `ref_custody_policy_digest = SHA-256("autosk-flow/ref-custody-policy/v1\0" + canonical JSON {custody_generation,helper_binary_sha256,helper_identity,lock_protocol,logs_namespace,namespace,owner_identity,permission_probe_hash})`; init, keepalive and publication records bind it. Drift retains the keepalive and parks `planning_ref_capability_missing`. A host-local mutex without this separate-account boundary is not a supported implementation and cannot justify release.
 
 Every pre-CAS publication retry revalidates the keepalive ref, creation receipt, snapshot commit/tree and connectivity before object or planning-ref side effects. After phase=`verified`, host proves the published commit/candidate tree complete closure from the planning ref and verifies the recorded planning reflog tail immediately before release under the same ref-custody mutex. Release uses one `git update-ref --stdin` transaction containing `verify <planning_ref> <expected_commit_oid>` and `delete <candidate_keepalive_ref> <snapshot_commit_oid>`. The release receipt binds both ref expected values, the exact `planning_reflog_after` receipt hash, a domain-separated tail-observation digest and the transaction-observation digest. If planning verification fails, the keepalive remains and the task parks `planning_ref_foreign_movement`. If the delete response is lost and the candidate ref is absent, release reconstruction is legal only after the same planning-ref/tail/closure proofs are repeated. A candidate ref at another OID is foreign movement. A `voided_before_ref` or rejected candidate keeps its ref until an audited supersession/retention decision; ordinary cleanup cannot delete it. The publication transition reaches `select_next` or `prepare_anchor_impact` only after the release receipt is read back.
 
@@ -228,8 +232,10 @@ The protected Epic metadata contains exactly one open operation:
   "anchor_version": 1,
   "protocol_digest": "sha256",
   "runtime_lock_digest": "sha256",
-  "project_instruction_digest": "sha256",
-  "governance_mapping_set_digest": "sha256",
+    "project_instruction_digest": "sha256",
+    "governance_mapping_set_digest": "sha256",
+    "ref_custody_generation": 1,
+    "ref_custody_policy_digest": "sha256",
   "expected_parent_oid": "git-oid",
   "expected_parent_tree_oid": "git-oid",
   "candidate_tree_oid": "git-oid",
@@ -505,7 +511,8 @@ Implementation of issue #5 is release-blocking and must include at least:
 35. accept a non-epoch persisted init timestamp while keeping epoch zero exclusive to the golden vector;
 36. reject another operation ID or control byte in `expected_update_message`, substituted verdict/waiver bindings and substituted previous-projection digests;
 37. route a first-ever `voided_before_ref` publication to deterministic redraft without an `anchor_impact_invalid` loop;
-38. move the planning ref and perform same-OID ABA after post-CAS verification but before keepalive release; tail verification or the atomic planning-ref verify must fail, retain the keepalive and park foreign movement.
+38. move the planning ref and perform same-OID ABA after post-CAS verification but before keepalive release; tail verification or the atomic planning-ref verify must fail, retain the keepalive and park foreign movement;
+39. prove direct writes to `refs/autosk/**` and `logs/refs/autosk/**` fail from extension/model/project accounts; owner/mode/helper/generation drift must retain keepalive and park capability-missing before release.
 
 ## 14. Acceptance mapping for issue #5
 
