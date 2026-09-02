@@ -22,8 +22,12 @@
   },
   "candidate_keepalive": {
     "schema": 1,
+    "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
     "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
     "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
     "object_format": "sha1",
     "snapshot_commit_oid": "7777777777777777777777777777777777777777",
     "snapshot_tree_oid": "2222222222222222222222222222222222222222",
@@ -76,6 +80,21 @@
       "closure_verified": true,
       "receipt_hash": "197f7f391114b1b873b478f277cca9d20bb8e3deb17a3fa63201ad912ca1f8b7"
     },
+    "audit_receipt": {
+      "schema": 1,
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+      "snapshot_commit_oid": "7777777777777777777777777777777777777777",
+      "reason": "publication_verified",
+      "ref_custody_generation": 1,
+      "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "observation_sha256": "578fce3348333da1094a299179c9c7709648dff16c8699a12d6f9b3d9a63d497",
+      "receipt_hash": "9f39679eb9f73b44d4ea6895fd0fb32d8721cee3197a4d4716681372fed28df7"
+    },
+    "terminal_disposition": "published_released",
+    "created_at_utc": "2026-09-01T00:00:00Z",
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
     "ref_custody_generation": 1,
     "operation_id": "77777777-7777-4777-8777-777777777777"

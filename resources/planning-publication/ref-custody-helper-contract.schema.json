@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/ref-custody-helper-contract.schema.json",
+  "title": "autosk-flow ref-custody helper action contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "actions"],
+  "properties": {
+    "schema": { "const": 1 },
+    "actions": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/action_contract" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "field_name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "action_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "request_required", "response_required", "request_domain", "observation_domain", "receipt_domain", "golden"],
+      "properties": {
+        "action": { "enum": ["init", "create_keepalive", "advance_planning", "retain_audit", "release_to_audit", "delete_expired_audit"] },
+        "request_required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/field_name" } },
+        "response_required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/field_name" } },
+        "request_domain": { "type": "string", "pattern": "^autosk-flow/ref-custody/[a-z_]+/request/v1\\\\0$" },
+        "observation_domain": { "type": "string", "pattern": "^autosk-flow/ref-custody/[a-z_]+/observation/v1\\\\0$" },
+        "receipt_domain": { "type": "string", "pattern": "^autosk-flow/ref-custody/[a-z_]+/receipt/v1\\\\0$" },
+        "golden": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request_sha256", "transaction_observation_sha256", "receipt_hash"],
+          "properties": {
+            "request_sha256": { "$ref": "#/$defs/sha256" },
+            "transaction_observation_sha256": { "$ref": "#/$defs/sha256" },
+            "receipt_hash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  }
+}

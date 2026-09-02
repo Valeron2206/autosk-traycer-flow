@@ -22,8 +22,12 @@
   },
   "candidate_keepalive": {
     "schema": 1,
+    "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
     "candidate_identity": "489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
     "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/489535763062762ce47feec3d6d7412a40a2c039b11b6be49729d462d7047c74",
     "object_format": "sha1",
     "snapshot_commit_oid": "8888888888888888888888888888888888888888",
     "snapshot_tree_oid": "6666666666666666666666666666666666666666",
@@ -59,6 +63,9 @@
       "operation_id": "88888888-8888-4888-8888-888888888888"
     },
     "release_receipt": null,
+    "audit_receipt": null,
+    "terminal_disposition": null,
+    "created_at_utc": "2026-09-01T00:00:00Z",
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
     "ref_custody_generation": 1,
     "operation_id": "88888888-8888-4888-8888-888888888888"

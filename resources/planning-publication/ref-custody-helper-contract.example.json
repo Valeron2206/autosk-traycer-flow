@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "actions": [
+    {
+      "action": "init",
+      "request_required": ["action", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key", "expected_refs", "expected_update_message", "new_oid", "new_refs", "nonce", "operation_id", "packed_refs_sha256", "planning_ref", "policy_digest", "project_root_sha256", "reflog_checkpoint", "reflog_producer", "request_id", "schema"],
+      "response_required": ["action", "after_entry_count", "appended_entry_sha256", "before_entry_count", "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id", "schema", "status", "transaction_observation_sha256"],
+      "request_domain": "autosk-flow/ref-custody/init/request/v1\\0",
+      "observation_domain": "autosk-flow/ref-custody/init/observation/v1\\0",
+      "receipt_domain": "autosk-flow/ref-custody/init/receipt/v1\\0",
+      "golden": { "request_sha256": "e3cf3266605148993c0f5328d1e6834c86880aa0724b8599d81ad23fd48e125f", "transaction_observation_sha256": "167ff225ae0a587ec19d91dbb11fd56b66378b2a963470273b78e0c8dfe9c179", "receipt_hash": "f5532872dc7e5abba90dad826e8532b9f29c25a12a31aa238792436b054771e1" }
+    },
+    {
+      "action": "create_keepalive",
+      "request_required": ["action", "candidate_identity", "candidate_ref", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key", "expected_refs", "expected_update_message", "new_oid", "new_refs", "nonce", "operation_id", "packed_refs_sha256", "policy_digest", "project_root_sha256", "reflog_checkpoint", "reflog_producer", "request_id", "schema"],
+      "response_required": ["action", "after_entry_count", "appended_entry_sha256", "before_entry_count", "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id", "schema", "status", "transaction_observation_sha256"],
+      "request_domain": "autosk-flow/ref-custody/create_keepalive/request/v1\\0",
+      "observation_domain": "autosk-flow/ref-custody/create_keepalive/observation/v1\\0",
+      "receipt_domain": "autosk-flow/ref-custody/create_keepalive/receipt/v1\\0",
+      "golden": { "request_sha256": "79d740f48b0264e95bd0b93e14c400aa3333abb8b3b95b9eb229b4c3ebb4b931", "transaction_observation_sha256": "5b39ca7791647cea117599c51440fa514ed32d1f1a64350d8b947741316edb22", "receipt_hash": "9a678faa4ecbd12e0ccfe14fc2250e4a0eff43416863b7d089bfa7a8a5b5f69d" }
+    },
+    {
+      "action": "advance_planning",
+      "request_required": ["action", "candidate_identity", "candidate_ref", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key", "expected_candidate_oid", "expected_planning_oid", "expected_refs", "expected_update_message", "new_planning_oid", "new_refs", "nonce", "operation_id", "packed_refs_sha256", "planning_ref", "policy_digest", "project_root_sha256", "reflog_checkpoint", "reflog_producer", "request_id", "schema"],
+      "response_required": ["action", "after_entry_count", "appended_entry_sha256", "before_entry_count", "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id", "schema", "status", "transaction_observation_sha256"],
+      "request_domain": "autosk-flow/ref-custody/advance_planning/request/v1\\0",
+      "observation_domain": "autosk-flow/ref-custody/advance_planning/observation/v1\\0",
+      "receipt_domain": "autosk-flow/ref-custody/advance_planning/receipt/v1\\0",
+      "golden": { "request_sha256": "b84da4cebbec453a5a9050b6c7428458dd608072ed60c723a2761731d8b9f2f0", "transaction_observation_sha256": "63526e97a2d30ccef1bf1515354672e9f1ab529b42c3c8f0fbffa037330ffd5c", "receipt_hash": "969c4bb0cacccc88b94305b9768961c75a35cae9878e5ce25250233f0dcdc7dd" }
+    },
+    {
+      "action": "retain_audit",
+      "request_required": ["action", "audit_ref", "candidate_identity", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key", "expected_refs", "expected_update_message", "live_ref", "new_refs", "nonce", "operation_id", "packed_refs_sha256", "policy_digest", "project_root_sha256", "reason", "reflog_checkpoint", "reflog_producer", "request_id", "schema", "snapshot_commit_oid"],
+      "response_required": ["action", "after_entry_count", "appended_entry_sha256", "before_entry_count", "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id", "schema", "status", "transaction_observation_sha256"],
+      "request_domain": "autosk-flow/ref-custody/retain_audit/request/v1\\0",
+      "observation_domain": "autosk-flow/ref-custody/retain_audit/observation/v1\\0",
+      "receipt_domain": "autosk-flow/ref-custody/retain_audit/receipt/v1\\0",
+      "golden": { "request_sha256": "adfb63dd9e7c4e469210ee0462c695673375bfb4df4a3d600128087ac0de3a9b", "transaction_observation_sha256": "8751271897a8a2d93372b95ac6a92839c4114c97b3f30299fc612a806ee21f2e", "receipt_hash": "11c4531903a179c44f3dc6c3dd3c7a33d6d0a314387c6f5c4c401775c66edd90" }
+    },
+    {
+      "action": "release_to_audit",
+      "request_required": ["action", "audit_ref", "candidate_identity", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key", "expected_planning_oid", "expected_refs", "expected_update_message", "live_ref", "new_refs", "nonce", "operation_id", "packed_refs_sha256", "planning_ref", "policy_digest", "project_root_sha256", "reflog_checkpoint", "reflog_producer", "request_id", "schema", "snapshot_commit_oid"],
+      "response_required": ["action", "after_entry_count", "appended_entry_sha256", "before_entry_count", "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id", "schema", "status", "transaction_observation_sha256"],
+      "request_domain": "autosk-flow/ref-custody/release_to_audit/request/v1\\0",
+      "observation_domain": "autosk-flow/ref-custody/release_to_audit/observation/v1\\0",
+      "receipt_domain": "autosk-flow/ref-custody/release_to_audit/receipt/v1\\0",
+      "golden": { "request_sha256": "de27a5b278782ccf5b36c0144f75caf8ece64e13e407e8b6834124f8a19ce472", "transaction_observation_sha256": "4bf971b87e8718cd5d0c1d31a30b7594207f2e59a8cfd76ddd6f42bb0f8050b6", "receipt_hash": "04264e212472dec3096156f79b2801d5d8f2876843cc84471aa0bde8f07fe14a" }
+    },
+    {
+      "action": "delete_expired_audit",
+      "request_required": ["action", "audit_ref", "candidate_identity", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key", "expected_audit_oid", "expected_refs", "expected_update_message", "new_refs", "nonce", "operation_id", "packed_refs_sha256", "policy_digest", "project_root_sha256", "reflog_checkpoint", "reflog_producer", "request_id", "retention_tombstone_hash", "schema"],
+      "response_required": ["action", "after_entry_count", "appended_entry_sha256", "before_entry_count", "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id", "schema", "status", "transaction_observation_sha256"],
+      "request_domain": "autosk-flow/ref-custody/delete_expired_audit/request/v1\\0",
+      "observation_domain": "autosk-flow/ref-custody/delete_expired_audit/observation/v1\\0",
+      "receipt_domain": "autosk-flow/ref-custody/delete_expired_audit/receipt/v1\\0",
+      "golden": { "request_sha256": "a061976743d1b728c19fd3cc94a5910a1b96d8af4129d357b1e6f4d881e1cf4a", "transaction_observation_sha256": "6a93f898cd6daaa339c114865dac800cc8ccaec5fffe25ed133e09907f9cb6b3", "receipt_hash": "c6c8475906574543d147d0c80c63c49acfd81d4fdf069f439869ab6e658952ee" }
+    }
+  ]
+}

@@ -23,6 +23,7 @@
     "phase",
     "terminal_disposition",
     "create_receipt",
+    "release_receipt",
     "audit_receipt",
     "created_at_utc"
   ],
@@ -45,6 +46,7 @@
     "phase": { "enum": ["prepared", "ref_created", "verified", "audit_retained", "released"] },
     "terminal_disposition": { "enum": ["audit_retained", "published_released", null] },
     "create_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/create_receipt" }] },
+    "release_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/release_receipt" }] },
     "audit_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/audit_receipt" }] },
     "created_at_utc": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" }
   },
@@ -55,6 +57,7 @@
         "properties": {
           "terminal_disposition": { "type": "null" },
           "create_receipt": { "type": "null" },
+          "release_receipt": { "type": "null" },
           "audit_receipt": { "type": "null" }
         }
       }
@@ -65,6 +68,7 @@
         "properties": {
           "terminal_disposition": { "type": "null" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
+          "release_receipt": { "type": "null" },
           "audit_receipt": { "type": "null" }
         }
       }
@@ -75,6 +79,7 @@
         "properties": {
           "terminal_disposition": { "const": "audit_retained" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
+          "release_receipt": { "type": "null" },
           "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
         }
       }
@@ -85,6 +90,7 @@
         "properties": {
           "terminal_disposition": { "const": "published_released" },
           "create_receipt": { "$ref": "#/$defs/create_receipt" },
+          "release_receipt": { "$ref": "#/$defs/release_receipt" },
           "audit_receipt": { "$ref": "#/$defs/audit_receipt" }
         }
       }
@@ -97,11 +103,19 @@
     "reflog_producer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["git_committer_name", "git_committer_email", "git_committer_date"],
+      "required": ["git_committer_name", "git_committer_email", "git_committer_date", "lc_all", "tz", "git_config_system", "git_config_global", "git_config_nosystem", "hooks_path", "inherit_git_environment", "update_ref_mode"],
       "properties": {
-        "git_committer_name": { "const": "autosk-flow" },
-        "git_committer_email": { "const": "autosk@example.invalid" },
-        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ \\+0000$" }
+        "git_committer_name": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n<>]+$" },
+        "git_committer_email": { "type": "string", "pattern": "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$" },
+        "git_committer_date": { "type": "string", "pattern": "^@[0-9]+ \\+0000$" },
+        "lc_all": { "const": "C" },
+        "tz": { "const": "UTC" },
+        "git_config_system": { "const": "/dev/null" },
+        "git_config_global": { "const": "/dev/null" },
+        "git_config_nosystem": { "const": "1" },
+        "hooks_path": { "const": "/dev/null" },
+        "inherit_git_environment": { "const": false },
+        "update_ref_mode": { "const": "object_format_neutral_expected_old" }
       }
     },
     "create_receipt": {
@@ -140,6 +154,29 @@
         "ref_custody_generation": { "type": "integer", "minimum": 1 },
         "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
         "observation_sha256": { "$ref": "#/$defs/sha256" },
+        "receipt_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "release_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "candidate_identity", "ref", "expected_old_oid", "planning_ref", "verified_commit_oid", "planning_reflog_after_receipt_hash", "planning_reflog_tail_observation_sha256", "transaction_observation_sha256", "audit_candidate_ref", "audit_candidate_oid", "ref_custody_generation", "ref_custody_policy_digest", "closure_verified", "receipt_hash"],
+      "properties": {
+        "schema": { "const": 1 },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "candidate_identity": { "$ref": "#/$defs/sha256" },
+        "ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$" },
+        "expected_old_oid": { "$ref": "#/$defs/oid" },
+        "planning_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" },
+        "verified_commit_oid": { "$ref": "#/$defs/oid" },
+        "planning_reflog_after_receipt_hash": { "$ref": "#/$defs/sha256" },
+        "planning_reflog_tail_observation_sha256": { "$ref": "#/$defs/sha256" },
+        "transaction_observation_sha256": { "$ref": "#/$defs/sha256" },
+        "audit_candidate_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$" },
+        "audit_candidate_oid": { "$ref": "#/$defs/oid" },
+        "ref_custody_generation": { "type": "integer", "minimum": 1 },
+        "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
+        "closure_verified": { "const": true },
         "receipt_hash": { "$ref": "#/$defs/sha256" }
       }
     }

@@ -14,7 +14,15 @@
   "reflog_producer": {
     "git_committer_name": "autosk-flow",
     "git_committer_email": "autosk@example.invalid",
-    "git_committer_date": "@0 +0000"
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
   },
   "ref_custody_generation": 1,
   "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
@@ -36,6 +44,7 @@
     "observation_sha256": "9a344fc5aa78e8f45d0424b6f5d76ff0e28aa1f2179c3d0816e9d9f37518c7db",
     "receipt_hash": "7e3f175a45ac40018ff5592b5155851ce0780b0cdfa765c58f6878a920f98725"
   },
+  "release_receipt": null,
   "audit_receipt": null,
   "created_at_utc": "2026-09-01T00:00:00Z"
 }

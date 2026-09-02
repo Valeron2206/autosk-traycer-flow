@@ -303,14 +303,36 @@
         }
       }
     },
+    "candidate_keepalive_audit_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "candidate_identity", "live_ref", "audit_ref", "snapshot_commit_oid", "reason", "ref_custody_generation", "ref_custody_policy_digest", "observation_sha256", "receipt_hash"],
+      "properties": {
+        "schema": { "const": 1 },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "candidate_identity": { "$ref": "#/$defs/sha256" },
+        "live_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$" },
+        "audit_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$" },
+        "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
+        "reason": { "const": "publication_verified" },
+        "ref_custody_generation": { "type": "integer", "minimum": 1 },
+        "ref_custody_policy_digest": { "$ref": "#/$defs/sha256" },
+        "observation_sha256": { "$ref": "#/$defs/sha256" },
+        "receipt_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "candidate_keepalive": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "schema",
         "operation_id",
+        "project_root_sha256",
+        "epic_id",
+        "epic_ref_key",
         "candidate_identity",
         "ref",
+        "audit_ref",
         "object_format",
         "snapshot_commit_oid",
         "snapshot_tree_oid",
@@ -319,8 +341,11 @@
         "ref_custody_generation",
         "ref_custody_policy_digest",
         "phase",
+        "terminal_disposition",
         "create_receipt",
-        "release_receipt"
+        "release_receipt",
+        "audit_receipt",
+        "created_at_utc"
       ],
       "properties": {
         "schema": {
@@ -329,12 +354,19 @@
         "operation_id": {
           "$ref": "#/$defs/uuid"
         },
+        "project_root_sha256": { "$ref": "#/$defs/sha256" },
+        "epic_id": { "$ref": "#/$defs/uuid" },
+        "epic_ref_key": { "$ref": "#/$defs/sha256" },
         "candidate_identity": {
           "$ref": "#/$defs/sha256"
         },
         "ref": {
           "type": "string",
           "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$"
         },
         "object_format": {
           "enum": [
@@ -368,6 +400,7 @@
             "released"
           ]
         },
+        "terminal_disposition": { "enum": ["published_released", null] },
         "create_receipt": {
           "$ref": "#/$defs/candidate_keepalive_create_receipt"
         },
@@ -380,8 +413,41 @@
               "$ref": "#/$defs/candidate_keepalive_release_receipt"
             }
           ]
+        },
+        "audit_receipt": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/candidate_keepalive_audit_receipt" }
+          ]
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "phase": { "const": "verified" } } },
+          "then": {
+            "properties": {
+              "terminal_disposition": { "type": "null" },
+              "release_receipt": { "type": "null" },
+              "audit_receipt": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "phase": { "const": "released" } } },
+          "then": {
+            "properties": {
+              "terminal_disposition": { "const": "published_released" },
+              "release_receipt": { "$ref": "#/$defs/candidate_keepalive_release_receipt" },
+              "audit_receipt": { "$ref": "#/$defs/candidate_keepalive_audit_receipt" }
+            }
+          }
+        }
+      ]
     },
     "verdict_or_waiver_binding": {
       "type": "object",

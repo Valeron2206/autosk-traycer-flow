@@ -38,6 +38,18 @@ export const RELEASED_OPERATION_EXAMPLE_PATH = path.join(
   ROOT,
   "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
 );
+export const RELEASED_KEEPALIVE_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/candidate-keepalive-operation.released.example.json",
+);
+export const REF_CUSTODY_CONTRACT_SCHEMA_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/ref-custody-helper-contract.schema.json",
+);
+export const REF_CUSTODY_CONTRACT_EXAMPLE_PATH = path.join(
+  ROOT,
+  "resources/planning-publication/ref-custody-helper-contract.example.json",
+);
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -55,7 +67,10 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/candidate-keepalive-operation.schema.json",
   "resources/planning-publication/candidate-keepalive-operation.example.json",
   "resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json",
+  "resources/planning-publication/candidate-keepalive-operation.released.example.json",
   "resources/planning-publication/publish-artifact-pass-operation.released.example.json",
+  "resources/planning-publication/ref-custody-helper-contract.schema.json",
+  "resources/planning-publication/ref-custody-helper-contract.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -207,10 +222,30 @@ const REQUIRED = Object.freeze({
     "\"terminal_disposition\": \"audit_retained\"",
     "\"audit_receipt\"",
   ],
+  "resources/planning-publication/candidate-keepalive-operation.released.example.json": [
+    "\"phase\": \"released\"",
+    "\"terminal_disposition\": \"published_released\"",
+    "\"release_receipt\"",
+    "\"audit_receipt\"",
+  ],
   "resources/planning-publication/publish-artifact-pass-operation.released.example.json": [
     "\"phase\": \"verified\"",
     "\"candidate_keepalive\"",
     "\"release_receipt\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-contract.schema.json": [
+    "\"action_contract\"",
+    "\"request_required\"",
+    "\"response_required\"",
+    "\"golden\"",
+  ],
+  "resources/planning-publication/ref-custody-helper-contract.example.json": [
+    "\"action\": \"init\"",
+    "\"action\": \"create_keepalive\"",
+    "\"action\": \"advance_planning\"",
+    "\"action\": \"retain_audit\"",
+    "\"action\": \"release_to_audit\"",
+    "\"action\": \"delete_expired_audit\"",
   ],
 });
 
@@ -673,8 +708,16 @@ export function validatePlanningPublicationOperation(example, schema) {
   const keepalive = example.candidate_keepalive ?? {};
   const expectedCandidateIdentity = planningCandidateIdentity(example);
   const expectedKeepaliveRef = `refs/autosk/epics/${example.epic_ref_key}/candidates/${expectedCandidateIdentity}`;
+  const expectedKeepaliveAuditRef =
+    `refs/autosk/epics/${example.epic_ref_key}/audit/candidates/${expectedCandidateIdentity}`;
   if (keepalive.candidate_identity !== expectedCandidateIdentity || keepalive.ref !== expectedKeepaliveRef) {
     errors.push("candidate_keepalive identity/ref mismatch");
+  }
+  if (keepalive.project_root_sha256 !== example.project_root_sha256 ||
+      keepalive.epic_id !== example.epic_id || keepalive.epic_ref_key !== example.epic_ref_key ||
+      keepalive.audit_ref !== expectedKeepaliveAuditRef ||
+      keepalive.created_at_utc !== example.created_at_utc) {
+    errors.push("candidate_keepalive authoritative record binding mismatch");
   }
   if (keepalive.object_format !== recipe.object_format ||
       keepalive.snapshot_tree_oid !== example.candidate_tree_oid) {
@@ -727,8 +770,13 @@ export function validatePlanningPublicationOperation(example, schema) {
   if (keepalive.phase === "verified" && keepalive.release_receipt !== null) {
     errors.push("candidate_keepalive verified phase cannot have a release receipt");
   }
+  if (keepalive.phase === "verified" &&
+      (keepalive.terminal_disposition !== null || keepalive.audit_receipt !== null)) {
+    errors.push("candidate_keepalive verified phase cannot have terminal audit state");
+  }
   if (keepalive.phase === "released") {
     const release = keepalive.release_receipt;
+    const audit = keepalive.audit_receipt;
     const expectedAuditRef =
       `refs/autosk/epics/${example.epic_ref_key}/audit/candidates/${expectedCandidateIdentity}`;
     const tailObservationSha256 = planningReleaseTailObservationDigest(example);
@@ -753,6 +801,18 @@ export function validatePlanningPublicationOperation(example, schema) {
         release.closure_verified !== true ||
         release.receipt_hash !== candidateKeepaliveReleaseReceiptHash(release)) {
       errors.push("candidate_keepalive release receipt mismatch");
+    }
+    if (keepalive.terminal_disposition !== "published_released" || !audit ||
+        audit.operation_id !== keepalive.operation_id ||
+        audit.candidate_identity !== expectedCandidateIdentity ||
+        audit.live_ref !== expectedKeepaliveRef || audit.audit_ref !== expectedAuditRef ||
+        audit.snapshot_commit_oid !== keepalive.snapshot_commit_oid ||
+        audit.reason !== "publication_verified" ||
+        audit.ref_custody_generation !== example.ref_custody_generation ||
+        audit.ref_custody_policy_digest !== example.ref_custody_policy_digest ||
+        audit.observation_sha256 !== candidateKeepaliveAuditObservationDigest(audit) ||
+        audit.receipt_hash !== candidateKeepaliveAuditReceiptHash(audit)) {
+      errors.push("candidate_keepalive released audit receipt mismatch");
     }
   } else if (example.phase !== "verified" && keepalive.phase !== "verified") {
     errors.push("candidate_keepalive must remain verified before publication verification");
@@ -976,6 +1036,8 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
   }
   const create = operation.create_receipt;
   if (create) {
+    const expectedEntrySha256 = candidateKeepaliveReflogEntryDigest({ candidate_keepalive: operation });
+    const expectedPrefixSha256 = reflogPrefixDigest(0, Buffer.alloc(0));
     const observation = {
       after_entry_count: create.after_entry_count,
       appended_entry_sha256: create.appended_entry_sha256,
@@ -998,14 +1060,39 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
         create.observed_new_oid !== operation.snapshot_commit_oid ||
         create.snapshot_tree_oid !== operation.snapshot_tree_oid ||
         create.expected_update_message !== operation.expected_update_message ||
+        create.before_entry_count !== 0 || create.after_entry_count !== 1 ||
+        create.before_prefix_sha256 !== expectedPrefixSha256 ||
+        create.appended_entry_sha256 !== expectedEntrySha256 ||
         create.observation_sha256 !== observationSha256 ||
         create.receipt_hash !== candidateKeepaliveCreateReceiptHash(
           operation.candidate_identity,
           operation.operation_id,
           observationSha256,
         )) {
-      errors.push("candidate keepalive create receipt mismatch");
+      errors.push("candidate keepalive create receipt or reflog entry mismatch");
     }
+  }
+  const expectedOidLength = operation.object_format === "sha256" ? 64 : 40;
+  for (const [key, value] of [
+    ["snapshot_commit_oid", operation.snapshot_commit_oid],
+    ["snapshot_tree_oid", operation.snapshot_tree_oid],
+    ["create_receipt.observed_new_oid", create?.observed_new_oid],
+  ]) {
+    if (typeof value === "string" && value.length !== expectedOidLength) {
+      errors.push(`candidate keepalive ${key} does not match object_format`);
+    }
+  }
+  const release = operation.release_receipt;
+  if (release && (release.operation_id !== operation.operation_id ||
+      release.candidate_identity !== operation.candidate_identity ||
+      release.ref !== operation.ref || release.expected_old_oid !== operation.snapshot_commit_oid ||
+      release.audit_candidate_ref !== operation.audit_ref ||
+      release.audit_candidate_oid !== operation.snapshot_commit_oid ||
+      release.ref_custody_generation !== operation.ref_custody_generation ||
+      release.ref_custody_policy_digest !== operation.ref_custody_policy_digest ||
+      release.closure_verified !== true ||
+      release.receipt_hash !== candidateKeepaliveReleaseReceiptHash(release))) {
+    errors.push("candidate keepalive release receipt mismatch");
   }
   const audit = operation.audit_receipt;
   if (audit && (audit.operation_id !== operation.operation_id ||
@@ -1019,16 +1106,90 @@ export function validateCandidateKeepaliveOperation(operation, schema) {
     errors.push("candidate keepalive audit receipt mismatch");
   }
   const phaseRules = {
-    prepared: create === null && audit === null && operation.terminal_disposition === null,
-    ref_created: create !== null && audit === null && operation.terminal_disposition === null,
-    verified: create !== null && audit === null && operation.terminal_disposition === null,
-    audit_retained: create !== null && audit !== null &&
+    prepared: create === null && release === null && audit === null && operation.terminal_disposition === null,
+    ref_created: create !== null && release === null && audit === null && operation.terminal_disposition === null,
+    verified: create !== null && release === null && audit === null && operation.terminal_disposition === null,
+    audit_retained: create !== null && release === null && audit !== null &&
       operation.terminal_disposition === "audit_retained",
-    released: create !== null && audit !== null &&
+    released: create !== null && release !== null && audit !== null &&
+      audit.reason === "publication_verified" && release.audit_candidate_ref === audit.audit_ref &&
+      release.audit_candidate_oid === audit.snapshot_commit_oid &&
       operation.terminal_disposition === "published_released",
   };
   if (phaseRules[operation.phase] !== true) {
     errors.push("candidate keepalive phase receipt prefix mismatch");
+  }
+  return errors;
+}
+
+export function validateRefCustodyHelperContract(contract, schema) {
+  const errors = validateJsonSchema(contract, schema, schema, "ref_custody_helper_contract")
+    .map((error) => "Schema: " + error);
+  const commonRequest = [
+    "action", "custody_generation", "daemon_capability_receipt_hash", "epic_ref_key",
+    "expected_refs", "expected_update_message", "new_refs", "nonce", "operation_id",
+    "packed_refs_sha256", "policy_digest", "project_root_sha256", "reflog_checkpoint",
+    "reflog_producer", "request_id", "schema",
+  ];
+  const commonResponse = [
+    "action", "after_entry_count", "appended_entry_sha256", "before_entry_count",
+    "before_prefix_sha256", "raw_appended_entry_base64", "receipt_hash", "request_id",
+    "schema", "status", "transaction_observation_sha256",
+  ].sort(codePointCompare);
+  const actionExtras = {
+    init: ["new_oid", "planning_ref"],
+    create_keepalive: ["candidate_identity", "candidate_ref", "new_oid"],
+    advance_planning: [
+      "candidate_identity", "candidate_ref", "expected_candidate_oid", "expected_planning_oid",
+      "new_planning_oid", "planning_ref",
+    ],
+    retain_audit: ["audit_ref", "candidate_identity", "live_ref", "reason", "snapshot_commit_oid"],
+    release_to_audit: [
+      "audit_ref", "candidate_identity", "expected_planning_oid", "live_ref", "planning_ref",
+      "snapshot_commit_oid",
+    ],
+    delete_expired_audit: [
+      "audit_ref", "candidate_identity", "expected_audit_oid", "retention_tombstone_hash",
+    ],
+  };
+  const actions = Array.isArray(contract?.actions) ? contract.actions : [];
+  if (canonicalStringify(actions.map((item) => item.action)) !==
+      canonicalStringify(Object.keys(actionExtras))) {
+    errors.push("ref-custody actions must contain the exact canonical six-action roster");
+  }
+  for (const action of actions) {
+    const requestRequired = [...new Set([
+      ...commonRequest,
+      ...(actionExtras[action.action] ?? []),
+    ])].sort(codePointCompare);
+    if (canonicalStringify(action.request_required) !== canonicalStringify(requestRequired) ||
+        canonicalStringify(action.response_required) !== canonicalStringify(commonResponse)) {
+      errors.push(`ref-custody ${action.action} request/response field contract mismatch`);
+      continue;
+    }
+    const requestDomain = `autosk-flow/ref-custody/${action.action}/request/v1\\0`;
+    const observationDomain = `autosk-flow/ref-custody/${action.action}/observation/v1\\0`;
+    const receiptDomain = `autosk-flow/ref-custody/${action.action}/receipt/v1\\0`;
+    const requestSha256 = sha256(
+      requestDomain + canonicalStringify({ action: action.action, request_required: requestRequired }),
+    );
+    const transactionObservationSha256 = sha256(
+      observationDomain + canonicalStringify({ action: action.action, response_required: commonResponse }),
+    );
+    const receiptHash = sha256(
+      receiptDomain + canonicalStringify({
+        action: action.action,
+        request_sha256: requestSha256,
+        transaction_observation_sha256: transactionObservationSha256,
+      }),
+    );
+    if (action.request_domain !== requestDomain || action.observation_domain !== observationDomain ||
+        action.receipt_domain !== receiptDomain ||
+        action.golden?.request_sha256 !== requestSha256 ||
+        action.golden?.transaction_observation_sha256 !== transactionObservationSha256 ||
+        action.golden?.receipt_hash !== receiptHash) {
+      errors.push(`ref-custody ${action.action} domain or literal golden vector mismatch`);
+    }
   }
   return errors;
 }
@@ -1459,6 +1620,8 @@ export function validatePlanningRefDesign(files) {
     "candidate-keepalive-operation.schema.json",
     "gc.packRefs=false",
     "publish-artifact-pass-operation.released.example.json",
+    "candidate-keepalive-operation.released.example.json",
+    "ref-custody-helper-contract.schema.json",
   ]) {
     if (!contract.includes(fragment)) errors.push(`planning-ref contract missing ${fragment}`);
   }
@@ -1519,8 +1682,17 @@ export function validatePlanningRefDesign(files) {
     const keepaliveAuditExample = JSON.parse(
       files["resources/planning-publication/candidate-keepalive-operation.audit-retained.example.json"],
     );
+    const keepaliveReleasedExample = JSON.parse(
+      files["resources/planning-publication/candidate-keepalive-operation.released.example.json"],
+    );
     const releasedExample = JSON.parse(
       files["resources/planning-publication/publish-artifact-pass-operation.released.example.json"],
+    );
+    const custodyContractSchema = JSON.parse(
+      files["resources/planning-publication/ref-custody-helper-contract.schema.json"],
+    );
+    const custodyContractExample = JSON.parse(
+      files["resources/planning-publication/ref-custody-helper-contract.example.json"],
     );
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
       errors.push(`planning publication Schema/example: ${error}`);
@@ -1537,8 +1709,17 @@ export function validatePlanningRefDesign(files) {
     for (const error of validateCandidateKeepaliveOperation(keepaliveAuditExample, keepaliveSchema)) {
       errors.push(`candidate keepalive audit Schema/example: ${error}`);
     }
+    for (const error of validateCandidateKeepaliveOperation(keepaliveReleasedExample, keepaliveSchema)) {
+      errors.push(`candidate keepalive released Schema/example: ${error}`);
+    }
     for (const error of validatePlanningPublicationOperation(releasedExample, schema)) {
       errors.push(`released publication Schema/example: ${error}`);
+    }
+    for (const error of validateRefCustodyHelperContract(
+      custodyContractExample,
+      custodyContractSchema,
+    )) {
+      errors.push(`ref-custody helper Schema/example: ${error}`);
     }
   } catch (error) {
     errors.push(`planning publication Schema/example is not valid JSON: ${error.message}`);

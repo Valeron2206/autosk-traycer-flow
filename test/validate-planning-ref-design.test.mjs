@@ -11,6 +11,8 @@ import {
   INIT_OPERATION_SCHEMA_PATH,
   INVALIDATION_EXAMPLE_PATH,
   artifactPathspecDigest,
+  candidateKeepaliveAuditObservationDigest,
+  candidateKeepaliveAuditReceiptHash,
   candidateKeepaliveReleaseReceiptHash,
   candidateKeepaliveReleaseTransactionDigest,
   canonicalStringify,
@@ -20,6 +22,8 @@ import {
   planningReceiptHash,
   planningRefDesignDigest,
   planningReleaseTailObservationDigest,
+  validateCandidateKeepaliveOperation,
+  validateRefCustodyHelperContract,
   validatePlanningPublicationOperation,
   validatePlanningPublicationOperationExample,
   validatePlanningRefInitOperation,
@@ -498,8 +502,25 @@ test("recovered receipts are bound to their containing operation values", () => 
     receipt_hash: "",
   };
   releaseReceipt.receipt_hash = candidateKeepaliveReleaseReceiptHash(releaseReceipt);
+  const auditReceipt = {
+    schema: 1,
+    operation_id: released.candidate_keepalive.operation_id,
+    candidate_identity: released.candidate_keepalive.candidate_identity,
+    live_ref: released.candidate_keepalive.ref,
+    audit_ref: released.candidate_keepalive.audit_ref,
+    snapshot_commit_oid: released.candidate_keepalive.snapshot_commit_oid,
+    reason: "publication_verified",
+    ref_custody_generation: released.ref_custody_generation,
+    ref_custody_policy_digest: released.ref_custody_policy_digest,
+    observation_sha256: "",
+    receipt_hash: "",
+  };
+  auditReceipt.observation_sha256 = candidateKeepaliveAuditObservationDigest(auditReceipt);
+  auditReceipt.receipt_hash = candidateKeepaliveAuditReceiptHash(auditReceipt);
   released.candidate_keepalive.phase = "released";
+  released.candidate_keepalive.terminal_disposition = "published_released";
   released.candidate_keepalive.release_receipt = releaseReceipt;
+  released.candidate_keepalive.audit_receipt = auditReceipt;
   assert.deepEqual(validatePlanningPublicationOperation(released, schema), []);
 
   const movedBeforeRelease = structuredClone(released);
@@ -1073,4 +1094,138 @@ test("keepalive create proof is operation-scoped and uses null missing-old", () 
   assert.equal(publication.candidate_keepalive.create_receipt.operation_id, publication.candidate_keepalive.operation_id);
   assert.equal(publication.candidate_keepalive.create_receipt.observed_old_oid, null);
   assert.equal(init.receipts.ref_create.observation.observed_old_oid, null);
+});
+
+test("terminal keepalive recovery precedes the active live-ref guard", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  const liveGuard = plan.indexOf("publish_artifact_pass | candidate_keepalive phase=prepared\\|ref_created\\|verified and live ref is absent/moved");
+  const released = plan.indexOf("publish_artifact_pass | phase=verified, candidate_keepalive phase=released");
+  const auditRetained = plan.indexOf("publish_artifact_pass | phase=voided_before_ref, candidate_keepalive_op phase=audit_retained");
+  assert.ok(released >= 0 && auditRetained >= 0 && liveGuard > released && liveGuard > auditRetained);
+  assert.match(plan, /phase=verified, candidate_keepalive phase=released.*live candidate ref absent.*audit candidate ref/isu);
+});
+
+test("standalone keepalive validator rejects a self-consistent substituted reflog entry", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.schema.json"), "utf8"));
+  const forged = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.example.json"), "utf8"));
+  forged.create_receipt.appended_entry_sha256 = "f".repeat(64);
+  const observation = {
+    after_entry_count: forged.create_receipt.after_entry_count,
+    appended_entry_sha256: forged.create_receipt.appended_entry_sha256,
+    before_entry_count: forged.create_receipt.before_entry_count,
+    before_prefix_sha256: forged.create_receipt.before_prefix_sha256,
+    candidate_identity: forged.create_receipt.candidate_identity,
+    expected_update_message: forged.create_receipt.expected_update_message,
+    observed_new_oid: forged.create_receipt.observed_new_oid,
+    observed_old_oid: forged.create_receipt.observed_old_oid,
+    operation_id: forged.create_receipt.operation_id,
+    ref: forged.create_receipt.ref,
+    snapshot_tree_oid: forged.create_receipt.snapshot_tree_oid,
+  };
+  forged.create_receipt.observation_sha256 = sha256(
+    "autosk-flow/candidate-keepalive-create/v1\0" + canonicalStringify(observation),
+  );
+  forged.create_receipt.receipt_hash = sha256(
+    "autosk-flow/candidate-keepalive-receipt/v1\0" + canonicalStringify({
+      candidate_identity: forged.candidate_identity,
+      operation_id: forged.operation_id,
+      observation_sha256: forged.create_receipt.observation_sha256,
+    }),
+  );
+  assert.match(validateCandidateKeepaliveOperation(forged, schema).join("\n"), /reflog entry/u);
+});
+
+test("keepalive terminal history and released golden state are closed", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const releasedPath = path.join(directory, "candidate-keepalive-operation.released.example.json");
+  const released = JSON.parse(readFileSync(releasedPath, "utf8"));
+  const schema = JSON.parse(readFileSync(path.join(directory, "candidate-keepalive-operation.schema.json"), "utf8"));
+  assert.deepEqual(validateCandidateKeepaliveOperation(released, schema), []);
+  assert.equal(released.phase, "released");
+  assert.equal(released.terminal_disposition, "published_released");
+  assert.notEqual(released.release_receipt, null);
+  assert.notEqual(released.audit_receipt, null);
+  assert.match(fixture()["03-technical-plan.md"], /planning\.candidate_history.*append-only/isu);
+});
+
+test("publication embeds the authoritative standalone keepalive record verbatim", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const standalone = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.schema.json"),
+    "utf8",
+  ));
+  const publicationSchema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
+  assert.deepEqual(publicationSchema.$defs.candidate_keepalive.required, standalone.required);
+  for (const name of [
+    "publish-artifact-pass-operation.example.json",
+    "publish-planning-invalidation-operation.example.json",
+    "publish-artifact-pass-operation.released.example.json",
+  ]) {
+    const publication = JSON.parse(readFileSync(path.join(directory, name), "utf8"));
+    assert.deepEqual(validateCandidateKeepaliveOperation(publication.candidate_keepalive, standalone), []);
+  }
+});
+
+test("all abandoned candidates transfer to audit and helper callers have resume targets", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /superseded.*rebuild_anchor.*record_artifact_pass.*new candidate/isu);
+  assert.match(plan, /synthesize_panel.*planning_candidate_keepalive_invalid/isu);
+  assert.match(plan, /narrow_review_join.*planning_candidate_keepalive_invalid/isu);
+  assert.match(plan, /cleanup.*planning_candidate_keepalive_invalid/isu);
+  assert.match(plan, /synthesize_panel \/ narrow_review_join.*cleanup.*planning_ref_capability_missing/isu);
+  assert.match(plan, /cleanup.*enumerate.*refs\/autosk\/epics\/<epic_ref_key>\/candidates/isu);
+});
+
+test("snapshot commit and ref-custody protocol are deterministic and action-closed", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /snapshot commit recipe.*persisted before.*Git write.*single parent.*expected OID/isu);
+  assert.match(contract, /action-discriminated.*reflog_producer.*reflog_checkpoint.*raw appended entry/isu);
+  assert.match(contract, /init.*create_keepalive.*advance_planning.*retain_audit.*release_to_audit.*delete_expired_audit.*golden vector/isu);
+  assert.match(contract, /lost response.*journal.*fsync.*nonce/isu);
+});
+
+test("ref-custody helper has six machine-validated action contracts and literal vectors", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(
+    path.join(directory, "ref-custody-helper-contract.schema.json"),
+    "utf8",
+  ));
+  const example = JSON.parse(readFileSync(
+    path.join(directory, "ref-custody-helper-contract.example.json"),
+    "utf8",
+  ));
+  assert.deepEqual(validateRefCustodyHelperContract(example, schema), []);
+  assert.deepEqual(example.actions.map(({ action }) => action), [
+    "init",
+    "create_keepalive",
+    "advance_planning",
+    "retain_audit",
+    "release_to_audit",
+    "delete_expired_audit",
+  ]);
+  const forged = structuredClone(example);
+  forged.actions[4].golden.receipt_hash = "0".repeat(64);
+  assert.match(validateRefCustodyHelperContract(forged, schema).join("\n"), /golden vector/u);
+});
+
+test("invalidation and retention prose follow release-before-archive", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.doesNotMatch(contract, /Pre-CAS drift[^.]*archives both records/isu);
+  assert.match(contract, /Pre-CAS drift.*audit_retained.*only then.*archive/isu);
+  assert.match(contract, /gc\."refs\/autosk\/epics\/\*\/audit\/candidates\/\*"\.reflogExpire=never/isu);
+  assert.match(contract, /phase=`verified`, keepalive still verified.*create.*audit.*delete.*live/isu);
+});
+
+test("successful publication archives its operation and literal release receipt is pinned", () => {
+  const plan = fixture()["03-technical-plan.md"];
+  assert.match(plan, /publish_artifact_pass \| phase=verified, candidate_keepalive phase=released.*archive.*publication_history/iu);
+  const released = JSON.parse(readFileSync(
+    path.join(path.dirname(OPERATION_SCHEMA_PATH), "publish-artifact-pass-operation.released.example.json"),
+    "utf8",
+  ));
+  assert.equal(
+    released.candidate_keepalive.release_receipt.receipt_hash,
+    "197f7f391114b1b873b478f277cca9d20bb8e3deb17a3fa63201ad912ca1f8b7",
+  );
 });

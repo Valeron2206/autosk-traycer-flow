@@ -26,8 +26,8 @@
   },
   "ref_custody_generation": 1,
   "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-  "phase": "audit_retained",
-  "terminal_disposition": "audit_retained",
+  "phase": "released",
+  "terminal_disposition": "published_released",
   "create_receipt": {
     "schema": 1,
     "operation_id": "77777777-7777-4777-8777-777777777777",
@@ -44,7 +44,24 @@
     "observation_sha256": "9a344fc5aa78e8f45d0424b6f5d76ff0e28aa1f2179c3d0816e9d9f37518c7db",
     "receipt_hash": "7e3f175a45ac40018ff5592b5155851ce0780b0cdfa765c58f6878a920f98725"
   },
-  "release_receipt": null,
+  "release_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "candidate_identity": "4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "expected_old_oid": "7777777777777777777777777777777777777777",
+    "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+    "verified_commit_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+    "planning_reflog_after_receipt_hash": "915d0b18d2ec32f98c0a5b91926d91a0096f0adad4193880489dbdf48fc286b2",
+    "planning_reflog_tail_observation_sha256": "2a62fc213614230da0e98be3d06e32f4a57373dbbbd30468d88a7db9d4ae2e04",
+    "transaction_observation_sha256": "e5e341152cc691fcd393f5143c08a0a27227781cfad61f7617a770da3861838c",
+    "audit_candidate_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
+    "audit_candidate_oid": "7777777777777777777777777777777777777777",
+    "ref_custody_generation": 1,
+    "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "closure_verified": true,
+    "receipt_hash": "197f7f391114b1b873b478f277cca9d20bb8e3deb17a3fa63201ad912ca1f8b7"
+  },
   "audit_receipt": {
     "schema": 1,
     "operation_id": "77777777-7777-4777-8777-777777777777",
@@ -52,11 +69,11 @@
     "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
     "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/4dfd7135c8763bb62537b0db290136b0475c4a3fc392360d9efb8d009148329f",
     "snapshot_commit_oid": "7777777777777777777777777777777777777777",
-    "reason": "panel_not_pass",
+    "reason": "publication_verified",
     "ref_custody_generation": 1,
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-    "observation_sha256": "7c50306e7492d3e295f61fc354798609dcfbcfb922a24087f3e2db24bcc93120",
-    "receipt_hash": "70fa8bbdfbe028b0bcc7ce9c9a0d743d20e6696f9fa6be458be8adb25f9209ef"
+    "observation_sha256": "578fce3348333da1094a299179c9c7709648dff16c8699a12d6f9b3d9a63d497",
+    "receipt_hash": "9f39679eb9f73b44d4ea6895fd0fb32d8721cee3197a4d4716681372fed28df7"
   },
   "created_at_utc": "2026-09-01T00:00:00Z"
 }
