@@ -1449,6 +1449,9 @@ test("ref-custody helper rejects mixed object formats in one signed request", ()
   nestedFormat.candidate_keepalive.snapshot_commit_recipe.object_format = "sha256";
   nestedFormat.candidate_keepalive.snapshot_object_receipt.object_format = "sha256";
   assert.notDeepEqual(validateJsonSchema(nestedFormat, publicationSchema), []);
+  const nestedVerification = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  nestedVerification.candidate_keepalive.verification_receipt.observed_oid = "a".repeat(64);
+  assert.notDeepEqual(validateJsonSchema(nestedVerification, publicationSchema), []);
   const keepaliveSchema = JSON.parse(readFileSync(
     path.join(directory, "candidate-keepalive-operation.schema.json"),
     "utf8",
@@ -1459,6 +1462,12 @@ test("ref-custody helper rejects mixed object formats in one signed request", ()
   ));
   keepalive.release_receipt.verified_commit_oid = "a".repeat(64);
   assert.notDeepEqual(validateJsonSchema(keepalive, keepaliveSchema), []);
+  const keepaliveVerification = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.example.json"),
+    "utf8",
+  ));
+  keepaliveVerification.verification_receipt.observed_oid = "a".repeat(64);
+  assert.notDeepEqual(validateJsonSchema(keepaliveVerification, keepaliveSchema), []);
 });
 
 test("pre-existing exact audit topology is a valid release variant", () => {
@@ -1796,6 +1805,11 @@ test("audit expiry has a durable approval and tombstone operation", () => {
   const forged = structuredClone(operation);
   forged.inventory_digest = "d".repeat(64);
   assert.match(validateAuditHousekeepingOperation(forged, schema).join("\n"), /approval|tombstone/u);
+  for (const deletedAt of ["2026-08-31T23:59:59Z", "2026-09-01T00:00:00Z"]) {
+    const early = structuredClone(operation);
+    early.tombstone_receipt.deleted_at_utc = deletedAt;
+    assert.match(validateAuditHousekeepingOperation(early, schema).join("\n"), /tombstone/u);
+  }
 });
 
 test("custody transfer, closure pack, atomic PASS and rebind contracts are machine closed", () => {
@@ -1809,6 +1823,9 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
   const transfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
   transfer.audit_ref_receipt.planning_verified = false;
   assert.notDeepEqual(validateJsonSchema(transfer, transferSchema), []);
+  const mixedTransfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
+  mixedTransfer.live_delete_receipt.expected_old_oid = "a".repeat(64);
+  assert.notDeepEqual(validateJsonSchema(mixedTransfer, transferSchema), []);
   const rebindPath = "resources/planning-publication/planning-publication-rebinding.example.json";
   for (const newVersion of [1, 0]) {
     const files = fixture();
@@ -1837,6 +1854,20 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
   });
   duplicateRefFiles[intentPath] = JSON.stringify(duplicateRef, null, 2) + "\n";
   assert.match(validatePlanningRefDesign(duplicateRefFiles).join("\n"), /duplicate observation refs/u);
+  const intentExample = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-intents.example.json"), "utf8"));
+  const absentWithOid = structuredClone(intentExample);
+  const absentRecord = absentWithOid.records.find((record) => record.pre_execution_observation.some((observation) => observation.present));
+  absentRecord.pre_execution_observation.find((observation) => observation.present).present = false;
+  const absentFiles = fixture();
+  absentFiles[intentPath] = JSON.stringify(absentWithOid, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(absentFiles).join("\n"), /present\/oid mismatch/u);
+  const presentWithoutOid = structuredClone(intentExample);
+  const presentRecord = presentWithoutOid.records.find((record) => record.pre_execution_observation.some((observation) => observation.present));
+  const presentObservation = presentRecord.pre_execution_observation.find((observation) => observation.present);
+  presentObservation.oid = null;
+  const presentFiles = fixture();
+  presentFiles[intentPath] = JSON.stringify(presentWithoutOid, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(presentFiles).join("\n"), /present\/oid mismatch/u);
   const apiFiles = fixture();
   const apiPath = "resources/planning-publication/record-pass-prepare-publication.example.json";
   const api = JSON.parse(apiFiles[apiPath]);

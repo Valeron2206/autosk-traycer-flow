@@ -1509,6 +1509,8 @@ export function validateAuditHousekeepingOperation(operation, schema) {
         tombstone.helper_receipt_hash !== operation.helper_evidence?.helper_receipt_hash ||
         tombstone.inventory_digest !== operation.inventory_digest ||
         tombstone.retention_policy_digest !== operation.retention_policy_digest ||
+        Date.parse(tombstone.deleted_at_utc) < Date.parse(operation.expires_at_utc) ||
+        Date.parse(tombstone.deleted_at_utc) < Date.parse(operation.operator_approval?.approved_at_utc) ||
         tombstone.receipt_hash !== sha256(
           "autosk-flow/audit-housekeeping-tombstone/v1\0" + canonicalStringify(preimage),
         )) {
@@ -2549,7 +2551,7 @@ export function validatePlanningRefDesign(files) {
     const transferExample = supplementalContracts.find(([label]) => label === "candidate audit transfer")?.[2];
     for (const [field, domain] of [["audit_ref_receipt", "autosk-flow/audit-transfer/audit-ref/v1\0"], ["live_delete_receipt", "autosk-flow/audit-transfer/live-delete/v1\0"], ["verification_receipt", "autosk-flow/audit-transfer/verification/v1\0"]]) {
       const { receipt_hash: ignored, ...receipt } = transferExample[field];
-      if (transferExample[field].receipt_hash !== sha256(domain + canonicalStringify({ operation_id: transferExample.operation_id, helper_intent_key: transferExample.helper_intent_key, ...receipt }))) errors.push(`candidate audit transfer ${field} digest mismatch`);
+      if (transferExample[field].receipt_hash !== sha256(domain + canonicalStringify({ operation_id: transferExample.operation_id, object_format: transferExample.object_format, helper_intent_key: transferExample.helper_intent_key, ...receipt }))) errors.push(`candidate audit transfer ${field} digest mismatch`);
     }
     const validateClosurePackDigest = (record, label) => {
       const core = { operation_id: record.operation_id, candidate_identity: record.candidate_identity, snapshot_commit_oid: record.snapshot_commit_oid, candidate_tree_oid: record.candidate_tree_oid, object_format: record.object_format, object_count: record.object_count, object_oid_set_sha256: record.object_oid_set_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, protected_store_identity: record.protected_store_identity };
@@ -2598,6 +2600,7 @@ export function validatePlanningRefDesign(files) {
     for (const intent of helperIntents?.records ?? []) {
       const observationRefs = intent.pre_execution_observation.map((observation) => observation.ref);
       if (new Set(observationRefs).size !== observationRefs.length) errors.push(`helper intent ${intent.action} contains duplicate observation refs`);
+      if (intent.pre_execution_observation.some((observation) => observation.present !== (observation.oid !== null))) errors.push(`helper intent ${intent.action} present/oid mismatch`);
       const preconditionHash = sha256("autosk-flow/ref-custody-intent-precondition/v1\0" + canonicalStringify(intent.pre_execution_observation));
       const { persist_receipt_hash: ignored, ...preimage } = intent;
       const persistHash = sha256("autosk-flow/ref-custody-intent-persist/v1\0" + canonicalStringify(preimage));

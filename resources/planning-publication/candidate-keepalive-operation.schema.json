@@ -469,6 +469,14 @@
                 "pattern": "^[0-9a-f]{40}$"
               }
             }
+          },
+          "verification_receipt": {
+            "properties": {
+              "observed_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
           }
         }
       }
@@ -580,6 +588,14 @@
                 "pattern": "^[0-9a-f]{64}$"
               },
               "audit_candidate_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "verification_receipt": {
+            "properties": {
+              "observed_oid": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
               }

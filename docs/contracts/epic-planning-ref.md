@@ -508,11 +508,13 @@ The planning ref and every commit/object referenced by:
 - Ticket execution base;
 - staging/integration operation;
 - release/design attestation;
-- an open planning publication operation whose exact bytes may need pre-CAS reconstruction;
+- the open operation record and exact reconstruction recipe; an unreferenced pre-CAS publication commit object may be pruned and rewritten to the same OID from that recipe;
 - append-only terminal planning publication/init/rebuild history and any voided pre-CAS object during its audit period;
 - unexpired audit policy
 
 are retained and protected from cleanup.
+
+Candidate commit/tree/blob closure remains protected by the verified quarantine pack and live/audit custody. Once planning CAS succeeds, the planning ref retains the published commit and its reachable objects; pre-CAS publication objects alone are not an independent retention obligation.
 
 Normal Ticket or Epic worktree cleanup does not delete the planning ref, a live candidate keepalive, audit candidate ref or typed append-only operation histories: `planning.init_history` retains terminal init operation/receipts, `planning.candidate_history` retains every released/audit-retained keepalive and its exact audit/release receipts, `planning.publication_history` retains artifact and invalidation operations/recipes/receipts, and `planning.rebuild_history` retains terminal anchor-rebuild dispositions and publication bindings. Cleanup first enumerates the live candidate ref namespace and requires an exact current/history operation for every ref; an orphan ref parks `planning_candidate_keepalive_invalid`.
 
