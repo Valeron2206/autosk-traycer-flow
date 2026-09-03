@@ -20,6 +20,9 @@ replace_once(
   if (selector.kind === "file") return selector.path === candidatePath;
   return candidatePath === selector.path || candidatePath.startsWith(`${selector.path}/`);
 }
+
+export function selectorsOverlap(left, right) {
+  if (left.kind === "file" && right.kind === "file") return left.path === right.path;
 ''',
     '''function selectorContains(selector, candidatePath) {
   const selectorPath = collisionKey(selector.path);
@@ -27,6 +30,9 @@ replace_once(
   if (selector.kind === "file") return selectorPath === comparedPath;
   return comparedPath === selectorPath || comparedPath.startsWith(`${selectorPath}/`);
 }
+
+export function selectorsOverlap(left, right) {
+  if (left.kind === "file" && right.kind === "file") return collisionKey(left.path) === collisionKey(right.path);
 ''',
     "case-stable selector overlap",
 )
@@ -100,11 +106,32 @@ replace_once(
   if (rawText !== null && (rawTextValue === null || canonicalStringify(manifest) !== rawTextValue)) {
     errors.push(error("tickets_manifest_noncanonical", "", "manifest bytes do not equal canonical serialization"));
   }
-  if (schemaErrors.length > 0) return errors.sort(errorComparator);
 
+  try {
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
 ''',
-    "schema-first semantic boundary",
+    "schema-aware semantic boundary start",
+)
+
+replace_once(
+    "scripts/validate-tickets-manifest-design.mjs",
+    '''  validateRevisionLineage(manifest, schema, options.previousManifestContext, errors);
+  return errors.sort(errorComparator);
+}
+''',
+    '''  validateRevisionLineage(manifest, schema, options.previousManifestContext, errors);
+  } catch {
+    errors.push(error(
+      "tickets_manifest_schema_invalid",
+      "",
+      "schema-invalid shape cannot enter semantic validation",
+      { phase: "semantic_validation" },
+    ));
+  }
+  return errors.sort(errorComparator);
+}
+''',
+    "schema-aware semantic boundary end",
 )
 
 replace_once(
@@ -120,7 +147,7 @@ replace_once(
     "docs/contracts/tickets-manifest.md",
     '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 ''',
-    '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid nested shapes return typed validation errors before semantic graph/renderer routines and never crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings to one line and escapes Markdown table delimiters so manifest strings cannot forge overview columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+    '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid nested shapes return typed validation errors and never escape as host exceptions; safe semantic-specific errors may still be emitted alongside Schema errors. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings to one line and escapes Markdown table delimiters so manifest strings cannot forge overview columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 ''',
     "candidate rendering and malformed-input contract",
 )
