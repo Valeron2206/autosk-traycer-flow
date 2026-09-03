@@ -726,14 +726,19 @@ test("scope overlap uses the conservative case-collision policy", () => {
 
 test("renderer prevents heading and table-cell structure injection", () => {
   const manifest = fixture();
+  manifest.goal = "Project goal.\n## Forged overview heading";
   manifest.tickets[0].title = "Left | Right\ncontinued";
-  manifest.tickets[0].goal = "Goal | second column";
+  manifest.tickets[0].goal = "Goal | second column\n## Forged Ticket heading";
   const documents = renderTicketDocuments(manifest);
   const overview = documents.get(`docs/autosk/epics/${manifest.epic_id}/tickets/README.md`);
   const ticket = documents.get(manifest.tickets[0].document_path);
+  assert.match(overview, /Project goal\. ## Forged overview heading/u);
   assert.match(overview, /Left &#124; Right continued/u);
-  assert.match(overview, /Goal &#124; second column/u);
+  assert.match(overview, /Goal &#124; second column ## Forged Ticket heading/u);
   assert.match(ticket, /^# T01 — Left \| Right continued$/mu);
+  assert.match(ticket, /^Goal \| second column ## Forged Ticket heading$/mu);
+  assert.doesNotMatch(overview, /^## Forged overview heading$/mu);
+  assert.doesNotMatch(ticket, /^## Forged Ticket heading$/mu);
   assert.doesNotMatch(ticket, /^continued$/mu);
 });
 
