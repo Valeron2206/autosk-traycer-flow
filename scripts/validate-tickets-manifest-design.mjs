@@ -549,7 +549,9 @@ export function validateTicketsManifestDesign(files) {
     }
   }
   const tech = files["03-technical-plan.md"] ?? "";
-  if (/dispatch_ticket_dag[^\n|]*parse[^\n|]*Markdown/iu.test(tech)) errors.push("03-technical-plan.md: dispatcher must not parse operational fields from Markdown");
+  if (!tech.includes("it never parses rendered Markdown for operational values")) {
+    errors.push("03-technical-plan.md: manifest-only dispatcher prohibition is missing");
+  }
   return errors.sort(compareCodePoints);
 }
 

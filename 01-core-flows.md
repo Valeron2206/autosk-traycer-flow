@@ -88,9 +88,13 @@ Brief и Core Flow пропускаются только по objective classifi
 
 ### Tickets
 
-Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на конкретные пункты Brief, сценарии Core Flow и решения Tech Plan, содержит scope in/out, зависимости, критерии приёмки и требуемые доказательства.
+<!-- tickets-manifest-contract:v1 -->
 
-Весь комплект Tickets проходит отдельную четырёхмодельную панель. Панель проверяет и каждый Ticket, и согласованность набора.
+Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на exact published Brief/Core Flow/Tech Plan/Decision/Verification authority, содержит scope in/out, closed file/directory selectors, зависимости с rationale, observable acceptance criteria с evidence bindings, work type, impacts, review policy и rollback.
+
+Один canonical `tickets.manifest.json` является runtime-истиной set/DAG. `README.md` и `Txx-*.md` генерируются pinned renderer из manifest и побайтово сверяются до freeze. Свободный Markdown, task title/comment или live worktree не используется для создания child/blocker edges. Host-owned `TicketsValidationReceipt` связывает exact manifest/DAG/rendered-set/Ticket-entry digests с planning parent, candidate tree, alignment, protocol/runtime/instruction identities.
+
+Весь manifest и его rendered views проходят одной frozen identity через отдельную четырёхмодельную Ticket Panel. После PASS issue #5 публикует их одним descendant planning commit. Только verified publication commit/head и current receipt разрешают manifest-only `dispatch_ticket_dag`. Полный контракт находится в `docs/contracts/tickets-manifest.md`.
 
 ### Публикация утверждённых артефактов в planning ref
 

@@ -26,7 +26,7 @@ The candidate is invalid when the manifest is absent, duplicated, unsupported, n
 
 ## 2. Boundaries
 
-Issue #5 publishes the artifact and supplies `planning_head`. Issue #7 composes execution bases. Issue #8 owns approved deltas, #9 staging/final CAS, #23 verification recipes, #24 work-type/evidence contracts and #25 semantic revision decisions. This contract does not store runtime status, sessions, implementation commits, review results or worker assignments.
+Issue #5 publishes the artifact and supplies `planning_head`. Issue #7 composes execution bases. Issue #8 owns approved deltas. Issue #9 owns staging/final CAS. Issue #23 owns verification recipes, issue #24 work-type/evidence contracts and issue #25 semantic revision decisions. This contract does not store runtime status, sessions, implementation commits, review results or worker assignments.
 
 ## 3. V1 root and Ticket records
 
