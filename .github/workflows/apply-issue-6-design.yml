@@ -30,9 +30,8 @@ jobs:
         run: |
           python3 .github/tmp/apply-issue-6-design.py
           python3 .github/tmp/fix-issue-6-validation.py
-          python3 .github/tmp/revert-issue-6-ci-change.py
 
-      - name: Run design validation
+      - name: Run design validation on the complete target state
         run: |
           npm test
           npm run validate:migration
@@ -40,9 +39,10 @@ jobs:
           npm run validate:planning-ref
           npm run validate:tickets-manifest
 
-      - name: Commit canonical files and remove patch scripts
+      - name: Commit non-workflow files and remove patch scripts
         shell: bash
         run: |
+          python3 .github/tmp/revert-issue-6-ci-change.py
           rm .github/tmp/apply-issue-6-design.py
           rm .github/tmp/fix-issue-6-validation.py
           rm .github/tmp/revert-issue-6-ci-change.py
