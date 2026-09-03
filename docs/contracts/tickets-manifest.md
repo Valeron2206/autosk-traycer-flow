@@ -1,0 +1,223 @@
+# Canonical Tickets manifest contract
+
+<!-- tickets-manifest-contract:v1 -->
+
+Status: issue #6 design contract. Runtime implementation remains `required_for_v1` after design gate #39.
+
+## 1. Authority
+
+Every Planned Epic publishes one machine-readable Tickets artifact:
+
+```text
+docs/autosk/epics/<epic-id>/tickets/tickets.manifest.json
+```
+
+The same candidate contains deterministic human views:
+
+```text
+tickets/README.md
+tickets/T01-<slug>.md
+...
+```
+
+The validated manifest from the exact verified Tickets publication commit is the only runtime authority for `dispatch_ticket_dag`, recovery, dependency composition and impact analysis. Markdown files are renderer outputs, not a second scheduler API. A task title, comment, prose-only field, stale worktree file or branch name never defines a Ticket.
+
+The candidate is invalid when the manifest is absent, duplicated, unsupported, non-canonical or inconsistent with the exact rendered path/byte set.
+
+## 2. Boundaries
+
+Issue #5 publishes the artifact and supplies `planning_head`. Issue #7 composes execution bases. Issue #8 owns approved deltas, #9 staging/final CAS, #23 verification recipes, #24 work-type/evidence contracts and #25 semantic revision decisions. This contract does not store runtime status, sessions, implementation commits, review results or worker assignments.
+
+## 3. V1 root and Ticket records
+
+The closed JSON Schema is `resources/tickets-manifest/tickets-manifest.schema.json`.
+
+The root records:
+
+- `schema_version=1` and `renderer_version=autosk-flow/ticket-markdown/v1`;
+- immutable `epic_id`, `manifest_revision`, `previous_manifest_digest` and Git `object_format`;
+- closed canonicalization, path-scope, review/verification policy and resource-limit identifiers;
+- set goal, exclusions and exact governing-artifact references;
+- Tickets sorted by stable ID;
+- exact stable `topological_order`;
+- explicit retirement mappings for a revised set.
+
+Each Ticket records:
+
+- stable `id`, title, goal, `work_type`, in/out scope;
+- closed file/directory path selectors;
+- sorted `depends_on` plus one rationale per dependency;
+- acceptance criteria with verification bindings and evidence classes;
+- governing and material-decision references;
+- documentation, security, migration, operations and observability impacts;
+- risk/rollback and pinned review-policy reference;
+- lineage relative to the immediately previous published manifest;
+- one deterministic Markdown path.
+
+Unknown fields and unknown versions fail closed.
+
+## 4. Canonical bytes and identity
+
+`autosk-flow/canonical-json/v1` means UTF-8 without BOM, NFC strings, no CR/NUL, recursively code-point-sorted object keys, two-space indentation, no floating-point values and exactly one trailing LF. Set-like arrays use specified stable ordering; semantic prose arrays preserve authored order. Parse and reserialize must be byte-identical.
+
+Host validation calculates domain-separated SHA-256 values for:
+
+```text
+manifest bytes
+each Ticket entry
+ordered DAG adjacency
+deterministic rendered document path/hash set
+complete Ticket set
+```
+
+The full Tickets identity also binds project/Epic, anchor, planning parent commit/tree, candidate tree, alignment subject, protocol/runtime/project-instruction identities, governance mapping set and schema/validator/renderer distribution identities. These digests live in a host-owned `TicketsValidationReceipt`, not self-referentially inside the manifest.
+
+Any bound change stales alignment, Panel verdict, publication and task-creation bindings.
+
+## 5. Stable identifiers
+
+Ticket IDs match `T[0-9]{2,6}`, are ASCII and unique, and are never reused for unrelated work in one Epic history. Acceptance IDs match `AC-<ticket-id>-<nnn>`. Every Ticket has exactly one Markdown path beginning with its ID. Path uniqueness is checked bytewise and under the supported filesystem case/Unicode collision policy.
+
+Future tasks bind `{project, epic, manifest_digest, ticket_id, ticket_entry_digest}` through daemon-owned creation identity; editable titles and descriptions are not recovery identity.
+
+## 6. Closed path-scope dialect
+
+V1 accepts only:
+
+```json
+{"kind":"file","path":"src/session/store.ts"}
+{"kind":"directory","path":"src/session"}
+```
+
+Paths are project-relative NFC strings with `/` separators. Empty, absolute, drive/UNC-prefixed, backslash, NUL, dot-segment and repeated-separator paths are invalid. Directory selectors include descendants on segment boundaries. Selectors are sorted and unique. Trusted host code translates selectors to Git argument arrays; models never construct shell pathspecs.
+
+Two Tickets overlap when their selectors can address the same path. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
+
+## 7. Dependency graph
+
+Every dependency must resolve inside the same manifest, cannot be self-referential and must have a matching rationale of kind `semantic` or `scope_serialization`. The graph must be acyclic.
+
+The root `topological_order` contains every Ticket exactly once and must equal iterative Kahn ordering with ASCII Ticket-ID tie-breaking among ready nodes. Validation is bounded `O(V+E)` and independent of worker count. `depends_on` governs dispatch and future execution-base composition, not integration order alone.
+
+## 8. Governing artifacts and unresolved decisions
+
+Root governing references identify exact published files by stable ref ID, kind, relative path, commit OID and content SHA-256. Ticket references must resolve to this root set. Branch names, URLs, foreign projects, uncommitted files and comments are not governing authority.
+
+Every Planned Ticket references current Tech Plan authority and applicable Brief/Core Flow/Decision/Verification authority. A Ticket that still requires an unresolved product, architecture, security, privacy, data, migration or delivery decision is invalid; only already permitted local reversible implementation choices remain to the implementer.
+
+## 9. Acceptance and evidence mappings
+
+Every Ticket has at least one observable AC and every AC has at least one closed binding:
+
+```text
+recipe
+verification_batch
+deterministic_check
+manual_acceptance
+```
+
+`recipe` resolves through issue #23, `verification_batch` through issue #24, and `deterministic_check` identifies a pinned command/runner contract. Manual acceptance requires exact user authority and cannot replace an automatable safety check merely for convenience. Wrong-surface, stale, missing, tool-failed or indeterminate evidence never closes an AC.
+
+A command appearing only in Markdown has no operational effect.
+
+## 10. Work type, impacts and rollback
+
+`work_type` is exactly `feature|bug-fix|refactoring|perf` and references issue #24 prerequisite contracts. Mixed incompatible work is split or escalated before Panel.
+
+Each Ticket resolves documentation, security, migration, operations and observability impact as `required` with paths/rationale or `none` with rationale. `uncertain` is not Panel-ready.
+
+Review policy requires one reviewer outside the complete author/fixer family set, forbids self-review, binds the exact candidate/evidence and leaves verdict/transitions host-mediated. Risk/rollback records include failure modes, rollback mode/steps, irreversibility and exact approval references where required. They do not authorize target movement.
+
+## 11. Revisions and lineage
+
+A new revision points to the exact previous published manifest digest. Ticket lineage is one of:
+
+```text
+new | carry | revise | replace | split_child | merge_result
+```
+
+Predecessor IDs refer only to the immediately previous manifest. Every prior Ticket is accounted for by a current lineage entry or explicit retirement record. `carry` requires the same ID and byte-identical entry digest; no previous Ticket is silently dropped or ambiguously mapped.
+
+Any set revision creates a new alignment subject, full Ticket Panel and descendant planning publication. Matching IDs do not copy task status automatically. Issue #25 owns user-approved dispositions of live/completed/staged work.
+
+## 12. Deterministic human rendering
+
+The pinned renderer creates one overview and one complete Markdown projection per Ticket. It renders into an isolated temporary directory and compares:
+
+```text
+expected path set == candidate path set
+expected bytes    == candidate bytes
+```
+
+A missing, extra, renamed or one-byte-different document is invalid. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+
+## 13. Validation lifecycle
+
+Before Panel, trusted host code performs in order:
+
+1. byte limits, encoding and duplicate-key screening;
+2. supported schema/renderer/canonicalizer checks;
+3. JSON Schema validation;
+4. deterministic semantic errors with JSON pointers;
+5. graph, overlap and lineage validation;
+6. governing/evidence reference validation;
+7. exact deterministic rendering comparison;
+8. canonical digest calculation;
+9. current planning-parent/anchor/runtime/protocol/instruction/alignment checks;
+10. durable write/read-back of one `TicketsValidationReceipt`.
+
+Failure creates no Panel child, PASS, task or blocker.
+
+All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte produces a new receipt and candidate.
+
+After PASS/waiver, issue #5 publishes manifest and views in one Tickets commit; it becomes `planning_head` only after publication and candidate-custody verification.
+
+## 14. Dispatcher authority
+
+`dispatch_ticket_dag` reads the manifest by exact path from the verified Tickets publication commit/tree, never from the live worktree. It revalidates schema/renderer, receipt, set/DAG/entry digests and current controlling identities, then creates children and blockers exclusively from canonical entries.
+
+Creation identity includes project, Epic, manifest digest, Ticket ID, entry digest, DAG digest and planning head. The actual child/edge set is compared with the expected graph before enrollment. Recovery uses daemon receipts and never reparses Markdown.
+
+Missing, stale, corrupt or unsupported input parks with a typed reason and zero child/blocker side effects.
+
+## 15. Stable errors, limits and migration
+
+Every error contains stable `code`, RFC 6901 `json_pointer`, message, related pointers and canonical evidence. Sorting is by code-point pointer, code and evidence bytes. Required classes cover JSON/canonical/version/limit errors; duplicate IDs; dangling/self/cyclic dependencies; invalid topo order; invalid/colliding/overlapping paths; AC/evidence/governing/impact/lineage errors; rendered-path/byte drift; and stale receipts.
+
+Resource limits bound manifest bytes, Tickets, edges, selectors, ACs, bindings and rendered bytes before expensive work. Very large valid sets preserve identical graph/digests with one or many workers.
+
+Unknown schema versions fail closed. Migration is a pure pinned `vN -> vN+1` transformation with before/after identities, explicit semantic decision where needed, fresh alignment, full Ticket Panel and new planning publication. Active Epics never reinterpret old bytes under a new parser.
+
+## 16. Required implementation tests
+
+At minimum test:
+
+- missing/duplicate/malformed IDs, AC IDs and unknown fields/versions;
+- dangling/self/deep-cycle dependencies and stable topo ties;
+- workers=1 versus workers>=4 graph identity;
+- absolute/traversal/backslash/NUL/dot/collision paths;
+- ordered versus unordered scope overlap;
+- missing/mismatched rationales, AC evidence, governing refs and impacts;
+- irreversible rollback without approval;
+- missing/extra/renamed/one-byte-drift rendered docs;
+- key order, CRLF, BOM, non-NFC, duplicate JSON keys and extra fields;
+- initial/revised carry/revise/replace/split/merge/retirement lineage;
+- digest golden vectors;
+- stale alignment/planning/candidate/runtime/protocol/instruction/receipt;
+- valid-at-limit and limit+1 sets;
+- crashes around receipt, child, blocker, enrollment and final graph projection;
+- idempotent retry with one child per Ticket;
+- proof that operational fields are never read from Markdown;
+- upgrade/downgrade/unknown version and cross-project rejection.
+
+## 17. Acceptance mapping
+
+- versioned JSON Schema and receipt: sections 3 and 13;
+- one manifest plus human views candidate: sections 1 and 12;
+- manifest-only dispatcher: section 14;
+- JSON-pointer errors: section 15;
+- digest in artifact/task/execution-base identity: sections 4, 5 and 14;
+- migration: section 15;
+- reproducible graph after restart: sections 7, 14 and 16.
+
+This document and the canonical transition table in `03-technical-plan.md` are normative. Summaries and diagrams may omit internal detail but may not contradict them.
