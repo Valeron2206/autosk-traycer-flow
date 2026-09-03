@@ -146,8 +146,7 @@
           "const": [
             "git",
             "pack-objects",
-            "--revs",
-            "--stdout"
+            "<content-addressed-pack-prefix>"
           ]
         },
         "object_format": {

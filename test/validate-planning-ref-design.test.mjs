@@ -29,6 +29,9 @@ import {
   validateCandidateKeepaliveOperation,
   validateCandidateSupersessionOperation,
   validateAuditHousekeepingOperation,
+  validateCandidateAuditTransferOperation,
+  validateCandidateClosurePackOperation,
+  validatePlanningPublicationRebinding,
   validateRefCustodyHelperContract,
   validateRefCustodyHelperWireExamples,
   validatePlanningPublicationOperation,
@@ -948,7 +951,7 @@ test("frozen candidate object closure stays reachable until publication verifica
   assert.match(plan, /atomic update-ref transaction verifies.*keepalive.*CAS-advances planning ref/isu);
   assert.match(plan, /candidate_audit_transfer_op phase=prepared.*audit_ref_verified.*live_ref_deleted/isu);
   assert.match(contract, /refs\/autosk\/epics\/<epic_ref_key>\/candidates\/<candidate_identity>/u);
-  assert.match(contract, /complete commit\/tree\/blob quarantine pack.*outside project GC/isu);
+  assert.match(contract, /complete commit\/tree\/blob quarantine pack.*real Git pack\/index bytes.*common ODB/isu);
   assert.match(contract, /verify <candidate_keepalive_ref> <snapshot_commit_oid>.*update <planning_ref>/isu);
   assert.match(contract, /prepared -> audit_ref_verified -> live_ref_deleted -> verified/isu);
 });
@@ -1091,11 +1094,11 @@ test("release digests have literal golden vectors", () => {
   assert.equal(released.candidate_keepalive.phase, "released");
   assert.equal(
     released.candidate_keepalive.release_receipt.planning_reflog_tail_observation_sha256,
-    "2a62fc213614230da0e98be3d06e32f4a57373dbbbd30468d88a7db9d4ae2e04",
+    "e9d26e5bc459c25487c8387b6ddc3ee27b2e8754bc4023686900944acf50f58b",
   );
   assert.equal(
     released.candidate_keepalive.release_receipt.transaction_observation_sha256,
-    "ec6b5cd265114f48d5504596fd2244d842b9d8bb5e9d73469be1035cf7bf8a75",
+    "14e642592e06d21c6f64dcb39e1c69c8e1af6935ea2eba3b27459de183094e04",
   );
 });
 
@@ -1116,12 +1119,20 @@ test("candidate keepalive operation has a closed standalone machine", () => {
     "utf8",
   ));
   assert.equal(refCreated.verification_receipt, null);
+  const objectWritten = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.object-written.example.json"),
+    "utf8",
+  ));
+  assert.equal(objectWritten.phase, "object_written");
+  assert.notEqual(objectWritten.snapshot_object_receipt, null);
+  assert.equal(objectWritten.create_receipt, null);
+  assert.deepEqual(validateCandidateKeepaliveOperation(objectWritten, schema), []);
   const audit = JSON.parse(readFileSync(
     path.join(directory, "candidate-keepalive-operation.audit-retained.example.json"),
     "utf8",
   ));
-  assert.equal(audit.audit_receipt.observation_sha256, "8bfa2dd24f3ae68a9a25165548b47604986f7aae40496ba47647e62e5c44e208");
-  assert.equal(audit.audit_receipt.receipt_hash, "8162a7c325bec638bf81936173919aa087faccab047cd3fec634aeff4e7abbfe");
+  assert.equal(audit.audit_receipt.observation_sha256, "10b07279df5a3115180825eb6ab6ffaedf7942addc6093b4bbde1d2b234a0d55");
+  assert.equal(audit.audit_receipt.receipt_hash, "53272670b800cce3e568cf720a91c48c41ea2ced0b51ec2c1396e8cd20051e7a");
   const invalidPrepared = structuredClone(audit);
   invalidPrepared.phase = "prepared";
   invalidPrepared.terminal_disposition = "published_released";
@@ -1311,7 +1322,7 @@ test("successful publication archives its operation and literal release receipt 
   ));
   assert.equal(
     released.candidate_keepalive.release_receipt.receipt_hash,
-    "a471b2fae744852dc18a4636ae3e94ce29359a7a93810434ffd58e8385ed8862",
+    "f3260287904df1c70fd4d5d626567a6008d0dc6a639298e4409bde2ffc2bd4c9",
   );
 });
 
@@ -1637,7 +1648,7 @@ test("real Git files backend matches helper reflog and deletion semantics", () =
       const auditOne = `${root}/audit/candidates/${"1".repeat(64)}`;
       const liveTwo = `${root}/candidates/${"2".repeat(64)}`;
       const auditTwo = `${root}/audit/candidates/${"2".repeat(64)}`;
-      run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 77777777-7777-4777-8777-777777777777", liveOne, first]);
+      run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 77777777-7777-4777-8777-777777777777", "--stdin"], { input: `create ${liveOne} ${first}\n` });
       run(["update-ref", "-m", "autosk-flow publish 11111111-1111-4111-8111-111111111111", "--stdin"], {
         input: `start\nverify ${liveOne} ${first}\nupdate ${ref} ${second} ${first}\nprepare\ncommit\n`,
       });
@@ -1649,7 +1660,7 @@ test("real Git files backend matches helper reflog and deletion semantics", () =
       run(["update-ref", "-d", liveOne, first]);
       assert.equal(existsSync(path.join(repository, ".git", "logs", liveOne)), false);
       assert.equal(existsSync(path.join(repository, ".git", "logs", auditOne)), true);
-      run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 88888888-8888-4888-8888-888888888888", liveTwo, first]);
+      run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 88888888-8888-4888-8888-888888888888", "--stdin"], { input: `create ${liveTwo} ${first}\n` });
       run(["update-ref", "--stdin"], { input: `verify ${ref} ${second}\n` });
       run(["update-ref", "--create-reflog", "-m", "autosk-flow keepalive 88888888-8888-4888-8888-888888888888", "--stdin"], {
         input: `create ${auditTwo} ${first}\n`,
@@ -1837,6 +1848,18 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
   const mixedTransfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
   mixedTransfer.live_delete_receipt.expected_old_oid = "a".repeat(64);
   assert.notDeepEqual(validateJsonSchema(mixedTransfer, transferSchema), []);
+  const foreignTransfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
+  foreignTransfer.audit_ref_receipt.snapshot_commit_oid = "f".repeat(40);
+  assert.match(validateCandidateAuditTransferOperation(foreignTransfer, transferSchema).join("\n"), /containing transfer|digest/u);
+  const closureSchema = JSON.parse(readFileSync(path.join(directory, "candidate-closure-pack-operation.schema.json"), "utf8"));
+  const closure = JSON.parse(readFileSync(path.join(directory, "candidate-closure-pack-operation.example.json"), "utf8"));
+  closure.object_count += 1;
+  assert.match(validateCandidateClosurePackOperation(closure, closureSchema).join("\n"), /semantic binding/u);
+  const corruptPack = JSON.parse(readFileSync(path.join(directory, "candidate-closure-pack-operation.example.json"), "utf8"));
+  const corruptBytes = Buffer.from(corruptPack.pack_bytes_base64, "base64");
+  corruptBytes[0] ^= 0xff;
+  corruptPack.pack_bytes_base64 = corruptBytes.toString("base64");
+  assert.match(validateCandidateClosurePackOperation(corruptPack, closureSchema).join("\n"), /semantic binding|verify-pack failed/u);
   const rebindPath = "resources/planning-publication/planning-publication-rebinding.example.json";
   for (const newVersion of [1, 0]) {
     const files = fixture();
@@ -1846,6 +1869,12 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
     files[rebindPath] = JSON.stringify(rebind, null, 2) + "\n";
     assert.match(validatePlanningRefDesign(files).join("\n"), /anchor versions must increase/u);
   }
+  const publication = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  const releasedPublication = JSON.parse(readFileSync(path.join(directory, "publish-artifact-pass-operation.released.example.json"), "utf8"));
+  const rebindSchema = JSON.parse(readFileSync(path.join(directory, "planning-publication-rebinding.schema.json"), "utf8"));
+  const rollback = JSON.parse(readFileSync(path.join(directory, "planning-publication-rebinding.example.json"), "utf8"));
+  rollback.old_anchor_version = 5;
+  assert.match(validatePlanningPublicationRebinding(rollback, rebindSchema, publication, releasedPublication).join("\n"), /semantic binding/u);
   const files = fixture();
   const intentPath = "resources/planning-publication/ref-custody-helper-intents.example.json";
   const intents = JSON.parse(files[intentPath]);
@@ -1866,6 +1895,17 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
   duplicateRefFiles[intentPath] = JSON.stringify(duplicateRef, null, 2) + "\n";
   assert.match(validatePlanningRefDesign(duplicateRefFiles).join("\n"), /duplicate observation refs/u);
   const intentExample = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-intents.example.json"), "utf8"));
+  const preparedIntent = structuredClone(intentExample.records.find((record) => record.action === "advance_planning"));
+  preparedIntent.helper_journal_hash = null;
+  preparedIntent.pre_execution_observation = null;
+  preparedIntent.pre_execution_observation_sha256 = null;
+  preparedIntent.lifecycle = ["prepared"];
+  preparedIntent.phase = "prepared";
+  preparedIntent.helper_precondition_under_lock = false;
+  const { persist_receipt_hash: ignoredPreparedHash, ...preparedPreimage } = preparedIntent;
+  preparedIntent.persist_receipt_hash = sha256("autosk-flow/ref-custody-intent-persist/v1\0" + canonicalStringify(preparedPreimage));
+  const intentSchema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-intents.schema.json"), "utf8"));
+  assert.deepEqual(validateJsonSchema({ schema: 1, records: [preparedIntent] }, intentSchema), []);
   const absentWithOid = structuredClone(intentExample);
   const absentRecord = absentWithOid.records.find((record) => record.pre_execution_observation.some((observation) => observation.present));
   absentRecord.pre_execution_observation.find((observation) => observation.present).present = false;

@@ -11,6 +11,7 @@
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" },
     "action": { "enum": ["init", "create_keepalive", "advance_planning", "ensure_audit_ref", "delete_live_ref", "delete_expired_audit"] },
+    "phase": { "enum": ["prepared", "precondition_committed", "delivered", "receipt_committed"] },
     "intent": {
       "type": "object", "additionalProperties": false,
       "required": ["schema", "intent_key", "action", "transfer_mode", "owner_operation_id", "request_id", "nonce", "request_body_canonical_json_base64", "request_body_sha256", "authorization_sha256", "authorization_canonical_json_base64", "authorization_signed_bytes_base64", "wire_request_sha256", "wire_request_canonical_json_base64", "helper_journal_hash", "topology_digest", "pre_execution_observation", "pre_execution_observation_sha256", "lifecycle", "phase", "request_persisted_before_socket", "helper_precondition_under_lock", "persist_receipt_hash"],
@@ -20,28 +21,28 @@
         "owner_operation_id": { "$ref": "#/$defs/uuid" }, "request_id": { "$ref": "#/$defs/uuid" }, "nonce": { "$ref": "#/$defs/sha256" },
         "request_body_canonical_json_base64": { "$ref": "#/$defs/base64" }, "request_body_sha256": { "$ref": "#/$defs/sha256" },
         "authorization_sha256": { "$ref": "#/$defs/sha256" }, "authorization_canonical_json_base64": { "$ref": "#/$defs/base64" }, "authorization_signed_bytes_base64": { "$ref": "#/$defs/base64" },
-        "wire_request_sha256": { "$ref": "#/$defs/sha256" }, "wire_request_canonical_json_base64": { "$ref": "#/$defs/base64" }, "helper_journal_hash": { "$ref": "#/$defs/sha256" },
+        "wire_request_sha256": { "$ref": "#/$defs/sha256" }, "wire_request_canonical_json_base64": { "$ref": "#/$defs/base64" },
+        "helper_journal_hash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
         "topology_digest": { "$ref": "#/$defs/sha256" },
-        "pre_execution_observation": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/observation" } },
-        "pre_execution_observation_sha256": { "$ref": "#/$defs/sha256" },
-        "lifecycle": { "const": ["prepared", "precondition_committed", "delivered", "receipt_committed"] }, "phase": { "const": "receipt_committed" },
-        "request_persisted_before_socket": { "const": true }, "helper_precondition_under_lock": { "const": true }, "persist_receipt_hash": { "$ref": "#/$defs/sha256" }
+        "pre_execution_observation": { "oneOf": [{ "type": "null" }, { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/observation" } }] },
+        "pre_execution_observation_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "lifecycle": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "$ref": "#/$defs/phase" } },
+        "phase": { "$ref": "#/$defs/phase" },
+        "request_persisted_before_socket": { "const": true }, "helper_precondition_under_lock": { "type": "boolean" }, "persist_receipt_hash": { "$ref": "#/$defs/sha256" }
       },
-      "allOf": [{ "if": { "properties": { "action": { "enum": ["ensure_audit_ref", "delete_live_ref"] } } }, "then": { "properties": { "transfer_mode": { "enum": ["retain_audit", "release_to_audit"] } } }, "else": { "properties": { "transfer_mode": { "type": "null" } } } }]
+      "allOf": [
+        { "if": { "properties": { "action": { "enum": ["ensure_audit_ref", "delete_live_ref"] } } }, "then": { "properties": { "transfer_mode": { "enum": ["retain_audit", "release_to_audit"] } } }, "else": { "properties": { "transfer_mode": { "type": "null" } } } },
+        { "if": { "properties": { "phase": { "const": "prepared" } } }, "then": { "properties": { "helper_journal_hash": { "type": "null" }, "pre_execution_observation": { "type": "null" }, "pre_execution_observation_sha256": { "type": "null" }, "lifecycle": { "const": ["prepared"] }, "helper_precondition_under_lock": { "const": false } } } },
+        { "if": { "properties": { "phase": { "const": "precondition_committed" } } }, "then": { "properties": { "helper_journal_hash": { "$ref": "#/$defs/sha256" }, "pre_execution_observation": { "type": "array", "minItems": 1 }, "pre_execution_observation_sha256": { "$ref": "#/$defs/sha256" }, "lifecycle": { "const": ["prepared", "precondition_committed"] }, "helper_precondition_under_lock": { "const": true } } } },
+        { "if": { "properties": { "phase": { "const": "delivered" } } }, "then": { "properties": { "helper_journal_hash": { "$ref": "#/$defs/sha256" }, "pre_execution_observation": { "type": "array", "minItems": 1 }, "pre_execution_observation_sha256": { "$ref": "#/$defs/sha256" }, "lifecycle": { "const": ["prepared", "precondition_committed", "delivered"] }, "helper_precondition_under_lock": { "const": true } } } },
+        { "if": { "properties": { "phase": { "const": "receipt_committed" } } }, "then": { "properties": { "helper_journal_hash": { "$ref": "#/$defs/sha256" }, "pre_execution_observation": { "type": "array", "minItems": 1 }, "pre_execution_observation_sha256": { "$ref": "#/$defs/sha256" }, "lifecycle": { "const": ["prepared", "precondition_committed", "delivered", "receipt_committed"] }, "helper_precondition_under_lock": { "const": true } } } }
+      ]
     },
     "observation": {
       "type": "object", "additionalProperties": false,
       "required": ["ref", "operation", "present", "oid", "packed_entry_absent", "reflog_checkpoint_sha256"],
-      "properties": {
-        "ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64})$" },
-        "operation": { "enum": ["verify", "update", "delete"] }, "present": { "type": "boolean" },
-        "oid": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }] },
-        "packed_entry_absent": { "const": true }, "reflog_checkpoint_sha256": { "$ref": "#/$defs/sha256" }
-      },
-      "allOf": [
-        { "if": { "properties": { "present": { "const": true } } }, "then": { "properties": { "oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" } } } },
-        { "if": { "properties": { "present": { "const": false } } }, "then": { "properties": { "oid": { "type": "null" } } } }
-      ]
+      "properties": { "ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64})$" }, "operation": { "enum": ["verify", "update", "delete"] }, "present": { "type": "boolean" }, "oid": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }] }, "packed_entry_absent": { "const": true }, "reflog_checkpoint_sha256": { "$ref": "#/$defs/sha256" } },
+      "allOf": [{ "if": { "properties": { "present": { "const": true } } }, "then": { "properties": { "oid": { "type": "string" } } } }, { "if": { "properties": { "present": { "const": false } } }, "then": { "properties": { "oid": { "type": "null" } } } }]
     }
   }
 }

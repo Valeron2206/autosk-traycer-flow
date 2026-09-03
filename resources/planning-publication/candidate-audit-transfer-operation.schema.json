@@ -7,6 +7,7 @@
   "required": [
     "schema",
     "operation_id",
+    "keepalive_operation_id",
     "action",
     "candidate_identity",
     "live_ref",
@@ -29,6 +30,9 @@
       "const": 1
     },
     "operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "keepalive_operation_id": {
       "$ref": "#/$defs/uuid"
     },
     "action": {

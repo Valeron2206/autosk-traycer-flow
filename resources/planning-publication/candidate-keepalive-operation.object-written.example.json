@@ -23,7 +23,7 @@
     "inherit_git_environment": false,
     "update_ref_mode": "object_format_neutral_expected_old"
   },
-  "phase": "prepared",
+  "phase": "object_written",
   "create_receipt": null,
   "release_receipt": null,
   "audit_receipt": null,
@@ -61,7 +61,16 @@
     "commit_object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
     "expected_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
   },
-  "snapshot_object_receipt": null,
+  "snapshot_object_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "object_format": "sha1",
+    "object_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
+    "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "parent_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+    "receipt_hash": "97ac4659783dfa0db2d9b4309bd54a16c498496374610249e4123534e5a35a4f"
+  },
   "candidate_identity_preimage": {
     "anchor_version": 1,
     "candidate_tree_oid": "98f123158205921783838adb57058952a0696d7f",

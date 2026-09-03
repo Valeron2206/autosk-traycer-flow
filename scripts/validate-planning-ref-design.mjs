@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -104,6 +106,7 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json",
   "resources/planning-publication/ref-custody-helper-journal-crash.example.json",
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
+  "resources/planning-publication/candidate-keepalive-operation.object-written.example.json",
   "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
   "resources/planning-publication/candidate-supersession-operation.schema.json",
   "resources/planning-publication/candidate-supersession-operation.example.json",
@@ -327,7 +330,7 @@ const REQUIRED = Object.freeze({
   "resources/planning-publication/ref-custody-helper-wire.invalidation.example.json": [
     "\"action\": \"create_keepalive\"",
     "\"operation_id\": \"88888888-8888-4888-8888-888888888888\"",
-    "\"candidate_identity\": \"b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0\"",
+    "\"candidate_identity\"",
   ],
   "resources/planning-publication/ref-custody-helper-wire.existing-audit.example.json": [
     "\"action\": \"ensure_audit_ref\"",
@@ -347,6 +350,11 @@ const REQUIRED = Object.freeze({
   "resources/planning-publication/candidate-keepalive-operation.prepared.example.json": [
     "\"phase\": \"prepared\"",
     "\"snapshot_object_receipt\": null",
+    "\"create_receipt\": null",
+  ],
+  "resources/planning-publication/candidate-keepalive-operation.object-written.example.json": [
+    "\"phase\": \"object_written\"",
+    "\"snapshot_object_receipt\"",
     "\"create_receipt\": null",
   ],
   "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json": [
@@ -378,7 +386,7 @@ const REQUIRED = Object.freeze({
   "resources/planning-publication/candidate-audit-transfer-operation.example.json": ["\"phase\": \"verified\"", "\"live_ref_still_present\": true"],
   "resources/planning-publication/candidate-closure-pack-operation.schema.json": ["\"pack_written\"", "\"protected_store_identity\""],
   "resources/planning-publication/candidate-closure-pack-operation.example.json": ["\"phase\": \"verified\"", "\"object_count\": 3"],
-  "resources/planning-publication/candidate-closure-pack-operation.invalidation.example.json": ["\"phase\": \"verified\"", "\"candidate_identity\": \"b750e173"],
+  "resources/planning-publication/candidate-closure-pack-operation.invalidation.example.json": ["\"phase\": \"verified\"", "\"candidate_identity\""],
   "resources/planning-publication/record-pass-prepare-publication.schema.json": ["autosk.record-pass-prepare-publication", "Valeron2206/autosk-traycer-flow#5"],
   "resources/planning-publication/record-pass-prepare-publication.example.json": ["\"status\": \"committed\"", "\"helper_intent_keys\""],
   "resources/planning-publication/planning-publication-rebinding.schema.json": ["\"old_anchor_version\"", "\"new_anchor_version\""],
@@ -2134,6 +2142,79 @@ export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function validateCandidateAuditTransferOperation(operation, schema, helperExchanges = []) {
+  const errors = validateJsonSchema(operation, schema, schema, "candidate_audit_transfer_operation")
+    .map((error) => `Schema: ${error}`);
+  const audit = operation.audit_ref_receipt;
+  const deletion = operation.live_delete_receipt;
+  const verificationReceipt = operation.verification_receipt;
+  const receiptSpecs = [
+    ["audit_ref_receipt", "autosk-flow/audit-transfer/audit-ref/v1\0", operation.ensure_audit_intent_key],
+    ["live_delete_receipt", "autosk-flow/audit-transfer/live-delete/v1\0", operation.delete_live_intent_key],
+    ["verification_receipt", "autosk-flow/audit-transfer/verification/v1\0", null],
+  ];
+  for (const [field, domain, intentKey] of receiptSpecs) {
+    const receipt = operation[field];
+    if (!receipt) continue;
+    const { receipt_hash: ignored, ...receiptPreimage } = receipt;
+    const preimage = { operation_id: operation.operation_id, keepalive_operation_id: operation.keepalive_operation_id, object_format: operation.object_format, ensure_audit_intent_key: operation.ensure_audit_intent_key, delete_live_intent_key: operation.delete_live_intent_key, ...receiptPreimage };
+    if (intentKey) preimage.helper_intent_key = intentKey;
+    if (receipt.receipt_hash !== sha256(domain + canonicalStringify(preimage))) errors.push(`${field} digest mismatch`);
+  }
+  if (audit && (audit.audit_ref !== operation.audit_ref || audit.snapshot_commit_oid !== operation.snapshot_commit_oid || audit.live_ref_still_present !== true || audit.planning_verified !== (operation.action === "release_to_audit"))) errors.push("audit_ref_receipt does not match containing transfer");
+  if (deletion && (deletion.live_ref !== operation.live_ref || deletion.expected_old_oid !== operation.snapshot_commit_oid || deletion.audit_ref !== operation.audit_ref || deletion.audit_ref_verified !== true)) errors.push("live_delete_receipt does not match containing transfer");
+  if (verificationReceipt && (verificationReceipt.audit_ref !== operation.audit_ref || verificationReceipt.snapshot_commit_oid !== operation.snapshot_commit_oid || verificationReceipt.live_ref_absent !== true || verificationReceipt.audit_ref_receipt_hash !== audit?.receipt_hash || verificationReceipt.live_delete_receipt_hash !== deletion?.receipt_hash)) errors.push("verification_receipt does not match containing transfer");
+  if (operation.action === "release_to_audit" && (!operation.planning_ref || !operation.planning_oid)) errors.push("release transfer requires planning binding");
+  if (operation.action === "retain_audit" && (operation.planning_ref !== null || operation.planning_oid !== null)) errors.push("retain transfer must not carry planning binding");
+  const exchangeByRequest = new Map(helperExchanges.map((item) => [item.request.request_id, item]));
+  for (const [receipt, expectedAction, intentKey] of [[audit, "ensure_audit_ref", operation.ensure_audit_intent_key], [deletion, "delete_live_ref", operation.delete_live_intent_key]]) {
+    if (!receipt) continue;
+    const exchange = exchangeByRequest.get(receipt.helper_evidence?.request_id);
+    if (helperExchanges.length > 0 && (!exchange || exchange.action !== expectedAction || exchange.request.transfer_mode !== operation.action || exchange.request.operation_id !== operation.keepalive_operation_id || exchange.request.candidate_identity !== operation.candidate_identity || exchange.journal.journal_hash !== receipt.helper_evidence.helper_journal_hash || exchange.response.receipt_hash !== receipt.helper_evidence.helper_receipt_hash || exchange.request.body_sha256 !== receipt.helper_evidence.request_body_sha256 || (expectedAction === "ensure_audit_ref" ? operation.ensure_audit_intent_key : operation.delete_live_intent_key) !== intentKey)) errors.push(`${expectedAction} helper evidence does not resolve to the signed journal`);
+  }
+  return errors;
+}
+
+export function validateCandidateClosurePackOperation(record, schema) {
+  const errors = validateJsonSchema(record, schema, schema, "candidate_closure_pack_operation")
+    .map((error) => `Schema: ${error}`);
+  const sortedOids = [...(record.object_oids ?? [])].sort(codePointCompare);
+  const manifestObjects = record.object_manifest?.objects ?? [];
+  const sortedManifest = [...manifestObjects].sort((left, right) => codePointCompare(left.oid, right.oid));
+  const objectSetHash = sha256("autosk-flow/candidate-closure-pack/object-set/v1\0" + canonicalStringify(sortedOids));
+  const manifestHash = sha256("autosk-flow/candidate-closure-pack/manifest/v1\0" + canonicalStringify(record.object_manifest));
+  const writeHash = sha256("autosk-flow/candidate-closure-pack/write/v1\0" + canonicalStringify({ operation_id: record.operation_id, candidate_identity: record.candidate_identity, object_manifest_sha256: record.object_manifest_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, content_addressed_locator: record.content_addressed_locator, git_producer: record.git_producer, write_order: record.write_receipt?.write_order }));
+  const verifyHash = sha256("autosk-flow/candidate-closure-pack/verify/v1\0" + canonicalStringify({ operation_id: record.operation_id, candidate_identity: record.candidate_identity, object_manifest_sha256: record.object_manifest_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, write_receipt_hash: record.write_receipt?.receipt_hash, git_verify_pack: record.verification_receipt?.git_verify_pack, recovery_phases: record.recovery_phases }));
+  const oidWidth = record.object_format === "sha256" ? 64 : 40;
+  const packBytes = Buffer.from(record.pack_bytes_base64 ?? "", "base64");
+  const indexBytes = Buffer.from(record.index_bytes_base64 ?? "", "base64");
+  if (canonicalStringify(record.object_oids) !== canonicalStringify(sortedOids) || canonicalStringify(manifestObjects) !== canonicalStringify(sortedManifest) || canonicalStringify(manifestObjects.map((item) => item.oid)) !== canonicalStringify(sortedOids) || record.object_count !== sortedOids.length || !sortedOids.includes(record.snapshot_commit_oid) || !sortedOids.includes(record.candidate_tree_oid) || sortedOids.some((oid) => oid.length !== oidWidth) || manifestObjects.some((entry) => entry.oid.length !== oidWidth) || record.object_manifest_sha256 !== manifestHash || record.object_oid_set_sha256 !== objectSetHash || packBytes.subarray(0, 4).toString("ascii") !== "PACK" || sha256(packBytes) !== record.pack_bytes_sha256 || sha256(indexBytes) !== record.index_bytes_sha256 || record.content_addressed_locator?.pack_content_address !== record.pack_bytes_sha256 || record.content_addressed_locator?.pack_relative_path !== `objects/pack/autosk-candidates/${record.candidate_identity}/pack-${record.pack_bytes_sha256}.pack` || record.content_addressed_locator?.index_relative_path !== `objects/pack/autosk-candidates/${record.candidate_identity}/pack-${record.pack_bytes_sha256}.idx` || record.git_producer?.object_format !== record.object_format || record.write_receipt?.receipt_hash !== writeHash || record.verification_receipt?.receipt_hash !== verifyHash) errors.push("candidate closure pack semantic binding mismatch");
+  const scratch = mkdtempSync(path.join(tmpdir(), "autosk-verify-pack-"));
+  try {
+    const packPath = path.join(scratch, "fixture.pack");
+    const indexPath = path.join(scratch, "fixture.idx");
+    writeFileSync(packPath, packBytes);
+    writeFileSync(indexPath, indexBytes);
+    const output = execFileSync("git", ["verify-pack", "-v", indexPath], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", LC_ALL: "C", TZ: "UTC" } });
+    const verifiedOids = output.split("\n").map((line) => /^([0-9a-f]{40}|[0-9a-f]{64})\s/u.exec(line)?.[1]).filter(Boolean).sort(codePointCompare);
+    if (canonicalStringify(verifiedOids) !== canonicalStringify(sortedOids)) errors.push("candidate closure pack git verify-pack object set mismatch");
+  } catch {
+    errors.push("candidate closure pack git verify-pack failed");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  return errors;
+}
+
+export function validatePlanningPublicationRebinding(record, schema, publication, releasedPublication, expectedPreviousRebindingHash = null) {
+  const errors = validateJsonSchema(record, schema, schema, "planning_publication_rebinding")
+    .map((error) => `Schema: ${error}`);
+  const { receipt_hash: ignored, ...preimage } = record;
+  const impactDigest = sha256("autosk-flow/planning-publication-rebinding/impact/v1\0" + canonicalStringify(record.approved_impact));
+  if (record.new_anchor_version <= record.old_anchor_version || record.receipt_hash !== sha256("autosk-flow/planning-publication-rebinding/v1\0" + canonicalStringify(preimage)) || record.epic_ref_key !== deriveEpicRefKey(record.project_root_sha256, record.epic_id) || !publication || record.project_root_sha256 !== publication.project_root_sha256 || record.epic_id !== publication.epic_id || record.publication_operation_id !== publication.operation_id || record.prior_publication_receipt_hash !== releasedPublication?.receipts?.verification?.receipt_hash || record.old_published_commit_oid !== publication.expected_parent_oid || record.old_published_tree_oid !== publication.expected_parent_tree_oid || record.current_planning_head_oid !== publication.expected_commit_oid || record.expected_prior_head_oid !== record.old_published_commit_oid || record.unchanged_tree_oid !== publication.candidate_tree_oid || record.unchanged_pathspec_digest !== publication.payload?.artifact_pathspec_digest || sha256(Buffer.from(record.projection_bytes_base64 ?? "", "base64")) !== record.projection_blob_sha256 || record.approved_impact_digest !== impactDigest || record.approved_impact?.impact !== "unaffected" || record.previous_rebinding_hash !== expectedPreviousRebindingHash) errors.push("publication rebinding semantic binding mismatch");
+  return errors;
+}
+
 export function loadPlanningRefFiles(root = ROOT) {
   return Object.fromEntries(
     CONTRACT_FILES.map((relative) => [
@@ -2423,6 +2504,12 @@ export function validatePlanningRefDesign(files) {
     "prepared -> audit_ref_verified -> live_ref_deleted -> verified",
     "planning_reflog_tail_observation_sha256",
     "autosk-flow/ref-custody-policy/v1\\0",
+    "autosk-flow/ref-custody-policy-parent-topology/v1\\0",
+    "autosk-flow/ref-custody-intent-key/v1\\0",
+    "autosk-flow/candidate-closure-pack/verify/v1\\0",
+    "autosk-flow/audit-transfer/verification/v1\\0",
+    "autosk-flow/record-pass-idempotency/v1\\0",
+    "autosk-flow/planning-publication-rebinding/impact/v1\\0",
     "permission denied",
     "candidate-keepalive-operation.schema.json",
     "gc.packRefs=false",
@@ -2503,6 +2590,9 @@ export function validatePlanningRefDesign(files) {
     const keepalivePreparedExample = parseResource(
       "resources/planning-publication/candidate-keepalive-operation.prepared.example.json",
     );
+    const keepaliveObjectWrittenExample = parseResource(
+      "resources/planning-publication/candidate-keepalive-operation.object-written.example.json",
+    );
     const keepaliveRefCreatedExample = parseResource(
       "resources/planning-publication/candidate-keepalive-operation.ref-created.example.json",
     );
@@ -2565,6 +2655,13 @@ export function validatePlanningRefDesign(files) {
         errors.push(`${label} Schema/example: ${error}`);
       }
     }
+    const allHelperExchanges = [custodyWireExample, custodyWireInvalidationExample, custodyWireExistingAuditExample].flatMap((wire) => wire.actions);
+    const transferContract = supplementalContracts.find(([label]) => label === "candidate audit transfer");
+    errors.push(...validateCandidateAuditTransferOperation(transferContract[2], transferContract[1], allHelperExchanges).map((error) => `candidate audit transfer: ${error}`));
+    for (const label of ["candidate closure pack", "invalidation closure pack"]) {
+      const contract = supplementalContracts.find(([itemLabel]) => itemLabel === label);
+      errors.push(...validateCandidateClosurePackOperation(contract[2], contract[1]).map((error) => `${label}: ${error}`));
+    }
     const custodyPolicy = supplementalContracts.find(([label]) => label === "ref custody policy")?.[2];
     const topologyHash = sha256("autosk-flow/ref-custody-policy-parent-topology/v1\0" + canonicalStringify(custodyPolicy.parent_topology));
     const probeHash = sha256("autosk-flow/ref-custody-policy-permission-probes/v1\0" + canonicalStringify(custodyPolicy.permission_probes));
@@ -2594,7 +2691,7 @@ export function validatePlanningRefDesign(files) {
       ["verification_receipt", "autosk-flow/audit-transfer/verification/v1\0", null],
     ]) {
       const { receipt_hash: ignored, ...receipt } = transferExample[field];
-      const preimage = { operation_id: transferExample.operation_id, object_format: transferExample.object_format, ensure_audit_intent_key: transferExample.ensure_audit_intent_key, delete_live_intent_key: transferExample.delete_live_intent_key, ...receipt };
+      const preimage = { operation_id: transferExample.operation_id, keepalive_operation_id: transferExample.keepalive_operation_id, object_format: transferExample.object_format, ensure_audit_intent_key: transferExample.ensure_audit_intent_key, delete_live_intent_key: transferExample.delete_live_intent_key, ...receipt };
       if (keyName === "ensure_audit_ref") preimage.helper_intent_key = transferExample.ensure_audit_intent_key;
       if (keyName === "delete_live_ref") preimage.helper_intent_key = transferExample.delete_live_intent_key;
       if (transferExample[field].receipt_hash !== sha256(domain + canonicalStringify(preimage))) errors.push(`candidate audit transfer ${field} digest mismatch`);
@@ -2627,6 +2724,8 @@ export function validatePlanningRefDesign(files) {
     };
     validateClosurePackDigest(supplementalContracts.find(([label]) => label === "candidate closure pack")?.[2], "candidate closure pack");
     validateClosurePackDigest(supplementalContracts.find(([label]) => label === "invalidation closure pack")?.[2], "invalidation closure pack");
+    const helperIntentsSchema = supplementalContracts.find(([label]) => label === "helper intents")?.[1];
+    const helperIntents = supplementalContracts.find(([label]) => label === "helper intents")?.[2];
     const atomicApi = supplementalContracts.find(([label]) => label === "atomic PASS API")?.[2];
     { const { receipt_hash: ignored, ...response } = atomicApi.response; if (atomicApi.response.receipt_hash !== sha256("autosk-flow/record-pass-prepare-publication/v1\0" + canonicalStringify({ capability: atomicApi.capability, request: atomicApi.request, response }))) errors.push("atomic PASS API receipt digest mismatch"); }
     if (atomicApi.request.artifact_kind !== example.payload.artifact_kind || atomicApi.request.candidate_identity !== example.candidate_keepalive.candidate_identity || atomicApi.request.publication_operation_id !== example.operation_id) errors.push("atomic PASS API does not match the referenced publication operation");
@@ -2655,14 +2754,23 @@ export function validatePlanningRefDesign(files) {
         canonicalStringify(publicationBytes.parsed) !== canonicalStringify(example) ||
         passBytes.parsed?.candidate_identity !== atomicApi.request.candidate_identity || passBytes.parsed?.artifact_kind !== atomicApi.request.artifact_kind || passBytes.parsed?.disposition !== "pass" ||
         !Array.isArray(intentBytes.parsed) || canonicalStringify(intentBytes.parsed.map((record) => record.intent_key)) !== canonicalStringify(atomicApi.request.helper_intent_keys) ||
+        intentBytes.parsed.some((record) => record.phase !== "prepared" || record.helper_journal_hash !== null || record.pre_execution_observation !== null || record.pre_execution_observation_sha256 !== null || record.helper_precondition_under_lock !== false || validateJsonSchema({ schema: 1, records: [record] }, helperIntentsSchema).length > 0) ||
+        intentBytes.parsed.some((record) => {
+          const terminal = helperIntents.records.find((item) => item.intent_key === record.intent_key);
+          const immutable = ["intent_key", "action", "transfer_mode", "owner_operation_id", "request_id", "nonce", "request_body_canonical_json_base64", "request_body_sha256", "authorization_sha256", "authorization_canonical_json_base64", "authorization_signed_bytes_base64", "wire_request_sha256", "wire_request_canonical_json_base64", "topology_digest"];
+          return !terminal || immutable.some((field) => canonicalStringify(record[field]) !== canonicalStringify(terminal[field]));
+        }) ||
         canonicalStringify(casBytes.parsed?.pass_record) !== canonicalStringify(passBytes.parsed) ||
         canonicalStringify(casBytes.parsed?.planning_publication_operation) !== canonicalStringify(publicationBytes.parsed) ||
         canonicalStringify(casBytes.parsed?.helper_intent_records) !== canonicalStringify(intentBytes.parsed) ||
         sha256(Buffer.from(casBytes.parsed?.candidate_projection_bytes_base64 ?? "", "base64")) !== casBytes.parsed?.candidate_projection_sha256 ||
+        canonicalStringify(JSON.parse(Buffer.from(casBytes.parsed?.candidate_projection_bytes_base64 ?? "", "base64").toString("utf8"))) !== canonicalStringify(example.candidate_keepalive) ||
         atomicApi.response.outcome_contract !== atomicApi.outcome_contracts.find((item) => item.status === atomicApi.response.status)?.retry_contract) {
       errors.push("atomic PASS exact CAS bundle, outcomes or idempotency binding mismatch");
     }
     const rebind = supplementalContracts.find(([label]) => label === "publication rebinding")?.[2];
+    const rebindSchema = supplementalContracts.find(([label]) => label === "publication rebinding")?.[1];
+    errors.push(...validatePlanningPublicationRebinding(rebind, rebindSchema, example, releasedExample));
     {
       const { receipt_hash: ignored, ...preimage } = rebind;
       const impactDigest = sha256("autosk-flow/planning-publication-rebinding/impact/v1\0" + canonicalStringify(rebind.approved_impact));
@@ -2682,7 +2790,8 @@ export function validatePlanningRefDesign(files) {
       }
     }
     const closurePack = supplementalContracts.find(([label]) => label === "candidate closure pack")?.[2];
-    for (const candidateRecord of [keepaliveExample, keepaliveAuditExample, keepaliveReleasedExample, keepalivePreparedExample, keepaliveRefCreatedExample, example.candidate_keepalive, releasedExample.candidate_keepalive, voidedExample.candidate_keepalive]) {
+    if (canonicalStringify(keepaliveReleasedExample) !== canonicalStringify(releasedExample.candidate_keepalive)) errors.push("standalone and embedded released keepalive records diverge");
+    for (const candidateRecord of [keepaliveExample, keepaliveAuditExample, keepaliveReleasedExample, keepalivePreparedExample, keepaliveObjectWrittenExample, keepaliveRefCreatedExample, example.candidate_keepalive, releasedExample.candidate_keepalive, voidedExample.candidate_keepalive]) {
       if (candidateRecord.closure_pack_operation_id !== closurePack?.operation_id || candidateRecord.closure_pack_receipt_hash !== closurePack?.verification_receipt?.receipt_hash || candidateRecord.candidate_identity !== closurePack?.candidate_identity || candidateRecord.snapshot_commit_oid !== closurePack?.snapshot_commit_oid || candidateRecord.snapshot_tree_oid !== closurePack?.candidate_tree_oid) errors.push("candidate keepalive is not bound to the verified closure pack");
     }
     const invalidationClosurePack = supplementalContracts.find(([label]) => label === "invalidation closure pack")?.[2];
@@ -2708,7 +2817,6 @@ export function validatePlanningRefDesign(files) {
         }
       }
     }
-    const helperIntents = supplementalContracts.find(([label]) => label === "helper intents")?.[2];
     const intentByBody = new Map((helperIntents?.records ?? []).map((record) => [record.request_body_sha256, record]));
     const intentRecords = helperIntents?.records ?? [];
     const intentWireSets = [custodyWireExample, custodyWireInvalidationExample, custodyWireExistingAuditExample];
@@ -2794,6 +2902,9 @@ export function validatePlanningRefDesign(files) {
     }
     for (const error of validateCandidateKeepaliveOperation(keepalivePreparedExample, keepaliveSchema)) {
       errors.push(`candidate keepalive prepared Schema/example: ${error}`);
+    }
+    for (const error of validateCandidateKeepaliveOperation(keepaliveObjectWrittenExample, keepaliveSchema)) {
+      errors.push(`candidate keepalive object-written Schema/example: ${error}`);
     }
     for (const error of validateCandidateKeepaliveOperation(keepaliveRefCreatedExample, keepaliveSchema)) {
       errors.push(`candidate keepalive ref-created Schema/example: ${error}`);

@@ -5,32 +5,32 @@
       "action": "init",
       "scenario": "git_committed_before_refs_journal",
       "request_id": "00000001-1111-4111-8111-000000000001",
-      "request_body_sha256": "59c2a40d78600d77a53a778cd66d27525e8fc8a9db1bded95355c7c7025cf1b5",
-      "request_committed_journal_hash": "da1537f5daf158f2662ba13bd93b3daa87a5d12f19cfac870b85ac126b358270",
-      "observed_post_state_sha256": "29313a78be82156e439494d0a3b31166b696bd86c7701efb124355ac37701326",
-      "committed_response_receipt_hash": "28293c7ca81915469d52957cb9a47b9ee6e58dca8d1e9303324756b7675d6b96",
+      "request_body_sha256": "92fcf9f07199341d7bc4b4e9b1a32126ddf24f09ba6187f91f0f460d2986653b",
+      "request_committed_journal_hash": "9ebce8b7b17e1109bf352b1924da53e40d2b0c036a4e659ba51ad03a1a258c0e",
+      "observed_post_state_sha256": "9360771c71cd4ba4c40b4cc3daa0693f2a4cb762b60a54855d5c9e9171ef1146",
+      "committed_response_receipt_hash": "4eaa92f083d93de25ebde17da503f7e33abef2859390169f9df13f22296250ed",
       "recovery_decision": "persist_refs_committed_without_git_write",
       "git_ref_transactions_during_recovery": 0,
-      "refs_committed_journal_hash": "89aa76a4730ee29fb17e8ae9ad6c734e40519185277c86ce8a8aef0e536c64b6"
+      "refs_committed_journal_hash": "a40d7b435dad634debd2f13232859f4a70088f8b55b3d01f6f65ebbc9e99bbef"
     },
     {
       "action": "delete_expired_audit",
       "scenario": "delete_committed_before_refs_journal",
       "request_id": "00000008-1111-4111-8111-000000000008",
-      "request_body_sha256": "985b1798e77af07fe49ba2c12f8a10a66e379303cc591853cea97d35f54bf3b3",
-      "request_committed_journal_hash": "c8a7fbddca5b84ac9e445e161e0297c9cd8740e347ee4f5f570a8687b8d6ea09",
-      "observed_post_state_sha256": "c9a2d5b54209ab60aeca91e33505ceaa82ae3cfc1e77580e7f74a50530d92e05",
-      "committed_response_receipt_hash": "8b2ab18cad764bc0f7fc1f559cf7fa4572a6a5a4b5504b7ac474d03f65133caf",
+      "request_body_sha256": "6ecb00afe30962953025e074a1d7a3b77d06984bbb33afd16d981a8be7a6503d",
+      "request_committed_journal_hash": "4d997386683c2fc9c17d59b132f80fdb02a86fad2541431d88c8513f4456ddc6",
+      "observed_post_state_sha256": "086f81230d8b84202b4aeebdde9ef073b57c717989a36dfa2cd80b812bd102fa",
+      "committed_response_receipt_hash": "de1c2462c418bc2347b5e52e9945d6b173f0ae4512abe5be4a437fb68f8266a7",
       "recovery_decision": "persist_refs_committed_without_git_write",
       "git_ref_transactions_during_recovery": 0,
-      "refs_committed_journal_hash": "ec361be3ce146fa0caf5edf6439c45df186f8dfb34261b32f9a1c02c7249ae41",
+      "refs_committed_journal_hash": "c59b6efde887bac608ec4cce0d5b6399c5174c9af726abf16411a11eb2391dce",
       "delete_post_state_proof": {
-        "request_body_sha256": "985b1798e77af07fe49ba2c12f8a10a66e379303cc591853cea97d35f54bf3b3",
+        "request_body_sha256": "6ecb00afe30962953025e074a1d7a3b77d06984bbb33afd16d981a8be7a6503d",
         "nonce": "6b43c62ebee4ab94e4d5827cf42d4199f93205641e9d18d90efccc9e54665353",
         "audit_ref_absent": true,
         "reflog_path_absent": true,
         "packed_refs_entry_absent": true,
-        "pre_execution_observation_sha256": "e83adae6d16109262c54364a96a4fcc5e9e8f4e035886f46fa68cd1f73e40d3f"
+        "pre_execution_observation_sha256": "82b90413b3d2c92f79601ed75aecac8a7602ca642f6bd6addc24fb8c6974ef81"
       }
     }
   ]

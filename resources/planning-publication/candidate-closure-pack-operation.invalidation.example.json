@@ -1,49 +1,49 @@
 {
   "schema": 1,
   "operation_id": "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
-  "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
-  "snapshot_commit_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
-  "candidate_tree_oid": "6666666666666666666666666666666666666666",
+  "candidate_identity": "4294a852184d0a8196ca718b9c846a33a38f53b748cf8a8e6edb1e38055403a1",
+  "snapshot_commit_oid": "b87b35bbb1667d3f724e0ca1c22542888a12d0d0",
+  "candidate_tree_oid": "8ecc0c148537cc05301fba6e66bce834384aa4a6",
   "object_format": "sha1",
   "object_count": 3,
   "object_oids": [
-    "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
-    "5555555555555555555555555555555555555555",
-    "6666666666666666666666666666666666666666"
+    "8ecc0c148537cc05301fba6e66bce834384aa4a6",
+    "ab04b965db3698092484c2f188a86d6035fb86b5",
+    "b87b35bbb1667d3f724e0ca1c22542888a12d0d0"
   ],
   "object_manifest": {
     "objects": [
       {
-        "oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
-        "type": "commit",
-        "size_bytes": 64,
-        "object_bytes_sha256": "02ec75764e3d2ff8da4efd637797c582814c209bad44adc03d9b6c02ba840823"
-      },
-      {
-        "oid": "5555555555555555555555555555555555555555",
-        "type": "blob",
-        "size_bytes": 25,
-        "object_bytes_sha256": "7621bcd4268873f7d70f59a69687528d28fddc392b51c825c4817daf6173dea8"
-      },
-      {
-        "oid": "6666666666666666666666666666666666666666",
+        "oid": "8ecc0c148537cc05301fba6e66bce834384aa4a6",
         "type": "tree",
-        "size_bytes": 37,
-        "object_bytes_sha256": "4b7d6d8433cd66794c04244ecd735c244755b1471abea48a8b8b8322f15f1e56"
+        "size_bytes": 43,
+        "object_bytes_sha256": "56df2e807212713d8a8c0c0e868e69214278d89a3a77cb377c0070f492d9d513"
+      },
+      {
+        "oid": "ab04b965db3698092484c2f188a86d6035fb86b5",
+        "type": "blob",
+        "size_bytes": 33,
+        "object_bytes_sha256": "023764771b48ba159a93df3eacb327f6e5c3460d89ad3b44963441dc62deac72"
+      },
+      {
+        "oid": "b87b35bbb1667d3f724e0ca1c22542888a12d0d0",
+        "type": "commit",
+        "size_bytes": 233,
+        "object_bytes_sha256": "34b2cc3d8fbd3e55fcac7d7e926e0fc146a6a5332c735255cfa0fdaaf2c1cf5d"
       }
     ]
   },
-  "object_manifest_sha256": "9c027dd8d96efde603729ed7835dbcf485df7b2ef388a8e3a78963a716e7d58c",
-  "object_oid_set_sha256": "edfa0cd609346320e39eb51d75bbf2a41cc0f5f67a7fa449a6cae48724fe72cc",
-  "pack_bytes_base64": "cGFjayBieXRlcyBmb3IgaW52YWxpZGF0aW9uCg==",
-  "pack_bytes_sha256": "6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af",
-  "index_bytes_base64": "aW5kZXggYnl0ZXMgZm9yIGludmFsaWRhdGlvbgo=",
-  "index_bytes_sha256": "6af0b9bfb93de1bd94f56bf5bbc7022551c0e83169491f0a90ec2ae8a34c42cb",
+  "object_manifest_sha256": "97b53a9ecdb7f4a8515b96a2545d1e6a5bd394228927d85b5b4d9c3af7bef6e3",
+  "object_oid_set_sha256": "6497c4ca31cd7819db6e754329629159382d47b9947cf5cf5cddb2e5905bd636",
+  "pack_bytes_base64": "UEFDSwAAAAIAAAADmQ54nJWLSw4CIRBE95yCvdEwfBomMcarNE2jxBmYjPg5vpO4cWtt6lXyqq/MMjCRosEGZ/xGzqghRwQGiMTBWBMsokUQC65cu6QxBWNcBJUdpDF6bYZEWSEGoAijDtpn9lrgo1/bKrdq99s+T+0lj99x5jfOy8SHUp84lXSSSu7UFkFtnkvv/OdN/NrLhLWWepGENZWEncUHNnlLtqsCeJwzNDAwMzFRyMwrS8zJTEksyczP08tNYVjNsjP1ttkMTpWWQx87VuQmmP5u2woASU0Rk7ECeJxLLCgoyi9LTVHIzCtLzMlMSSzJzM9TAIplpSaDmFwA4LkM6zXiQcnoT1r57Ak5Pbe5xpGiV90i",
+  "pack_bytes_sha256": "9c999cd2691c39b9b1ee9e9844a34cfcfb37e0d8f9cb9f94307e05e9876ff161",
+  "index_bytes_base64": "/3RPYwAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADjswMFIU3zAUwH7puZrzoNDhKpKarBLll2zaYCSSEwvGIqG1gNfuGtbh7NbuxZn0/ck4MocIlQoiKEtDQbcfZlSdRDBdmaefnAAAAqQAAAN8AAAAMNeJByehPWvnsCTk9t7nGkaJX3SJ5OpzyNLWJr/xanPPStxSMESxvRg==",
+  "index_bytes_sha256": "29ac1e6278589c04c53e2fd53f8b3179437ca29f58943301e0e6451cf7cf8d64",
   "content_addressed_locator": {
     "store_role": "helper-owned-candidate-quarantine",
-    "pack_relative_path": "objects/pack/autosk-candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0/pack-6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af.pack",
-    "index_relative_path": "objects/pack/autosk-candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0/pack-6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af.idx",
-    "pack_content_address": "6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af",
+    "pack_relative_path": "objects/pack/autosk-candidates/4294a852184d0a8196ca718b9c846a33a38f53b748cf8a8e6edb1e38055403a1/pack-9c999cd2691c39b9b1ee9e9844a34cfcfb37e0d8f9cb9f94307e05e9876ff161.pack",
+    "index_relative_path": "objects/pack/autosk-candidates/4294a852184d0a8196ca718b9c846a33a38f53b748cf8a8e6edb1e38055403a1/pack-9c999cd2691c39b9b1ee9e9844a34cfcfb37e0d8f9cb9f94307e05e9876ff161.idx",
+    "pack_content_address": "9c999cd2691c39b9b1ee9e9844a34cfcfb37e0d8f9cb9f94307e05e9876ff161",
     "contains_home_path": false
   },
   "git_producer": {
@@ -51,8 +51,7 @@
     "command_argv": [
       "git",
       "pack-objects",
-      "--revs",
-      "--stdout"
+      "<content-addressed-pack-prefix>"
     ],
     "object_format": "sha1",
     "environment": {
@@ -80,14 +79,14 @@
     "pack_renamed": true,
     "index_renamed": true,
     "directory_fsynced": true,
-    "receipt_hash": "c9604fa3b8073743f086fa96480d33e9fad16fa0f5eaf02f93b7647c96d6c7a6"
+    "receipt_hash": "38f040eef495728b57556a51de0fb16865d7a23c39a56545cdad3db2a9119640"
   },
   "verification_receipt": {
     "git_verify_pack": true,
     "manifest_exact": true,
     "pack_hash_verified": true,
     "index_hash_verified": true,
-    "receipt_hash": "83f44c348b2edf066dd71ac003761a7c04bc8307129a79a86faa8539e60d6596"
+    "receipt_hash": "455ee2a5aa0021cde0367ba2041d1d0c607f91da64d09c993fb912202f7d1fc5"
   },
   "recovery_phases": [
     "prepared",

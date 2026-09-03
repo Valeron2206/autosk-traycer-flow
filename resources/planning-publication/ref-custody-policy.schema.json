@@ -53,8 +53,8 @@
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "platform_profile": {
       "type": "object", "additionalProperties": false,
-      "required": ["platform", "service_manager", "peer_credential_api", "helper_account", "owner_account", "common_git_dir_mode_octal", "socket_mode_octal"],
-      "properties": { "platform": { "enum": ["linux", "macos"] }, "service_manager": { "enum": ["systemd", "launchd"] }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] }, "helper_account": { "const": "autosk-ref-custody" }, "owner_account": { "const": "autosk-custody" }, "common_git_dir_mode_octal": { "const": "0700" }, "socket_mode_octal": { "const": "0600" } },
+      "required": ["platform", "service_manager", "peer_credential_api", "helper_account", "owner_account", "common_git_dir_mode_octal", "per_worktree_git_dir_mode_octal", "gitfile_read_only", "commondir_read_only", "socket_mode_octal"],
+      "properties": { "platform": { "enum": ["linux", "macos"] }, "service_manager": { "enum": ["systemd", "launchd"] }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] }, "helper_account": { "const": "autosk-ref-custody" }, "owner_account": { "const": "autosk-custody" }, "common_git_dir_mode_octal": { "const": "0700" }, "per_worktree_git_dir_mode_octal": { "const": "0700" }, "gitfile_read_only": { "const": true }, "commondir_read_only": { "const": true }, "socket_mode_octal": { "const": "0600" } },
       "allOf": [
         { "if": { "properties": { "platform": { "const": "linux" } } }, "then": { "properties": { "service_manager": { "const": "systemd" }, "peer_credential_api": { "const": "SO_PEERCRED" } } } },
         { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "service_manager": { "const": "launchd" }, "peer_credential_api": { "const": "getpeereid" } } } }

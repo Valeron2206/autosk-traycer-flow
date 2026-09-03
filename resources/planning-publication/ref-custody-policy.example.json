@@ -10,6 +10,9 @@
       "helper_account": "autosk-ref-custody",
       "owner_account": "autosk-custody",
       "common_git_dir_mode_octal": "0700",
+      "per_worktree_git_dir_mode_octal": "0700",
+      "gitfile_read_only": true,
+      "commondir_read_only": true,
       "socket_mode_octal": "0600"
     },
     {
@@ -19,12 +22,15 @@
       "helper_account": "autosk-ref-custody",
       "owner_account": "autosk-custody",
       "common_git_dir_mode_octal": "0700",
+      "per_worktree_git_dir_mode_octal": "0700",
+      "gitfile_read_only": true,
+      "commondir_read_only": true,
       "socket_mode_octal": "0600"
     }
   ],
   "object_store_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "helper_binary_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "daemon_authorization_public_key_sha256": "ca0bb514aed6edfa9ef4567acfccdb3b0408523eca1aa72f914d3a5af06b3a0b",
+  "daemon_authorization_public_key_sha256": "eca8d6a6c481a63be63a973f3ee1b03e94940974a9199c471151fa7d8bd755ad",
   "helper_identity": "autosk-ref-custody",
   "owner_identity": "autosk-custody",
   "lock_protocol": "flock-v1",
@@ -96,5 +102,5 @@
   "parent_topology_hash": "543c4b2345feb738f9c5cd6370e9eea4b8b1828f3766de5cf101e35a6bc550f3",
   "permission_probe_hash": "e05f672e9fc0559325f14c58aeb3ace24827a759ce2403359e9f3596fb117d18",
   "packed_refs_policy_hash": "c1dd9cb926efbeb04966410e727222d7adde13c1d08ff93381792a42dd5213a9",
-  "policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395"
+  "policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab"
 }
