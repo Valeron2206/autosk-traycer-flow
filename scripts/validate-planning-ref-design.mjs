@@ -497,6 +497,9 @@ export function validateJsonSchema(value, schema, rootSchema = schema, instanceP
     if (schema.minLength !== undefined && Array.from(value).length < schema.minLength) {
       errors.push(`${instancePath} must contain at least ${schema.minLength} characters`);
     }
+    if (schema.maxLength !== undefined && Array.from(value).length > schema.maxLength) {
+      errors.push(`${instancePath} must contain at most ${schema.maxLength} characters`);
+    }
     if (schema.pattern !== undefined && !new RegExp(schema.pattern, "u").test(value)) {
       errors.push(`${instancePath} does not match pattern`);
     }

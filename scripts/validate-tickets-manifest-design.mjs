@@ -11,6 +11,7 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 export const MANIFEST_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.schema.json");
 export const MANIFEST_EXAMPLE_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.example.json");
 export const RECEIPT_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-validation-receipt.schema.json");
+export const ABSOLUTE_MAX_MANIFEST_BYTES = 16_777_216;
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -185,6 +186,51 @@ export function selectorsOverlap(left, right) {
   return selectorContains(left, right.path) || selectorContains(right, left.path);
 }
 
+class MinHeap {
+  constructor(compare) {
+    this.compare = compare;
+    this.values = [];
+  }
+
+  get size() {
+    return this.values.length;
+  }
+
+  push(value) {
+    const values = this.values;
+    values.push(value);
+    let index = values.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.compare(values[parent], values[index]) <= 0) break;
+      [values[parent], values[index]] = [values[index], values[parent]];
+      index = parent;
+    }
+  }
+
+  pop() {
+    const values = this.values;
+    if (values.length === 0) return undefined;
+    const first = values[0];
+    const last = values.pop();
+    if (values.length > 0) {
+      values[0] = last;
+      let index = 0;
+      while (true) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        let smallest = index;
+        if (left < values.length && this.compare(values[left], values[smallest]) < 0) smallest = left;
+        if (right < values.length && this.compare(values[right], values[smallest]) < 0) smallest = right;
+        if (smallest === index) break;
+        [values[index], values[smallest]] = [values[smallest], values[index]];
+        index = smallest;
+      }
+    }
+    return first;
+  }
+}
+
 export function stableTopologicalOrder(tickets) {
   const ids = tickets.map((ticket) => ticket.id);
   const idSet = new Set(ids);
@@ -197,19 +243,16 @@ export function stableTopologicalOrder(tickets) {
       outgoing.get(dependency).push(ticket.id);
     }
   }
-  for (const children of outgoing.values()) children.sort(compareCodePoints);
-  const ready = ids.filter((id) => indegree.get(id) === 0).sort(compareCodePoints);
+  const ready = new MinHeap(compareCodePoints);
+  for (const id of ids) if (indegree.get(id) === 0) ready.push(id);
   const ordered = [];
-  while (ready.length > 0) {
-    const current = ready.shift();
+  while (ready.size > 0) {
+    const current = ready.pop();
     ordered.push(current);
     for (const child of outgoing.get(current)) {
       const next = indegree.get(child) - 1;
       indegree.set(child, next);
-      if (next === 0) {
-        ready.push(child);
-        ready.sort(compareCodePoints);
-      }
+      if (next === 0) ready.push(child);
     }
   }
   return { ordered, cyclic: ordered.length !== ids.length, outgoing };
@@ -218,8 +261,8 @@ export function stableTopologicalOrder(tickets) {
 function reachable(outgoing, from, to) {
   const visited = new Set([from]);
   const queue = [from];
-  while (queue.length > 0) {
-    const current = queue.shift();
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const current = queue[cursor];
     for (const child of outgoing.get(current) ?? []) {
       if (child === to) return true;
       if (!visited.has(child)) {
@@ -257,6 +300,15 @@ function markdownFence(json) {
 
 function oneLine(value) {
   return String(value).replace(/\s+/gu, " ").trim();
+}
+
+function ticketEntryPayload(ticket) {
+  const { lineage: _lineage, ...payload } = ticket;
+  return payload;
+}
+
+export function ticketEntryDigest(ticket) {
+  return domainDigest("autosk-flow/ticket-entry/v1", canonicalStringify(ticketEntryPayload(ticket)));
 }
 
 export function renderTicketDocuments(manifest) {
@@ -319,12 +371,93 @@ export function renderTicketDocuments(manifest) {
   return documents;
 }
 
+function normalizeDocumentBytes(value) {
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return Buffer.from(value);
+  return null;
+}
+
+function documentInventoryEntries(candidateDocuments) {
+  if (candidateDocuments instanceof Map) return [...candidateDocuments.entries()];
+  if (Array.isArray(candidateDocuments)) {
+    return candidateDocuments.map((entry) => [entry?.path, entry?.bytes ?? entry?.content]);
+  }
+  if (candidateDocuments && typeof candidateDocuments === "object") return Object.entries(candidateDocuments);
+  return null;
+}
+
+export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
+  const errors = [];
+  const entries = documentInventoryEntries(candidateDocuments);
+  if (!entries) {
+    return [error("tickets_rendered_path_missing", "/rendered_documents", "candidate rendered document inventory is missing")];
+  }
+
+  const actual = new Map();
+  for (const [index, entry] of entries.entries()) {
+    const [documentPath, content] = entry;
+    const pointer = `/rendered_documents/${index}`;
+    if (typeof documentPath !== "string" || !validRelativePath(documentPath)) {
+      errors.push(error("tickets_rendered_path_extra", pointer, "candidate rendered document path is invalid"));
+      continue;
+    }
+    const bytes = normalizeDocumentBytes(content);
+    if (!bytes) {
+      errors.push(error("tickets_rendered_bytes_mismatch", pointer, "candidate rendered document bytes are invalid", { path: documentPath }));
+      continue;
+    }
+    if (actual.has(documentPath)) {
+      errors.push(error("tickets_rendered_path_extra", pointer, "candidate rendered document path is duplicated", { path: documentPath }));
+      continue;
+    }
+    actual.set(documentPath, bytes);
+  }
+
+  const expected = renderTicketDocuments(manifest);
+  const unmatchedActual = new Set(actual.keys());
+  for (const [expectedPath, expectedText] of [...expected.entries()].sort(([left], [right]) => compareCodePoints(left, right))) {
+    const pointer = `/rendered_documents/${escapePointer(expectedPath)}`;
+    const expectedBytes = Buffer.from(expectedText, "utf8");
+    if (actual.has(expectedPath)) {
+      unmatchedActual.delete(expectedPath);
+      if (!actual.get(expectedPath).equals(expectedBytes)) {
+        errors.push(error("tickets_rendered_bytes_mismatch", pointer, "candidate rendered document bytes differ from pinned renderer output", {
+          actual_sha256: sha256Bytes(actual.get(expectedPath)),
+          expected_sha256: sha256Bytes(expectedBytes),
+          path: expectedPath,
+        }));
+      }
+      continue;
+    }
+
+    const renamed = [...unmatchedActual]
+      .filter((candidatePath) => actual.get(candidatePath)?.equals(expectedBytes))
+      .sort(compareCodePoints);
+    if (renamed.length === 1) {
+      unmatchedActual.delete(renamed[0]);
+      errors.push(error("tickets_rendered_path_renamed", pointer, "renderer output exists under a different path", {
+        actual_path: renamed[0],
+        expected_path: expectedPath,
+      }));
+    } else {
+      errors.push(error("tickets_rendered_path_missing", pointer, "expected renderer output is missing", { expected_path: expectedPath }));
+    }
+  }
+
+  for (const extraPath of [...unmatchedActual].sort(compareCodePoints)) {
+    errors.push(error("tickets_rendered_path_extra", `/rendered_documents/${escapePointer(extraPath)}`, "unexpected rendered document is present", {
+      actual_path: extraPath,
+    }));
+  }
+  return errors.sort(errorComparator);
+}
+
 export function ticketManifestDigests(manifest) {
   const canonicalManifest = canonicalStringify(manifest);
   const manifestDigest = domainDigest("autosk-flow/tickets-manifest/v1", canonicalManifest);
   const ticketEntryDigests = manifest.tickets.map((ticket) => ({
     ticket_id: ticket.id,
-    digest: domainDigest("autosk-flow/ticket-entry/v1", canonicalStringify(ticket)),
+    digest: ticketEntryDigest(ticket),
   }));
   const adjacency = manifest.tickets.map((ticket) => ({ id: ticket.id, depends_on: ticket.depends_on }));
   const dagDigest = domainDigest("autosk-flow/ticket-dag/v1", canonicalStringify({
@@ -355,18 +488,258 @@ export function ticketManifestDigests(manifest) {
   };
 }
 
-export function validateTicketsManifest(manifest, schema, rawText = null) {
+
+function inputByteLength(value) {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return value.byteLength;
+  return null;
+}
+
+function pushLimitError(errors, jsonPointer, limitName, actual, limit) {
+  if (Number.isInteger(limit) && actual > limit) {
+    errors.push(error("tickets_manifest_limits_exceeded", jsonPointer, `${limitName} exceeded`, {
+      actual,
+      limit,
+      limit_name: limitName,
+    }));
+  }
+}
+
+function countLimitErrors(manifest) {
+  const errors = [];
+  const limits = manifest.policy?.limits ?? {};
+  const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
+  pushLimitError(errors, "/tickets", "max_tickets", tickets.length, limits.max_tickets);
+  let totalEdges = 0;
+  for (const [ticketIndex, ticket] of tickets.entries()) {
+    const dependencies = Array.isArray(ticket?.depends_on) ? ticket.depends_on : [];
+    const selectors = Array.isArray(ticket?.scope_selectors) ? ticket.scope_selectors : [];
+    const criteria = Array.isArray(ticket?.acceptance_criteria) ? ticket.acceptance_criteria : [];
+    totalEdges += dependencies.length;
+    pushLimitError(errors, `/tickets/${ticketIndex}/depends_on`, "max_dependencies_per_ticket", dependencies.length, limits.max_dependencies_per_ticket);
+    pushLimitError(errors, `/tickets/${ticketIndex}/scope_selectors`, "max_selectors_per_ticket", selectors.length, limits.max_selectors_per_ticket);
+    pushLimitError(errors, `/tickets/${ticketIndex}/acceptance_criteria`, "max_acceptance_criteria_per_ticket", criteria.length, limits.max_acceptance_criteria_per_ticket);
+    for (const [criterionIndex, criterion] of criteria.entries()) {
+      const bindings = Array.isArray(criterion?.verification_bindings) ? criterion.verification_bindings : [];
+      pushLimitError(
+        errors,
+        `/tickets/${ticketIndex}/acceptance_criteria/${criterionIndex}/verification_bindings`,
+        "max_verification_bindings_per_criterion",
+        bindings.length,
+        limits.max_verification_bindings_per_criterion,
+      );
+    }
+  }
+  pushLimitError(errors, "/tickets", "max_total_edges", totalEdges, limits.max_total_edges);
+  return errors.sort(errorComparator);
+}
+
+function canonicalText(value) {
+  if (typeof value === "string") return value;
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return new TextDecoder("utf-8", { fatal: true }).decode(value);
+  return null;
+}
+
+function validateRevisionLineage(manifest, schema, context, errors) {
+  const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
+  if (manifest.previous_manifest_digest === null) {
+    for (const [index, ticket] of tickets.entries()) {
+      if (ticket?.lineage?.kind !== "new" || (ticket?.lineage?.predecessor_ids?.length ?? 0) !== 0) {
+        errors.push(error("tickets_lineage_invalid", `/tickets/${index}/lineage`, "initial manifest Tickets must use new lineage without predecessors"));
+      }
+    }
+    if ((manifest.retirements?.length ?? 0) > 0) {
+      errors.push(error("tickets_lineage_invalid", "/retirements", "initial manifest cannot retire prior Tickets"));
+    }
+    return;
+  }
+
+  if (!context || typeof context !== "object") {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "revised manifest requires exact previous published manifest context"));
+    return;
+  }
+  const previous = context.manifest;
+  const previousRaw = canonicalText(context.raw_text);
+  if (!previous || typeof previous !== "object" || Array.isArray(previous) || previousRaw === null) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest context is malformed"));
+    return;
+  }
+  if (validateJsonSchema(previous, schema).length > 0 || canonicalStringify(previous) !== previousRaw) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest bytes are not the exact canonical published manifest"));
+    return;
+  }
+
+  let previousDigests;
+  try {
+    previousDigests = ticketManifestDigests(previous);
+  } catch (cause) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest identity cannot be recomputed", { cause: String(cause) }));
+    return;
+  }
+  if (context.manifest_digest !== previousDigests.manifest_digest
+      || canonicalStringify(context.ticket_entry_digests ?? []) !== canonicalStringify(previousDigests.ticket_entry_digests)) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest identity does not match exact prior bytes"));
+  }
+  if (manifest.previous_manifest_digest !== previousDigests.manifest_digest) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous_manifest_digest does not identify the exact prior manifest", {
+      actual: manifest.previous_manifest_digest,
+      expected: previousDigests.manifest_digest,
+    }));
+  }
+  if (manifest.epic_id !== previous.epic_id || manifest.object_format !== previous.object_format) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest belongs to a different Epic or object format"));
+  }
+  if (manifest.manifest_revision !== previous.manifest_revision + 1) {
+    errors.push(error("tickets_lineage_invalid", "/manifest_revision", "manifest revision must increment the exact prior revision by one", {
+      actual: manifest.manifest_revision,
+      expected: previous.manifest_revision + 1,
+    }));
+  }
+
+  const previousTickets = Array.isArray(previous.tickets) ? previous.tickets : [];
+  const previousById = new Map(previousTickets.map((ticket) => [ticket.id, ticket]));
+  const currentById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+  const mappings = new Map(previousTickets.map((ticket) => [ticket.id, []]));
+
+  for (const [index, ticket] of tickets.entries()) {
+    const lineage = ticket?.lineage ?? {};
+    const predecessors = Array.isArray(lineage.predecessor_ids) ? lineage.predecessor_ids : [];
+    const pointer = `/tickets/${index}/lineage`;
+    if (!sortedUnique(predecessors)) {
+      errors.push(error("tickets_lineage_invalid", `${pointer}/predecessor_ids`, "predecessor IDs must be unique and sorted"));
+    }
+    if (lineage.kind === "new") {
+      if (predecessors.length !== 0 || previousById.has(ticket.id)) {
+        errors.push(error("tickets_lineage_invalid", pointer, "new lineage cannot reuse a prior Ticket or name predecessors"));
+      }
+      continue;
+    }
+    for (const predecessorId of predecessors) {
+      if (!previousById.has(predecessorId)) {
+        errors.push(error("tickets_lineage_invalid", `${pointer}/predecessor_ids`, "lineage predecessor is absent from the exact previous manifest", { predecessor_id: predecessorId }));
+      } else {
+        mappings.get(predecessorId).push({ current_id: ticket.id, kind: lineage.kind, pointer });
+      }
+    }
+    const predecessor = predecessors.length === 1 ? previousById.get(predecessors[0]) : null;
+    if (lineage.kind === "carry") {
+      if (!predecessor || ticket.id !== predecessors[0] || ticketEntryDigest(ticket) !== ticketEntryDigest(predecessor)) {
+        errors.push(error("tickets_lineage_invalid", pointer, "carry requires the same Ticket ID and byte-identical execution entry digest"));
+      }
+    } else if (lineage.kind === "revise") {
+      if (!predecessor || ticket.id !== predecessors[0] || ticketEntryDigest(ticket) === ticketEntryDigest(predecessor)) {
+        errors.push(error("tickets_lineage_invalid", pointer, "revise requires the same Ticket ID and a changed execution entry digest"));
+      }
+    } else if (lineage.kind === "replace" || lineage.kind === "split_child") {
+      if (!predecessor || ticket.id === predecessors[0]) {
+        errors.push(error("tickets_lineage_invalid", pointer, `${lineage.kind} requires one different predecessor Ticket ID`));
+      }
+    } else if (lineage.kind === "merge_result") {
+      if (predecessors.length < 2 || predecessors.includes(ticket.id)) {
+        errors.push(error("tickets_lineage_invalid", pointer, "merge_result requires at least two different predecessor IDs"));
+      }
+    }
+  }
+
+  const retirements = Array.isArray(manifest.retirements) ? manifest.retirements : [];
+  const retirementIds = retirements.map((entry) => entry?.predecessor_id).filter((value) => typeof value === "string");
+  if (!sortedUnique(retirementIds)) {
+    errors.push(error("tickets_lineage_invalid", "/retirements", "retirements must have unique sorted predecessor IDs"));
+  }
+  const retirementById = new Map();
+  for (const [index, retirement] of retirements.entries()) {
+    const pointer = `/retirements/${index}`;
+    if (!retirement || typeof retirement !== "object") continue;
+    if (retirementById.has(retirement.predecessor_id)) {
+      errors.push(error("tickets_lineage_invalid", `${pointer}/predecessor_id`, "duplicate retirement mapping"));
+    } else {
+      retirementById.set(retirement.predecessor_id, retirement);
+    }
+    if (!previousById.has(retirement.predecessor_id)) {
+      errors.push(error("tickets_lineage_invalid", `${pointer}/predecessor_id`, "retirement predecessor is absent from the exact previous manifest"));
+    }
+    const successors = Array.isArray(retirement.successor_ids) ? retirement.successor_ids : [];
+    if (!sortedUnique(successors)) {
+      errors.push(error("tickets_lineage_invalid", `${pointer}/successor_ids`, "retirement successor IDs must be unique and sorted"));
+    }
+    for (const successorId of successors) {
+      if (!currentById.has(successorId)) {
+        errors.push(error("tickets_lineage_invalid", `${pointer}/successor_ids`, "retirement successor is absent from the current manifest", { successor_id: successorId }));
+      }
+    }
+    if (["dropped", "deferred"].includes(retirement.disposition) && successors.length !== 0) {
+      errors.push(error("tickets_lineage_invalid", pointer, `${retirement.disposition} retirement cannot name successors`));
+    }
+    if (retirement.disposition === "superseded" && successors.length === 0) {
+      errors.push(error("tickets_lineage_invalid", pointer, "superseded retirement requires current successor IDs"));
+    }
+  }
+
+  for (const previousTicket of previousTickets) {
+    const entries = mappings.get(previousTicket.id) ?? [];
+    const retirement = retirementById.get(previousTicket.id);
+    const successorIds = [...new Set(entries.map((entry) => entry.current_id))].sort(compareCodePoints);
+    if (entries.length === 0) {
+      if (!retirement) {
+        errors.push(error("tickets_lineage_invalid", "/retirements", "previous Ticket is silently dropped", { predecessor_id: previousTicket.id }));
+      } else if (retirement.disposition === "superseded") {
+        errors.push(error("tickets_lineage_invalid", "/retirements", "superseded retirement has no matching current lineage", { predecessor_id: previousTicket.id }));
+      }
+      continue;
+    }
+
+    const allSplit = entries.every((entry) => entry.kind === "split_child");
+    if (entries.length > 1 && !allSplit) {
+      errors.push(error("tickets_lineage_invalid", entries[1].pointer, "previous Ticket has ambiguous duplicate lineage mappings", {
+        predecessor_id: previousTicket.id,
+        successor_ids: successorIds,
+      }));
+    }
+    if (allSplit && successorIds.length < 2) {
+      errors.push(error("tickets_lineage_invalid", entries[0].pointer, "split_child requires at least two current successors", {
+        predecessor_id: previousTicket.id,
+      }));
+    }
+    if (retirement) {
+      if (retirement.disposition !== "superseded"
+          || canonicalStringify(retirement.successor_ids ?? []) !== canonicalStringify(successorIds)
+          || entries.every((entry) => entry.kind === "carry" || entry.kind === "revise")) {
+        errors.push(error("tickets_lineage_invalid", "/retirements", "retirement conflicts with current lineage mapping", {
+          predecessor_id: previousTicket.id,
+          successor_ids: successorIds,
+        }));
+      }
+    }
+  }
+}
+
+export function validateTicketsManifest(manifest, schema, rawText = null, options = {}) {
   const errors = [];
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     return [error("tickets_manifest_schema_invalid", "", "manifest root must be an object")];
   }
+
+  const rawBytes = rawText === null ? Buffer.byteLength(canonicalStringify(manifest), "utf8") : inputByteLength(rawText);
+  const declaredManifestLimit = manifest.policy?.limits?.max_manifest_bytes;
+  if (rawBytes !== null && Number.isInteger(declaredManifestLimit) && rawBytes > declaredManifestLimit) {
+    return [error("tickets_manifest_limits_exceeded", "", "max_manifest_bytes exceeded", {
+      actual: rawBytes,
+      limit: declaredManifestLimit,
+      limit_name: "max_manifest_bytes",
+    })];
+  }
+
   for (const schemaError of validateJsonSchema(manifest, schema)) {
     errors.push(error("tickets_manifest_schema_invalid", "", String(schemaError)));
   }
   validateStringTree(manifest, "", errors);
-  if (rawText !== null && canonicalStringify(manifest) !== rawText) {
+  const rawTextValue = rawText === null ? null : canonicalText(rawText);
+  if (rawText !== null && (rawTextValue === null || canonicalStringify(manifest) !== rawTextValue)) {
     errors.push(error("tickets_manifest_noncanonical", "", "manifest bytes do not equal canonical serialization"));
   }
+
+  const countErrors = countLimitErrors(manifest);
+  if (countErrors.length > 0) return [...errors, ...countErrors].sort(errorComparator);
 
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   const ticketIds = tickets.map((ticket) => ticket?.id).filter((id) => typeof id === "string");
@@ -385,12 +758,10 @@ export function validateTicketsManifest(manifest, schema, rawText = null) {
 
   const documentCollisions = new Map();
   const acceptanceIds = new Set();
-  let totalEdges = 0;
   for (const [index, ticket] of tickets.entries()) {
     const pointer = `/tickets/${index}`;
     if (!ticket || typeof ticket !== "object") continue;
     const dependencies = Array.isArray(ticket.depends_on) ? ticket.depends_on : [];
-    totalEdges += dependencies.length;
     if (!sortedUnique(dependencies)) errors.push(error("tickets_dependency_rationale_mismatch", `${pointer}/depends_on`, "dependencies must be unique and sorted"));
     for (const [dependencyIndex, dependency] of dependencies.entries()) {
       if (!idSet.has(dependency)) errors.push(error("tickets_dependency_missing", `${pointer}/depends_on/${dependencyIndex}`, `dependency ${dependency} does not exist`));
@@ -431,6 +802,9 @@ export function validateTicketsManifest(manifest, schema, rawText = null) {
     if (!governingRefs.some((reference) => reference.startsWith("tech_plan:"))) {
       errors.push(error("tickets_governing_ref_invalid", `${pointer}/governing_refs`, "Planned Ticket must reference Tech Plan authority"));
     }
+    if (ticket.review_policy_ref !== manifest.policy?.review_policy_ref) {
+      errors.push(error("tickets_governing_ref_invalid", `${pointer}/review_policy_ref`, "Ticket review policy must equal the manifest review policy"));
+    }
 
     const criteria = Array.isArray(ticket.acceptance_criteria) ? ticket.acceptance_criteria : [];
     for (const [criterionIndex, criterion] of criteria.entries()) {
@@ -453,18 +827,30 @@ export function validateTicketsManifest(manifest, schema, rawText = null) {
         }
       }
     }
-
-    if (manifest.previous_manifest_digest === null) {
-      if (ticket.lineage?.kind !== "new" || (ticket.lineage?.predecessor_ids?.length ?? 0) !== 0) {
-        errors.push(error("tickets_lineage_invalid", `${pointer}/lineage`, "initial manifest Tickets must use new lineage without predecessors"));
-      }
-    }
   }
 
-  const limits = manifest.policy?.limits ?? {};
-  if (tickets.length > (limits.max_tickets ?? Number.MAX_SAFE_INTEGER)
-      || totalEdges > (limits.max_total_edges ?? Number.MAX_SAFE_INTEGER)) {
-    errors.push(error("tickets_manifest_limits_exceeded", "/tickets", "Ticket or edge limit exceeded"));
+  let renderedDocuments = null;
+  try {
+    renderedDocuments = renderTicketDocuments(manifest);
+  } catch (cause) {
+    errors.push(error("tickets_rendered_bytes_mismatch", "/rendered_documents", "pinned renderer could not produce the document set", { cause: String(cause) }));
+  }
+  if (renderedDocuments) {
+    const renderedLimit = manifest.policy?.limits?.max_rendered_document_bytes;
+    const renderedLimitErrors = [];
+    for (const [documentPath, content] of renderedDocuments.entries()) {
+      pushLimitError(
+        renderedLimitErrors,
+        `/rendered_documents/${escapePointer(documentPath)}`,
+        "max_rendered_document_bytes",
+        Buffer.byteLength(content, "utf8"),
+        renderedLimit,
+      );
+    }
+    if (renderedLimitErrors.length > 0) return [...errors, ...renderedLimitErrors].sort(errorComparator);
+    if (Object.prototype.hasOwnProperty.call(options, "candidateDocuments")) {
+      errors.push(...compareRenderedTicketDocuments(manifest, options.candidateDocuments));
+    }
   }
 
   const { ordered, cyclic, outgoing } = stableTopologicalOrder(tickets);
@@ -485,16 +871,39 @@ export function validateTicketsManifest(manifest, schema, rawText = null) {
     }
   }
 
-  if (manifest.previous_manifest_digest === null && (manifest.retirements?.length ?? 0) > 0) {
-    errors.push(error("tickets_lineage_invalid", "/retirements", "initial manifest cannot retire prior Tickets"));
-  }
-
+  validateRevisionLineage(manifest, schema, options.previousManifestContext, errors);
   return errors.sort(errorComparator);
 }
 
-export function parseTicketsManifest(text) {
+export function parseTicketsManifest(input, options = {}) {
   const errors = [];
-  if (text.startsWith("\uFEFF")) errors.push(error("tickets_manifest_noncanonical", "", "UTF-8 BOM is forbidden"));
+  let bytes;
+  if (typeof input === "string") bytes = Buffer.from(input, "utf8");
+  else if (Buffer.isBuffer(input) || input instanceof Uint8Array) bytes = Buffer.from(input);
+  else return { manifest: null, text: null, errors: [error("tickets_manifest_json_invalid", "", "manifest input must be UTF-8 bytes or text")] };
+
+  const requestedLimit = Number.isInteger(options.maxManifestBytes) ? options.maxManifestBytes : ABSOLUTE_MAX_MANIFEST_BYTES;
+  const byteLimit = Math.min(Math.max(0, requestedLimit), ABSOLUTE_MAX_MANIFEST_BYTES);
+  if (bytes.byteLength > byteLimit) {
+    return {
+      manifest: null,
+      text: null,
+      errors: [error("tickets_manifest_limits_exceeded", "", "raw manifest exceeds the pre-parse byte limit", {
+        actual: bytes.byteLength,
+        limit: byteLimit,
+        limit_name: "max_manifest_bytes",
+      })],
+    };
+  }
+
+  const hasUtf8Bom = bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause) {
+    return { manifest: null, text: null, errors: [error("tickets_manifest_noncanonical", "", "manifest is not valid UTF-8", { cause: String(cause) })] };
+  }
+  if (hasUtf8Bom || text.startsWith("\uFEFF")) errors.push(error("tickets_manifest_noncanonical", "", "UTF-8 BOM is forbidden"));
   if (text.includes("\r")) errors.push(error("tickets_manifest_noncanonical", "", "CR/CRLF is forbidden"));
   for (const duplicate of duplicateJsonKeys(text)) {
     errors.push(error("tickets_manifest_json_invalid", "", `duplicate JSON key ${duplicate.key}`, { offset: duplicate.offset }));
@@ -505,7 +914,7 @@ export function parseTicketsManifest(text) {
   } catch (cause) {
     errors.push(error("tickets_manifest_json_invalid", "", "invalid JSON", { cause: String(cause) }));
   }
-  return { manifest, errors: errors.sort(errorComparator) };
+  return { manifest, text, errors: errors.sort(errorComparator) };
 }
 
 export function loadTicketsManifestFiles(root = ROOT) {
@@ -539,9 +948,13 @@ export function validateTicketsManifestDesign(files) {
   const parsed = parseTicketsManifest(files["resources/tickets-manifest/tickets-manifest.example.json"] ?? "");
   errors.push(...parsed.errors.map((entry) => `manifest example: ${entry.code}: ${entry.message}`));
   if (parsed.manifest) {
-    errors.push(...validateTicketsManifest(parsed.manifest, schema, files["resources/tickets-manifest/tickets-manifest.example.json"])
-      .map((entry) => `manifest example ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
     const documents = renderTicketDocuments(parsed.manifest);
+    errors.push(...validateTicketsManifest(
+      parsed.manifest,
+      schema,
+      files["resources/tickets-manifest/tickets-manifest.example.json"],
+      { candidateDocuments: documents },
+    ).map((entry) => `manifest example ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
     if (documents.size !== parsed.manifest.tickets.length + 1) errors.push("renderer did not produce one overview plus one document per Ticket");
     const digests = ticketManifestDigests(parsed.manifest);
     for (const value of [digests.manifest_digest, digests.dag_digest, digests.rendered_document_set_digest, digests.ticket_set_digest]) {

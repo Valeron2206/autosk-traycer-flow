@@ -9,12 +9,14 @@ import {
   MANIFEST_SCHEMA_PATH,
   RECEIPT_SCHEMA_PATH,
   canonicalStringify,
+  compareRenderedTicketDocuments,
   duplicateJsonKeys,
   loadTicketsManifestFiles,
   parseTicketsManifest,
   renderTicketDocuments,
   selectorsOverlap,
   stableTopologicalOrder,
+  ticketEntryDigest,
   ticketManifestDigests,
   ticketsManifestDesignDigest,
   validRelativePath,
@@ -31,12 +33,55 @@ function fixture() {
   return structuredClone(example);
 }
 
-function codes(manifest, rawText = null) {
-  return validateTicketsManifest(manifest, schema, rawText).map((entry) => entry.code);
+function codes(manifest, rawText = null, options = {}) {
+  return validateTicketsManifest(manifest, schema, rawText, options).map((entry) => entry.code);
 }
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function previousManifestContext(previous) {
+  const digests = ticketManifestDigests(previous);
+  return {
+    manifest: structuredClone(previous),
+    raw_text: canonicalStringify(previous),
+    manifest_digest: digests.manifest_digest,
+    ticket_entry_digests: digests.ticket_entry_digests,
+  };
+}
+
+function makeRevision(previous, tickets, retirements = []) {
+  const manifest = structuredClone(previous);
+  manifest.manifest_revision = previous.manifest_revision + 1;
+  manifest.previous_manifest_digest = ticketManifestDigests(previous).manifest_digest;
+  manifest.tickets = tickets;
+  manifest.topological_order = stableTopologicalOrder(tickets).ordered;
+  manifest.retirements = retirements;
+  return manifest;
+}
+
+function oneTicketPrevious() {
+  const previous = fixture();
+  previous.tickets = [previous.tickets[0]];
+  previous.topological_order = [previous.tickets[0].id];
+  return previous;
+}
+
+function ticketWithId(source, id, slug) {
+  const ticket = structuredClone(source);
+  ticket.id = id;
+  ticket.title = `${id} ${slug}`;
+  ticket.goal = `Deliver ${slug}.`;
+  ticket.document_path = `docs/autosk/epics/${example.epic_id}/tickets/${id}-${slug}.md`;
+  ticket.depends_on = [];
+  ticket.dependency_rationale = [];
+  ticket.scope_selectors = [{ kind: "file", path: `src/${slug}.ts` }];
+  ticket.acceptance_criteria = ticket.acceptance_criteria.map((criterion, index) => ({
+    ...criterion,
+    id: `AC-${id}-${String(index + 1).padStart(3, "0")}`,
+  }));
+  return ticket;
 }
 
 test("current Tickets manifest design is internally connected", () => {
@@ -267,4 +312,227 @@ test("validation receipt schema binds exact candidate and tool identities", () =
   assert.deepEqual(validateJsonSchema(receipt, receiptSchema), []);
   receipt.candidate_tree_oid = "e".repeat(64);
   assert.notDeepEqual(validateJsonSchema(receipt, receiptSchema), []);
+});
+
+
+test("raw manifest bytes are rejected before UTF-8 decoding or JSON parsing", () => {
+  const bytes = Buffer.from(exampleText, "utf8");
+  const atLimit = parseTicketsManifest(bytes, { maxManifestBytes: bytes.length });
+  assert.ok(atLimit.manifest);
+  assert.deepEqual(atLimit.errors, []);
+
+  const overLimit = parseTicketsManifest(bytes, { maxManifestBytes: bytes.length - 1 });
+  assert.equal(overLimit.manifest, null);
+  assert.deepEqual(overLimit.errors.map((entry) => entry.code), ["tickets_manifest_limits_exceeded"]);
+});
+
+test("every declared resource limit accepts the boundary and rejects one over", () => {
+  const noLimitError = (manifest, raw = canonicalStringify(manifest)) =>
+    assert.equal(codes(manifest, raw).includes("tickets_manifest_limits_exceeded"), false);
+  const hasLimitError = (manifest, raw = canonicalStringify(manifest)) =>
+    assert.ok(codes(manifest, raw).includes("tickets_manifest_limits_exceeded"));
+
+  const manifestBytes = fixture();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const size = Buffer.byteLength(canonicalStringify(manifestBytes), "utf8");
+    if (manifestBytes.policy.limits.max_manifest_bytes === size) break;
+    manifestBytes.policy.limits.max_manifest_bytes = size;
+  }
+  assert.equal(Buffer.byteLength(canonicalStringify(manifestBytes), "utf8"), manifestBytes.policy.limits.max_manifest_bytes);
+  noLimitError(manifestBytes);
+  const manifestBytesOver = structuredClone(manifestBytes);
+  manifestBytesOver.policy.limits.max_manifest_bytes -= 1;
+  hasLimitError(manifestBytesOver);
+
+  const ticketsAt = fixture();
+  ticketsAt.policy.limits.max_tickets = ticketsAt.tickets.length;
+  noLimitError(ticketsAt);
+  const ticketsOver = structuredClone(ticketsAt);
+  ticketsOver.policy.limits.max_tickets -= 1;
+  hasLimitError(ticketsOver);
+
+  const edgesAt = fixture();
+  const edgeCount = edgesAt.tickets.reduce((sum, ticket) => sum + ticket.depends_on.length, 0);
+  edgesAt.policy.limits.max_total_edges = edgeCount;
+  noLimitError(edgesAt);
+  const edgesOver = structuredClone(edgesAt);
+  edgesOver.policy.limits.max_total_edges = edgeCount - 1;
+  hasLimitError(edgesOver);
+
+  const dependenciesAt = fixture();
+  const maxDependencies = Math.max(...dependenciesAt.tickets.map((ticket) => ticket.depends_on.length));
+  dependenciesAt.policy.limits.max_dependencies_per_ticket = maxDependencies;
+  noLimitError(dependenciesAt);
+  const dependenciesOver = structuredClone(dependenciesAt);
+  dependenciesOver.policy.limits.max_dependencies_per_ticket = maxDependencies - 1;
+  hasLimitError(dependenciesOver);
+
+  const selectorsAt = fixture();
+  const maxSelectors = Math.max(...selectorsAt.tickets.map((ticket) => ticket.scope_selectors.length));
+  selectorsAt.policy.limits.max_selectors_per_ticket = maxSelectors;
+  noLimitError(selectorsAt);
+  const selectorsOver = structuredClone(selectorsAt);
+  selectorsOver.policy.limits.max_selectors_per_ticket = maxSelectors - 1;
+  hasLimitError(selectorsOver);
+
+  const criteriaAt = fixture();
+  const maxCriteria = Math.max(...criteriaAt.tickets.map((ticket) => ticket.acceptance_criteria.length));
+  criteriaAt.policy.limits.max_acceptance_criteria_per_ticket = maxCriteria;
+  noLimitError(criteriaAt);
+  const criteriaOver = structuredClone(criteriaAt);
+  const criterion = structuredClone(criteriaOver.tickets[0].acceptance_criteria[0]);
+  criterion.id = "AC-T01-999";
+  criteriaOver.tickets[0].acceptance_criteria.push(criterion);
+  criteriaOver.policy.limits.max_acceptance_criteria_per_ticket = criteriaOver.tickets[0].acceptance_criteria.length - 1;
+  hasLimitError(criteriaOver);
+
+  const bindingsAt = fixture();
+  const maxBindings = Math.max(...bindingsAt.tickets.flatMap((ticket) => ticket.acceptance_criteria.map((criterionEntry) => criterionEntry.verification_bindings.length)));
+  bindingsAt.policy.limits.max_verification_bindings_per_criterion = maxBindings;
+  noLimitError(bindingsAt);
+  const bindingsOver = structuredClone(bindingsAt);
+  const binding = structuredClone(bindingsOver.tickets[0].acceptance_criteria[0].verification_bindings[0]);
+  binding.binding_id = "check:session-store-second";
+  bindingsOver.tickets[0].acceptance_criteria[0].verification_bindings.push(binding);
+  bindingsOver.policy.limits.max_verification_bindings_per_criterion = bindingsOver.tickets[0].acceptance_criteria[0].verification_bindings.length - 1;
+  hasLimitError(bindingsOver);
+
+  const renderedAt = fixture();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const size = Math.max(...[...renderTicketDocuments(renderedAt).values()].map((content) => Buffer.byteLength(content, "utf8")));
+    if (renderedAt.policy.limits.max_rendered_document_bytes === size) break;
+    renderedAt.policy.limits.max_rendered_document_bytes = size;
+  }
+  noLimitError(renderedAt);
+  const renderedOver = structuredClone(renderedAt);
+  renderedOver.policy.limits.max_rendered_document_bytes -= 1;
+  hasLimitError(renderedOver);
+});
+
+test("candidate Markdown inventory rejects missing, extra, renamed and byte-drifted documents", () => {
+  const expected = renderTicketDocuments(example);
+  assert.deepEqual(compareRenderedTicketDocuments(example, expected), []);
+  assert.deepEqual(validateTicketsManifest(example, schema, exampleText, { candidateDocuments: expected }), []);
+
+  const firstPath = [...expected.keys()].sort()[0];
+  const missing = new Map(expected);
+  missing.delete(firstPath);
+  assert.ok(compareRenderedTicketDocuments(example, missing).some((entry) => entry.code === "tickets_rendered_path_missing"));
+
+  const extra = new Map(expected);
+  extra.set(`docs/autosk/epics/${example.epic_id}/tickets/EXTRA.md`, "extra\n");
+  assert.ok(compareRenderedTicketDocuments(example, extra).some((entry) => entry.code === "tickets_rendered_path_extra"));
+
+  const renamed = new Map(expected);
+  const bytes = renamed.get(firstPath);
+  renamed.delete(firstPath);
+  renamed.set(`${firstPath}.renamed`, bytes);
+  assert.ok(compareRenderedTicketDocuments(example, renamed).some((entry) => entry.code === "tickets_rendered_path_renamed"));
+
+  const drifted = new Map(expected);
+  drifted.set(firstPath, `${drifted.get(firstPath)}x`);
+  assert.ok(compareRenderedTicketDocuments(example, drifted).some((entry) => entry.code === "tickets_rendered_bytes_mismatch"));
+});
+
+test("revised manifest carry requires exact previous bytes, identity and unchanged execution entry", () => {
+  const previous = fixture();
+  const tickets = previous.tickets.map((ticket) => ({
+    ...structuredClone(ticket),
+    lineage: { kind: "carry", predecessor_ids: [ticket.id] },
+  }));
+  const current = makeRevision(previous, tickets);
+  const context = previousManifestContext(previous);
+  assert.equal(codes(current, canonicalStringify(current), { previousManifestContext: context }).includes("tickets_lineage_invalid"), false);
+  assert.equal(ticketEntryDigest(current.tickets[0]), ticketEntryDigest(previous.tickets[0]));
+
+  const changedCarry = structuredClone(current);
+  changedCarry.tickets[0].goal = "Changed under carry.";
+  assert.ok(codes(changedCarry, canonicalStringify(changedCarry), { previousManifestContext: context }).includes("tickets_lineage_invalid"));
+
+  const wrongIdentity = structuredClone(context);
+  wrongIdentity.manifest_digest = "0".repeat(64);
+  assert.ok(codes(current, canonicalStringify(current), { previousManifestContext: wrongIdentity }).includes("tickets_lineage_invalid"));
+});
+
+test("revision lineage accepts revise, replace, split_child, merge_result and explicit retirement", () => {
+  const previousForRevise = fixture();
+  const revisedTickets = previousForRevise.tickets.map((ticket) => ({
+    ...structuredClone(ticket),
+    lineage: { kind: "carry", predecessor_ids: [ticket.id] },
+  }));
+  revisedTickets[0].goal = "Revised goal.";
+  revisedTickets[0].lineage = { kind: "revise", predecessor_ids: ["T01"] };
+  const revised = makeRevision(previousForRevise, revisedTickets);
+  assert.equal(codes(revised, canonicalStringify(revised), { previousManifestContext: previousManifestContext(previousForRevise) }).includes("tickets_lineage_invalid"), false);
+
+  const previousForReplace = oneTicketPrevious();
+  const replacement = ticketWithId(previousForReplace.tickets[0], "T02", "replacement");
+  replacement.lineage = { kind: "replace", predecessor_ids: ["T01"] };
+  const replaced = makeRevision(previousForReplace, [replacement]);
+  assert.equal(codes(replaced, canonicalStringify(replaced), { previousManifestContext: previousManifestContext(previousForReplace) }).includes("tickets_lineage_invalid"), false);
+
+  const previousForSplit = oneTicketPrevious();
+  const splitA = ticketWithId(previousForSplit.tickets[0], "T02", "split-a");
+  const splitB = ticketWithId(previousForSplit.tickets[0], "T03", "split-b");
+  splitA.lineage = { kind: "split_child", predecessor_ids: ["T01"] };
+  splitB.lineage = { kind: "split_child", predecessor_ids: ["T01"] };
+  const split = makeRevision(previousForSplit, [splitA, splitB]);
+  assert.equal(codes(split, canonicalStringify(split), { previousManifestContext: previousManifestContext(previousForSplit) }).includes("tickets_lineage_invalid"), false);
+
+  const previousForMerge = fixture();
+  const mergedTicket = ticketWithId(previousForMerge.tickets[0], "T03", "merged");
+  mergedTicket.lineage = { kind: "merge_result", predecessor_ids: ["T01", "T02"] };
+  const merged = makeRevision(previousForMerge, [mergedTicket]);
+  assert.equal(codes(merged, canonicalStringify(merged), { previousManifestContext: previousManifestContext(previousForMerge) }).includes("tickets_lineage_invalid"), false);
+
+  const previousForRetirement = fixture();
+  const carried = structuredClone(previousForRetirement.tickets[0]);
+  carried.lineage = { kind: "carry", predecessor_ids: ["T01"] };
+  const retired = makeRevision(previousForRetirement, [carried], [{
+    decision_ref: "decision:drop-t02",
+    disposition: "dropped",
+    predecessor_id: "T02",
+    rationale: "T02 is intentionally removed from the next revision.",
+    successor_ids: [],
+  }]);
+  assert.equal(codes(retired, canonicalStringify(retired), { previousManifestContext: previousManifestContext(previousForRetirement) }).includes("tickets_lineage_invalid"), false);
+});
+
+test("revision lineage rejects missing predecessors, duplicate mappings and silently dropped prior Tickets", () => {
+  const previous = oneTicketPrevious();
+  const missingPredecessor = ticketWithId(previous.tickets[0], "T02", "missing-predecessor");
+  missingPredecessor.lineage = { kind: "replace", predecessor_ids: ["T99"] };
+  const missing = makeRevision(previous, [missingPredecessor]);
+  assert.ok(codes(missing, canonicalStringify(missing), { previousManifestContext: previousManifestContext(previous) }).includes("tickets_lineage_invalid"));
+
+  const duplicateA = ticketWithId(previous.tickets[0], "T02", "duplicate-a");
+  const duplicateB = ticketWithId(previous.tickets[0], "T03", "duplicate-b");
+  duplicateA.lineage = { kind: "replace", predecessor_ids: ["T01"] };
+  duplicateB.lineage = { kind: "replace", predecessor_ids: ["T01"] };
+  const duplicate = makeRevision(previous, [duplicateA, duplicateB]);
+  assert.ok(codes(duplicate, canonicalStringify(duplicate), { previousManifestContext: previousManifestContext(previous) }).includes("tickets_lineage_invalid"));
+
+  const twoPrevious = fixture();
+  const carryOnly = structuredClone(twoPrevious.tickets[0]);
+  carryOnly.lineage = { kind: "carry", predecessor_ids: ["T01"] };
+  const silentlyDropped = makeRevision(twoPrevious, [carryOnly]);
+  assert.ok(codes(silentlyDropped, canonicalStringify(silentlyDropped), { previousManifestContext: previousManifestContext(twoPrevious) }).includes("tickets_lineage_invalid"));
+});
+
+test("heap-backed stable Kahn ordering preserves deterministic order on a large ready set", () => {
+  const tickets = Array.from({ length: 5000 }, (_, index) => ({
+    id: `T${String(index + 1).padStart(6, "0")}`,
+    depends_on: [],
+  })).reverse();
+  const result = stableTopologicalOrder(tickets);
+  assert.equal(result.cyclic, false);
+  assert.equal(result.ordered.length, tickets.length);
+  assert.equal(result.ordered[0], "T000001");
+  assert.equal(result.ordered.at(-1), "T005000");
+});
+
+test("shared JSON Schema validation enforces maxLength", () => {
+  const manifest = fixture();
+  manifest.tickets[0].title = "x".repeat(8193);
+  assert.ok(validateJsonSchema(manifest, schema).some((entry) => entry.includes("at most 8192")));
 });

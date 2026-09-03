@@ -64,7 +64,7 @@ Host validation calculates domain-separated SHA-256 values for:
 
 ```text
 manifest bytes
-each Ticket entry
+each Ticket execution entry, excluding revision-only `lineage`
 ordered DAG adjacency
 deterministic rendered document path/hash set
 complete Ticket set
@@ -97,7 +97,7 @@ Two Tickets overlap when their selectors can address the same path. In v1, overl
 
 Every dependency must resolve inside the same manifest, cannot be self-referential and must have a matching rationale of kind `semantic` or `scope_serialization`. The graph must be acyclic.
 
-The root `topological_order` contains every Ticket exactly once and must equal iterative Kahn ordering with ASCII Ticket-ID tie-breaking among ready nodes. Validation is bounded `O(V+E)` and independent of worker count. `depends_on` governs dispatch and future execution-base composition, not integration order alone.
+The root `topological_order` contains every Ticket exactly once and must equal iterative Kahn ordering with ASCII Ticket-ID tie-breaking among ready nodes. Topological ordering uses a deterministic binary min-heap and is bounded `O((V+E) log V)` independently of worker count. `depends_on` governs dispatch and future execution-base composition, not integration order alone.
 
 ## 8. Governing artifacts and unresolved decisions
 
@@ -130,13 +130,13 @@ Review policy requires one reviewer outside the complete author/fixer family set
 
 ## 11. Revisions and lineage
 
-A new revision points to the exact previous published manifest digest. Ticket lineage is one of:
+A new revision receives the exact previous published canonical manifest bytes plus the prior validation identity (`manifest_digest` and ordered Ticket execution-entry digests), and `previous_manifest_digest` must match that context. Ticket lineage is one of:
 
 ```text
 new | carry | revise | replace | split_child | merge_result
 ```
 
-Predecessor IDs refer only to the immediately previous manifest. Every prior Ticket is accounted for by a current lineage entry or explicit retirement record. `carry` requires the same ID and byte-identical entry digest; no previous Ticket is silently dropped or ambiguously mapped.
+Predecessor IDs refer only to the immediately previous manifest. Every prior Ticket is accounted for by current lineage or an explicit retirement. `carry` requires the same ID and byte-identical execution-entry digest; `revise` keeps the ID and changes that digest; `replace` changes the ID; `split_child` maps one predecessor to at least two successors; `merge_result` maps at least two predecessors to one successor. Duplicate or mixed mappings fail closed. A matching `superseded` retirement may mirror replace/split/merge successors exactly; dropped/deferred retirements have no successors. No previous Ticket is silently dropped or ambiguously mapped.
 
 Any set revision creates a new alignment subject, full Ticket Panel and descendant planning publication. Matching IDs do not copy task status automatically. Issue #25 owns user-approved dispositions of live/completed/staged work.
 
@@ -184,7 +184,7 @@ Missing, stale, corrupt or unsupported input parks with a typed reason and zero 
 
 Every error contains stable `code`, RFC 6901 `json_pointer`, message, related pointers and canonical evidence. Sorting is by code-point pointer, code and evidence bytes. Required classes cover JSON/canonical/version/limit errors; duplicate IDs; dangling/self/cyclic dependencies; invalid topo order; invalid/colliding/overlapping paths; AC/evidence/governing/impact/lineage errors; rendered-path/byte drift; and stale receipts.
 
-Resource limits bound manifest bytes, Tickets, edges, selectors, ACs, bindings and rendered bytes before expensive work. Very large valid sets preserve identical graph/digests with one or many workers.
+The host checks raw manifest bytes against an externally bound hard cap before UTF-8 decoding, duplicate-key scanning or JSON parsing, then rechecks the manifest-declared `max_manifest_bytes`. Resource limits also bound Tickets, total edges, dependencies per Ticket, selectors per Ticket, ACs per Ticket, bindings per AC and each generated Markdown document through `max_rendered_document_bytes` before graph/Panel work. Very large valid sets preserve identical graph/digests with one or many workers.
 
 Unknown schema versions fail closed. Migration is a pure pinned `vN -> vN+1` transformation with before/after identities, explicit semantic decision where needed, fresh alignment, full Ticket Panel and new planning publication. Active Epics never reinterpret old bytes under a new parser.
 
