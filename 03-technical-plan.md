@@ -30,7 +30,8 @@ artifact full panel:
 
 tickets proposal and alignment:
   select_next -> draft_artifact -> present_tickets_breakdown
-  -> await_alignment (human) -> record_alignment -> freeze_artifact
+  -> await_alignment (human) -> record_alignment -> validate_tickets_manifest
+  -> freeze_artifact
 
 artifact fix:
   synthesize_panel -> fix_artifact -> freeze_artifact
@@ -74,7 +75,7 @@ recovery:
   Quick integration_recovery -> integrate | cleanup | human
 ~~~
 
-Brief, Core Flow, Tech Plan и весь комплект Tickets — четыре значения current_artifact.kind и проходят один artifact cycle. `clarify_alignment`, `await_alignment` и `record_alignment` общие, но проверяют закрытую схему текущего kind. `clarify_alignment` принимает только brief/core_flow/tech_plan. Tickets всегда сначала получают proposal bytes и входят через `present_tickets_breakdown`; subject/scope change во время ожидания возвращает туда же, а не в clarify. Отдельных tickets-panel steps нет.
+Brief, Core Flow, Tech Plan и весь комплект Tickets — четыре значения current_artifact.kind и проходят один artifact cycle. Для kind=tickets deterministic `validate_tickets_manifest` расположен после breakdown alignment и перед freeze; Panel candidate содержит canonical manifest, renderer outputs и `tickets_validation_receipt` одной identity. `clarify_alignment`, `await_alignment` и `record_alignment` общие, но проверяют закрытую схему текущего kind. `clarify_alignment` принимает только brief/core_flow/tech_plan. Tickets всегда сначала получают proposal bytes и входят через `present_tickets_breakdown`; subject/scope change во время ожидания возвращает туда же, а не в clarify. Отдельных tickets-panel steps нет.
 
 Каноническая таблица переходов:
 
@@ -119,7 +120,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | select_next | первый required и ещё не passed kind среди brief, core_flow, tech_plan; действующий alignment record уже существует | записать kind, создать review_cycles[kind] если absent, draft_artifact |
 | select_next | Tech Plan passed и существует arena.decisions entry status=pending | выбрать первый stable decision_id, записать current_decision_id, dispatch_arena |
 | select_next | planning kinds passed, все Arena decisions terminal либо отсутствуют, Tickets ещё не passed | записать kind=tickets, создать review_cycles.tickets если absent, draft_artifact как proposal |
-| select_next | Tickets passed и alignment_records.tickets current | dispatch_ticket_dag |
+| select_next | Tickets Published PASS current, exact publication tree содержит current canonical manifest/rendered set, `tickets_validation_receipt` current и alignment_records.tickets current | dispatch_ticket_dag |
 | select_next | Tickets artifact binding существует, но breakdown alignment отсутствует/stale | void stale pass/waived binding, present_tickets_breakdown |
 | clarify_alignment | current daemon `UserDecisionRecord` signature/provenance/identity валиден | record_alignment с source=user_decision |
 | clarify_alignment | daemon decision отсутствует; unresolved assumption отсутствует; classifier доказал policy-eligible classes и current project policy projection active с exact binding/rule/scope/constraints | record_alignment с source=project_policy |
@@ -133,7 +134,10 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | record_alignment | kind=tech_plan, Arena status=recommended, disposition=fallback и daemon `UserDecisionRecord` exact Arena identity валиден | atomically записать alignment record + authority-bound Decision Record mirror, перевести entry в terminal fallback, current_decision_id=null, затем draft_artifact |
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; новый daemon decision либо re-resolved exact policy валиден для current identity | старый authority/approval hash остаётся audit evidence; atomically записать новый current record и перейти в draft_artifact |
 | record_alignment | kind=brief/core_flow/tech_plan, active Arena recommended отсутствует; current alignment record уже валиден и identity byte-identical | идемпотентно draft_artifact без перезаписи record |
-| record_alignment | kind=tickets, daemon-attributed breakdown approval либо re-resolved policy валидны для той же proposal/classifier identity | старый authority/approval hash остаётся audit evidence; atomically записать alignment_records.tickets, current_alignment=null, freeze_artifact |
+| record_alignment | kind=tickets, daemon-attributed breakdown approval либо re-resolved policy валидны для той же proposal/classifier identity | старый authority/approval hash остаётся audit evidence; atomically записать alignment_records.tickets, current_alignment=null, validate_tickets_manifest |
+| validate_tickets_manifest | kind!=tickets либо manifest/path set отсутствует, unsupported/noncanonical/schema-invalid, semantic/DAG/path-overlap/lineage/limit/ref validation fails, rendered path/bytes drift, or alignment/planning/runtime/protocol/instruction identity stale | human с park.reason=tickets_manifest_invalid либо tickets_manifest_stale; no candidate/Panel/task/blocker side effects |
+| validate_tickets_manifest | canonical manifest, stable DAG/topological order, exact rendered document set and all controlling identities current | host computes manifest/DAG/document-set/Ticket-entry digests, writes/read-backs immutable `tickets_validation_receipt`, freeze_artifact |
+| validate_tickets_manifest | retry finds exact current receipt and unchanged bytes/identities | read-back receipt/digests only; freeze_artifact |
 | draft_artifact | current author worktree/base OID или live private planning ref не равны verified planning.head_oid/tree | human с park.reason=planning_candidate_base_stale; provider не вызывается, candidate/PASS отсутствуют |
 | draft_artifact | provider/model недоступен после retry | human с park.reason=artifact_draft_provider_unavailable |
 | draft_artifact | output missing/invalid или out-of-scope mutation | human с park.reason=artifact_draft_result_invalid либо artifact_draft_scope_invalid; normative bytes/PASS не создаются |
@@ -303,6 +307,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | resume_repaired_tickets | recorded human recovery Ticket имеет transitive prerequisite в replacement set либо stable topological order/dependency plan нарушен | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена |
 | resume_repaired_tickets | recorded human recovery Ticket не human+pending и прошлый resume не доказан consumed intent либо status/step после target | human с park.reason=ticket_repair_state_invalid; op остаётся открытой, phases не продвигаются |
 | resume_repaired_tickets | repair op валидна, every replacement phase=`replacement_ready\|replacement_enrolled`, parent не имеет premature replacement blockers, semantic writes sealed | получить daemon `authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest)`; daemon reconciles global authority journal, then under project mutex performs recorded phases; unrelated authority record does not stale projection, competing append waits |
+| dispatch_ticket_dag | exact verified Tickets publication commit/tree, canonical manifest path, supported schema/renderer, current validation receipt or set/DAG/entry/rendered digests missing/mismatched/corrupt | human с park.reason=tickets_manifest_stale; zero child/blocker/enroll side effects |
+| dispatch_ticket_dag | recomputed manifest semantic/DAG/path/lineage validation fails or rendered views differ from publication tree | human с park.reason=tickets_manifest_invalid; zero child/blocker/enroll side effects |
 | dispatch_ticket_dag | current tickets alignment отсутствует/stale либо его subject hash не совпадает с PASS Ticket set/DAG | human с park.reason=alignment_record_stale; child create/blocker side effects отсутствуют |
 | dispatch_ticket_dag | current controlling_anchor_digest не совпадает с Tickets pass/waived/parent binding | ensure pending_anchor, human с park.reason=blocked_anchor; op/task side effects отсутствуют |
 | dispatch_ticket_dag | `aggregate_remediation` открыт либо set-changing remediation не завершил atomic void старого Tickets PASS/alignment | human с park.reason=aggregate_remediation_required; op/task side effects отсутствуют |
@@ -1058,6 +1064,14 @@ Receipt приостановленной blocker-связи содержит `{p
 
 Для Ticket с parent_epic_task поле anchor_version всегда копируется из parent и изменяется только parent rebuild_anchor. Самостоятельный счётчик разрешён только standalone Quick.
 
+### Canonical Tickets manifest binding
+
+<!-- tickets-manifest-contract:v1 -->
+
+For kind=tickets protected metadata records exactly one current `tickets_validation_receipt` containing planning parent/candidate tree, manifest/schema/canonicalizer/renderer/validator identities, manifest/DAG/rendered-set/full-set/Ticket-entry digests, exact rendered path/hash inventory, limits and alignment/protocol/runtime/instruction/mapping bindings. Mutable Ticket status/session/commit/review/integration fields are forbidden in manifest and receipt.
+
+`dispatch_ticket_dag` opens the exact verified publication commit tree and validates `docs/autosk/epics/<epic-id>/tickets/tickets.manifest.json`; it never parses rendered Markdown for operational values. Child creation binding includes manifest, entry, DAG and planning-head identities. Missing/corrupt/unsupported/stale inputs park before any child or edge side effect. Schemas, canonicalization, lineage, renderer and test matrix are normative in `docs/contracts/tickets-manifest.md`.
+
 ### Panel seat task
 
 Содержит parent_task, run_id, seat, route, role, author_families, собственную autosk_flow.session запись общей схемы и полную frozen artifact identity. Dispatcher копирует выбранный parent panel.seats record в child autosk_flow.session до enroll. Seat task не может изменить identity или session binding.
@@ -1360,7 +1374,7 @@ State path создаётся отдельно для каждой operation п�
 - `record_alignment` принимает только daemon-attributed `UserDecisionRecord` либо exact current project policy projection; Git/comment authorship, model label/self-approval, assumption, unknown/ambiguous/forbidden class и material decision за пределами policy отклоняются.
 - `freeze_artifact`, full/narrow Panel dispatch/join и `record_artifact_pass` требуют current alignment + recomputed material manifest в controlling anchor pack. Изменившийся user record, subject/manifest, classifier/projector input/version, scope, anchor или policy disposition делает его stale раньше model fan-out.
 - every freeze runs the closed path-role classifier; ordinary implementation proceeds to code review, while additional normative documents require current mapping proof and direct candidate-bound `governance_mapping_set_digest`; unknown/orphan/ambiguous/stale mapping blocks candidate/panel/PASS.
-- Tickets не исполняются без current Tickets Published PASS: disposition=pass|waived, publication_status=verified, matching immutable `planning.publication_history` record phase=verified, published_commit_oid reachable в live private planning ref first-parent chain, published tree совпадает с recorded candidate tree, а current publication/rebinding chain совпадает с current anchor/protocol/runtime/instruction/artifact/alignment identity; Tickets как newest verified publication дополнительно равны live head, waived требует signed full-skip authority current identity.
+- Tickets не исполняются без current schema-valid canonical manifest, byte-identical rendered document set, current TicketsValidationReceipt and current Tickets Published PASS: disposition=pass|waived, publication_status=verified, matching immutable `planning.publication_history` record phase=verified, published_commit_oid reachable в live private planning ref first-parent chain, published tree совпадает с recorded candidate tree, а current publication/rebinding chain совпадает с current anchor/protocol/runtime/instruction/artifact/alignment identity; Tickets как newest verified publication дополнительно равны live head, waived требует signed full-skip authority current identity.
 - Ticket Panel не стартует, а `dispatch_ticket_dag` не создаёт child/blocker side effects без breakdown approval того же canonical Ticket set/DAG/scopes/outcomes/order/exclusions subject hash. Panel PASS не заменяет этот approval.
 - Quick-flow не проверяет alignment records, пока classification остаётся valid. Каждый pre-integration gate повторяет closed rules; Planned-trigger исключает обычный переход и ведёт только в `invalidate_quick_classification`. Quick с open/failed handoff не может commit/integrate.
 - Panel seat не закрывается без валидного verdict той же identity.

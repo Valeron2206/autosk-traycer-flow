@@ -39,6 +39,7 @@
 15. Quick освобождён от planning gates только пока его classification валидна. Planned-trigger, найденный на любом шаге до integration, детерминированно останавливает Quick и создаёт project-bound Planned replacement; расширить material scope и продолжить Quick нельзя.
 16. Операционная truth защищена daemon workflow custody: model sessions не получают `.autosk`, task/comment/metadata/refs или raw CLI. Host writes требуют step-bound capability + expected protected metadata head; gate outcomes — write-once daemon receipts под result head. Preflight требует одновременно ADR-014 creation identity, ADR-023 authority/intent и ADR-025 custody; без любого model workflow не запускается.
 17. Planning verdict не завершает артефакт сам по себе. `record_artifact_pass` создаёт recorded-unpublished binding и durable operation; только host-owned `publish_artifact_pass` может CAS-продвинуть `refs/autosk/epics/<epic_ref_key>/planning`, проверить descendant commit/tree и разрешить `select_next`. Target branch при этом не меняется.
+18. Runtime-истиной комплекта Tickets является только schema-valid canonical `tickets.manifest.json` из exact verified Tickets publication commit. `README.md` и `Txx-*.md` — детерминированные renderer outputs; `dispatch_ticket_dag` не извлекает operational fields из Markdown.
 
 ## Состав пакета
 
@@ -47,6 +48,7 @@
 - [03-technical-plan.md](03-technical-plan.md) — реализуемый план расширения autosk v2.
 - [04-decisions.md](04-decisions.md) — предлагаемые ADR и оставшиеся риски; статус станет accepted только после решения пользователя и PASS панели.
 - [docs/contracts/epic-planning-ref.md](docs/contracts/epic-planning-ref.md) — нормативный контракт private planning ref, candidate keepalive всей Git object closure, commit-on-PASS, CAS и crash recovery для issue #5.
+- [docs/contracts/tickets-manifest.md](docs/contracts/tickets-manifest.md) — нормативный контракт canonical machine-readable Tickets artifact, deterministic DAG/rendering и manifest-only dispatcher для issue #6.
 - [diagrams/autosk-flow.drawio](diagrams/autosk-flow.drawio) — редактируемая двухстраничная диаграмма.
 - [diagrams/autosk-flow-workflow.png](diagrams/autosk-flow-workflow.png) — обзор workflow.
 - [diagrams/autosk-flow-architecture.png](diagrams/autosk-flow-architecture.png) — global/project архитектура.
@@ -65,6 +67,16 @@
 
 ```text
 npm run validate:planning-ref
+```
+
+## Контракт canonical Tickets manifest
+
+Issue #6 фиксирует один `docs/autosk/epics/<epic-id>/tickets/tickets.manifest.json` как operational authority комплекта. Human-readable overview и Ticket Markdown генерируются pinned renderer и обязаны побайтово совпадать с manifest; изменение любой стороны создаёт новую alignment/candidate identity. Validated manifest, DAG, rendered document set и Ticket entries получают domain-separated digests в host-owned `TicketsValidationReceipt`. После отдельной Ticket Panel issue #5 публикует manifest и все views одним descendant commit; только этот verified commit разрешает `dispatch_ticket_dag`.
+
+Проверка:
+
+```text
+npm run validate:tickets-manifest
 ```
 
 ## Реестр миграционного паритета

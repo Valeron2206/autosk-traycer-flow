@@ -9,7 +9,8 @@
     "validate:capabilities": "node scripts/validate-program-capability-matrix.mjs",
     "validate:planning-ref": "node scripts/validate-planning-ref-design.mjs",
     "generate:capabilities": "node scripts/validate-program-capability-matrix.mjs --write-docs",
-    "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope"
+    "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope",
+    "validate:tickets-manifest": "node scripts/validate-tickets-manifest-design.mjs"
   },
   "engines": {
     "node": ">=24"

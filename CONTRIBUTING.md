@@ -18,6 +18,7 @@ Changes to Brief, Core Flow, Tech Plan, Tickets, or another behavior-defining ar
 A planning PASS is bound to the artifact kind, exact bytes and file hashes, pathspec, tree or snapshot OID, anchor version, and attempt.
 Changing any bound field invalidates the prior PASS and requires a new four-model panel before implementation, except for the explicit hash-checked, human-approved re-binding defined in `03-technical-plan.md`.
 A recorded planning verdict is not completion: `docs/contracts/epic-planning-ref.md` requires a verified host-owned descendant commit at the private Epic planning ref before `select_next`. Run `npm run validate:planning-ref` for changes touching this boundary.
+Tickets additionally follow `docs/contracts/tickets-manifest.md`: edit the canonical manifest model, regenerate deterministic Markdown views, and never treat prose as dispatcher authority. Run `npm run validate:tickets-manifest` for changes touching this boundary.
 
 ## Commits
 
