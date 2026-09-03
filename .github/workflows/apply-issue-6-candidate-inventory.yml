@@ -1,0 +1,76 @@
+name: Apply issue 6 candidate inventory once
+
+on:
+  push:
+    branches:
+      - design/issue-6-tickets-manifest-final
+    paths:
+      - .github/workflows/apply-issue-6-candidate-inventory.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out issue branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: design/issue-6-tickets-manifest-final
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Connect external candidate inventory
+        run: python3 .github/tmp/connect-issue-6-candidate-inventory.py
+
+      - name: Generate canonical on-disk candidate fixture
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+          import path from "node:path";
+          import {
+            EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+            EXAMPLE_CANDIDATE_ROOT,
+            MANIFEST_EXAMPLE_PATH,
+            renderTicketDocuments,
+          } from "./scripts/validate-tickets-manifest-design.mjs";
+
+          rmSync(EXAMPLE_CANDIDATE_ROOT, { force: true, recursive: true });
+          const manifestPath = path.join(EXAMPLE_CANDIDATE_ROOT, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
+          mkdirSync(path.dirname(manifestPath), { recursive: true });
+          copyFileSync(MANIFEST_EXAMPLE_PATH, manifestPath);
+          const manifest = JSON.parse(readFileSync(MANIFEST_EXAMPLE_PATH, "utf8"));
+          for (const [relativePath, content] of renderTicketDocuments(manifest)) {
+            const destination = path.join(EXAMPLE_CANDIDATE_ROOT, ...relativePath.split("/"));
+            mkdirSync(path.dirname(destination), { recursive: true });
+            writeFileSync(destination, content, "utf8");
+          }
+          NODE
+
+      - name: Run complete validation
+        run: |
+          npm test
+          npm run validate:migration
+          npm run validate:capabilities
+          npm run validate:planning-ref
+          npm run validate:tickets-manifest
+          git diff --check
+
+      - name: Commit canonical integration
+        shell: bash
+        run: |
+          rm .github/tmp/connect-issue-6-candidate-inventory.py
+          rmdir .github/tmp 2>/dev/null || true
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: validate exact candidate Ticket document inventory"
+          git push origin HEAD:design/issue-6-tickets-manifest-final
