@@ -722,3 +722,45 @@ test("candidate files are size-checked before normal validation", () => {
     rmSync(temporaryParent, { force: true, recursive: true });
   }
 });
+
+
+test("schema-invalid nested shapes fail closed without semantic exceptions", () => {
+  for (const mutate of [
+    (manifest) => { manifest.governing_artifacts = {}; },
+    (manifest) => { manifest.tickets = [null]; },
+    (manifest) => { manifest.tickets[0].acceptance_criteria[0].verification_bindings = {}; },
+  ]) {
+    const manifest = fixture();
+    mutate(manifest);
+    let result;
+    assert.doesNotThrow(() => {
+      result = validateTicketsManifest(manifest, schema, canonicalStringify(manifest), {
+        candidateDocuments: new Map(),
+      });
+    });
+    assert.ok(result.some((entry) => entry.code === "tickets_manifest_schema_invalid"));
+  }
+});
+
+test("scope overlap uses the conservative case-collision policy", () => {
+  const manifest = fixture();
+  manifest.tickets[0].scope_selectors = [{ kind: "file", path: "src/CaseSensitive.ts" }];
+  manifest.tickets[1].scope_selectors = [{ kind: "file", path: "src/casesensitive.ts" }];
+  manifest.tickets[1].depends_on = [];
+  manifest.tickets[1].dependency_rationale = [];
+  manifest.topological_order = stableTopologicalOrder(manifest.tickets).ordered;
+  assert.ok(codes(manifest).includes("tickets_scope_overlap_unordered"));
+});
+
+test("renderer prevents title and table-cell structure injection", () => {
+  const manifest = fixture();
+  manifest.tickets[0].title = "Left | Right\ncontinued";
+  manifest.tickets[0].goal = "Goal | second column";
+  const documents = renderTicketDocuments(manifest);
+  const overview = documents.get(`docs/autosk/epics/${manifest.epic_id}/tickets/README.md`);
+  const ticket = documents.get(manifest.tickets[0].document_path);
+  assert.match(overview, /Left &#124; Right continued/u);
+  assert.match(overview, /Goal &#124; second column/u);
+  assert.match(ticket, /^# T01 — Left \| Right continued$/mu);
+  assert.doesNotMatch(ticket, /^continued$/mu);
+});
