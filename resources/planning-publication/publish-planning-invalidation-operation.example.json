@@ -122,7 +122,9 @@
       "pathspec_or_projection_digest": "9df00e34ea94fb53826bc116847ca237948134b7a095e6be1969c53f24b47cdb",
       "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "snapshot_commit_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
-    }
+    },
+    "closure_pack_operation_id": "eeeeeeee-1111-4111-8111-eeeeeeeeeeee",
+    "closure_pack_receipt_hash": "172372a0fb593457ab569fd1a600afd8e0b056fb5fd43c2025a34cbcb60c0731"
   },
   "payload": {
     "kind": "anchor_invalidation",

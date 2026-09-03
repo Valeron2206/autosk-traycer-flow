@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/candidate-audit-transfer-operation.schema.json",
+  "title": "autosk-flow monotonic candidate audit transfer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation_id", "action", "candidate_identity", "live_ref", "audit_ref", "snapshot_commit_oid", "planning_ref", "planning_oid", "helper_intent_key", "phase", "audit_ref_receipt", "live_delete_receipt", "verification_receipt", "created_at_utc", "completed_at_utc"],
+  "properties": {
+    "schema": { "const": 1 }, "operation_id": { "$ref": "#/$defs/uuid" },
+    "action": { "enum": ["retain_audit", "release_to_audit"] }, "candidate_identity": { "$ref": "#/$defs/sha256" },
+    "live_ref": { "$ref": "#/$defs/live_ref" }, "audit_ref": { "$ref": "#/$defs/audit_ref" },
+    "snapshot_commit_oid": { "$ref": "#/$defs/oid" },
+    "planning_ref": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/planning$" }] },
+    "planning_oid": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/oid" }] },
+    "helper_intent_key": { "$ref": "#/$defs/sha256" },
+    "phase": { "enum": ["prepared", "audit_ref_verified", "live_ref_deleted", "verified"] },
+    "audit_ref_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/audit_ref_receipt" }] },
+    "live_delete_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/live_delete_receipt" }] },
+    "verification_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/verification_receipt" }] },
+    "created_at_utc": { "$ref": "#/$defs/timestamp" }, "completed_at_utc": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }] }
+  },
+  "allOf": [
+    { "if": { "properties": { "action": { "const": "retain_audit" } } }, "then": { "properties": { "planning_ref": { "type": "null" }, "planning_oid": { "type": "null" } } } },
+    { "if": { "properties": { "action": { "const": "release_to_audit" } } }, "then": { "properties": { "planning_ref": { "type": "string" }, "planning_oid": { "$ref": "#/$defs/oid" } } } },
+    { "if": { "properties": { "phase": { "const": "prepared" } } }, "then": { "properties": { "audit_ref_receipt": { "type": "null" }, "live_delete_receipt": { "type": "null" }, "verification_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "audit_ref_verified" } } }, "then": { "properties": { "audit_ref_receipt": { "$ref": "#/$defs/audit_ref_receipt" }, "live_delete_receipt": { "type": "null" }, "verification_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "live_ref_deleted" } } }, "then": { "properties": { "audit_ref_receipt": { "$ref": "#/$defs/audit_ref_receipt" }, "live_delete_receipt": { "$ref": "#/$defs/live_delete_receipt" }, "verification_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
+    { "if": { "properties": { "phase": { "const": "verified" } } }, "then": { "properties": { "audit_ref_receipt": { "$ref": "#/$defs/audit_ref_receipt" }, "live_delete_receipt": { "$ref": "#/$defs/live_delete_receipt" }, "verification_receipt": { "$ref": "#/$defs/verification_receipt" }, "completed_at_utc": { "$ref": "#/$defs/timestamp" } } } }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }, "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "live_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$" }, "audit_ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/audit/candidates/[0-9a-f]{64}$" },
+    "audit_ref_receipt": { "type": "object", "additionalProperties": false, "required": ["audit_ref", "snapshot_commit_oid", "live_ref_still_present", "planning_verified", "receipt_hash"], "properties": { "audit_ref": { "$ref": "#/$defs/audit_ref" }, "snapshot_commit_oid": { "$ref": "#/$defs/oid" }, "live_ref_still_present": { "const": true }, "planning_verified": { "type": "boolean" }, "receipt_hash": { "$ref": "#/$defs/sha256" } } },
+    "live_delete_receipt": { "type": "object", "additionalProperties": false, "required": ["live_ref", "expected_old_oid", "audit_ref", "audit_ref_verified", "receipt_hash"], "properties": { "live_ref": { "$ref": "#/$defs/live_ref" }, "expected_old_oid": { "$ref": "#/$defs/oid" }, "audit_ref": { "$ref": "#/$defs/audit_ref" }, "audit_ref_verified": { "const": true }, "receipt_hash": { "$ref": "#/$defs/sha256" } } },
+    "verification_receipt": { "type": "object", "additionalProperties": false, "required": ["live_ref_absent", "audit_ref", "snapshot_commit_oid", "receipt_hash"], "properties": { "live_ref_absent": { "const": true }, "audit_ref": { "$ref": "#/$defs/audit_ref" }, "snapshot_commit_oid": { "$ref": "#/$defs/oid" }, "receipt_hash": { "$ref": "#/$defs/sha256" } } }
+  }
+}

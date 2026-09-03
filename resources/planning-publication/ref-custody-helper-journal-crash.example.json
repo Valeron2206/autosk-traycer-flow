@@ -30,6 +30,7 @@
         "audit_ref_absent": true,
         "reflog_path_absent": true,
         "packed_refs_entry_absent": true
+        ,"pre_execution_observation_sha256": "e83adae6d16109262c54364a96a4fcc5e9e8f4e035886f46fa68cd1f73e40d3f"
       }
     }
   ]

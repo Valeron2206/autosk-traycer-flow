@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "capability": {
+    "id": "autosk.record-pass-prepare-publication",
+    "minimum_version": 1,
+    "owner_issue": "Valeron2206/autosk-traycer-flow#5"
+  },
+  "request": {
+    "request_id": "cccccccc-1111-4111-8111-cccccccccccc",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "artifact_kind": "tech_plan",
+    "candidate_identity": "1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "pass_record_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expected_metadata_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "publication_operation_id": "11111111-1111-4111-8111-111111111111",
+    "publication_preimage_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "helper_intent_keys": [
+      "d1fa93af88bae2c4c033ceb0b6244f1a0537874fb654209f72e271961aa223c5"
+    ],
+    "idempotency_key": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "response": {
+    "request_id": "cccccccc-1111-4111-8111-cccccccccccc",
+    "status": "committed",
+    "new_metadata_head": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "pass_record_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "publication_operation_id": "11111111-1111-4111-8111-111111111111",
+    "receipt_hash": "461c04a01005984cf3de7dcad9ce8da2e548ad32b66de245867a4f22b4e314ab"
+  }
+}

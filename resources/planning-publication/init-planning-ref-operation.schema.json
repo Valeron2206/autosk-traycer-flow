@@ -401,6 +401,9 @@
               "properties": {
                 "receipt_kind": {
                   "const": "ref_create"
+                },
+                "helper_evidence": {
+                  "$ref": "#/$defs/helper_evidence"
                 }
               }
             }

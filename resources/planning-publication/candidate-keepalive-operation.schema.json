@@ -28,7 +28,9 @@
     "create_receipt",
     "release_receipt",
     "audit_receipt",
-    "created_at_utc"
+    "created_at_utc",
+    "closure_pack_operation_id",
+    "closure_pack_receipt_hash"
   ],
   "properties": {
     "schema": {
@@ -150,6 +152,12 @@
       "type": "string",
       "format": "date-time",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "closure_pack_operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "closure_pack_receipt_hash": {
+      "$ref": "#/$defs/sha256"
     }
   },
   "allOf": [

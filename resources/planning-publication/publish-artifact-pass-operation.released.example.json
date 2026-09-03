@@ -163,7 +163,9 @@
       "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
       "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
-    }
+    },
+    "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
+    "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b"
   },
   "payload": {
     "kind": "artifact_pass",
@@ -263,7 +265,7 @@
         "candidate_keepalive_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
       },
       "observation_sha256": "29cfd3149dbe3b20dc9bb1b3a50b7fc06784fc8e5187966cf4ee541eb603f182",
-      "receipt_hash": "ac7dfe00d9fe4f79a498b5ad4a89c2f318b6613a4506d9be6cc6ea25a80c2b51",
+      "receipt_hash": "7feb78ec07d9924c5ff0365a008f7a041100fd9d9be847810d32735e7c05858e",
       "helper_evidence": {
         "request_id": "00000003-1111-4111-8111-000000000003",
         "nonce": "76a406f2e52fff5d98dd6b51e894b7a42fa6318feb5e90c536804545fd1c7965",

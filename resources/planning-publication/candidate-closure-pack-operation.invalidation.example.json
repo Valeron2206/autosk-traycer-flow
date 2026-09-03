@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "operation_id": "eeeeeeee-1111-4111-8111-eeeeeeeeeeee",
+  "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
+  "snapshot_commit_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
+  "candidate_tree_oid": "6666666666666666666666666666666666666666",
+  "object_format": "sha1",
+  "object_count": 3,
+  "object_oid_set_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "pack_bytes_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "index_bytes_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "protected_store_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "phase": "verified",
+  "write_receipt": "00a70ee125fbea4d195ce3c7230679dc9390a1765d697d3ded1070f385698897",
+  "verification_receipt": "172372a0fb593457ab569fd1a600afd8e0b056fb5fd43c2025a34cbcb60c0731",
+  "created_at_utc": "2026-09-01T00:01:59Z"
+}

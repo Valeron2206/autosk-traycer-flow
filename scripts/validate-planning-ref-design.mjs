@@ -109,6 +109,17 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/candidate-supersession-operation.example.json",
   "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
   "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
+  "resources/planning-publication/candidate-audit-transfer-operation.schema.json",
+  "resources/planning-publication/candidate-audit-transfer-operation.example.json",
+  "resources/planning-publication/candidate-closure-pack-operation.schema.json",
+  "resources/planning-publication/candidate-closure-pack-operation.example.json",
+  "resources/planning-publication/candidate-closure-pack-operation.invalidation.example.json",
+  "resources/planning-publication/record-pass-prepare-publication.schema.json",
+  "resources/planning-publication/record-pass-prepare-publication.example.json",
+  "resources/planning-publication/planning-publication-rebinding.schema.json",
+  "resources/planning-publication/planning-publication-rebinding.example.json",
+  "resources/planning-publication/ref-custody-helper-intents.schema.json",
+  "resources/planning-publication/ref-custody-helper-intents.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -361,6 +372,17 @@ const REQUIRED = Object.freeze({
     "\"operator_approval\"",
     "\"tombstone_receipt\"",
   ],
+  "resources/planning-publication/candidate-audit-transfer-operation.schema.json": ["\"audit_ref_verified\"", "\"live_ref_deleted\"", "\"verified\""],
+  "resources/planning-publication/candidate-audit-transfer-operation.example.json": ["\"phase\": \"verified\"", "\"live_ref_still_present\": true"],
+  "resources/planning-publication/candidate-closure-pack-operation.schema.json": ["\"pack_written\"", "\"protected_store_identity\""],
+  "resources/planning-publication/candidate-closure-pack-operation.example.json": ["\"phase\": \"verified\"", "\"object_count\": 3"],
+  "resources/planning-publication/candidate-closure-pack-operation.invalidation.example.json": ["\"phase\": \"verified\"", "\"candidate_identity\": \"b750e173"],
+  "resources/planning-publication/record-pass-prepare-publication.schema.json": ["autosk.record-pass-prepare-publication", "Valeron2206/autosk-traycer-flow#5"],
+  "resources/planning-publication/record-pass-prepare-publication.example.json": ["\"status\": \"committed\"", "\"helper_intent_keys\""],
+  "resources/planning-publication/planning-publication-rebinding.schema.json": ["\"old_anchor_version\"", "\"new_anchor_version\""],
+  "resources/planning-publication/planning-publication-rebinding.example.json": ["\"artifact_kind\": \"brief\"", "\"new_anchor_version\": 2"],
+  "resources/planning-publication/ref-custody-helper-intents.schema.json": ["\"precondition_committed\"", "\"pre_execution_observation\""],
+  "resources/planning-publication/ref-custody-helper-intents.example.json": ["\"records\"", "\"persist_receipt_hash\""],
 });
 
 const SHA256_RE = /^[0-9a-f]{64}$/u;
@@ -568,14 +590,16 @@ export function planningObservationDigest(receiptKind, observation) {
   );
 }
 
-export function planningReceiptHash(operationId, receiptKind, observationSha256) {
+export function planningReceiptHash(operationId, receiptKind, observationSha256, helperEvidence = null) {
+  const preimage = {
+    schema: 1,
+    operation_id: operationId,
+    receipt_kind: receiptKind,
+    observation_sha256: observationSha256,
+  };
+  if (helperEvidence !== null) preimage.helper_evidence = helperEvidence;
   return sha256(
-    "autosk-flow/planning-receipt/v1\0" + canonicalStringify({
-      schema: 1,
-      operation_id: operationId,
-      receipt_kind: receiptKind,
-      observation_sha256: observationSha256,
-    }),
+    "autosk-flow/planning-receipt/v1\0" + canonicalStringify(preimage),
   );
 }
 
@@ -1064,8 +1088,16 @@ export function validatePlanningPublicationOperation(example, schema) {
       if (receipt.observation_sha256 !== observationDigest) {
         errors.push(`${slot} receipt observation_sha256 mismatch`);
       }
-      if (receipt.receipt_hash !== planningReceiptHash(example.operation_id, slot, observationDigest)) {
+      if (receipt.receipt_hash !== planningReceiptHash(
+        example.operation_id,
+        slot,
+        observationDigest,
+        receipt.helper_evidence,
+      )) {
         errors.push(`${slot} receipt_hash mismatch`);
+      }
+      if (slot === "ref_cas" && !receipt.helper_evidence) {
+        errors.push("ref_cas receipt requires journaled helper_evidence");
       }
       const expectedObservation = {
         commit_object: {
@@ -1679,8 +1711,12 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     const updateRefs = [...new Set(request?.ref_updates?.map((item) => item.ref) ?? [])].sort(codePointCompare);
     const checkpointRefs = [...new Set(request?.reflog_checkpoints?.map((item) => item.ref) ?? [])].sort(codePointCompare);
     const observationRefs = [...new Set(response?.reflog_observations?.map((item) => item.ref) ?? [])].sort(codePointCompare);
+    const orderedUpdateRefs = request?.ref_updates?.map((item) => item.ref) ?? [];
+    const orderedResponseRefs = response?.ref_observations?.map((item) => item.ref) ?? [];
     if (canonicalStringify(updateRefs) !== canonicalStringify(checkpointRefs) ||
-        canonicalStringify(updateRefs) !== canonicalStringify(observationRefs)) {
+        canonicalStringify(updateRefs) !== canonicalStringify(observationRefs) ||
+        canonicalStringify(orderedUpdateRefs) !== canonicalStringify(orderedResponseRefs) ||
+        new Set(orderedResponseRefs).size !== orderedResponseRefs.length) {
       errors.push(`ref-custody ${action} reflog refs do not exactly match ref_updates`);
     }
     const expectedRefObservations = (request?.ref_updates ?? []).map((update) => ({
@@ -1696,8 +1732,8 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
       errors.push(`ref-custody ${action} ref observations mismatch request values`);
     }
     if (response?.status === "not_applied") {
-      const zeroWriteObservations = (request?.ref_updates ?? []).map((update) => {
-        const observed = response?.ref_observations?.find((item) => item.ref === update.ref);
+      const zeroWriteObservations = (request?.ref_updates ?? []).map((update, index) => {
+        const observed = response?.ref_observations?.[index];
         return observed && observed.operation === update.operation &&
           observed.expected_old_oid === update.expected_old_oid &&
           observed.requested_new_oid === update.new_oid &&
@@ -1898,12 +1934,17 @@ export function validateRefCustodyJournalCrashExample(example, prefixes, wire) {
       refs_committed_journal_hash: refsRecord.journal_hash,
     };
     if (action === "delete_expired_audit") {
+      const preExecutionObservation = exchange.request.ref_updates.map((update) => {
+        const checkpoint = exchange.request.reflog_checkpoints.find((item) => item.ref === update.ref);
+        return { ref: update.ref, present: true, oid: update.expected_old_oid, packed_entry_absent: true, reflog_checkpoint_sha256: sha256("autosk-flow/ref-custody-intent-checkpoint/v1\0" + canonicalStringify(checkpoint)) };
+      });
       record.delete_post_state_proof = {
         request_body_sha256: exchange.request.body_sha256,
         nonce: exchange.request.nonce,
         audit_ref_absent: true,
         reflog_path_absent: true,
         packed_refs_entry_absent: true,
+        pre_execution_observation_sha256: sha256("autosk-flow/ref-custody-intent-precondition/v1\0" + canonicalStringify(preExecutionObservation)),
       };
     }
     return record;
@@ -2028,8 +2069,16 @@ export function validatePlanningRefInitOperation(operation, schema) {
       }
       const digest = planningObservationDigest(slot, receipt.observation);
       if (receipt.observation_sha256 !== digest) errors.push(`${slot} init observation_sha256 mismatch`);
-      if (receipt.receipt_hash !== planningReceiptHash(operation.operation_id, slot, digest)) {
+      if (receipt.receipt_hash !== planningReceiptHash(
+        operation.operation_id,
+        slot,
+        digest,
+        receipt.helper_evidence,
+      )) {
         errors.push(`${slot} init receipt_hash mismatch`);
+      }
+      if (slot === "ref_create" && !receipt.helper_evidence) {
+        errors.push("ref_create init receipt requires journaled helper_evidence");
       }
       for (const key of expectedKeys[slot]) {
         if (canonicalStringify(receipt.observation[key]) !== canonicalStringify(expectedObservations[slot][key])) {
@@ -2266,7 +2315,11 @@ export function validatePlanningRefDesign(files) {
       errors.push(`planning resume catalogs missing ${reason}`);
     }
   }
-  for (const reason of ["planning_ref_capability_missing", "planning_candidate_keepalive_invalid"]) {
+  for (const reason of [
+    "planning_ref_capability_missing",
+    "planning_ref_foreign_movement",
+    "planning_candidate_keepalive_invalid",
+  ]) {
     const technicalRow = technicalResume.split("\n").find((line) => line.startsWith(`| ${reason} |`));
     const coreRow = coreResume.split("\n").find((line) => line.startsWith(`| ${reason} |`));
     const technicalTarget = technicalRow?.split("|")[2]?.trim();
@@ -2315,8 +2368,8 @@ export function validatePlanningRefDesign(files) {
     "candidate_keepalive_op phase=prepared",
     "complete commit/tree/blob closure",
     "candidate_keepalive phase=released",
-    "atomic update-ref transaction verifies",
-    "atomic update-ref transaction verifies planning ref=expected commit, creates the audit candidate ref",
+    "candidate_audit_transfer_op phase=prepared",
+    "phase=audit_ref_verified",
     "ref custody ownership/mode/generation drift",
     "anchor_rebuild_op phase=release_pending",
     "phase=audit_retained",
@@ -2342,7 +2395,8 @@ export function validatePlanningRefDesign(files) {
     "Git GC cannot prune the complete candidate object closure",
     "candidate-keepalive-receipt/v1\\0",
     "verify <candidate_keepalive_ref> <snapshot_commit_oid>",
-    "verify <planning_ref> <expected_commit_oid>",
+    "candidate-audit-transfer-operation.schema.json",
+    "prepared -> audit_ref_verified -> live_ref_deleted -> verified",
     "planning_reflog_tail_observation_sha256",
     "autosk-flow/ref-custody-policy/v1\\0",
     "permission denied",
@@ -2473,6 +2527,42 @@ export function validatePlanningRefDesign(files) {
     const housekeepingExample = parseResource(
       "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
     );
+    const supplementalContracts = [
+      ["candidate audit transfer", "candidate-audit-transfer-operation.schema.json", "candidate-audit-transfer-operation.example.json"],
+      ["candidate closure pack", "candidate-closure-pack-operation.schema.json", "candidate-closure-pack-operation.example.json"],
+      ["invalidation closure pack", "candidate-closure-pack-operation.schema.json", "candidate-closure-pack-operation.invalidation.example.json"],
+      ["atomic PASS API", "record-pass-prepare-publication.schema.json", "record-pass-prepare-publication.example.json"],
+      ["publication rebinding", "planning-publication-rebinding.schema.json", "planning-publication-rebinding.example.json"],
+      ["helper intents", "ref-custody-helper-intents.schema.json", "ref-custody-helper-intents.example.json"],
+    ].map(([label, schemaName, exampleName]) => [label, parseResource(`resources/planning-publication/${schemaName}`), parseResource(`resources/planning-publication/${exampleName}`)]);
+    for (const [label, supplementalSchema, supplementalExample] of supplementalContracts) {
+      for (const error of validateJsonSchema(supplementalExample, supplementalSchema, supplementalSchema)) {
+        errors.push(`${label} Schema/example: ${error}`);
+      }
+    }
+    const transferExample = supplementalContracts.find(([label]) => label === "candidate audit transfer")?.[2];
+    for (const [field, domain] of [["audit_ref_receipt", "autosk-flow/audit-transfer/audit-ref/v1\0"], ["live_delete_receipt", "autosk-flow/audit-transfer/live-delete/v1\0"], ["verification_receipt", "autosk-flow/audit-transfer/verification/v1\0"]]) {
+      const { receipt_hash: ignored, ...receipt } = transferExample[field];
+      if (transferExample[field].receipt_hash !== sha256(domain + canonicalStringify({ operation_id: transferExample.operation_id, helper_intent_key: transferExample.helper_intent_key, ...receipt }))) errors.push(`candidate audit transfer ${field} digest mismatch`);
+    }
+    const validateClosurePackDigest = (record, label) => {
+      const core = { operation_id: record.operation_id, candidate_identity: record.candidate_identity, snapshot_commit_oid: record.snapshot_commit_oid, candidate_tree_oid: record.candidate_tree_oid, object_format: record.object_format, object_count: record.object_count, object_oid_set_sha256: record.object_oid_set_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, protected_store_identity: record.protected_store_identity };
+      const writeReceipt = sha256("autosk-flow/candidate-closure-pack/write/v1\0" + canonicalStringify(core));
+      const verificationReceipt = sha256("autosk-flow/candidate-closure-pack/verify/v1\0" + canonicalStringify({ ...core, write_receipt: writeReceipt }));
+      if (record.write_receipt !== writeReceipt || record.verification_receipt !== verificationReceipt) errors.push(`${label} digest mismatch`);
+    };
+    validateClosurePackDigest(supplementalContracts.find(([label]) => label === "candidate closure pack")?.[2], "candidate closure pack");
+    validateClosurePackDigest(supplementalContracts.find(([label]) => label === "invalidation closure pack")?.[2], "invalidation closure pack");
+    const atomicApi = supplementalContracts.find(([label]) => label === "atomic PASS API")?.[2];
+    { const { receipt_hash: ignored, ...response } = atomicApi.response; if (atomicApi.response.receipt_hash !== sha256("autosk-flow/record-pass-prepare-publication/v1\0" + canonicalStringify({ capability: atomicApi.capability, request: atomicApi.request, response }))) errors.push("atomic PASS API receipt digest mismatch"); }
+    const rebind = supplementalContracts.find(([label]) => label === "publication rebinding")?.[2];
+    { const { receipt_hash: ignored, ...preimage } = rebind; if (rebind.receipt_hash !== sha256("autosk-flow/planning-publication-rebinding/v1\0" + canonicalStringify(preimage))) errors.push("publication rebinding receipt digest mismatch"); }
+    const closurePack = supplementalContracts.find(([label]) => label === "candidate closure pack")?.[2];
+    for (const candidateRecord of [keepaliveExample, keepaliveAuditExample, keepaliveReleasedExample, keepalivePreparedExample, keepaliveRefCreatedExample, example.candidate_keepalive, releasedExample.candidate_keepalive, voidedExample.candidate_keepalive]) {
+      if (candidateRecord.closure_pack_operation_id !== closurePack?.operation_id || candidateRecord.closure_pack_receipt_hash !== closurePack?.verification_receipt || candidateRecord.candidate_identity !== closurePack?.candidate_identity || candidateRecord.snapshot_commit_oid !== closurePack?.snapshot_commit_oid || candidateRecord.snapshot_tree_oid !== closurePack?.candidate_tree_oid) errors.push("candidate keepalive is not bound to the verified closure pack");
+    }
+    const invalidationClosurePack = supplementalContracts.find(([label]) => label === "invalidation closure pack")?.[2];
+    if (invalidationExample.candidate_keepalive.closure_pack_operation_id !== invalidationClosurePack?.operation_id || invalidationExample.candidate_keepalive.closure_pack_receipt_hash !== invalidationClosurePack?.verification_receipt || invalidationExample.candidate_keepalive.candidate_identity !== invalidationClosurePack?.candidate_identity || invalidationExample.candidate_keepalive.snapshot_commit_oid !== invalidationClosurePack?.snapshot_commit_oid || invalidationExample.candidate_keepalive.snapshot_tree_oid !== invalidationClosurePack?.candidate_tree_oid) errors.push("invalidation keepalive is not bound to the verified closure pack");
     const seenCustodyIdentifiers = new Map();
     for (const wire of [
       custodyWireExample,
@@ -2492,6 +2582,25 @@ export function validatePlanningRefDesign(files) {
           }
           seenCustodyIdentifiers.set(key, exchange.request.body_sha256);
         }
+      }
+    }
+    const helperIntents = supplementalContracts.find(([label]) => label === "helper intents")?.[2];
+    const intentByBody = new Map((helperIntents?.records ?? []).map((record) => [record.request_body_sha256, record]));
+    if (intentByBody.size !== 9 || new Set((helperIntents?.records ?? []).map((record) => record.intent_key)).size !== 9) errors.push("helper intent catalog must contain nine unique persisted request intents");
+    for (const intent of helperIntents?.records ?? []) {
+      const preconditionHash = sha256("autosk-flow/ref-custody-intent-precondition/v1\0" + canonicalStringify(intent.pre_execution_observation));
+      const { persist_receipt_hash: ignored, ...preimage } = intent;
+      const persistHash = sha256("autosk-flow/ref-custody-intent-persist/v1\0" + canonicalStringify(preimage));
+      if (intent.pre_execution_observation_sha256 !== preconditionHash || intent.persist_receipt_hash !== persistHash) errors.push(`helper intent ${intent.action} digest mismatch`);
+    }
+    const transferIntent = (helperIntents?.records ?? []).find((record) => record.intent_key === transferExample.helper_intent_key);
+    if (!transferIntent || transferIntent.action !== transferExample.action || transferIntent.owner_operation_id !== "77777777-7777-4777-8777-777777777777") errors.push("candidate audit transfer is not bound to its persisted helper intent");
+    if (atomicApi.request.helper_intent_keys.some((key) => !(helperIntents?.records ?? []).some((record) => record.intent_key === key))) errors.push("atomic PASS API references an unknown helper intent");
+    for (const wire of [custodyWireExample, custodyWireInvalidationExample, custodyWireExistingAuditExample]) {
+      for (const exchange of wire.actions) {
+        const intent = intentByBody.get(exchange.request.body_sha256);
+        const topologyDigest = sha256("autosk-flow/ref-custody-intent-topology/v1\0" + canonicalStringify({ ref_updates: exchange.request.ref_updates, reflog_checkpoints: exchange.request.reflog_checkpoints }));
+        if (!intent || intent.action !== exchange.action || intent.owner_operation_id !== exchange.request.operation_id || intent.request_id !== exchange.request.request_id || intent.nonce !== exchange.request.nonce || intent.topology_digest !== topologyDigest || intent.phase !== "precondition_committed") errors.push(`helper intent does not bind ${exchange.action} request before execution`);
       }
     }
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {

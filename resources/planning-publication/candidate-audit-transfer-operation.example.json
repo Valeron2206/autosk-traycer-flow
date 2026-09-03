@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "operation_id": "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+  "action": "release_to_audit",
+  "candidate_identity": "1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+  "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+  "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+  "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+  "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+  "planning_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+  "helper_intent_key": "282c60729b5ca824bf879b991e2db839605f2b489b6044d84b011fb0b2d3d488",
+  "phase": "verified",
+  "audit_ref_receipt": {
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+    "live_ref_still_present": true,
+    "planning_verified": true,
+    "receipt_hash": "cda381369852b857a38f093c987f80736fdd68ce8a7cfcc8df7e3edcbdcb6d0a"
+  },
+  "live_delete_receipt": {
+    "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "expected_old_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "audit_ref_verified": true,
+    "receipt_hash": "4695278781057b0224703d2b46b688a7d5a5ae025275b52f87e64dc9bf394d7e"
+  },
+  "verification_receipt": {
+    "live_ref_absent": true,
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+    "receipt_hash": "746c82ded0136164b356a368731a051fe1a19fdd5c0d78b3ef1f5341bfb9cba6"
+  },
+  "created_at_utc": "2026-09-01T00:03:00Z",
+  "completed_at_utc": "2026-09-01T00:03:03Z"
+}
