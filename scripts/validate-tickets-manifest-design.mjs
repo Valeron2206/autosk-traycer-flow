@@ -195,12 +195,13 @@ function collisionKey(value) {
 }
 
 function selectorContains(selector, candidatePath) {
-  if (selector.kind === "file") return selector.path === candidatePath;
-  return candidatePath === selector.path || candidatePath.startsWith(`${selector.path}/`);
+  const selectorPath = collisionKey(selector.path);
+  const comparedPath = collisionKey(candidatePath);
+  if (selector.kind === "file") return selectorPath === comparedPath;
+  return comparedPath === selectorPath || comparedPath.startsWith(`${selectorPath}/`);
 }
 
 export function selectorsOverlap(left, right) {
-  if (left.kind === "file" && right.kind === "file") return left.path === right.path;
   if (left.kind === "file") return selectorContains(right, left.path);
   if (right.kind === "file") return selectorContains(left, right.path);
   return selectorContains(left, right.path) || selectorContains(right, left.path);
@@ -322,6 +323,10 @@ function oneLine(value) {
   return String(value).replace(/\s+/gu, " ").trim();
 }
 
+function markdownTableCell(value) {
+  return oneLine(value).replaceAll("|", "&#124;");
+}
+
 function ticketEntryPayload(ticket) {
   const { lineage: _lineage, ...payload } = ticket;
   return payload;
@@ -335,7 +340,7 @@ export function renderTicketDocuments(manifest) {
   const root = `docs/autosk/epics/${manifest.epic_id}/tickets`;
   const documents = new Map();
   const rows = manifest.tickets.map((ticket) =>
-    `| ${ticket.id} | ${oneLine(ticket.title)} | ${ticket.work_type} | ${ticket.depends_on.join(", ") || "—"} | ${oneLine(ticket.goal)} |`,
+    `| ${ticket.id} | ${markdownTableCell(ticket.title)} | ${ticket.work_type} | ${ticket.depends_on.join(", ") || "—"} | ${markdownTableCell(ticket.goal)} |`,
   );
   documents.set(`${root}/README.md`, [
     "<!-- generated-by: autosk-flow/ticket-markdown/v1 -->",
@@ -366,7 +371,7 @@ export function renderTicketDocuments(manifest) {
     documents.set(ticket.document_path, [
       "<!-- generated-by: autosk-flow/ticket-markdown/v1 -->",
       "",
-      `# ${ticket.id} — ${ticket.title}`,
+      `# ${ticket.id} — ${oneLine(ticket.title)}`,
       "",
       `**Work type:** ${ticket.work_type}`,
       "",
@@ -626,7 +631,7 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
   if (rawBytes === null) return errors.sort(errorComparator);
   const parsed = parseTicketsManifest(rawBytes, { maxManifestBytes: requestedManifestLimit });
   errors.push(...parsed.errors);
-  if (!parsed.manifest) return errors.sort(errorComparator);
+  if (!parsed.manifest || parsed.errors.length > 0) return errors.sort(errorComparator);
 
   const expectedManifestPath = `docs/autosk/epics/${parsed.manifest.epic_id}/tickets/tickets.manifest.json`;
   if (manifestRelativePath !== expectedManifestPath) {
@@ -959,7 +964,8 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
   const countErrors = countLimitErrors(manifest);
   if (countErrors.length > 0) return [...errors, ...countErrors].sort(errorComparator);
 
-  for (const schemaError of validateJsonSchema(manifest, schema)) {
+  const schemaErrors = validateJsonSchema(manifest, schema);
+  for (const schemaError of schemaErrors) {
     errors.push(error(
       "tickets_manifest_schema_invalid",
       schemaInstancePathToJsonPointer(schemaError),
@@ -971,6 +977,7 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
   if (rawText !== null && (rawTextValue === null || canonicalStringify(manifest) !== rawTextValue)) {
     errors.push(error("tickets_manifest_noncanonical", "", "manifest bytes do not equal canonical serialization"));
   }
+  if (schemaErrors.length > 0) return errors.sort(errorComparator);
 
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   const ticketIds = tickets.map((ticket) => ticket?.id).filter((id) => typeof id === "string");
