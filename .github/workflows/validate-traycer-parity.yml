@@ -34,6 +34,9 @@ jobs:
       - name: Validate Epic planning-ref design contract
         run: npm run validate:planning-ref
 
+      - name: Validate canonical Tickets manifest design contract
+        run: npm run validate:tickets-manifest
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
