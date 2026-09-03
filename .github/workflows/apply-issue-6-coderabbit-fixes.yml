@@ -1,0 +1,51 @@
+name: Apply issue 6 CodeRabbit fixes once
+
+on:
+  push:
+    branches:
+      - design/issue-6-tickets-manifest-final
+    paths:
+      - .github/workflows/apply-issue-6-coderabbit-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out issue branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: design/issue-6-tickets-manifest-final
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Apply review fixes
+        run: python3 .github/tmp/fix-issue-6-coderabbit.py
+
+      - name: Run complete validation
+        run: |
+          npm test
+          npm run validate:migration
+          npm run validate:capabilities
+          npm run validate:planning-ref
+          npm run validate:tickets-manifest
+          git diff --check
+
+      - name: Commit canonical fixes
+        shell: bash
+        run: |
+          rm .github/tmp/fix-issue-6-coderabbit.py
+          rmdir .github/tmp 2>/dev/null || true
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: close canonical Tickets manifest review gaps"
+          git push origin HEAD:design/issue-6-tickets-manifest-final
