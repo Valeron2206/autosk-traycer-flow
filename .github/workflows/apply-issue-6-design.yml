@@ -30,6 +30,7 @@ jobs:
         run: |
           python3 .github/tmp/apply-issue-6-design.py
           python3 .github/tmp/fix-issue-6-validation.py
+          python3 .github/tmp/revert-issue-6-ci-change.py
 
       - name: Run design validation
         run: |
@@ -39,13 +40,13 @@ jobs:
           npm run validate:planning-ref
           npm run validate:tickets-manifest
 
-      - name: Commit canonical files and remove one-shot tooling
+      - name: Commit canonical files and remove patch scripts
         shell: bash
         run: |
           rm .github/tmp/apply-issue-6-design.py
           rm .github/tmp/fix-issue-6-validation.py
+          rm .github/tmp/revert-issue-6-ci-change.py
           rmdir .github/tmp 2>/dev/null || true
-          rm .github/workflows/apply-issue-6-design.yml
           git add -A
           git diff --cached --check
           git config user.name "github-actions[bot]"
