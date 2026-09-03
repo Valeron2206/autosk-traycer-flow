@@ -856,6 +856,10 @@ export function validatePlanningPublicationOperation(example, schema) {
   for (const key of ["expected_parent_oid", "expected_parent_tree_oid", "candidate_tree_oid", "expected_commit_oid"]) {
     if (!OID_RE.test(example[key] ?? "")) errors.push(`${key} is invalid`);
   }
+  if (example.reflog_checkpoint?.expected_old_oid !== example.expected_parent_oid ||
+      example.reflog_checkpoint?.expected_new_oid !== example.expected_commit_oid) {
+    errors.push("reflog checkpoint OIDs do not match publication parent/commit");
+  }
   const recipe = example.commit_recipe;
   if (!recipe || typeof recipe !== "object" || Array.isArray(recipe)) {
     errors.push("commit_recipe must be an object");
@@ -1988,16 +1992,7 @@ export function validateRefCustodyJournalCrashExample(example, prefixes, wire) {
 }
 
 export function validatePlanningPublicationOperationExample(example, schema) {
-  const errors = validatePlanningPublicationOperation(example, schema);
-  const reflogGoldenPrefix = Buffer.from(
-    "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzIGF1dG9zay1mbG93IDxhdXRvc2tAZXhhbXBsZS5pbnZhbGlkPiAwICswMDAwCWF1dG9zay1mbG93IGluaXQgMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwCg==",
-    "base64",
-  );
-  if (example.reflog_checkpoint?.before_entry_count !== 1 ||
-      example.reflog_checkpoint?.before_prefix_sha256 !== reflogPrefixDigest(1, reflogGoldenPrefix)) {
-    errors.push("canonical reflog checkpoint golden vector mismatch");
-  }
-  return errors;
+  return validatePlanningPublicationOperation(example, schema);
 }
 
 export function planningRefInitPolicyDigest(operation) {
@@ -2142,12 +2137,13 @@ export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function validateCandidateAuditTransferOperation(operation, schema, helperExchanges = []) {
+export function validateCandidateAuditTransferOperation(operation, schema, helperExchanges = [], helperIntents = []) {
   const errors = validateJsonSchema(operation, schema, schema, "candidate_audit_transfer_operation")
     .map((error) => `Schema: ${error}`);
   const audit = operation.audit_ref_receipt;
   const deletion = operation.live_delete_receipt;
   const verificationReceipt = operation.verification_receipt;
+  if (operation.ensure_audit_intent_key === operation.delete_live_intent_key) errors.push("audit transfer helper intent keys must be distinct");
   const receiptSpecs = [
     ["audit_ref_receipt", "autosk-flow/audit-transfer/audit-ref/v1\0", operation.ensure_audit_intent_key],
     ["live_delete_receipt", "autosk-flow/audit-transfer/live-delete/v1\0", operation.delete_live_intent_key],
@@ -2170,7 +2166,25 @@ export function validateCandidateAuditTransferOperation(operation, schema, helpe
   for (const [receipt, expectedAction, intentKey] of [[audit, "ensure_audit_ref", operation.ensure_audit_intent_key], [deletion, "delete_live_ref", operation.delete_live_intent_key]]) {
     if (!receipt) continue;
     const exchange = exchangeByRequest.get(receipt.helper_evidence?.request_id);
-    if (helperExchanges.length > 0 && (!exchange || exchange.action !== expectedAction || exchange.request.transfer_mode !== operation.action || exchange.request.operation_id !== operation.keepalive_operation_id || exchange.request.candidate_identity !== operation.candidate_identity || exchange.journal.journal_hash !== receipt.helper_evidence.helper_journal_hash || exchange.response.receipt_hash !== receipt.helper_evidence.helper_receipt_hash || exchange.request.body_sha256 !== receipt.helper_evidence.request_body_sha256 || (expectedAction === "ensure_audit_ref" ? operation.ensure_audit_intent_key : operation.delete_live_intent_key) !== intentKey)) errors.push(`${expectedAction} helper evidence does not resolve to the signed journal`);
+    const matchingIntents = helperIntents.filter((item) => item.intent_key === intentKey);
+    const intent = matchingIntents[0];
+    const expectedTopology = expectedAction === "ensure_audit_ref"
+      ? operation.action === "release_to_audit"
+        ? [["verify", operation.planning_ref, operation.planning_oid, operation.planning_oid], ["verify", operation.live_ref, operation.snapshot_commit_oid, operation.snapshot_commit_oid], ["update|verify", operation.audit_ref, null, operation.snapshot_commit_oid]]
+        : [["verify", operation.live_ref, operation.snapshot_commit_oid, operation.snapshot_commit_oid], ["update|verify", operation.audit_ref, null, operation.snapshot_commit_oid]]
+      : operation.action === "release_to_audit"
+        ? [["verify", operation.planning_ref, operation.planning_oid, operation.planning_oid], ["verify", operation.audit_ref, operation.snapshot_commit_oid, operation.snapshot_commit_oid], ["delete", operation.live_ref, operation.snapshot_commit_oid, null]]
+        : [["verify", operation.audit_ref, operation.snapshot_commit_oid, operation.snapshot_commit_oid], ["delete", operation.live_ref, operation.snapshot_commit_oid, null]];
+    const topologyMatches = exchange && exchange.request.ref_updates.length === expectedTopology.length && exchange.request.ref_updates.every((update, index) => {
+      const [allowedOperation, ref, expectedOld, newOid] = expectedTopology[index];
+      const operationMatches = allowedOperation === "update|verify" ? ["update", "verify"].includes(update.operation) : update.operation === allowedOperation;
+      const auditOldMatches = allowedOperation === "update|verify" ? (update.operation === "update" ? update.expected_old_oid === null : update.expected_old_oid === operation.snapshot_commit_oid) : update.expected_old_oid === expectedOld;
+      return operationMatches && update.ref === ref && auditOldMatches && update.new_oid === newOid;
+    });
+    const responseMatches = exchange && exchange.response.ref_observations.length === expectedTopology.length && exchange.response.ref_observations.every((observation, index) => observation.ref === exchange.request.ref_updates[index].ref && observation.operation === exchange.request.ref_updates[index].operation && observation.observed_old_oid === exchange.request.ref_updates[index].expected_old_oid && observation.observed_new_oid === (observation.operation === "delete" ? null : exchange.request.ref_updates[index].new_oid));
+    const reflogMatches = exchange && exchange.response.reflog_observations.length === expectedTopology.length && exchange.response.reflog_observations.every((observation, index) => observation.ref === exchange.request.ref_updates[index].ref && observation.outcome === (exchange.request.ref_updates[index].operation === "delete" ? "log_removed" : exchange.request.ref_updates[index].operation === "verify" ? "unchanged" : "appended"));
+    if (helperExchanges.length > 0 && (!exchange || exchange.action !== expectedAction || exchange.request.transfer_mode !== operation.action || exchange.request.operation_id !== operation.keepalive_operation_id || exchange.request.candidate_identity !== operation.candidate_identity || exchange.journal.journal_hash !== receipt.helper_evidence.helper_journal_hash || exchange.response.receipt_hash !== receipt.helper_evidence.helper_receipt_hash || exchange.request.body_sha256 !== receipt.helper_evidence.request_body_sha256 || exchange.response.transaction_value_observation_sha256 !== receipt.helper_evidence.transaction_value_observation_sha256 || !topologyMatches || !responseMatches || !reflogMatches)) errors.push(`${expectedAction} helper evidence does not resolve to the exact signed topology and journal`);
+    if (helperIntents.length > 0 && (matchingIntents.length !== 1 || intent.action !== expectedAction || intent.transfer_mode !== operation.action || intent.owner_operation_id !== operation.keepalive_operation_id || intent.request_id !== receipt.helper_evidence.request_id || intent.nonce !== receipt.helper_evidence.nonce || intent.request_body_sha256 !== receipt.helper_evidence.request_body_sha256 || intent.helper_journal_hash !== receipt.helper_evidence.helper_journal_hash)) errors.push(`${expectedAction} helper intent key does not resolve uniquely`);
   }
   return errors;
 }
@@ -2198,8 +2212,18 @@ export function validateCandidateClosurePackOperation(record, schema) {
     const output = execFileSync("git", ["verify-pack", "-v", indexPath], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", LC_ALL: "C", TZ: "UTC" } });
     const verifiedOids = output.split("\n").map((line) => /^([0-9a-f]{40}|[0-9a-f]{64})\s/u.exec(line)?.[1]).filter(Boolean).sort(codePointCompare);
     if (canonicalStringify(verifiedOids) !== canonicalStringify(sortedOids)) errors.push("candidate closure pack git verify-pack object set mismatch");
+    const objectStore = path.join(scratch, "common.git");
+    const gitEnvironment = { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", LC_ALL: "C", TZ: "UTC" };
+    execFileSync("git", ["init", "--bare", "--quiet", `--object-format=${record.object_format}`, objectStore], { stdio: ["ignore", "pipe", "pipe"], env: gitEnvironment });
+    execFileSync("git", [`--git-dir=${objectStore}`, "index-pack", "--stdin"], { input: packBytes, stdio: ["pipe", "pipe", "pipe"], env: gitEnvironment });
+    for (const entry of manifestObjects) {
+      const type = execFileSync("git", [`--git-dir=${objectStore}`, "cat-file", "-t", entry.oid], { encoding: "utf8", env: gitEnvironment }).trim();
+      const size = Number(execFileSync("git", [`--git-dir=${objectStore}`, "cat-file", "-s", entry.oid], { encoding: "utf8", env: gitEnvironment }).trim());
+      const bytes = execFileSync("git", [`--git-dir=${objectStore}`, "cat-file", entry.type, entry.oid], { env: gitEnvironment });
+      if (type !== entry.type || size !== entry.size_bytes || bytes.length !== entry.size_bytes || sha256(bytes) !== entry.object_bytes_sha256) errors.push(`candidate closure pack object ${entry.oid} type, size or bytes mismatch after ODB restore`);
+    }
   } catch {
-    errors.push("candidate closure pack git verify-pack failed");
+    errors.push("candidate closure pack verify or common ODB restore failed");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -2510,6 +2534,9 @@ export function validatePlanningRefDesign(files) {
     "autosk-flow/audit-transfer/verification/v1\\0",
     "autosk-flow/record-pass-idempotency/v1\\0",
     "autosk-flow/planning-publication-rebinding/impact/v1\\0",
+    "a68042085d3db95256488fa10c4bf9e204dbb3bc37f3188c3178b5d362eecebb",
+    "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
+    "c69fb4cc6024c700bb4b14435bb8ffbdc6f57700cea07ef0bf1fd6a3d16cf03a",
     "permission denied",
     "candidate-keepalive-operation.schema.json",
     "gc.packRefs=false",
@@ -2656,8 +2683,17 @@ export function validatePlanningRefDesign(files) {
       }
     }
     const allHelperExchanges = [custodyWireExample, custodyWireInvalidationExample, custodyWireExistingAuditExample].flatMap((wire) => wire.actions);
+    const planningAdvance = custodyWireExample.actions.find((item) => item.action === "advance_planning");
+    const signedPlanningCheckpoint = planningAdvance?.request.reflog_checkpoints.find((item) => item.ref === example.planning_ref);
+    const planningObservation = planningAdvance?.response.reflog_observations.find((item) => item.ref === example.planning_ref);
+    const invalidationPrefixBytes = planningObservation && Buffer.concat([Buffer.from(planningObservation.before_prefix_base64, "base64"), ...planningObservation.raw_appended_entries_base64.map((raw) => Buffer.from(raw, "base64"))]);
+    if (!signedPlanningCheckpoint || example.reflog_checkpoint.before_entry_count !== signedPlanningCheckpoint.before_entry_count || example.reflog_checkpoint.before_prefix_sha256 !== signedPlanningCheckpoint.before_prefix_sha256 || example.reflog_checkpoint.expected_old_oid !== planningAdvance.request.ref_updates.find((item) => item.ref === example.planning_ref)?.expected_old_oid ||
+        !invalidationPrefixBytes || invalidationExample.reflog_checkpoint.before_entry_count !== 2 || invalidationExample.reflog_checkpoint.before_prefix_sha256 !== reflogPrefixDigest(2, invalidationPrefixBytes) || invalidationExample.reflog_checkpoint.expected_old_oid !== example.expected_commit_oid) {
+      errors.push("publication reflog checkpoints do not match signed helper history");
+    }
+    const runtimeHelperIntents = supplementalContracts.find(([label]) => label === "helper intents")?.[2]?.records ?? [];
     const transferContract = supplementalContracts.find(([label]) => label === "candidate audit transfer");
-    errors.push(...validateCandidateAuditTransferOperation(transferContract[2], transferContract[1], allHelperExchanges).map((error) => `candidate audit transfer: ${error}`));
+    errors.push(...validateCandidateAuditTransferOperation(transferContract[2], transferContract[1], allHelperExchanges, runtimeHelperIntents).map((error) => `candidate audit transfer: ${error}`));
     for (const label of ["candidate closure pack", "invalidation closure pack"]) {
       const contract = supplementalContracts.find(([itemLabel]) => itemLabel === label);
       errors.push(...validateCandidateClosurePackOperation(contract[2], contract[1]).map((error) => `${label}: ${error}`));

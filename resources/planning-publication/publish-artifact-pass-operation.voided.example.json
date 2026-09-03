@@ -223,7 +223,7 @@
   "expected_commit_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
   "reflog_checkpoint": {
     "before_entry_count": 1,
-    "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
+    "before_prefix_sha256": "c69fb4cc6024c700bb4b14435bb8ffbdc6f57700cea07ef0bf1fd6a3d16cf03a",
     "expected_old_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
     "expected_new_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
     "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111"

@@ -214,8 +214,8 @@
   "commit_recipe_digest": "08f68f91b62a1a5ff80c358173ce57689785aaba361e1c464a3e3c36b6fd76f4",
   "expected_commit_oid": "61a693e8ddcdc437a784c43c6f58d66bd710b148",
   "reflog_checkpoint": {
-    "before_entry_count": 1,
-    "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
+    "before_entry_count": 2,
+    "before_prefix_sha256": "4092bb1a3420f7599206d42993e1722d777b7bd938cf49bcb7c22530d5200d9b",
     "expected_old_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
     "expected_new_oid": "61a693e8ddcdc437a784c43c6f58d66bd710b148",
     "expected_update_message": "autosk-flow publish 66666666-6666-4666-8666-666666666666"

@@ -272,18 +272,18 @@ test("normative digest preimages and v1 downstream boundaries are closed", () =>
 test("receipt digest golden vector is reproducible", () => {
   const observation = {
     object_format: "sha1",
-    object_oid: "cc745247722ff2fe151303f31113281e0fcd9c70",
-    object_bytes_sha256: "bc6c070b2858aa1ae8f8b3650b8633620a82e0644cc76af9c3e0506df734508f",
+    object_oid: "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
+    object_bytes_sha256: "97615cac0203c5871f7b178075a6121d2d1aa6222bdf9e06233818eb0db59e7f",
   };
   const observationDigest = planningObservationDigest("commit_object", observation);
-  assert.equal(observationDigest, "9167690cbff40fecf1eede9e31f6b06583b61cb9da78032b23fa36bf710946c1");
+  assert.equal(observationDigest, "70f9035e1b61234acaf749d616a0b5b6c942c58d215acca0abb17953c7afb2b5");
   assert.equal(
     planningReceiptHash(
       "11111111-1111-4111-8111-111111111111",
       "commit_object",
       observationDigest,
     ),
-    "cf2af4b4d98e8d4c228a8058e1013d5181d66248238fe67da4f36f8b660ee29e",
+    "6f3d63fa022eb6c4143246c58b1f5ab391538ff0c1adc4460ad92689e88d00d2",
   );
 });
 
@@ -1094,11 +1094,11 @@ test("release digests have literal golden vectors", () => {
   assert.equal(released.candidate_keepalive.phase, "released");
   assert.equal(
     released.candidate_keepalive.release_receipt.planning_reflog_tail_observation_sha256,
-    "e9d26e5bc459c25487c8387b6ddc3ee27b2e8754bc4023686900944acf50f58b",
+    "27be28cc5847c20cc5acad8897b5e964d574d8de4102fd509f33959db06885ad",
   );
   assert.equal(
     released.candidate_keepalive.release_receipt.transaction_observation_sha256,
-    "14e642592e06d21c6f64dcb39e1c69c8e1af6935ea2eba3b27459de183094e04",
+    "301d0f72ea98218cabf0e9840799a190737c01ecc831c877e77005f0c92ef371",
   );
 });
 
@@ -1322,7 +1322,7 @@ test("successful publication archives its operation and literal release receipt 
   ));
   assert.equal(
     released.candidate_keepalive.release_receipt.receipt_hash,
-    "f3260287904df1c70fd4d5d626567a6008d0dc6a639298e4409bde2ffc2bd4c9",
+    "49f6f9d8a282509d9400f1c518165de76ea5c9cefa7cd669dd74d5d8cb35369d",
   );
 });
 
@@ -1679,6 +1679,48 @@ test("real Git files backend matches helper reflog and deletion semantics", () =
   }
 });
 
+test("linked worktrees isolate HEAD and index while sharing one common ODB", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "autosk-common-odb-worktrees-"));
+  const repository = path.join(root, "project");
+  const linked = path.join(root, "linked");
+  const environment = {
+    PATH: process.env.PATH,
+    GIT_AUTHOR_NAME: "autosk-flow",
+    GIT_AUTHOR_EMAIL: "autosk@example.invalid",
+    GIT_AUTHOR_DATE: "@1 +0000",
+    GIT_COMMITTER_NAME: "autosk-flow",
+    GIT_COMMITTER_EMAIL: "autosk@example.invalid",
+    GIT_COMMITTER_DATE: "@1 +0000",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    LC_ALL: "C",
+    TZ: "UTC",
+  };
+  const run = (cwd, args, options = {}) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env: environment, ...options }).trim();
+  try {
+    execFileSync("git", ["init", "--quiet", repository], { env: environment });
+    const tree = run(repository, ["hash-object", "-w", "-t", "tree", "--stdin"], { input: "" });
+    const commit = run(repository, ["commit-tree", tree], { input: "base\n" });
+    run(repository, ["update-ref", "refs/heads/main", commit]);
+    run(repository, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+    run(repository, ["worktree", "add", "--quiet", "--detach", linked, commit]);
+    const commonOne = run(repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    const commonTwo = run(linked, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    const gitDirOne = run(repository, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+    const gitDirTwo = run(linked, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+    const indexOne = run(repository, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const indexTwo = run(linked, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    assert.equal(commonOne, commonTwo);
+    assert.notEqual(gitDirOne, gitDirTwo);
+    assert.notEqual(indexOne, indexTwo);
+    assert.match(readFileSync(path.join(linked, ".git"), "utf8"), /^gitdir: /u);
+    assert.equal(readFileSync(path.join(gitDirTwo, "commondir"), "utf8").trim(), "../..");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("helper actions use workflow operation identity and exact update messages", () => {
   const wire = JSON.parse(readFileSync(
     path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"),
@@ -1851,6 +1893,17 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
   const foreignTransfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
   foreignTransfer.audit_ref_receipt.snapshot_commit_oid = "f".repeat(40);
   assert.match(validateCandidateAuditTransferOperation(foreignTransfer, transferSchema).join("\n"), /containing transfer|digest/u);
+  const duplicateIntentTransfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
+  duplicateIntentTransfer.delete_live_intent_key = duplicateIntentTransfer.ensure_audit_intent_key;
+  assert.match(validateCandidateAuditTransferOperation(duplicateIntentTransfer, transferSchema).join("\n"), /must be distinct/u);
+  const transferWire = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.example.json"), "utf8"));
+  const transferIntents = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-intents.example.json"), "utf8")).records;
+  const validTransfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
+  assert.deepEqual(validateCandidateAuditTransferOperation(validTransfer, transferSchema, transferWire.actions, transferIntents), []);
+  const foreignTopology = structuredClone(transferWire.actions);
+  const ensureExchange = foreignTopology.find((item) => item.action === "ensure_audit_ref" && item.request.transfer_mode === "release_to_audit");
+  ensureExchange.request.ref_updates[0].ref = `refs/autosk/epics/${"f".repeat(64)}/planning`;
+  assert.match(validateCandidateAuditTransferOperation(validTransfer, transferSchema, foreignTopology, transferIntents).join("\n"), /exact signed topology/u);
   const closureSchema = JSON.parse(readFileSync(path.join(directory, "candidate-closure-pack-operation.schema.json"), "utf8"));
   const closure = JSON.parse(readFileSync(path.join(directory, "candidate-closure-pack-operation.example.json"), "utf8"));
   closure.object_count += 1;

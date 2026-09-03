@@ -78,15 +78,15 @@
       "expected_old_oid": "92f451c897bb96c7b64c069700feddf029601325",
       "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
       "verified_commit_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
-      "planning_reflog_after_receipt_hash": "f38d38cbf8d98a18e1220c784aeffe9695d312adaccf476db9aed8450b7c3013",
-      "planning_reflog_tail_observation_sha256": "e9d26e5bc459c25487c8387b6ddc3ee27b2e8754bc4023686900944acf50f58b",
-      "transaction_observation_sha256": "14e642592e06d21c6f64dcb39e1c69c8e1af6935ea2eba3b27459de183094e04",
+      "planning_reflog_after_receipt_hash": "10eb6df4186f49d760b9f57e9afa5978cad2db43a1fbe255f1be4bb086c87776",
+      "planning_reflog_tail_observation_sha256": "27be28cc5847c20cc5acad8897b5e964d574d8de4102fd509f33959db06885ad",
+      "transaction_observation_sha256": "301d0f72ea98218cabf0e9840799a190737c01ecc831c877e77005f0c92ef371",
       "audit_candidate_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
       "audit_candidate_oid": "92f451c897bb96c7b64c069700feddf029601325",
       "ref_custody_generation": 1,
       "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
       "closure_verified": true,
-      "receipt_hash": "f3260287904df1c70fd4d5d626567a6008d0dc6a639298e4409bde2ffc2bd4c9",
+      "receipt_hash": "49f6f9d8a282509d9400f1c518165de76ea5c9cefa7cd669dd74d5d8cb35369d",
       "helper_evidence": {
         "request_id": "00000007-1111-4111-8111-000000000007",
         "nonce": "f51662ae10cb442625e1003be3c07a5c6f8c567787f063be9f01a4b8dc1b207d",
@@ -248,7 +248,7 @@
   "expected_commit_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
   "reflog_checkpoint": {
     "before_entry_count": 1,
-    "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
+    "before_prefix_sha256": "c69fb4cc6024c700bb4b14435bb8ffbdc6f57700cea07ef0bf1fd6a3d16cf03a",
     "expected_old_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
     "expected_new_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
     "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111"
@@ -302,11 +302,11 @@
       "observation": {
         "before_entry_count": 1,
         "after_entry_count": 2,
-        "before_prefix_sha256": "1bc6da7626a695aaec3a38a666cbd1ecb9bbf3032ba04cdb5cc47e9d09b65c42",
+        "before_prefix_sha256": "c69fb4cc6024c700bb4b14435bb8ffbdc6f57700cea07ef0bf1fd6a3d16cf03a",
         "appended_entry_sha256": "73c4110c9b5a8ccfe5b825fb03b530aeb9c6391e1b18923b3112b930af384c69"
       },
-      "observation_sha256": "b86d7b3354d8b43b45df2573ef9552e07de2afc1af28fecb35978ac588a8253c",
-      "receipt_hash": "f38d38cbf8d98a18e1220c784aeffe9695d312adaccf476db9aed8450b7c3013",
+      "observation_sha256": "dc60d28f5fdfaaad1fa338193d4443b479fc5b7611bb512ba3af797d0260f4bd",
+      "receipt_hash": "10eb6df4186f49d760b9f57e9afa5978cad2db43a1fbe255f1be4bb086c87776",
       "helper_evidence": null
     },
     "verification": {
@@ -317,10 +317,10 @@
         "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
         "commit_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
         "tree_oid": "98f123158205921783838adb57058952a0696d7f",
-        "reflog_after_receipt_hash": "f38d38cbf8d98a18e1220c784aeffe9695d312adaccf476db9aed8450b7c3013"
+        "reflog_after_receipt_hash": "10eb6df4186f49d760b9f57e9afa5978cad2db43a1fbe255f1be4bb086c87776"
       },
-      "observation_sha256": "7e9437d9a3708f9d231a420fdd87e35e8a7e6b0b99351021ed42506c13b0fd06",
-      "receipt_hash": "1255df0748338d3d037c8f9d8331d95994bdd2b1cb582750000431eacc49a7e4",
+      "observation_sha256": "6fe2717be946687e12a6374861c76de9d2d3f42059e49515a890915f0aeaf6ac",
+      "receipt_hash": "41705c3ceafab66f05194d91e91e8c169892975ecaa9d4e0fd9c113f232b7fb9",
       "helper_evidence": null
     }
   }
