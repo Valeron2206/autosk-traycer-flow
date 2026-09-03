@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "object_format": "sha1",
+  "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325",
+  "snapshot_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+  "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
+  "phase": "prepared",
+  "create_receipt": null,
+  "release_receipt": null,
+  "audit_receipt": null,
+  "terminal_disposition": null,
+  "created_at_utc": "2026-09-01T00:00:00Z",
+  "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+  "ref_custody_generation": 1,
+  "operation_id": "77777777-7777-4777-8777-777777777777",
+  "snapshot_commit_recipe": {
+    "schema": 1,
+    "object_format": "sha1",
+    "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "parent_oids": [
+      "61e1521ed4985292de705c4a48dab789a5a52180"
+    ],
+    "author": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "committer": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgY2FuZGlkYXRlCg==",
+    "signing": {
+      "mode": "none",
+      "policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+      "signature_header_base64": null
+    },
+    "commit_object_bytes_base64": "dHJlZSA5OGYxMjMxNTgyMDU5MjE3ODM4MzhhZGI1NzA1ODk1MmEwNjk2ZDdmCnBhcmVudCA2MWUxNTIxZWQ0OTg1MjkyZGU3MDVjNGE0OGRhYjc4OWE1YTUyMTgwCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
+    "commit_object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
+    "expected_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
+  },
+  "snapshot_object_receipt": null,
+  "candidate_identity_preimage": {
+    "anchor_version": 1,
+    "candidate_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "kind": "artifact_pass",
+    "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+    "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
+  },
+  "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
+  "closure_pack_receipt_hash": "c003d677f76559b23a8ce6cb6d45ed5202739e32f154d4be30a7a0d2d8ec7633",
+  "verification_receipt": null
+}

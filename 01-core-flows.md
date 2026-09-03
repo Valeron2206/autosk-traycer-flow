@@ -60,13 +60,15 @@ Quick classification проверяется не только на intake, а п
 
 ~~~text
 intake / classify
-  -> Brief?       -> human framing alignment -> draft -> four-model panel -> fix -> narrow re-review
-  -> Core Flow?   -> human behavior alignment -> draft -> four-model panel -> fix -> narrow re-review
-  -> Tech Plan    -> human readiness alignment -> draft -> four-model panel -> fix -> narrow re-review
+  -> Brief?       -> human framing alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
+  -> Core Flow?   -> human behavior alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
+  -> Tech Plan    -> human readiness alignment -> draft -> panel/fix/re-review -> record PASS -> publish planning commit
   -> Arena?       -> candidates -> Judge recommendation -> human readiness alignment
-                  -> Decision Record / changed Tech Plan -> new full four-model panel
+                  -> Decision Record / changed Tech Plan -> new full panel -> record PASS -> publish planning commit
   -> Tickets      -> draft + dependency view -> human breakdown alignment
-                  -> separate four-model panel -> fix -> narrow re-review
+                  -> separate panel/fix/re-review -> record PASS -> publish planning commit
+  -> candidate_audit_transfer_op -> audit_ref_verified -> live_ref_deleted -> verified -> select_next
+  -> verified planning_head
   -> ticket DAG execution
 ~~~
 
@@ -89,6 +91,22 @@ Brief и Core Flow пропускаются только по objective classifi
 Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на конкретные пункты Brief, сценарии Core Flow и решения Tech Plan, содержит scope in/out, зависимости, критерии приёмки и требуемые доказательства.
 
 Весь комплект Tickets проходит отдельную четырёхмодельную панель. Панель проверяет и каждый Ticket, и согласованность набора.
+
+### Публикация утверждённых артефактов в planning ref
+
+<!-- planning-ref-contract:v1 -->
+
+У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic_ref_key>/planning`. `epic_ref_key` — lowercase SHA-256 canonical project/Epic identity, а не display ID или пользовательский slug. Линия инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
+
+До panel/waiver host сохраняет полную commit/tree/blob closure в helper-owned quarantine pack, затем создаёт `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>` на frozen snapshot commit. После verdict daemon capability v1 одной metadata CAS записывает recorded PASS, immutable `planning_publication_op` и подготовленные helper intents; recorded PASS не завершает artifact kind. `publish_artifact_pass` создаёт single-parent commit, CAS-продвигает planning ref и проверяет closure. Затем монотонный `candidate_audit_transfer_op` сначала создаёт/проверяет audit ref, пока live keepalive остаётся, потом отдельной expected-old CAS удаляет live и финально проверяет audit-present/live-absent. Только verified transfer создаёт Published PASS и разрешает `select_next`; audit ref хранится до approved retention expiry.
+
+recorded PASS не является завершённым артефактом до verified Git publication и verified audit transfer.
+
+Если process падает между exact recipe persist/read-back, object write, phase write, CAS, reflog receipt или metadata finalization, retry продолжает ту же operation, те же commit bytes и тот же expected commit OID. Ref/reflog, отличные от expected checkpoint/transition, включая move-away-and-back, считаются foreign movement и паркуют Epic с `planning_ref_foreign_movement`; rebase/reset/force/adopt-current запрещены. Candidate, созданный не от current verified head, получает `planning_candidate_base_stale` до panel. Drift до ref movement терминально закрывает operation как `voided_before_ref`; drift после доказанного CAS требует descendant invalidation.
+
+Anchor rebuild не перемещает ref назад. Approved impact сначала публикует descendant invalidation commit через тот же CAS adapter, затем новые версии артефактов становятся следующими descendants. Прежние accepted bytes остаются в ancestry, но stale projection не остаётся current. После verified Tickets publication полученный commit становится `planning_head`, от которого issue #7 построит Ticket execution bases, а issue #9 — private staging. Пользовательская target branch на этой стадии не меняется.
+
+Полный нормативный контракт, operation schema, recovery table, retention и test matrix находятся в `docs/contracts/epic-planning-ref.md`.
 
 ### Согласование решений человеком
 
@@ -283,6 +301,14 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
 | Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection |
 | Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
+| planning_ref_init_invalid | init_planning_ref | corruption with otherwise valid base restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and a fresh init operation while preserving prior audit evidence; no adopt/reset |
+| planning_ref_capability_missing | recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup | pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged |
+| planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition | exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation |
+| planning_candidate_keepalive_invalid | freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state | exact candidate keepalive ref/create or audit/release receipt and complete object closure restored or candidate explicitly superseded; cleanup and publication remain blocked until namespace inventory matches metadata/history |
+| planning_candidate_base_stale | draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets | stale candidate/verdict absent or void; author base re-minted from current verified planning head |
+| planning_publication_invalid | record_artifact_pass or rebuild_anchor recorded pre-failure step | no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human |
+| planning_publication_corrupt | publish_artifact_pass or publish_planning_invalidation recorded operation kind | committed recipe/receipt restored, or missing pre-CAS object rewritten from exact persisted bytes with unchanged checkpoint |
+| planning_signing_unavailable | record_artifact_pass | trusted signer produced exact replayable signature bytes under current locked policy before PASS/operation/object/ref side effects |
 | Quick classification invalid, Planned handoff не завершён | invalidate_quick_classification | schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |
 | Недоступная code-review child | review_candidate | тот же route, новый attempt; parent остаётся blocked |

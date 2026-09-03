@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/candidate-closure-pack-operation.schema.json",
+  "title": "autosk-flow candidate closure quarantine pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "operation_id",
+    "candidate_identity",
+    "snapshot_commit_oid",
+    "candidate_tree_oid",
+    "object_format",
+    "object_count",
+    "object_oids",
+    "object_manifest",
+    "object_manifest_sha256",
+    "object_oid_set_sha256",
+    "pack_bytes_base64",
+    "pack_bytes_sha256",
+    "index_bytes_base64",
+    "index_bytes_sha256",
+    "content_addressed_locator",
+    "git_producer",
+    "protected_store_identity",
+    "phase",
+    "write_receipt",
+    "verification_receipt",
+    "recovery_phases",
+    "created_at_utc"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "candidate_identity": {
+      "$ref": "#/$defs/sha256"
+    },
+    "snapshot_commit_oid": {
+      "$ref": "#/$defs/oid"
+    },
+    "candidate_tree_oid": {
+      "$ref": "#/$defs/oid"
+    },
+    "object_format": {
+      "enum": [
+        "sha1",
+        "sha256"
+      ]
+    },
+    "object_count": {
+      "type": "integer",
+      "minimum": 3
+    },
+    "object_oids": {
+      "type": "array",
+      "minItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/oid"
+      }
+    },
+    "object_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objects"
+      ],
+      "properties": {
+        "objects": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/object_entry"
+          }
+        }
+      }
+    },
+    "object_manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "object_oid_set_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "pack_bytes_base64": {
+      "$ref": "#/$defs/base64"
+    },
+    "pack_bytes_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "index_bytes_base64": {
+      "$ref": "#/$defs/base64"
+    },
+    "index_bytes_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "content_addressed_locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store_role",
+        "pack_relative_path",
+        "index_relative_path",
+        "pack_content_address",
+        "contains_home_path"
+      ],
+      "properties": {
+        "store_role": {
+          "const": "helper-owned-candidate-quarantine"
+        },
+        "pack_relative_path": {
+          "type": "string",
+          "pattern": "^objects/pack/autosk-candidates/[0-9a-f]{64}/pack-[0-9a-f]{64}\\.pack$"
+        },
+        "index_relative_path": {
+          "type": "string",
+          "pattern": "^objects/pack/autosk-candidates/[0-9a-f]{64}/pack-[0-9a-f]{64}\\.idx$"
+        },
+        "pack_content_address": {
+          "$ref": "#/$defs/sha256"
+        },
+        "contains_home_path": {
+          "const": false
+        }
+      }
+    },
+    "git_producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git_version",
+        "command_argv",
+        "object_format",
+        "environment"
+      ],
+      "properties": {
+        "git_version": {
+          "type": "string",
+          "pattern": "^git version [0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "command_argv": {
+          "const": [
+            "git",
+            "pack-objects",
+            "<content-addressed-pack-prefix>"
+          ]
+        },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "environment": {
+          "const": {
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "LC_ALL": "C",
+            "TZ": "UTC"
+          }
+        }
+      }
+    },
+    "protected_store_identity": {
+      "$ref": "#/$defs/sha256"
+    },
+    "phase": {
+      "enum": [
+        "prepared",
+        "pack_written",
+        "verified"
+      ]
+    },
+    "write_receipt": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/write_receipt"
+        }
+      ]
+    },
+    "verification_receipt": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/verification_receipt"
+        }
+      ]
+    },
+    "recovery_phases": {
+      "const": [
+        "prepared",
+        "temp_files_fsynced",
+        "atomic_rename_completed",
+        "directory_fsynced",
+        "verified"
+      ]
+    },
+    "created_at_utc": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "prepared"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "write_receipt": {
+            "type": "null"
+          },
+          "verification_receipt": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "pack_written"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "write_receipt": {
+            "$ref": "#/$defs/write_receipt"
+          },
+          "verification_receipt": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "verified"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "write_receipt": {
+            "$ref": "#/$defs/write_receipt"
+          },
+          "verification_receipt": {
+            "$ref": "#/$defs/verification_receipt"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "base64": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "object_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oid",
+        "type",
+        "size_bytes",
+        "object_bytes_sha256"
+      ],
+      "properties": {
+        "oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "type": {
+          "enum": [
+            "commit",
+            "tree",
+            "blob",
+            "tag"
+          ]
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "object_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "write_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "write_order",
+        "temp_pack_fsynced",
+        "temp_index_fsynced",
+        "pack_renamed",
+        "index_renamed",
+        "directory_fsynced",
+        "receipt_hash"
+      ],
+      "properties": {
+        "write_order": {
+          "const": [
+            "write_temp_pack",
+            "fsync_temp_pack",
+            "write_temp_index",
+            "fsync_temp_index",
+            "rename_pack",
+            "rename_index",
+            "fsync_directory"
+          ]
+        },
+        "temp_pack_fsynced": {
+          "const": true
+        },
+        "temp_index_fsynced": {
+          "const": true
+        },
+        "pack_renamed": {
+          "const": true
+        },
+        "index_renamed": {
+          "const": true
+        },
+        "directory_fsynced": {
+          "const": true
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "verification_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git_verify_pack",
+        "manifest_exact",
+        "pack_hash_verified",
+        "index_hash_verified",
+        "receipt_hash"
+      ],
+      "properties": {
+        "git_verify_pack": {
+          "const": true
+        },
+        "manifest_exact": {
+          "const": true
+        },
+        "pack_hash_verified": {
+          "const": true
+        },
+        "index_hash_verified": {
+          "const": true
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

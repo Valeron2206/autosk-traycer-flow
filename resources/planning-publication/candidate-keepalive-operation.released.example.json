@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "object_format": "sha1",
+  "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325",
+  "snapshot_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+  "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
+  "phase": "released",
+  "create_receipt": {
+    "schema": 1,
+    "after_entry_count": 1,
+    "appended_entry_sha256": "0c7d2a6f6259f4e564071afa6f556b9fb33b6dcda429d24c648bc622bfee88f6",
+    "before_entry_count": 0,
+    "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+    "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+    "observed_new_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "observed_old_oid": null,
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "snapshot_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "observation_sha256": "f0e6896533fd202f3f1fc56c57b2225bdc1502d5a5844410d989a9dcdc928035",
+    "receipt_hash": "dab9bb7d935565c782b2a7b44a4115b4d9f7c9ea4a9a5e0e46dbd1db5e7d7a8d",
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "helper_evidence": {
+      "request_id": "00000002-1111-4111-8111-000000000002",
+      "nonce": "64bb5dffc17edab39ffe08a687681a7193e07793f5edb9367c834f06aca46da1",
+      "request_body_sha256": "d6553b3d6d067e962ea21c1811dfa9bdc81f5dd946354107a309e7695a512476",
+      "transaction_value_observation_sha256": "2de9fe9dcb0ea8ebb0236ce52117867f4ccd550d2f100dcd0c20f7f7786aaefe",
+      "helper_receipt_hash": "4b620fe1b00d7cff46a0c6a85ab40a8f44030860f69b36c1df11918f798bb8e3",
+      "helper_journal_hash": "883b6cb684fbc6ac678c21792f793ff5f2155c12169f43d2bfc2ce95ff249b71"
+    }
+  },
+  "release_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "expected_old_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+    "verified_commit_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
+    "planning_reflog_after_receipt_hash": "10eb6df4186f49d760b9f57e9afa5978cad2db43a1fbe255f1be4bb086c87776",
+    "planning_reflog_tail_observation_sha256": "27be28cc5847c20cc5acad8897b5e964d574d8de4102fd509f33959db06885ad",
+    "transaction_observation_sha256": "301d0f72ea98218cabf0e9840799a190737c01ecc831c877e77005f0c92ef371",
+    "audit_candidate_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "audit_candidate_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "ref_custody_generation": 1,
+    "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+    "closure_verified": true,
+    "receipt_hash": "49f6f9d8a282509d9400f1c518165de76ea5c9cefa7cd669dd74d5d8cb35369d",
+    "helper_evidence": {
+      "request_id": "00000007-1111-4111-8111-000000000007",
+      "nonce": "f51662ae10cb442625e1003be3c07a5c6f8c567787f063be9f01a4b8dc1b207d",
+      "request_body_sha256": "dc2f0201319c0058e9f8e893848648c5fb3623340d9af33e971884b49395a440",
+      "transaction_value_observation_sha256": "c106ee30dc7f9eb918a549ee53af9f6de99e5b0315ecc6934df1b9adda911f5a",
+      "helper_receipt_hash": "db5278473b6b3c4b6150bae60458eb05dc965fdb0b1a6380a81d81c269cd2aca",
+      "helper_journal_hash": "8f0a920849d86c2de9d9f4c4ba3c0dd445f2b47ea975a0b2f925ba2b4ceb7862"
+    }
+  },
+  "audit_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "reason": "publication_verified",
+    "ref_custody_generation": 1,
+    "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+    "observation_sha256": "616d881f7a6b0e2b67b40b4f376bc0574aca4c1675a24f7ed10793f57ad4a73b",
+    "receipt_hash": "e0e5cba2eeb88da0d340a5cc97afa77d6caec4049573f375b8693f9878f327ca",
+    "helper_evidence": {
+      "request_id": "00000004-1111-4111-8111-000000000004",
+      "nonce": "7870a20e1d3902628e1c25e6b233634bd36c1a3eead2f064b5d23676262f65d6",
+      "request_body_sha256": "0e931e13780b3ceb89ce15bc96befacc3fa7318a120b9a62ed0f61b531c4692a",
+      "transaction_value_observation_sha256": "9ea435b98b1fb2513cf7573a2c320d8eefad816fcec2925f5a2a29efbf3b6ffa",
+      "helper_receipt_hash": "7f3674c1e533963c8bf891c2f64312b1698b506836f0c7a8c2bc409f57881607",
+      "helper_journal_hash": "720892c2d925b6e98f0bfffb1ff19f5b9741e1dfbc70840555cd28cd0462a239"
+    }
+  },
+  "terminal_disposition": "published_released",
+  "created_at_utc": "2026-09-01T00:00:00Z",
+  "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+  "ref_custody_generation": 1,
+  "operation_id": "77777777-7777-4777-8777-777777777777",
+  "snapshot_commit_recipe": {
+    "schema": 1,
+    "object_format": "sha1",
+    "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "parent_oids": [
+      "61e1521ed4985292de705c4a48dab789a5a52180"
+    ],
+    "author": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "committer": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgY2FuZGlkYXRlCg==",
+    "signing": {
+      "mode": "none",
+      "policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+      "signature_header_base64": null
+    },
+    "commit_object_bytes_base64": "dHJlZSA5OGYxMjMxNTgyMDU5MjE3ODM4MzhhZGI1NzA1ODk1MmEwNjk2ZDdmCnBhcmVudCA2MWUxNTIxZWQ0OTg1MjkyZGU3MDVjNGE0OGRhYjc4OWE1YTUyMTgwCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
+    "commit_object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
+    "expected_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
+  },
+  "snapshot_object_receipt": {
+    "schema": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "object_format": "sha1",
+    "object_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
+    "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "parent_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+    "receipt_hash": "97ac4659783dfa0db2d9b4309bd54a16c498496374610249e4123534e5a35a4f"
+  },
+  "candidate_identity_preimage": {
+    "anchor_version": 1,
+    "candidate_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "kind": "artifact_pass",
+    "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+    "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
+  },
+  "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
+  "closure_pack_receipt_hash": "c003d677f76559b23a8ce6cb6d45ed5202739e32f154d4be30a7a0d2d8ec7633",
+  "verification_receipt": {
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "observed_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "reflog_tail_observation_sha256": "f0e6896533fd202f3f1fc56c57b2225bdc1502d5a5844410d989a9dcdc928035",
+    "helper_evidence": {
+      "request_id": "00000002-1111-4111-8111-000000000002",
+      "nonce": "64bb5dffc17edab39ffe08a687681a7193e07793f5edb9367c834f06aca46da1",
+      "request_body_sha256": "d6553b3d6d067e962ea21c1811dfa9bdc81f5dd946354107a309e7695a512476",
+      "transaction_value_observation_sha256": "2de9fe9dcb0ea8ebb0236ce52117867f4ccd550d2f100dcd0c20f7f7786aaefe",
+      "helper_receipt_hash": "4b620fe1b00d7cff46a0c6a85ab40a8f44030860f69b36c1df11918f798bb8e3",
+      "helper_journal_hash": "883b6cb684fbc6ac678c21792f793ff5f2155c12169f43d2bfc2ce95ff249b71"
+    },
+    "receipt_hash": "9e7fce4f457f1d49a84d3e5c9f3254fa32b4b6297df7e99fa7eb242c97ae7b1f"
+  }
+}

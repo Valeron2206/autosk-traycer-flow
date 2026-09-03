@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "operation_id": "11111111-1111-4111-8111-111111111111",
+  "operation_type": "artifact_pass",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+  "ref_storage_format": "files",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
+  "candidate_keepalive": {
+    "schema": 1,
+    "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "epic_id": "22222222-2222-4222-8222-222222222222",
+    "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+    "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "object_format": "sha1",
+    "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "snapshot_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+    "reflog_producer": {
+      "git_committer_name": "autosk-flow",
+      "git_committer_email": "autosk@example.invalid",
+      "git_committer_date": "@0 +0000",
+      "lc_all": "C",
+      "tz": "UTC",
+      "git_config_system": "/dev/null",
+      "git_config_global": "/dev/null",
+      "git_config_nosystem": "1",
+      "hooks_path": "/dev/null",
+      "inherit_git_environment": false,
+      "update_ref_mode": "object_format_neutral_expected_old"
+    },
+    "phase": "verified",
+    "create_receipt": {
+      "schema": 1,
+      "after_entry_count": 1,
+      "appended_entry_sha256": "0c7d2a6f6259f4e564071afa6f556b9fb33b6dcda429d24c648bc622bfee88f6",
+      "before_entry_count": 0,
+      "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+      "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+      "expected_update_message": "autosk-flow keepalive 77777777-7777-4777-8777-777777777777",
+      "observed_new_oid": "92f451c897bb96c7b64c069700feddf029601325",
+      "observed_old_oid": null,
+      "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+      "snapshot_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+      "observation_sha256": "f0e6896533fd202f3f1fc56c57b2225bdc1502d5a5844410d989a9dcdc928035",
+      "receipt_hash": "dab9bb7d935565c782b2a7b44a4115b4d9f7c9ea4a9a5e0e46dbd1db5e7d7a8d",
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "helper_evidence": {
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "nonce": "64bb5dffc17edab39ffe08a687681a7193e07793f5edb9367c834f06aca46da1",
+        "request_body_sha256": "d6553b3d6d067e962ea21c1811dfa9bdc81f5dd946354107a309e7695a512476",
+        "transaction_value_observation_sha256": "2de9fe9dcb0ea8ebb0236ce52117867f4ccd550d2f100dcd0c20f7f7786aaefe",
+        "helper_receipt_hash": "4b620fe1b00d7cff46a0c6a85ab40a8f44030860f69b36c1df11918f798bb8e3",
+        "helper_journal_hash": "883b6cb684fbc6ac678c21792f793ff5f2155c12169f43d2bfc2ce95ff249b71"
+      }
+    },
+    "release_receipt": null,
+    "audit_receipt": null,
+    "terminal_disposition": null,
+    "created_at_utc": "2026-09-01T00:00:00Z",
+    "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+    "ref_custody_generation": 1,
+    "operation_id": "77777777-7777-4777-8777-777777777777",
+    "snapshot_commit_recipe": {
+      "schema": 1,
+      "object_format": "sha1",
+      "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+      "parent_oids": [
+        "61e1521ed4985292de705c4a48dab789a5a52180"
+      ],
+      "author": {
+        "name_utf8": "autosk-flow",
+        "email_ascii": "autosk@example.invalid",
+        "timestamp_seconds": 0,
+        "timezone": "+0000"
+      },
+      "committer": {
+        "name_utf8": "autosk-flow",
+        "email_ascii": "autosk@example.invalid",
+        "timestamp_seconds": 0,
+        "timezone": "+0000"
+      },
+      "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgY2FuZGlkYXRlCg==",
+      "signing": {
+        "mode": "none",
+        "policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+        "signature_header_base64": null
+      },
+      "commit_object_bytes_base64": "dHJlZSA5OGYxMjMxNTgyMDU5MjE3ODM4MzhhZGI1NzA1ODk1MmEwNjk2ZDdmCnBhcmVudCA2MWUxNTIxZWQ0OTg1MjkyZGU3MDVjNGE0OGRhYjc4OWE1YTUyMTgwCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
+      "commit_object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
+      "expected_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
+    },
+    "snapshot_object_receipt": {
+      "schema": 1,
+      "operation_id": "77777777-7777-4777-8777-777777777777",
+      "object_format": "sha1",
+      "object_oid": "92f451c897bb96c7b64c069700feddf029601325",
+      "object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0",
+      "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+      "parent_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+      "receipt_hash": "97ac4659783dfa0db2d9b4309bd54a16c498496374610249e4123534e5a35a4f"
+    },
+    "candidate_identity_preimage": {
+      "anchor_version": 1,
+      "candidate_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+      "epic_id": "22222222-2222-4222-8222-222222222222",
+      "kind": "artifact_pass",
+      "pathspec_or_projection_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+      "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325"
+    },
+    "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
+    "closure_pack_receipt_hash": "c003d677f76559b23a8ce6cb6d45ed5202739e32f154d4be30a7a0d2d8ec7633",
+    "verification_receipt": {
+      "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+      "observed_oid": "92f451c897bb96c7b64c069700feddf029601325",
+      "reflog_tail_observation_sha256": "f0e6896533fd202f3f1fc56c57b2225bdc1502d5a5844410d989a9dcdc928035",
+      "helper_evidence": {
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "nonce": "64bb5dffc17edab39ffe08a687681a7193e07793f5edb9367c834f06aca46da1",
+        "request_body_sha256": "d6553b3d6d067e962ea21c1811dfa9bdc81f5dd946354107a309e7695a512476",
+        "transaction_value_observation_sha256": "2de9fe9dcb0ea8ebb0236ce52117867f4ccd550d2f100dcd0c20f7f7786aaefe",
+        "helper_receipt_hash": "4b620fe1b00d7cff46a0c6a85ab40a8f44030860f69b36c1df11918f798bb8e3",
+        "helper_journal_hash": "883b6cb684fbc6ac678c21792f793ff5f2155c12169f43d2bfc2ce95ff249b71"
+      },
+      "receipt_hash": "9e7fce4f457f1d49a84d3e5c9f3254fa32b4b6297df7e99fa7eb242c97ae7b1f"
+    }
+  },
+  "payload": {
+    "kind": "artifact_pass",
+    "artifact_kind": "brief",
+    "artifact_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "artifact_pathspec": [
+      "docs/autosk/epics/22222222-2222-4222-8222-222222222222/brief.md"
+    ],
+    "artifact_pathspec_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
+    "alignment_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "verdict_or_waiver_digest": "59bc9b035655113fc9da88da09e5b91d06a94c77807f2eb07d255a1c9334fc21",
+    "recorded_target_step": "select_next",
+    "verdict_or_waiver_binding": {
+      "disposition": "pass",
+      "record": {
+        "kind": "verdict",
+        "verdict_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    }
+  },
+  "anchor_version": 1,
+  "protocol_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "runtime_lock_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "project_instruction_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+  "governance_mapping_set_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+  "ref_custody_generation": 1,
+  "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+  "expected_parent_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+  "expected_parent_tree_oid": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+  "candidate_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+  "commit_recipe": {
+    "schema": 1,
+    "object_format": "sha1",
+    "tree_oid": "98f123158205921783838adb57058952a0696d7f",
+    "parent_oids": [
+      "61e1521ed4985292de705c4a48dab789a5a52180"
+    ],
+    "author": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "committer": {
+      "name_utf8": "autosk-flow",
+      "email_ascii": "autosk@example.invalid",
+      "timestamp_seconds": 0,
+      "timezone": "+0000"
+    },
+    "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgcHVibGljYXRpb24KCkF1dG9zay1BbmNob3ItVmVyc2lvbjogMQpBdXRvc2stQXJ0aWZhY3QtSWRlbnRpdHk6IGJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIKQXV0b3NrLUVwaWMtSUQ6IDIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMgpBdXRvc2stT3BlcmF0aW9uLUlEOiAxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEKQXV0b3NrLVBheWxvYWQtS2luZDogYXJ0aWZhY3RfcGFzcwpBdXRvc2stUHJvamVjdC1JbnN0cnVjdGlvbi1EaWdlc3Q6IDk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTkKQXV0b3NrLVByb2plY3QtUm9vdC1TSEEyNTY6IGFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEKQXV0b3NrLVByb3RvY29sLURpZ2VzdDogZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZgpBdXRvc2stUnVudGltZS1Mb2NrLURpZ2VzdDogMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMApBdXRvc2stVmVyZGljdC1Pci1XYWl2ZXItRGlnZXN0OiA1OWJjOWIwMzU2NTUxMTNmYzlkYTg4ZGEwOWU1YjkxZDA2YTk0Yzc3ODA3ZjJlYjA3ZDI1NWExYzkzMzRmYzIxCg==",
+    "signing": {
+      "mode": "none",
+      "policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+      "signature_header_base64": null
+    },
+    "commit_object_bytes_base64": "dHJlZSA5OGYxMjMxNTgyMDU5MjE3ODM4MzhhZGI1NzA1ODk1MmEwNjk2ZDdmCnBhcmVudCA2MWUxNTIxZWQ0OTg1MjkyZGU3MDVjNGE0OGRhYjc4OWE1YTUyMTgwCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIHB1YmxpY2F0aW9uCgpBdXRvc2stQW5jaG9yLVZlcnNpb246IDEKQXV0b3NrLUFydGlmYWN0LUlkZW50aXR5OiBiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiCkF1dG9zay1FcGljLUlEOiAyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIKQXV0b3NrLU9wZXJhdGlvbi1JRDogMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExCkF1dG9zay1QYXlsb2FkLUtpbmQ6IGFydGlmYWN0X3Bhc3MKQXV0b3NrLVByb2plY3QtSW5zdHJ1Y3Rpb24tRGlnZXN0OiA5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5CkF1dG9zay1Qcm9qZWN0LVJvb3QtU0hBMjU2OiBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhCkF1dG9zay1Qcm90b2NvbC1EaWdlc3Q6IGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYKQXV0b3NrLVJ1bnRpbWUtTG9jay1EaWdlc3Q6IDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAKQXV0b3NrLVZlcmRpY3QtT3ItV2FpdmVyLURpZ2VzdDogNTliYzliMDM1NjU1MTEzZmM5ZGE4OGRhMDllNWI5MWQwNmE5NGM3NzgwN2YyZWIwN2QyNTVhMWM5MzM0ZmMyMQo=",
+    "commit_object_bytes_sha256": "97615cac0203c5871f7b178075a6121d2d1aa6222bdf9e06233818eb0db59e7f"
+  },
+  "commit_recipe_digest": "a68042085d3db95256488fa10c4bf9e204dbb3bc37f3188c3178b5d362eecebb",
+  "expected_commit_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
+  "reflog_checkpoint": {
+    "before_entry_count": 1,
+    "before_prefix_sha256": "c69fb4cc6024c700bb4b14435bb8ffbdc6f57700cea07ef0bf1fd6a3d16cf03a",
+    "expected_old_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+    "expected_new_oid": "c9d8335b60f56d9b7231dcf0aa86cb692827fe72",
+    "expected_update_message": "autosk-flow publish 11111111-1111-4111-8111-111111111111"
+  },
+  "phase": "prepared",
+  "terminal_reason": null,
+  "recovery_target_step": null,
+  "effective_target_step": null,
+  "created_at_utc": "2026-09-01T00:01:00Z",
+  "receipts": {
+    "commit_object": null,
+    "ref_cas": null,
+    "reflog_after": null,
+    "verification": null
+  }
+}

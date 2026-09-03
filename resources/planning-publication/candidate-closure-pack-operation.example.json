@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
+  "candidate_identity": "6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "snapshot_commit_oid": "92f451c897bb96c7b64c069700feddf029601325",
+  "candidate_tree_oid": "98f123158205921783838adb57058952a0696d7f",
+  "object_format": "sha1",
+  "object_count": 3,
+  "object_oids": [
+    "7bcd799f55f69e9a64ad858c194ae85fe173d199",
+    "92f451c897bb96c7b64c069700feddf029601325",
+    "98f123158205921783838adb57058952a0696d7f"
+  ],
+  "object_manifest": {
+    "objects": [
+      {
+        "oid": "7bcd799f55f69e9a64ad858c194ae85fe173d199",
+        "type": "blob",
+        "size_bytes": 26,
+        "object_bytes_sha256": "f620fd0cd98040d2aeee4213cbcc4928607aac2e2dc756dcdf4db953ce3b2b06"
+      },
+      {
+        "oid": "92f451c897bb96c7b64c069700feddf029601325",
+        "type": "commit",
+        "size_bytes": 233,
+        "object_bytes_sha256": "7d0f3ee196ec41ce5613a64f592cb9b32cfc5a1f931e618776f3d526b0f6beb0"
+      },
+      {
+        "oid": "98f123158205921783838adb57058952a0696d7f",
+        "type": "tree",
+        "size_bytes": 36,
+        "object_bytes_sha256": "64d9ac740a817b04251de4b8211ffb242d3bf98d32d71fba6c4d4fb4a83e4274"
+      }
+    ]
+  },
+  "object_manifest_sha256": "a55a3e7b8c1f1f951d1c11cefb96d6c1acb2098482b5a72e9b961449fd24edad",
+  "object_oid_set_sha256": "3c48408f3e25415f7dee7c4c7c89e8eed525807e3e3f38242176851b67799ea7",
+  "pack_bytes_base64": "UEFDSwAAAAIAAAADmQ54nJWLzQ7CIBCE7zwFd6MB2i1LYoyvsu1ulUihqfjz+JJ48erMYTKZb+omogPO1nUW0BkIznrsmolH8AYwgCMzhIH9rFbaJFc9WLHgrHAfEFxwLA2ceuqRafQYCKjNaBQ96rVsukW53/ZzKi99/JazvGlZkxxiflKKfNJG70yTmsqyxFrlz5v6pddEOcd80RNljkxV1AeICUmOpAJ4nDM0MDAzMVFIKspMTdPLTWGoPls5P/TbvFkpa1t7JL1exD8svjgTAPCMD8S6AXicSywoKMovS01RSCrKTE1TAHKyUpNLMvPzuACKEgnxHFjrbHMlsJsMBbfD1TrnvcTBDGc=",
+  "pack_bytes_sha256": "1a4ce4734ced2999297e0eda3b6c2a1d6a0e3b5c45b63a4bcede82810ab00835",
+  "index_bytes_base64": "/3RPYwAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADAAAAAwAAAAMAAAADe815n1X2nppkrYWMGUroX+Fz0ZmS9FHIl7uWx7ZMBpcA/t3wKWATJZjxIxWCBZIXg4OK21cFiVKgaW1/yOes5iM+TZyt4v8mAAAA1wAAAAwAAACoHFjrbHMlsJsMBbfD1TrnvcTBDGeFyQkFTW9hqksw7THAQ1G9vho3vw==",
+  "index_bytes_sha256": "cdbff10a62929cb93f8af17bac19ef949dc670c7f6acb53554aec3ca1dea0c12",
+  "content_addressed_locator": {
+    "store_role": "helper-owned-candidate-quarantine",
+    "pack_relative_path": "objects/pack/autosk-candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886/pack-1a4ce4734ced2999297e0eda3b6c2a1d6a0e3b5c45b63a4bcede82810ab00835.pack",
+    "index_relative_path": "objects/pack/autosk-candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886/pack-1a4ce4734ced2999297e0eda3b6c2a1d6a0e3b5c45b63a4bcede82810ab00835.idx",
+    "pack_content_address": "1a4ce4734ced2999297e0eda3b6c2a1d6a0e3b5c45b63a4bcede82810ab00835",
+    "contains_home_path": false
+  },
+  "git_producer": {
+    "git_version": "git version 2.50.1",
+    "command_argv": [
+      "git",
+      "pack-objects",
+      "<content-addressed-pack-prefix>"
+    ],
+    "object_format": "sha1",
+    "environment": {
+      "GIT_CONFIG_GLOBAL": "/dev/null",
+      "GIT_CONFIG_NOSYSTEM": "1",
+      "GIT_CONFIG_SYSTEM": "/dev/null",
+      "LC_ALL": "C",
+      "TZ": "UTC"
+    }
+  },
+  "protected_store_identity": "c4ae7fe62d2b7e071d594c77b3df57f545fd98d5dc78e313f11be88d70c41136",
+  "phase": "verified",
+  "write_receipt": {
+    "write_order": [
+      "write_temp_pack",
+      "fsync_temp_pack",
+      "write_temp_index",
+      "fsync_temp_index",
+      "rename_pack",
+      "rename_index",
+      "fsync_directory"
+    ],
+    "temp_pack_fsynced": true,
+    "temp_index_fsynced": true,
+    "pack_renamed": true,
+    "index_renamed": true,
+    "directory_fsynced": true,
+    "receipt_hash": "e0465f1ce97bbf901532041b3b42a037b6ab4a0b0f3568d32524fa7d918f91f2"
+  },
+  "verification_receipt": {
+    "git_verify_pack": true,
+    "manifest_exact": true,
+    "pack_hash_verified": true,
+    "index_hash_verified": true,
+    "receipt_hash": "c003d677f76559b23a8ce6cb6d45ed5202739e32f154d4be30a7a0d2d8ec7633"
+  },
+  "recovery_phases": [
+    "prepared",
+    "temp_files_fsynced",
+    "atomic_rename_completed",
+    "directory_fsynced",
+    "verified"
+  ],
+  "created_at_utc": "2026-09-01T00:01:58Z"
+}

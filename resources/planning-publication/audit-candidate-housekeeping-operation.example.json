@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "operation_id": "00000016-2222-4222-8222-000000000016",
+  "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+  "expected_oid": "92f451c897bb96c7b64c069700feddf029601325",
+  "retention_policy_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "inventory_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "expires_at_utc": "2026-09-01T00:00:00Z",
+  "operator_approval": {
+    "record_id": "66666666-6666-4666-8666-666666666666",
+    "approved_by": "operator",
+    "approved_at_utc": "2026-09-01T00:00:01Z",
+    "digest": "172feecdefac426001af6c1630ff7cfa74bdbfa967eb6d1d95dbf83cd8100d1f"
+  },
+  "phase": "tombstone_verified",
+  "helper_evidence": {
+    "request_id": "00000008-1111-4111-8111-000000000008",
+    "nonce": "6b43c62ebee4ab94e4d5827cf42d4199f93205641e9d18d90efccc9e54665353",
+    "request_body_sha256": "6ecb00afe30962953025e074a1d7a3b77d06984bbb33afd16d981a8be7a6503d",
+    "transaction_value_observation_sha256": "7d93be4fd39b2e9698476f33578224763a8af9ce6be710f0c38c0d5265136cb6",
+    "helper_receipt_hash": "de1c2462c418bc2347b5e52e9945d6b173f0ae4512abe5be4a437fb68f8266a7",
+    "helper_journal_hash": "47fcadaf95623dd9be40026428e9a15d43de0d355c861b3cd032ac03ab3626a6"
+  },
+  "tombstone_receipt": {
+    "schema": 1,
+    "operation_id": "00000016-2222-4222-8222-000000000016",
+    "deleted_audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/6c5ea63840566911a18ec0d969f66610f714c91222da7555b7135d57cffc0886",
+    "deleted_oid": "92f451c897bb96c7b64c069700feddf029601325",
+    "helper_receipt_hash": "de1c2462c418bc2347b5e52e9945d6b173f0ae4512abe5be4a437fb68f8266a7",
+    "inventory_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "retention_policy_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "deleted_at_utc": "2026-09-01T00:00:02Z",
+    "receipt_hash": "839cd938e53f081a812e08d244a500f125f686e0d7b26de6523c59ea458b941d"
+  },
+  "created_at_utc": "2026-09-01T00:00:01Z",
+  "completed_at_utc": "2026-09-01T00:00:02Z"
+}

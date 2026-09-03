@@ -42,8 +42,9 @@ autosk v2 остаётся движком задач и переходов. Но
 - создание дочерних задач панели, Arena и Tickets;
 - компиляцию сообщений из замороженного протокола;
 - проверку structured verdict;
-- атомарную запись artifact PASS и механическое извлечение autosk-arena block;
-- привязку PASS к hash/OID;
+- запись валидированного artifact verdict как `recorded_unpublished` и механическое извлечение autosk-arena block;
+- host-owned и crash-safe публикацию approved artifact commit в private Epic planning ref;
+- привязку PASS к hash/OID и verified planning-head CAS receipt;
 - лимиты раундов и human escalation;
 - собственные Ticket workflows: implement, verify, freeze, review, fix, commit и integration;
 - freeze, commit-on-pass и собственный детерминированный интеграционный адаптер.
@@ -57,6 +58,20 @@ autosk v2 остаётся движком задач и переходов. Но
 ### Git
 
 Хранит нормативные артефакты и код. Git object database даёт tree/commit OID для неизменяемой идентичности. Branch name никогда не считается идентичностью.
+
+Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic_ref_key>/planning`. Key — domain-separated SHA-256 canonical `{project_root_sha256,epic_id}`. Его verified head — единственная текущая Git-проекция принятых planning artifacts. До publication каждый frozen candidate владеет `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>`. Deterministic host adapter только формирует и авторизует exact requests; sole writer ref-custody helper выполняет каждый create/CAS/delete для `refs/autosk/**` и `logs/refs/autosk/**`. Target branch и чужие Epic refs не затрагиваются.
+
+Enforceable boundary: the service-owned canonical project common Git directory is the single object/ref database for target, planning, candidate and audit refs; it is not a second repository. Each worktree keeps isolated service-managed `HEAD`, index and worktree state in its own per-worktree Git directory; its read-only gitfile points there and a read-only `commondir` link reaches the common ODB. Project/model accounts cannot open either Git directory for writes or invoke Git mutations; autoskd mediates ordinary project Git operations and the separate-account ref-custody helper is the sole writer of `refs/autosk/**` and their reflogs. Every ancestor is root/helper-owned and descriptor-pinned. Linux/macOS bootstrap proves the chain, peer credentials and denied direct ref/pack/rename probes; unsupported layouts fail before workflow effects.
+
+Issue #5 owns the packaged `autosk-flow-ref-custody` component (`src/git/ref-custody-helper.ts`, client and closed protocol). Its Unix socket accepts only the daemon capability. Before every socket call, autoskd atomically persists one helper intent with action/operation, request ID, nonce, body hash, topology and a fsynced under-lock pre-execution observation. Retry looks up that intent and journal rather than minting a second request. Live-to-audit custody is monotonic: create/verify and fsync/read-back audit while live remains, record `audit_ref_verified`, then separately delete live by expected-old, record `live_ref_deleted`, and final-verify audit-present/live-absent. Candidate closure is protected by a helper-owned quarantine pack until a canonical live or audit ref is verified.
+
+Files-backend packing is closed inside that single service-owned common Git directory. Helper-owned maintenance and GC see the same object database as planning refs, so verified planning/live/audit refs retain their closures. Protected refs remain loose with `gc.packRefs=false`; project/model accounts cannot run maintenance directly.
+
+### Planning publication adapter
+
+<!-- planning-ref-contract:v1 -->
+
+Общий adapter обслуживает `init_planning_ref`, `publish_artifact_pass` и `publish_planning_invalidation`. До side effect он сохраняет и read-back проверяет полный object-format-aware recipe с exact commit bytes, expected OID, signing-policy binding и reflog checkpoint. Затем пишет только эти bytes, выполняет expected-old CAS private ref с operation-specific reflog entry, читает ref/commit/tree/reflog обратно и монотонно продвигает `planning_publication_op` через `prepared -> commit_created -> ref_advanced -> verified` либо terminal `voided_before_ref`. Model process не получает ref capability. Foreign/ABA/indeterminate movement не ретраится как обычная ошибка и не разрешается rebase/reset/force fallback.
 
 ### autosk-owned integration adapter
 
@@ -75,6 +90,7 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 - daemon-attributed user decision journal и единый project policy/revocation projection;
 - Decision Log/policy mirrors;
 - Brief, Core Flow, Tech Plan, Decision Log и Tickets;
+- private per-Epic planning refs и reachable publication/invalidation commits;
 - task metadata, blockers, comments и sessions;
 - provider session directory;
 - protocol snapshots и per-Epic lock;
@@ -157,6 +173,8 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
       T02-<slug>.md
 ~~~
 
+Текущая принятая проекция этих файлов определяется verified head `refs/autosk/epics/<epic_ref_key>/planning`. Каждый artifact PASS получает отдельный single-parent descendant commit; следующий author base обязан совпадать с этим head. Detached snapshot commit остаётся review identity, но не считается опубликованным; verified candidate keepalive делает его полную object closure reachable до planning-ref verification и exact-old release. Anchor invalidation создаёт новый descendant commit, а не rewrites history. Final Tickets publication фиксирует exact `planning_head` для downstream execution/staging.
+
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
 
 Если параллельно идут разные проекты, все документы и файлы конкретного проекта размещаются только внутри canonical `ctx.projectRoot` этого проекта. `docs/autosk/policies` — человекочитаемое project-level зеркало issuance/revocation; Epic Decision Log зеркалит только Epic-scoped решения. Git bytes принимаются как нормативный текст лишь после hash-binding к daemon-attributed record и сами по себе не дают approval.
@@ -179,6 +197,10 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
 <canonical-project-root>/.autosk/autosk-flow/provider-sessions/
 <canonical-project-root>/.autosk/autosk-flow/epics/<epic-id>/protocol.lock.json
 ~~~
+
+`planning_ref_init_op`, `candidate_keepalive_op`, `candidate_audit_transfer_op` и `planning_publication_op` живут в protected namespaced Epic metadata. Transfer operation сохраняется до первого helper call и содержит operation ID, phase, helper intent key, audit-ref/live-delete prefix receipts и final verification; crash between `audit_ref_verified` and `live_ref_deleted` resumes this exact record. Verified operations обновляют `planning.last_verified_reflog_tail`. Terminal records переходят в append-only containers: init — `planning.init_history`, released/audit-retained keepalive — `planning.candidate_history`, audit transfer — `planning.audit_transfer_history`, artifact/invalidation publication — `planning.publication_history`, rebuild — `planning.rebuild_history`. Git refs/objects remain source of truth; metadata binds them to workflow state.
+
+Publication metadata retains the typed payload, immutable bindings, complete commit_recipe, exact commit bytes, expected commit OID, effective target and reflog checkpoint.
 
 Дополнительный task/status-ledger не создаётся. Trusted client only displays/signs exact challenge. Production signer/secure store runs in separate OS security boundary (privileged helper/separate account or hardware enclave); model sandbox is denied accessibility/ptrace/keychain. Deployment without enforceable boundary, or headless/unpinned project, blocks model launch.
 
@@ -308,6 +330,8 @@ artifact identity =
   project identity
   + epic id
   + artifact kind
+  + private planning ref name
+  + expected verified planning head OID
   + base commit OID
   + declared pathspec
   + candidate tree OID

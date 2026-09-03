@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/ref-custody-helper-contract.schema.json",
+  "title": "autosk-flow ref-custody helper action contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "actions"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/action_contract"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "field_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "action_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "request_required",
+        "response_required",
+        "request_domain",
+        "observation_domain",
+        "receipt_domain",
+        "golden"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "init",
+            "create_keepalive",
+            "advance_planning",
+            "ensure_audit_ref",
+            "delete_live_ref",
+            "delete_expired_audit"
+          ]
+        },
+        "request_required": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/field_name"
+          }
+        },
+        "response_required": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/field_name"
+          }
+        },
+        "request_domain": {
+          "type": "string",
+          "pattern": "^autosk-flow/ref-custody/[a-z_]+/request-shape/v1\u0000$"
+        },
+        "observation_domain": {
+          "type": "string",
+          "pattern": "^autosk-flow/ref-custody/[a-z_]+/response-shape/v1\u0000$"
+        },
+        "receipt_domain": {
+          "type": "string",
+          "pattern": "^autosk-flow/ref-custody/[a-z_]+/receipt-shape/v1\u0000$"
+        },
+        "golden": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_shape_sha256",
+            "response_shape_sha256",
+            "receipt_shape_sha256"
+          ],
+          "properties": {
+            "request_shape_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "response_shape_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "receipt_shape_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "action": {
+              "const": "init"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/init/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/init/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/init/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "create_keepalive"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/create_keepalive/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/create_keepalive/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/create_keepalive/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "advance_planning"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/advance_planning/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/advance_planning/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/advance_planning/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "ensure_audit_ref"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/ensure_audit_ref/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/ensure_audit_ref/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/ensure_audit_ref/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "delete_live_ref"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/delete_live_ref/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/delete_live_ref/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/delete_live_ref/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "delete_expired_audit"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/delete_expired_audit/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/delete_expired_audit/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/delete_expired_audit/receipt-shape/v1\u0000"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

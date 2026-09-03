@@ -7,6 +7,7 @@
     "test": "node --test test/*.test.mjs",
     "validate:migration": "node scripts/validate-traycer-parity.mjs",
     "validate:capabilities": "node scripts/validate-program-capability-matrix.mjs",
+    "validate:planning-ref": "node scripts/validate-planning-ref-design.mjs",
     "generate:capabilities": "node scripts/validate-program-capability-matrix.mjs --write-docs",
     "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope"
   },

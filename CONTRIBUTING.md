@@ -1,6 +1,6 @@
 # Contributing
 
-This repository starts from an approved design specification. Implementation work must preserve the gates and invariants defined in `03-technical-plan.md`.
+This repository contains a revision-in-progress design specification. Historical reviewed trees remain audit evidence, but only the future issue #39 candidate will authorize implementation decomposition. Changes must preserve the current gates and invariants defined in `03-technical-plan.md` and the linked normative contracts.
 
 ## Pull requests
 
@@ -17,6 +17,7 @@ Draft pull requests are not reviewed automatically. A manual review can be reque
 Changes to Brief, Core Flow, Tech Plan, Tickets, or another behavior-defining artifact follow the four-model panel rules in the specification.
 A planning PASS is bound to the artifact kind, exact bytes and file hashes, pathspec, tree or snapshot OID, anchor version, and attempt.
 Changing any bound field invalidates the prior PASS and requires a new four-model panel before implementation, except for the explicit hash-checked, human-approved re-binding defined in `03-technical-plan.md`.
+A recorded planning verdict is not completion: `docs/contracts/epic-planning-ref.md` requires a verified host-owned descendant commit at the private Epic planning ref before `select_next`. Run `npm run validate:planning-ref` for changes touching this boundary.
 
 ## Commits
 
@@ -30,4 +31,4 @@ fix: preserve artifact identity binding
 
 ## Current phase
 
-The repository currently contains the approved specification only. Build, test, and installation commands will be documented when the implementation skeleton is introduced.
+The repository currently contains a revision-in-progress specification plus design validators. Runtime build and installation commands will be documented only after issue #39 approves the consolidated implementation-ready candidate.

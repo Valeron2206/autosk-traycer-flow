@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "operation_id": "00000000-0000-4000-8000-000000000000",
+  "operation_type": "planning_ref_init",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
+  "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+  "selected_base_ref": "refs/heads/main",
+  "base_selection_policy": {
+    "mode": "explicit_local_ref",
+    "selected_base_ref": "refs/heads/main",
+    "expected_commit_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+    "expected_tree_oid": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+    "host_identity": "autosk-flow <autosk@example.invalid>",
+    "signing_mode": "none"
+  },
+  "base_selection_authority": {
+    "source": "workflow_intake",
+    "request_id": "77777777-7777-4777-8777-777777777777",
+    "request_hash": "8ecc0c148537cc05301fba6e66bce834384aa4a6666666666666666666666666"
+  },
+  "planning_base_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+  "planning_base_tree_oid": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+  "object_format": "sha1",
+  "bootstrap_policy_digest": "d23ea4156a39314e1d8fee209fbabf808f171f1001f5f3120548c8cc540d7457",
+  "ref_storage_format": "files",
+  "ref_custody_generation": 1,
+  "ref_custody_policy_digest": "a9802252ce8dbef830d3db84187e3d96741df3f38c4cd29587d44c7fb98df6ab",
+  "reflog_producer": {
+    "git_committer_name": "autosk-flow",
+    "git_committer_email": "autosk@example.invalid",
+    "git_committer_date": "@0 +0000",
+    "lc_all": "C",
+    "tz": "UTC",
+    "git_config_system": "/dev/null",
+    "git_config_global": "/dev/null",
+    "git_config_nosystem": "1",
+    "hooks_path": "/dev/null",
+    "inherit_git_environment": false,
+    "update_ref_mode": "object_format_neutral_expected_old"
+  },
+  "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000",
+  "reflog_checkpoint": {
+    "before_entry_count": 0,
+    "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+    "expected_old_oid": null,
+    "expected_new_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+    "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000"
+  },
+  "phase": "verified",
+  "created_at_utc": "2026-09-01T00:00:00Z",
+  "receipts": {
+    "ref_create": {
+      "schema": 1,
+      "operation_id": "00000000-0000-4000-8000-000000000000",
+      "receipt_kind": "ref_create",
+      "observation": {
+        "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+        "observed_old_oid": null,
+        "observed_new_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+        "expected_update_message": "autosk-flow init 00000000-0000-4000-8000-000000000000",
+        "before_entry_count": 0,
+        "after_entry_count": 1,
+        "before_prefix_sha256": "fc2f7eeb37342d4d5eaf88fbc2ae6bf3b37e57ed4dcb73c9e81bc51c5780eb3b",
+        "appended_entry_sha256": "26a7b3be41660d5fe1424d03f255a55a0141a40206aa5c6c613aa883a1cbfdb5"
+      },
+      "observation_sha256": "b8383614a2506a159eee7303622a8c773a518cd0a7899da60da25e372f16c1a5",
+      "receipt_hash": "ca307372ef7c730ae941b6d75580d5a82943f84d9e2d5d1a6ef6eba981caa589",
+      "helper_evidence": {
+        "request_id": "00000001-1111-4111-8111-000000000001",
+        "nonce": "fab1f574d597efaa8767215e97c152d51a156723adfa3310eae648d895cd12c6",
+        "request_body_sha256": "92fcf9f07199341d7bc4b4e9b1a32126ddf24f09ba6187f91f0f460d2986653b",
+        "transaction_value_observation_sha256": "3e431b6332018494777ca4abcf29f7ec37ceb92579ec7de92c8f956148dea830",
+        "helper_receipt_hash": "4eaa92f083d93de25ebde17da503f7e33abef2859390169f9df13f22296250ed",
+        "helper_journal_hash": "303512703c66a7e335461aa0b6c5120250aa281b9f140a336b0af21b7a7e61e2"
+      }
+    },
+    "verification": {
+      "schema": 1,
+      "operation_id": "00000000-0000-4000-8000-000000000000",
+      "receipt_kind": "verification",
+      "observation": {
+        "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
+        "commit_oid": "61e1521ed4985292de705c4a48dab789a5a52180",
+        "tree_oid": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "ref_create_receipt_hash": "ca307372ef7c730ae941b6d75580d5a82943f84d9e2d5d1a6ef6eba981caa589"
+      },
+      "observation_sha256": "ef28189c0f7ce66a1e0b0aef93aee11bc3aab0af907f4d30dadfd456412b5d5a",
+      "receipt_hash": "12b99da483f409a77f3ddf348b6cbdedf3e55e5602c417f64cdde2a489c188f6",
+      "helper_evidence": null
+    }
+  }
+}
