@@ -1,0 +1,49 @@
+name: Build deterministic issue 6 review pack
+
+on:
+  push:
+    branches:
+      - design/issue-6-handoff-clean
+    paths:
+      - .github/workflows/build-issue-6-review-pack.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out review-pack tooling branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: design/issue-6-handoff-clean
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build and verify deterministic pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/ops/build-issue-6-review-pack.sh
+
+      - name: Publish review-pack archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: issue-6-review-pack-20867d5f
+          path: |
+            ${{ runner.temp }}/issue-6-review-pack-build/delivery/review-pack.tar.gz
+            ${{ runner.temp }}/issue-6-review-pack-build/delivery/review-pack.tar.gz.sha256
+            ${{ runner.temp }}/issue-6-review-pack-build/delivery/review-pack-summary.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Record archive identity
+        run: |
+          cat "${RUNNER_TEMP}/issue-6-review-pack-build/delivery/review-pack-summary.json" >> "${GITHUB_STEP_SUMMARY}"
+          printf '\n```text\n' >> "${GITHUB_STEP_SUMMARY}"
+          cat "${RUNNER_TEMP}/issue-6-review-pack-build/delivery/review-pack.tar.gz.sha256" >> "${GITHUB_STEP_SUMMARY}"
+          printf '```\n' >> "${GITHUB_STEP_SUMMARY}"
