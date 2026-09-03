@@ -27,7 +27,9 @@ jobs:
           node-version: 24
 
       - name: Apply review fixes
-        run: python3 .github/tmp/fix-issue-6-coderabbit.py
+        run: |
+          python3 .github/tmp/fix-issue-6-coderabbit.py
+          python3 .github/tmp/fix-issue-6-coderabbit-followup.py
 
       - name: Run complete validation
         run: |
@@ -42,6 +44,7 @@ jobs:
         shell: bash
         run: |
           rm .github/tmp/fix-issue-6-coderabbit.py
+          rm .github/tmp/fix-issue-6-coderabbit-followup.py
           rmdir .github/tmp 2>/dev/null || true
           git add -A
           git diff --cached --check
