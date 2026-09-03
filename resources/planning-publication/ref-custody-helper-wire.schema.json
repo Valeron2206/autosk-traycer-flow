@@ -24,7 +24,7 @@
     "actions": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 6,
+      "maxItems": 8,
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/action_exchange"
@@ -56,8 +56,8 @@
         "init",
         "create_keepalive",
         "advance_planning",
-        "retain_audit",
-        "release_to_audit",
+        "ensure_audit_ref",
+        "delete_live_ref",
         "delete_expired_audit"
       ]
     },
@@ -192,6 +192,8 @@
         "candidate_identity",
         "custody_generation",
         "policy_digest",
+        "object_format",
+        "transfer_mode",
         "nonce",
         "packed_refs_sha256",
         "expected_update_message",
@@ -240,6 +242,25 @@
         "policy_digest": {
           "$ref": "#/$defs/sha256"
         },
+        "object_format": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "transfer_mode": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "retain_audit",
+                "release_to_audit"
+              ]
+            }
+          ]
+        },
         "nonce": {
           "$ref": "#/$defs/sha256"
         },
@@ -275,7 +296,38 @@
         "authorization": {
           "$ref": "#/$defs/authorization"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "ensure_audit_ref",
+                  "delete_live_ref"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "transfer_mode": {
+                "enum": [
+                  "retain_audit",
+                  "release_to_audit"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "transfer_mode": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     },
     "reflog_checkpoint": {
       "type": "object",
@@ -868,12 +920,12 @@
         {
           "properties": {
             "action": {
-              "const": "retain_audit"
+              "const": "ensure_audit_ref"
             },
             "request": {
               "properties": {
                 "action": {
-                  "const": "retain_audit"
+                  "const": "ensure_audit_ref"
                 },
                 "candidate_identity": {
                   "$ref": "#/$defs/sha256"
@@ -883,14 +935,14 @@
             "response": {
               "properties": {
                 "action": {
-                  "const": "retain_audit"
+                  "const": "ensure_audit_ref"
                 }
               }
             },
             "journal": {
               "properties": {
                 "action": {
-                  "const": "retain_audit"
+                  "const": "ensure_audit_ref"
                 }
               }
             }
@@ -899,12 +951,12 @@
         {
           "properties": {
             "action": {
-              "const": "release_to_audit"
+              "const": "delete_live_ref"
             },
             "request": {
               "properties": {
                 "action": {
-                  "const": "release_to_audit"
+                  "const": "delete_live_ref"
                 },
                 "candidate_identity": {
                   "$ref": "#/$defs/sha256"
@@ -914,14 +966,14 @@
             "response": {
               "properties": {
                 "action": {
-                  "const": "release_to_audit"
+                  "const": "delete_live_ref"
                 }
               }
             },
             "journal": {
               "properties": {
                 "action": {
-                  "const": "release_to_audit"
+                  "const": "delete_live_ref"
                 }
               }
             }

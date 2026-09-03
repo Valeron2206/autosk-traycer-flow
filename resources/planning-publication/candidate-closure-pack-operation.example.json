@@ -6,12 +6,95 @@
   "candidate_tree_oid": "2222222222222222222222222222222222222222",
   "object_format": "sha1",
   "object_count": 3,
-  "object_oid_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "pack_bytes_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "index_bytes_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "protected_store_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "object_oids": [
+    "2222222222222222222222222222222222222222",
+    "264029a5827e5674dc038091abea2c6df347bd2b",
+    "4444444444444444444444444444444444444444"
+  ],
+  "object_manifest": {
+    "objects": [
+      {
+        "oid": "2222222222222222222222222222222222222222",
+        "type": "tree",
+        "size_bytes": 37,
+        "object_bytes_sha256": "62acff3f1f4381d817e3b74889bda83e8f9c436b594676c44a9cc2224cfdf7fd"
+      },
+      {
+        "oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+        "type": "commit",
+        "size_bytes": 64,
+        "object_bytes_sha256": "89328dffe5ef01b0f20c18ee19b1b985f3e7f7b972b849c6e1ce5aa4b46a2f99"
+      },
+      {
+        "oid": "4444444444444444444444444444444444444444",
+        "type": "blob",
+        "size_bytes": 25,
+        "object_bytes_sha256": "10c6c4ddfe4177cba600406d7db90438bc163c159ae88361711e9b2d190cb200"
+      }
+    ]
+  },
+  "object_manifest_sha256": "f142ded1a8817554faef277ce89c953077d08aae0f95671b15ecfecde098d883",
+  "object_oid_set_sha256": "3a5500b26ce45b54bbd581d136a08c7ea29dbc9d6ad94219f1ebf30da2317561",
+  "pack_bytes_base64": "cGFjayBieXRlcyBmb3IgbWFpbgo=",
+  "pack_bytes_sha256": "0056fce174f55c5e924b64d0f8909427a62020ff84587401ac7da71b46cc6d2a",
+  "index_bytes_base64": "aW5kZXggYnl0ZXMgZm9yIG1haW4K",
+  "index_bytes_sha256": "349d8f642610f2b5c92cb52e1c8d9a0c62b79c702e6149b4baa6d1d4b60daa7c",
+  "content_addressed_locator": {
+    "store_role": "helper-owned-candidate-quarantine",
+    "pack_relative_path": "objects/pack/autosk-candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9/pack-0056fce174f55c5e924b64d0f8909427a62020ff84587401ac7da71b46cc6d2a.pack",
+    "index_relative_path": "objects/pack/autosk-candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9/pack-0056fce174f55c5e924b64d0f8909427a62020ff84587401ac7da71b46cc6d2a.idx",
+    "pack_content_address": "0056fce174f55c5e924b64d0f8909427a62020ff84587401ac7da71b46cc6d2a",
+    "contains_home_path": false
+  },
+  "git_producer": {
+    "git_version": "git version 2.50.1",
+    "command_argv": [
+      "git",
+      "pack-objects",
+      "--revs",
+      "--stdout"
+    ],
+    "object_format": "sha1",
+    "environment": {
+      "GIT_CONFIG_GLOBAL": "/dev/null",
+      "GIT_CONFIG_NOSYSTEM": "1",
+      "GIT_CONFIG_SYSTEM": "/dev/null",
+      "LC_ALL": "C",
+      "TZ": "UTC"
+    }
+  },
+  "protected_store_identity": "c4ae7fe62d2b7e071d594c77b3df57f545fd98d5dc78e313f11be88d70c41136",
   "phase": "verified",
-  "write_receipt": "788df275af5646a542d9a24fef3d8b538a29ceea130185d025aa2d047ed166a0",
-  "verification_receipt": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b",
+  "write_receipt": {
+    "write_order": [
+      "write_temp_pack",
+      "fsync_temp_pack",
+      "write_temp_index",
+      "fsync_temp_index",
+      "rename_pack",
+      "rename_index",
+      "fsync_directory"
+    ],
+    "temp_pack_fsynced": true,
+    "temp_index_fsynced": true,
+    "pack_renamed": true,
+    "index_renamed": true,
+    "directory_fsynced": true,
+    "receipt_hash": "e14927d498db86347b0820ec922f6422585566c72056a5f92d3c74298cecc897"
+  },
+  "verification_receipt": {
+    "git_verify_pack": true,
+    "manifest_exact": true,
+    "pack_hash_verified": true,
+    "index_hash_verified": true,
+    "receipt_hash": "64467578be1c731fb8084b1b6191ba1d561920e86733288bfba54f6a64a2adf7"
+  },
+  "recovery_phases": [
+    "prepared",
+    "temp_files_fsynced",
+    "atomic_rename_completed",
+    "directory_fsynced",
+    "verified"
+  ],
   "created_at_utc": "2026-09-01T00:01:58Z"
 }

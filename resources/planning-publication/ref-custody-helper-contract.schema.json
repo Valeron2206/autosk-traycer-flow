@@ -49,8 +49,8 @@
             "init",
             "create_keepalive",
             "advance_planning",
-            "retain_audit",
-            "release_to_audit",
+            "ensure_audit_ref",
+            "delete_live_ref",
             "delete_expired_audit"
           ]
         },
@@ -155,32 +155,32 @@
         {
           "properties": {
             "action": {
-              "const": "retain_audit"
+              "const": "ensure_audit_ref"
             },
             "request_domain": {
-              "const": "autosk-flow/ref-custody/retain_audit/request-shape/v1\u0000"
+              "const": "autosk-flow/ref-custody/ensure_audit_ref/request-shape/v1\u0000"
             },
             "observation_domain": {
-              "const": "autosk-flow/ref-custody/retain_audit/response-shape/v1\u0000"
+              "const": "autosk-flow/ref-custody/ensure_audit_ref/response-shape/v1\u0000"
             },
             "receipt_domain": {
-              "const": "autosk-flow/ref-custody/retain_audit/receipt-shape/v1\u0000"
+              "const": "autosk-flow/ref-custody/ensure_audit_ref/receipt-shape/v1\u0000"
             }
           }
         },
         {
           "properties": {
             "action": {
-              "const": "release_to_audit"
+              "const": "delete_live_ref"
             },
             "request_domain": {
-              "const": "autosk-flow/ref-custody/release_to_audit/request-shape/v1\u0000"
+              "const": "autosk-flow/ref-custody/delete_live_ref/request-shape/v1\u0000"
             },
             "observation_domain": {
-              "const": "autosk-flow/ref-custody/release_to_audit/response-shape/v1\u0000"
+              "const": "autosk-flow/ref-custody/delete_live_ref/response-shape/v1\u0000"
             },
             "receipt_domain": {
-              "const": "autosk-flow/ref-custody/release_to_audit/receipt-shape/v1\u0000"
+              "const": "autosk-flow/ref-custody/delete_live_ref/receipt-shape/v1\u0000"
             }
           }
         },

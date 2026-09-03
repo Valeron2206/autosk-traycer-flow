@@ -1,14 +1,31 @@
 {
   "schema": 1,
   "record_id": "dddddddd-1111-4111-8111-dddddddddddd",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "22222222-2222-4222-8222-222222222222",
+  "epic_ref_key": "e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1",
   "artifact_kind": "brief",
   "publication_operation_id": "11111111-1111-4111-8111-111111111111",
+  "prior_publication_receipt_hash": "7f7b16ee07d33548dbb080849b0c1ecf3f817a5fe650b937005cd06b8bb5b724",
   "old_anchor_version": 1,
   "new_anchor_version": 2,
-  "approved_impact_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "approved_impact_digest": "4ee29407a66593820b73eecd5eac769c302dce20d0088baa482422401ceed33c",
+  "projection_blob_oid": "7777777777777777777777777777777777777777",
   "unchanged_tree_oid": "2222222222222222222222222222222222222222",
-  "unchanged_pathspec_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "unchanged_pathspec_digest": "4006919827ded05e5cde9e759db130cf8dce7c0b7be1ea29d91016b6f487e788",
   "previous_rebinding_hash": null,
-  "receipt_hash": "b23e18a420970bced2dfa1022d5704e2be3a6866c8abccb680e518fa1385cf7f",
-  "created_at_utc": "2026-09-01T00:04:00Z"
+  "receipt_hash": "41274e5fc267104075eb5777ddb41a76a0f45d263524a167a64bfa095a5c27e7",
+  "created_at_utc": "2026-09-01T00:04:00Z",
+  "old_published_commit_oid": "3333333333333333333333333333333333333333",
+  "old_published_tree_oid": "4444444444444444444444444444444444444444",
+  "current_planning_head_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
+  "expected_prior_head_oid": "3333333333333333333333333333333333333333",
+  "approved_impact": {
+    "decision_id": "anchor-impact-0001",
+    "impact": "unaffected",
+    "unaffected_reason": "The approved anchor change affects only tech_plan; brief projection bytes and pathspec are unchanged."
+  },
+  "projection_blob_mode": "100644",
+  "projection_bytes_base64": "cHVibGlzaGVkIGJyaWVmIHByb2plY3Rpb24K",
+  "projection_blob_sha256": "51061a3a2daa36c48c7e4d76693c3f4c8bc5faf11bdc70e032a69d8dac3dd1d0"
 }

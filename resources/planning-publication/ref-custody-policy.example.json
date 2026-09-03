@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "custody_generation": 1,
+  "platform": "macos",
+  "supported_platforms": [
+    {
+      "platform": "linux",
+      "service_manager": "systemd",
+      "peer_credential_api": "SO_PEERCRED",
+      "helper_account": "autosk-ref-custody",
+      "owner_account": "autosk-custody",
+      "common_git_dir_mode_octal": "0700",
+      "socket_mode_octal": "0600"
+    },
+    {
+      "platform": "macos",
+      "service_manager": "launchd",
+      "peer_credential_api": "getpeereid",
+      "helper_account": "autosk-ref-custody",
+      "owner_account": "autosk-custody",
+      "common_git_dir_mode_octal": "0700",
+      "socket_mode_octal": "0600"
+    }
+  ],
+  "object_store_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "helper_binary_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "daemon_authorization_public_key_sha256": "ca0bb514aed6edfa9ef4567acfccdb3b0408523eca1aa72f914d3a5af06b3a0b",
+  "helper_identity": "autosk-ref-custody",
+  "owner_identity": "autosk-custody",
+  "lock_protocol": "flock-v1",
+  "namespace": "refs/autosk/**",
+  "logs_namespace": "logs/refs/autosk/**",
+  "socket": {
+    "path_role": "project-custody-socket",
+    "mode_octal": "0600",
+    "owner_identity": "autosk-custody",
+    "peer_credential_api": "getpeereid"
+  },
+  "parent_topology": [
+    {
+      "path_role": "service-root",
+      "device": 1,
+      "inode": 100,
+      "uid": 0,
+      "gid": 0,
+      "mode_octal": "0750",
+      "acl_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "path_role": "project-common-git-dir",
+      "device": 1,
+      "inode": 101,
+      "uid": 501,
+      "gid": 20,
+      "mode_octal": "0700",
+      "acl_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "permission_probes": [
+    {
+      "actor": "project-account",
+      "operation": "create-protected-ref",
+      "result": "denied",
+      "errno": "EACCES"
+    },
+    {
+      "actor": "project-account",
+      "operation": "rename-autosk-dir",
+      "result": "denied",
+      "errno": "EPERM"
+    },
+    {
+      "actor": "project-account",
+      "operation": "pack-protected-ref",
+      "result": "denied",
+      "errno": "EACCES"
+    }
+  ],
+  "packed_refs_policy": {
+    "gc_pack_refs": false,
+    "protected_entry_allowed": false,
+    "maintenance_owner": "autosk-custody",
+    "preflight_on_every_request": true
+  },
+  "packaging": {
+    "artifact_name": "autosk-flow-ref-custody",
+    "artifact_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "signature_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "lifecycle": {
+    "bootstrap_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "upgrade_from_generation": 0,
+    "rollback_generation": 0,
+    "rollback_requires_no_open_operation": true
+  },
+  "parent_topology_hash": "543c4b2345feb738f9c5cd6370e9eea4b8b1828f3766de5cf101e35a6bc550f3",
+  "permission_probe_hash": "e05f672e9fc0559325f14c58aeb3ace24827a759ce2403359e9f3596fb117d18",
+  "packed_refs_policy_hash": "c1dd9cb926efbeb04966410e727222d7adde13c1d08ff93381792a42dd5213a9",
+  "policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395"
+}

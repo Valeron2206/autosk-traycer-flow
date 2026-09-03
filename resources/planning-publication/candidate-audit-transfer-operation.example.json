@@ -9,28 +9,47 @@
   "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
   "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
   "planning_oid": "cc745247722ff2fe151303f31113281e0fcd9c70",
-  "helper_intent_key": "282c60729b5ca824bf879b991e2db839605f2b489b6044d84b011fb0b2d3d488",
   "phase": "verified",
   "audit_ref_receipt": {
     "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
     "live_ref_still_present": true,
     "planning_verified": true,
-    "receipt_hash": "eb1fc7ec8ff864edb542c892704e11480444f68ce179e503284bd37b432d1231"
+    "receipt_hash": "c990baf0d2b2ee8050ff7411e8a0d018ef582308b0d6d7514ca47ecb837984cd",
+    "helper_evidence": {
+      "request_id": "00000006-1111-4111-8111-000000000006",
+      "nonce": "084fc3ffee41b8ccb9f92304fef76288277c2ff71299b49cbcc8d770a69d72f0",
+      "request_body_sha256": "182ee031204908acf950ddeb3e30a086af71f5b804309c3ad44e380d9444607b",
+      "transaction_value_observation_sha256": "8fd302c4d3fdb069142aff2f43350750048ca38fe9b487e80cebc569920e7564",
+      "helper_receipt_hash": "32ba5ee808f461f29bc7c434699b7c23a65a3e2d137ee789afaf990267f5d852",
+      "helper_journal_hash": "66aa60532e1ad74d729c953a48153b9308e41b1e73eba574d4009011b7bcc273"
+    }
   },
   "live_delete_receipt": {
     "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "expected_old_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
     "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "audit_ref_verified": true,
-    "receipt_hash": "5d374bfb16efbdbdaf829b820de8f3cf48a443e624c877d29b9f2d572310476a"
+    "receipt_hash": "41b5f5143c38b2679c75522012d0c7557698ac918e123da28fba9ff3772cfd61",
+    "helper_evidence": {
+      "request_id": "00000007-1111-4111-8111-000000000007",
+      "nonce": "f51662ae10cb442625e1003be3c07a5c6f8c567787f063be9f01a4b8dc1b207d",
+      "request_body_sha256": "08a690fd7849a1f166a548f87c47f320993b65e5d25989f68a90e18d7fd589e4",
+      "transaction_value_observation_sha256": "a83ac0e759cfc8575f3b15279f5902dfb557c2309ef7ded30175483c25e42239",
+      "helper_receipt_hash": "a726d3b9e49eca368cd530728cbedfdac8c8e90c04f0aec925c6db90da87ea68",
+      "helper_journal_hash": "2f3cd5745088e1764c5aed355a888978d8be1bb905ae534046660c449ec9adb9"
+    }
   },
   "verification_receipt": {
     "live_ref_absent": true,
     "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
-    "receipt_hash": "063d812edf4df31bdf3e32fbb860c7025d676421f49ab0f77213336fa76d53f2"
+    "receipt_hash": "6365259aedfd6d9bf61815194e4be4f1bd9cd69c3ab47ddea5f5b1e3fdfe73ce",
+    "audit_ref_receipt_hash": "114cc29209f13cef98e1025bfc7a91d7393869aed313c6883e68a01fba0251b3",
+    "live_delete_receipt_hash": "6f89705183c448354b1433b9f09798e59209fef71ac25c75e23aae062fafdbaf"
   },
   "created_at_utc": "2026-09-01T00:03:00Z",
-  "completed_at_utc": "2026-09-01T00:03:03Z"
+  "completed_at_utc": "2026-09-01T00:03:03Z",
+  "ensure_audit_intent_key": "e6a44ebf9cad62a104be557414f31ed93ad709465f50fd6b906db621033b9a26",
+  "delete_live_intent_key": "af9f2f158cea00a027adc8264d7e1f4ddc5870efbb726057f7856fc8019d3c8e"
 }

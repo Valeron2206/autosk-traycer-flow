@@ -1,17 +1,100 @@
 {
   "schema": 1,
-  "operation_id": "eeeeeeee-1111-4111-8111-eeeeeeeeeeee",
+  "operation_id": "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
   "candidate_identity": "b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
   "snapshot_commit_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
   "candidate_tree_oid": "6666666666666666666666666666666666666666",
   "object_format": "sha1",
   "object_count": 3,
-  "object_oid_set_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
-  "pack_bytes_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
-  "index_bytes_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
-  "protected_store_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "object_oids": [
+    "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
+    "5555555555555555555555555555555555555555",
+    "6666666666666666666666666666666666666666"
+  ],
+  "object_manifest": {
+    "objects": [
+      {
+        "oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
+        "type": "commit",
+        "size_bytes": 64,
+        "object_bytes_sha256": "02ec75764e3d2ff8da4efd637797c582814c209bad44adc03d9b6c02ba840823"
+      },
+      {
+        "oid": "5555555555555555555555555555555555555555",
+        "type": "blob",
+        "size_bytes": 25,
+        "object_bytes_sha256": "7621bcd4268873f7d70f59a69687528d28fddc392b51c825c4817daf6173dea8"
+      },
+      {
+        "oid": "6666666666666666666666666666666666666666",
+        "type": "tree",
+        "size_bytes": 37,
+        "object_bytes_sha256": "4b7d6d8433cd66794c04244ecd735c244755b1471abea48a8b8b8322f15f1e56"
+      }
+    ]
+  },
+  "object_manifest_sha256": "9c027dd8d96efde603729ed7835dbcf485df7b2ef388a8e3a78963a716e7d58c",
+  "object_oid_set_sha256": "edfa0cd609346320e39eb51d75bbf2a41cc0f5f67a7fa449a6cae48724fe72cc",
+  "pack_bytes_base64": "cGFjayBieXRlcyBmb3IgaW52YWxpZGF0aW9uCg==",
+  "pack_bytes_sha256": "6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af",
+  "index_bytes_base64": "aW5kZXggYnl0ZXMgZm9yIGludmFsaWRhdGlvbgo=",
+  "index_bytes_sha256": "6af0b9bfb93de1bd94f56bf5bbc7022551c0e83169491f0a90ec2ae8a34c42cb",
+  "content_addressed_locator": {
+    "store_role": "helper-owned-candidate-quarantine",
+    "pack_relative_path": "objects/pack/autosk-candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0/pack-6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af.pack",
+    "index_relative_path": "objects/pack/autosk-candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0/pack-6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af.idx",
+    "pack_content_address": "6f8661c83a7c8560df022a4a6083c6b2239fb2522698b601aa98ef9fb61827af",
+    "contains_home_path": false
+  },
+  "git_producer": {
+    "git_version": "git version 2.50.1",
+    "command_argv": [
+      "git",
+      "pack-objects",
+      "--revs",
+      "--stdout"
+    ],
+    "object_format": "sha1",
+    "environment": {
+      "GIT_CONFIG_GLOBAL": "/dev/null",
+      "GIT_CONFIG_NOSYSTEM": "1",
+      "GIT_CONFIG_SYSTEM": "/dev/null",
+      "LC_ALL": "C",
+      "TZ": "UTC"
+    }
+  },
+  "protected_store_identity": "c4ae7fe62d2b7e071d594c77b3df57f545fd98d5dc78e313f11be88d70c41136",
   "phase": "verified",
-  "write_receipt": "00a70ee125fbea4d195ce3c7230679dc9390a1765d697d3ded1070f385698897",
-  "verification_receipt": "172372a0fb593457ab569fd1a600afd8e0b056fb5fd43c2025a34cbcb60c0731",
-  "created_at_utc": "2026-09-01T00:01:59Z"
+  "write_receipt": {
+    "write_order": [
+      "write_temp_pack",
+      "fsync_temp_pack",
+      "write_temp_index",
+      "fsync_temp_index",
+      "rename_pack",
+      "rename_index",
+      "fsync_directory"
+    ],
+    "temp_pack_fsynced": true,
+    "temp_index_fsynced": true,
+    "pack_renamed": true,
+    "index_renamed": true,
+    "directory_fsynced": true,
+    "receipt_hash": "c9604fa3b8073743f086fa96480d33e9fad16fa0f5eaf02f93b7647c96d6c7a6"
+  },
+  "verification_receipt": {
+    "git_verify_pack": true,
+    "manifest_exact": true,
+    "pack_hash_verified": true,
+    "index_hash_verified": true,
+    "receipt_hash": "83f44c348b2edf066dd71ac003761a7c04bc8307129a79a86faa8539e60d6596"
+  },
+  "recovery_phases": [
+    "prepared",
+    "temp_files_fsynced",
+    "atomic_rename_completed",
+    "directory_fsynced",
+    "verified"
+  ],
+  "created_at_utc": "2026-09-01T00:02:58Z"
 }

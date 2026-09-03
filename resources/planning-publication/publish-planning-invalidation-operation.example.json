@@ -62,17 +62,19 @@
       "receipt_hash": "604dc25396d193f082c3251f9a038ba27c6aa08e89cd112d66dc348a6e85b69c",
       "operation_id": "88888888-8888-4888-8888-888888888888",
       "helper_evidence": {
-        "request_id": "00000007-1111-4111-8111-000000000007",
-        "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
-        "transaction_value_observation_sha256": "66bad4ab3436b2f939d499e14e911fc929339eec00b9a0fd02dd073e00ebf2f3",
-        "helper_receipt_hash": "3c5f587fbeb62ab1cdcf7a8fc0766a231a7ad3095c4cc98588c25ee3d99c8344"
+        "request_id": "00000009-1111-4111-8111-000000000009",
+        "nonce": "c84f2949e27f93770724129d2a24e80602cb3e9c7a0888b81c654bb64c32230a",
+        "request_body_sha256": "796d7e7d21e6ff785fc8966d6708c5bf0439e5b0bd26701015eddcf41c61b6ae",
+        "transaction_value_observation_sha256": "3258158fb50f6df99d6760f1c4a7232aa6b54b57a2463a4b336e493a136e179c",
+        "helper_receipt_hash": "c40d7ef22d33df02c5ede7dbcfb488be9417c1c885ecb5055045642c174de3be",
+        "helper_journal_hash": "f43a7812cb1303058884bb0be3cba2eed12419b8773947c48a27e473ce51fb8b"
       }
     },
     "release_receipt": null,
     "audit_receipt": null,
     "terminal_disposition": null,
     "created_at_utc": "2026-09-01T00:00:00Z",
-    "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
     "ref_custody_generation": 1,
     "operation_id": "88888888-8888-4888-8888-888888888888",
     "snapshot_commit_recipe": {
@@ -97,7 +99,7 @@
       "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgY2FuZGlkYXRlCg==",
       "signing": {
         "mode": "none",
-        "policy_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+        "policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
         "signature_header_base64": null
       },
       "commit_object_bytes_base64": "dHJlZSA2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2CnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
@@ -123,19 +125,21 @@
       "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "snapshot_commit_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4"
     },
-    "closure_pack_operation_id": "eeeeeeee-1111-4111-8111-eeeeeeeeeeee",
-    "closure_pack_receipt_hash": "172372a0fb593457ab569fd1a600afd8e0b056fb5fd43c2025a34cbcb60c0731",
+    "closure_pack_operation_id": "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+    "closure_pack_receipt_hash": "83f44c348b2edf066dd71ac003761a7c04bc8307129a79a86faa8539e60d6596",
     "verification_receipt": {
       "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0",
       "observed_oid": "5270588f3a22d412ddb9e70009c957d0d1ea5be4",
       "reflog_tail_observation_sha256": "7f96c3e95aef32c320ba2171093aeaea19162e68a1ca71b3570452ad594868d3",
       "helper_evidence": {
-        "request_id": "00000007-1111-4111-8111-000000000007",
-        "nonce": "7777777777777777777777777777777777777777777777777777777777777777",
-        "transaction_value_observation_sha256": "66bad4ab3436b2f939d499e14e911fc929339eec00b9a0fd02dd073e00ebf2f3",
-        "helper_receipt_hash": "3c5f587fbeb62ab1cdcf7a8fc0766a231a7ad3095c4cc98588c25ee3d99c8344"
+        "request_id": "00000009-1111-4111-8111-000000000009",
+        "nonce": "c84f2949e27f93770724129d2a24e80602cb3e9c7a0888b81c654bb64c32230a",
+        "request_body_sha256": "796d7e7d21e6ff785fc8966d6708c5bf0439e5b0bd26701015eddcf41c61b6ae",
+        "transaction_value_observation_sha256": "3258158fb50f6df99d6760f1c4a7232aa6b54b57a2463a4b336e493a136e179c",
+        "helper_receipt_hash": "c40d7ef22d33df02c5ede7dbcfb488be9417c1c885ecb5055045642c174de3be",
+        "helper_journal_hash": "f43a7812cb1303058884bb0be3cba2eed12419b8773947c48a27e473ce51fb8b"
       },
-      "receipt_hash": "d597b24477d3f7cd1613996d52bb4d8cbbee16c68ea1a5a9bf14daa672c1709f"
+      "receipt_hash": "07f793ce4de13ee327087ce109c8c24b4a0bef1ed2235232591b65cdb3d6cfc1"
     }
   },
   "payload": {
@@ -175,7 +179,7 @@
   "project_instruction_digest": "9999999999999999999999999999999999999999999999999999999999999999",
   "governance_mapping_set_digest": "1111111111111111111111111111111111111111111111111111111111111111",
   "ref_custody_generation": 1,
-  "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
   "expected_parent_oid": "3333333333333333333333333333333333333333",
   "expected_parent_tree_oid": "4444444444444444444444444444444444444444",
   "candidate_tree_oid": "6666666666666666666666666666666666666666",
@@ -201,13 +205,13 @@
     "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgcHVibGljYXRpb24KCkF1dG9zay1BbmNob3ItVmVyc2lvbjogMgpBdXRvc2stRXBpYy1JRDogMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyCkF1dG9zay1JbXBhY3QtRGlnZXN0OiA4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4CkF1dG9zay1JbXBhY3QtSWRlbnRpdHk6IDlkZjAwZTM0ZWE5NGZiNTM4MjZiYzExNjg0N2NhMjM3OTQ4MTM0YjdhMDk1ZTZiZTE5NjljNTNmMjRiNDdjZGIKQXV0b3NrLU9wZXJhdGlvbi1JRDogNjY2NjY2NjYtNjY2Ni00NjY2LTg2NjYtNjY2NjY2NjY2NjY2CkF1dG9zay1QYXlsb2FkLUtpbmQ6IGFuY2hvcl9pbnZhbGlkYXRpb24KQXV0b3NrLVByb2plY3QtSW5zdHJ1Y3Rpb24tRGlnZXN0OiA5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5CkF1dG9zay1Qcm9qZWN0LVJvb3QtU0hBMjU2OiBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhCkF1dG9zay1Qcm90b2NvbC1EaWdlc3Q6IGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYKQXV0b3NrLVJ1bnRpbWUtTG9jay1EaWdlc3Q6IDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAK",
     "signing": {
       "mode": "none",
-      "policy_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+      "policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
       "signature_header_base64": null
     },
     "commit_object_bytes_base64": "dHJlZSA2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2CnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIHB1YmxpY2F0aW9uCgpBdXRvc2stQW5jaG9yLVZlcnNpb246IDIKQXV0b3NrLUVwaWMtSUQ6IDIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMgpBdXRvc2stSW1wYWN0LURpZ2VzdDogODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OApBdXRvc2stSW1wYWN0LUlkZW50aXR5OiA5ZGYwMGUzNGVhOTRmYjUzODI2YmMxMTY4NDdjYTIzNzk0ODEzNGI3YTA5NWU2YmUxOTY5YzUzZjI0YjQ3Y2RiCkF1dG9zay1PcGVyYXRpb24tSUQ6IDY2NjY2NjY2LTY2NjYtNDY2Ni04NjY2LTY2NjY2NjY2NjY2NgpBdXRvc2stUGF5bG9hZC1LaW5kOiBhbmNob3JfaW52YWxpZGF0aW9uCkF1dG9zay1Qcm9qZWN0LUluc3RydWN0aW9uLURpZ2VzdDogOTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OQpBdXRvc2stUHJvamVjdC1Sb290LVNIQTI1NjogYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQpBdXRvc2stUHJvdG9jb2wtRGlnZXN0OiBmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmCkF1dG9zay1SdW50aW1lLUxvY2stRGlnZXN0OiAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwCg==",
     "commit_object_bytes_sha256": "a02a1044f82f23c7c28ef95be79d36cc1bf051549431d82f851e66de07a5f90f"
   },
-  "commit_recipe_digest": "e886b201899eca1da978537f29f846898dc5f932cc62d7490c5f7be61793feed",
+  "commit_recipe_digest": "e58c9ac242e10ab12599ba23cf2b93a4d40642261be1ec4e2e9b33bc61548941",
   "expected_commit_oid": "295cd2ca63db44a87cdd007be0edb7222fb8576c",
   "reflog_checkpoint": {
     "before_entry_count": 1,

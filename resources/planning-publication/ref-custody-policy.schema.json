@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/ref-custody-policy.schema.json",
+  "title": "autosk-flow ref custody platform policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "custody_generation", "platform", "supported_platforms", "object_store_identity", "helper_binary_sha256", "daemon_authorization_public_key_sha256", "helper_identity", "owner_identity", "lock_protocol", "namespace", "logs_namespace", "socket", "parent_topology", "permission_probes", "packed_refs_policy", "packaging", "lifecycle", "parent_topology_hash", "permission_probe_hash", "packed_refs_policy_hash", "policy_digest"],
+  "properties": {
+    "schema": { "const": 1 },
+    "custody_generation": { "type": "integer", "minimum": 1 },
+    "platform": { "enum": ["linux", "macos"] },
+    "supported_platforms": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/platform_profile" } },
+    "object_store_identity": { "$ref": "#/$defs/sha256" },
+    "helper_binary_sha256": { "$ref": "#/$defs/sha256" },
+    "daemon_authorization_public_key_sha256": { "$ref": "#/$defs/sha256" },
+    "helper_identity": { "type": "string", "minLength": 1 },
+    "owner_identity": { "type": "string", "minLength": 1 },
+    "lock_protocol": { "const": "flock-v1" },
+    "namespace": { "const": "refs/autosk/**" },
+    "logs_namespace": { "const": "logs/refs/autosk/**" },
+    "socket": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path_role", "mode_octal", "owner_identity", "peer_credential_api"],
+      "properties": { "path_role": { "const": "project-custody-socket" }, "mode_octal": { "const": "0600" }, "owner_identity": { "type": "string" }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] } }
+    },
+    "parent_topology": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/topology_entry" } },
+    "permission_probes": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/permission_probe" } },
+    "packed_refs_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["gc_pack_refs", "protected_entry_allowed", "maintenance_owner", "preflight_on_every_request"],
+      "properties": { "gc_pack_refs": { "const": false }, "protected_entry_allowed": { "const": false }, "maintenance_owner": { "const": "autosk-custody" }, "preflight_on_every_request": { "const": true } }
+    },
+    "packaging": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_name", "artifact_sha256", "signature_sha256"],
+      "properties": { "artifact_name": { "const": "autosk-flow-ref-custody" }, "artifact_sha256": { "$ref": "#/$defs/sha256" }, "signature_sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "lifecycle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bootstrap_receipt_sha256", "upgrade_from_generation", "rollback_generation", "rollback_requires_no_open_operation"],
+      "properties": { "bootstrap_receipt_sha256": { "$ref": "#/$defs/sha256" }, "upgrade_from_generation": { "type": "integer", "minimum": 0 }, "rollback_generation": { "type": "integer", "minimum": 0 }, "rollback_requires_no_open_operation": { "const": true } }
+    },
+    "parent_topology_hash": { "$ref": "#/$defs/sha256" },
+    "permission_probe_hash": { "$ref": "#/$defs/sha256" },
+    "packed_refs_policy_hash": { "$ref": "#/$defs/sha256" },
+    "policy_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    { "if": { "properties": { "platform": { "const": "linux" } } }, "then": { "properties": { "socket": { "properties": { "peer_credential_api": { "const": "SO_PEERCRED" } } } } } },
+    { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "socket": { "properties": { "peer_credential_api": { "const": "getpeereid" } } } } } }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "platform_profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["platform", "service_manager", "peer_credential_api", "helper_account", "owner_account", "common_git_dir_mode_octal", "socket_mode_octal"],
+      "properties": { "platform": { "enum": ["linux", "macos"] }, "service_manager": { "enum": ["systemd", "launchd"] }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] }, "helper_account": { "const": "autosk-ref-custody" }, "owner_account": { "const": "autosk-custody" }, "common_git_dir_mode_octal": { "const": "0700" }, "socket_mode_octal": { "const": "0600" } },
+      "allOf": [
+        { "if": { "properties": { "platform": { "const": "linux" } } }, "then": { "properties": { "service_manager": { "const": "systemd" }, "peer_credential_api": { "const": "SO_PEERCRED" } } } },
+        { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "service_manager": { "const": "launchd" }, "peer_credential_api": { "const": "getpeereid" } } } }
+      ]
+    },
+    "topology_entry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path_role", "device", "inode", "uid", "gid", "mode_octal", "acl_sha256"],
+      "properties": { "path_role": { "enum": ["service-root", "project-common-git-dir"] }, "device": { "type": "integer", "minimum": 1 }, "inode": { "type": "integer", "minimum": 1 }, "uid": { "type": "integer", "minimum": 0 }, "gid": { "type": "integer", "minimum": 0 }, "mode_octal": { "enum": ["0700", "0750"] }, "acl_sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "permission_probe": {
+      "type": "object", "additionalProperties": false,
+      "required": ["actor", "operation", "result", "errno"],
+      "properties": { "actor": { "const": "project-account" }, "operation": { "enum": ["create-protected-ref", "rename-autosk-dir", "pack-protected-ref"] }, "result": { "const": "denied" }, "errno": { "enum": ["EACCES", "EPERM"] } }
+    }
+  }
+}

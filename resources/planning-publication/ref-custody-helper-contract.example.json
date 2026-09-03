@@ -13,6 +13,7 @@
         "epic_ref_key",
         "expected_update_message",
         "nonce",
+        "object_format",
         "operation_id",
         "packed_refs_sha256",
         "policy_digest",
@@ -21,7 +22,8 @@
         "reflog_checkpoints",
         "reflog_producer",
         "request_id",
-        "schema"
+        "schema",
+        "transfer_mode"
       ],
       "response_required": [
         "action",
@@ -42,9 +44,9 @@
       "observation_domain": "autosk-flow/ref-custody/init/response-shape/v1\u0000",
       "receipt_domain": "autosk-flow/ref-custody/init/receipt-shape/v1\u0000",
       "golden": {
-        "request_shape_sha256": "462e66506742336c967038424c500958522e94c080d591b2a2ab2eb30cad3a67",
+        "request_shape_sha256": "1616d6e9074a97ecd08517cc78c8847d73a8d928e793260468c617b422dc441a",
         "response_shape_sha256": "0eba9c53636bbb79386cbf7219e3db80ec98fcfc98ee51c5b4e6bb1065ec98df",
-        "receipt_shape_sha256": "ce7a669493645bb3df262d49f35f0e54c16973affaedcfddf35006a4a769fafa"
+        "receipt_shape_sha256": "9b95d8cb288dd0e2c4bbc21d872db648214269c734c9ff326bb51b81e97d09ef"
       }
     },
     {
@@ -59,6 +61,7 @@
         "epic_ref_key",
         "expected_update_message",
         "nonce",
+        "object_format",
         "operation_id",
         "packed_refs_sha256",
         "policy_digest",
@@ -67,7 +70,8 @@
         "reflog_checkpoints",
         "reflog_producer",
         "request_id",
-        "schema"
+        "schema",
+        "transfer_mode"
       ],
       "response_required": [
         "action",
@@ -88,9 +92,9 @@
       "observation_domain": "autosk-flow/ref-custody/create_keepalive/response-shape/v1\u0000",
       "receipt_domain": "autosk-flow/ref-custody/create_keepalive/receipt-shape/v1\u0000",
       "golden": {
-        "request_shape_sha256": "8a073d555d5462f37e80a30a18654d95c7e59da5d8a3e678f26467d144a4782c",
+        "request_shape_sha256": "8601c117fa9aeeef2e09c329ba9e64d9392f3dc9886aa054273abe868fd4f469",
         "response_shape_sha256": "400f0df08b5f80b3daf5afdd5860af0b9ac3e4c097b670a02a5fe135f952b11f",
-        "receipt_shape_sha256": "62cfc3ea6f8fe5dfe00a32004293884df5382ca8631ef5af75c28c89227b9224"
+        "receipt_shape_sha256": "7ccceae802d408037e829ab2e7f17b1edc497e5822d7624471eaa072577e1cfa"
       }
     },
     {
@@ -105,6 +109,7 @@
         "epic_ref_key",
         "expected_update_message",
         "nonce",
+        "object_format",
         "operation_id",
         "packed_refs_sha256",
         "policy_digest",
@@ -113,7 +118,8 @@
         "reflog_checkpoints",
         "reflog_producer",
         "request_id",
-        "schema"
+        "schema",
+        "transfer_mode"
       ],
       "response_required": [
         "action",
@@ -134,13 +140,13 @@
       "observation_domain": "autosk-flow/ref-custody/advance_planning/response-shape/v1\u0000",
       "receipt_domain": "autosk-flow/ref-custody/advance_planning/receipt-shape/v1\u0000",
       "golden": {
-        "request_shape_sha256": "8e88c263b393cbb16d39fc97528c27f1c8473207cecaa4c0b58ce622863e9d89",
+        "request_shape_sha256": "e814762617db62191bf0fe1f05c739725410a5d7b10965dcc5a8488ad86d5325",
         "response_shape_sha256": "bd69f446589b8b04184346b8b6ec7b56e8c09aa6f266c067067a4c562cc87cd1",
-        "receipt_shape_sha256": "870bdedad36f81d712bbafcc55da4aedf1d594cf456c258b97c73ded70b9fb83"
+        "receipt_shape_sha256": "b525dcbd19f4f84e1ce0433bbb2ab5d489972fcbc094028cca5822bdbe8687e4"
       }
     },
     {
-      "action": "retain_audit",
+      "action": "ensure_audit_ref",
       "request_required": [
         "action",
         "authorization",
@@ -151,6 +157,7 @@
         "epic_ref_key",
         "expected_update_message",
         "nonce",
+        "object_format",
         "operation_id",
         "packed_refs_sha256",
         "policy_digest",
@@ -159,7 +166,8 @@
         "reflog_checkpoints",
         "reflog_producer",
         "request_id",
-        "schema"
+        "schema",
+        "transfer_mode"
       ],
       "response_required": [
         "action",
@@ -176,17 +184,17 @@
         "status",
         "transaction_value_observation_sha256"
       ],
-      "request_domain": "autosk-flow/ref-custody/retain_audit/request-shape/v1\u0000",
-      "observation_domain": "autosk-flow/ref-custody/retain_audit/response-shape/v1\u0000",
-      "receipt_domain": "autosk-flow/ref-custody/retain_audit/receipt-shape/v1\u0000",
+      "request_domain": "autosk-flow/ref-custody/ensure_audit_ref/request-shape/v1\u0000",
+      "observation_domain": "autosk-flow/ref-custody/ensure_audit_ref/response-shape/v1\u0000",
+      "receipt_domain": "autosk-flow/ref-custody/ensure_audit_ref/receipt-shape/v1\u0000",
       "golden": {
-        "request_shape_sha256": "6c61f0a6eccb1c191abfb4a693e97a7e0732e89bf1b93f5f89b14efe3227c7df",
-        "response_shape_sha256": "e3925c5a4448806a62647cf201a5100f5298edbdc1bab6ced89cc0e6719d67e4",
-        "receipt_shape_sha256": "a85e88b75428b9e96c7f469ddd9ee2218493ec972400dddb43ba49f0b3790e80"
+        "request_shape_sha256": "7b41ea7cc2e1a83f813602490d1eaf38aea06f437ac3cfc8221f437f348a9631",
+        "response_shape_sha256": "eae8b4c4037837ebcd6eedebed3d850ce99f6b447245b7a891ed85ddd07c53a1",
+        "receipt_shape_sha256": "3e7ebe0223cf3503e4f077f44496866f3e22cfc90a11f093ee43e6ced90143ea"
       }
     },
     {
-      "action": "release_to_audit",
+      "action": "delete_live_ref",
       "request_required": [
         "action",
         "authorization",
@@ -197,6 +205,7 @@
         "epic_ref_key",
         "expected_update_message",
         "nonce",
+        "object_format",
         "operation_id",
         "packed_refs_sha256",
         "policy_digest",
@@ -205,7 +214,8 @@
         "reflog_checkpoints",
         "reflog_producer",
         "request_id",
-        "schema"
+        "schema",
+        "transfer_mode"
       ],
       "response_required": [
         "action",
@@ -222,13 +232,13 @@
         "status",
         "transaction_value_observation_sha256"
       ],
-      "request_domain": "autosk-flow/ref-custody/release_to_audit/request-shape/v1\u0000",
-      "observation_domain": "autosk-flow/ref-custody/release_to_audit/response-shape/v1\u0000",
-      "receipt_domain": "autosk-flow/ref-custody/release_to_audit/receipt-shape/v1\u0000",
+      "request_domain": "autosk-flow/ref-custody/delete_live_ref/request-shape/v1\u0000",
+      "observation_domain": "autosk-flow/ref-custody/delete_live_ref/response-shape/v1\u0000",
+      "receipt_domain": "autosk-flow/ref-custody/delete_live_ref/receipt-shape/v1\u0000",
       "golden": {
-        "request_shape_sha256": "2b88e176320130e62d215161ae7084e157c0e2b6417a3909384e0d584af31c57",
-        "response_shape_sha256": "e40f5bd9f1eb46ac6df614a2a94ca5fb9ee1b6871a8eacf3442cc4b7dfbb1442",
-        "receipt_shape_sha256": "5e91a2d5591679ad8069f1aaeb29b4f51453b2b9f74e939499049dcc0146fc9a"
+        "request_shape_sha256": "be3f953d9cb5cc0db7c7eab76d839a7592650fad1248a47bb1d0798b5379a22f",
+        "response_shape_sha256": "b8a78ad682b0f7bac992952a83cf99a1a76c23f798c06c3aceb08ef56218e8f6",
+        "receipt_shape_sha256": "d02c5863046a1d5e314d14c2becc4862f0a353e4985be630100193685ef85a83"
       }
     },
     {
@@ -243,6 +253,7 @@
         "epic_ref_key",
         "expected_update_message",
         "nonce",
+        "object_format",
         "operation_id",
         "packed_refs_sha256",
         "policy_digest",
@@ -251,7 +262,8 @@
         "reflog_checkpoints",
         "reflog_producer",
         "request_id",
-        "schema"
+        "schema",
+        "transfer_mode"
       ],
       "response_required": [
         "action",
@@ -272,9 +284,9 @@
       "observation_domain": "autosk-flow/ref-custody/delete_expired_audit/response-shape/v1\u0000",
       "receipt_domain": "autosk-flow/ref-custody/delete_expired_audit/receipt-shape/v1\u0000",
       "golden": {
-        "request_shape_sha256": "faa98fc0212a00e998738cf14ea92d61318e0c9a60c485ce9ae4c641e5082a42",
+        "request_shape_sha256": "6c8e959e265dd72aa539d3c6a8af782f4998b6c654809d5c1a349b7021fcb83e",
         "response_shape_sha256": "6a6c6d66d1834add45759d24832269c1bcc823f2a7bf9b6dfffc99d01b3e3b29",
-        "receipt_shape_sha256": "1e4ea82080e32fab0ef6afe5555c628e3d89800d9d8d4a552341986774d58929"
+        "receipt_shape_sha256": "0a032032c537cb5f74e90b870bd4d08aa879039c8cbfb0ab2a440b8885e18ac0"
       }
     }
   ]

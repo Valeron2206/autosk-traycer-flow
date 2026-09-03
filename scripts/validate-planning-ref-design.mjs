@@ -120,6 +120,8 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/planning-publication/planning-publication-rebinding.example.json",
   "resources/planning-publication/ref-custody-helper-intents.schema.json",
   "resources/planning-publication/ref-custody-helper-intents.example.json",
+  "resources/planning-publication/ref-custody-policy.schema.json",
+  "resources/planning-publication/ref-custody-policy.example.json",
 ]);
 
 const REQUIRED = Object.freeze({
@@ -301,8 +303,8 @@ const REQUIRED = Object.freeze({
     "\"action\": \"init\"",
     "\"action\": \"create_keepalive\"",
     "\"action\": \"advance_planning\"",
-    "\"action\": \"retain_audit\"",
-    "\"action\": \"release_to_audit\"",
+    "\"action\": \"ensure_audit_ref\"",
+    "\"action\": \"delete_live_ref\"",
     "\"action\": \"delete_expired_audit\"",
   ],
   "resources/planning-publication/ref-custody-helper-wire.schema.json": [
@@ -328,8 +330,8 @@ const REQUIRED = Object.freeze({
     "\"candidate_identity\": \"b750e173c96621f0762b800c9c87c0bb71bb6a820f978486dbab3221860e66f0\"",
   ],
   "resources/planning-publication/ref-custody-helper-wire.existing-audit.example.json": [
-    "\"action\": \"retain_audit\"",
-    "\"action\": \"release_to_audit\"",
+    "\"action\": \"ensure_audit_ref\"",
+    "\"action\": \"delete_live_ref\"",
     "\"operation\": \"verify\"",
   ],
   "resources/planning-publication/ref-custody-helper-journal-prefixes.example.json": [
@@ -383,6 +385,8 @@ const REQUIRED = Object.freeze({
   "resources/planning-publication/planning-publication-rebinding.example.json": ["\"artifact_kind\": \"brief\"", "\"new_anchor_version\": 2"],
   "resources/planning-publication/ref-custody-helper-intents.schema.json": ["\"precondition_committed\"", "\"pre_execution_observation\""],
   "resources/planning-publication/ref-custody-helper-intents.example.json": ["\"records\"", "\"persist_receipt_hash\""],
+  "resources/planning-publication/ref-custody-policy.schema.json": ["\"supported_platforms\"", "\"SO_PEERCRED\"", "\"getpeereid\"", "\"rollback_requires_no_open_operation\""],
+  "resources/planning-publication/ref-custody-policy.example.json": ["\"service_manager\": \"systemd\"", "\"service_manager\": \"launchd\"", "\"path_role\": \"project-common-git-dir\"", "\"policy_digest\""],
 });
 
 const SHA256_RE = /^[0-9a-f]{64}$/u;
@@ -1525,9 +1529,10 @@ export function validateRefCustodyHelperContract(contract, schema) {
     .map((error) => "Schema: " + error);
   const commonRequest = [
     "action", "authorization", "body_sha256", "candidate_identity", "custody_generation",
-    "epic_id", "epic_ref_key", "expected_update_message", "nonce", "operation_id", "packed_refs_sha256",
-    "policy_digest", "project_root_sha256", "ref_updates", "reflog_checkpoints",
-    "reflog_producer", "request_id", "schema",
+    "epic_id", "epic_ref_key", "expected_update_message", "nonce", "object_format",
+    "operation_id", "packed_refs_sha256", "policy_digest", "project_root_sha256",
+    "ref_updates", "reflog_checkpoints", "reflog_producer", "request_id", "schema",
+    "transfer_mode",
   ].sort(codePointCompare);
   const commonResponse = [
     "action", "custody_generation", "nonce", "not_applied_reason", "policy_digest", "receipt_hash",
@@ -1538,8 +1543,8 @@ export function validateRefCustodyHelperContract(contract, schema) {
     init: [],
     create_keepalive: [],
     advance_planning: [],
-    retain_audit: [],
-    release_to_audit: [],
+    ensure_audit_ref: [],
+    delete_live_ref: [],
     delete_expired_audit: [],
   };
   const actions = Array.isArray(contract?.actions) ? contract.actions : [];
@@ -1588,23 +1593,23 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
   const errors = validateJsonSchema(wire, schema, schema, "ref_custody_helper_wire")
     .map((error) => "Schema: " + error);
   const expectedActions = [
-    "init", "create_keepalive", "advance_planning", "retain_audit",
-    "release_to_audit", "delete_expired_audit",
+    "init", "create_keepalive", "advance_planning", "ensure_audit_ref",
+    "delete_live_ref", "ensure_audit_ref", "delete_live_ref", "delete_expired_audit",
   ];
   const expectedOperations = {
     init: [["update"]],
     create_keepalive: [["update"]],
     advance_planning: [["verify", "update"]],
-    retain_audit: [["update", "delete"], ["verify", "delete"]],
-    release_to_audit: [["verify", "update", "delete"], ["verify", "verify", "delete"]],
+    ensure_audit_ref: [["verify", "update"], ["verify", "verify"], ["verify", "verify", "update"], ["verify", "verify", "verify"]],
+    delete_live_ref: [["verify", "delete"], ["verify", "verify", "delete"]],
     delete_expired_audit: [["delete"]],
   };
   const actions = Array.isArray(wire?.actions) ? wire.actions : [];
   const isolatedNotApplied = actions.length === 1 && actions[0]?.response?.status === "not_applied";
   const isolatedCreateVariant = actions.length === 1 && actions[0]?.action === "create_keepalive" &&
     actions[0]?.response?.status === "committed";
-  const isolatedExistingAuditVariant = actions.length >= 1 && actions.length <= 2 &&
-    actions.every((item) => ["retain_audit", "release_to_audit"].includes(item?.action) &&
+  const isolatedExistingAuditVariant = actions.length >= 1 && actions.length <= 4 &&
+    actions.every((item) => ["ensure_audit_ref", "delete_live_ref"].includes(item?.action) &&
       item?.request?.ref_updates?.some((update) => update.operation === "verify" &&
         update.ref.includes("/audit/candidates/")));
   if (!isolatedNotApplied && !isolatedCreateVariant && !isolatedExistingAuditVariant &&
@@ -1667,18 +1672,23 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     const expectedPlanningRef = `${expectedRoot}planning`;
     const expectedLiveRef = `${expectedRoot}candidates/${request?.candidate_identity}`;
     const expectedAuditRef = `${expectedRoot}audit/candidates/${request?.candidate_identity}`;
+    const transferMode = request?.transfer_mode;
     const expectedRefTopologies = {
       init: [[['update', expectedPlanningRef]]],
       create_keepalive: [[['update', expectedLiveRef]]],
       advance_planning: [[['verify', expectedLiveRef], ['update', expectedPlanningRef]]],
-      retain_audit: [
-        [["update", expectedAuditRef], ["delete", expectedLiveRef]],
-        [["verify", expectedAuditRef], ["delete", expectedLiveRef]],
-      ],
-      release_to_audit: [
-        [["verify", expectedPlanningRef], ["update", expectedAuditRef], ["delete", expectedLiveRef]],
-        [["verify", expectedPlanningRef], ["verify", expectedAuditRef], ["delete", expectedLiveRef]],
-      ],
+      ensure_audit_ref: transferMode === "release_to_audit"
+        ? [
+            [["verify", expectedPlanningRef], ["verify", expectedLiveRef], ["update", expectedAuditRef]],
+            [["verify", expectedPlanningRef], ["verify", expectedLiveRef], ["verify", expectedAuditRef]],
+          ]
+        : [
+            [["verify", expectedLiveRef], ["update", expectedAuditRef]],
+            [["verify", expectedLiveRef], ["verify", expectedAuditRef]],
+          ],
+      delete_live_ref: transferMode === "release_to_audit"
+        ? [[["verify", expectedPlanningRef], ["verify", expectedAuditRef], ["delete", expectedLiveRef]]]
+        : [[["verify", expectedAuditRef], ["delete", expectedLiveRef]]],
       delete_expired_audit: [[['delete', expectedAuditRef]]],
     };
     const actualTopology = request?.ref_updates?.map((item) => [item.operation, item.ref]);
@@ -1721,10 +1731,16 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     const observationRefs = [...new Set(response?.reflog_observations?.map((item) => item.ref) ?? [])].sort(codePointCompare);
     const orderedUpdateRefs = request?.ref_updates?.map((item) => item.ref) ?? [];
     const orderedResponseRefs = response?.ref_observations?.map((item) => item.ref) ?? [];
+    const orderedCheckpointRefs = request?.reflog_checkpoints?.map((item) => item.ref) ?? [];
+    const orderedReflogRefs = response?.reflog_observations?.map((item) => item.ref) ?? [];
     if (canonicalStringify(updateRefs) !== canonicalStringify(checkpointRefs) ||
         canonicalStringify(updateRefs) !== canonicalStringify(observationRefs) ||
         canonicalStringify(orderedUpdateRefs) !== canonicalStringify(orderedResponseRefs) ||
-        new Set(orderedResponseRefs).size !== orderedResponseRefs.length) {
+        canonicalStringify(orderedUpdateRefs) !== canonicalStringify(orderedCheckpointRefs) ||
+        canonicalStringify(orderedUpdateRefs) !== canonicalStringify(orderedReflogRefs) ||
+        new Set(orderedResponseRefs).size !== orderedResponseRefs.length ||
+        new Set(orderedCheckpointRefs).size !== orderedCheckpointRefs.length ||
+        new Set(orderedReflogRefs).size !== orderedReflogRefs.length) {
       errors.push(`ref-custody ${action} reflog refs do not exactly match ref_updates`);
     }
     const expectedRefObservations = (request?.ref_updates ?? []).map((update) => ({
@@ -2542,36 +2558,135 @@ export function validatePlanningRefDesign(files) {
       ["atomic PASS API", "record-pass-prepare-publication.schema.json", "record-pass-prepare-publication.example.json"],
       ["publication rebinding", "planning-publication-rebinding.schema.json", "planning-publication-rebinding.example.json"],
       ["helper intents", "ref-custody-helper-intents.schema.json", "ref-custody-helper-intents.example.json"],
+      ["ref custody policy", "ref-custody-policy.schema.json", "ref-custody-policy.example.json"],
     ].map(([label, schemaName, exampleName]) => [label, parseResource(`resources/planning-publication/${schemaName}`), parseResource(`resources/planning-publication/${exampleName}`)]);
     for (const [label, supplementalSchema, supplementalExample] of supplementalContracts) {
       for (const error of validateJsonSchema(supplementalExample, supplementalSchema, supplementalSchema)) {
         errors.push(`${label} Schema/example: ${error}`);
       }
     }
+    const custodyPolicy = supplementalContracts.find(([label]) => label === "ref custody policy")?.[2];
+    const topologyHash = sha256("autosk-flow/ref-custody-policy-parent-topology/v1\0" + canonicalStringify(custodyPolicy.parent_topology));
+    const probeHash = sha256("autosk-flow/ref-custody-policy-permission-probes/v1\0" + canonicalStringify(custodyPolicy.permission_probes));
+    const packedPolicyHash = sha256("autosk-flow/ref-custody-policy-packed-refs/v1\0" + canonicalStringify(custodyPolicy.packed_refs_policy));
+    const { policy_digest: ignoredPolicyDigest, ...policyPreimage } = custodyPolicy;
+    const policyDigest = sha256("autosk-flow/ref-custody-policy/v1\0" + canonicalStringify(policyPreimage));
+    if (custodyPolicy.parent_topology_hash !== topologyHash ||
+        custodyPolicy.permission_probe_hash !== probeHash ||
+        custodyPolicy.packed_refs_policy_hash !== packedPolicyHash ||
+        custodyPolicy.policy_digest !== policyDigest) {
+      errors.push("ref custody policy digest mismatch");
+    }
+    const platformNames = custodyPolicy.supported_platforms.map((profile) => profile.platform);
+    const probeOperations = custodyPolicy.permission_probes.map((probe) => probe.operation);
+    const topologyRoles = custodyPolicy.parent_topology.map((entry) => entry.path_role);
+    if (canonicalStringify(platformNames) !== canonicalStringify(["linux", "macos"]) ||
+        new Set(probeOperations).size !== 3 || new Set(topologyRoles).size !== 2 ||
+        !custodyPolicy.supported_platforms.some((profile) =>
+          profile.platform === custodyPolicy.platform &&
+          profile.peer_credential_api === custodyPolicy.socket.peer_credential_api)) {
+      errors.push("ref custody policy platform, probe or topology matrix mismatch");
+    }
     const transferExample = supplementalContracts.find(([label]) => label === "candidate audit transfer")?.[2];
-    for (const [field, domain] of [["audit_ref_receipt", "autosk-flow/audit-transfer/audit-ref/v1\0"], ["live_delete_receipt", "autosk-flow/audit-transfer/live-delete/v1\0"], ["verification_receipt", "autosk-flow/audit-transfer/verification/v1\0"]]) {
+    for (const [field, domain, keyName] of [
+      ["audit_ref_receipt", "autosk-flow/audit-transfer/audit-ref/v1\0", "ensure_audit_ref"],
+      ["live_delete_receipt", "autosk-flow/audit-transfer/live-delete/v1\0", "delete_live_ref"],
+      ["verification_receipt", "autosk-flow/audit-transfer/verification/v1\0", null],
+    ]) {
       const { receipt_hash: ignored, ...receipt } = transferExample[field];
-      if (transferExample[field].receipt_hash !== sha256(domain + canonicalStringify({ operation_id: transferExample.operation_id, object_format: transferExample.object_format, helper_intent_key: transferExample.helper_intent_key, ...receipt }))) errors.push(`candidate audit transfer ${field} digest mismatch`);
+      const preimage = { operation_id: transferExample.operation_id, object_format: transferExample.object_format, ensure_audit_intent_key: transferExample.ensure_audit_intent_key, delete_live_intent_key: transferExample.delete_live_intent_key, ...receipt };
+      if (keyName === "ensure_audit_ref") preimage.helper_intent_key = transferExample.ensure_audit_intent_key;
+      if (keyName === "delete_live_ref") preimage.helper_intent_key = transferExample.delete_live_intent_key;
+      if (transferExample[field].receipt_hash !== sha256(domain + canonicalStringify(preimage))) errors.push(`candidate audit transfer ${field} digest mismatch`);
     }
     const validateClosurePackDigest = (record, label) => {
-      const core = { operation_id: record.operation_id, candidate_identity: record.candidate_identity, snapshot_commit_oid: record.snapshot_commit_oid, candidate_tree_oid: record.candidate_tree_oid, object_format: record.object_format, object_count: record.object_count, object_oid_set_sha256: record.object_oid_set_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, protected_store_identity: record.protected_store_identity };
-      const writeReceipt = sha256("autosk-flow/candidate-closure-pack/write/v1\0" + canonicalStringify(core));
-      const verificationReceipt = sha256("autosk-flow/candidate-closure-pack/verify/v1\0" + canonicalStringify({ ...core, write_receipt: writeReceipt }));
-      if (record.write_receipt !== writeReceipt || record.verification_receipt !== verificationReceipt) errors.push(`${label} digest mismatch`);
+      const sortedOids = [...record.object_oids].sort(codePointCompare);
+      const manifestObjects = record.object_manifest?.objects ?? [];
+      const sortedManifestObjects = [...manifestObjects].sort((left, right) => codePointCompare(left.oid, right.oid));
+      const objectSetHash = sha256("autosk-flow/candidate-closure-pack/object-set/v1\0" + canonicalStringify(sortedOids));
+      const objectManifestHash = sha256("autosk-flow/candidate-closure-pack/manifest/v1\0" + canonicalStringify(record.object_manifest));
+      const writeReceiptHash = sha256("autosk-flow/candidate-closure-pack/write/v1\0" + canonicalStringify({ operation_id: record.operation_id, candidate_identity: record.candidate_identity, object_manifest_sha256: record.object_manifest_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, content_addressed_locator: record.content_addressed_locator, git_producer: record.git_producer, write_order: record.write_receipt?.write_order }));
+      const verificationReceiptHash = sha256("autosk-flow/candidate-closure-pack/verify/v1\0" + canonicalStringify({ operation_id: record.operation_id, candidate_identity: record.candidate_identity, object_manifest_sha256: record.object_manifest_sha256, pack_bytes_sha256: record.pack_bytes_sha256, index_bytes_sha256: record.index_bytes_sha256, write_receipt_hash: record.write_receipt?.receipt_hash, git_verify_pack: record.verification_receipt?.git_verify_pack, recovery_phases: record.recovery_phases }));
+      const oidWidth = record.object_format === "sha256" ? 64 : 40;
+      if (canonicalStringify(record.object_oids) !== canonicalStringify(sortedOids) ||
+          canonicalStringify(manifestObjects) !== canonicalStringify(sortedManifestObjects) ||
+          canonicalStringify(manifestObjects.map((item) => item.oid)) !== canonicalStringify(sortedOids) ||
+          record.object_count !== record.object_oids.length ||
+          !record.object_oids.includes(record.snapshot_commit_oid) || !record.object_oids.includes(record.candidate_tree_oid) ||
+          record.object_oids.some((oid) => oid.length !== oidWidth) ||
+          manifestObjects.some((entry) => entry.oid.length !== oidWidth) ||
+          record.object_manifest_sha256 !== objectManifestHash ||
+          record.object_oid_set_sha256 !== objectSetHash ||
+          sha256(Buffer.from(record.pack_bytes_base64, "base64")) !== record.pack_bytes_sha256 ||
+          sha256(Buffer.from(record.index_bytes_base64, "base64")) !== record.index_bytes_sha256 ||
+          record.content_addressed_locator.pack_content_address !== record.pack_bytes_sha256 ||
+          record.content_addressed_locator.pack_relative_path !== `objects/pack/autosk-candidates/${record.candidate_identity}/pack-${record.pack_bytes_sha256}.pack` ||
+          record.content_addressed_locator.index_relative_path !== `objects/pack/autosk-candidates/${record.candidate_identity}/pack-${record.pack_bytes_sha256}.idx` ||
+          record.git_producer.object_format !== record.object_format ||
+          record.write_receipt?.receipt_hash !== writeReceiptHash || record.verification_receipt?.receipt_hash !== verificationReceiptHash) errors.push(`${label} exact manifest, bytes, durable write or digest mismatch`);
     };
     validateClosurePackDigest(supplementalContracts.find(([label]) => label === "candidate closure pack")?.[2], "candidate closure pack");
     validateClosurePackDigest(supplementalContracts.find(([label]) => label === "invalidation closure pack")?.[2], "invalidation closure pack");
     const atomicApi = supplementalContracts.find(([label]) => label === "atomic PASS API")?.[2];
     { const { receipt_hash: ignored, ...response } = atomicApi.response; if (atomicApi.response.receipt_hash !== sha256("autosk-flow/record-pass-prepare-publication/v1\0" + canonicalStringify({ capability: atomicApi.capability, request: atomicApi.request, response }))) errors.push("atomic PASS API receipt digest mismatch"); }
     if (atomicApi.request.artifact_kind !== example.payload.artifact_kind || atomicApi.request.candidate_identity !== example.candidate_keepalive.candidate_identity || atomicApi.request.publication_operation_id !== example.operation_id) errors.push("atomic PASS API does not match the referenced publication operation");
+    const decodeCanonicalJson = (base64, label) => {
+      try {
+        const bytes = Buffer.from(base64, "base64");
+        const parsed = JSON.parse(bytes.toString("utf8"));
+        if (bytes.toString("utf8") !== canonicalStringify(parsed)) errors.push(`atomic PASS ${label} bytes are not canonical JSON`);
+        return { bytes, parsed };
+      } catch {
+        errors.push(`atomic PASS ${label} exact bytes are invalid`);
+        return { bytes: Buffer.alloc(0), parsed: null };
+      }
+    };
+    const passBytes = decodeCanonicalJson(atomicApi.request.pass_record_bytes_base64, "ArtifactPassRecord");
+    const publicationBytes = decodeCanonicalJson(atomicApi.request.publication_operation_bytes_base64, "publication operation");
+    const intentBytes = decodeCanonicalJson(atomicApi.request.prepared_helper_intents_bytes_base64, "prepared helper intents");
+    const casBytes = decodeCanonicalJson(atomicApi.request.metadata_cas_payload_base64, "metadata CAS payload");
+    const idempotencyKey = sha256("autosk-flow/record-pass-idempotency/v1\0" + canonicalStringify({ request_id: atomicApi.request.request_id, expected_metadata_head: atomicApi.request.expected_metadata_head, metadata_cas_payload_sha256: atomicApi.request.metadata_cas_payload_sha256 }));
+    const outcomeStatuses = atomicApi.outcome_contracts.map((item) => item.status);
+    if (canonicalStringify(outcomeStatuses) !== canonicalStringify(["committed", "conflict", "unsupported", "replay", "indeterminate"]) ||
+        sha256(passBytes.bytes) !== atomicApi.request.pass_record_bytes_sha256 || atomicApi.request.pass_record_digest !== atomicApi.request.pass_record_bytes_sha256 ||
+        sha256(publicationBytes.bytes) !== atomicApi.request.publication_operation_bytes_sha256 || atomicApi.request.publication_preimage_digest !== atomicApi.request.publication_operation_bytes_sha256 ||
+        sha256(intentBytes.bytes) !== atomicApi.request.prepared_helper_intents_bytes_sha256 ||
+        sha256(casBytes.bytes) !== atomicApi.request.metadata_cas_payload_sha256 || atomicApi.request.idempotency_key !== idempotencyKey ||
+        canonicalStringify(publicationBytes.parsed) !== canonicalStringify(example) ||
+        passBytes.parsed?.candidate_identity !== atomicApi.request.candidate_identity || passBytes.parsed?.artifact_kind !== atomicApi.request.artifact_kind || passBytes.parsed?.disposition !== "pass" ||
+        !Array.isArray(intentBytes.parsed) || canonicalStringify(intentBytes.parsed.map((record) => record.intent_key)) !== canonicalStringify(atomicApi.request.helper_intent_keys) ||
+        canonicalStringify(casBytes.parsed?.pass_record) !== canonicalStringify(passBytes.parsed) ||
+        canonicalStringify(casBytes.parsed?.planning_publication_operation) !== canonicalStringify(publicationBytes.parsed) ||
+        canonicalStringify(casBytes.parsed?.helper_intent_records) !== canonicalStringify(intentBytes.parsed) ||
+        sha256(Buffer.from(casBytes.parsed?.candidate_projection_bytes_base64 ?? "", "base64")) !== casBytes.parsed?.candidate_projection_sha256 ||
+        atomicApi.response.outcome_contract !== atomicApi.outcome_contracts.find((item) => item.status === atomicApi.response.status)?.retry_contract) {
+      errors.push("atomic PASS exact CAS bundle, outcomes or idempotency binding mismatch");
+    }
     const rebind = supplementalContracts.find(([label]) => label === "publication rebinding")?.[2];
-    { const { receipt_hash: ignored, ...preimage } = rebind; if (rebind.new_anchor_version <= rebind.old_anchor_version) errors.push("publication rebinding anchor versions must increase"); if (rebind.receipt_hash !== sha256("autosk-flow/planning-publication-rebinding/v1\0" + canonicalStringify(preimage))) errors.push("publication rebinding receipt digest mismatch"); }
+    {
+      const { receipt_hash: ignored, ...preimage } = rebind;
+      const impactDigest = sha256("autosk-flow/planning-publication-rebinding/impact/v1\0" + canonicalStringify(rebind.approved_impact));
+      const projectionBytes = Buffer.from(rebind.projection_bytes_base64, "base64");
+      if (rebind.new_anchor_version <= rebind.old_anchor_version) errors.push("publication rebinding anchor versions must increase");
+      if (rebind.receipt_hash !== sha256("autosk-flow/planning-publication-rebinding/v1\0" + canonicalStringify(preimage)) ||
+          rebind.epic_ref_key !== deriveEpicRefKey(rebind.project_root_sha256, rebind.epic_id) ||
+          rebind.project_root_sha256 !== example.project_root_sha256 || rebind.epic_id !== example.epic_id ||
+          rebind.publication_operation_id !== example.operation_id || rebind.prior_publication_receipt_hash !== releasedExample.receipts.verification.receipt_hash ||
+          rebind.old_published_commit_oid !== example.expected_parent_oid || rebind.old_published_tree_oid !== example.expected_parent_tree_oid ||
+          rebind.current_planning_head_oid !== example.expected_commit_oid || rebind.expected_prior_head_oid !== rebind.old_published_commit_oid ||
+          rebind.unchanged_tree_oid !== example.candidate_tree_oid || rebind.unchanged_pathspec_digest !== example.payload.artifact_pathspec_digest ||
+          sha256(projectionBytes) !== rebind.projection_blob_sha256 || rebind.projection_blob_mode !== "100644" ||
+          rebind.approved_impact_digest !== impactDigest || rebind.approved_impact?.impact !== "unaffected" ||
+          rebind.previous_rebinding_hash !== null) {
+        errors.push("publication rebinding identity, projection, impact or continuous chain mismatch");
+      }
+    }
     const closurePack = supplementalContracts.find(([label]) => label === "candidate closure pack")?.[2];
     for (const candidateRecord of [keepaliveExample, keepaliveAuditExample, keepaliveReleasedExample, keepalivePreparedExample, keepaliveRefCreatedExample, example.candidate_keepalive, releasedExample.candidate_keepalive, voidedExample.candidate_keepalive]) {
-      if (candidateRecord.closure_pack_operation_id !== closurePack?.operation_id || candidateRecord.closure_pack_receipt_hash !== closurePack?.verification_receipt || candidateRecord.candidate_identity !== closurePack?.candidate_identity || candidateRecord.snapshot_commit_oid !== closurePack?.snapshot_commit_oid || candidateRecord.snapshot_tree_oid !== closurePack?.candidate_tree_oid) errors.push("candidate keepalive is not bound to the verified closure pack");
+      if (candidateRecord.closure_pack_operation_id !== closurePack?.operation_id || candidateRecord.closure_pack_receipt_hash !== closurePack?.verification_receipt?.receipt_hash || candidateRecord.candidate_identity !== closurePack?.candidate_identity || candidateRecord.snapshot_commit_oid !== closurePack?.snapshot_commit_oid || candidateRecord.snapshot_tree_oid !== closurePack?.candidate_tree_oid) errors.push("candidate keepalive is not bound to the verified closure pack");
     }
     const invalidationClosurePack = supplementalContracts.find(([label]) => label === "invalidation closure pack")?.[2];
-    if (invalidationExample.candidate_keepalive.closure_pack_operation_id !== invalidationClosurePack?.operation_id || invalidationExample.candidate_keepalive.closure_pack_receipt_hash !== invalidationClosurePack?.verification_receipt || invalidationExample.candidate_keepalive.candidate_identity !== invalidationClosurePack?.candidate_identity || invalidationExample.candidate_keepalive.snapshot_commit_oid !== invalidationClosurePack?.snapshot_commit_oid || invalidationExample.candidate_keepalive.snapshot_tree_oid !== invalidationClosurePack?.candidate_tree_oid) errors.push("invalidation keepalive is not bound to the verified closure pack");
+    if (invalidationExample.candidate_keepalive.closure_pack_operation_id !== invalidationClosurePack?.operation_id || invalidationExample.candidate_keepalive.closure_pack_receipt_hash !== invalidationClosurePack?.verification_receipt?.receipt_hash || invalidationExample.candidate_keepalive.candidate_identity !== invalidationClosurePack?.candidate_identity || invalidationExample.candidate_keepalive.snapshot_commit_oid !== invalidationClosurePack?.snapshot_commit_oid || invalidationExample.candidate_keepalive.snapshot_tree_oid !== invalidationClosurePack?.candidate_tree_oid) errors.push("invalidation keepalive is not bound to the verified closure pack");
     const seenCustodyIdentifiers = new Map();
     for (const wire of [
       custodyWireExample,
@@ -2596,24 +2711,67 @@ export function validatePlanningRefDesign(files) {
     const helperIntents = supplementalContracts.find(([label]) => label === "helper intents")?.[2];
     const intentByBody = new Map((helperIntents?.records ?? []).map((record) => [record.request_body_sha256, record]));
     const intentRecords = helperIntents?.records ?? [];
-    if (intentRecords.length !== 9 || intentByBody.size !== 9 || new Set(intentRecords.map((record) => record.intent_key)).size !== 9 || new Set(intentRecords.map((record) => record.request_id)).size !== 9 || new Set(intentRecords.map((record) => record.nonce)).size !== 9) errors.push("helper intent catalog must contain nine semantically unique persisted request intents");
+    const intentWireSets = [custodyWireExample, custodyWireInvalidationExample, custodyWireExistingAuditExample];
+    const intentExchanges = intentWireSets.flatMap((wire) => wire.actions.map((exchange) => ({ wire, exchange })));
+    if (intentRecords.length !== intentExchanges.length || intentByBody.size !== intentRecords.length || new Set(intentRecords.map((record) => record.intent_key)).size !== intentRecords.length || new Set(intentRecords.map((record) => record.request_id)).size !== intentRecords.length || new Set(intentRecords.map((record) => record.nonce)).size !== intentRecords.length) errors.push("helper intent catalog must exactly cover the semantically unique persisted request intents");
     for (const intent of helperIntents?.records ?? []) {
       const observationRefs = intent.pre_execution_observation.map((observation) => observation.ref);
       if (new Set(observationRefs).size !== observationRefs.length) errors.push(`helper intent ${intent.action} contains duplicate observation refs`);
       if (intent.pre_execution_observation.some((observation) => observation.present !== (observation.oid !== null))) errors.push(`helper intent ${intent.action} present/oid mismatch`);
+      const match = intentExchanges.find(({ exchange }) => exchange.request.body_sha256 === intent.request_body_sha256);
+      const bodyBytes = Buffer.from(intent.request_body_canonical_json_base64 ?? "", "base64");
+      const authorizationJsonBytes = Buffer.from(intent.authorization_canonical_json_base64 ?? "", "base64");
+      const authorizationSignedBytes = Buffer.from(intent.authorization_signed_bytes_base64 ?? "", "base64");
+      const wireRequestBytes = Buffer.from(intent.wire_request_canonical_json_base64 ?? "", "base64");
+      let body;
+      let authorization;
+      let wireRequest;
+      try {
+        body = JSON.parse(bodyBytes.toString("utf8"));
+        authorization = JSON.parse(authorizationJsonBytes.toString("utf8"));
+        wireRequest = JSON.parse(wireRequestBytes.toString("utf8"));
+      } catch {
+        errors.push(`helper intent ${intent.action} exact bytes are not canonical JSON`);
+      }
+      const intentKey = sha256("autosk-flow/ref-custody-intent-key/v1\0" + canonicalStringify({ action: intent.action, transfer_mode: intent.transfer_mode, owner_operation_id: intent.owner_operation_id, request_body_sha256: intent.request_body_sha256, wire_request_sha256: intent.wire_request_sha256, authorization_sha256: intent.authorization_sha256 }));
       const preconditionHash = sha256("autosk-flow/ref-custody-intent-precondition/v1\0" + canonicalStringify(intent.pre_execution_observation));
       const { persist_receipt_hash: ignored, ...preimage } = intent;
       const persistHash = sha256("autosk-flow/ref-custody-intent-persist/v1\0" + canonicalStringify(preimage));
-      if (intent.pre_execution_observation_sha256 !== preconditionHash || intent.persist_receipt_hash !== persistHash) errors.push(`helper intent ${intent.action} digest mismatch`);
+      let signatureValid = false;
+      if (match && body && authorization) {
+        try {
+          const publicDer = Buffer.from(match.wire.public_key_spki_base64, "base64");
+          const publicKey = createPublicKey({ key: publicDer, format: "der", type: "spki" });
+          signatureValid = verify(null, authorizationSignedBytes, publicKey, Buffer.from(authorization.signature_base64, "base64"));
+        } catch {
+          signatureValid = false;
+        }
+      }
+      const expectedBody = match && (() => { const { body_sha256: ignoredHash, authorization: ignoredAuthorization, ...value } = match.exchange.request; return value; })();
+      if (!match || canonicalStringify(body) !== canonicalStringify(expectedBody) ||
+          canonicalStringify(authorization) !== canonicalStringify(match.exchange.request.authorization) ||
+          canonicalStringify(wireRequest) !== canonicalStringify(match.exchange.request) ||
+          bodyBytes.toString("utf8") !== canonicalStringify(body) || authorizationJsonBytes.toString("utf8") !== canonicalStringify(authorization) || wireRequestBytes.toString("utf8") !== canonicalStringify(wireRequest) ||
+          authorizationSignedBytes.toString("utf8") !== `autosk-flow/ref-custody-authorization/v1\0${intent.request_body_sha256}\0${intent.nonce}` ||
+          sha256("autosk-flow/ref-custody/request-body/v1\0" + bodyBytes.toString("utf8")) !== intent.request_body_sha256 ||
+          sha256(authorizationJsonBytes.toString("utf8")) !== intent.authorization_sha256 || sha256(wireRequestBytes.toString("utf8")) !== intent.wire_request_sha256 || !signatureValid ||
+          intent.intent_key !== intentKey ||
+          intent.pre_execution_observation_sha256 !== preconditionHash ||
+          intent.helper_journal_hash !== match?.exchange.journal.journal_hash ||
+          canonicalStringify(intent.lifecycle) !== canonicalStringify(["prepared", "precondition_committed", "delivered", "receipt_committed"]) ||
+          intent.request_persisted_before_socket !== true || intent.helper_precondition_under_lock !== true ||
+          intent.persist_receipt_hash !== persistHash) errors.push(`helper intent ${intent.action} exact bytes, authorization, lifecycle or digest mismatch`);
     }
-    const transferIntent = (helperIntents?.records ?? []).find((record) => record.intent_key === transferExample.helper_intent_key);
-    if (!transferIntent || transferIntent.action !== transferExample.action || transferIntent.owner_operation_id !== "77777777-7777-4777-8777-777777777777") errors.push("candidate audit transfer is not bound to its persisted helper intent");
+    const ensureTransferIntent = (helperIntents?.records ?? []).find((record) => record.intent_key === transferExample.ensure_audit_intent_key);
+    const deleteTransferIntent = (helperIntents?.records ?? []).find((record) => record.intent_key === transferExample.delete_live_intent_key);
+    if (!ensureTransferIntent || ensureTransferIntent.action !== "ensure_audit_ref" || ensureTransferIntent.transfer_mode !== "release_to_audit" || ensureTransferIntent.owner_operation_id !== "77777777-7777-4777-8777-777777777777" ||
+        !deleteTransferIntent || deleteTransferIntent.action !== "delete_live_ref" || deleteTransferIntent.transfer_mode !== "release_to_audit" || deleteTransferIntent.owner_operation_id !== "77777777-7777-4777-8777-777777777777") errors.push("candidate audit transfer is not bound to its persisted helper intents");
     if (atomicApi.request.helper_intent_keys.some((key) => !(helperIntents?.records ?? []).some((record) => record.intent_key === key))) errors.push("atomic PASS API references an unknown helper intent");
     for (const wire of [custodyWireExample, custodyWireInvalidationExample, custodyWireExistingAuditExample]) {
       for (const exchange of wire.actions) {
         const intent = intentByBody.get(exchange.request.body_sha256);
         const topologyDigest = sha256("autosk-flow/ref-custody-intent-topology/v1\0" + canonicalStringify({ ref_updates: exchange.request.ref_updates, reflog_checkpoints: exchange.request.reflog_checkpoints }));
-        if (!intent || intent.action !== exchange.action || intent.owner_operation_id !== exchange.request.operation_id || intent.request_id !== exchange.request.request_id || intent.nonce !== exchange.request.nonce || intent.topology_digest !== topologyDigest || intent.phase !== "precondition_committed") errors.push(`helper intent does not bind ${exchange.action} request before execution`);
+        if (!intent || intent.action !== exchange.action || intent.owner_operation_id !== exchange.request.operation_id || intent.request_id !== exchange.request.request_id || intent.nonce !== exchange.request.nonce || intent.topology_digest !== topologyDigest || intent.phase !== "receipt_committed") errors.push(`helper intent does not bind ${exchange.action} request lifecycle`);
       }
     }
     for (const error of validatePlanningPublicationOperationExample(example, schema)) {
@@ -2670,25 +2828,35 @@ export function validatePlanningRefDesign(files) {
     for (const error of validateRefCustodyJournalCrashExample(custodyJournalCrashExample, custodyJournalPrefixes, custodyWireExample)) {
       errors.push(`ref-custody helper journal crash: ${error}`);
     }
+    const helperExchanges = [
+      ...custodyWireExample.actions,
+      ...custodyWireInvalidationExample.actions,
+      ...custodyWireExistingAuditExample.actions,
+    ];
+    const helperExchangeByRequest = new Map(helperExchanges.map((item) => [item.request.request_id, item]));
     const wireByAction = Object.fromEntries(custodyWireExample.actions.map((item) => [item.action, item]));
     const invalidationCreateExchange = custodyWireInvalidationExample.actions[0];
-    const checkHelperEvidence = (receipt, action, label) => {
+    const helperEvidenceFor = (exchange) => exchange && {
+      request_id: exchange.request.request_id,
+      nonce: exchange.request.nonce,
+      request_body_sha256: exchange.request.body_sha256,
+      transaction_value_observation_sha256: exchange.response.transaction_value_observation_sha256,
+      helper_receipt_hash: exchange.response.receipt_hash,
+      helper_journal_hash: exchange.journal.journal_hash,
+    };
+    const checkHelperEvidence = (receipt, action, label, requestId = null) => {
       if (!receipt) return;
-      const exchange = wireByAction[action];
-      const expected = exchange && {
-        request_id: exchange.request.request_id,
-        nonce: exchange.request.nonce,
-        transaction_value_observation_sha256: exchange.response.transaction_value_observation_sha256,
-        helper_receipt_hash: exchange.response.receipt_hash,
-      };
+      const exchange = requestId ? helperExchangeByRequest.get(requestId) : wireByAction[action];
+      const expected = helperEvidenceFor(exchange);
       if (canonicalStringify(receipt.helper_evidence) !== canonicalStringify(expected)) {
         errors.push(`${label} helper evidence does not match journaled ${action} receipt`);
       }
     };
     checkHelperEvidence(initExample.receipts.ref_create, "init", "planning init ref_create");
-    const panelRetainExchange = custodyWireExistingAuditExample.actions.find((item) => item.action === "retain_audit");
+    const panelRetainExchange = custodyWireExistingAuditExample.actions.find((item) =>
+      item.action === "ensure_audit_ref" && item.request.transfer_mode === "retain_audit");
     const panelAuditEvidence = keepaliveAuditExample.audit_receipt.helper_evidence;
-    if (!panelRetainExchange || panelAuditEvidence.request_id !== panelRetainExchange.request.request_id || panelAuditEvidence.nonce !== panelRetainExchange.request.nonce || panelAuditEvidence.transaction_value_observation_sha256 !== panelRetainExchange.response.transaction_value_observation_sha256 || panelAuditEvidence.helper_receipt_hash !== panelRetainExchange.response.receipt_hash) errors.push("panel_not_pass audit receipt does not use its distinct helper transaction");
+    if (canonicalStringify(panelAuditEvidence) !== canonicalStringify(helperEvidenceFor(panelRetainExchange))) errors.push("panel_not_pass audit receipt does not use its distinct helper transaction");
     for (const [label, operation] of [
       ["prepared publication", example],
       ["released publication", releasedExample],
@@ -2696,12 +2864,7 @@ export function validatePlanningRefDesign(files) {
       ["planning invalidation", invalidationExample],
     ]) {
       if (operation === invalidationExample) {
-        const expected = {
-          request_id: invalidationCreateExchange.request.request_id,
-          nonce: invalidationCreateExchange.request.nonce,
-          transaction_value_observation_sha256: invalidationCreateExchange.response.transaction_value_observation_sha256,
-          helper_receipt_hash: invalidationCreateExchange.response.receipt_hash,
-        };
+        const expected = helperEvidenceFor(invalidationCreateExchange);
         if (canonicalStringify(operation.candidate_keepalive.create_receipt.helper_evidence) !== canonicalStringify(expected)) {
           errors.push(`${label} keepalive create helper evidence does not match invalidation helper receipt`);
         }
@@ -2709,26 +2872,27 @@ export function validatePlanningRefDesign(files) {
         checkHelperEvidence(operation.candidate_keepalive.create_receipt, "create_keepalive", `${label} keepalive create`);
       }
       checkHelperEvidence(operation.receipts.ref_cas, "advance_planning", `${label} ref_cas`);
-      checkHelperEvidence(operation.candidate_keepalive.release_receipt, "release_to_audit", `${label} release`);
+      checkHelperEvidence(operation.candidate_keepalive.release_receipt, "delete_live_ref", `${label} release`);
       if (operation.candidate_keepalive.audit_receipt) {
         checkHelperEvidence(
           operation.candidate_keepalive.audit_receipt,
           operation.candidate_keepalive.audit_receipt.reason === "publication_verified"
-            ? "release_to_audit" : "retain_audit",
+            ? "ensure_audit_ref" : "ensure_audit_ref",
           `${label} audit`,
+          operation.candidate_keepalive.audit_receipt.helper_evidence?.request_id,
         );
       }
     }
     for (const error of validateCandidateSupersessionOperation(supersessionExample, supersessionSchema)) {
       errors.push(`candidate supersession Schema/example: ${error}`);
     }
-    const retainRequest = wireByAction.retain_audit?.request;
+    const retainRequest = panelRetainExchange?.request;
     const supersessionBinding = supersessionExample.helper_request_binding;
     if (!retainRequest || supersessionBinding.helper_request_id !== retainRequest.request_id ||
         supersessionBinding.helper_nonce !== retainRequest.nonce ||
         supersessionBinding.helper_request_body_sha256 !== retainRequest.body_sha256 ||
         supersessionBinding.keepalive_operation_id !== retainRequest.operation_id) {
-      errors.push("candidate supersession prepared request binding does not match retain_audit journal request");
+      errors.push("candidate supersession prepared request binding does not match ensure_audit_ref journal request");
     }
     for (const error of validateAuditHousekeepingOperation(housekeepingExample, housekeepingSchema)) {
       errors.push(`audit housekeeping Schema/example: ${error}`);

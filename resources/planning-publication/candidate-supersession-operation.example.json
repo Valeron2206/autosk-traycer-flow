@@ -13,10 +13,10 @@
     "supersession_operation_id": "99999999-9999-4999-8999-999999999999",
     "replacement_intent_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "keepalive_operation_id": "77777777-7777-4777-8777-777777777777",
-    "helper_request_id": "00000004-1111-4111-8111-000000000004",
-    "helper_nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
-    "helper_request_body_sha256": "a5363f7bf315c80ce0042e14f867e1853ed5cc73c47b5e3e9db049224af13810",
-    "binding_hash": "a6acdeb4d2f5bafca29e495ef69cfad0431df206281954851243084be9399381"
+    "helper_request_id": "00000010-1111-4111-8111-000000000010",
+    "helper_nonce": "4b70480452b58434358b2cc9137f50d28448360b86ff62eb018ed0dee9275762",
+    "helper_request_body_sha256": "8bde733a9d9c02faa3c8bfb60d1f4f17f882274b0d930ba802d28d92746dc5dc",
+    "binding_hash": "489fc1c9d6792f137f7ea110d17ee1a1e7b535a29141dcb1906dc123d0724978"
   },
   "phase": "archived",
   "audit_receipt": {
@@ -28,14 +28,16 @@
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
     "reason": "superseded",
     "ref_custody_generation": 1,
-    "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-    "observation_sha256": "169404faa483ffa9c8a459c4a49ba28890b8d0db5bfe4c1e48abb90d04439c78",
-    "receipt_hash": "82d33d46e5fa35111d14ea5e6b5ccc4c18722864d6a01af71771248bf0fbdb66",
+    "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
+    "observation_sha256": "9222bb27473867bcf8c9c38cc0c4587eec1ebcb1356642a84a290db0de833cf5",
+    "receipt_hash": "28d73fd750ecf5d33e9eb017d24163461a78d5f16b1b46e107a713f566205b1a",
     "helper_evidence": {
-      "request_id": "00000004-1111-4111-8111-000000000004",
-      "nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
-      "transaction_value_observation_sha256": "97952889b5b05f83dcfa844888cefe795f09bccf92787ae41ec2edfcb4cc7f34",
-      "helper_receipt_hash": "d58e24b991b078a2a7f31da90ade46d130497b303bd077fbb9cf2fad1e8a535b"
+      "request_id": "00000010-1111-4111-8111-000000000010",
+      "nonce": "4b70480452b58434358b2cc9137f50d28448360b86ff62eb018ed0dee9275762",
+      "request_body_sha256": "8bde733a9d9c02faa3c8bfb60d1f4f17f882274b0d930ba802d28d92746dc5dc",
+      "transaction_value_observation_sha256": "df2ecea4ffa3ae2b225159036def2a82673b73b8f916869b0ca381aa0af84241",
+      "helper_receipt_hash": "fcfd1a2c0799e536c4a48032adb2264b79fc1a6077adc603a6b3214be86bc860",
+      "helper_journal_hash": "2d4a02fa83daf040c16348861ef2c6a6fca643f66b836613e9181fd6aa76d47f"
     }
   },
   "helper_transaction_receipt": {
@@ -45,12 +47,12 @@
     "live_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "audit_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/audit/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
-    "audit_receipt_hash": "82d33d46e5fa35111d14ea5e6b5ccc4c18722864d6a01af71771248bf0fbdb66",
-    "helper_request_id": "00000004-1111-4111-8111-000000000004",
-    "helper_nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
-    "helper_transaction_value_observation_sha256": "97952889b5b05f83dcfa844888cefe795f09bccf92787ae41ec2edfcb4cc7f34",
-    "helper_receipt_hash": "d58e24b991b078a2a7f31da90ade46d130497b303bd077fbb9cf2fad1e8a535b",
-    "receipt_hash": "ce1dbd6ce13e28021af7e0997d4f7aed176c2e267f993e2615c2be16ecd9319e"
+    "audit_receipt_hash": "28d73fd750ecf5d33e9eb017d24163461a78d5f16b1b46e107a713f566205b1a",
+    "helper_request_id": "00000010-1111-4111-8111-000000000010",
+    "helper_nonce": "4b70480452b58434358b2cc9137f50d28448360b86ff62eb018ed0dee9275762",
+    "helper_transaction_value_observation_sha256": "df2ecea4ffa3ae2b225159036def2a82673b73b8f916869b0ca381aa0af84241",
+    "helper_receipt_hash": "fcfd1a2c0799e536c4a48032adb2264b79fc1a6077adc603a6b3214be86bc860",
+    "receipt_hash": "3c27d1747f8fb4ca7332a450427f80136e788a51b89c4b821c27846c02863680"
   },
   "created_at_utc": "2026-09-01T00:02:00Z",
   "archived_at_utc": "2026-09-01T00:02:01Z"

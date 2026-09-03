@@ -1102,8 +1102,10 @@
       "required": [
         "request_id",
         "nonce",
+        "request_body_sha256",
         "transaction_value_observation_sha256",
-        "helper_receipt_hash"
+        "helper_receipt_hash",
+        "helper_journal_hash"
       ],
       "properties": {
         "request_id": {
@@ -1112,10 +1114,16 @@
         "nonce": {
           "$ref": "#/$defs/sha256"
         },
+        "request_body_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
         "transaction_value_observation_sha256": {
           "$ref": "#/$defs/sha256"
         },
         "helper_receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_journal_hash": {
           "$ref": "#/$defs/sha256"
         }
       }

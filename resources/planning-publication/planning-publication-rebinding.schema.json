@@ -1,5 +1,42 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/planning-publication-rebinding.schema.json", "title": "autosk-flow immutable unaffected publication rebinding", "type": "object", "additionalProperties": false, "required": ["schema", "record_id", "artifact_kind", "publication_operation_id", "old_anchor_version", "new_anchor_version", "approved_impact_digest", "unchanged_tree_oid", "unchanged_pathspec_digest", "previous_rebinding_hash", "receipt_hash", "created_at_utc"],
-  "properties": { "schema": { "const": 1 }, "record_id": { "$ref": "#/$defs/uuid" }, "artifact_kind": { "enum": ["brief", "core_flow", "tech_plan", "tickets"] }, "publication_operation_id": { "$ref": "#/$defs/uuid" }, "old_anchor_version": { "type": "integer", "minimum": 1 }, "new_anchor_version": { "type": "integer", "minimum": 2 }, "approved_impact_digest": { "$ref": "#/$defs/sha256" }, "unchanged_tree_oid": { "$ref": "#/$defs/oid" }, "unchanged_pathspec_digest": { "$ref": "#/$defs/sha256" }, "previous_rebinding_hash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }, "receipt_hash": { "$ref": "#/$defs/sha256" }, "created_at_utc": { "$ref": "#/$defs/timestamp" } },
-  "$defs": { "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }, "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" } }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/planning-publication-rebinding.schema.json",
+  "title": "autosk-flow immutable unaffected publication rebinding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "record_id", "project_root_sha256", "epic_id", "epic_ref_key", "artifact_kind", "publication_operation_id", "prior_publication_receipt_hash", "old_anchor_version", "new_anchor_version", "old_published_commit_oid", "old_published_tree_oid", "current_planning_head_oid", "expected_prior_head_oid", "approved_impact", "approved_impact_digest", "projection_blob_oid", "projection_blob_mode", "projection_blob_sha256", "projection_bytes_base64", "unchanged_tree_oid", "unchanged_pathspec_digest", "previous_rebinding_hash", "receipt_hash", "created_at_utc"],
+  "properties": {
+    "schema": { "const": 1 },
+    "record_id": { "$ref": "#/$defs/uuid" },
+    "project_root_sha256": { "$ref": "#/$defs/sha256" },
+    "epic_id": { "$ref": "#/$defs/uuid" },
+    "epic_ref_key": { "$ref": "#/$defs/sha256" },
+    "artifact_kind": { "enum": ["brief", "core_flow", "tech_plan", "tickets"] },
+    "publication_operation_id": { "$ref": "#/$defs/uuid" },
+    "prior_publication_receipt_hash": { "$ref": "#/$defs/sha256" },
+    "old_anchor_version": { "type": "integer", "minimum": 1 },
+    "new_anchor_version": { "type": "integer", "minimum": 2 },
+    "old_published_commit_oid": { "$ref": "#/$defs/oid" },
+    "old_published_tree_oid": { "$ref": "#/$defs/oid" },
+    "current_planning_head_oid": { "$ref": "#/$defs/oid" },
+    "expected_prior_head_oid": { "$ref": "#/$defs/oid" },
+    "approved_impact": { "type": "object", "additionalProperties": false, "required": ["decision_id", "impact", "unaffected_reason"], "properties": { "decision_id": { "type": "string", "minLength": 1 }, "impact": { "const": "unaffected" }, "unaffected_reason": { "type": "string", "minLength": 1 } } },
+    "approved_impact_digest": { "$ref": "#/$defs/sha256" },
+    "projection_blob_oid": { "$ref": "#/$defs/oid" },
+    "projection_blob_mode": { "enum": ["100644", "100755"] },
+    "projection_blob_sha256": { "$ref": "#/$defs/sha256" },
+    "projection_bytes_base64": { "$ref": "#/$defs/base64" },
+    "unchanged_tree_oid": { "$ref": "#/$defs/oid" },
+    "unchanged_pathspec_digest": { "$ref": "#/$defs/sha256" },
+    "previous_rebinding_hash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+    "receipt_hash": { "$ref": "#/$defs/sha256" },
+    "created_at_utc": { "$ref": "#/$defs/timestamp" }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" }
+  }
 }

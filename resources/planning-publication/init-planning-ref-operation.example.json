@@ -26,7 +26,7 @@
   "bootstrap_policy_digest": "d21e3b7a5407d827e5c721e5282ef7233fec62d20a7eda61397148abb657e324",
   "ref_storage_format": "files",
   "ref_custody_generation": 1,
-  "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
   "reflog_producer": {
     "git_committer_name": "autosk-flow",
     "git_committer_email": "autosk@example.invalid",
@@ -66,12 +66,14 @@
         "appended_entry_sha256": "21ee56bcb6b04093ae040bfccc2e45e090389aadfc0aabe232306ba6b55f54c4"
       },
       "observation_sha256": "90d63d751b005051ca3f7491a132af913eda1c9631be84e1317b257fe59b9bd3",
-      "receipt_hash": "d78da03729ce96ac6805f46c596f28de7f93daa466f2779d549f6d2ce81f3b4b",
+      "receipt_hash": "fdcfa848141610d5bb4cbe32487c328222ae490c8e2c655413c87bf7e7776af9",
       "helper_evidence": {
         "request_id": "00000001-1111-4111-8111-000000000001",
-        "nonce": "69e85b207e38d799b8df9d9679fb42eca29c21c2c6b180b34313ff2753faa342",
-        "transaction_value_observation_sha256": "a60967ca77716ba45122e5bac123c1cdca7937cd3627ba6a285ba5cdb89393e6",
-        "helper_receipt_hash": "1f3956e867a88246e290edb622f384df3313bec5457cc6a0cb4d96746ae0a352"
+        "nonce": "fab1f574d597efaa8767215e97c152d51a156723adfa3310eae648d895cd12c6",
+        "request_body_sha256": "59c2a40d78600d77a53a778cd66d27525e8fc8a9db1bded95355c7c7025cf1b5",
+        "transaction_value_observation_sha256": "0dc92f863c454dcc82dce2cd742b9003d68bc6c09003b928a6c62b1c0d3ff5c8",
+        "helper_receipt_hash": "28293c7ca81915469d52957cb9a47b9ee6e58dca8d1e9303324756b7675d6b96",
+        "helper_journal_hash": "a6673b93a7dbab0531950936cca31dcb5c6e96f2ac2cbb646332b5e66f85871c"
       }
     },
     "verification": {
@@ -82,10 +84,10 @@
         "planning_ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/planning",
         "commit_oid": "3333333333333333333333333333333333333333",
         "tree_oid": "4444444444444444444444444444444444444444",
-        "ref_create_receipt_hash": "d78da03729ce96ac6805f46c596f28de7f93daa466f2779d549f6d2ce81f3b4b"
+        "ref_create_receipt_hash": "fdcfa848141610d5bb4cbe32487c328222ae490c8e2c655413c87bf7e7776af9"
       },
-      "observation_sha256": "2ecee16c38d284d44cb99963d7b33ca2110acbb56028f90109a4f890e6a7cd97",
-      "receipt_hash": "113973a81dbb6a8a70ba3460e130e5fd2b27fc61750c2eee6022124e012fc720",
+      "observation_sha256": "2ed063dddc1cbce7a82fc37920efe76926b94a92775364a3b2e53deb202accc3",
+      "receipt_hash": "a9ce4a5877a51d37c88ddb97549db78ca3d9c339fdaece7bacf315421f111f4c",
       "helper_evidence": null
     }
   }

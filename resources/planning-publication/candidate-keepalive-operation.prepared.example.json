@@ -29,7 +29,7 @@
   "audit_receipt": null,
   "terminal_disposition": null,
   "created_at_utc": "2026-09-01T00:00:00Z",
-  "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
   "ref_custody_generation": 1,
   "operation_id": "77777777-7777-4777-8777-777777777777",
   "snapshot_commit_recipe": {
@@ -54,7 +54,7 @@
     "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgY2FuZGlkYXRlCg==",
     "signing": {
       "mode": "none",
-      "policy_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+      "policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
       "signature_header_base64": null
     },
     "commit_object_bytes_base64": "dHJlZSAyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyCnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
@@ -72,6 +72,6 @@
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
   },
   "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
-  "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b",
+  "closure_pack_receipt_hash": "64467578be1c731fb8084b1b6191ba1d561920e86733288bfba54f6a64a2adf7",
   "verification_receipt": null
 }

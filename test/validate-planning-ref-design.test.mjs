@@ -409,8 +409,10 @@ test("recovered receipts are bound to their containing operation values", () => 
   const refCasHelperEvidence = {
     request_id: advance.request.request_id,
     nonce: advance.request.nonce,
+    request_body_sha256: advance.request.body_sha256,
     transaction_value_observation_sha256: advance.response.transaction_value_observation_sha256,
     helper_receipt_hash: advance.response.receipt_hash,
+    helper_journal_hash: advance.journal.journal_hash,
   };
   const receipt = (kind, observation) => {
     const observationSha256 = planningObservationDigest(kind, observation);
@@ -498,12 +500,15 @@ test("recovered receipts are bound to their containing operation values", () => 
   }
 
   const released = structuredClone(operation);
-  const releaseExchange = helperWire.actions.find(({ action }) => action === "release_to_audit");
+  const releaseExchange = helperWire.actions.find(({ action, request }) =>
+    action === "delete_live_ref" && request.transfer_mode === "release_to_audit");
   const releaseHelperEvidence = {
     request_id: releaseExchange.request.request_id,
     nonce: releaseExchange.request.nonce,
+    request_body_sha256: releaseExchange.request.body_sha256,
     transaction_value_observation_sha256: releaseExchange.response.transaction_value_observation_sha256,
     helper_receipt_hash: releaseExchange.response.receipt_hash,
+    helper_journal_hash: releaseExchange.journal.journal_hash,
   };
   const tailObservationSha256 = planningReleaseTailObservationDigest(released);
   const releaseReceipt = {
@@ -1024,9 +1029,9 @@ test("protected ref namespace has one enforceable OS-level writer", () => {
   const contract = files["docs/contracts/epic-planning-ref.md"];
   const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
   const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
-  assert.match(architecture, /separate-account ref-custody helper.*only writer.*refs\/autosk/isu);
+  assert.match(architecture, /single object\/ref database.*separate-account ref-custody helper.*sole writer.*refs\/autosk/isu);
   assert.match(plan, /ref custody ownership\/mode\/generation drift.*retain.*candidate_keepalive.*planning_ref_capability_missing/isu);
-  assert.match(contract, /helper-owned bare custody Git directory.*outside the user project.*denied create\/rename\/pack-refs/isu);
+  assert.match(contract, /one service-owned canonical project common Git directory.*only `autosk-flow-ref-custody` writes `refs\/autosk/isu);
   assert.equal(schema.required.includes("ref_custody_policy_digest"), true);
   assert.match(example.ref_custody_policy_digest, /^[0-9a-f]{64}$/u);
   assert.equal(
@@ -1090,7 +1095,7 @@ test("release digests have literal golden vectors", () => {
   );
   assert.equal(
     released.candidate_keepalive.release_receipt.transaction_observation_sha256,
-    "b52a5b032d82a01975a1665e82c5fef351e2d3de4e7be0259c4723f2dc2bab32",
+    "ec6b5cd265114f48d5504596fd2244d842b9d8bb5e9d73469be1035cf7bf8a75",
   );
 });
 
@@ -1115,8 +1120,8 @@ test("candidate keepalive operation has a closed standalone machine", () => {
     path.join(directory, "candidate-keepalive-operation.audit-retained.example.json"),
     "utf8",
   ));
-  assert.equal(audit.audit_receipt.observation_sha256, "0087d4d0fcabdf872c5ba08cd1570ea8bd2cac56a3a1f777b2200f653a500c42");
-  assert.equal(audit.audit_receipt.receipt_hash, "fb1fe7411a72a0a86c111a7201d46fbe5cc48b3ad7b40710abf95b1842754ec7");
+  assert.equal(audit.audit_receipt.observation_sha256, "8bfa2dd24f3ae68a9a25165548b47604986f7aae40496ba47647e62e5c44e208");
+  assert.equal(audit.audit_receipt.receipt_hash, "8162a7c325bec638bf81936173919aa087faccab047cd3fec634aeff4e7abbfe");
   const invalidPrepared = structuredClone(audit);
   invalidPrepared.phase = "prepared";
   invalidPrepared.terminal_disposition = "published_released";
@@ -1258,7 +1263,7 @@ test("snapshot commit and ref-custody protocol are deterministic and action-clos
   const contract = fixture()["docs/contracts/epic-planning-ref.md"];
   assert.match(contract, /snapshot commit recipe.*persisted before.*Git write.*single parent.*expected OID/isu);
   assert.match(contract, /action-discriminated.*reflog_producer.*reflog_checkpoint.*raw appended entry/isu);
-  assert.match(contract, /init.*create_keepalive.*advance_planning.*retain_audit.*release_to_audit.*delete_expired_audit.*golden vector/isu);
+  assert.match(contract, /init.*create_keepalive.*advance_planning.*ensure_audit_ref.*delete_live_ref.*delete_expired_audit.*golden vector/isu);
   assert.match(contract, /lost response.*journal.*fsync.*nonce/isu);
 });
 
@@ -1277,8 +1282,8 @@ test("ref-custody helper has six machine-validated action contracts and literal 
     "init",
     "create_keepalive",
     "advance_planning",
-    "retain_audit",
-    "release_to_audit",
+    "ensure_audit_ref",
+    "delete_live_ref",
     "delete_expired_audit",
   ]);
   const forged = structuredClone(example);
@@ -1306,7 +1311,7 @@ test("successful publication archives its operation and literal release receipt 
   ));
   assert.equal(
     released.candidate_keepalive.release_receipt.receipt_hash,
-    "006492053a596e92b083d8a3a034a697830ea1eddfaa4c6383385915a8a93c14",
+    "a471b2fae744852dc18a4636ae3e94ce29359a7a93810434ffd58e8385ed8862",
   );
 });
 
@@ -1409,7 +1414,7 @@ test("ref-custody wire examples bind actual values, authorization and durable jo
     "utf8",
   ));
   assert.deepEqual(validateRefCustodyHelperWireExamples(wire, schema), []);
-  assert.equal(wire.actions.length, 6);
+  assert.equal(wire.actions.length, 8);
   for (const action of wire.actions) {
     assert.equal(action.request.authorization.scheme, "ed25519");
     assert.match(action.request.body_sha256, /^[0-9a-f]{64}$/u);
@@ -1475,9 +1480,10 @@ test("pre-existing exact audit topology is a valid release variant", () => {
   const wire = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.example.json"), "utf8"));
   const schema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.schema.json"), "utf8"));
   const existing = structuredClone(wire);
-  const release = existing.actions.find(({ action }) => action === "release_to_audit");
-  release.request.ref_updates[1].operation = "verify";
-  release.request.ref_updates[1].expected_old_oid = release.request.ref_updates[1].new_oid;
+  const release = existing.actions.find(({ action, request }) =>
+    action === "ensure_audit_ref" && request.transfer_mode === "release_to_audit");
+  release.request.ref_updates[2].operation = "verify";
+  release.request.ref_updates[2].expected_old_oid = release.request.ref_updates[2].new_oid;
   const errors = validateRefCustodyHelperWireExamples(existing, schema).join("\n");
   assert.doesNotMatch(errors, /action-specific ref update set mismatch/u);
   const golden = JSON.parse(readFileSync(path.join(
@@ -1753,6 +1759,11 @@ test("helper not-applied response is value-bound and maps to recovery parks", ()
     validateRefCustodyHelperWireExamples(duplicateObservation, schema).join("\n"),
     /exactly match ref_updates/u,
   );
+  const duplicateReflog = structuredClone(wire);
+  duplicateReflog.actions[0].response.reflog_observations.push(structuredClone(
+    duplicateReflog.actions[0].response.reflog_observations[0],
+  ));
+  assert.match(validateRefCustodyHelperWireExamples(duplicateReflog, schema).join("\n"), /exactly match ref_updates/u);
   const plan = fixture()["03-technical-plan.md"];
   assert.match(plan, /status=not_applied and reason=expected_old_mismatch.*planning_ref_foreign_movement/isu);
   assert.match(plan, /status=not_applied and reason=packed_refs_drift\\\|authorization_invalid.*planning_ref_capability_missing/isu);
@@ -1889,7 +1900,7 @@ test("planning receipts bind the exact journaled helper evidence", () => {
   const operation = JSON.parse(files[relative]);
   operation.candidate_keepalive.release_receipt.helper_evidence.helper_receipt_hash = "f".repeat(64);
   files[relative] = JSON.stringify(operation, null, 2) + "\n";
-  assert.match(validatePlanningRefDesign(files).join("\n"), /helper evidence.*release_to_audit/u);
+  assert.match(validatePlanningRefDesign(files).join("\n"), /helper evidence.*delete_live_ref/u);
   const directory = path.dirname(OPERATION_SCHEMA_PATH);
   const publicationSchema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
   const released = JSON.parse(readFileSync(

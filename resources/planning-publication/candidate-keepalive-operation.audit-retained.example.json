@@ -41,9 +41,11 @@
     "operation_id": "77777777-7777-4777-8777-777777777777",
     "helper_evidence": {
       "request_id": "00000002-1111-4111-8111-000000000002",
-      "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
-      "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
-      "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+      "nonce": "64bb5dffc17edab39ffe08a687681a7193e07793f5edb9367c834f06aca46da1",
+      "request_body_sha256": "3df5e7c61fe851cd06c9c30063ec8e7a57cf0c60ed14b697dbf9e900bdee3523",
+      "transaction_value_observation_sha256": "fb73ef553010815179a7bf63fba478eafe44ab10f20aac4b821aa73e79c56e54",
+      "helper_receipt_hash": "db3c95ee0772d87538c15e214e70a8ae0ae0f0f9d8f779cef02b1562773fa3ad",
+      "helper_journal_hash": "0bf616eec873541bf74417484fb7a1b6b3cdd89a1467a9bd9d0e6586b02efa52"
     }
   },
   "release_receipt": null,
@@ -56,19 +58,21 @@
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
     "reason": "panel_not_pass",
     "ref_custody_generation": 1,
-    "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-    "observation_sha256": "0087d4d0fcabdf872c5ba08cd1570ea8bd2cac56a3a1f777b2200f653a500c42",
-    "receipt_hash": "fb1fe7411a72a0a86c111a7201d46fbe5cc48b3ad7b40710abf95b1842754ec7",
+    "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
+    "observation_sha256": "8bfa2dd24f3ae68a9a25165548b47604986f7aae40496ba47647e62e5c44e208",
+    "receipt_hash": "8162a7c325bec638bf81936173919aa087faccab047cd3fec634aeff4e7abbfe",
     "helper_evidence": {
-      "request_id": "00000008-1111-4111-8111-000000000008",
-      "nonce": "8888888888888888888888888888888888888888888888888888888888888888",
-      "transaction_value_observation_sha256": "b13e64e9e45a410029f6575a58b6b4e69bd16c29c2fbd67cdd6af676b65d6df4",
-      "helper_receipt_hash": "969801b09785811664cabe60f4c681b94ece5ff78f5ddc0093809aa737afb090"
+      "request_id": "00000010-1111-4111-8111-000000000010",
+      "nonce": "4b70480452b58434358b2cc9137f50d28448360b86ff62eb018ed0dee9275762",
+      "request_body_sha256": "8bde733a9d9c02faa3c8bfb60d1f4f17f882274b0d930ba802d28d92746dc5dc",
+      "transaction_value_observation_sha256": "df2ecea4ffa3ae2b225159036def2a82673b73b8f916869b0ca381aa0af84241",
+      "helper_receipt_hash": "fcfd1a2c0799e536c4a48032adb2264b79fc1a6077adc603a6b3214be86bc860",
+      "helper_journal_hash": "2d4a02fa83daf040c16348861ef2c6a6fca643f66b836613e9181fd6aa76d47f"
     }
   },
   "terminal_disposition": "audit_retained",
   "created_at_utc": "2026-09-01T00:00:00Z",
-  "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "ref_custody_policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
   "ref_custody_generation": 1,
   "operation_id": "77777777-7777-4777-8777-777777777777",
   "snapshot_commit_recipe": {
@@ -93,7 +97,7 @@
     "message_utf8_base64": "YXV0b3NrLWZsb3cgcGxhbm5pbmcgY2FuZGlkYXRlCg==",
     "signing": {
       "mode": "none",
-      "policy_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+      "policy_digest": "92e07cad21798d81c82c04f9085fdbfb348587395dbd027085b5c4cd2a34b395",
       "signature_header_base64": null
     },
     "commit_object_bytes_base64": "dHJlZSAyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyCnBhcmVudCAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzCmF1dGhvciBhdXRvc2stZmxvdyA8YXV0b3NrQGV4YW1wbGUuaW52YWxpZD4gMCArMDAwMApjb21taXR0ZXIgYXV0b3NrLWZsb3cgPGF1dG9za0BleGFtcGxlLmludmFsaWQ+IDAgKzAwMDAKCmF1dG9zay1mbG93IHBsYW5uaW5nIGNhbmRpZGF0ZQo=",
@@ -120,17 +124,19 @@
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
   },
   "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
-  "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b",
+  "closure_pack_receipt_hash": "64467578be1c731fb8084b1b6191ba1d561920e86733288bfba54f6a64a2adf7",
   "verification_receipt": {
     "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "observed_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
     "reflog_tail_observation_sha256": "35db5200f9c5ac8af9974d1aec6448496f769f481ef522ca07150a5494152ad2",
     "helper_evidence": {
       "request_id": "00000002-1111-4111-8111-000000000002",
-      "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
-      "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
-      "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+      "nonce": "64bb5dffc17edab39ffe08a687681a7193e07793f5edb9367c834f06aca46da1",
+      "request_body_sha256": "3df5e7c61fe851cd06c9c30063ec8e7a57cf0c60ed14b697dbf9e900bdee3523",
+      "transaction_value_observation_sha256": "fb73ef553010815179a7bf63fba478eafe44ab10f20aac4b821aa73e79c56e54",
+      "helper_receipt_hash": "db3c95ee0772d87538c15e214e70a8ae0ae0f0f9d8f779cef02b1562773fa3ad",
+      "helper_journal_hash": "0bf616eec873541bf74417484fb7a1b6b3cdd89a1467a9bd9d0e6586b02efa52"
     },
-    "receipt_hash": "6e9f8b33e6b10387f59b06639c9e04889fdafd6d62e65483ab45be2d8535cb52"
+    "receipt_hash": "6e9c84eabc560e7061a73bd38c4031c365b67d299cc2ccb9b0ed845b9da76845"
   }
 }
