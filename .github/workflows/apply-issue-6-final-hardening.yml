@@ -1,4 +1,4 @@
-name: Apply issue 6 final integrity hardening once
+name: Apply issue 6 final handoff hardening once
 
 on:
   push:
@@ -26,8 +26,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Apply hardening
-        run: python3 .github/tmp/harden-issue-6-final.py
+      - name: Apply final handoff hardening
+        run: python3 .github/tmp/finalize-issue-6-handoff.py
 
       - name: Run full validation
         run: |
@@ -38,16 +38,15 @@ jobs:
           npm run validate:tickets-manifest
           git diff --check
 
-      - name: Commit canonical files and remove patch script
+      - name: Commit canonical files and remove patch scripts
         shell: bash
         run: |
+          rm .github/tmp/finalize-issue-6-handoff.py
           rm .github/tmp/harden-issue-6-final.py
           rmdir .github/tmp 2>/dev/null || true
           git add -A
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix: harden Tickets candidate and revision integrity"
+          git commit -m "fix: close final Tickets manifest handoff gaps"
           git push origin HEAD:design/issue-6-tickets-manifest-final
-
-# retry: corrected patch against current candidate
