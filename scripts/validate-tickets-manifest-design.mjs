@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,15 @@ export const MANIFEST_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/
 export const MANIFEST_EXAMPLE_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.example.json");
 export const RECEIPT_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-validation-receipt.schema.json");
 export const ABSOLUTE_MAX_MANIFEST_BYTES = 16_777_216;
+export const EXAMPLE_CANDIDATE_ROOT_RELATIVE = "resources/tickets-manifest/example-candidate";
+export const EXAMPLE_CANDIDATE_ROOT = path.join(ROOT, EXAMPLE_CANDIDATE_ROOT_RELATIVE);
+export const EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH = "docs/autosk/epics/11111111-1111-4111-8111-111111111111/tickets/tickets.manifest.json";
+export const EXAMPLE_CANDIDATE_CONTRACT_FILES = Object.freeze([
+  `${EXAMPLE_CANDIDATE_ROOT_RELATIVE}/${EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH}`,
+  `${EXAMPLE_CANDIDATE_ROOT_RELATIVE}/docs/autosk/epics/11111111-1111-4111-8111-111111111111/tickets/README.md`,
+  `${EXAMPLE_CANDIDATE_ROOT_RELATIVE}/docs/autosk/epics/11111111-1111-4111-8111-111111111111/tickets/T01-session-store.md`,
+  `${EXAMPLE_CANDIDATE_ROOT_RELATIVE}/docs/autosk/epics/11111111-1111-4111-8111-111111111111/tickets/T02-session-api.md`,
+]);
 
 export const CONTRACT_FILES = Object.freeze([
   "README.md",
@@ -26,6 +35,7 @@ export const CONTRACT_FILES = Object.freeze([
   "resources/tickets-manifest/tickets-validation-receipt.schema.json",
   "package.json",
   ".github/workflows/validate-traycer-parity.yml",
+  ...EXAMPLE_CANDIDATE_CONTRACT_FILES,
 ]);
 
 const REQUIRED_MARKERS = Object.freeze({
@@ -452,6 +462,130 @@ export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
   return errors.sort(errorComparator);
 }
 
+
+function resolveInsideCandidateRoot(candidateRoot, relativePath) {
+  if (typeof candidateRoot !== "string" || candidateRoot.length === 0 || !validRelativePath(relativePath)) return null;
+  const absoluteRoot = path.resolve(candidateRoot);
+  const absolutePath = path.resolve(absoluteRoot, ...relativePath.split("/"));
+  if (!absolutePath.startsWith(`${absoluteRoot}${path.sep}`)) return null;
+  return { absoluteRoot, absolutePath };
+}
+
+function regularFileBytes(candidateRoot, relativePath, errors, pointer) {
+  const resolved = resolveInsideCandidateRoot(candidateRoot, relativePath);
+  if (!resolved) {
+    errors.push(error("tickets_path_invalid", pointer, "candidate path escapes or is outside the closed relative-path dialect", { path: relativePath }));
+    return null;
+  }
+  try {
+    const metadata = lstatSync(resolved.absolutePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
+      return null;
+    }
+    return readFileSync(resolved.absolutePath);
+  } catch (cause) {
+    errors.push(error("tickets_rendered_path_missing", pointer, "candidate file is missing or unreadable", {
+      cause: String(cause),
+      path: relativePath,
+    }));
+    return null;
+  }
+}
+
+export function loadCandidateTicketDocuments(candidateRoot, manifest) {
+  const errors = [];
+  const documents = new Map();
+  const directoryPath = `docs/autosk/epics/${manifest?.epic_id}/tickets`;
+  const resolved = resolveInsideCandidateRoot(candidateRoot, directoryPath);
+  if (!resolved) {
+    return {
+      documents,
+      errors: [error("tickets_path_invalid", "/rendered_documents", "candidate Tickets directory is invalid", { path: directoryPath })],
+    };
+  }
+
+  let rootMetadata;
+  let directoryMetadata;
+  let entries;
+  try {
+    rootMetadata = lstatSync(resolved.absoluteRoot);
+    directoryMetadata = lstatSync(resolved.absolutePath);
+    if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
+      throw new Error("candidate root is not a regular directory");
+    }
+    if (directoryMetadata.isSymbolicLink() || !directoryMetadata.isDirectory()) {
+      throw new Error("Tickets path is not a regular directory");
+    }
+    entries = readdirSync(resolved.absolutePath, { withFileTypes: true })
+      .sort((left, right) => compareCodePoints(left.name, right.name));
+  } catch (cause) {
+    return {
+      documents,
+      errors: [error("tickets_rendered_path_missing", "/rendered_documents", "candidate Tickets directory is missing or unreadable", {
+        cause: String(cause),
+        path: directoryPath,
+      })],
+    };
+  }
+
+  for (const [index, entry] of entries.entries()) {
+    const relativePath = `${directoryPath}/${entry.name}`;
+    const pointer = `/rendered_documents/${index}`;
+    if (entry.name === "tickets.manifest.json") continue;
+    if (entry.isSymbolicLink() || !entry.isFile()) {
+      errors.push(error("tickets_rendered_path_extra", pointer, "candidate Tickets inventory contains a non-regular or nested entry", {
+        path: relativePath,
+      }));
+      continue;
+    }
+    const bytes = regularFileBytes(candidateRoot, relativePath, errors, pointer);
+    if (bytes !== null) documents.set(relativePath, bytes);
+  }
+  return { documents, errors: errors.sort(errorComparator) };
+}
+
+export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath, options = {}) {
+  const errors = [];
+  let schema = options.schema;
+  if (!schema) {
+    try {
+      schema = JSON.parse(readFileSync(options.schemaPath ?? MANIFEST_SCHEMA_PATH, "utf8"));
+    } catch (cause) {
+      return [error("tickets_manifest_schema_invalid", "", "Tickets manifest Schema is missing or invalid", { cause: String(cause) })];
+    }
+  }
+
+  const rawBytes = regularFileBytes(candidateRoot, manifestRelativePath, errors, "/manifest_path");
+  if (rawBytes === null) return errors.sort(errorComparator);
+  const parsed = parseTicketsManifest(rawBytes, { maxManifestBytes: options.maxManifestBytes });
+  errors.push(...parsed.errors);
+  if (!parsed.manifest) return errors.sort(errorComparator);
+
+  const expectedManifestPath = `docs/autosk/epics/${parsed.manifest.epic_id}/tickets/tickets.manifest.json`;
+  if (manifestRelativePath !== expectedManifestPath) {
+    errors.push(error("tickets_rendered_path_mismatch", "/manifest_path", "manifest path does not match its exact Epic identity", {
+      actual: manifestRelativePath,
+      expected: expectedManifestPath,
+    }));
+  }
+
+  const inventory = loadCandidateTicketDocuments(candidateRoot, parsed.manifest);
+  errors.push(...inventory.errors);
+  errors.push(...validateTicketsManifest(parsed.manifest, schema, rawBytes, {
+    candidateDocuments: inventory.documents,
+    previousManifestContext: options.previousManifestContext,
+  }));
+  return errors.sort(errorComparator);
+}
+
+function candidateDocumentsFromContractFiles(files) {
+  const prefix = `${EXAMPLE_CANDIDATE_ROOT_RELATIVE}/`;
+  return new Map(EXAMPLE_CANDIDATE_CONTRACT_FILES
+    .filter((relative) => relative.endsWith(".md"))
+    .map((relative) => [relative.slice(prefix.length), files[relative]]));
+}
+
 export function ticketManifestDigests(manifest) {
   const canonicalManifest = canonicalStringify(manifest);
   const manifestDigest = domainDigest("autosk-flow/tickets-manifest/v1", canonicalManifest);
@@ -536,7 +670,13 @@ function countLimitErrors(manifest) {
 
 function canonicalText(value) {
   if (typeof value === "string") return value;
-  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return new TextDecoder("utf-8", { fatal: true }).decode(value);
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(value);
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
@@ -848,7 +988,9 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
       );
     }
     if (renderedLimitErrors.length > 0) return [...errors, ...renderedLimitErrors].sort(errorComparator);
-    if (Object.prototype.hasOwnProperty.call(options, "candidateDocuments")) {
+    if (!Object.prototype.hasOwnProperty.call(options, "candidateDocuments")) {
+      errors.push(error("tickets_rendered_path_missing", "/rendered_documents", "exact candidate rendered document inventory is required"));
+    } else {
       errors.push(...compareRenderedTicketDocuments(manifest, options.candidateDocuments));
     }
   }
@@ -945,17 +1087,21 @@ export function validateTicketsManifestDesign(files) {
   if (receiptSchema.$schema !== "https://json-schema.org/draft/2020-12/schema" || receiptSchema.additionalProperties !== false) {
     errors.push("tickets validation receipt schema must be closed Draft 2020-12");
   }
-  const parsed = parseTicketsManifest(files["resources/tickets-manifest/tickets-manifest.example.json"] ?? "");
+  const exampleText = files["resources/tickets-manifest/tickets-manifest.example.json"] ?? "";
+  const fixtureManifestKey = `${EXAMPLE_CANDIDATE_ROOT_RELATIVE}/${EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH}`;
+  const fixtureManifestText = files[fixtureManifestKey] ?? "";
+  if (fixtureManifestText !== exampleText) errors.push("example candidate manifest must be byte-identical to the canonical manifest example");
+  const parsed = parseTicketsManifest(fixtureManifestText);
   errors.push(...parsed.errors.map((entry) => `manifest example: ${entry.code}: ${entry.message}`));
   if (parsed.manifest) {
-    const documents = renderTicketDocuments(parsed.manifest);
+    const documents = candidateDocumentsFromContractFiles(files);
     errors.push(...validateTicketsManifest(
       parsed.manifest,
       schema,
-      files["resources/tickets-manifest/tickets-manifest.example.json"],
+      fixtureManifestText,
       { candidateDocuments: documents },
     ).map((entry) => `manifest example ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
-    if (documents.size !== parsed.manifest.tickets.length + 1) errors.push("renderer did not produce one overview plus one document per Ticket");
+    if (documents.size !== parsed.manifest.tickets.length + 1) errors.push("candidate fixture does not contain one overview plus one document per Ticket");
     const digests = ticketManifestDigests(parsed.manifest);
     for (const value of [digests.manifest_digest, digests.dag_digest, digests.rendered_document_set_digest, digests.ticket_set_digest]) {
       if (!/^[0-9a-f]{64}$/u.test(value)) errors.push("ticket digest is not SHA-256");
@@ -977,20 +1123,48 @@ export function ticketsManifestDesignDigest(files) {
   return domainDigest("autosk-flow/tickets-manifest-design/v1", preimage);
 }
 
+function commandLineOption(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : null;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const files = loadTicketsManifestFiles();
-  const errors = validateTicketsManifestDesign(files);
-  if (errors.length > 0) {
-    console.error(errors.join("\n"));
-    process.exitCode = 1;
+  const candidateRoot = commandLineOption("--candidate-root");
+  const manifestPath = commandLineOption("--manifest-path");
+  if (candidateRoot !== null || manifestPath !== null) {
+    const errors = candidateRoot && manifestPath
+      ? validateTicketsCandidateTree(candidateRoot, manifestPath)
+      : [error("tickets_path_invalid", "/manifest_path", "--candidate-root and --manifest-path are both required")];
+    if (errors.length > 0) {
+      console.error(errors.map((entry) => `${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`).join("\n"));
+      process.exitCode = 1;
+    } else {
+      const raw = readFileSync(path.join(path.resolve(candidateRoot), ...manifestPath.split("/")));
+      const manifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      const digests = ticketManifestDigests(manifest);
+      console.log("Tickets candidate-tree validation PASS");
+      console.log(`manifest_digest=${digests.manifest_digest}`);
+      console.log(`dag_digest=${digests.dag_digest}`);
+      console.log(`rendered_document_set_digest=${digests.rendered_document_set_digest}`);
+      console.log(`ticket_set_digest=${digests.ticket_set_digest}`);
+    }
   } else {
-    const manifest = JSON.parse(files["resources/tickets-manifest/tickets-manifest.example.json"]);
-    const digests = ticketManifestDigests(manifest);
-    console.log("Tickets manifest design validation PASS");
-    console.log(`design_digest=${ticketsManifestDesignDigest(files)}`);
-    console.log(`manifest_digest=${digests.manifest_digest}`);
-    console.log(`dag_digest=${digests.dag_digest}`);
-    console.log(`rendered_document_set_digest=${digests.rendered_document_set_digest}`);
-    console.log(`ticket_set_digest=${digests.ticket_set_digest}`);
+    const files = loadTicketsManifestFiles();
+    const errors = validateTicketsManifestDesign(files);
+    const candidateErrors = validateTicketsCandidateTree(EXAMPLE_CANDIDATE_ROOT, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    errors.push(...candidateErrors.map((entry) => `example candidate ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
+    if (errors.length > 0) {
+      console.error(errors.sort(compareCodePoints).join("\n"));
+      process.exitCode = 1;
+    } else {
+      const manifest = JSON.parse(files["resources/tickets-manifest/tickets-manifest.example.json"]);
+      const digests = ticketManifestDigests(manifest);
+      console.log("Tickets manifest design validation PASS");
+      console.log(`design_digest=${ticketsManifestDesignDigest(files)}`);
+      console.log(`manifest_digest=${digests.manifest_digest}`);
+      console.log(`dag_digest=${digests.dag_digest}`);
+      console.log(`rendered_document_set_digest=${digests.rendered_document_set_digest}`);
+      console.log(`ticket_set_digest=${digests.ticket_set_digest}`);
+    }
   }
 }

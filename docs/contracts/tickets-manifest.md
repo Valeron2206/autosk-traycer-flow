@@ -149,7 +149,7 @@ expected path set == candidate path set
 expected bytes    == candidate bytes
 ```
 
-A missing, extra, renamed or one-byte-different document is invalid. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 
 ## 13. Validation lifecycle
 
@@ -161,7 +161,7 @@ Before Panel, trusted host code performs in order:
 4. deterministic semantic errors with JSON pointers;
 5. graph, overlap and lineage validation;
 6. governing/evidence reference validation;
-7. exact deterministic rendering comparison;
+7. exact candidate-tree file enumeration and deterministic rendering comparison;
 8. canonical digest calculation;
 9. current planning-parent/anchor/runtime/protocol/instruction/alignment checks;
 10. durable write/read-back of one `TicketsValidationReceipt`.

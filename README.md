@@ -77,7 +77,10 @@ Issue #6 фиксирует один `docs/autosk/epics/<epic-id>/tickets/ticket
 
 ```text
 npm run validate:tickets-manifest
+npm run validate:tickets-manifest -- --candidate-root <tree-root> --manifest-path docs/autosk/epics/<epic-id>/tickets/tickets.manifest.json
 ```
+
+The candidate-tree form reads and compares the actual on-disk Markdown inventory; it does not compare renderer output with itself.
 
 ## Реестр миграционного паритета
 

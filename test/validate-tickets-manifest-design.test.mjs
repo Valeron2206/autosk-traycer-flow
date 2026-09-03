@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { validateJsonSchema } from "../scripts/validate-planning-ref-design.mjs";
 import {
+  EXAMPLE_CANDIDATE_CONTRACT_FILES,
+  EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+  EXAMPLE_CANDIDATE_ROOT,
+  EXAMPLE_CANDIDATE_ROOT_RELATIVE,
   MANIFEST_EXAMPLE_PATH,
   MANIFEST_SCHEMA_PATH,
   RECEIPT_SCHEMA_PATH,
+  ROOT,
   canonicalStringify,
   compareRenderedTicketDocuments,
   duplicateJsonKeys,
@@ -20,6 +28,7 @@ import {
   ticketManifestDigests,
   ticketsManifestDesignDigest,
   validRelativePath,
+  validateTicketsCandidateTree,
   validateTicketsManifest,
   validateTicketsManifestDesign,
 } from "../scripts/validate-tickets-manifest-design.mjs";
@@ -33,8 +42,19 @@ function fixture() {
   return structuredClone(example);
 }
 
+function candidateDocumentsFor(manifest) {
+  try {
+    return renderTicketDocuments(manifest);
+  } catch {
+    return new Map();
+  }
+}
+
 function codes(manifest, rawText = null, options = {}) {
-  return validateTicketsManifest(manifest, schema, rawText, options).map((entry) => entry.code);
+  const candidateDocuments = Object.prototype.hasOwnProperty.call(options, "candidateDocuments")
+    ? options.candidateDocuments
+    : candidateDocumentsFor(manifest);
+  return validateTicketsManifest(manifest, schema, rawText, { ...options, candidateDocuments }).map((entry) => entry.code);
 }
 
 function sha256(value) {
@@ -92,7 +112,7 @@ test("current Tickets manifest design is internally connected", () => {
 
 test("canonical example is schema-valid and semantically valid", () => {
   assert.deepEqual(validateJsonSchema(example, schema), []);
-  assert.deepEqual(validateTicketsManifest(example, schema, exampleText), []);
+  assert.deepEqual(validateTicketsManifest(example, schema, exampleText, { candidateDocuments: renderTicketDocuments(example) }), []);
   assert.equal(canonicalStringify(example), exampleText);
 });
 
@@ -107,7 +127,7 @@ test("BOM, CRLF and noncanonical key ordering fail closed", () => {
   assert.ok(parseTicketsManifest(exampleText.replaceAll("\n", "\r\n")).errors.some((entry) => entry.code === "tickets_manifest_noncanonical"));
   const parsed = JSON.parse(exampleText);
   const reordered = `{\n  "schema_version": 1,\n${exampleText.slice(2).replace(/^  "schema_version": 1,?\n?/mu, "")}`;
-  assert.ok(validateTicketsManifest(parsed, schema, reordered).some((entry) => entry.code === "tickets_manifest_noncanonical"));
+  assert.ok(validateTicketsManifest(parsed, schema, reordered, { candidateDocuments: renderTicketDocuments(parsed) }).some((entry) => entry.code === "tickets_manifest_noncanonical"));
 });
 
 test("Ticket IDs must be unique and sorted", () => {
@@ -267,7 +287,7 @@ test("validation errors have stable pointers and canonical ordering", () => {
   const manifest = fixture();
   manifest.tickets[0].depends_on = ["T99"];
   manifest.tickets[0].dependency_rationale = [];
-  const errors = validateTicketsManifest(manifest, schema);
+  const errors = validateTicketsManifest(manifest, schema, null, { candidateDocuments: renderTicketDocuments(manifest) });
   assert.ok(errors.every((entry) => typeof entry.code === "string" && typeof entry.json_pointer === "string"));
   const sorted = [...errors].sort((a, b) => a.json_pointer < b.json_pointer ? -1 : a.json_pointer > b.json_pointer ? 1 : a.code < b.code ? -1 : 1);
   assert.deepEqual(errors.map((entry) => [entry.json_pointer, entry.code]), sorted.map((entry) => [entry.json_pointer, entry.code]));
@@ -535,4 +555,65 @@ test("shared JSON Schema validation enforces maxLength", () => {
   const manifest = fixture();
   manifest.tickets[0].title = "x".repeat(8193);
   assert.ok(validateJsonSchema(manifest, schema).some((entry) => entry.includes("at most 8192")));
+});
+
+
+test("manifest validation requires an exact candidate document inventory", () => {
+  const errors = validateTicketsManifest(example, schema, exampleText);
+  assert.ok(errors.some((entry) => entry.code === "tickets_rendered_path_missing"));
+});
+
+test("design validation consumes committed candidate files rather than renderer self-output", () => {
+  const files = loadTicketsManifestFiles();
+  const readme = EXAMPLE_CANDIDATE_CONTRACT_FILES.find((relative) => relative.endsWith("/README.md"));
+  files[readme] = `${files[readme]}drift`;
+  assert.ok(validateTicketsManifestDesign(files).some((entry) => entry.includes("tickets_rendered_bytes_mismatch")));
+});
+
+test("candidate-tree API and CLI reject on-disk Markdown drift", () => {
+  assert.deepEqual(validateTicketsCandidateTree(EXAMPLE_CANDIDATE_ROOT, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH), []);
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-candidate-"));
+  const temporaryRoot = path.join(temporaryParent, "candidate");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, temporaryRoot, { recursive: true });
+    const readmeRelative = path.posix.join(path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH), "README.md");
+    const readmePath = path.join(temporaryRoot, ...readmeRelative.split("/"));
+    writeFileSync(readmePath, `${readFileSync(readmePath, "utf8")}one-byte-drift`);
+
+    const directErrors = validateTicketsCandidateTree(temporaryRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(directErrors.some((entry) => entry.code === "tickets_rendered_bytes_mismatch"));
+
+    const result = spawnSync(process.execPath, [
+      path.join(ROOT, "scripts/validate-tickets-manifest-design.mjs"),
+      "--candidate-root",
+      temporaryRoot,
+      "--manifest-path",
+      EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /tickets_rendered_bytes_mismatch/u);
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("candidate-tree inventory rejects missing, extra, renamed and non-regular files on disk", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-inventory-"));
+  const temporaryRoot = path.join(temporaryParent, "candidate");
+  const directoryRelative = path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, temporaryRoot, { recursive: true });
+    const readme = path.join(temporaryRoot, ...`${directoryRelative}/README.md`.split("/"));
+    const renamed = path.join(temporaryRoot, ...`${directoryRelative}/RENAMED.md`.split("/"));
+    const original = readFileSync(readme);
+    rmSync(readme);
+    writeFileSync(renamed, original);
+    writeFileSync(path.join(temporaryRoot, ...`${directoryRelative}/EXTRA.md`.split("/")), "extra\n");
+    const errors = validateTicketsCandidateTree(temporaryRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    const errorCodes = errors.map((entry) => entry.code);
+    assert.ok(errorCodes.includes("tickets_rendered_path_renamed"));
+    assert.ok(errorCodes.includes("tickets_rendered_path_extra"));
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
 });
