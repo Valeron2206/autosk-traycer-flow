@@ -21,7 +21,7 @@
   },
   "allOf": [
     { "if": { "properties": { "action": { "const": "retain_audit" } } }, "then": { "properties": { "planning_ref": { "type": "null" }, "planning_oid": { "type": "null" } } } },
-    { "if": { "properties": { "action": { "const": "release_to_audit" } } }, "then": { "properties": { "planning_ref": { "type": "string" }, "planning_oid": { "$ref": "#/$defs/oid" } } } },
+    { "if": { "properties": { "action": { "const": "release_to_audit" } } }, "then": { "properties": { "planning_ref": { "type": "string" }, "planning_oid": { "$ref": "#/$defs/oid" }, "audit_ref_receipt": { "properties": { "planning_verified": { "const": true } } } } } },
     { "if": { "properties": { "phase": { "const": "prepared" } } }, "then": { "properties": { "audit_ref_receipt": { "type": "null" }, "live_delete_receipt": { "type": "null" }, "verification_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
     { "if": { "properties": { "phase": { "const": "audit_ref_verified" } } }, "then": { "properties": { "audit_ref_receipt": { "$ref": "#/$defs/audit_ref_receipt" }, "live_delete_receipt": { "type": "null" }, "verification_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },
     { "if": { "properties": { "phase": { "const": "live_ref_deleted" } } }, "then": { "properties": { "audit_ref_receipt": { "$ref": "#/$defs/audit_ref_receipt" }, "live_delete_receipt": { "$ref": "#/$defs/live_delete_receipt" }, "verification_receipt": { "type": "null" }, "completed_at_utc": { "type": "null" } } } },

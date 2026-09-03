@@ -219,7 +219,7 @@ test("implementation and Tickets guards require a verified published PASS", () =
   const files = fixture();
   files["03-technical-plan.md"] = files["03-technical-plan.md"]
     .replaceAll("publication_status=verified", "publication_status=recorded_unpublished")
-    .replaceAll("matching planning_publication_op phase=verified", "matching planning_publication_op phase=prepared");
+    .replaceAll("matching immutable `planning.publication_history` record phase=verified", "matching immutable `planning.publication_history` record phase=prepared");
   const result = validatePlanningRefDesign(files).join("\n");
   assert.match(result, /Planned implementation.*Published PASS/u);
   assert.match(result, /Tickets.*Published PASS/u);
@@ -630,6 +630,9 @@ test("init operation rejects substituted base authority, receipts and phase pref
     mutate(changed);
     assert.notDeepEqual(validatePlanningRefInitOperation(changed, schema), []);
   }
+  const mixedWidth = structuredClone(original);
+  mixedWidth.reflog_checkpoint.expected_new_oid = "a".repeat(64);
+  assert.notDeepEqual(validateJsonSchema(mixedWidth, schema), []);
 });
 
 test("publication examples bind ref backend, producer and normalized pathspec identities", () => {
@@ -1099,12 +1102,21 @@ test("candidate keepalive operation has a closed standalone machine", () => {
   assert.deepEqual(schema.properties.phase.enum, ["prepared", "object_written", "ref_created", "verified", "audit_retained", "released"]);
   assert.equal(example.phase, "verified");
   assert.notEqual(example.create_receipt, null);
+  assert.notEqual(example.verification_receipt, null);
+  const missingVerification = structuredClone(example);
+  missingVerification.verification_receipt = null;
+  assert.notDeepEqual(validateJsonSchema(missingVerification, schema), []);
+  const refCreated = JSON.parse(readFileSync(
+    path.join(directory, "candidate-keepalive-operation.ref-created.example.json"),
+    "utf8",
+  ));
+  assert.equal(refCreated.verification_receipt, null);
   const audit = JSON.parse(readFileSync(
     path.join(directory, "candidate-keepalive-operation.audit-retained.example.json"),
     "utf8",
   ));
   assert.equal(audit.audit_receipt.observation_sha256, "0087d4d0fcabdf872c5ba08cd1570ea8bd2cac56a3a1f777b2200f653a500c42");
-  assert.equal(audit.audit_receipt.receipt_hash, "101f4b8d751fc04f7059dff44a724fbd13e74e4c9cd83a956de90281820f3cc9");
+  assert.equal(audit.audit_receipt.receipt_hash, "fb1fe7411a72a0a86c111a7201d46fbe5cc48b3ad7b40710abf95b1842754ec7");
   const invalidPrepared = structuredClone(audit);
   invalidPrepared.phase = "prepared";
   invalidPrepared.terminal_disposition = "published_released";
@@ -1433,6 +1445,10 @@ test("ref-custody helper rejects mixed object formats in one signed request", ()
   publication.expected_parent_tree_oid = "a".repeat(64);
   assert.notDeepEqual(validateJsonSchema(publication, publicationSchema), []);
   assert.match(validatePlanningPublicationOperation(publication, publicationSchema).join("\n"), /object format/u);
+  const nestedFormat = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
+  nestedFormat.candidate_keepalive.snapshot_commit_recipe.object_format = "sha256";
+  nestedFormat.candidate_keepalive.snapshot_object_receipt.object_format = "sha256";
+  assert.notDeepEqual(validateJsonSchema(nestedFormat, publicationSchema), []);
   const keepaliveSchema = JSON.parse(readFileSync(
     path.join(directory, "candidate-keepalive-operation.schema.json"),
     "utf8",
@@ -1490,6 +1506,9 @@ test("candidate supersession has a closed durable operation and receipt", () => 
   const reused = structuredClone(operation);
   reused.replacement_intent_digest = "b".repeat(64);
   assert.match(validateCandidateSupersessionOperation(reused, schema).join("\n"), /helper transaction receipt/u);
+  const foreignRef = structuredClone(operation);
+  foreignRef.helper_transaction_receipt.live_ref = "refs/heads/main";
+  assert.notDeepEqual(validateJsonSchema(foreignRef, schema), []);
 });
 
 test("audit-retained keepalive rejects publication-verified reason", () => {
@@ -1786,12 +1805,51 @@ test("custody transfer, closure pack, atomic PASS and rebind contracts are machi
     const example = JSON.parse(readFileSync(path.join(directory, `${stem}.example.json`), "utf8"));
     assert.deepEqual(validateJsonSchema(example, schema), [], stem);
   }
+  const transferSchema = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.schema.json"), "utf8"));
+  const transfer = JSON.parse(readFileSync(path.join(directory, "candidate-audit-transfer-operation.example.json"), "utf8"));
+  transfer.audit_ref_receipt.planning_verified = false;
+  assert.notDeepEqual(validateJsonSchema(transfer, transferSchema), []);
+  const rebindPath = "resources/planning-publication/planning-publication-rebinding.example.json";
+  for (const newVersion of [1, 0]) {
+    const files = fixture();
+    const rebind = JSON.parse(files[rebindPath]);
+    rebind.old_anchor_version = 1;
+    rebind.new_anchor_version = newVersion;
+    files[rebindPath] = JSON.stringify(rebind, null, 2) + "\n";
+    assert.match(validatePlanningRefDesign(files).join("\n"), /anchor versions must increase/u);
+  }
   const files = fixture();
   const intentPath = "resources/planning-publication/ref-custody-helper-intents.example.json";
   const intents = JSON.parse(files[intentPath]);
   intents.records[0].request_body_sha256 = "f".repeat(64);
   files[intentPath] = JSON.stringify(intents, null, 2) + "\n";
   assert.match(validatePlanningRefDesign(files).join("\n"), /helper intent/u);
+  const duplicateIdentityFiles = fixture();
+  const duplicateIdentity = JSON.parse(duplicateIdentityFiles[intentPath]);
+  duplicateIdentity.records[1].request_id = duplicateIdentity.records[0].request_id;
+  duplicateIdentityFiles[intentPath] = JSON.stringify(duplicateIdentity, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(duplicateIdentityFiles).join("\n"), /semantically unique/u);
+  const duplicateRefFiles = fixture();
+  const duplicateRef = JSON.parse(duplicateRefFiles[intentPath]);
+  duplicateRef.records[2].pre_execution_observation.push({
+    ...duplicateRef.records[2].pre_execution_observation[0],
+    oid: duplicateRef.records[2].pre_execution_observation[0].oid,
+  });
+  duplicateRefFiles[intentPath] = JSON.stringify(duplicateRef, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(duplicateRefFiles).join("\n"), /duplicate observation refs/u);
+  const apiFiles = fixture();
+  const apiPath = "resources/planning-publication/record-pass-prepare-publication.example.json";
+  const api = JSON.parse(apiFiles[apiPath]);
+  api.request.artifact_kind = "tech_plan";
+  apiFiles[apiPath] = JSON.stringify(api, null, 2) + "\n";
+  assert.match(validatePlanningRefDesign(apiFiles).join("\n"), /does not match the referenced publication/u);
+});
+
+test("transfer recovery, active projection and housekeeping serialization stay connected", () => {
+  const files = fixture();
+  assert.match(files["02-architecture.md"], /candidate_audit_transfer_op.*audit_transfer_history/isu);
+  assert.match(files["03-technical-plan.md"], /candidate_keepalive_operation[\s\S]*operation_id[\s\S]*phase.*verified/isu);
+  assert.match(files["03-technical-plan.md"], /under the same helper custody lock.*re-enumerate.*concurrent freeze\/supersession/isu);
 });
 
 test("planning receipts bind the exact journaled helper evidence", () => {

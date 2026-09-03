@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/planning-publication/ref-custody-helper-intents.schema.json", "title": "autosk-flow durable helper request intents", "type": "object", "additionalProperties": false, "required": ["schema", "records"],
-  "properties": { "schema": { "const": 1 }, "records": { "type": "array", "minItems": 9, "uniqueItems": true, "items": { "$ref": "#/$defs/intent" } } },
+  "properties": { "schema": { "const": 1 }, "records": { "type": "array", "minItems": 9, "maxItems": 9, "uniqueItems": true, "items": { "$ref": "#/$defs/intent" } } },
   "$defs": {
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "intent": { "type": "object", "additionalProperties": false, "required": ["schema", "intent_key", "action", "owner_operation_id", "request_id", "nonce", "request_body_sha256", "topology_digest", "pre_execution_observation", "pre_execution_observation_sha256", "phase", "persist_receipt_hash"],

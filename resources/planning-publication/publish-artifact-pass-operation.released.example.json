@@ -165,7 +165,19 @@
       "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
     },
     "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
-    "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b"
+    "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b",
+    "verification_receipt": {
+      "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+      "observed_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+      "reflog_tail_observation_sha256": "35db5200f9c5ac8af9974d1aec6448496f769f481ef522ca07150a5494152ad2",
+      "helper_evidence": {
+        "request_id": "00000002-1111-4111-8111-000000000002",
+        "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+        "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
+        "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+      },
+      "receipt_hash": "6e9f8b33e6b10387f59b06639c9e04889fdafd6d62e65483ab45be2d8535cb52"
+    }
   },
   "payload": {
     "kind": "artifact_pass",

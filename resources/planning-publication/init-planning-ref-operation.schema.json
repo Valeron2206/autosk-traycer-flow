@@ -379,16 +379,44 @@
         "observation_sha256": {
           "$ref": "#/$defs/sha256"
         },
-        "helper_evidence": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/helper_evidence" }] },
+        "helper_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/helper_evidence"
+            }
+          ]
+        },
         "receipt_hash": {
           "$ref": "#/$defs/sha256"
         }
       }
     },
     "helper_evidence": {
-      "type": "object", "additionalProperties": false,
-      "required": ["request_id", "nonce", "transaction_value_observation_sha256", "helper_receipt_hash"],
-      "properties": { "request_id": { "$ref": "#/$defs/uuid" }, "nonce": { "$ref": "#/$defs/sha256" }, "transaction_value_observation_sha256": { "$ref": "#/$defs/sha256" }, "helper_receipt_hash": { "$ref": "#/$defs/sha256" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "nonce",
+        "transaction_value_observation_sha256",
+        "helper_receipt_hash"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "nonce": {
+          "$ref": "#/$defs/sha256"
+        },
+        "transaction_value_observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
     },
     "ref_create_receipt_or_null": {
       "oneOf": [
@@ -533,6 +561,46 @@
           },
           "planning_base_tree_oid": {
             "pattern": "^[0-9a-f]{40}$"
+          },
+          "reflog_checkpoint": {
+            "properties": {
+              "expected_new_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "receipts": {
+            "properties": {
+              "ref_create": {
+                "properties": {
+                  "observation": {
+                    "properties": {
+                      "observed_new_oid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      }
+                    }
+                  }
+                }
+              },
+              "verification": {
+                "properties": {
+                  "observation": {
+                    "properties": {
+                      "commit_oid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "tree_oid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -555,6 +623,46 @@
           },
           "planning_base_tree_oid": {
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "reflog_checkpoint": {
+            "properties": {
+              "expected_new_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "receipts": {
+            "properties": {
+              "ref_create": {
+                "properties": {
+                  "observation": {
+                    "properties": {
+                      "observed_new_oid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  }
+                }
+              },
+              "verification": {
+                "properties": {
+                  "observation": {
+                    "properties": {
+                      "commit_oid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "tree_oid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

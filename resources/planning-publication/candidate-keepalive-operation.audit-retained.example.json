@@ -58,12 +58,12 @@
     "ref_custody_generation": 1,
     "ref_custody_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
     "observation_sha256": "0087d4d0fcabdf872c5ba08cd1570ea8bd2cac56a3a1f777b2200f653a500c42",
-    "receipt_hash": "101f4b8d751fc04f7059dff44a724fbd13e74e4c9cd83a956de90281820f3cc9",
+    "receipt_hash": "fb1fe7411a72a0a86c111a7201d46fbe5cc48b3ad7b40710abf95b1842754ec7",
     "helper_evidence": {
-      "request_id": "00000004-1111-4111-8111-000000000004",
-      "nonce": "4dacaf5e4f818fc5f0b27df2a3f798312a82c56e4fa217a6b12fb3b41544df44",
-      "transaction_value_observation_sha256": "97952889b5b05f83dcfa844888cefe795f09bccf92787ae41ec2edfcb4cc7f34",
-      "helper_receipt_hash": "d58e24b991b078a2a7f31da90ade46d130497b303bd077fbb9cf2fad1e8a535b"
+      "request_id": "00000008-1111-4111-8111-000000000008",
+      "nonce": "8888888888888888888888888888888888888888888888888888888888888888",
+      "transaction_value_observation_sha256": "b13e64e9e45a410029f6575a58b6b4e69bd16c29c2fbd67cdd6af676b65d6df4",
+      "helper_receipt_hash": "969801b09785811664cabe60f4c681b94ece5ff78f5ddc0093809aa737afb090"
     }
   },
   "terminal_disposition": "audit_retained",
@@ -120,5 +120,17 @@
     "snapshot_commit_oid": "264029a5827e5674dc038091abea2c6df347bd2b"
   },
   "closure_pack_operation_id": "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
-  "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b"
+  "closure_pack_receipt_hash": "1b9fe82d0bfa00c3112230541dcae37111c410767b30c7b835160ced1ee2241b",
+  "verification_receipt": {
+    "ref": "refs/autosk/epics/e8bf51e33ced6fd2373da93a8317cac9158ff524d31c8d972705b25c6b1873c1/candidates/1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
+    "observed_oid": "264029a5827e5674dc038091abea2c6df347bd2b",
+    "reflog_tail_observation_sha256": "35db5200f9c5ac8af9974d1aec6448496f769f481ef522ca07150a5494152ad2",
+    "helper_evidence": {
+      "request_id": "00000002-1111-4111-8111-000000000002",
+      "nonce": "5b6739b0eaa02628a36335a71ea50c59b154e3e084843f5b83d2c9e23501e27d",
+      "transaction_value_observation_sha256": "3b531899e4e48edf13c26963374d7e378649af30edab7593f6a7aad426e84a77",
+      "helper_receipt_hash": "2d788af26e83bf378b3a2e6bdb37f193585994e4f5fd03687b97b856e3672621"
+    },
+    "receipt_hash": "6e9f8b33e6b10387f59b06639c9e04889fdafd6d62e65483ab45be2d8535cb52"
+  }
 }

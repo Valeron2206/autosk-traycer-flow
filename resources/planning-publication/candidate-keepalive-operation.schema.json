@@ -30,7 +30,8 @@
     "audit_receipt",
     "created_at_utc",
     "closure_pack_operation_id",
-    "closure_pack_receipt_hash"
+    "closure_pack_receipt_hash",
+    "verification_receipt"
   ],
   "properties": {
     "schema": {
@@ -158,9 +159,81 @@
     },
     "closure_pack_receipt_hash": {
       "$ref": "#/$defs/sha256"
+    },
+    "verification_receipt": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/verification_receipt"
+        }
+      ]
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "ref_created"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "terminal_disposition": {
+            "type": "null"
+          },
+          "snapshot_object_receipt": {
+            "$ref": "#/$defs/snapshot_object_receipt"
+          },
+          "create_receipt": {
+            "$ref": "#/$defs/create_receipt"
+          },
+          "verification_receipt": {
+            "type": "null"
+          },
+          "release_receipt": {
+            "type": "null"
+          },
+          "audit_receipt": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "verified"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "terminal_disposition": {
+            "type": "null"
+          },
+          "snapshot_object_receipt": {
+            "$ref": "#/$defs/snapshot_object_receipt"
+          },
+          "create_receipt": {
+            "$ref": "#/$defs/create_receipt"
+          },
+          "verification_receipt": {
+            "$ref": "#/$defs/verification_receipt"
+          },
+          "release_receipt": {
+            "type": "null"
+          },
+          "audit_receipt": {
+            "type": "null"
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -184,6 +257,9 @@
             "type": "null"
           },
           "audit_receipt": {
+            "type": "null"
+          },
+          "verification_receipt": {
             "type": "null"
           }
         }
@@ -213,36 +289,8 @@
           },
           "audit_receipt": {
             "type": "null"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "phase": {
-            "enum": [
-              "ref_created",
-              "verified"
-            ]
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "terminal_disposition": {
-            "type": "null"
           },
-          "snapshot_object_receipt": {
-            "$ref": "#/$defs/snapshot_object_receipt"
-          },
-          "create_receipt": {
-            "$ref": "#/$defs/create_receipt"
-          },
-          "release_receipt": {
-            "type": "null"
-          },
-          "audit_receipt": {
+          "verification_receipt": {
             "type": "null"
           }
         }
@@ -272,6 +320,9 @@
           },
           "audit_receipt": {
             "$ref": "#/$defs/audit_retained_receipt"
+          },
+          "verification_receipt": {
+            "$ref": "#/$defs/verification_receipt"
           }
         }
       }
@@ -300,6 +351,9 @@
           },
           "audit_receipt": {
             "$ref": "#/$defs/released_audit_receipt"
+          },
+          "verification_receipt": {
+            "$ref": "#/$defs/verification_receipt"
           }
         }
       }
@@ -355,6 +409,9 @@
               "expected_commit_oid": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{40}$"
+              },
+              "object_format": {
+                "const": "sha1"
               }
             }
           },
@@ -371,6 +428,9 @@
               "parent_oid": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{40}$"
+              },
+              "object_format": {
+                "const": "sha1"
               }
             }
           },
@@ -464,6 +524,9 @@
               "expected_commit_oid": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
+              },
+              "object_format": {
+                "const": "sha256"
               }
             }
           },
@@ -480,6 +543,9 @@
               "parent_oid": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
+              },
+              "object_format": {
+                "const": "sha256"
               }
             }
           },
@@ -1051,6 +1117,35 @@
           }
         }
       ]
+    },
+    "verification_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "observed_oid",
+        "reflog_tail_observation_sha256",
+        "helper_evidence",
+        "receipt_hash"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "observed_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "reflog_tail_observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_evidence": {
+          "$ref": "#/$defs/helper_evidence"
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
     }
   }
 }

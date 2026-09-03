@@ -8,7 +8,7 @@
   "request": {
     "request_id": "cccccccc-1111-4111-8111-cccccccccccc",
     "epic_id": "22222222-2222-4222-8222-222222222222",
-    "artifact_kind": "tech_plan",
+    "artifact_kind": "brief",
     "candidate_identity": "1347dcda3447bc0b10e6bb4eb85a2ee7b4c2d8deeea92a924fb0bf7637b80dc9",
     "pass_record_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "expected_metadata_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -25,6 +25,6 @@
     "new_metadata_head": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "pass_record_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "publication_operation_id": "11111111-1111-4111-8111-111111111111",
-    "receipt_hash": "461c04a01005984cf3de7dcad9ce8da2e548ad32b66de245867a4f22b4e314ab"
+    "receipt_hash": "f7d232a2ee36e77a7136daf3304beedc35f2f19c6e0451e7773e4ad9040292c9"
   }
 }

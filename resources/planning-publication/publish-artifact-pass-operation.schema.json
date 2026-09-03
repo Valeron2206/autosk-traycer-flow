@@ -584,7 +584,8 @@
         "audit_receipt",
         "created_at_utc",
         "closure_pack_operation_id",
-        "closure_pack_receipt_hash"
+        "closure_pack_receipt_hash",
+        "verification_receipt"
       ],
       "properties": {
         "schema": {
@@ -695,6 +696,9 @@
         },
         "closure_pack_receipt_hash": {
           "$ref": "#/$defs/sha256"
+        },
+        "verification_receipt": {
+          "$ref": "#/$defs/candidate_keepalive_verification_receipt"
         }
       },
       "allOf": [
@@ -1594,6 +1598,35 @@
           }
         }
       ]
+    },
+    "candidate_keepalive_verification_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "observed_oid",
+        "reflog_tail_observation_sha256",
+        "helper_evidence",
+        "receipt_hash"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/candidates/[0-9a-f]{64}$"
+        },
+        "observed_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "reflog_tail_observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_evidence": {
+          "$ref": "#/$defs/helper_evidence"
+        },
+        "receipt_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
     }
   },
   "allOf": [
@@ -1925,6 +1958,9 @@
                   "expected_commit_oid": {
                     "type": "string",
                     "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "object_format": {
+                    "const": "sha1"
                   }
                 }
               },
@@ -1941,6 +1977,9 @@
                   "parent_oid": {
                     "type": "string",
                     "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "object_format": {
+                    "const": "sha1"
                   }
                 }
               },
@@ -2142,6 +2181,9 @@
                   "expected_commit_oid": {
                     "type": "string",
                     "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "object_format": {
+                    "const": "sha256"
                   }
                 }
               },
@@ -2158,6 +2200,9 @@
                   "parent_oid": {
                     "type": "string",
                     "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "object_format": {
+                    "const": "sha256"
                   }
                 }
               },
