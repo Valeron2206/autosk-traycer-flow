@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -613,6 +613,111 @@ test("candidate-tree inventory rejects missing, extra, renamed and non-regular f
     const errorCodes = errors.map((entry) => entry.code);
     assert.ok(errorCodes.includes("tickets_rendered_path_renamed"));
     assert.ok(errorCodes.includes("tickets_rendered_path_extra"));
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+
+test("Schema errors expose the smallest RFC 6901 instance pointer", () => {
+  const manifest = fixture();
+  manifest.tickets[0].unexpected_field = true;
+  const errors = validateTicketsManifest(manifest, schema, null, { candidateDocuments: renderTicketDocuments(manifest) });
+  const schemaError = errors.find((entry) => entry.code === "tickets_manifest_schema_invalid" && entry.message.includes("unexpected_field"));
+  assert.equal(schemaError?.json_pointer, "/tickets/0/unexpected_field");
+});
+
+test("initial manifest revision is exactly one", () => {
+  const manifest = fixture();
+  manifest.manifest_revision = 2;
+  assert.ok(codes(manifest).includes("tickets_lineage_invalid"));
+});
+
+test("revision lineage never reuses another prior Ticket ID", () => {
+  const previous = fixture();
+  const replacement = structuredClone(previous.tickets[1]);
+  replacement.id = "T01";
+  replacement.document_path = `docs/autosk/epics/${previous.epic_id}/tickets/T01-reused.md`;
+  replacement.depends_on = [];
+  replacement.dependency_rationale = [];
+  replacement.acceptance_criteria = replacement.acceptance_criteria.map((criterion, index) => ({
+    ...criterion,
+    id: `AC-T01-${String(index + 1).padStart(3, "0")}`,
+  }));
+  replacement.lineage = { kind: "replace", predecessor_ids: ["T02"] };
+  const current = makeRevision(previous, [replacement], [{
+    decision_ref: "decision:retire-original-t01",
+    disposition: "dropped",
+    predecessor_id: "T01",
+    rationale: "Attempt to retire the original T01 while reusing its ID.",
+    successor_ids: [],
+  }]);
+  assert.ok(codes(current, canonicalStringify(current), {
+    previousManifestContext: previousManifestContext(previous),
+  }).includes("tickets_lineage_invalid"));
+});
+
+test("previous manifest context rejects BOM and non-NFC bytes", () => {
+  const previous = fixture();
+  const tickets = previous.tickets.map((ticket) => ({
+    ...structuredClone(ticket),
+    lineage: { kind: "carry", predecessor_ids: [ticket.id] },
+  }));
+  const current = makeRevision(previous, tickets);
+
+  const bomContext = previousManifestContext(previous);
+  bomContext.raw_text = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(bomContext.raw_text)]);
+  assert.ok(codes(current, canonicalStringify(current), { previousManifestContext: bomContext }).includes("tickets_lineage_invalid"));
+
+  const nonNfcPrevious = structuredClone(previous);
+  nonNfcPrevious.goal = "Cafe\u0301 session delivery";
+  const nonNfcContext = previousManifestContext(nonNfcPrevious);
+  const nonNfcCurrentTickets = nonNfcPrevious.tickets.map((ticket) => ({
+    ...structuredClone(ticket),
+    lineage: { kind: "carry", predecessor_ids: [ticket.id] },
+  }));
+  const nonNfcCurrent = makeRevision(nonNfcPrevious, nonNfcCurrentTickets);
+  assert.ok(codes(nonNfcCurrent, canonicalStringify(nonNfcCurrent), {
+    previousManifestContext: nonNfcContext,
+  }).includes("tickets_lineage_invalid"));
+});
+
+test("candidate-tree validation rejects a symlinked ancestor inside the candidate root", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-ancestor-"));
+  const outsideRoot = path.join(temporaryParent, "outside");
+  const candidateRoot = path.join(temporaryParent, "candidate");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, outsideRoot, { recursive: true });
+    mkdirSync(candidateRoot);
+    symlinkSync(path.join(outsideRoot, "docs"), path.join(candidateRoot, "docs"), "dir");
+    const errors = validateTicketsCandidateTree(candidateRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(errors.some((entry) => entry.code === "tickets_path_invalid"));
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("candidate files are size-checked before normal validation", () => {
+  const manifestBytes = readFileSync(path.join(EXAMPLE_CANDIDATE_ROOT, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/")));
+  const manifestErrors = validateTicketsCandidateTree(
+    EXAMPLE_CANDIDATE_ROOT,
+    EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+    { maxManifestBytes: manifestBytes.byteLength - 1 },
+  );
+  assert.ok(manifestErrors.some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-size-"));
+  const candidateRoot = path.join(temporaryParent, "candidate");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, candidateRoot, { recursive: true });
+    const manifestPath = path.join(candidateRoot, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.policy.limits.max_rendered_document_bytes = 1024;
+    writeFileSync(manifestPath, canonicalStringify(manifest));
+    const readmePath = path.join(candidateRoot, ...path.posix.join(path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH), "README.md").split("/"));
+    writeFileSync(readmePath, "x".repeat(1025));
+    const errors = validateTicketsCandidateTree(candidateRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
   } finally {
     rmSync(temporaryParent, { force: true, recursive: true });
   }

@@ -76,7 +76,7 @@ Any bound change stales alignment, Panel verdict, publication and task-creation 
 
 ## 5. Stable identifiers
 
-Ticket IDs match `T[0-9]{2,6}`, are ASCII and unique, and are never reused for unrelated work in one Epic history. Acceptance IDs match `AC-<ticket-id>-<nnn>`. Every Ticket has exactly one Markdown path beginning with its ID. Path uniqueness is checked bytewise and under the supported filesystem case/Unicode collision policy.
+Ticket IDs match `T[0-9]{2,6}`, are ASCII and unique, and are never reused for unrelated work in one Epic history. A current ID present in the immediately previous manifest is valid only as `carry` or `revise` of that same predecessor; `new`, `replace`, `split_child` and `merge_result` cannot recycle any prior ID. Acceptance IDs match `AC-<ticket-id>-<nnn>`. Every Ticket has exactly one Markdown path beginning with its ID. Path uniqueness is checked bytewise and under the supported filesystem case/Unicode collision policy.
 
 Future tasks bind `{project, epic, manifest_digest, ticket_id, ticket_entry_digest}` through daemon-owned creation identity; editable titles and descriptions are not recovery identity.
 
@@ -130,7 +130,7 @@ Review policy requires one reviewer outside the complete author/fixer family set
 
 ## 11. Revisions and lineage
 
-A new revision receives the exact previous published canonical manifest bytes plus the prior validation identity (`manifest_digest` and ordered Ticket execution-entry digests), and `previous_manifest_digest` must match that context. Ticket lineage is one of:
+The initial manifest has `manifest_revision=1` and no previous digest. A new revision receives the exact previous published canonical manifest bytes plus the prior validation identity (`manifest_digest` and ordered Ticket execution-entry digests), and `previous_manifest_digest` must match that context. The same strict byte parser rejects BOM, CRLF, duplicate keys and non-NFC strings in previous context before lineage is evaluated. Ticket lineage is one of:
 
 ```text
 new | carry | revise | replace | split_child | merge_result
@@ -149,7 +149,7 @@ expected path set == candidate path set
 expected bytes    == candidate bytes
 ```
 
-A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 
 ## 13. Validation lifecycle
 
@@ -182,7 +182,7 @@ Missing, stale, corrupt or unsupported input parks with a typed reason and zero 
 
 ## 15. Stable errors, limits and migration
 
-Every error contains stable `code`, RFC 6901 `json_pointer`, message, related pointers and canonical evidence. Sorting is by code-point pointer, code and evidence bytes. Required classes cover JSON/canonical/version/limit errors; duplicate IDs; dangling/self/cyclic dependencies; invalid topo order; invalid/colliding/overlapping paths; AC/evidence/governing/impact/lineage errors; rendered-path/byte drift; and stale receipts.
+Every error contains stable `code`, the smallest available RFC 6901 instance `json_pointer`, message, related pointers and canonical evidence. JSON Schema failures translate the validator instance path into that pointer rather than storing it only in free-form message text. Sorting is by code-point pointer, code and evidence bytes. Required classes cover JSON/canonical/version/limit errors; duplicate IDs; dangling/self/cyclic dependencies; invalid topo order; invalid/colliding/overlapping paths; AC/evidence/governing/impact/lineage errors; rendered-path/byte drift; and stale receipts.
 
 The host checks raw manifest bytes against an externally bound hard cap before UTF-8 decoding, duplicate-key scanning or JSON parsing, then rechecks the manifest-declared `max_manifest_bytes`. Resource limits also bound Tickets, total edges, dependencies per Ticket, selectors per Ticket, ACs per Ticket, bindings per AC and each generated Markdown document through `max_rendered_document_bytes` before graph/Panel work. Very large valid sets preserve identical graph/digests with one or many workers.
 
@@ -199,9 +199,9 @@ At minimum test:
 - ordered versus unordered scope overlap;
 - missing/mismatched rationales, AC evidence, governing refs and impacts;
 - irreversible rollback without approval;
-- missing/extra/renamed/one-byte-drift rendered docs;
+- missing/extra/renamed/one-byte-drift rendered docs, symlinked ancestors and pre-read byte limits;
 - key order, CRLF, BOM, non-NFC, duplicate JSON keys and extra fields;
-- initial/revised carry/revise/replace/split/merge/retirement lineage;
+- initial revision numbering, prior-ID reservation and revised carry/revise/replace/split/merge/retirement lineage;
 - digest golden vectors;
 - stale alignment/planning/candidate/runtime/protocol/instruction/receipt;
 - valid-at-limit and limit+1 sets;

@@ -160,6 +160,16 @@ function errorComparator(left, right) {
     || compareCodePoints(canonicalStringify(left.evidence), canonicalStringify(right.evidence));
 }
 
+function schemaInstancePathToJsonPointer(schemaError) {
+  const match = String(schemaError).match(/^(\$(?:\.[^.[\]\s]+|\[[0-9]+\])*)/u);
+  if (!match) return "";
+  const segments = [];
+  for (const token of match[1].matchAll(/\.([^.[\]]+)|\[([0-9]+)\]/gu)) {
+    segments.push(escapePointer(token[1] ?? token[2]));
+  }
+  return segments.length === 0 ? "" : `/${segments.join("/")}`;
+}
+
 function sortedUnique(values, comparator = compareCodePoints) {
   if (!Array.isArray(values)) return false;
   for (let index = 1; index < values.length; index += 1) {
@@ -466,15 +476,35 @@ export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
 function resolveInsideCandidateRoot(candidateRoot, relativePath) {
   if (typeof candidateRoot !== "string" || candidateRoot.length === 0 || !validRelativePath(relativePath)) return null;
   const absoluteRoot = path.resolve(candidateRoot);
-  const absolutePath = path.resolve(absoluteRoot, ...relativePath.split("/"));
+  let rootMetadata;
+  try {
+    rootMetadata = lstatSync(absoluteRoot);
+  } catch {
+    return null;
+  }
+  if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) return null;
+
+  const segments = relativePath.split("/");
+  let current = absoluteRoot;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    current = path.join(current, segments[index]);
+    try {
+      const metadata = lstatSync(current);
+      if (metadata.isSymbolicLink() || !metadata.isDirectory()) return null;
+    } catch (cause) {
+      if (cause?.code !== "ENOENT") return null;
+      break;
+    }
+  }
+  const absolutePath = path.resolve(absoluteRoot, ...segments);
   if (!absolutePath.startsWith(`${absoluteRoot}${path.sep}`)) return null;
   return { absoluteRoot, absolutePath };
 }
 
-function regularFileBytes(candidateRoot, relativePath, errors, pointer) {
+function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes = null, limitName = null) {
   const resolved = resolveInsideCandidateRoot(candidateRoot, relativePath);
   if (!resolved) {
-    errors.push(error("tickets_path_invalid", pointer, "candidate path escapes or is outside the closed relative-path dialect", { path: relativePath }));
+    errors.push(error("tickets_path_invalid", pointer, "candidate path escapes, traverses a symlink/non-directory ancestor, or is outside the closed relative-path dialect", { path: relativePath }));
     return null;
   }
   try {
@@ -483,7 +513,26 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer) {
       errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
       return null;
     }
-    return readFileSync(resolved.absolutePath);
+    if (Number.isInteger(maxBytes) && metadata.size > maxBytes) {
+      errors.push(error("tickets_manifest_limits_exceeded", pointer, `${limitName ?? "file byte limit"} exceeded before read`, {
+        actual: metadata.size,
+        limit: maxBytes,
+        limit_name: limitName,
+        path: relativePath,
+      }));
+      return null;
+    }
+    const bytes = readFileSync(resolved.absolutePath);
+    if (Number.isInteger(maxBytes) && bytes.byteLength > maxBytes) {
+      errors.push(error("tickets_manifest_limits_exceeded", pointer, `${limitName ?? "file byte limit"} exceeded during read`, {
+        actual: bytes.byteLength,
+        limit: maxBytes,
+        limit_name: limitName,
+        path: relativePath,
+      }));
+      return null;
+    }
+    return bytes;
   } catch (cause) {
     errors.push(error("tickets_rendered_path_missing", pointer, "candidate file is missing or unreadable", {
       cause: String(cause),
@@ -539,7 +588,14 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
       }));
       continue;
     }
-    const bytes = regularFileBytes(candidateRoot, relativePath, errors, pointer);
+    const bytes = regularFileBytes(
+      candidateRoot,
+      relativePath,
+      errors,
+      pointer,
+      manifest.policy?.limits?.max_rendered_document_bytes,
+      "max_rendered_document_bytes",
+    );
     if (bytes !== null) documents.set(relativePath, bytes);
   }
   return { documents, errors: errors.sort(errorComparator) };
@@ -556,9 +612,19 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
     }
   }
 
-  const rawBytes = regularFileBytes(candidateRoot, manifestRelativePath, errors, "/manifest_path");
+  const requestedManifestLimit = Number.isInteger(options.maxManifestBytes)
+    ? Math.min(Math.max(0, options.maxManifestBytes), ABSOLUTE_MAX_MANIFEST_BYTES)
+    : ABSOLUTE_MAX_MANIFEST_BYTES;
+  const rawBytes = regularFileBytes(
+    candidateRoot,
+    manifestRelativePath,
+    errors,
+    "/manifest_path",
+    requestedManifestLimit,
+    "max_manifest_bytes",
+  );
   if (rawBytes === null) return errors.sort(errorComparator);
-  const parsed = parseTicketsManifest(rawBytes, { maxManifestBytes: options.maxManifestBytes });
+  const parsed = parseTicketsManifest(rawBytes, { maxManifestBytes: requestedManifestLimit });
   errors.push(...parsed.errors);
   if (!parsed.manifest) return errors.sort(errorComparator);
 
@@ -683,6 +749,9 @@ function canonicalText(value) {
 function validateRevisionLineage(manifest, schema, context, errors) {
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   if (manifest.previous_manifest_digest === null) {
+    if (manifest.manifest_revision !== 1) {
+      errors.push(error("tickets_lineage_invalid", "/manifest_revision", "initial manifest revision must be exactly 1"));
+    }
     for (const [index, ticket] of tickets.entries()) {
       if (ticket?.lineage?.kind !== "new" || (ticket?.lineage?.predecessor_ids?.length ?? 0) !== 0) {
         errors.push(error("tickets_lineage_invalid", `/tickets/${index}/lineage`, "initial manifest Tickets must use new lineage without predecessors"));
@@ -698,13 +767,23 @@ function validateRevisionLineage(manifest, schema, context, errors) {
     errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "revised manifest requires exact previous published manifest context"));
     return;
   }
-  const previous = context.manifest;
+  const suppliedPrevious = context.manifest;
+  const parsedPrevious = parseTicketsManifest(context.raw_text);
   const previousRaw = canonicalText(context.raw_text);
-  if (!previous || typeof previous !== "object" || Array.isArray(previous) || previousRaw === null) {
-    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest context is malformed"));
+  if (!suppliedPrevious || typeof suppliedPrevious !== "object" || Array.isArray(suppliedPrevious)
+      || previousRaw === null || !parsedPrevious.manifest || parsedPrevious.errors.length > 0) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest context is malformed or non-canonical", {
+      parser_errors: parsedPrevious.errors.map((entry) => entry.code),
+    }));
     return;
   }
-  if (validateJsonSchema(previous, schema).length > 0 || canonicalStringify(previous) !== previousRaw) {
+  const previous = parsedPrevious.manifest;
+  const previousStringErrors = [];
+  validateStringTree(previous, "", previousStringErrors);
+  if (validateJsonSchema(previous, schema).length > 0
+      || previousStringErrors.length > 0
+      || canonicalStringify(previous) !== previousRaw
+      || canonicalStringify(previous) !== canonicalStringify(suppliedPrevious)) {
     errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "previous manifest bytes are not the exact canonical published manifest"));
     return;
   }
@@ -747,6 +826,14 @@ function validateRevisionLineage(manifest, schema, context, errors) {
     const pointer = `/tickets/${index}/lineage`;
     if (!sortedUnique(predecessors)) {
       errors.push(error("tickets_lineage_invalid", `${pointer}/predecessor_ids`, "predecessor IDs must be unique and sorted"));
+    }
+    const preservesExistingId = ["carry", "revise"].includes(lineage.kind)
+      && predecessors.length === 1
+      && predecessors[0] === ticket.id;
+    if (previousById.has(ticket.id) && !preservesExistingId) {
+      errors.push(error("tickets_lineage_invalid", `${pointer}/kind`, "a prior Ticket ID may only continue through carry or revise of that same Ticket", {
+        reused_ticket_id: ticket.id,
+      }));
     }
     if (lineage.kind === "new") {
       if (predecessors.length !== 0 || previousById.has(ticket.id)) {
@@ -869,17 +956,21 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
     })];
   }
 
+  const countErrors = countLimitErrors(manifest);
+  if (countErrors.length > 0) return [...errors, ...countErrors].sort(errorComparator);
+
   for (const schemaError of validateJsonSchema(manifest, schema)) {
-    errors.push(error("tickets_manifest_schema_invalid", "", String(schemaError)));
+    errors.push(error(
+      "tickets_manifest_schema_invalid",
+      schemaInstancePathToJsonPointer(schemaError),
+      String(schemaError),
+    ));
   }
   validateStringTree(manifest, "", errors);
   const rawTextValue = rawText === null ? null : canonicalText(rawText);
   if (rawText !== null && (rawTextValue === null || canonicalStringify(manifest) !== rawTextValue)) {
     errors.push(error("tickets_manifest_noncanonical", "", "manifest bytes do not equal canonical serialization"));
   }
-
-  const countErrors = countLimitErrors(manifest);
-  if (countErrors.length > 0) return [...errors, ...countErrors].sort(errorComparator);
 
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   const ticketIds = tickets.map((ticket) => ticket?.id).filter((id) => typeof id === "string");
