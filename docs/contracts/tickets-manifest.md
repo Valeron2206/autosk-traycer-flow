@@ -91,7 +91,7 @@ V1 accepts only:
 
 Paths are project-relative NFC strings with `/` separators. Empty, absolute, drive/UNC-prefixed, backslash, NUL, dot-segment and repeated-separator paths are invalid. Directory selectors include descendants on segment boundaries. Selectors are sorted and unique. Trusted host code translates selectors to Git argument arrays; models never construct shell pathspecs.
 
-Two Tickets overlap when their selectors can address the same path under the conservative v1 case/Unicode collision key, even when path bytes differ only by case. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
+Two Tickets overlap when their selectors can address the same path under the conservative v1 NFC/lowercase collision key, including paths whose bytes differ only by case. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
 
 ## 7. Dependency graph
 
@@ -149,7 +149,7 @@ expected path set == candidate path set
 expected bytes    == candidate bytes
 ```
 
-A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid nested shapes return typed validation errors and never escape as host exceptions; safe semantic-specific errors may still be emitted alongside Schema errors. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings to one line and escapes Markdown table delimiters so manifest strings cannot forge overview columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid nested shapes return typed errors before graph, lineage or renderer code and cannot crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings to one line and escapes Markdown table delimiters so manifest text cannot forge overview rows or columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 
 ## 13. Validation lifecycle
 
@@ -196,11 +196,11 @@ At minimum test:
 - dangling/self/deep-cycle dependencies and stable topo ties;
 - workers=1 versus workers>=4 graph identity;
 - absolute/traversal/backslash/NUL/dot/collision paths;
-- ordered versus unordered scope overlap, including case-only collisions;
+- ordered versus unordered scope overlap, including case-collision aliases;
 - missing/mismatched rationales, AC evidence, governing refs and impacts;
 - irreversible rollback without approval;
 - missing/extra/renamed/one-byte-drift rendered docs, symlinked ancestors and pre-read byte limits;
-- key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes, Markdown delimiter injection and extra fields;
+- key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes and extra fields;
 - initial revision numbering, prior-ID reservation and revised carry/revise/replace/split/merge/retirement lineage;
 - digest golden vectors;
 - stale alignment/planning/candidate/runtime/protocol/instruction/receipt;
@@ -208,6 +208,7 @@ At minimum test:
 - crashes around receipt, child, blocker, enrollment and final graph projection;
 - idempotent retry with one child per Ticket;
 - proof that operational fields are never read from Markdown;
+- renderer resistance to heading/table structural injection;
 - upgrade/downgrade/unknown version and cross-project rejection.
 
 ## 17. Acceptance mapping

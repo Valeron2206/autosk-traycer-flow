@@ -202,7 +202,6 @@ function selectorContains(selector, candidatePath) {
 }
 
 export function selectorsOverlap(left, right) {
-  if (left.kind === "file" && right.kind === "file") return collisionKey(left.path) === collisionKey(right.path);
   if (left.kind === "file") return selectorContains(right, left.path);
   if (right.kind === "file") return selectorContains(left, right.path);
   return selectorContains(left, right.path) || selectorContains(right, left.path);
@@ -632,7 +631,7 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
   if (rawBytes === null) return errors.sort(errorComparator);
   const parsed = parseTicketsManifest(rawBytes, { maxManifestBytes: requestedManifestLimit });
   errors.push(...parsed.errors);
-  if (!parsed.manifest) return errors.sort(errorComparator);
+  if (!parsed.manifest || parsed.errors.length > 0) return errors.sort(errorComparator);
 
   const expectedManifestPath = `docs/autosk/epics/${parsed.manifest.epic_id}/tickets/tickets.manifest.json`;
   if (manifestRelativePath !== expectedManifestPath) {
@@ -978,8 +977,8 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
   if (rawText !== null && (rawTextValue === null || canonicalStringify(manifest) !== rawTextValue)) {
     errors.push(error("tickets_manifest_noncanonical", "", "manifest bytes do not equal canonical serialization"));
   }
+  if (schemaErrors.length > 0) return errors.sort(errorComparator);
 
-  try {
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   const ticketIds = tickets.map((ticket) => ticket?.id).filter((id) => typeof id === "string");
   if (!sortedUnique(ticketIds)) errors.push(error("tickets_id_duplicate", "/tickets", "Ticket IDs must be unique and sorted"));
@@ -1113,14 +1112,6 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
   }
 
   validateRevisionLineage(manifest, schema, options.previousManifestContext, errors);
-  } catch {
-    errors.push(error(
-      "tickets_manifest_schema_invalid",
-      "",
-      "schema-invalid shape cannot enter semantic validation",
-      { phase: "semantic_validation" },
-    ));
-  }
   return errors.sort(errorComparator);
 }
 
