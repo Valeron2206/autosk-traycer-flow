@@ -16,13 +16,6 @@ def replace_once(relative: str, old: str, new: str, label: str) -> None:
 
 replace_once(
     "scripts/validate-tickets-manifest-design.mjs",
-    'import { lstatSync, readFileSync, readdirSync } from "node:fs";',
-    'import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";',
-    "filesystem imports",
-)
-
-replace_once(
-    "scripts/validate-tickets-manifest-design.mjs",
     '''function selectorContains(selector, candidatePath) {
   if (selector.kind === "file") return selector.path === candidatePath;
   return candidatePath === selector.path || candidatePath.startsWith(`${selector.path}/`);
@@ -52,7 +45,7 @@ function markdownTableCell(value) {
   return oneLine(value).replaceAll("|", "&#124;");
 }
 ''',
-    "Markdown cell helper",
+    "Markdown table-cell encoder",
 )
 
 replace_once(
@@ -65,7 +58,7 @@ replace_once(
     `| ${ticket.id} | ${markdownTableCell(ticket.title)} | ${ticket.work_type} | ${ticket.depends_on.join(", ") || "—"} | ${markdownTableCell(ticket.goal)} |`,
   );
 ''',
-    "Markdown overview rows",
+    "safe overview rows",
 )
 
 replace_once(
@@ -74,109 +67,17 @@ replace_once(
 ''',
     '''      `# ${ticket.id} — ${oneLine(ticket.title)}`,
 ''',
-    "one-line Ticket heading",
-)
-
-replace_once(
-    "scripts/validate-tickets-manifest-design.mjs",
-    '''function resolveInsideCandidateRoot(candidateRoot, relativePath) {
-  if (typeof candidateRoot !== "string" || candidateRoot.length === 0 || !validRelativePath(relativePath)) return null;
-  const absoluteRoot = path.resolve(candidateRoot);
-  const absolutePath = path.resolve(absoluteRoot, ...relativePath.split("/"));
-  if (!absolutePath.startsWith(`${absoluteRoot}${path.sep}`)) return null;
-  return { absoluteRoot, absolutePath };
-}
-''',
-    '''function resolveInsideCandidateRoot(candidateRoot, relativePath) {
-  if (typeof candidateRoot !== "string" || candidateRoot.length === 0 || !validRelativePath(relativePath)) return null;
-  let absoluteRoot;
-  try {
-    absoluteRoot = realpathSync.native(path.resolve(candidateRoot));
-  } catch {
-    return null;
-  }
-  const absolutePath = path.resolve(absoluteRoot, ...relativePath.split("/"));
-  if (!absolutePath.startsWith(`${absoluteRoot}${path.sep}`)) return null;
-  return { absoluteRoot, absolutePath };
-}
-''',
-    "canonical candidate root resolution",
-)
-
-replace_once(
-    "scripts/validate-tickets-manifest-design.mjs",
-    '''    const metadata = lstatSync(resolved.absolutePath);
-    if (metadata.isSymbolicLink() || !metadata.isFile()) {
-      errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
-      return null;
-    }
-    return readFileSync(resolved.absolutePath);
-''',
-    '''    const metadata = lstatSync(resolved.absolutePath);
-    const canonicalPath = realpathSync.native(resolved.absolutePath);
-    if (canonicalPath !== resolved.absolutePath || metadata.isSymbolicLink() || !metadata.isFile()) {
-      errors.push(error("tickets_path_invalid", pointer, "candidate path or one of its components is not a regular non-symlink path", { path: relativePath }));
-      return null;
-    }
-    return readFileSync(resolved.absolutePath);
-''',
-    "candidate file symlink closure",
-)
-
-replace_once(
-    "scripts/validate-tickets-manifest-design.mjs",
-    '''    rootMetadata = lstatSync(resolved.absoluteRoot);
-    directoryMetadata = lstatSync(resolved.absolutePath);
-    if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
-      throw new Error("candidate root is not a regular directory");
-    }
-    if (directoryMetadata.isSymbolicLink() || !directoryMetadata.isDirectory()) {
-      throw new Error("Tickets path is not a regular directory");
-    }
-''',
-    '''    rootMetadata = lstatSync(resolved.absoluteRoot);
-    directoryMetadata = lstatSync(resolved.absolutePath);
-    const canonicalDirectoryPath = realpathSync.native(resolved.absolutePath);
-    if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
-      throw new Error("candidate root is not a regular directory");
-    }
-    if (canonicalDirectoryPath !== resolved.absolutePath || directoryMetadata.isSymbolicLink() || !directoryMetadata.isDirectory()) {
-      throw new Error("Tickets path or one of its components is not a regular non-symlink directory");
-    }
-''',
-    "candidate directory symlink closure",
-)
-
-replace_once(
-    "scripts/validate-tickets-manifest-design.mjs",
-    '''    if (lineage.kind === "new") {
-      if (predecessors.length !== 0 || previousById.has(ticket.id)) {
-        errors.push(error("tickets_lineage_invalid", pointer, "new lineage cannot reuse a prior Ticket or name predecessors"));
-      }
-      continue;
-    }
-    for (const predecessorId of predecessors) {
-''',
-    '''    if (lineage.kind === "new") {
-      if (predecessors.length !== 0 || previousById.has(ticket.id)) {
-        errors.push(error("tickets_lineage_invalid", pointer, "new lineage cannot reuse a prior Ticket or name predecessors"));
-      }
-      continue;
-    }
-    if (previousById.has(ticket.id) && lineage.kind !== "carry" && lineage.kind !== "revise") {
-      errors.push(error("tickets_lineage_invalid", pointer, "a prior Ticket ID may be retained only by carry or revise of that same predecessor", {
-        reused_ticket_id: ticket.id,
-      }));
-    }
-    for (const predecessorId of predecessors) {
-''',
-    "Ticket ID non-reuse lineage guard",
+    "single-line Ticket heading",
 )
 
 replace_once(
     "scripts/validate-tickets-manifest-design.mjs",
     '''  for (const schemaError of validateJsonSchema(manifest, schema)) {
-    errors.push(error("tickets_manifest_schema_invalid", "", String(schemaError)));
+    errors.push(error(
+      "tickets_manifest_schema_invalid",
+      schemaInstancePathToJsonPointer(schemaError),
+      String(schemaError),
+    ));
   }
   validateStringTree(manifest, "", errors);
   const rawTextValue = rawText === null ? null : canonicalText(rawText);
@@ -184,11 +85,15 @@ replace_once(
     errors.push(error("tickets_manifest_noncanonical", "", "manifest bytes do not equal canonical serialization"));
   }
 
-  const countErrors = countLimitErrors(manifest);
+  const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
 ''',
     '''  const schemaErrors = validateJsonSchema(manifest, schema);
   for (const schemaError of schemaErrors) {
-    errors.push(error("tickets_manifest_schema_invalid", "", String(schemaError)));
+    errors.push(error(
+      "tickets_manifest_schema_invalid",
+      schemaInstancePathToJsonPointer(schemaError),
+      String(schemaError),
+    ));
   }
   validateStringTree(manifest, "", errors);
   const rawTextValue = rawText === null ? null : canonicalText(rawText);
@@ -197,63 +102,47 @@ replace_once(
   }
   if (schemaErrors.length > 0) return errors.sort(errorComparator);
 
-  const countErrors = countLimitErrors(manifest);
+  const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
 ''',
-    "schema-first fail-closed semantic boundary",
-)
-
-replace_once(
-    "docs/contracts/tickets-manifest.md",
-    '''Ticket IDs match `T[0-9]{2,6}`, are ASCII and unique, and are never reused for unrelated work in one Epic history. Acceptance IDs match `AC-<ticket-id>-<nnn>`. Every Ticket has exactly one Markdown path beginning with its ID. Path uniqueness is checked bytewise and under the supported filesystem case/Unicode collision policy.
-''',
-    '''Ticket IDs match `T[0-9]{2,6}`, are ASCII and unique, and are never reused for unrelated work in one Epic history. Across revisions, an existing ID may appear only as `carry` or `revise` of that exact predecessor; `new`, `replace`, `split_child` and `merge_result` must use IDs absent from the immediately previous manifest. Acceptance IDs match `AC-<ticket-id>-<nnn>`. Every Ticket has exactly one Markdown path beginning with its ID. Path uniqueness is checked bytewise and under the supported filesystem case/Unicode collision policy.
-''',
-    "stable ID contract",
+    "schema-first semantic boundary",
 )
 
 replace_once(
     "docs/contracts/tickets-manifest.md",
     '''Two Tickets overlap when their selectors can address the same path. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
 ''',
-    '''Two Tickets overlap when their selectors can address the same path under the conservative v1 case/Unicode collision key, even when their path bytes differ only by case. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
+    '''Two Tickets overlap when their selectors can address the same path under the conservative v1 case/Unicode collision key, even when path bytes differ only by case. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
 ''',
     "case-collision overlap contract",
 )
 
 replace_once(
     "docs/contracts/tickets-manifest.md",
-    '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+    '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 ''',
-    '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, enumerates the sibling Tickets directory, rejects symlinks in any path component plus non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid shapes return typed validation errors before semantic graph/renderer routines and never crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings to one line and escapes Markdown table delimiters so a manifest string cannot forge overview columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+    '''A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid nested shapes return typed validation errors before semantic graph/renderer routines and never crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings to one line and escapes Markdown table delimiters so manifest strings cannot forge overview columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 ''',
     "candidate rendering and malformed-input contract",
 )
 
 replace_once(
     "docs/contracts/tickets-manifest.md",
-    '''- missing/extra/renamed/one-byte-drift rendered docs;
-- key order, CRLF, BOM, non-NFC, duplicate JSON keys and extra fields;
+    '''- absolute/traversal/backslash/NUL/dot/collision paths;
+- ordered versus unordered scope overlap;
 ''',
-    '''- missing/extra/renamed/one-byte-drift rendered docs and intermediate-component symlink escape;
-- key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes and extra fields;
+    '''- absolute/traversal/backslash/NUL/dot/collision paths;
+- ordered versus unordered scope overlap, including case-only collisions;
 ''',
-    "required path/schema tests",
+    "scope test contract",
 )
 
 replace_once(
     "docs/contracts/tickets-manifest.md",
-    '''- initial/revised carry/revise/replace/split/merge/retirement lineage;
+    '''- key order, CRLF, BOM, non-NFC, duplicate JSON keys and extra fields;
 ''',
-    '''- initial/revised carry/revise/replace/split/merge/retirement lineage, including forbidden reuse of another prior Ticket ID;
+    '''- key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes, Markdown delimiter injection and extra fields;
 ''',
-    "required ID-reuse test",
-)
-
-replace_once(
-    "test/validate-tickets-manifest-design.test.mjs",
-    'import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";',
-    'import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";',
-    "test filesystem imports",
+    "malformed/rendering test contract",
 )
 
 append = r'''
@@ -268,28 +157,12 @@ test("schema-invalid nested shapes fail closed without semantic exceptions", () 
     mutate(manifest);
     let result;
     assert.doesNotThrow(() => {
-      result = validateTicketsManifest(manifest, schema, canonicalStringify(manifest), { candidateDocuments: new Map() });
+      result = validateTicketsManifest(manifest, schema, canonicalStringify(manifest), {
+        candidateDocuments: new Map(),
+      });
     });
     assert.ok(result.some((entry) => entry.code === "tickets_manifest_schema_invalid"));
   }
-});
-
-test("revision lineage forbids reuse of another prior Ticket ID", () => {
-  const previous = fixture();
-  const replacement = ticketWithId(previous.tickets[0], "T02", "reused-prior-id");
-  replacement.lineage = { kind: "replace", predecessor_ids: ["T01"] };
-  const current = makeRevision(previous, [replacement], [{
-    decision_ref: "decision:retire-old-t02",
-    disposition: "dropped",
-    predecessor_id: "T02",
-    rationale: "The old T02 is retired so only the cross-lineage ID reuse remains under test.",
-    successor_ids: [],
-  }]);
-  assert.ok(codes(
-    current,
-    canonicalStringify(current),
-    { previousManifestContext: previousManifestContext(previous) },
-  ).includes("tickets_lineage_invalid"));
 });
 
 test("scope overlap uses the conservative case-collision policy", () => {
@@ -300,21 +173,6 @@ test("scope overlap uses the conservative case-collision policy", () => {
   manifest.tickets[1].dependency_rationale = [];
   manifest.topological_order = stableTopologicalOrder(manifest.tickets).ordered;
   assert.ok(codes(manifest).includes("tickets_scope_overlap_unordered"));
-});
-
-test("candidate-tree rejects a symlink in an intermediate path component", () => {
-  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-symlink-"));
-  const candidateRoot = path.join(temporaryParent, "candidate");
-  const outsideRoot = path.join(temporaryParent, "outside");
-  try {
-    cpSync(EXAMPLE_CANDIDATE_ROOT, outsideRoot, { recursive: true });
-    mkdirSync(candidateRoot, { recursive: true });
-    symlinkSync(path.join(outsideRoot, "docs"), path.join(candidateRoot, "docs"), "dir");
-    const errors = validateTicketsCandidateTree(candidateRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
-    assert.ok(errors.some((entry) => entry.code === "tickets_path_invalid"));
-  } finally {
-    rmSync(temporaryParent, { force: true, recursive: true });
-  }
 });
 
 test("renderer prevents title and table-cell structure injection", () => {
@@ -338,4 +196,4 @@ if marker in test_text:
     raise SystemExit("new hardening tests already present")
 test_path.write_text(test_text + append, encoding="utf-8")
 
-print("Applied final issue #6 integrity hardening.")
+print("Applied final issue #6 semantic and renderer hardening.")
