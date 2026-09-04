@@ -1237,14 +1237,21 @@ export function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifes
         inventoryErrors.push(error("tickets_rendered_path_extra", `/rendered_documents/${index}`, "candidate Tickets inventory contains a non-regular or nested Git entry", { path: relativePath }));
         continue;
       }
-      const object = gitObjectBytes(repositoryRoot, objectOid, documentLimits.maxPerDocumentBytes);
+      const remainingTotalBytes = Math.max(0, documentLimits.maxTotalBytes - totalBytes);
+      const readLimit = Math.min(documentLimits.maxPerDocumentBytes, remainingTotalBytes);
+      const object = gitObjectBytes(repositoryRoot, objectOid, readLimit);
       if (object.bytes === null) {
-        inventoryErrors.push(error("tickets_manifest_limits_exceeded", `/rendered_documents/${index}`, "max_rendered_document_bytes exceeded before Git object read", {
-          actual: object.size,
-          limit: documentLimits.maxPerDocumentBytes,
-          limit_name: "max_rendered_document_bytes",
+        const limitName = object.size > documentLimits.maxPerDocumentBytes
+          ? "max_rendered_document_bytes"
+          : "max_total_rendered_document_bytes";
+        const limit = limitName === "max_rendered_document_bytes" ? documentLimits.maxPerDocumentBytes : documentLimits.maxTotalBytes;
+        inventoryErrors.push(error("tickets_manifest_limits_exceeded", `/rendered_documents/${index}`, `${limitName} exceeded before Git object read`, {
+          actual: limitName === "max_total_rendered_document_bytes" ? totalBytes + object.size : object.size,
+          limit,
+          limit_name: limitName,
           path: relativePath,
         }));
+        if (limitName === "max_total_rendered_document_bytes") break;
         continue;
       }
       totalBytes += object.size;

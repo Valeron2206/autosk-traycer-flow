@@ -68,7 +68,20 @@ function sha256(value) {
 }
 
 function runGit(repositoryRoot, args) {
-  const result = spawnSync("git", ["-C", repositoryRoot, ...args], { encoding: "utf8" });
+  const result = spawnSync("git", ["-C", repositoryRoot, ...args], {
+    encoding: "utf8",
+    env: {
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_TERMINAL_PROMPT: "0",
+      LANG: "C",
+      LC_ALL: "C",
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      TMPDIR: process.env.TMPDIR ?? "/tmp",
+      TZ: "UTC",
+    },
+  });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
@@ -869,7 +882,7 @@ test("candidate-tree API and CLI reject on-disk Markdown drift", () => {
   }
 });
 
-test("candidate-tree inventory rejects missing, extra, renamed and non-regular files on disk", () => {
+test("candidate-tree inventory rejects renamed, extra and directory-at-expected-path entries", () => {
   const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-inventory-"));
   const temporaryRoot = path.join(temporaryParent, "candidate");
   const directoryRelative = path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
@@ -885,6 +898,13 @@ test("candidate-tree inventory rejects missing, extra, renamed and non-regular f
     const errorCodes = errors.map((entry) => entry.code);
     assert.ok(errorCodes.includes("tickets_rendered_path_renamed"));
     assert.ok(errorCodes.includes("tickets_rendered_path_extra"));
+
+    rmSync(renamed);
+    const expectedTicket = path.join(temporaryRoot, ...`${directoryRelative}/T01-session-store.md`.split("/"));
+    rmSync(expectedTicket);
+    mkdirSync(expectedTicket);
+    const directoryErrors = validateTicketsCandidateTree(temporaryRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(directoryErrors.some((entry) => entry.code === "tickets_rendered_path_extra" && entry.evidence.path?.endsWith("/T01-session-store.md")));
   } finally {
     rmSync(temporaryParent, { force: true, recursive: true });
   }
@@ -1213,10 +1233,26 @@ test("authoritative candidate validation reads immutable Git tree bytes", () => 
     assert.deepEqual(repeated.errors, []);
     assert.equal(repeated.digests.manifest_digest, result.digests.manifest_digest);
 
+    const aggregateLimited = fixture();
+    aggregateLimited.policy.limits.max_total_rendered_document_bytes = 2048;
+    const manifestPath = path.join(repositoryRoot, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
+    writeFileSync(manifestPath, canonicalStringify(aggregateLimited));
+    for (const [relativePath, content] of renderTicketDocuments(aggregateLimited)) {
+      writeFileSync(path.join(repositoryRoot, ...relativePath.split("/")), content);
+    }
+    runGit(repositoryRoot, ["add", "."]);
+    runGit(repositoryRoot, ["-c", "user.name=autosk-test", "-c", "user.email=autosk-test@example.invalid", "commit", "--quiet", "-m", "aggregate-limit"]);
+    const aggregateTreeOid = runGit(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+    const aggregateResult = validateTicketsCandidateGitTree(repositoryRoot, aggregateTreeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(aggregateResult.errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded"
+      && entry.evidence.limit_name === "max_total_rendered_document_bytes"
+      && entry.message.includes("before Git object read")
+      && entry.evidence.actual > entry.evidence.limit));
+    assert.equal(aggregateResult.candidate_documents.has(aggregateLimited.tickets[0].document_path), false);
+
     const mismatchedFormat = fixture();
     mismatchedFormat.object_format = "sha256";
     for (const governing of mismatchedFormat.governing_artifacts) governing.published_commit_oid = governing.published_commit_oid.repeat(2).slice(0, 64);
-    const manifestPath = path.join(repositoryRoot, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
     writeFileSync(manifestPath, canonicalStringify(mismatchedFormat));
     for (const [relativePath, content] of renderTicketDocuments(mismatchedFormat)) {
       writeFileSync(path.join(repositoryRoot, ...relativePath.split("/")), content);
