@@ -561,6 +561,15 @@ function oneLine(value) {
   return String(value).replace(/\s+/gu, " ").trim();
 }
 
+function markdownStandaloneText(value) {
+  const text = oneLine(value);
+  if (/^[#>+\-*_`~=<]/u.test(text) || /^\d{1,9}[.)](?:\s|$)/u.test(text)) {
+    const [first, ...rest] = Array.from(text);
+    return `&#${first.codePointAt(0)};${rest.join("")}`;
+  }
+  return text;
+}
+
 function markdownTableCell(value) {
   return oneLine(value).replaceAll("|", "&#124;");
 }
@@ -585,7 +594,7 @@ export function renderTicketDocuments(manifest) {
     "",
     "# Tickets",
     "",
-    oneLine(manifest.goal),
+    markdownStandaloneText(manifest.goal),
     "",
     "## Stable execution order",
     "",
@@ -599,7 +608,7 @@ export function renderTicketDocuments(manifest) {
     "",
     "## Exclusions",
     "",
-    ...(manifest.exclusions.length > 0 ? manifest.exclusions.map((item) => `- ${oneLine(item)}`) : ["- None."]),
+    ...(manifest.exclusions.length > 0 ? manifest.exclusions.map((item) => `- ${markdownStandaloneText(item)}`) : ["- None."]),
     "",
   ].join("\n"));
 
@@ -617,7 +626,7 @@ export function renderTicketDocuments(manifest) {
       "",
       "## Goal",
       "",
-      oneLine(ticket.goal),
+      markdownStandaloneText(ticket.goal),
       "",
       "## Acceptance criteria",
       "",
@@ -1852,12 +1861,18 @@ export function parseTicketsManifest(input, options = {}) {
     errors.push(error("tickets_manifest_json_invalid", duplicate.pointer ?? "", `duplicate JSON key ${duplicate.key}`, { offset: duplicate.offset }));
   }
   let manifest = null;
+  let parsedRoot = false;
   try {
     manifest = JSON.parse(text);
+    parsedRoot = true;
   } catch (cause) {
     errors.push(error("tickets_manifest_json_invalid", "", "invalid JSON", { cause: String(cause) }));
   }
-  if (manifest !== null) errors.push(...jsonShapeLimitErrors(manifest, options.maxJsonDepth ?? ABSOLUTE_MAX_JSON_DEPTH));
+  if (parsedRoot && (!manifest || typeof manifest !== "object" || Array.isArray(manifest))) {
+    errors.push(error("tickets_manifest_schema_invalid", "", "manifest root must be an object"));
+  } else if (manifest !== null) {
+    errors.push(...jsonShapeLimitErrors(manifest, options.maxJsonDepth ?? ABSOLUTE_MAX_JSON_DEPTH));
+  }
   return { manifest, text, errors: errors.sort(errorComparator) };
 }
 
@@ -1976,6 +1991,9 @@ if (isMainModule()) {
     const errors = result.errors;
     if (errors.length > 0) {
       console.error(errors.map((entry) => `${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`).join("\n"));
+      process.exitCode = 1;
+    } else if (result.digests === null) {
+      console.error("/: tickets_manifest_schema_invalid: successful validation did not produce bound digests");
       process.exitCode = 1;
     } else {
       const digests = result.digests;

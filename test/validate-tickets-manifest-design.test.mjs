@@ -138,6 +138,13 @@ test("strict parser detects duplicate JSON keys", () => {
   assert.deepEqual(parseTicketsManifest(text).errors.map((entry) => entry.code), ["tickets_manifest_json_invalid"]);
 });
 
+test("strict parser rejects every non-object JSON root with a typed error", () => {
+  for (const text of ["null\n", "false\n", "0\n", "[]\n", '"text"\n']) {
+    const parsed = parseTicketsManifest(text);
+    assert.ok(parsed.errors.some((entry) => entry.code === "tickets_manifest_schema_invalid"), text.trim());
+  }
+});
+
 test("duplicate JSON keys expose the smallest available RFC 6901 pointer", () => {
   const text = '{"outer":{"a/b ~ key":1,"a/b ~ key":2}}\n';
   const parsed = parseTicketsManifest(text);
@@ -994,6 +1001,21 @@ test("renderer prevents heading and table-cell structure injection", () => {
   assert.doesNotMatch(overview, /^## Forged overview heading$/mu);
   assert.doesNotMatch(ticket, /^## Forged Ticket heading$/mu);
   assert.doesNotMatch(ticket, /^continued$/mu);
+});
+
+test("renderer neutralizes leading Markdown block markers in standalone prose", () => {
+  const cases = ["# forged heading", "> forged quote", "```json", "~~~json", "- forged item", "+ forged item", "* forged item", "1. forged item", "---", "===", "<details>"];
+  for (const injected of cases) {
+    const manifest = fixture();
+    manifest.goal = injected;
+    manifest.exclusions = [injected];
+    manifest.tickets[0].goal = injected;
+    const documents = renderTicketDocuments(manifest);
+    const overview = documents.get(`docs/autosk/epics/${manifest.epic_id}/tickets/README.md`);
+    const ticket = documents.get(manifest.tickets[0].document_path);
+    assert.doesNotMatch(overview, new RegExp(`^${injected.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "mu"), injected);
+    assert.doesNotMatch(ticket, new RegExp(`^${injected.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "mu"), injected);
+  }
 });
 
 test("candidate-tree stops after strict parser errors", () => {
