@@ -88,9 +88,13 @@ Brief и Core Flow пропускаются только по objective classifi
 
 ### Tickets
 
-Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на конкретные пункты Brief, сценарии Core Flow и решения Tech Plan, содержит scope in/out, зависимости, критерии приёмки и требуемые доказательства.
+<!-- tickets-manifest-contract:v1 -->
 
-Весь комплект Tickets проходит отдельную четырёхмодельную панель. Панель проверяет и каждый Ticket, и согласованность набора.
+Создаются как вертикальные независимо проверяемые части. Каждый Ticket ссылается на exact published Brief/Core Flow/Tech Plan/Decision/Verification authority, содержит scope in/out, closed file/directory selectors, зависимости с rationale, observable acceptance criteria с evidence bindings, work type, impacts, review policy и rollback.
+
+Один canonical `tickets.manifest.json` является runtime-истиной set/DAG. `README.md` и `Txx-*.md` генерируются pinned renderer из manifest и побайтово сверяются до freeze. Свободный Markdown, task title/comment или live worktree не используется для создания child/blocker edges. Host-owned `TicketsValidationReceipt` связывает exact manifest/DAG/rendered-set/Ticket-entry digests с planning parent, candidate tree, alignment, protocol/runtime/instruction identities.
+
+Весь manifest и его rendered views проходят одной frozen identity через отдельную четырёхмодельную Ticket Panel. После PASS issue #5 публикует их одним descendant planning commit. Только verified publication commit/head и current receipt разрешают manifest-only `dispatch_ticket_dag`. Полный контракт находится в `docs/contracts/tickets-manifest.md`.
 
 ### Публикация утверждённых артефактов в planning ref
 
@@ -242,9 +246,10 @@ Judge ранжирует варианты и выдаёт рекомендаци
 
 1. проверяет scope и ignored/untracked files;
 2. вычисляет candidate tree OID через временный Git index;
-3. создаёт недвигающий refs snapshot commit;
-4. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
-5. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.
+3. для Tickets повторно читает exact tree, сверяет schema-valid `record_kind=pending_validation_proof` с `candidate_tree_oid=null` и создаёт host-owned `record_kind=final_validation_receipt` с `candidate_tree_oid`, равным вычисленному tree OID; final receipt не входит в самоидентифицируемое дерево;
+4. создаёт недвигающий refs snapshot commit;
+5. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
+6. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.
 
 Маршрут проверяющего выбирается по union фактических author и fixer families:
 
@@ -301,6 +306,8 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
 | Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection |
 | Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
+| tickets_manifest_invalid | present_tickets_breakdown до freeze и после publication | old Tickets candidate/receipt/PASS bindings voided and retained when present; corrected manifest/views проходят новый alignment, validation, freeze, full Panel и replacement publication до dispatch_ticket_dag; child/blocker/enrollment side effects до этого отсутствуют |
+| tickets_manifest_stale | owning recovery step, затем present_tickets_breakdown | protocol/runtime/project-instruction lock drift сначала проходит repair_protocol_snapshot, а другой stale binding — его recorded owning repair; old Tickets candidate/receipt/PASS records voided and retained; затем present_tickets_breakdown -> record_alignment -> validate_tickets_manifest создаёт fresh identity-bound proof, freeze создаёт новый immutable receipt, full Panel и replacement publication завершаются до dispatch |
 | planning_ref_init_invalid | init_planning_ref | corruption with otherwise valid base restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and a fresh init operation while preserving prior audit evidence; no adopt/reset |
 | planning_ref_capability_missing | recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup | pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged |
 | planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition | exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation |

@@ -1,0 +1,481 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.invalid/schemas/tickets-manifest.v1.json",
+  "title": "autosk-flow canonical Tickets manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_revision",
+    "epic_id",
+    "object_format",
+    "previous_manifest_digest",
+    "renderer_version",
+    "reserved_ticket_ids",
+    "policy",
+    "goal",
+    "exclusions",
+    "governing_artifacts",
+    "tickets",
+    "topological_order",
+    "retirements"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "manifest_revision": { "type": "integer", "minimum": 1 },
+    "epic_id": { "$ref": "#/$defs/uuid" },
+    "object_format": { "enum": ["sha1", "sha256"] },
+    "previous_manifest_digest": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sha256" }
+      ]
+    },
+    "renderer_version": { "const": "autosk-flow/ticket-markdown/v1" },
+    "reserved_ticket_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000000,
+      "items": { "$ref": "#/$defs/ticket_id" },
+      "uniqueItems": true
+    },
+    "policy": { "$ref": "#/$defs/policy" },
+    "goal": { "$ref": "#/$defs/non_empty_text" },
+    "exclusions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/non_empty_text" },
+      "uniqueItems": true
+    },
+    "governing_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/governing_artifact" }
+    },
+    "tickets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/ticket" }
+    },
+    "topological_order": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/ticket_id" },
+      "uniqueItems": true
+    },
+    "retirements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/retirement" }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "ticket_id": {
+      "type": "string",
+      "pattern": "^T[0-9]{2,6}$"
+    },
+    "acceptance_id": {
+      "type": "string",
+      "pattern": "^AC-T[0-9]{2,6}-[0-9]{3}$"
+    },
+    "stable_ref": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "non_empty_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": "^(?=.*\\S)[^\\r\\u0000]+$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\u0000)[^\\r\\n]+$"
+    },
+    "literal_selector_path": {
+      "allOf": [
+        { "$ref": "#/$defs/relative_path" },
+        { "pattern": "^(?!:)(?!.*[?*])(?!.*\\[).+$" }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalizer_version",
+        "path_scope_version",
+        "review_policy_ref",
+        "verification_policy_ref",
+        "limits"
+      ],
+      "properties": {
+        "canonicalizer_version": { "const": "autosk-flow/canonical-json/v1" },
+        "path_scope_version": { "const": "autosk-flow/path-scope/v1" },
+        "review_policy_ref": { "$ref": "#/$defs/stable_ref" },
+        "verification_policy_ref": { "$ref": "#/$defs/stable_ref" },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_manifest_bytes",
+            "max_tickets",
+            "max_total_edges",
+            "max_total_rendered_document_bytes",
+            "max_dependencies_per_ticket",
+            "max_scope_overlap_pairs",
+            "max_selectors_per_ticket",
+            "max_acceptance_criteria_per_ticket",
+            "max_verification_bindings_per_criterion",
+            "max_rendered_document_bytes",
+            "max_reserved_ticket_ids"
+          ],
+          "properties": {
+            "max_manifest_bytes": { "type": "integer", "minimum": 1024, "maximum": 16777216 },
+            "max_tickets": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "max_total_edges": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "max_total_rendered_document_bytes": { "type": "integer", "minimum": 2048, "maximum": 134217728 },
+            "max_dependencies_per_ticket": { "type": "integer", "minimum": 0, "maximum": 1000 },
+            "max_scope_overlap_pairs": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Maximum enumerated overlapping selector pairs, including same-Ticket and repeated cross-Ticket matches." },
+            "max_selectors_per_ticket": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "max_acceptance_criteria_per_ticket": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "max_verification_bindings_per_criterion": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "max_rendered_document_bytes": { "type": "integer", "minimum": 1024, "maximum": 67108864 },
+            "max_reserved_ticket_ids": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+          }
+        }
+      }
+    },
+    "governing_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "kind", "path", "published_commit_oid", "content_sha256"],
+      "properties": {
+        "ref_id": { "$ref": "#/$defs/stable_ref" },
+        "kind": { "enum": ["brief", "core_flow", "tech_plan", "decision", "review_policy", "verification", "work_contract"] },
+        "path": { "$ref": "#/$defs/relative_path" },
+        "published_commit_oid": { "$ref": "#/$defs/git_oid" },
+        "content_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "path_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["file", "directory"] },
+        "path": { "$ref": "#/$defs/literal_selector_path" }
+      }
+    },
+    "dependency_rationale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency_id", "kind", "reason"],
+      "properties": {
+        "dependency_id": { "$ref": "#/$defs/ticket_id" },
+        "kind": { "enum": ["semantic", "scope_serialization"] },
+        "reason": { "$ref": "#/$defs/non_empty_text" }
+      }
+    },
+    "verification_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "binding_id", "source_ref", "expected_evidence"],
+      "properties": {
+        "kind": { "enum": ["recipe", "verification_batch", "deterministic_check", "manual_acceptance"] },
+        "binding_id": { "$ref": "#/$defs/stable_ref" },
+        "source_ref": { "$ref": "#/$defs/stable_ref" },
+        "expected_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "test_result",
+              "runtime_observation",
+              "coverage",
+              "verification_batch",
+              "manual_acceptance",
+              "artifact_snapshot",
+              "performance_measurement",
+              "security_result"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "acceptance_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "verification_bindings"],
+      "properties": {
+        "id": { "$ref": "#/$defs/acceptance_id" },
+        "text": { "$ref": "#/$defs/non_empty_text" },
+        "verification_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/verification_binding" }
+        }
+      }
+    },
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "paths", "rationale"],
+      "properties": {
+        "status": { "enum": ["required", "none"] },
+        "paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/path_selector" }
+        },
+        "rationale": { "$ref": "#/$defs/non_empty_text" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "required" } }, "required": ["status"] },
+          "then": { "properties": { "paths": { "minItems": 1 } } },
+          "else": { "properties": { "paths": { "maxItems": 0 } } }
+        }
+      ]
+    },
+    "rollbackable_recovery_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "kind", "resolution", "target_state", "scope_basis", "resolution_contract_ref"],
+      "properties": {
+        "schema": { "const": "autosk-flow/ticket-recovery-target/v1" },
+        "kind": { "const": "ticket_execution_base" },
+        "resolution": { "const": "issue_7_execution_base_contract" },
+        "target_state": { "const": "before_ticket_delta" },
+        "scope_basis": { "const": "scope_selectors" },
+        "resolution_contract_ref": { "$ref": "#/$defs/stable_ref" }
+      }
+    },
+    "irreversible_recovery_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "kind", "target_state", "approval_ref"],
+      "properties": {
+        "schema": { "const": "autosk-flow/ticket-recovery-target/v1" },
+        "kind": { "const": "irreversible_no_restore_target" },
+        "target_state": { "const": "none" },
+        "approval_ref": { "$ref": "#/$defs/stable_ref" }
+      }
+    },
+    "recovery_target": {
+      "oneOf": [
+        { "$ref": "#/$defs/rollbackable_recovery_target" },
+        { "$ref": "#/$defs/irreversible_recovery_target" }
+      ]
+    },
+    "risk_and_rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_level", "failure_modes", "rollback_mode", "rollback_steps", "recovery_target", "irreversible", "approval_refs"],
+      "properties": {
+        "risk_level": { "enum": ["low", "medium", "high", "critical"] },
+        "failure_modes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_text" }
+        },
+        "rollback_mode": { "enum": ["automatic", "manual", "forward_fix", "irreversible"] },
+        "rollback_steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/non_empty_text" }
+        },
+        "recovery_target": { "$ref": "#/$defs/recovery_target" },
+        "irreversible": { "type": "boolean" },
+        "approval_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stable_ref" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "rollback_mode": { "enum": ["automatic", "manual", "forward_fix"] } }, "required": ["rollback_mode"] },
+          "then": {
+            "properties": {
+              "irreversible": { "const": false },
+              "rollback_steps": { "minItems": 1 },
+              "recovery_target": { "$ref": "#/$defs/rollbackable_recovery_target" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "irreversible": { "const": true } }, "required": ["irreversible"] },
+          "then": {
+            "properties": {
+              "rollback_mode": { "const": "irreversible" },
+              "approval_refs": { "minItems": 1 },
+              "recovery_target": { "$ref": "#/$defs/irreversible_recovery_target" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "rollback_mode": { "const": "irreversible" } }, "required": ["rollback_mode"] },
+          "then": {
+            "properties": {
+              "irreversible": { "const": true },
+              "approval_refs": { "minItems": 1 },
+              "recovery_target": { "$ref": "#/$defs/irreversible_recovery_target" }
+            }
+          }
+        }
+      ]
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "predecessor_ids"],
+      "properties": {
+        "kind": { "enum": ["new", "carry", "revise", "replace", "split_child", "merge_result"] },
+        "predecessor_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ticket_id" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "new" } }, "required": ["kind"] },
+          "then": { "properties": { "predecessor_ids": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["carry", "revise", "replace", "split_child"] } }, "required": ["kind"] },
+          "then": { "properties": { "predecessor_ids": { "minItems": 1, "maxItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "merge_result" } }, "required": ["kind"] },
+          "then": { "properties": { "predecessor_ids": { "minItems": 2 } } }
+        }
+      ]
+    },
+    "ticket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "goal",
+        "work_type",
+        "in_scope",
+        "out_of_scope",
+        "scope_selectors",
+        "depends_on",
+        "dependency_rationale",
+        "acceptance_criteria",
+        "governing_refs",
+        "material_decision_refs",
+        "work_contract_refs",
+        "impacts",
+        "risk_and_rollback",
+        "review_policy_ref",
+        "lineage",
+        "document_path"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/ticket_id" },
+        "title": { "$ref": "#/$defs/non_empty_text" },
+        "goal": { "$ref": "#/$defs/non_empty_text" },
+        "work_type": { "enum": ["feature", "bug-fix", "refactoring", "perf"] },
+        "in_scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_text" }
+        },
+        "out_of_scope": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/non_empty_text" }
+        },
+        "scope_selectors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/path_selector" }
+        },
+        "depends_on": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/ticket_id" },
+          "uniqueItems": true
+        },
+        "dependency_rationale": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/dependency_rationale" }
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/acceptance_criterion" }
+        },
+        "governing_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/stable_ref" },
+          "uniqueItems": true
+        },
+        "material_decision_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stable_ref" },
+          "uniqueItems": true
+        },
+        "work_contract_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/stable_ref" },
+          "uniqueItems": true
+        },
+        "impacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["documentation", "security", "migration", "operations", "observability"],
+          "properties": {
+            "documentation": { "$ref": "#/$defs/impact" },
+            "security": { "$ref": "#/$defs/impact" },
+            "migration": { "$ref": "#/$defs/impact" },
+            "operations": { "$ref": "#/$defs/impact" },
+            "observability": { "$ref": "#/$defs/impact" }
+          }
+        },
+        "risk_and_rollback": { "$ref": "#/$defs/risk_and_rollback" },
+        "review_policy_ref": { "$ref": "#/$defs/stable_ref" },
+        "lineage": { "$ref": "#/$defs/lineage" },
+        "document_path": { "$ref": "#/$defs/relative_path" }
+      }
+    },
+    "retirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predecessor_id", "disposition", "successor_ids", "decision_ref", "rationale"],
+      "properties": {
+        "predecessor_id": { "$ref": "#/$defs/ticket_id" },
+        "disposition": { "enum": ["dropped", "deferred", "superseded"] },
+        "successor_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ticket_id" },
+          "uniqueItems": true
+        },
+        "decision_ref": { "$ref": "#/$defs/stable_ref" },
+        "rationale": { "$ref": "#/$defs/non_empty_text" }
+      }
+    }
+  }
+}

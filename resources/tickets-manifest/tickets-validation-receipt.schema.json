@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.invalid/schemas/tickets-validation-receipt.v1.json",
+  "title": "autosk-flow Tickets validation receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "project_root_sha256",
+    "record_kind",
+    "epic_id",
+    "anchor_version",
+    "object_format",
+    "planning_parent_commit_oid",
+    "planning_parent_tree_oid",
+    "candidate_tree_oid",
+    "manifest_path",
+    "manifest_bytes_sha256",
+    "manifest_digest",
+    "dag_digest",
+    "rendered_document_set_digest",
+    "rollback_recovery_target_set_digest",
+    "ticket_set_digest",
+    "ticket_entry_digests",
+    "rendered_documents",
+    "schema_id",
+    "schema_sha256",
+    "canonicalizer_version",
+    "renderer_version",
+    "renderer_distribution_digest",
+    "validator_distribution_digest",
+    "protocol_digest",
+    "runtime_lock_digest",
+    "project_instruction_digest",
+    "alignment_identity",
+    "governance_mapping_set_digest",
+    "limits_digest",
+    "validated_at_utc",
+    "outcome",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "operation_id": { "$ref": "#/$defs/uuid" },
+    "project_root_sha256": { "$ref": "#/$defs/sha256" },
+    "record_kind": { "enum": ["pending_validation_proof", "final_validation_receipt"] },
+    "epic_id": { "$ref": "#/$defs/uuid" },
+    "anchor_version": { "type": "integer", "minimum": 1 },
+    "object_format": { "enum": ["sha1", "sha256"] },
+    "planning_parent_commit_oid": { "$ref": "#/$defs/git_oid" },
+    "planning_parent_tree_oid": { "$ref": "#/$defs/git_oid" },
+    "candidate_tree_oid": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/git_oid" }
+      ]
+    },
+    "manifest_path": { "$ref": "#/$defs/relative_path" },
+    "manifest_bytes_sha256": { "$ref": "#/$defs/sha256" },
+    "manifest_digest": { "$ref": "#/$defs/sha256" },
+    "dag_digest": { "$ref": "#/$defs/sha256" },
+    "rendered_document_set_digest": { "$ref": "#/$defs/sha256" },
+    "rollback_recovery_target_set_digest": { "$ref": "#/$defs/sha256" },
+    "ticket_set_digest": { "$ref": "#/$defs/sha256" },
+    "ticket_entry_digests": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ticket_id", "digest"],
+        "properties": {
+          "ticket_id": { "$ref": "#/$defs/ticket_id" },
+          "digest": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "rendered_documents": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 10001,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "content_sha256", "size_bytes"],
+        "properties": {
+          "path": { "$ref": "#/$defs/relative_path" },
+          "content_sha256": { "$ref": "#/$defs/sha256" },
+          "size_bytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "schema_id": { "const": "https://autosk-flow.invalid/schemas/tickets-manifest.v1.json" },
+    "schema_sha256": { "$ref": "#/$defs/sha256" },
+    "canonicalizer_version": { "const": "autosk-flow/canonical-json/v1" },
+    "renderer_version": { "const": "autosk-flow/ticket-markdown/v1" },
+    "renderer_distribution_digest": { "$ref": "#/$defs/sha256" },
+    "validator_distribution_digest": { "$ref": "#/$defs/sha256" },
+    "protocol_digest": { "$ref": "#/$defs/sha256" },
+    "runtime_lock_digest": { "$ref": "#/$defs/sha256" },
+    "project_instruction_digest": { "$ref": "#/$defs/sha256" },
+    "alignment_identity": { "$ref": "#/$defs/sha256" },
+    "governance_mapping_set_digest": { "$ref": "#/$defs/sha256" },
+    "limits_digest": { "$ref": "#/$defs/sha256" },
+    "validated_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "outcome": { "const": "valid" },
+    "errors": { "type": "array", "maxItems": 0 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "record_kind": { "const": "pending_validation_proof" } }, "required": ["record_kind"] },
+      "then": { "properties": { "candidate_tree_oid": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "record_kind": { "const": "final_validation_receipt" } }, "required": ["record_kind"] },
+      "then": { "properties": { "candidate_tree_oid": { "$ref": "#/$defs/git_oid" } } }
+    },
+    {
+      "if": { "properties": { "object_format": { "const": "sha1" } }, "required": ["object_format"] },
+      "then": {
+        "properties": {
+          "planning_parent_commit_oid": { "$ref": "#/$defs/sha1_oid" },
+          "planning_parent_tree_oid": { "$ref": "#/$defs/sha1_oid" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "object_format": { "const": "sha256" } }, "required": ["object_format"] },
+      "then": {
+        "properties": {
+          "planning_parent_commit_oid": { "$ref": "#/$defs/sha256_oid" },
+          "planning_parent_tree_oid": { "$ref": "#/$defs/sha256_oid" }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "record_kind": { "const": "final_validation_receipt" } }, "required": ["record_kind"] },
+          { "properties": { "object_format": { "const": "sha1" } }, "required": ["object_format"] }
+        ]
+      },
+      "then": { "properties": { "candidate_tree_oid": { "$ref": "#/$defs/sha1_oid" } } }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "record_kind": { "const": "final_validation_receipt" } }, "required": ["record_kind"] },
+          { "properties": { "object_format": { "const": "sha256" } }, "required": ["object_format"] }
+        ]
+      },
+      "then": { "properties": { "candidate_tree_oid": { "$ref": "#/$defs/sha256_oid" } } }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sha1_oid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256_oid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "ticket_id": {
+      "type": "string",
+      "pattern": "^T[0-9]{2,6}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\u0000)[^\\r\\n]+$"
+    }
+  }
+}

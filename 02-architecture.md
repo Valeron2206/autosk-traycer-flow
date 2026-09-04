@@ -40,6 +40,7 @@ autosk v2 остаётся движком задач и переходов. Но
 - подготовку human alignment/readiness packets и механическую проверку их approval identity;
 - versioned fail-closed классификацию decision classes и разрешение только daemon-attributed user/policy records;
 - создание дочерних задач панели, Arena и Tickets;
+- schema/semantic validation canonical Tickets manifest, deterministic rendering human views и manifest-only reconstruction Ticket DAG;
 - компиляцию сообщений из замороженного протокола;
 - проверку structured verdict;
 - запись валидированного artifact verdict как `recorded_unpublished` и механическое извлечение autosk-arena block;
@@ -72,6 +73,14 @@ Files-backend packing is closed inside that single service-owned common Git dire
 <!-- planning-ref-contract:v1 -->
 
 Общий adapter обслуживает `init_planning_ref`, `publish_artifact_pass` и `publish_planning_invalidation`. До side effect он сохраняет и read-back проверяет полный object-format-aware recipe с exact commit bytes, expected OID, signing-policy binding и reflog checkpoint. Затем пишет только эти bytes, выполняет expected-old CAS private ref с operation-specific reflog entry, читает ref/commit/tree/reflog обратно и монотонно продвигает `planning_publication_op` через `prepared -> commit_created -> ref_advanced -> verified` либо terminal `voided_before_ref`. Model process не получает ref capability. Foreign/ABA/indeterminate movement не ретраится как обычная ошибка и не разрешается rebase/reset/force fallback.
+
+### Canonical Tickets manifest
+
+<!-- tickets-manifest-contract:v1 -->
+
+Комплект Tickets является одним behavior artifact с двумя представлениями: canonical `tickets.manifest.json` и deterministic Markdown views. Manifest — единственный scheduler/dispatcher input; views служат человеку и входят в тот же frozen candidate. `TicketsValidationReceipt` связывает schema/canonicalizer/renderer/validator identities, exact planning parent/candidate tree, set/DAG/entry/document digests и controlling locks. Receipt хранится как autoskd/evidence-owned immutable record, не как второй status ledger.
+
+Перед Ticket Panel host-only pre-freeze `validateTicketsCandidateTree` без следования symlink ancestors сначала проверяет raw manifest, nesting depth и closed Schema, а только затем перечисляет внешнюю file inventory с host-owned entry/per-file/aggregate pre-read caps; он выдаёт schema-valid `record_kind=pending_validation_proof` с `candidate_tree_oid=null` и не является authority. Deterministic validator fail-closed останавливается на Schema-invalid nested shapes до graph/renderer/inventory, проверяет canonical bytes, declared limits, heap-backed stable Kahn DAG, indexed output-sensitive case-collision path-scope overlap/order with bounded pair count and precomputed reachability, governing/evidence refs, exact previous-manifest context для revision lineage и byte-identical injection-safe renderer output whose headings and free-text body insertions are one-line normalized. После вычисления frozen tree `freeze_artifact` вызывает authoritative `validateTicketsCandidateGitTree`, который читает blobs напрямую из immutable Git tree по OID, повторяет validation и создаёт внешний host-owned `record_kind=final_validation_receipt`, где `candidate_tree_oid` равен frozen tree; mutable pathname не может породить final receipt. После verified issue #5 publication manifest-only dispatcher читает bytes из exact publication commit tree, а не live worktree, затем создаёт expected child/edge graph через daemon custody. Markdown disagreement блокирует до новой candidate identity; runtime никогда не выбирает prose.
 
 ### autosk-owned integration adapter
 
@@ -169,11 +178,13 @@ Activation surface подтверждён pinned `wierdbytes/autosk@5163f00`: `c
     decisions/
       ADR-001-<slug>.md
     tickets/
+      tickets.manifest.json
+      README.md
       T01-<slug>.md
       T02-<slug>.md
 ~~~
 
-Текущая принятая проекция этих файлов определяется verified head `refs/autosk/epics/<epic_ref_key>/planning`. Каждый artifact PASS получает отдельный single-parent descendant commit; следующий author base обязан совпадать с этим head. Detached snapshot commit остаётся review identity, но не считается опубликованным; verified candidate keepalive делает его полную object closure reachable до planning-ref verification и exact-old release. Anchor invalidation создаёт новый descendant commit, а не rewrites history. Final Tickets publication фиксирует exact `planning_head` для downstream execution/staging.
+Текущая принятая проекция этих файлов определяется verified head `refs/autosk/epics/<epic_ref_key>/planning`. Каждый artifact PASS получает отдельный single-parent descendant commit; следующий author base обязан совпадать с этим head. Detached snapshot commit остаётся review identity, но не считается опубликованным; verified candidate keepalive делает его полную object closure reachable до planning-ref verification и exact-old release. Anchor invalidation создаёт новый descendant commit, а не rewrites history. Final Tickets publication фиксирует exact `planning_head` для downstream execution/staging. Published tree содержит validated canonical manifest и exact renderer outputs; task/runtime state в них отсутствует.
 
 Создаются только нужные файлы. Статусы выполнения и PASS в эти документы не записываются: это предотвратит рассинхронизацию нормативных текстов с autosk.
 
