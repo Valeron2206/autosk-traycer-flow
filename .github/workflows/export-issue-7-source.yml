@@ -1,0 +1,42 @@
+name: Export issue 7 source snapshot once
+
+on:
+  push:
+    branches:
+      - tooling/issue-7-source-export
+    paths:
+      - .github/workflows/export-issue-7-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tooling branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: tooling/issue-7-source-export
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build exact source archive
+        run: |
+          set -euo pipefail
+          target="${RUNNER_TEMP}/autosk-traycer-flow-1488869c.tar.gz"
+          git archive --format=tar.gz --prefix=autosk-traycer-flow/ \
+            --output="$target" \
+            1488869c09a74babd1d1673999d2dfb19e404753
+          sha256sum "$target" | tee "${target}.sha256"
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: issue-7-source-1488869c
+          path: |
+            ${{ runner.temp }}/autosk-traycer-flow-1488869c.tar.gz
+            ${{ runner.temp }}/autosk-traycer-flow-1488869c.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
