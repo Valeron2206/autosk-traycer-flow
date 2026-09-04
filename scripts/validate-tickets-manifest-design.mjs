@@ -561,9 +561,16 @@ function oneLine(value) {
   return String(value).replace(/\s+/gu, " ").trim();
 }
 
+function markdownInlineText(value) {
+  return oneLine(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 function markdownStandaloneText(value) {
-  const text = oneLine(value);
-  if (/^[#>+\-*_`~=<]/u.test(text) || /^\d{1,9}[.)](?:\s|$)/u.test(text)) {
+  const text = markdownInlineText(value);
+  if (/^[#>+\-*_`~=<]/u.test(text) || /^\d{1,9}[.)](?:\s|$)/u.test(text) || /^\[(?:\^)?[^\]]+\]:/u.test(text)) {
     const [first, ...rest] = Array.from(text);
     return `&#${first.codePointAt(0)};${rest.join("")}`;
   }
@@ -571,7 +578,7 @@ function markdownStandaloneText(value) {
 }
 
 function markdownTableCell(value) {
-  return oneLine(value).replaceAll("|", "&#124;");
+  return markdownInlineText(value).replaceAll("|", "&#124;");
 }
 
 function ticketEntryPayload(ticket) {
@@ -618,7 +625,7 @@ export function renderTicketDocuments(manifest) {
     documents.set(ticket.document_path, [
       RENDERER_HEADER,
       "",
-      `# ${ticket.id} — ${oneLine(ticket.title)}`,
+      `# ${ticket.id} — ${markdownInlineText(ticket.title)}`,
       "",
       `**Work type:** ${ticket.work_type}`,
       "",
@@ -630,7 +637,7 @@ export function renderTicketDocuments(manifest) {
       "",
       "## Acceptance criteria",
       "",
-      ...ticket.acceptance_criteria.map((criterion) => `- **${criterion.id}:** ${oneLine(criterion.text)}`),
+      ...ticket.acceptance_criteria.map((criterion) => `- **${criterion.id}:** ${markdownInlineText(criterion.text)}`),
       "",
       "## Canonical manifest entry",
       "",
@@ -1105,7 +1112,14 @@ export function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifes
       : ABSOLUTE_MAX_MANIFEST_BYTES;
     const type = gitBytes(repositoryRoot, ["cat-file", "-t", treeOid], 1024).toString("utf8").trim();
     if (type !== "tree") return empty([error("tickets_path_invalid", "/candidate_tree_oid", "candidate Git identity is not a tree")]);
-    const manifestOid = gitBytes(repositoryRoot, ["rev-parse", `${treeOid}:${manifestRelativePath}`], 1024).toString("utf8").trim();
+    const resolvedTreeOid = gitBytes(repositoryRoot, ["rev-parse", "--verify", `${treeOid}^{tree}`], 1024).toString("utf8").trim();
+    if (resolvedTreeOid !== treeOid) {
+      return empty([error("tickets_path_invalid", "/candidate_tree_oid", "candidate tree OID must be the full canonical Git object identity", {
+        actual: treeOid,
+        canonical: resolvedTreeOid,
+      })]);
+    }
+    const manifestOid = gitBytes(repositoryRoot, ["rev-parse", `${resolvedTreeOid}:${manifestRelativePath}`], 1024).toString("utf8").trim();
     const manifestObject = gitObjectBytes(repositoryRoot, manifestOid, requestedManifestLimit);
     if (manifestObject.bytes === null) {
       return empty([error("tickets_manifest_limits_exceeded", "/manifest_path", "max_manifest_bytes exceeded before Git object read", {
@@ -1116,6 +1130,20 @@ export function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifes
     }
     const parsed = parseTicketsManifest(manifestObject.bytes, { maxManifestBytes: requestedManifestLimit });
     if (!parsed.manifest || parsed.errors.length > 0) return { ...empty(parsed.errors), raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    const repositoryObjectFormat = gitBytes(repositoryRoot, ["rev-parse", "--show-object-format"], 1024).toString("utf8").trim();
+    if (parsed.manifest.object_format !== repositoryObjectFormat) {
+      return { ...empty([error("tickets_governing_ref_invalid", "/object_format", "manifest object_format does not match the candidate Git repository", {
+        actual: parsed.manifest.object_format,
+        expected: repositoryObjectFormat,
+      })]), manifest: parsed.manifest, raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    }
+    const expectedOidLength = parsed.manifest.object_format === "sha256" ? 64 : 40;
+    if (treeOid.length !== expectedOidLength) {
+      return { ...empty([error("tickets_governing_ref_invalid", "/candidate_tree_oid", "candidate tree OID length does not match manifest object_format", {
+        actual_length: treeOid.length,
+        expected_length: expectedOidLength,
+      })]), manifest: parsed.manifest, raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    }
     const expectedManifestPath = `docs/autosk/epics/${parsed.manifest.epic_id}/tickets/tickets.manifest.json`;
     if (manifestRelativePath !== expectedManifestPath) {
       return { ...empty([error("tickets_rendered_path_mismatch", "/manifest_path", "manifest path does not match its exact Epic identity", {
@@ -1129,7 +1157,7 @@ export function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifes
     }
 
     const directoryPath = path.posix.dirname(manifestRelativePath);
-    const listing = gitBytes(repositoryRoot, ["ls-tree", "-z", `${treeOid}:${directoryPath}`], ABSOLUTE_MAX_MANIFEST_BYTES);
+    const listing = gitBytes(repositoryRoot, ["ls-tree", "-z", `${resolvedTreeOid}:${directoryPath}`], ABSOLUTE_MAX_MANIFEST_BYTES);
     const records = listing.subarray(0, Math.max(0, listing.length - 1)).toString("utf8").split("\0").filter(Boolean);
     if (records.length > ABSOLUTE_MAX_RENDERED_DOCUMENT_ENTRIES) {
       return { ...empty([error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_rendered_document_entries exceeded", {
@@ -1870,6 +1898,7 @@ export function parseTicketsManifest(input, options = {}) {
   }
   if (parsedRoot && (!manifest || typeof manifest !== "object" || Array.isArray(manifest))) {
     errors.push(error("tickets_manifest_schema_invalid", "", "manifest root must be an object"));
+    manifest = null;
   } else if (manifest !== null) {
     errors.push(...jsonShapeLimitErrors(manifest, options.maxJsonDepth ?? ABSOLUTE_MAX_JSON_DEPTH));
   }
@@ -1910,18 +1939,21 @@ export function validateTicketsManifestDesign(files) {
   if (fixtureManifestText !== exampleText) errors.push("example candidate manifest must be byte-identical to the canonical manifest example");
   const parsed = parseTicketsManifest(fixtureManifestText);
   errors.push(...parsed.errors.map((entry) => `manifest example: ${entry.code}: ${entry.message}`));
-  if (parsed.manifest) {
+  if (parsed.manifest && parsed.errors.length === 0) {
     const documents = candidateDocumentsFromContractFiles(files);
-    errors.push(...validateTicketsManifest(
+    const manifestErrors = validateTicketsManifest(
       parsed.manifest,
       schema,
       fixtureManifestText,
       { candidateDocuments: documents },
-    ).map((entry) => `manifest example ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
-    if (documents.size !== parsed.manifest.tickets.length + 1) errors.push("candidate fixture does not contain one overview plus one document per Ticket");
-    const digests = ticketManifestDigests(parsed.manifest);
-    for (const value of [digests.manifest_digest, digests.dag_digest, digests.rendered_document_set_digest, digests.ticket_set_digest]) {
-      if (!/^[0-9a-f]{64}$/u.test(value)) errors.push("ticket digest is not SHA-256");
+    );
+    errors.push(...manifestErrors.map((entry) => `manifest example ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
+    if (manifestErrors.length === 0) {
+      if (documents.size !== parsed.manifest.tickets.length + 1) errors.push("candidate fixture does not contain one overview plus one document per Ticket");
+      const digests = ticketManifestDigests(parsed.manifest);
+      for (const value of [digests.manifest_digest, digests.dag_digest, digests.rendered_document_set_digest, digests.ticket_set_digest]) {
+        if (!/^[0-9a-f]{64}$/u.test(value)) errors.push("ticket digest is not SHA-256");
+      }
     }
   }
   const tech = files["03-technical-plan.md"] ?? "";

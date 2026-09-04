@@ -145,6 +145,15 @@ test("strict parser rejects every non-object JSON root with a typed error", () =
   }
 });
 
+test("design validation returns errors instead of crashing on a truthy non-object fixture root", () => {
+  for (const invalidRoot of ["[]\n", '"text"\n', "{}\n"]) {
+    const files = loadTicketsManifestFiles();
+    files[`resources/tickets-manifest/example-candidate/${EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH}`] = invalidRoot;
+    assert.doesNotThrow(() => validateTicketsManifestDesign(files), invalidRoot.trim());
+    assert.ok(validateTicketsManifestDesign(files).some((entry) => entry.includes("tickets_manifest_schema_invalid")), invalidRoot.trim());
+  }
+});
+
 test("duplicate JSON keys expose the smallest available RFC 6901 pointer", () => {
   const text = '{"outer":{"a/b ~ key":1,"a/b ~ key":2}}\n';
   const parsed = parseTicketsManifest(text);
@@ -1004,7 +1013,7 @@ test("renderer prevents heading and table-cell structure injection", () => {
 });
 
 test("renderer neutralizes leading Markdown block markers in standalone prose", () => {
-  const cases = ["# forged heading", "> forged quote", "```json", "~~~json", "- forged item", "+ forged item", "* forged item", "1. forged item", "---", "===", "<details>"];
+  const cases = ["# forged heading", "> forged quote", "```json", "~~~json", "- forged item", "+ forged item", "* forged item", "1. forged item", "---", "===", "<details>", "[ref]: https://example.invalid", "[^note]: forged footnote"];
   for (const injected of cases) {
     const manifest = fixture();
     manifest.goal = injected;
@@ -1016,6 +1025,24 @@ test("renderer neutralizes leading Markdown block markers in standalone prose", 
     assert.doesNotMatch(overview, new RegExp(`^${injected.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "mu"), injected);
     assert.doesNotMatch(ticket, new RegExp(`^${injected.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "mu"), injected);
   }
+});
+
+test("renderer escapes raw HTML in every human-authored Markdown context", () => {
+  const injected = 'safe <img src=x onerror="alert(1)"> & text';
+  const manifest = fixture();
+  manifest.goal = injected;
+  manifest.exclusions = [injected];
+  manifest.tickets[0].title = injected;
+  manifest.tickets[0].goal = injected;
+  manifest.tickets[0].acceptance_criteria[0].text = injected;
+  const documents = renderTicketDocuments(manifest);
+  const overview = documents.get(`docs/autosk/epics/${manifest.epic_id}/tickets/README.md`);
+  const ticket = documents.get(manifest.tickets[0].document_path);
+  const humanTicket = ticket.split("## Canonical manifest entry")[0];
+  assert.doesNotMatch(overview, /<img\b/iu);
+  assert.doesNotMatch(humanTicket, /<img\b/iu);
+  assert.match(overview, /&lt;img src=x onerror="alert\(1\)"&gt; &amp; text/u);
+  assert.match(humanTicket, /&lt;img src=x onerror="alert\(1\)"&gt; &amp; text/u);
 });
 
 test("candidate-tree stops after strict parser errors", () => {
@@ -1095,6 +1122,42 @@ test("authoritative candidate validation reads immutable Git tree bytes", () => 
     const repeated = validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
     assert.deepEqual(repeated.errors, []);
     assert.equal(repeated.digests.manifest_digest, result.digests.manifest_digest);
+
+    const mismatchedFormat = fixture();
+    mismatchedFormat.object_format = "sha256";
+    for (const governing of mismatchedFormat.governing_artifacts) governing.published_commit_oid = governing.published_commit_oid.repeat(2).slice(0, 64);
+    const manifestPath = path.join(repositoryRoot, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
+    writeFileSync(manifestPath, canonicalStringify(mismatchedFormat));
+    for (const [relativePath, content] of renderTicketDocuments(mismatchedFormat)) {
+      writeFileSync(path.join(repositoryRoot, ...relativePath.split("/")), content);
+    }
+    runGit(repositoryRoot, ["add", "."]);
+    runGit(repositoryRoot, ["-c", "user.name=autosk-test", "-c", "user.email=autosk-test@example.invalid", "commit", "--quiet", "-m", "mismatched-format"]);
+    const mismatchedTreeOid = runGit(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+    const mismatchedResult = validateTicketsCandidateGitTree(repositoryRoot, mismatchedTreeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(mismatchedResult.errors.some((entry) => entry.code === "tickets_governing_ref_invalid" && entry.json_pointer === "/object_format"));
+    assert.equal(mismatchedResult.digests, null);
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("authoritative Git-tree validation rejects abbreviated OIDs and repository format mismatch", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-sha256-tree-"));
+  const repositoryRoot = path.join(temporaryParent, "repository");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, repositoryRoot, { recursive: true });
+    runGit(repositoryRoot, ["init", "--quiet", "--object-format=sha256"]);
+    runGit(repositoryRoot, ["add", "."]);
+    runGit(repositoryRoot, ["-c", "user.name=autosk-test", "-c", "user.email=autosk-test@example.invalid", "commit", "--quiet", "-m", "sha256-candidate"]);
+    const fullTreeOid = runGit(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+    assert.equal(fullTreeOid.length, 64);
+
+    const abbreviated = validateTicketsCandidateGitTree(repositoryRoot, fullTreeOid.slice(0, 40), EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(abbreviated.errors.some((entry) => entry.code === "tickets_path_invalid" && entry.json_pointer === "/candidate_tree_oid"));
+
+    const formatMismatch = validateTicketsCandidateGitTree(repositoryRoot, fullTreeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(formatMismatch.errors.some((entry) => entry.code === "tickets_governing_ref_invalid" && entry.json_pointer === "/object_format"));
   } finally {
     rmSync(temporaryParent, { force: true, recursive: true });
   }
