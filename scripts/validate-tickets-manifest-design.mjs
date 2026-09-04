@@ -13,6 +13,13 @@ export const GIT_EXECUTABLE = process.platform === "win32" ? "C:\\Program Files\
 export const MANIFEST_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.schema.json");
 export const MANIFEST_EXAMPLE_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.example.json");
 export const RECEIPT_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-validation-receipt.schema.json");
+export const RENDERER_DISTRIBUTION_FILES = Object.freeze([
+  "scripts/validate-tickets-manifest-design.mjs",
+]);
+export const VALIDATOR_DISTRIBUTION_FILES = Object.freeze([
+  "scripts/validate-planning-ref-design.mjs",
+  "scripts/validate-tickets-manifest-design.mjs",
+]);
 export const ABSOLUTE_MAX_MANIFEST_BYTES = 16_777_216;
 export const ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES = 67_108_864;
 export const ABSOLUTE_MAX_TOTAL_RENDERED_DOCUMENT_BYTES = 134_217_728;
@@ -103,10 +110,14 @@ const REQUIRED_MARKERS = Object.freeze({
     "`validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID",
     "tickets_scope_overlap_unordered",
     "dispatch_ticket_dag",
+    "Issue #5",
     "Issue #7",
     "Issue #8",
     "Issue #9",
     "Issue #18",
+    "Issue #23",
+    "issue #24",
+    "issue #25",
   ],
   "package.json": ["validate:tickets-manifest"],
   ".github/workflows/validate-traycer-parity.yml": ["npm run validate:tickets-manifest"],
@@ -871,21 +882,32 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
   let descriptor = null;
   try {
     const chainBefore = pathChainIdentity(candidateRoot, relativePath, false);
+    const leafBefore = lstatSync(resolved.absolutePath);
+    if (leafBefore.isSymbolicLink() || !leafBefore.isFile()) {
+      errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
+      return null;
+    }
     descriptor = openSync(resolved.absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     const metadata = fstatSync(descriptor);
-    if (!metadata.isFile()) {
+    if (!metadata.isFile() || metadata.dev !== leafBefore.dev || metadata.ino !== leafBefore.ino
+        || metadata.mode !== leafBefore.mode || metadata.size !== leafBefore.size || metadata.mtimeMs !== leafBefore.mtimeMs) {
       errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
       return null;
     }
     const limits = [
-      { limit: maxBytes, name: limitName ?? "file byte limit" },
-      additionalLimit ? { limit: additionalLimit.maxBytes, name: additionalLimit.limitName } : null,
-    ].filter((item) => Number.isInteger(item?.limit));
+      { consumedBytes: 0, readLimit: maxBytes, reportLimit: maxBytes, name: limitName ?? "file byte limit" },
+      additionalLimit ? {
+        consumedBytes: additionalLimit.consumedBytes,
+        readLimit: additionalLimit.maxBytes,
+        reportLimit: additionalLimit.reportLimit,
+        name: additionalLimit.limitName,
+      } : null,
+    ].filter((item) => Number.isInteger(item?.readLimit) && Number.isInteger(item?.reportLimit) && Number.isInteger(item?.consumedBytes));
     for (const item of limits) {
-      if (metadata.size > item.limit) {
+      if (metadata.size > item.readLimit) {
         errors.push(error("tickets_manifest_limits_exceeded", pointer, `${item.name} exceeded before read`, {
-          actual: metadata.size,
-          limit: item.limit,
+          actual: item.consumedBytes + metadata.size,
+          limit: item.reportLimit,
           limit_name: item.name,
           path: relativePath,
         }));
@@ -893,7 +915,7 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
       }
     }
     const effectiveMaxBytes = limits.length > 0
-      ? Math.min(...limits.map((item) => item.limit))
+      ? Math.min(...limits.map((item) => item.readLimit))
       : ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES;
     const bytes = readDescriptorBounded(descriptor, effectiveMaxBytes);
     const metadataAfter = fstatSync(descriptor);
@@ -904,10 +926,11 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
       return null;
     }
     if (bytes.byteLength > effectiveMaxBytes) {
-      const item = limits.find((candidate) => candidate.limit === effectiveMaxBytes) ?? { limit: effectiveMaxBytes, name: "file byte limit" };
+      const item = limits.find((candidate) => candidate.readLimit === effectiveMaxBytes)
+        ?? { consumedBytes: 0, reportLimit: effectiveMaxBytes, name: "file byte limit" };
       errors.push(error("tickets_manifest_limits_exceeded", pointer, `${item.name} exceeded during read`, {
-        actual: bytes.byteLength,
-        limit: effectiveMaxBytes,
+        actual: item.consumedBytes + bytes.byteLength,
+        limit: item.reportLimit,
         limit_name: item.name,
         path: relativePath,
       }));
@@ -997,7 +1020,13 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
     const relativePath = `${directoryPath}/${entry.name}`;
     const pointer = `/rendered_documents/${index}`;
     if (entry.name === "tickets.manifest.json") continue;
-    if (entry.isSymbolicLink() || !entry.isFile()) {
+    if (entry.isSymbolicLink()) {
+      errors.push(error("tickets_path_invalid", pointer, "candidate Tickets inventory contains a symlinked entry", {
+        path: relativePath,
+      }));
+      continue;
+    }
+    if (!entry.isFile()) {
       errors.push(error("tickets_rendered_path_extra", pointer, "candidate Tickets inventory contains a non-regular or nested entry", {
         path: relativePath,
       }));
@@ -1011,8 +1040,10 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
       documentLimits.maxPerDocumentBytes,
       "max_rendered_document_bytes",
       {
+        consumedBytes: totalBytes,
         limitName: "max_total_rendered_document_bytes",
         maxBytes: Math.max(0, documentLimits.maxTotalBytes - totalBytes),
+        reportLimit: documentLimits.maxTotalBytes,
       },
     );
     if (bytes !== null) {
@@ -1119,18 +1150,7 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
 function gitBytes(repositoryRoot, args, maxBuffer) {
   const result = spawnSync(GIT_EXECUTABLE, ["-C", path.resolve(repositoryRoot), ...args], {
     encoding: null,
-    env: {
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_NO_REPLACE_OBJECTS: "1",
-      GIT_TERMINAL_PROMPT: "0",
-      LANG: "C",
-      LC_ALL: "C",
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      TMPDIR: process.env.TMPDIR ?? "/tmp",
-      TZ: "UTC",
-    },
+    env: ticketsGitEnvironment(),
     maxBuffer,
   });
   if (result.error || result.status !== 0) {
@@ -1138,6 +1158,21 @@ function gitBytes(repositoryRoot, args, maxBuffer) {
     throw new Error(detail || `git ${args[0]} failed`);
   }
   return Buffer.from(result.stdout);
+}
+
+export function ticketsGitEnvironment() {
+  return {
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    LANG: "C",
+    LC_ALL: "C",
+    PATH: process.platform === "win32" ? "C:\\Windows\\System32;C:\\Windows" : "/usr/bin:/bin",
+    TMPDIR: process.platform === "win32" ? "C:\\Windows\\Temp" : "/tmp",
+    TZ: "UTC",
+  };
 }
 
 function gitObjectBytes(repositoryRoot, objectOid, maxBytes) {
@@ -1330,6 +1365,43 @@ export function ticketManifestDigests(manifest) {
 
 export function ticketLimitsDigest(limits) {
   return domainDigest("autosk-flow/ticket-limits/v1", canonicalStringify(limits));
+}
+
+export function ticketDistributionDigest(domain, files) {
+  if (typeof domain !== "string" || domain.length === 0 || !Array.isArray(files)) {
+    throw new TypeError("distribution digest requires a domain and file array");
+  }
+  const seen = new Set();
+  const entries = files.map((entry) => {
+    if (!entry || typeof entry !== "object" || !validRelativePath(entry.path)) {
+      throw new TypeError("distribution file path is invalid");
+    }
+    if (seen.has(entry.path)) throw new TypeError(`duplicate distribution file path ${entry.path}`);
+    seen.add(entry.path);
+    if (!(typeof entry.bytes === "string" || Buffer.isBuffer(entry.bytes) || entry.bytes instanceof Uint8Array)) {
+      throw new TypeError(`distribution file bytes are invalid for ${entry.path}`);
+    }
+    return { path: entry.path, blob_sha256: sha256Bytes(entry.bytes) };
+  }).sort((left, right) => compareCodePoints(left.path, right.path));
+  const preimage = entries.map((entry) => `${entry.path}\0${entry.blob_sha256}\0`).join("");
+  return domainDigest(domain, preimage);
+}
+
+export function ticketToolDistributionDigests(root = ROOT) {
+  const entries = (relativePaths) => relativePaths.map((relative) => ({
+    path: relative,
+    bytes: readFileSync(path.join(root, relative)),
+  }));
+  return {
+    renderer_distribution_digest: ticketDistributionDigest(
+      "autosk-flow/ticket-renderer-distribution/v1",
+      entries(RENDERER_DISTRIBUTION_FILES),
+    ),
+    validator_distribution_digest: ticketDistributionDigest(
+      "autosk-flow/ticket-validator-distribution/v1",
+      entries(VALIDATOR_DISTRIBUTION_FILES),
+    ),
+  };
 }
 
 

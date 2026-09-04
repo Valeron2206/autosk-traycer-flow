@@ -27,9 +27,12 @@ import {
   selectorsOverlap,
   stableTopologicalOrder,
   ticketEntryDigest,
+  ticketDistributionDigest,
   ticketLimitsDigest,
   ticketManifestDigests,
+  ticketToolDistributionDigests,
   ticketsManifestDesignDigest,
+  ticketsGitEnvironment,
   validRelativePath,
   validateTicketsCandidateTree as validateTicketsCandidateTreeRaw,
   validateTicketsCandidateGitTree as validateTicketsCandidateGitTreeRaw,
@@ -559,6 +562,32 @@ test("canonical example digests are pinned vectors", () => {
   assert.equal(ticketLimitsDigest(example.policy.limits), "f04813ceb45982c8f9fe3d89e4cca1f137183a8a3fd78fc5bd6c2ee4cdcc72b7");
 });
 
+test("tool distribution digest recipes are pinned and byte/path/domain sensitive", () => {
+  const files = [
+    { path: "scripts/a.mjs", bytes: Buffer.from("alpha\n") },
+    { path: "scripts/b.mjs", bytes: Buffer.from("beta\n") },
+  ];
+  const baseline = ticketDistributionDigest("autosk-flow/ticket-renderer-distribution/v1", files);
+  assert.equal(baseline, "c3550938e8b680400e61b9e10ee59de200e6cc5ae6d05f8637c2bff73de1b73b");
+  assert.equal(
+    ticketDistributionDigest("autosk-flow/ticket-validator-distribution/v1", files),
+    "354f4a47981ce143b098e92e02b9ade2940bbfe3c846858932372123d5ff18a2",
+  );
+  assert.notEqual(ticketDistributionDigest("autosk-flow/ticket-renderer-distribution/v1", [
+    { path: "scripts/a.mjs", bytes: Buffer.from("changed\n") },
+    files[1],
+  ]), baseline);
+  assert.notEqual(ticketDistributionDigest("autosk-flow/ticket-renderer-distribution/v1", [
+    { path: "scripts/renamed.mjs", bytes: files[0].bytes },
+    files[1],
+  ]), baseline);
+  assert.equal(ticketDistributionDigest("autosk-flow/ticket-renderer-distribution/v1", [...files].reverse()), baseline);
+  assert.deepEqual(ticketToolDistributionDigests(ROOT), {
+    renderer_distribution_digest: "2079818d6c4e94696479975cada499cbef285359015544ad2e551d5fcd82d3ad",
+    validator_distribution_digest: "2b9ddf9be5321531719139adcde9d331eea7bd0dbec82d58947c34612bb2fdff",
+  });
+});
+
 test("validation errors have stable pointers and canonical ordering", () => {
   const manifest = fixture();
   manifest.tickets[0].depends_on = ["T99"];
@@ -571,22 +600,20 @@ test("validation errors have stable pointers and canonical ordering", () => {
 
 test("validation receipt schema binds exact candidate and tool identities", () => {
   const digests = ticketManifestDigests(example);
-  const receipt = {
+  const toolDigests = ticketToolDistributionDigests(ROOT);
+  const expectedBindings = {
     alignment_identity: "1".repeat(64),
     anchor_version: 1,
     candidate_tree_oid: "e".repeat(40),
     canonicalizer_version: "autosk-flow/canonical-json/v1",
     dag_digest: digests.dag_digest,
     epic_id: example.epic_id,
-    errors: [],
     governance_mapping_set_digest: "2".repeat(64),
     limits_digest: ticketLimitsDigest(example.policy.limits),
     manifest_bytes_sha256: digests.manifest_bytes_sha256,
     manifest_digest: digests.manifest_digest,
     manifest_path: `docs/autosk/epics/${example.epic_id}/tickets/tickets.manifest.json`,
     object_format: "sha1",
-    operation_id: "22222222-2222-4222-8222-222222222222",
-    outcome: "valid",
     planning_parent_commit_oid: "c".repeat(40),
     planning_parent_tree_oid: "d".repeat(40),
     project_instruction_digest: "3".repeat(64),
@@ -595,19 +622,25 @@ test("validation receipt schema binds exact candidate and tool identities", () =
     record_kind: "final_validation_receipt",
     rendered_document_set_digest: digests.rendered_document_set_digest,
     rendered_documents: digests.rendered_documents,
-    renderer_distribution_digest: "6".repeat(64),
+    renderer_distribution_digest: toolDigests.renderer_distribution_digest,
     renderer_version: "autosk-flow/ticket-markdown/v1",
     runtime_lock_digest: "7".repeat(64),
     schema_id: "https://autosk-flow.invalid/schemas/tickets-manifest.v1.json",
     schema_sha256: sha256(readFileSync(MANIFEST_SCHEMA_PATH)),
-    schema_version: 1,
     ticket_entry_digests: digests.ticket_entry_digests,
     ticket_set_digest: digests.ticket_set_digest,
+    validator_distribution_digest: toolDigests.validator_distribution_digest,
+  };
+  const receipt = {
+    ...structuredClone(expectedBindings),
+    errors: [],
+    operation_id: "22222222-2222-4222-8222-222222222222",
+    outcome: "valid",
+    schema_version: 1,
     validated_at_utc: "2026-09-03T12:00:00Z",
-    validator_distribution_digest: "8".repeat(64),
   };
   assert.deepEqual(validateJsonSchema(receipt, receiptSchema), []);
-  const expectedBindings = Object.fromEntries(TICKETS_RECEIPT_BINDING_FIELDS.map((field) => [field, structuredClone(receipt[field])]));
+  assert.deepEqual(Object.keys(expectedBindings).sort(), [...TICKETS_RECEIPT_BINDING_FIELDS].sort());
   assert.deepEqual(validateTicketsValidationReceipt(receipt, receiptSchema, expectedBindings), []);
   assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema)
     .some((entry) => entry.code === "tickets_receipt_stale"));
@@ -619,6 +652,14 @@ test("validation receipt schema binds exact candidate and tool identities", () =
   wrongTree.candidate_tree_oid = "a".repeat(40);
   assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongTree)
     .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/candidate_tree_oid"));
+  const wrongRendererDistribution = structuredClone(expectedBindings);
+  wrongRendererDistribution.renderer_distribution_digest = "6".repeat(64);
+  assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongRendererDistribution)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/renderer_distribution_digest"));
+  const wrongValidatorDistribution = structuredClone(expectedBindings);
+  wrongValidatorDistribution.validator_distribution_digest = "8".repeat(64);
+  assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongValidatorDistribution)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/validator_distribution_digest"));
   const incompleteReceipt = structuredClone(receipt);
   incompleteReceipt.rendered_documents.pop();
   assert.ok(validateTicketsValidationReceipt(incompleteReceipt, receiptSchema, expectedBindings)
@@ -771,7 +812,10 @@ test("candidate rendered inventories enforce host entry and aggregate-byte caps"
   const onDiskAggregate = fixture();
   onDiskAggregate.policy.limits.max_total_rendered_document_bytes = 2048;
   const inventory = loadCandidateTicketDocuments(EXAMPLE_CANDIDATE_ROOT, onDiskAggregate);
-  assert.ok(inventory.errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+  const aggregateError = inventory.errors.find((entry) => entry.code === "tickets_manifest_limits_exceeded");
+  assert.ok(aggregateError);
+  assert.equal(aggregateError.evidence.limit, onDiskAggregate.policy.limits.max_total_rendered_document_bytes);
+  assert.ok(aggregateError.evidence.actual > onDiskAggregate.policy.limits.max_total_rendered_document_bytes);
   assert.equal(inventory.documents.has(onDiskAggregate.tickets[0].document_path), false);
 });
 
@@ -1139,6 +1183,23 @@ test("candidate-tree validation rejects a symlinked ancestor inside the candidat
   }
 });
 
+test("candidate-tree validation rejects a symlinked rendered-document leaf as path-invalid", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-leaf-"));
+  const candidateRoot = path.join(temporaryParent, "candidate");
+  const outsideFile = path.join(temporaryParent, "outside.md");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, candidateRoot, { recursive: true });
+    writeFileSync(outsideFile, "outside\n");
+    const documentPath = path.join(candidateRoot, ...example.tickets[0].document_path.split("/"));
+    rmSync(documentPath);
+    symlinkSync(outsideFile, documentPath, "file");
+    const errors = validateTicketsCandidateTree(candidateRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(errors.some((entry) => entry.code === "tickets_path_invalid"));
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
 test("schema-invalid nested shapes fail closed before semantic routines", () => {
   for (const mutate of [
     (manifest) => { manifest.governing_artifacts = {}; },
@@ -1359,6 +1420,31 @@ test("authoritative candidate validation reads immutable Git tree bytes", () => 
     assert.equal(mismatchedResult.digests, null);
   } finally {
     rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("authoritative Git reads use a literal closed child environment", () => {
+  const previousPath = process.env.PATH;
+  const previousTmpdir = process.env.TMPDIR;
+  const previousGitDir = process.env.GIT_DIR;
+  process.env.PATH = "/candidate-controlled-path";
+  process.env.TMPDIR = "/candidate-controlled-tmp";
+  process.env.GIT_DIR = "/candidate-controlled-git-dir";
+  try {
+    const environment = ticketsGitEnvironment();
+    assert.equal(environment.PATH, process.platform === "win32" ? "C:\\Windows\\System32;C:\\Windows" : "/usr/bin:/bin");
+    assert.equal(environment.TMPDIR, process.platform === "win32" ? "C:\\Windows\\Temp" : "/tmp");
+    assert.equal(environment.GIT_DIR, undefined);
+    assert.equal(Object.values(environment).includes("/candidate-controlled-path"), false);
+    assert.equal(Object.values(environment).includes("/candidate-controlled-tmp"), false);
+    assert.equal(Object.values(environment).includes("/candidate-controlled-git-dir"), false);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousTmpdir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmpdir;
+    if (previousGitDir === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = previousGitDir;
   }
 });
 

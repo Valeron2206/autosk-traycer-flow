@@ -81,7 +81,7 @@ ticket_set_digest = SHA-256("autosk-flow/ticket-set/v1\0" || manifest_digest || 
 limits_digest = SHA-256("autosk-flow/ticket-limits/v1\0" || canonical_json(policy.limits))
 ```
 
-`schema_sha256` hashes the exact distributed Schema bytes. `renderer_distribution_digest` and `validator_distribution_digest` hash, respectively, `"autosk-flow/ticket-renderer-distribution/v1\0"` or `"autosk-flow/ticket-validator-distribution/v1\0"` followed by the canonical code-point-ordered sequence `path || "\0" || blob_sha256 || "\0"` for every shipped implementation file. Changing a domain literal, path set, file byte or separator creates a new distribution identity. Section 16 pins golden vectors for these recipes.
+`schema_sha256` hashes the exact distributed Schema bytes. `renderer_distribution_digest` and `validator_distribution_digest` hash, respectively, `"autosk-flow/ticket-renderer-distribution/v1\0"` or `"autosk-flow/ticket-validator-distribution/v1\0"` followed by the canonical code-point-ordered sequence `path || "\0" || blob_sha256 || "\0"` for every shipped implementation file. The v1 renderer inventory is exactly `scripts/validate-tickets-manifest-design.mjs`; the v1 validator inventory is exactly `scripts/validate-planning-ref-design.mjs` plus `scripts/validate-tickets-manifest-design.mjs`. `ticketToolDistributionDigests` reads those exact bytes and supplies both values to the host-owned expected receipt bindings. Changing a domain literal, path set, file byte or separator creates a new distribution identity. Section 16 pins golden vectors and negative path/byte/domain tests for these recipes.
 
 The full Tickets identity also binds project/Epic, anchor, planning parent commit/tree, candidate tree, alignment subject, protocol/runtime/project-instruction identities, governance mapping set and schema/validator/renderer distribution identities. These digests live in a host-owned `TicketsValidationReceipt`, not self-referentially inside the manifest.
 
@@ -181,7 +181,7 @@ Before Panel, trusted host code performs in order:
 
 Failure creates no Panel child, PASS, task or blocker.
 
-The receipt is host/evidence-owned and is not stored inside the tree it identifies. All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte produces a new receipt and candidate.
+The receipt is host/evidence-owned and is not stored inside the tree it identifies. All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte must re-enter `present_tickets_breakdown -> record_alignment -> validate_tickets_manifest` before freeze can produce a new receipt and candidate.
 
 After PASS/waiver, issue #5 publishes manifest and views in one Tickets commit; it becomes `planning_head` only after publication and candidate-custody verification.
 
@@ -215,6 +215,8 @@ Issue #6 design validators test at minimum:
 - key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes and extra fields;
 - initial revision numbering, prior-ID reservation and revised carry/revise/replace/split/merge/retirement lineage;
 - digest golden vectors;
+- distribution digest golden vector over `scripts/a.mjs="alpha\n"` and `scripts/b.mjs="beta\n"`: renderer domain `c3550938e8b680400e61b9e10ee59de200e6cc5ae6d05f8637c2bff73de1b73b`, validator domain `354f4a47981ce143b098e92e02b9ade2940bbfe3c846858932372123d5ff18a2`;
+- current v1 shipped tool digests: `renderer_distribution_digest=2079818d6c4e94696479975cada499cbef285359015544ad2e551d5fcd82d3ad`, `validator_distribution_digest=2b9ddf9be5321531719139adcde9d331eea7bd0dbec82d58947c34612bb2fdff`;
 - valid-at-limit and limit+1 sets;
 - renderer resistance to heading/table structural injection;
 - upgrade/downgrade/unknown version rejection and cross-project/candidate receipt-binding rejection.
