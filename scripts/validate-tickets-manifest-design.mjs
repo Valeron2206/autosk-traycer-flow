@@ -700,11 +700,23 @@ export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
 
   const expected = renderTicketDocuments(manifest);
   const unmatchedActual = new Set(actual.keys());
+  const actualDigestByPath = new Map();
+  const unmatchedByDigest = new Map();
+  for (const [candidatePath, bytes] of actual.entries()) {
+    const digest = sha256Bytes(bytes);
+    actualDigestByPath.set(candidatePath, digest);
+    if (!unmatchedByDigest.has(digest)) unmatchedByDigest.set(digest, new Set());
+    unmatchedByDigest.get(digest).add(candidatePath);
+  }
+  const consumeActual = (candidatePath) => {
+    unmatchedActual.delete(candidatePath);
+    unmatchedByDigest.get(actualDigestByPath.get(candidatePath))?.delete(candidatePath);
+  };
   for (const [expectedPath, expectedText] of [...expected.entries()].sort(([left], [right]) => compareCodePoints(left, right))) {
     const pointer = `/rendered_documents/${escapePointer(expectedPath)}`;
     const expectedBytes = Buffer.from(expectedText, "utf8");
     if (actual.has(expectedPath)) {
-      unmatchedActual.delete(expectedPath);
+      consumeActual(expectedPath);
       if (!actual.get(expectedPath).equals(expectedBytes)) {
         errors.push(error("tickets_rendered_bytes_mismatch", pointer, "candidate rendered document bytes differ from pinned renderer output", {
           actual_sha256: sha256Bytes(actual.get(expectedPath)),
@@ -715,11 +727,11 @@ export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
       continue;
     }
 
-    const renamed = [...unmatchedActual]
-      .filter((candidatePath) => actual.get(candidatePath)?.equals(expectedBytes))
+    const renamed = [...(unmatchedByDigest.get(sha256Bytes(expectedBytes)) ?? [])]
+      .filter((candidatePath) => actual.get(candidatePath).equals(expectedBytes))
       .sort(compareCodePoints);
     if (renamed.length === 1) {
-      unmatchedActual.delete(renamed[0]);
+      consumeActual(renamed[0]);
       errors.push(error("tickets_rendered_path_renamed", pointer, "renderer output exists under a different path", {
         actual_path: renamed[0],
         expected_path: expectedPath,
@@ -1276,6 +1288,8 @@ function countLimitErrors(manifest) {
   const limits = manifest.policy?.limits ?? {};
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   pushLimitError(errors, "/tickets", "max_tickets", tickets.length, limits.max_tickets);
+  const reservedTicketIds = Array.isArray(manifest.reserved_ticket_ids) ? manifest.reserved_ticket_ids : [];
+  pushLimitError(errors, "/reserved_ticket_ids", "max_reserved_ticket_ids", reservedTicketIds.length, limits.max_reserved_ticket_ids);
   let totalEdges = 0;
   for (const [ticketIndex, ticket] of tickets.entries()) {
     const dependencies = Array.isArray(ticket?.depends_on) ? ticket.depends_on : [];
@@ -1314,6 +1328,11 @@ function canonicalText(value) {
 
 function validateRevisionLineage(manifest, schema, context, errors) {
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
+  const currentTicketIds = tickets.map((ticket) => ticket?.id).filter((id) => typeof id === "string");
+  const reservedTicketIds = Array.isArray(manifest.reserved_ticket_ids) ? manifest.reserved_ticket_ids : [];
+  if (!sortedUnique(reservedTicketIds)) {
+    errors.push(error("tickets_lineage_invalid", "/reserved_ticket_ids", "reserved Ticket IDs must be unique and sorted"));
+  }
   if (manifest.previous_manifest_digest === null) {
     if (manifest.manifest_revision !== 1) {
       errors.push(error("tickets_lineage_invalid", "/manifest_revision", "initial manifest revision must be exactly 1"));
@@ -1325,6 +1344,9 @@ function validateRevisionLineage(manifest, schema, context, errors) {
     }
     if ((manifest.retirements?.length ?? 0) > 0) {
       errors.push(error("tickets_lineage_invalid", "/retirements", "initial manifest cannot retire prior Tickets"));
+    }
+    if (canonicalStringify(reservedTicketIds) !== canonicalStringify(currentTicketIds)) {
+      errors.push(error("tickets_lineage_invalid", "/reserved_ticket_ids", "initial reserved Ticket IDs must equal the current Ticket set"));
     }
     return;
   }
@@ -1382,6 +1404,14 @@ function validateRevisionLineage(manifest, schema, context, errors) {
   }
 
   const previousTickets = Array.isArray(previous.tickets) ? previous.tickets : [];
+  const previousReservedTicketIds = Array.isArray(previous.reserved_ticket_ids) ? previous.reserved_ticket_ids : [];
+  const previousReservedTicketIdSet = new Set(previousReservedTicketIds);
+  const expectedReservedTicketIds = [...new Set([...previousReservedTicketIds, ...currentTicketIds])].sort(compareCodePoints);
+  if (canonicalStringify(reservedTicketIds) !== canonicalStringify(expectedReservedTicketIds)) {
+    errors.push(error("tickets_lineage_invalid", "/reserved_ticket_ids", "reserved Ticket IDs must be the cumulative published history plus current IDs", {
+      expected: expectedReservedTicketIds,
+    }));
+  }
   const previousById = new Map(previousTickets.map((ticket) => [ticket.id, ticket]));
   const currentById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const mappings = new Map(previousTickets.map((ticket) => [ticket.id, []]));
@@ -1396,6 +1426,11 @@ function validateRevisionLineage(manifest, schema, context, errors) {
     const preservesExistingId = ["carry", "revise"].includes(lineage.kind)
       && predecessors.length === 1
       && predecessors[0] === ticket.id;
+    if (previousReservedTicketIdSet.has(ticket.id) && !previousById.has(ticket.id)) {
+      errors.push(error("tickets_lineage_invalid", `${pointer}/kind`, "a Ticket ID reserved by earlier Epic history cannot be reused", {
+        reused_ticket_id: ticket.id,
+      }));
+    }
     if (previousById.has(ticket.id) && !preservesExistingId) {
       errors.push(error("tickets_lineage_invalid", `${pointer}/kind`, "a prior Ticket ID may only continue through carry or revise of that same Ticket", {
         reused_ticket_id: ticket.id,

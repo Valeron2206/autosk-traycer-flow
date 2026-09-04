@@ -71,7 +71,7 @@ npm run validate:planning-ref
 
 ## Контракт canonical Tickets manifest
 
-Issue #6 фиксирует один `docs/autosk/epics/<epic-id>/tickets/tickets.manifest.json` как operational authority комплекта. Human-readable overview и Ticket Markdown генерируются pinned renderer и обязаны побайтово совпадать с manifest; изменение любой стороны создаёт новую alignment/candidate identity. Validated manifest, DAG, rendered document set и Ticket entries получают domain-separated digests в host-owned `TicketsValidationReceipt`. После отдельной Ticket Panel issue #5 публикует manifest и все views одним descendant commit; только этот verified commit разрешает `dispatch_ticket_dag`.
+Issue #6 фиксирует один `docs/autosk/epics/<epic-id>/tickets/tickets.manifest.json` как operational authority комплекта. Human-readable overview и Ticket Markdown генерируются pinned renderer и обязаны побайтово совпадать с его output из manifest; изменение любой стороны создаёт новую alignment/candidate identity. Validated manifest, DAG, rendered document set и Ticket entries получают domain-separated digests в host-owned `TicketsValidationReceipt`. После отдельной Ticket Panel issue #5 публикует manifest и все views одним descendant commit; только этот verified commit разрешает `dispatch_ticket_dag`.
 
 Проверка:
 

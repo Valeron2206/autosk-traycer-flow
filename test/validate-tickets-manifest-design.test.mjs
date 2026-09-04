@@ -86,6 +86,10 @@ function makeRevision(previous, tickets, retirements = []) {
   manifest.manifest_revision = previous.manifest_revision + 1;
   manifest.previous_manifest_digest = ticketManifestDigests(previous).manifest_digest;
   manifest.tickets = tickets;
+  manifest.reserved_ticket_ids = [...new Set([
+    ...previous.reserved_ticket_ids,
+    ...tickets.map((ticket) => ticket.id),
+  ])].sort();
   manifest.topological_order = stableTopologicalOrder(tickets).ordered;
   manifest.retirements = retirements;
   return manifest;
@@ -95,6 +99,7 @@ function oneTicketPrevious() {
   const previous = fixture();
   previous.tickets = [previous.tickets[0]];
   previous.topological_order = [previous.tickets[0].id];
+  previous.reserved_ticket_ids = [previous.tickets[0].id];
   return previous;
 }
 
@@ -375,13 +380,13 @@ test("domain-separated digests change with manifest, DAG and rendering inputs", 
 
 test("canonical example digests are pinned vectors", () => {
   const digests = ticketManifestDigests(example);
-  assert.equal(digests.manifest_bytes_sha256, "af8057df0b19fdcf0318bbb25a7f168994c709b43c547e31aa4aa9ebeda07fdf");
-  assert.equal(digests.manifest_digest, "1c5177400123378b9c6e0e197ed2d51176ddce6f50a2109570950ace6d8722f9");
+  assert.equal(digests.manifest_bytes_sha256, "996f58b92785d810d90286756483dde7377acd60c7c3ff203c5232a42bd33e12");
+  assert.equal(digests.manifest_digest, "24bf2988f2b45ade665ec0dbef0098e8fa6e590905cee160e7ab9937f9b38e0f");
   assert.equal(digests.ticket_entry_digests[0].digest, "f8fc6c0202589cb99e44555a8c92923734231f0c350be12a5c8fc9020c084a3d");
   assert.equal(digests.ticket_entry_digests[1].digest, "588182b97f7f1ab62e55d97107c64c7cbb5291ecb3e2d44bf7854fe7234e91c6");
   assert.equal(digests.dag_digest, "8650fb0f6e13f53845b73fdf0f60c021536247efa0cb5a9fde7842c73f41c72f");
   assert.equal(digests.rendered_document_set_digest, "46332c943897f9c5c370a8d5894744fadc27f418b86b4d505f1ba8d4ff4d4c31");
-  assert.equal(digests.ticket_set_digest, "e9d4a9c8426724930d7868e1c3c56263f53f2ec61b4608ef99160c2562e7a527");
+  assert.equal(digests.ticket_set_digest, "9c954edb8d76ba9a4e3033c0ca52de71c5331215e9877d09b5d726413568e185");
 });
 
 test("validation errors have stable pointers and canonical ordering", () => {
@@ -566,6 +571,13 @@ test("every declared resource limit accepts the boundary and rejects one over", 
   const overlapOver = structuredClone(overlapAt);
   overlapOver.policy.limits.max_scope_overlap_pairs = 0;
   hasLimitError(overlapOver);
+
+  const reservedAt = fixture();
+  reservedAt.policy.limits.max_reserved_ticket_ids = reservedAt.reserved_ticket_ids.length;
+  noLimitError(reservedAt);
+  const reservedOver = structuredClone(reservedAt);
+  reservedOver.policy.limits.max_reserved_ticket_ids -= 1;
+  hasLimitError(reservedOver);
 });
 
 test("candidate rendered inventories enforce host entry and aggregate-byte caps", () => {
@@ -613,6 +625,20 @@ test("candidate Markdown inventory rejects missing, extra, renamed and byte-drif
   const drifted = new Map(expected);
   drifted.set(firstPath, `${drifted.get(firstPath)}x`);
   assert.ok(compareRenderedTicketDocuments(example, drifted).some((entry) => entry.code === "tickets_rendered_bytes_mismatch"));
+});
+
+test("candidate rename detection scales through one digest index", () => {
+  const manifest = fixture();
+  manifest.tickets = Array.from({ length: 1000 }, (_, index) => {
+    const number = String(index + 1).padStart(4, "0");
+    return ticketWithId(example.tickets[0], `T${number}`, `ticket-${number}`);
+  });
+  manifest.topological_order = manifest.tickets.map((ticket) => ticket.id);
+  manifest.reserved_ticket_ids = [...manifest.topological_order];
+  const renamed = new Map([...renderTicketDocuments(manifest)].map(([documentPath, bytes]) => [`${documentPath}.renamed`, bytes]));
+  const errors = compareRenderedTicketDocuments(manifest, renamed);
+  assert.equal(errors.filter((entry) => entry.code === "tickets_rendered_path_renamed").length, renamed.size);
+  assert.equal(errors.some((entry) => entry.code === "tickets_rendered_path_missing"), false);
 });
 
 test("revised manifest carry requires exact previous bytes, identity and unchanged execution entry", () => {
@@ -832,6 +858,31 @@ test("revision lineage never reuses another prior Ticket ID", () => {
   }]);
   assert.ok(codes(current, canonicalStringify(current), {
     previousManifestContext: previousManifestContext(previous),
+  }).includes("tickets_lineage_invalid"));
+});
+
+test("revision lineage never reuses an ID retired before the previous revision", () => {
+  const first = oneTicketPrevious();
+  const replacement = ticketWithId(first.tickets[0], "T02", "replacement");
+  replacement.lineage = { kind: "replace", predecessor_ids: ["T01"] };
+  const second = makeRevision(first, [replacement], [{
+    decision_ref: "decision:replace-t01",
+    disposition: "superseded",
+    predecessor_id: "T01",
+    rationale: "Replace the original Ticket while retaining its ID reservation.",
+    successor_ids: ["T02"],
+  }]);
+  assert.equal(codes(second, canonicalStringify(second), {
+    previousManifestContext: previousManifestContext(first),
+  }).includes("tickets_lineage_invalid"), false);
+
+  const reused = ticketWithId(second.tickets[0], "T01", "reused");
+  reused.lineage = { kind: "new", predecessor_ids: [] };
+  const carried = structuredClone(second.tickets[0]);
+  carried.lineage = { kind: "carry", predecessor_ids: ["T02"] };
+  const third = makeRevision(second, [reused, carried]);
+  assert.ok(codes(third, canonicalStringify(third), {
+    previousManifestContext: previousManifestContext(second),
   }).includes("tickets_lineage_invalid"));
 });
 
@@ -1097,6 +1148,12 @@ test("design validation guards Tickets pending proof and final receipt lifecycle
     missingResume[file] = missingResume[file].replace("| tickets_manifest_invalid |", "| removed_tickets_manifest_invalid |");
     assert.ok(validateTicketsManifestDesign(missingResume)
       .some((entry) => entry.includes(`${file}: missing resume contract for tickets_manifest_invalid`)));
+    const invalidRow = files[file].split("\n").find((line) => line.startsWith("| tickets_manifest_invalid |"));
+    const staleRow = files[file].split("\n").find((line) => line.startsWith("| tickets_manifest_stale |"));
+    assert.match(invalidRow, /present_tickets_breakdown/u);
+    assert.match(staleRow, /present_tickets_breakdown/u);
+    assert.doesNotMatch(staleRow, /rebound|повторно привязан/u);
+    assert.match(staleRow, /new immutable receipt|новый immutable receipt/u);
   }
 
   const earlyReceipt = structuredClone(files);

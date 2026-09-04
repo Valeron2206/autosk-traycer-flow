@@ -43,6 +43,7 @@
       "max_dependencies_per_ticket": 100,
       "max_manifest_bytes": 1048576,
       "max_rendered_document_bytes": 4194304,
+      "max_reserved_ticket_ids": 100000,
       "max_scope_overlap_pairs": 100000,
       "max_selectors_per_ticket": 100,
       "max_tickets": 1000,
@@ -56,6 +57,10 @@
   },
   "previous_manifest_digest": null,
   "renderer_version": "autosk-flow/ticket-markdown/v1",
+  "reserved_ticket_ids": [
+    "T01",
+    "T02"
+  ],
   "retirements": [],
   "schema_version": 1,
   "tickets": [
