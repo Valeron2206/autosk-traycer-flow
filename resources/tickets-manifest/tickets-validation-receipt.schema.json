@@ -20,6 +20,7 @@
     "manifest_digest",
     "dag_digest",
     "rendered_document_set_digest",
+    "rollback_recovery_target_set_digest",
     "ticket_set_digest",
     "ticket_entry_digests",
     "rendered_documents",
@@ -60,6 +61,7 @@
     "manifest_digest": { "$ref": "#/$defs/sha256" },
     "dag_digest": { "$ref": "#/$defs/sha256" },
     "rendered_document_set_digest": { "$ref": "#/$defs/sha256" },
+    "rollback_recovery_target_set_digest": { "$ref": "#/$defs/sha256" },
     "ticket_set_digest": { "$ref": "#/$defs/sha256" },
     "ticket_entry_digests": {
       "type": "array",

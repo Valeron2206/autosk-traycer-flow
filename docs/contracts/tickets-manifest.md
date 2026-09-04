@@ -77,13 +77,15 @@ manifest_digest = SHA-256("autosk-flow/tickets-manifest/v1\0" || canonical_manif
 ticket_entry_digest = SHA-256("autosk-flow/ticket-entry/v1\0" || canonical_ticket_entry_without_lineage)
 dag_digest = SHA-256("autosk-flow/ticket-dag/v1\0" || canonical_json({adjacency,topological_order}))
 rendered_document_set_digest = SHA-256("autosk-flow/ticket-doc-set/v1\0" || concat(path || "\0" || content_sha256 || "\0") in code-point path order)
+recovery_target_digest = SHA-256("autosk-flow/ticket-recovery-target/v1\0" || canonical_json({ticket_id,recovery_target,rollback_steps}))
+rollback_recovery_target_set_digest = SHA-256("autosk-flow/ticket-recovery-target-set/v1\0" || concat(ticket_id || "\0" || recovery_target_digest || "\0") in code-point Ticket-ID order)
 ticket_set_digest = SHA-256("autosk-flow/ticket-set/v1\0" || manifest_digest || "\0" || dag_digest || "\0" || rendered_document_set_digest)
 limits_digest = SHA-256("autosk-flow/ticket-limits/v1\0" || canonical_json(policy.limits))
 ```
 
 `schema_sha256` hashes the exact distributed Schema bytes. `renderer_distribution_digest` and `validator_distribution_digest` hash, respectively, `"autosk-flow/ticket-renderer-distribution/v1\0"` or `"autosk-flow/ticket-validator-distribution/v1\0"` followed by the canonical code-point-ordered sequence `path || "\0" || blob_sha256 || "\0"` for every shipped implementation file. The v1 renderer inventory is exactly `scripts/validate-tickets-manifest-design.mjs`; the v1 validator inventory is exactly `scripts/validate-planning-ref-design.mjs` plus `scripts/validate-tickets-manifest-design.mjs`. `ticketToolDistributionDigests` reads those exact bytes and supplies both values to the host-owned expected receipt bindings. Changing a domain literal, path set, file byte or separator creates a new distribution identity. Section 16 pins golden vectors and negative path/byte/domain tests for these recipes.
 
-The full Tickets identity also binds project/Epic, anchor, planning parent commit/tree, candidate tree, alignment subject, protocol/runtime/project-instruction identities, governance mapping set and schema/validator/renderer distribution identities. These digests live in a host-owned `TicketsValidationReceipt`, not self-referentially inside the manifest.
+The full Tickets identity also binds project/Epic, anchor, planning parent commit/tree, candidate tree, alignment subject, protocol/runtime/project-instruction identities, governance mapping set, rollback recovery-target set and schema/validator/renderer distribution identities. These digests live in a host-owned `TicketsValidationReceipt`, not self-referentially inside the manifest.
 
 Any bound change stales alignment, Panel verdict, publication and task-creation bindings.
 
@@ -102,7 +104,7 @@ V1 accepts only:
 {"kind":"directory","path":"src/session"}
 ```
 
-Paths are project-relative NFC strings with `/` separators. Empty, absolute, drive/UNC-prefixed, backslash, NUL, dot-segment and repeated-separator paths are invalid. Directory selectors include descendants on segment boundaries. Selectors are sorted and unique. Trusted host code translates selectors to Git argument arrays; models never construct shell pathspecs.
+Paths are project-relative NFC strings with `/` separators. Empty, absolute, drive/UNC-prefixed, backslash, NUL, dot-segment and repeated-separator paths are invalid. Scope selectors additionally reject leading `:` and every `*`, `?` or `[` byte, including Git magic such as `:(exclude)`; v1 selectors are literal files or directory prefixes, never patterns. Directory selectors include descendants on segment boundaries. Selectors are sorted and unique. Trusted host code translates selectors to Git argument arrays and invokes Git with `--literal-pathspecs` plus `--` before selector arguments; models never construct shell pathspecs.
 
 Two Tickets overlap when their selectors can address the same path under the conservative v1 NFC/lowercase collision key, including paths whose bytes differ only by case. In v1, overlapping Tickets must be ordered by a transitive dependency in one direction. Incomparable overlap is `tickets_scope_overlap_unordered`.
 
@@ -139,7 +141,9 @@ A command appearing only in Markdown has no operational effect.
 
 Each Ticket resolves documentation, security, migration, operations and observability impact as `required` with paths/rationale or `none` with rationale. `uncertain` is not Panel-ready.
 
-Review policy requires one reviewer outside the complete author/fixer family set, forbids self-review, binds the exact candidate/evidence and leaves verdict/transitions host-mediated. Risk/rollback records include failure modes, rollback mode/steps, irreversibility and exact approval references where required. They do not authorize target movement.
+Review policy requires one reviewer outside the complete author/fixer family set, forbids self-review, binds the exact candidate/evidence and leaves verdict/transitions host-mediated. Risk/rollback records include failure modes, rollback mode/steps, a closed `recovery_target`, irreversibility and exact approval references where required. Reversible v1 work binds every step to `{schema=autosk-flow/ticket-recovery-target/v1, kind=ticket_execution_base, resolution=issue_7_execution_base_contract, target_state=before_ticket_delta, scope_basis=scope_selectors, resolution_contract_ref}`; the reference must belong to that Ticket and resolve to an immutable `kind=work_contract` governing artifact. Irreversible work instead carries `kind=irreversible_no_restore_target`, `target_state=none` and an approval reference also present in `approval_refs`.
+
+The planning receipt binds `rollback_recovery_target_set_digest`, not a second copy of target records. Before any child, blocker or enrollment side effect, issue #7 must resolve the reversible target to the exact execution-base commit OID, bind that OID and the frozen per-Ticket recovery-target digest in its execution-base receipt, and reject missing, stale or moved targets. The manifest cannot contain a future commit/tree/ref/branch field, so it cannot usurp issue #7 composition or move the target after Panel.
 
 ## 11. Revisions and lineage
 
@@ -181,13 +185,13 @@ Before Panel, trusted host code performs in order:
 
 Failure creates no Panel child, PASS, task or blocker.
 
-The receipt is host/evidence-owned and is not stored inside the tree it identifies. All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte must re-enter `present_tickets_breakdown -> record_alignment -> validate_tickets_manifest` before freeze can produce a new receipt and candidate.
+The receipt is host/evidence-owned and is not stored inside the tree it identifies. It includes the recomputed `rollback_recovery_target_set_digest`. All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte must re-enter `present_tickets_breakdown -> record_alignment -> validate_tickets_manifest` before freeze can produce a new receipt and candidate.
 
 After PASS/waiver, issue #5 publishes manifest and views in one Tickets commit; it becomes `planning_head` only after publication and candidate-custody verification.
 
 ## 14. Dispatcher authority
 
-`dispatch_ticket_dag` reads the manifest by exact path from the verified Tickets publication commit/tree, never from the live worktree. It revalidates schema/renderer, receipt, set/DAG/entry digests and current controlling identities, then creates children and blockers exclusively from canonical entries.
+`dispatch_ticket_dag` reads the manifest by exact path from the verified Tickets publication commit/tree, never from the live worktree. It revalidates schema/renderer, receipt, set/DAG/entry and rollback-recovery-target-set digests and current controlling identities, then requires issue #7's exact execution-base receipt to resolve each `ticket_execution_base` target before it creates children and blockers exclusively from canonical entries.
 
 Creation identity includes project, Epic, manifest digest, Ticket ID, entry digest, DAG digest and planning head. The actual child/edge set is compared with the expected graph before enrollment. Recovery uses daemon receipts and never reparses Markdown.
 
@@ -211,12 +215,14 @@ Issue #6 design validators test at minimum:
 - ordered versus unordered scope overlap, including case-collision aliases;
 - missing/mismatched rationales, AC evidence, governing refs and impacts;
 - irreversible rollback without approval;
+- missing/malformed/moved recovery targets, unresolved target work contracts and stale recovery-target-set receipts;
+- `:(exclude)`, `*`, `?` and `[` selector rejection plus literal Git argument translation;
 - missing/extra/renamed/one-byte-drift rendered docs, symlinked ancestors and pre-read byte limits;
 - key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes and extra fields;
 - initial revision numbering, prior-ID reservation and revised carry/revise/replace/split/merge/retirement lineage;
 - digest golden vectors;
 - distribution digest golden vector over `scripts/a.mjs="alpha\n"` and `scripts/b.mjs="beta\n"`: renderer domain `c3550938e8b680400e61b9e10ee59de200e6cc5ae6d05f8637c2bff73de1b73b`, validator domain `354f4a47981ce143b098e92e02b9ade2940bbfe3c846858932372123d5ff18a2`;
-- current v1 shipped tool digests: `renderer_distribution_digest=2079818d6c4e94696479975cada499cbef285359015544ad2e551d5fcd82d3ad`, `validator_distribution_digest=2b9ddf9be5321531719139adcde9d331eea7bd0dbec82d58947c34612bb2fdff`;
+- current v1 shipped tool digests: `renderer_distribution_digest=a27cc1bae9e05e3d9b2259fd192a220af2693e1861556819d4c774ae2bff9c13`, `validator_distribution_digest=18865a75b5a54af7ea480e60614ad819f7ea4a743e442b315983343843e558d6`;
 - valid-at-limit and limit+1 sets;
 - renderer resistance to heading/table structural injection;
 - upgrade/downgrade/unknown version rejection and cross-project/candidate receipt-binding rejection.

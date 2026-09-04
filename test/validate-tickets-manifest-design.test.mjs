@@ -34,6 +34,7 @@ import {
   ticketsManifestDesignDigest,
   ticketsGitEnvironment,
   validRelativePath,
+  validScopeSelectorPath,
   validateTicketsCandidateTree as validateTicketsCandidateTreeRaw,
   validateTicketsCandidateGitTree as validateTicketsCandidateGitTreeRaw,
   validateTicketsCandidateTreeResult as validateTicketsCandidateTreeResultRaw,
@@ -333,6 +334,16 @@ test("closed relative path dialect rejects traversal and platform syntax", () =>
   assert.equal(validRelativePath("src/session/store.ts"), true);
 });
 
+test("scope selector paths reject Git pathspec magic and wildcard syntax", () => {
+  for (const bad of [":(exclude)src/secrets", "src/*.ts", "src/file?.ts", "src/file[0].ts"]) {
+    assert.equal(validScopeSelectorPath(bad), false, bad);
+    const manifest = fixture();
+    manifest.tickets[0].scope_selectors[0].path = bad;
+    assert.ok(codes(manifest).includes("tickets_manifest_schema_invalid"), bad);
+  }
+  assert.equal(validScopeSelectorPath("src/session/store.ts"), true);
+});
+
 test("scope selector overlap is segment-aware", () => {
   assert.equal(selectorsOverlap({ kind: "directory", path: "src/api" }, { kind: "file", path: "src/api/x.ts" }), true);
   assert.equal(selectorsOverlap({ kind: "directory", path: "src/api" }, { kind: "file", path: "src/apix.ts" }), false);
@@ -485,6 +496,18 @@ test("resource limits fail before an oversized graph can be accepted", () => {
 });
 
 test("impact conditions and irreversible rollback approval are enforced directly", () => {
+  const missingRecoveryTarget = fixture();
+  delete missingRecoveryTarget.tickets[0].risk_and_rollback.recovery_target;
+  assert.ok(codes(missingRecoveryTarget).includes("tickets_manifest_schema_invalid"));
+
+  const movableRecoveryTarget = fixture();
+  movableRecoveryTarget.tickets[0].risk_and_rollback.recovery_target.commit_oid = "a".repeat(40);
+  assert.ok(codes(movableRecoveryTarget).includes("tickets_manifest_schema_invalid"));
+
+  const unresolvedRecoveryTarget = fixture();
+  unresolvedRecoveryTarget.tickets[0].risk_and_rollback.recovery_target.resolution_contract_ref = "verification:current";
+  assert.ok(codes(unresolvedRecoveryTarget).includes("tickets_governing_ref_invalid"));
+
   const missingImpactPaths = fixture();
   missingImpactPaths.tickets[0].impacts.documentation.paths = [];
   assert.ok(codes(missingImpactPaths).includes("tickets_manifest_schema_invalid"));
@@ -548,17 +571,24 @@ test("domain-separated digests change with manifest, DAG and rendering inputs", 
   assert.notEqual(next.ticket_set_digest, baseline.ticket_set_digest);
   assert.match(baseline.dag_digest, /^[0-9a-f]{64}$/u);
   assert.equal(baseline.ticket_entry_digests.length, example.tickets.length);
+
+  const changedRecovery = fixture();
+  changedRecovery.tickets[0].risk_and_rollback.rollback_steps[0] = "Restore a different target.";
+  const changedRecoveryDigests = ticketManifestDigests(changedRecovery);
+  assert.notEqual(changedRecoveryDigests.rollback_recovery_target_set_digest, baseline.rollback_recovery_target_set_digest);
+  assert.notEqual(changedRecoveryDigests.ticket_entry_digests[0].digest, baseline.ticket_entry_digests[0].digest);
 });
 
 test("canonical example digests are pinned vectors", () => {
   const digests = ticketManifestDigests(example);
-  assert.equal(digests.manifest_bytes_sha256, "b856840f3315b497e2788e1715462145ddd9290950ae4d8690f5a1cd2251cb9b");
-  assert.equal(digests.manifest_digest, "749d702080d9773cdfae6ad845aabc8e7a3c083c48f349424a65dd493a47b999");
-  assert.equal(digests.ticket_entry_digests[0].digest, "f8fc6c0202589cb99e44555a8c92923734231f0c350be12a5c8fc9020c084a3d");
-  assert.equal(digests.ticket_entry_digests[1].digest, "588182b97f7f1ab62e55d97107c64c7cbb5291ecb3e2d44bf7854fe7234e91c6");
+  assert.equal(digests.manifest_bytes_sha256, "6353930d8ea5076689cbc30e9b17d0a5be20fa3b0d1f46d071dd0c8649c50689");
+  assert.equal(digests.manifest_digest, "3de2e7d74f17cc1b2395e97c3396662eae10bc4bde5c60987dadece1dde8df22");
+  assert.equal(digests.ticket_entry_digests[0].digest, "5256ab5dbeac3ecd58af8ab0e79dc1fd0c5a1c81e146473f9790e234dd031079");
+  assert.equal(digests.ticket_entry_digests[1].digest, "daf60f358c54cc5a647c48a37d4a5cc0cac3cacceae41201af732a45ff7f4ceb");
   assert.equal(digests.dag_digest, "8650fb0f6e13f53845b73fdf0f60c021536247efa0cb5a9fde7842c73f41c72f");
-  assert.equal(digests.rendered_document_set_digest, "46332c943897f9c5c370a8d5894744fadc27f418b86b4d505f1ba8d4ff4d4c31");
-  assert.equal(digests.ticket_set_digest, "589cbd283ab3b022b15482dc684396c5d74bc82985ce0ce5a9c966f9b3250aa1");
+  assert.equal(digests.rendered_document_set_digest, "0e3b7db581e8c6c0603c4deaf524f1fb8f27d92c81e80ec2781775d6c086ad76");
+  assert.equal(digests.rollback_recovery_target_set_digest, "a166e8c088f7b9041c3f71ee8c57f2c8ae9650249ebd045c4ef0f7f5b337a832");
+  assert.equal(digests.ticket_set_digest, "a7cbe00fc04f56c927148f1c9ae827b7336b49dae0d9c63965bcb7f78da887cc");
   assert.equal(ticketLimitsDigest(example.policy.limits), "f04813ceb45982c8f9fe3d89e4cca1f137183a8a3fd78fc5bd6c2ee4cdcc72b7");
 });
 
@@ -583,8 +613,8 @@ test("tool distribution digest recipes are pinned and byte/path/domain sensitive
   ]), baseline);
   assert.equal(ticketDistributionDigest("autosk-flow/ticket-renderer-distribution/v1", [...files].reverse()), baseline);
   assert.deepEqual(ticketToolDistributionDigests(ROOT), {
-    renderer_distribution_digest: "2079818d6c4e94696479975cada499cbef285359015544ad2e551d5fcd82d3ad",
-    validator_distribution_digest: "2b9ddf9be5321531719139adcde9d331eea7bd0dbec82d58947c34612bb2fdff",
+    renderer_distribution_digest: "a27cc1bae9e05e3d9b2259fd192a220af2693e1861556819d4c774ae2bff9c13",
+    validator_distribution_digest: "18865a75b5a54af7ea480e60614ad819f7ea4a743e442b315983343843e558d6",
   });
 });
 
@@ -622,6 +652,7 @@ test("validation receipt schema binds exact candidate and tool identities", () =
     record_kind: "final_validation_receipt",
     rendered_document_set_digest: digests.rendered_document_set_digest,
     rendered_documents: digests.rendered_documents,
+    rollback_recovery_target_set_digest: digests.rollback_recovery_target_set_digest,
     renderer_distribution_digest: toolDigests.renderer_distribution_digest,
     renderer_version: "autosk-flow/ticket-markdown/v1",
     runtime_lock_digest: "7".repeat(64),
@@ -660,6 +691,14 @@ test("validation receipt schema binds exact candidate and tool identities", () =
   wrongValidatorDistribution.validator_distribution_digest = "8".repeat(64);
   assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongValidatorDistribution)
     .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/validator_distribution_digest"));
+  const wrongRecoveryTargetSet = structuredClone(expectedBindings);
+  wrongRecoveryTargetSet.rollback_recovery_target_set_digest = "a".repeat(64);
+  assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongRecoveryTargetSet)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/rollback_recovery_target_set_digest"));
+  const missingRecoveryTargetSet = structuredClone(receipt);
+  delete missingRecoveryTargetSet.rollback_recovery_target_set_digest;
+  assert.ok(validateTicketsValidationReceipt(missingRecoveryTargetSet, receiptSchema, expectedBindings)
+    .some((entry) => entry.code === "tickets_receipt_schema_invalid" && entry.json_pointer === "/rollback_recovery_target_set_digest"));
   const incompleteReceipt = structuredClone(receipt);
   incompleteReceipt.rendered_documents.pop();
   assert.ok(validateTicketsValidationReceipt(incompleteReceipt, receiptSchema, expectedBindings)

@@ -106,6 +106,12 @@
       "maxLength": 1024,
       "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\u0000)[^\\r\\n]+$"
     },
+    "literal_selector_path": {
+      "allOf": [
+        { "$ref": "#/$defs/relative_path" },
+        { "pattern": "^(?!:)(?!.*[?*])(?!.*\\[).+$" }
+      ]
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,
@@ -171,7 +177,7 @@
       "required": ["kind", "path"],
       "properties": {
         "kind": { "enum": ["file", "directory"] },
-        "path": { "$ref": "#/$defs/relative_path" }
+        "path": { "$ref": "#/$defs/literal_selector_path" }
       }
     },
     "dependency_rationale": {
@@ -246,10 +252,40 @@
         }
       ]
     },
+    "rollbackable_recovery_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "kind", "resolution", "target_state", "scope_basis", "resolution_contract_ref"],
+      "properties": {
+        "schema": { "const": "autosk-flow/ticket-recovery-target/v1" },
+        "kind": { "const": "ticket_execution_base" },
+        "resolution": { "const": "issue_7_execution_base_contract" },
+        "target_state": { "const": "before_ticket_delta" },
+        "scope_basis": { "const": "scope_selectors" },
+        "resolution_contract_ref": { "$ref": "#/$defs/stable_ref" }
+      }
+    },
+    "irreversible_recovery_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "kind", "target_state", "approval_ref"],
+      "properties": {
+        "schema": { "const": "autosk-flow/ticket-recovery-target/v1" },
+        "kind": { "const": "irreversible_no_restore_target" },
+        "target_state": { "const": "none" },
+        "approval_ref": { "$ref": "#/$defs/stable_ref" }
+      }
+    },
+    "recovery_target": {
+      "oneOf": [
+        { "$ref": "#/$defs/rollbackable_recovery_target" },
+        { "$ref": "#/$defs/irreversible_recovery_target" }
+      ]
+    },
     "risk_and_rollback": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["risk_level", "failure_modes", "rollback_mode", "rollback_steps", "irreversible", "approval_refs"],
+      "required": ["risk_level", "failure_modes", "rollback_mode", "rollback_steps", "recovery_target", "irreversible", "approval_refs"],
       "properties": {
         "risk_level": { "enum": ["low", "medium", "high", "critical"] },
         "failure_modes": {
@@ -262,6 +298,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/non_empty_text" }
         },
+        "recovery_target": { "$ref": "#/$defs/recovery_target" },
         "irreversible": { "type": "boolean" },
         "approval_refs": {
           "type": "array",
@@ -271,11 +308,22 @@
       },
       "allOf": [
         {
+          "if": { "properties": { "rollback_mode": { "enum": ["automatic", "manual", "forward_fix"] } }, "required": ["rollback_mode"] },
+          "then": {
+            "properties": {
+              "irreversible": { "const": false },
+              "rollback_steps": { "minItems": 1 },
+              "recovery_target": { "$ref": "#/$defs/rollbackable_recovery_target" }
+            }
+          }
+        },
+        {
           "if": { "properties": { "irreversible": { "const": true } }, "required": ["irreversible"] },
           "then": {
             "properties": {
               "rollback_mode": { "const": "irreversible" },
-              "approval_refs": { "minItems": 1 }
+              "approval_refs": { "minItems": 1 },
+              "recovery_target": { "$ref": "#/$defs/irreversible_recovery_target" }
             }
           }
         },
@@ -284,7 +332,8 @@
           "then": {
             "properties": {
               "irreversible": { "const": true },
-              "approval_refs": { "minItems": 1 }
+              "approval_refs": { "minItems": 1 },
+              "recovery_target": { "$ref": "#/$defs/irreversible_recovery_target" }
             }
           }
         }

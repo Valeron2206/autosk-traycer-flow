@@ -97,6 +97,14 @@ Introduce the typed session-store boundary and its tests.
       "Session data can be returned under the wrong key."
     ],
     "irreversible": false,
+    "recovery_target": {
+      "kind": "ticket_execution_base",
+      "resolution": "issue_7_execution_base_contract",
+      "resolution_contract_ref": "work:feature:v1",
+      "schema": "autosk-flow/ticket-recovery-target/v1",
+      "scope_basis": "scope_selectors",
+      "target_state": "before_ticket_delta"
+    },
     "risk_level": "medium",
     "rollback_mode": "automatic",
     "rollback_steps": [

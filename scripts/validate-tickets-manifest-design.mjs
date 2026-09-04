@@ -48,6 +48,7 @@ export const TICKETS_RECEIPT_BINDING_FIELDS = Object.freeze([
   "record_kind",
   "rendered_document_set_digest",
   "rendered_documents",
+  "rollback_recovery_target_set_digest",
   "renderer_distribution_digest",
   "renderer_version",
   "runtime_lock_digest",
@@ -105,6 +106,8 @@ const REQUIRED_MARKERS = Object.freeze({
     "autosk-flow/ticket-limits/v1",
     "autosk-flow/ticket-renderer-distribution/v1",
     "autosk-flow/ticket-validator-distribution/v1",
+    "rollback_recovery_target_set_digest",
+    "--literal-pathspecs",
     "TicketsValidationReceipt",
     "whose `candidate_tree_oid` equals that frozen tree",
     "`validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID",
@@ -119,6 +122,8 @@ const REQUIRED_MARKERS = Object.freeze({
     "issue #24",
     "issue #25",
   ],
+  "resources/tickets-manifest/tickets-manifest.schema.json": ["literal_selector_path", "recovery_target"],
+  "resources/tickets-manifest/tickets-validation-receipt.schema.json": ["rollback_recovery_target_set_digest"],
   "package.json": ["validate:tickets-manifest"],
   ".github/workflows/validate-traycer-parity.yml": ["npm run validate:tickets-manifest"],
 });
@@ -390,6 +395,14 @@ export function validRelativePath(value) {
   return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
+export function validScopeSelectorPath(value) {
+  return validRelativePath(value)
+    && !value.startsWith(":")
+    && !value.includes("*")
+    && !value.includes("?")
+    && !value.includes("[");
+}
+
 function collisionKey(value) {
   return value.normalize("NFC").toLowerCase();
 }
@@ -639,6 +652,19 @@ function ticketEntryPayload(ticket) {
 
 export function ticketEntryDigest(ticket) {
   return domainDigest("autosk-flow/ticket-entry/v1", canonicalStringify(ticketEntryPayload(ticket)));
+}
+
+export function rollbackRecoveryTargetSetDigest(tickets) {
+  const entries = tickets.map((ticket) => ({
+    ticket_id: ticket.id,
+    recovery_target: ticket.risk_and_rollback.recovery_target,
+    rollback_steps: ticket.risk_and_rollback.rollback_steps,
+  })).sort((left, right) => compareCodePoints(left.ticket_id, right.ticket_id));
+  const preimage = entries.map((entry) => {
+    const digest = domainDigest("autosk-flow/ticket-recovery-target/v1", canonicalStringify(entry));
+    return `${entry.ticket_id}\0${digest}\0`;
+  }).join("");
+  return domainDigest("autosk-flow/ticket-recovery-target-set/v1", preimage);
 }
 
 export function renderTicketDocuments(manifest) {
@@ -1345,6 +1371,7 @@ export function ticketManifestDigests(manifest) {
     .map(([documentPath, bytes]) => ({ path: documentPath, content_sha256: sha256Bytes(bytes), size_bytes: Buffer.byteLength(bytes) }));
   const documentPreimage = documentEntries.map((entry) => `${entry.path}\0${entry.content_sha256}\0`).join("");
   const renderedDocumentSetDigest = domainDigest("autosk-flow/ticket-doc-set/v1", documentPreimage);
+  const rollbackRecoveryTargetSetDigestValue = rollbackRecoveryTargetSetDigest(manifest.tickets);
   const ticketSetDigest = domainDigest(
     "autosk-flow/ticket-set/v1",
     manifestDigest,
@@ -1359,6 +1386,7 @@ export function ticketManifestDigests(manifest) {
     dag_digest: dagDigest,
     rendered_documents: documentEntries,
     rendered_document_set_digest: renderedDocumentSetDigest,
+    rollback_recovery_target_set_digest: rollbackRecoveryTargetSetDigestValue,
     ticket_set_digest: ticketSetDigest,
   };
 }
@@ -1837,7 +1865,7 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
     if (!sortedUnique(selectors, selectorComparator)) errors.push(error("tickets_path_invalid", `${pointer}/scope_selectors`, "selectors must be unique and sorted by path then kind"));
     const selectorKeys = new Set();
     for (const [selectorIndex, selector] of selectors.entries()) {
-      if (!validRelativePath(selector?.path)) errors.push(error("tickets_path_invalid", `${pointer}/scope_selectors/${selectorIndex}/path`, "invalid scope path"));
+      if (!validScopeSelectorPath(selector?.path)) errors.push(error("tickets_path_invalid", `${pointer}/scope_selectors/${selectorIndex}/path`, "invalid literal scope path"));
       const key = selector?.path ? `${collisionKey(selector.path)}\0${selector.kind}` : `invalid-${selectorIndex}`;
       if (selectorKeys.has(key)) errors.push(error("tickets_path_collision", `${pointer}/scope_selectors/${selectorIndex}`, "duplicate/colliding selector"));
       selectorKeys.add(key);
@@ -1880,6 +1908,16 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
       if (rootArtifactByRef.get(reference)?.kind !== "decision") {
         errors.push(error("tickets_governing_ref_invalid", `${pointer}/risk_and_rollback/approval_refs/${referenceIndex}`, "approval ref must resolve to governing kind decision"));
       }
+    }
+    const recoveryTarget = ticket.risk_and_rollback?.recovery_target;
+    if (recoveryTarget?.kind === "ticket_execution_base") {
+      const reference = recoveryTarget.resolution_contract_ref;
+      if (!workContractRefs.includes(reference) || rootArtifactByRef.get(reference)?.kind !== "work_contract") {
+        errors.push(error("tickets_governing_ref_invalid", `${pointer}/risk_and_rollback/recovery_target/resolution_contract_ref`, "recovery target must resolve through this Ticket's work contract"));
+      }
+    } else if (recoveryTarget?.kind === "irreversible_no_restore_target"
+        && !approvalRefs.includes(recoveryTarget.approval_ref)) {
+      errors.push(error("tickets_governing_ref_invalid", `${pointer}/risk_and_rollback/recovery_target/approval_ref`, "irreversible recovery target approval must be present in approval_refs"));
     }
     for (const [impactName, impact] of Object.entries(ticket.impacts ?? {}).sort(([left], [right]) => compareCodePoints(left, right))) {
       const impactPaths = Array.isArray(impact?.paths) ? impact.paths : [];
@@ -2141,7 +2179,7 @@ export function validateTicketsManifestDesign(files) {
     if (manifestErrors.length === 0) {
       if (documents.size !== parsed.manifest.tickets.length + 1) errors.push("candidate fixture does not contain one overview plus one document per Ticket");
       const digests = ticketManifestDigests(parsed.manifest);
-      for (const value of [digests.manifest_digest, digests.dag_digest, digests.rendered_document_set_digest, digests.ticket_set_digest]) {
+      for (const value of [digests.manifest_digest, digests.dag_digest, digests.rendered_document_set_digest, digests.rollback_recovery_target_set_digest, digests.ticket_set_digest]) {
         if (!/^[0-9a-f]{64}$/u.test(value)) errors.push("ticket digest is not SHA-256");
       }
     }
@@ -2229,6 +2267,7 @@ if (isMainModule()) {
       console.log(`manifest_digest=${digests.manifest_digest}`);
       console.log(`dag_digest=${digests.dag_digest}`);
       console.log(`rendered_document_set_digest=${digests.rendered_document_set_digest}`);
+      console.log(`rollback_recovery_target_set_digest=${digests.rollback_recovery_target_set_digest}`);
       console.log(`ticket_set_digest=${digests.ticket_set_digest}`);
     }
   } else {
@@ -2249,6 +2288,7 @@ if (isMainModule()) {
       console.log(`manifest_digest=${digests.manifest_digest}`);
       console.log(`dag_digest=${digests.dag_digest}`);
       console.log(`rendered_document_set_digest=${digests.rendered_document_set_digest}`);
+      console.log(`rollback_recovery_target_set_digest=${digests.rollback_recovery_target_set_digest}`);
       console.log(`ticket_set_digest=${digests.ticket_set_digest}`);
     }
   }
