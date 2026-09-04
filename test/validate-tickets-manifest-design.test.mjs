@@ -21,6 +21,7 @@ import {
   compareRenderedTicketDocuments,
   duplicateJsonKeys,
   loadTicketsManifestFiles,
+  loadCandidateTicketDocuments,
   parseTicketsManifest,
   renderTicketDocuments,
   selectorsOverlap,
@@ -585,11 +586,17 @@ test("candidate rendered inventories enforce host entry and aggregate-byte caps"
     `docs/autosk/epics/${example.epic_id}/tickets/EXTRA-${String(index).padStart(5, "0")}.md`,
     "x\n",
   ]);
-  assert.ok(compareRenderedTicketDocuments(example, tooMany).some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+  assert.ok(compareRenderedTicketDocuments(example, new Map(tooMany)).some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
 
   const aggregate = fixture();
   aggregate.policy.limits.max_total_rendered_document_bytes = 2048;
   assert.ok(codes(aggregate).includes("tickets_manifest_limits_exceeded"));
+
+  const onDiskAggregate = fixture();
+  onDiskAggregate.policy.limits.max_total_rendered_document_bytes = 2048;
+  const inventory = loadCandidateTicketDocuments(EXAMPLE_CANDIDATE_ROOT, onDiskAggregate);
+  assert.ok(inventory.errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+  assert.equal(inventory.documents.has(onDiskAggregate.tickets[0].document_path), false);
 });
 
 test("scope overlap pair cap bounds repeated and same-Ticket selector work", () => {

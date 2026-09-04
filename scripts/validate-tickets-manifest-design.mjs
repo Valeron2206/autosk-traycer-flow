@@ -806,7 +806,7 @@ function readDescriptorBounded(descriptor, maxBytes) {
   return Buffer.concat(chunks, total);
 }
 
-function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes = null, limitName = null) {
+function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes = null, limitName = null, additionalLimit = null) {
   const resolved = resolveInsideCandidateRoot(candidateRoot, relativePath);
   if (!resolved) {
     errors.push(error("tickets_path_invalid", pointer, "candidate path escapes, traverses a symlink/non-directory ancestor, or is outside the closed relative-path dialect", { path: relativePath }));
@@ -821,16 +821,24 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
       errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
       return null;
     }
-    if (Number.isInteger(maxBytes) && metadata.size > maxBytes) {
-      errors.push(error("tickets_manifest_limits_exceeded", pointer, `${limitName ?? "file byte limit"} exceeded before read`, {
-        actual: metadata.size,
-        limit: maxBytes,
-        limit_name: limitName,
-        path: relativePath,
-      }));
-      return null;
+    const limits = [
+      { limit: maxBytes, name: limitName ?? "file byte limit" },
+      additionalLimit ? { limit: additionalLimit.maxBytes, name: additionalLimit.limitName } : null,
+    ].filter((item) => Number.isInteger(item?.limit));
+    for (const item of limits) {
+      if (metadata.size > item.limit) {
+        errors.push(error("tickets_manifest_limits_exceeded", pointer, `${item.name} exceeded before read`, {
+          actual: metadata.size,
+          limit: item.limit,
+          limit_name: item.name,
+          path: relativePath,
+        }));
+        return null;
+      }
     }
-    const effectiveMaxBytes = Number.isInteger(maxBytes) ? maxBytes : ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES;
+    const effectiveMaxBytes = limits.length > 0
+      ? Math.min(...limits.map((item) => item.limit))
+      : ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES;
     const bytes = readDescriptorBounded(descriptor, effectiveMaxBytes);
     const metadataAfter = fstatSync(descriptor);
     const chainAfter = pathChainIdentity(candidateRoot, relativePath, false);
@@ -840,10 +848,11 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
       return null;
     }
     if (bytes.byteLength > effectiveMaxBytes) {
-      errors.push(error("tickets_manifest_limits_exceeded", pointer, `${limitName ?? "file byte limit"} exceeded during read`, {
+      const item = limits.find((candidate) => candidate.limit === effectiveMaxBytes) ?? { limit: effectiveMaxBytes, name: "file byte limit" };
+      errors.push(error("tickets_manifest_limits_exceeded", pointer, `${item.name} exceeded during read`, {
         actual: bytes.byteLength,
         limit: effectiveMaxBytes,
-        limit_name: limitName,
+        limit_name: item.name,
         path: relativePath,
       }));
       return null;
@@ -863,16 +872,18 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
 function boundedDirectoryEntries(absolutePath, maxEntries) {
   const directory = opendirSync(absolutePath);
   const entries = [];
+  let exceeded = false;
   try {
-    while (entries.length <= maxEntries) {
+    while (entries.length < maxEntries) {
       const entry = directory.readSync();
       if (entry === null) break;
       entries.push(entry);
     }
+    exceeded = entries.length === maxEntries && directory.readSync() !== null;
   } finally {
     directory.closeSync();
   }
-  return entries.sort((left, right) => compareCodePoints(left.name, right.name));
+  return { entries: entries.sort((left, right) => compareCodePoints(left.name, right.name)), exceeded };
 }
 
 export function loadCandidateTicketDocuments(candidateRoot, manifest) {
@@ -901,7 +912,18 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
     if (directoryMetadata.isSymbolicLink() || !directoryMetadata.isDirectory()) {
       throw new Error("Tickets path is not a regular directory");
     }
-    entries = boundedDirectoryEntries(resolved.absolutePath, documentLimits.maxEntries);
+    const boundedEntries = boundedDirectoryEntries(resolved.absolutePath, documentLimits.maxEntries);
+    entries = boundedEntries.entries;
+    if (boundedEntries.exceeded) {
+      return {
+        documents,
+        errors: [error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_rendered_document_entries exceeded", {
+          actual: documentLimits.maxEntries + 1,
+          limit: documentLimits.maxEntries,
+          limit_name: "max_rendered_document_entries",
+        })],
+      };
+    }
     if (pathChainIdentity(candidateRoot, directoryPath, true) !== chainBefore) {
       throw new Error("candidate Tickets directory changed during enumeration");
     }
@@ -914,17 +936,6 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
       })],
     };
   }
-  if (entries.length > documentLimits.maxEntries) {
-    return {
-      documents,
-      errors: [error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_rendered_document_entries exceeded", {
-        actual: entries.length,
-        limit: documentLimits.maxEntries,
-        limit_name: "max_rendered_document_entries",
-      })],
-    };
-  }
-
   let totalBytes = 0;
   for (const [index, entry] of entries.entries()) {
     const relativePath = `${directoryPath}/${entry.name}`;
@@ -943,18 +954,14 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
       pointer,
       documentLimits.maxPerDocumentBytes,
       "max_rendered_document_bytes",
+      {
+        limitName: "max_total_rendered_document_bytes",
+        maxBytes: Math.max(0, documentLimits.maxTotalBytes - totalBytes),
+      },
     );
     if (bytes !== null) {
       totalBytes += bytes.byteLength;
       documents.set(relativePath, bytes);
-      if (totalBytes > documentLimits.maxTotalBytes) {
-        errors.push(error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_total_rendered_document_bytes exceeded", {
-          actual: totalBytes,
-          limit: documentLimits.maxTotalBytes,
-          limit_name: "max_total_rendered_document_bytes",
-        }));
-        break;
-      }
     }
   }
   return { documents, errors: errors.sort(errorComparator) };
