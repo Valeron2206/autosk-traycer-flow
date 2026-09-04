@@ -296,7 +296,7 @@ function collectClosedSchemaPropertyPointers(value, schema, rootSchema, instance
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     for (const [key, child] of Object.entries(value)) {
-      if (node.properties?.[key]) {
+      if (Object.hasOwn(node.properties ?? {}, key)) {
         collectClosedSchemaPropertyPointers(child, node.properties[key], rootSchema, `${instancePath}.${key}`, `${jsonPointer}/${escapePointer(key)}`, output);
       } else if (node.additionalProperties === false) {
         output.push({

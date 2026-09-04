@@ -854,6 +854,15 @@ test("Schema errors escape exotic unknown keys in RFC 6901 pointers", () => {
   assert.deepEqual(ambiguousPointers, ["/policy.limits.extra", "/policy/limits/extra"]);
 });
 
+test("closed Schemas reject unknown keys inherited by Object.prototype", () => {
+  for (const key of ["__proto__", "constructor", "toString"]) {
+    const manifest = fixture();
+    Object.defineProperty(manifest, key, { configurable: true, enumerable: true, value: {}, writable: true });
+    const errors = validateTicketsManifest(manifest, schema, null, { candidateDocuments: new Map() });
+    assert.ok(errors.some((entry) => entry.code === "tickets_manifest_schema_invalid" && entry.json_pointer === `/${key}`), key);
+  }
+});
+
 test("initial manifest revision is exactly one", () => {
   const manifest = fixture();
   manifest.manifest_revision = 2;

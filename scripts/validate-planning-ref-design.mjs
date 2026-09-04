@@ -534,10 +534,10 @@ export function validateJsonSchema(value, schema, rootSchema = schema, instanceP
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     for (const key of schema.required ?? []) {
-      if (!(key in value)) errors.push(`${instancePath}.${key} is required`);
+      if (!Object.hasOwn(value, key)) errors.push(`${instancePath}.${key} is required`);
     }
     for (const [key, item] of Object.entries(value)) {
-      if (schema.properties?.[key]) {
+      if (Object.hasOwn(schema.properties ?? {}, key)) {
         errors.push(...validateJsonSchema(item, schema.properties[key], rootSchema, `${instancePath}.${key}`));
       } else if (schema.additionalProperties === false) {
         errors.push(`${instancePath}.${key} is not allowed`);
