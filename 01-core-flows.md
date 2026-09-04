@@ -246,7 +246,7 @@ Judge ранжирует варианты и выдаёт рекомендаци
 
 1. проверяет scope и ignored/untracked files;
 2. вычисляет candidate tree OID через временный Git index;
-3. для Tickets повторно читает exact tree, сверяет pending validation proof и финализирует host-owned `TicketsValidationReceipt` с `candidate_tree_oid`, равным вычисленному tree OID; receipt не входит в самоидентифицируемое дерево;
+3. для Tickets повторно читает exact tree, сверяет schema-valid `record_kind=pending_validation_proof` с `candidate_tree_oid=null` и создаёт host-owned `record_kind=final_validation_receipt` с `candidate_tree_oid`, равным вычисленному tree OID; final receipt не входит в самоидентифицируемое дерево;
 4. создаёт недвигающий refs snapshot commit;
 5. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
 6. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.

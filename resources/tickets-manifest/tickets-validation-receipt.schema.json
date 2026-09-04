@@ -8,6 +8,7 @@
     "schema_version",
     "operation_id",
     "project_root_sha256",
+    "record_kind",
     "epic_id",
     "anchor_version",
     "object_format",
@@ -42,12 +43,18 @@
     "schema_version": { "const": 1 },
     "operation_id": { "$ref": "#/$defs/uuid" },
     "project_root_sha256": { "$ref": "#/$defs/sha256" },
+    "record_kind": { "enum": ["pending_validation_proof", "final_validation_receipt"] },
     "epic_id": { "$ref": "#/$defs/uuid" },
     "anchor_version": { "type": "integer", "minimum": 1 },
     "object_format": { "enum": ["sha1", "sha256"] },
     "planning_parent_commit_oid": { "$ref": "#/$defs/git_oid" },
     "planning_parent_tree_oid": { "$ref": "#/$defs/git_oid" },
-    "candidate_tree_oid": { "$ref": "#/$defs/git_oid" },
+    "candidate_tree_oid": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/git_oid" }
+      ]
+    },
     "manifest_path": { "$ref": "#/$defs/relative_path" },
     "manifest_bytes_sha256": { "$ref": "#/$defs/sha256" },
     "manifest_digest": { "$ref": "#/$defs/sha256" },
@@ -105,12 +112,19 @@
   },
   "allOf": [
     {
+      "if": { "properties": { "record_kind": { "const": "pending_validation_proof" } }, "required": ["record_kind"] },
+      "then": { "properties": { "candidate_tree_oid": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "record_kind": { "const": "final_validation_receipt" } }, "required": ["record_kind"] },
+      "then": { "properties": { "candidate_tree_oid": { "$ref": "#/$defs/git_oid" } } }
+    },
+    {
       "if": { "properties": { "object_format": { "const": "sha1" } }, "required": ["object_format"] },
       "then": {
         "properties": {
           "planning_parent_commit_oid": { "$ref": "#/$defs/sha1_oid" },
-          "planning_parent_tree_oid": { "$ref": "#/$defs/sha1_oid" },
-          "candidate_tree_oid": { "$ref": "#/$defs/sha1_oid" }
+          "planning_parent_tree_oid": { "$ref": "#/$defs/sha1_oid" }
         }
       }
     },
@@ -119,10 +133,27 @@
       "then": {
         "properties": {
           "planning_parent_commit_oid": { "$ref": "#/$defs/sha256_oid" },
-          "planning_parent_tree_oid": { "$ref": "#/$defs/sha256_oid" },
-          "candidate_tree_oid": { "$ref": "#/$defs/sha256_oid" }
+          "planning_parent_tree_oid": { "$ref": "#/$defs/sha256_oid" }
         }
       }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "record_kind": { "const": "final_validation_receipt" } }, "required": ["record_kind"] },
+          { "properties": { "object_format": { "const": "sha1" } }, "required": ["object_format"] }
+        ]
+      },
+      "then": { "properties": { "candidate_tree_oid": { "$ref": "#/$defs/sha1_oid" } } }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "record_kind": { "const": "final_validation_receipt" } }, "required": ["record_kind"] },
+          { "properties": { "object_format": { "const": "sha256" } }, "required": ["object_format"] }
+        ]
+      },
+      "then": { "properties": { "candidate_tree_oid": { "$ref": "#/$defs/sha256_oid" } } }
     }
   ],
   "$defs": {

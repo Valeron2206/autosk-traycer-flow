@@ -70,6 +70,19 @@ deterministic rendered document path/hash set
 complete Ticket set
 ```
 
+The v1 byte preimages are normative:
+
+```text
+manifest_digest = SHA-256("autosk-flow/tickets-manifest/v1\0" || canonical_manifest_bytes)
+ticket_entry_digest = SHA-256("autosk-flow/ticket-entry/v1\0" || canonical_ticket_entry_without_lineage)
+dag_digest = SHA-256("autosk-flow/ticket-dag/v1\0" || canonical_json({adjacency,topological_order}))
+rendered_document_set_digest = SHA-256("autosk-flow/ticket-doc-set/v1\0" || concat(path || "\0" || content_sha256 || "\0") in code-point path order)
+ticket_set_digest = SHA-256("autosk-flow/ticket-set/v1\0" || manifest_digest || "\0" || dag_digest || "\0" || rendered_document_set_digest)
+limits_digest = SHA-256("autosk-flow/ticket-limits/v1\0" || canonical_json(policy.limits))
+```
+
+`schema_sha256` hashes the exact distributed Schema bytes. `renderer_distribution_digest` and `validator_distribution_digest` hash, respectively, `"autosk-flow/ticket-renderer-distribution/v1\0"` or `"autosk-flow/ticket-validator-distribution/v1\0"` followed by the canonical code-point-ordered sequence `path || "\0" || blob_sha256 || "\0"` for every shipped implementation file. Changing a domain literal, path set, file byte or separator creates a new distribution identity. Section 16 pins golden vectors for these recipes.
+
 The full Tickets identity also binds project/Epic, anchor, planning parent commit/tree, candidate tree, alignment subject, protocol/runtime/project-instruction identities, governance mapping set and schema/validator/renderer distribution identities. These digests live in a host-owned `TicketsValidationReceipt`, not self-referentially inside the manifest.
 
 Any bound change stales alignment, Panel verdict, publication and task-creation bindings.
@@ -116,7 +129,7 @@ deterministic_check
 manual_acceptance
 ```
 
-`recipe` resolves through issue #23, `verification_batch` through issue #24, and `deterministic_check` identifies a pinned command/runner contract. Manual acceptance requires exact user authority and cannot replace an automatable safety check merely for convenience. Wrong-surface, stale, missing, tool-failed or indeterminate evidence never closes an AC.
+Every binding has a non-null `source_ref` resolved in `governing_artifacts`. `recipe`, `verification_batch` and `deterministic_check` resolve to a pinned `kind=verification` artifact: recipe execution is owned by issue #23, batch/evidence closure by issue #24, and deterministic checks identify a command/runner contract inside those exact bytes. `manual_acceptance` resolves instead to a pinned `kind=decision` artifact carrying exact user authority and cannot replace an automatable safety check merely for convenience. Wrong-surface, stale, missing, tool-failed or indeterminate evidence never closes an AC.
 
 A command appearing only in Markdown has no operational effect.
 
@@ -130,7 +143,7 @@ Review policy requires one reviewer outside the complete author/fixer family set
 
 ## 11. Revisions and lineage
 
-The initial manifest has `manifest_revision=1`, no previous digest and `reserved_ticket_ids` exactly equal to its current Ticket IDs. Every published revision carries the cumulative sorted union of all Ticket IDs ever published in the Epic; `max_reserved_ticket_ids` bounds that ledger. A new revision receives the exact previous published canonical manifest bytes, including that cumulative ledger, plus the prior validation identity (`manifest_digest` and ordered Ticket execution-entry digests), and `previous_manifest_digest` must match that context. A current ID present in the prior cumulative ledger but absent from the immediately previous Ticket set cannot reappear as `new`, `replace`, `split_child` or `merge_result`. The same strict byte parser rejects BOM, CRLF, duplicate keys and non-NFC strings in previous context before lineage is evaluated. Ticket lineage is one of:
+The host always supplies lineage context as either an explicit proof that no prior Tickets publication exists or the exact previous published manifest context; candidate bytes cannot choose the initial branch. The initial manifest has `manifest_revision=1`, no previous digest and `reserved_ticket_ids` exactly equal to its current Ticket IDs, and is valid only with the host's no-prior proof. Every published revision carries the cumulative sorted union of all Ticket IDs ever published in the Epic; `max_reserved_ticket_ids` bounds that ledger. A new revision receives the exact previous published canonical manifest bytes, including that cumulative ledger, plus the prior validation identity (`manifest_digest` and ordered Ticket execution-entry digests), and `previous_manifest_digest` must match that context. A current ID present in the prior cumulative ledger but absent from the immediately previous Ticket set cannot reappear as `new`, `replace`, `split_child` or `merge_result`. The same strict byte parser rejects BOM, CRLF, duplicate keys and non-NFC strings in previous context before lineage is evaluated. Ticket lineage is one of:
 
 ```text
 new | carry | revise | replace | split_child | merge_result
@@ -161,9 +174,9 @@ Before Panel, trusted host code performs in order:
 4. graph, indexed overlap and lineage validation;
 5. governing/evidence reference validation;
 6. exact candidate file enumeration under host-owned entry/per-file/aggregate limits and deterministic rendering comparison;
-7. canonical digest calculation and a pending validation proof that contains no candidate tree OID;
+7. canonical digest calculation and a closed `record_kind=pending_validation_proof` record whose `candidate_tree_oid=null`;
 8. freeze computes the exact candidate tree OID;
-9. `validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID, revalidates every prior result, and the host durably writes/reads back one immutable `TicketsValidationReceipt` whose `candidate_tree_oid` equals that frozen tree;
+9. `validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID, revalidates every prior result, and the host durably writes/reads back one immutable `record_kind=final_validation_receipt` whose `candidate_tree_oid` equals that frozen tree;
 10. current planning-parent/anchor/runtime/protocol/instruction/alignment checks and Panel dispatch.
 
 Failure creates no Panel child, PASS, task or blocker.

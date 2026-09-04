@@ -27,6 +27,7 @@ import {
   selectorsOverlap,
   stableTopologicalOrder,
   ticketEntryDigest,
+  ticketLimitsDigest,
   ticketManifestDigests,
   ticketsManifestDesignDigest,
   validRelativePath,
@@ -143,6 +144,14 @@ test("strict parser rejects every non-object JSON root with a typed error", () =
     const parsed = parseTicketsManifest(text);
     assert.ok(parsed.errors.some((entry) => entry.code === "tickets_manifest_schema_invalid"), text.trim());
   }
+});
+
+test("raw JSON depth is bounded before duplicate-key scanning and parsing", () => {
+  const depth = 65;
+  const text = `${'{"x":'.repeat(depth)}null${"}".repeat(depth)}\n`;
+  const parsed = parseTicketsManifest(text);
+  assert.equal(parsed.manifest, null);
+  assert.ok(parsed.errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded" && entry.evidence.limit_name === "max_json_depth"));
 });
 
 test("design validation returns errors instead of crashing on a truthy non-object fixture root", () => {
@@ -294,6 +303,45 @@ test("verification and governing references must resolve", () => {
   assert.ok(result.includes("tickets_verification_binding_invalid"));
 });
 
+test("verification binding kinds require pinned governing authority", () => {
+  for (const kind of ["recipe", "verification_batch", "deterministic_check", "manual_acceptance"]) {
+    const missing = fixture();
+    missing.tickets[0].acceptance_criteria[0].verification_bindings[0] = {
+      binding_id: `check:${kind}`,
+      expected_evidence: [kind === "manual_acceptance" ? "manual_acceptance" : "test_result"],
+      kind,
+      source_ref: null,
+    };
+    assert.ok(codes(missing).includes("tickets_manifest_schema_invalid"), kind);
+  }
+
+  const manual = fixture();
+  manual.tickets[0].acceptance_criteria[0].verification_bindings[0] = {
+    binding_id: "manual:approval",
+    expected_evidence: ["manual_acceptance"],
+    kind: "manual_acceptance",
+    source_ref: "verification:current",
+  };
+  assert.ok(codes(manual).includes("tickets_verification_binding_invalid"));
+
+  const authorizedManual = fixture();
+  authorizedManual.governing_artifacts.push({
+    content_sha256: "9".repeat(64),
+    kind: "decision",
+    path: "docs/decisions/manual-acceptance.md",
+    published_commit_oid: "9".repeat(40),
+    ref_id: "decision:manual-acceptance",
+  });
+  authorizedManual.governing_artifacts.sort((left, right) => left.ref_id < right.ref_id ? -1 : left.ref_id > right.ref_id ? 1 : 0);
+  authorizedManual.tickets[0].acceptance_criteria[0].verification_bindings[0] = {
+    binding_id: "manual:approval",
+    expected_evidence: ["manual_acceptance"],
+    kind: "manual_acceptance",
+    source_ref: "decision:manual-acceptance",
+  };
+  assert.equal(codes(authorizedManual).includes("tickets_verification_binding_invalid"), false);
+});
+
 test("Planned Tickets must retain Tech Plan authority", () => {
   const manifest = fixture();
   manifest.tickets[0].governing_refs = manifest.tickets[0].governing_refs.filter((entry) => !entry.startsWith("tech_plan:"));
@@ -349,6 +397,12 @@ test("impact conditions and irreversible rollback approval are enforced directly
   irreversible.tickets[0].risk_and_rollback.rollback_mode = "manual";
   irreversible.tickets[0].risk_and_rollback.approval_refs = [];
   assert.ok(codes(irreversible).includes("tickets_manifest_schema_invalid"));
+
+  const contradictory = fixture();
+  contradictory.tickets[0].risk_and_rollback.rollback_mode = "irreversible";
+  contradictory.tickets[0].risk_and_rollback.irreversible = false;
+  contradictory.tickets[0].risk_and_rollback.approval_refs = [];
+  assert.ok(codes(contradictory).includes("tickets_manifest_schema_invalid"));
 });
 
 test("stable ordering is enforced for policy-adjacent arrays and impact path sets", () => {
@@ -404,6 +458,7 @@ test("canonical example digests are pinned vectors", () => {
   assert.equal(digests.dag_digest, "8650fb0f6e13f53845b73fdf0f60c021536247efa0cb5a9fde7842c73f41c72f");
   assert.equal(digests.rendered_document_set_digest, "46332c943897f9c5c370a8d5894744fadc27f418b86b4d505f1ba8d4ff4d4c31");
   assert.equal(digests.ticket_set_digest, "9c954edb8d76ba9a4e3033c0ca52de71c5331215e9877d09b5d726413568e185");
+  assert.equal(ticketLimitsDigest(example.policy.limits), "f04813ceb45982c8f9fe3d89e4cca1f137183a8a3fd78fc5bd6c2ee4cdcc72b7");
 });
 
 test("validation errors have stable pointers and canonical ordering", () => {
@@ -427,7 +482,7 @@ test("validation receipt schema binds exact candidate and tool identities", () =
     epic_id: example.epic_id,
     errors: [],
     governance_mapping_set_digest: "2".repeat(64),
-    limits_digest: sha256(canonicalStringify(example.policy.limits)),
+    limits_digest: ticketLimitsDigest(example.policy.limits),
     manifest_bytes_sha256: digests.manifest_bytes_sha256,
     manifest_digest: digests.manifest_digest,
     manifest_path: `docs/autosk/epics/${example.epic_id}/tickets/tickets.manifest.json`,
@@ -439,6 +494,7 @@ test("validation receipt schema binds exact candidate and tool identities", () =
     project_instruction_digest: "3".repeat(64),
     project_root_sha256: "4".repeat(64),
     protocol_digest: "5".repeat(64),
+    record_kind: "final_validation_receipt",
     rendered_document_set_digest: digests.rendered_document_set_digest,
     rendered_documents: digests.rendered_documents,
     renderer_distribution_digest: "6".repeat(64),
@@ -473,6 +529,12 @@ test("validation receipt schema binds exact candidate and tool identities", () =
   corruptDigest.ticket_entry_digests[0].digest = "f".repeat(64);
   assert.ok(validateTicketsValidationReceipt(corruptDigest, receiptSchema, expectedBindings)
     .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/ticket_entry_digests"));
+  const pendingProof = structuredClone(receipt);
+  pendingProof.record_kind = "pending_validation_proof";
+  pendingProof.candidate_tree_oid = null;
+  assert.deepEqual(validateJsonSchema(pendingProof, receiptSchema), []);
+  assert.ok(validateTicketsValidationReceipt(pendingProof, receiptSchema, expectedBindings)
+    .some((entry) => entry.code === "tickets_receipt_stale"));
   receipt.candidate_tree_oid = "e".repeat(64);
   assert.notDeepEqual(validateJsonSchema(receipt, receiptSchema), []);
 });
@@ -918,6 +980,15 @@ test("revision lineage never reuses an ID retired before the previous revision",
   }).includes("tickets_lineage_invalid"));
 });
 
+test("a candidate cannot reset lineage while exact previous context exists", () => {
+  const previous = fixture();
+  const reset = fixture();
+  reset.goal = "A different first revision claim.";
+  assert.ok(codes(reset, canonicalStringify(reset), {
+    previousManifestContext: previousManifestContext(previous),
+  }).includes("tickets_lineage_invalid"));
+});
+
 test("previous manifest context rejects BOM and non-NFC bytes", () => {
   const previous = fixture();
   const tickets = previous.tickets.map((ticket) => ({
@@ -1037,7 +1108,7 @@ test("renderer neutralizes leading Markdown block markers in standalone prose", 
 });
 
 test("renderer escapes raw HTML in every human-authored Markdown context", () => {
-  const injected = 'safe <img src=x onerror="alert(1)"> & text';
+  const injected = 'safe <img src=x onerror="alert(1)"> & [click](javascript:alert(1))';
   const manifest = fixture();
   manifest.goal = injected;
   manifest.exclusions = [injected];
@@ -1050,8 +1121,9 @@ test("renderer escapes raw HTML in every human-authored Markdown context", () =>
   const humanTicket = ticket.split("## Canonical manifest entry")[0];
   assert.doesNotMatch(overview, /<img\b/iu);
   assert.doesNotMatch(humanTicket, /<img\b/iu);
-  assert.match(overview, /&lt;img src=x onerror="alert\(1\)"&gt; &amp; text/u);
-  assert.match(humanTicket, /&lt;img src=x onerror="alert\(1\)"&gt; &amp; text/u);
+  assert.match(overview, /&lt;img src=x onerror="alert\(1\)"&gt; &amp; &#91;click&#93;\(javascript:alert\(1\)\)/u);
+  assert.match(humanTicket, /&lt;img src=x onerror="alert\(1\)"&gt; &amp; &#91;click&#93;\(javascript:alert\(1\)\)/u);
+  assert.doesNotMatch(overview, /\[click\]\(javascript:/u);
 });
 
 test("candidate-tree stops after strict parser errors", () => {
@@ -1112,6 +1184,15 @@ test("authoritative candidate validation reads immutable Git tree bytes", () => 
     assert.equal(result.tree_oid, treeOid);
     assert.equal(result.digests.manifest_digest, ticketManifestDigests(example).manifest_digest);
 
+    const previousGitDir = process.env.GIT_DIR;
+    process.env.GIT_DIR = path.join(temporaryParent, "foreign.git");
+    try {
+      assert.deepEqual(validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH).errors, []);
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = previousGitDir;
+    }
+
     const originalReadmeOid = runGit(repositoryRoot, ["rev-parse", `${treeOid}:${readmeRelativePath}`]);
     const replacementPath = path.join(temporaryParent, "replacement.md");
     writeFileSync(replacementPath, "replacement ref content\n");
@@ -1146,6 +1227,25 @@ test("authoritative candidate validation reads immutable Git tree bytes", () => 
     const mismatchedResult = validateTicketsCandidateGitTree(repositoryRoot, mismatchedTreeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
     assert.ok(mismatchedResult.errors.some((entry) => entry.code === "tickets_governing_ref_invalid" && entry.json_pointer === "/object_format"));
     assert.equal(mismatchedResult.digests, null);
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("authoritative Git-tree validation rejects a symlink-mode manifest", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-git-symlink-"));
+  const repositoryRoot = path.join(temporaryParent, "repository");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, repositoryRoot, { recursive: true });
+    const manifestPath = path.join(repositoryRoot, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
+    rmSync(manifestPath);
+    symlinkSync("README.md", manifestPath);
+    runGit(repositoryRoot, ["init", "--quiet"]);
+    runGit(repositoryRoot, ["add", "."]);
+    runGit(repositoryRoot, ["-c", "user.name=autosk-test", "-c", "user.email=autosk-test@example.invalid", "commit", "--quiet", "-m", "symlink-manifest"]);
+    const treeOid = runGit(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+    const result = validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(result.errors.some((entry) => entry.code === "tickets_path_invalid" && entry.json_pointer === "/manifest_path"));
   } finally {
     rmSync(temporaryParent, { force: true, recursive: true });
   }
@@ -1234,9 +1334,9 @@ test("design validation guards Tickets pending proof and final receipt lifecycle
   const files = loadTicketsManifestFiles();
   const stalePendingProof = structuredClone(files);
   stalePendingProof["03-technical-plan.md"] = stalePendingProof["03-technical-plan.md"]
-    .replace("pending validation proof without `candidate_tree_oid`", "pending validation proof");
+    .replace("schema-valid `record_kind=pending_validation_proof` with `candidate_tree_oid=null`", "pending validation proof");
   assert.ok(validateTicketsManifestDesign(stalePendingProof)
-    .some((entry) => entry.includes("pending validation proof without `candidate_tree_oid`")));
+    .some((entry) => entry.includes("record_kind=pending_validation_proof")));
 
   const staleFinalReceipt = structuredClone(files);
   staleFinalReceipt["03-technical-plan.md"] = staleFinalReceipt["03-technical-plan.md"]
@@ -1259,7 +1359,13 @@ test("design validation guards Tickets pending proof and final receipt lifecycle
 
   const earlyReceipt = structuredClone(files);
   earlyReceipt["03-technical-plan.md"] = earlyReceipt["03-technical-plan.md"]
-    .replace("atomically stores a pending validation proof without `candidate_tree_oid`", "writes/read-backs immutable `tickets_validation_receipt`");
+    .replace("atomically stores schema-valid `record_kind=pending_validation_proof` with `candidate_tree_oid=null`", "writes/read-backs immutable `tickets_validation_receipt`");
   assert.ok(validateTicketsManifestDesign(earlyReceipt)
-    .some((entry) => entry.includes("pending validation proof without `candidate_tree_oid`")));
+    .some((entry) => entry.includes("record_kind=pending_validation_proof")));
+
+  const bypassedValidation = structuredClone(files);
+  bypassedValidation["03-technical-plan.md"] = bypassedValidation["03-technical-plan.md"]
+    .replace("| validate_tickets_manifest; freeze_artifact напрямую запрещён |", "| freeze_artifact |");
+  assert.ok(validateTicketsManifestDesign(bypassedValidation)
+    .some((entry) => entry.includes("present_tickets_breakdown must not bypass validate_tickets_manifest")));
 });

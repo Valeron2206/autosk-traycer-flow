@@ -37,6 +37,7 @@ export const TICKETS_RECEIPT_BINDING_FIELDS = Object.freeze([
   "project_instruction_digest",
   "project_root_sha256",
   "protocol_digest",
+  "record_kind",
   "rendered_document_set_digest",
   "rendered_documents",
   "renderer_distribution_digest",
@@ -82,7 +83,7 @@ const REQUIRED_MARKERS = Object.freeze({
     "<!-- tickets-manifest-contract:v1 -->",
     "validate_tickets_manifest",
     "tickets_validation_receipt",
-    "pending validation proof without `candidate_tree_oid`",
+    "schema-valid `record_kind=pending_validation_proof` with `candidate_tree_oid=null`",
     "`validateTicketsCandidateGitTree` reads blobs directly from the immutable minted Git tree OID",
     "`tickets_validation_receipt.candidate_tree_oid` equals that exact tree",
     "tickets_manifest_invalid",
@@ -93,6 +94,9 @@ const REQUIRED_MARKERS = Object.freeze({
   "docs/contracts/tickets-manifest.md": [
     "<!-- tickets-manifest-contract:v1 -->",
     "autosk-flow/canonical-json/v1",
+    "autosk-flow/ticket-limits/v1",
+    "autosk-flow/ticket-renderer-distribution/v1",
+    "autosk-flow/ticket-validator-distribution/v1",
     "TicketsValidationReceipt",
     "whose `candidate_tree_oid` equals that frozen tree",
     "`validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID",
@@ -167,6 +171,38 @@ function domainDigest(domain, ...parts) {
 
 function decodeJsonString(raw) {
   return JSON.parse(raw);
+}
+
+function rawJsonDepthError(text, maxDepth) {
+  let depth = 0;
+  let escaped = false;
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{" || character === "[") {
+      depth += 1;
+      if (depth > maxDepth) {
+        return error("tickets_manifest_limits_exceeded", "", "max_json_depth exceeded before JSON parsing", {
+          actual: depth,
+          limit: maxDepth,
+          limit_name: "max_json_depth",
+        });
+      }
+    } else if (character === "}" || character === "]") {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return null;
 }
 
 export function duplicateJsonKeys(text) {
@@ -565,7 +601,9 @@ function markdownInlineText(value) {
   return oneLine(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    .replaceAll("[", "&#91;")
+    .replaceAll("]", "&#93;");
 }
 
 function markdownStandaloneText(value) {
@@ -1079,7 +1117,18 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
 function gitBytes(repositoryRoot, args, maxBuffer) {
   const result = spawnSync("git", ["-C", path.resolve(repositoryRoot), ...args], {
     encoding: null,
-    env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" },
+    env: {
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      LANG: "C",
+      LC_ALL: "C",
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      TMPDIR: process.env.TMPDIR ?? "/tmp",
+      TZ: "UTC",
+    },
     maxBuffer,
   });
   if (result.error || result.status !== 0) {
@@ -1119,7 +1168,12 @@ export function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifes
         canonical: resolvedTreeOid,
       })]);
     }
-    const manifestOid = gitBytes(repositoryRoot, ["rev-parse", `${resolvedTreeOid}:${manifestRelativePath}`], 1024).toString("utf8").trim();
+    const manifestEntryText = gitBytes(repositoryRoot, ["ls-tree", resolvedTreeOid, "--", manifestRelativePath], 4096).toString("utf8").trim();
+    const manifestEntry = manifestEntryText.match(/^((?:100644|100755)) blob ([0-9a-f]{40,64})\t(.+)$/u);
+    if (!manifestEntry || manifestEntry[3] !== manifestRelativePath) {
+      return empty([error("tickets_path_invalid", "/manifest_path", "candidate manifest must be a regular Git blob", { path: manifestRelativePath })]);
+    }
+    const manifestOid = manifestEntry[2];
     const manifestObject = gitObjectBytes(repositoryRoot, manifestOid, requestedManifestLimit);
     if (manifestObject.bytes === null) {
       return empty([error("tickets_manifest_limits_exceeded", "/manifest_path", "max_manifest_bytes exceeded before Git object read", {
@@ -1265,6 +1319,10 @@ export function ticketManifestDigests(manifest) {
   };
 }
 
+export function ticketLimitsDigest(limits) {
+  return domainDigest("autosk-flow/ticket-limits/v1", canonicalStringify(limits));
+}
+
 
 function inputByteLength(value) {
   if (typeof value === "string") return Buffer.byteLength(value, "utf8");
@@ -1378,6 +1436,9 @@ function validateRevisionLineage(manifest, schema, context, errors) {
     errors.push(error("tickets_lineage_invalid", "/reserved_ticket_ids", "reserved Ticket IDs must be unique and sorted"));
   }
   if (manifest.previous_manifest_digest === null) {
+    if (context !== null && context !== undefined) {
+      errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "initial lineage is invalid when exact previous published context exists"));
+    }
     if (manifest.manifest_revision !== 1) {
       errors.push(error("tickets_lineage_invalid", "/manifest_revision", "initial manifest revision must be exactly 1"));
     }
@@ -1738,8 +1799,14 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
         errors.push(error("tickets_verification_binding_invalid", `${criterionPointer}/verification_bindings`, "acceptance criterion has no verification binding"));
       }
       for (const [bindingIndex, binding] of (criterion?.verification_bindings ?? []).entries()) {
-        if (binding.source_ref !== null && !rootRefSet.has(binding.source_ref)) {
+        const bindingPointer = `${criterionPointer}/verification_bindings/${bindingIndex}`;
+        const sourceArtifact = rootArtifactByRef.get(binding.source_ref);
+        if (!sourceArtifact) {
           errors.push(error("tickets_verification_binding_invalid", `${criterionPointer}/verification_bindings/${bindingIndex}/source_ref`, "verification source ref is not declared"));
+        } else if (binding.kind === "manual_acceptance" && sourceArtifact.kind !== "decision") {
+          errors.push(error("tickets_verification_binding_invalid", `${bindingPointer}/source_ref`, "manual acceptance must resolve to exact user decision authority"));
+        } else if (binding.kind !== "manual_acceptance" && sourceArtifact.kind !== "verification") {
+          errors.push(error("tickets_verification_binding_invalid", `${bindingPointer}/source_ref`, "automatable verification binding must resolve to pinned verification authority"));
         }
         if (!sortedUnique(binding.expected_evidence ?? [])) {
           errors.push(error("tickets_verification_binding_invalid", `${criterionPointer}/verification_bindings/${bindingIndex}/expected_evidence`, "evidence classes must be unique and sorted"));
@@ -1827,6 +1894,9 @@ export function validateTicketsValidationReceipt(receipt, schema, expectedBindin
   if (!expectedBindings || typeof expectedBindings !== "object" || Array.isArray(expectedBindings)) {
     return [error("tickets_receipt_stale", "", "complete expected receipt bindings are required")];
   }
+  if (receipt.record_kind !== "final_validation_receipt") {
+    errors.push(error("tickets_receipt_stale", "/record_kind", "final receipt validation cannot accept a pending validation proof"));
+  }
   for (const field of TICKETS_RECEIPT_BINDING_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(expectedBindings, field)) {
       errors.push(error("tickets_receipt_stale", `/${escapePointer(field)}`, "expected receipt binding is missing"));
@@ -1885,6 +1955,8 @@ export function parseTicketsManifest(input, options = {}) {
   }
   if (hasUtf8Bom || text.startsWith("\uFEFF")) errors.push(error("tickets_manifest_noncanonical", "", "UTF-8 BOM is forbidden"));
   if (text.includes("\r")) errors.push(error("tickets_manifest_noncanonical", "", "CR/CRLF is forbidden"));
+  const depthError = rawJsonDepthError(text, options.maxJsonDepth ?? ABSOLUTE_MAX_JSON_DEPTH);
+  if (depthError) return { manifest: null, text, errors: [...errors, depthError].sort(errorComparator) };
   for (const duplicate of duplicateJsonKeys(text)) {
     errors.push(error("tickets_manifest_json_invalid", duplicate.pointer ?? "", `duplicate JSON key ${duplicate.key}`, { offset: duplicate.offset }));
   }
@@ -1965,6 +2037,9 @@ export function validateTicketsManifestDesign(files) {
   }
   if (tech.includes("writes/read-backs immutable `tickets_validation_receipt`, freeze_artifact")) {
     errors.push("03-technical-plan.md: validate_tickets_manifest must not mint the final receipt before freeze");
+  }
+  if (tech.split("\n").some((line) => line.startsWith("| present_tickets_breakdown |") && line.endsWith("| freeze_artifact |"))) {
+    errors.push("03-technical-plan.md: present_tickets_breakdown must not bypass validate_tickets_manifest");
   }
   if (!tech.includes("it never parses rendered Markdown for operational values")) {
     errors.push("03-technical-plan.md: manifest-only dispatcher prohibition is missing");
