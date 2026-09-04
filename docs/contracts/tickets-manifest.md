@@ -142,33 +142,33 @@ Any set revision creates a new alignment subject, full Ticket Panel and descenda
 
 ## 12. Deterministic human rendering
 
-The pinned renderer creates one overview and one complete Markdown projection per Ticket. It renders into an isolated temporary directory and compares:
+The pinned renderer creates one overview and one complete Markdown projection per Ticket. Trusted host code renders deterministic bytes in memory and compares them with the separately enumerated candidate inventory:
 
 ```text
 expected path set == candidate path set
 expected bytes    == candidate bytes
 ```
 
-A missing, extra, renamed or one-byte-different document is invalid. The host entry point `validateTicketsCandidateTree` reads the manifest as raw bytes from the exact candidate/publication tree, walks every existing path ancestor without following symlinks, size-checks regular files before reading them, enumerates the sibling Tickets directory, rejects symlinks/non-regular/nested entries, and passes that external inventory to the semantic validator. Schema-invalid nested shapes return typed errors before graph, lineage or renderer code and cannot crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings and free-text body insertions to one line and escapes Markdown table delimiters so manifest text cannot forge headings, overview rows or columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+A missing, extra, renamed or one-byte-different document is invalid. The pre-freeze entry point `validateTicketsCandidateTree` reads the mutable proposal as raw bytes, rejects excessive JSON depth, and completes JSON Schema validation before deriving the Tickets directory or reading any rendered document. It then walks every existing path ancestor without following symlinks, applies host-owned hard caps to entry count, each regular file and the aggregate rendered set before retaining bytes, and detects identity drift before returning only a non-authoritative pending proof. After freeze computes a tree OID, the authoritative `validateTicketsCandidateGitTree` reads the manifest, inventory and blobs directly from that immutable Git tree by object ID; no live pathname can provide the final receipt. Both paths reject symlinks/non-regular/nested entries and pass an external inventory to the semantic validator. Schema-invalid nested shapes return typed errors before graph, lineage, renderer or file-inventory code and cannot crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes headings and free-text body insertions to one line and escapes Markdown table delimiters so manifest text cannot forge headings, overview rows or columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 
 ## 13. Validation lifecycle
 
 Before Panel, trusted host code performs in order:
 
-1. byte limits, encoding and duplicate-key screening;
-2. supported schema/renderer/canonicalizer checks;
-3. JSON Schema validation;
-4. deterministic semantic errors with JSON pointers;
-5. graph, overlap and lineage validation;
-6. governing/evidence reference validation;
-7. exact candidate-tree file enumeration and deterministic rendering comparison;
-8. canonical digest calculation;
-9. current planning-parent/anchor/runtime/protocol/instruction/alignment checks;
-10. durable write/read-back of one `TicketsValidationReceipt`.
+1. externally bound manifest byte/depth limits, encoding and duplicate-key screening;
+2. supported schema/renderer/canonicalizer checks and JSON Schema validation;
+3. deterministic semantic errors with JSON pointers;
+4. graph, indexed overlap and lineage validation;
+5. governing/evidence reference validation;
+6. exact candidate file enumeration under host-owned entry/per-file/aggregate limits and deterministic rendering comparison;
+7. canonical digest calculation and a pending validation proof that contains no candidate tree OID;
+8. freeze computes the exact candidate tree OID;
+9. `validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID, revalidates every prior result, and the host durably writes/reads back one immutable `TicketsValidationReceipt` whose `candidate_tree_oid` equals that frozen tree;
+10. current planning-parent/anchor/runtime/protocol/instruction/alignment checks and Panel dispatch.
 
 Failure creates no Panel child, PASS, task or blocker.
 
-All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte produces a new receipt and candidate.
+The receipt is host/evidence-owned and is not stored inside the tree it identifies. All four Ticket Panel seats receive byte-identical manifest, rendered documents, validation receipt, governing pack and candidate identity. A fix changing any byte produces a new receipt and candidate.
 
 After PASS/waiver, issue #5 publishes manifest and views in one Tickets commit; it becomes `planning_head` only after publication and candidate-custody verification.
 
@@ -184,17 +184,16 @@ Missing, stale, corrupt or unsupported input parks with a typed reason and zero 
 
 Every error contains stable `code`, the smallest available RFC 6901 instance `json_pointer`, message, related pointers and canonical evidence. JSON Schema failures translate the validator instance path into that pointer rather than storing it only in free-form message text. Sorting is by code-point pointer, code and evidence bytes. Required classes cover JSON/canonical/version/limit errors; duplicate IDs; dangling/self/cyclic dependencies; invalid topo order; invalid/colliding/overlapping paths; AC/evidence/governing/impact/lineage errors; rendered-path/byte drift; and stale receipts.
 
-The host checks raw manifest bytes against an externally bound hard cap before UTF-8 decoding, duplicate-key scanning or JSON parsing, then rechecks the manifest-declared `max_manifest_bytes`. Resource limits also bound Tickets, total edges, dependencies per Ticket, selectors per Ticket, ACs per Ticket, bindings per AC and each generated Markdown document through `max_rendered_document_bytes` before graph/Panel work. Very large valid sets preserve identical graph/digests with one or many workers.
+The host checks raw manifest bytes and JSON nesting depth against externally bound hard caps before recursive validation, then rechecks the manifest-declared `max_manifest_bytes`. Resource limits also bound Tickets, total edges, dependencies per Ticket, selectors per Ticket, ACs per Ticket, bindings per AC, each generated Markdown document, the aggregate rendered set through `max_total_rendered_document_bytes`, and enumerated selector-overlap work through `max_scope_overlap_pairs`; same-Ticket and repeated-selector matches count because they consume validation work even when they deduplicate to one or zero cross-Ticket pairs. Candidate inventory additionally has host-owned entry, per-file and aggregate caps that cannot be relaxed by candidate bytes. Scope overlap discovery costs `O(S log S + P + (V + E) ceil(V / 32))` time and `O(V ceil(V / 32) + U)` memory, where `S` is total selectors, `P` is the bounded number of enumerated overlapping selector pairs, `V/E` are DAG vertices/edges and `U <= P` is the deduplicated cross-Ticket pair count; reachability lookup is constant-time after that index. Very large valid sets preserve identical graph/digests with one or many workers.
 
 Unknown schema versions fail closed. Migration is a pure pinned `vN -> vN+1` transformation with before/after identities, explicit semantic decision where needed, fresh alignment, full Ticket Panel and new planning publication. Active Epics never reinterpret old bytes under a new parser.
 
 ## 16. Required implementation tests
 
-At minimum test:
+Issue #6 design validators test at minimum:
 
 - missing/duplicate/malformed IDs, AC IDs and unknown fields/versions;
 - dangling/self/deep-cycle dependencies and stable topo ties;
-- workers=1 versus workers>=4 graph identity;
 - absolute/traversal/backslash/NUL/dot/collision paths;
 - ordered versus unordered scope overlap, including case-collision aliases;
 - missing/mismatched rationales, AC evidence, governing refs and impacts;
@@ -203,13 +202,11 @@ At minimum test:
 - key order, CRLF, BOM, non-NFC, duplicate JSON keys, malformed nested shapes and extra fields;
 - initial revision numbering, prior-ID reservation and revised carry/revise/replace/split/merge/retirement lineage;
 - digest golden vectors;
-- stale alignment/planning/candidate/runtime/protocol/instruction/receipt;
 - valid-at-limit and limit+1 sets;
-- crashes around receipt, child, blocker, enrollment and final graph projection;
-- idempotent retry with one child per Ticket;
-- proof that operational fields are never read from Markdown;
 - renderer resistance to heading/table structural injection;
-- upgrade/downgrade/unknown version and cross-project rejection.
+- upgrade/downgrade/unknown version rejection and cross-project/candidate receipt-binding rejection.
+
+Runtime implementation issues #7, #8 and #9 must additionally test workers=1 versus workers>=4 graph identity, stale alignment/planning/candidate/runtime/protocol/instruction/receipt handling, crashes around receipt/child/blocker/enrollment/final graph projection, idempotent retry with one child per Ticket, and proof at the dispatcher seam that operational fields are never read from Markdown. Those downstream tests do not convert this issue #6 design disposition into runtime completion.
 
 ## 17. Acceptance mapping
 

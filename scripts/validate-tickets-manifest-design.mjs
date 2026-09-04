@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { closeSync, constants, fstatSync, lstatSync, openSync, opendirSync, readFileSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +13,41 @@ export const MANIFEST_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/
 export const MANIFEST_EXAMPLE_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.example.json");
 export const RECEIPT_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-validation-receipt.schema.json");
 export const ABSOLUTE_MAX_MANIFEST_BYTES = 16_777_216;
+export const ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES = 67_108_864;
+export const ABSOLUTE_MAX_TOTAL_RENDERED_DOCUMENT_BYTES = 134_217_728;
+export const ABSOLUTE_MAX_RENDERED_DOCUMENT_ENTRIES = 10_002;
+export const ABSOLUTE_MAX_JSON_DEPTH = 64;
+export const ABSOLUTE_MAX_SCOPE_OVERLAP_PAIRS = 1_000_000;
+export const RENDERER_HEADER = "<!-- generated-by: autosk-flow/ticket-markdown/v1 -->";
+export const TICKETS_RECEIPT_BINDING_FIELDS = Object.freeze([
+  "alignment_identity",
+  "anchor_version",
+  "candidate_tree_oid",
+  "canonicalizer_version",
+  "dag_digest",
+  "epic_id",
+  "governance_mapping_set_digest",
+  "limits_digest",
+  "manifest_bytes_sha256",
+  "manifest_digest",
+  "manifest_path",
+  "object_format",
+  "planning_parent_commit_oid",
+  "planning_parent_tree_oid",
+  "project_instruction_digest",
+  "project_root_sha256",
+  "protocol_digest",
+  "rendered_document_set_digest",
+  "rendered_documents",
+  "renderer_distribution_digest",
+  "renderer_version",
+  "runtime_lock_digest",
+  "schema_id",
+  "schema_sha256",
+  "ticket_entry_digests",
+  "ticket_set_digest",
+  "validator_distribution_digest",
+]);
 export const EXAMPLE_CANDIDATE_ROOT_RELATIVE = "resources/tickets-manifest/example-candidate";
 export const EXAMPLE_CANDIDATE_ROOT = path.join(ROOT, EXAMPLE_CANDIDATE_ROOT_RELATIVE);
 export const EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH = "docs/autosk/epics/11111111-1111-4111-8111-111111111111/tickets/tickets.manifest.json";
@@ -46,6 +82,9 @@ const REQUIRED_MARKERS = Object.freeze({
     "<!-- tickets-manifest-contract:v1 -->",
     "validate_tickets_manifest",
     "tickets_validation_receipt",
+    "pending validation proof without `candidate_tree_oid`",
+    "`validateTicketsCandidateGitTree` reads blobs directly from the immutable minted Git tree OID",
+    "`tickets_validation_receipt.candidate_tree_oid` equals that exact tree",
     "tickets_manifest_invalid",
     "tickets_manifest_stale",
   ],
@@ -55,6 +94,8 @@ const REQUIRED_MARKERS = Object.freeze({
     "<!-- tickets-manifest-contract:v1 -->",
     "autosk-flow/canonical-json/v1",
     "TicketsValidationReceipt",
+    "whose `candidate_tree_oid` equals that frozen tree",
+    "`validateTicketsCandidateGitTree` re-reads blobs directly from the exact frozen Git tree OID",
     "tickets_scope_overlap_unordered",
     "dispatch_ticket_dag",
     "Issue #7",
@@ -75,18 +116,38 @@ function compareCodePoints(left, right) {
   return a.length - b.length;
 }
 
-function sortCanonical(value) {
-  if (Array.isArray(value)) return value.map(sortCanonical);
-  if (value && typeof value === "object") {
-    const output = {};
-    for (const key of Object.keys(value).sort(compareCodePoints)) output[key] = sortCanonical(value[key]);
-    return output;
-  }
-  return value;
+export function canonicalStringify(value) {
+  return `${canonicalSerialize(value)}\n`;
 }
 
-export function canonicalStringify(value) {
-  return `${JSON.stringify(sortCanonical(value), null, 2)}\n`;
+function canonicalSerialize(value, depth = 0, active = new WeakSet()) {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new TypeError("unsupported JSON value");
+    return encoded;
+  }
+  if (Array.isArray(value)) {
+    if (active.has(value)) throw new TypeError("cyclic JSON value");
+    if (value.length === 0) return "[]";
+    active.add(value);
+    const itemIndent = " ".repeat((depth + 1) * 2);
+    const closingIndent = " ".repeat(depth * 2);
+    const items = value.map((item) => `${itemIndent}${canonicalSerialize(item, depth + 1, active)}`);
+    active.delete(value);
+    return `[\n${items.join(",\n")}\n${closingIndent}]`;
+  }
+  if (value && typeof value === "object") {
+    if (active.has(value)) throw new TypeError("cyclic JSON value");
+    const keys = Object.keys(value).sort(compareCodePoints);
+    if (keys.length === 0) return "{}";
+    active.add(value);
+    const itemIndent = " ".repeat((depth + 1) * 2);
+    const closingIndent = " ".repeat(depth * 2);
+    const items = keys.map((key) => `${itemIndent}${JSON.stringify(key)}: ${canonicalSerialize(value[key], depth + 1, active)}`);
+    active.delete(value);
+    return `{\n${items.join(",\n")}\n${closingIndent}}`;
+  }
+  throw new TypeError("unsupported JSON value");
 }
 
 function sha256Bytes(value) {
@@ -137,17 +198,40 @@ export function duplicateJsonKeys(text) {
         } catch {
           continue;
         }
-        if (current.keys.has(key)) duplicates.push({ key, offset: start });
+        const pointer = `${current.path}/${escapePointer(key)}`;
+        if (current.keys.has(key)) duplicates.push({ key, offset: start, pointer });
         else current.keys.add(key);
+        current.pendingPath = pointer;
+        index = cursor + 1;
+        continue;
       }
+      beginJsonValue(stack);
       continue;
     }
-    if (character === "{") stack.push({ kind: "object", keys: new Set() });
-    else if (character === "[") stack.push({ kind: "array" });
+    if (character === "{") stack.push({ kind: "object", keys: new Set(), path: beginJsonValue(stack), pendingPath: null });
+    else if (character === "[") stack.push({ kind: "array", path: beginJsonValue(stack), nextIndex: 0 });
     else if (character === "}" || character === "]") stack.pop();
+    else if (!/\s|,|:/u.test(character)) {
+      beginJsonValue(stack);
+      while (index < text.length && !/[\s,\]}]/u.test(text[index])) index += 1;
+      continue;
+    }
     index += 1;
   }
   return duplicates;
+}
+
+function beginJsonValue(stack) {
+  const current = stack.at(-1);
+  if (!current) return "";
+  if (current.kind === "object") {
+    const pointer = current.pendingPath ?? current.path;
+    current.pendingPath = null;
+    return pointer;
+  }
+  const pointer = `${current.path}/${current.nextIndex}`;
+  current.nextIndex += 1;
+  return pointer;
 }
 
 function error(code, jsonPointer, message, evidence = {}, relatedPointers = []) {
@@ -160,7 +244,13 @@ function errorComparator(left, right) {
     || compareCodePoints(canonicalStringify(left.evidence), canonicalStringify(right.evidence));
 }
 
-function schemaInstancePathToJsonPointer(schemaError) {
+function schemaInstancePathToJsonPointer(schemaError, value = null, schema = null, closedPointers = null) {
+  if (value !== null && schema !== null && String(schemaError).endsWith(" is not allowed")) {
+    const closedPropertyPointer = closedPointers
+      ? closedPointers.get(String(schemaError))?.shift() ?? null
+      : closedSchemaPropertyPointer(String(schemaError), value, schema);
+    if (closedPropertyPointer !== null) return closedPropertyPointer;
+  }
   const match = String(schemaError).match(/^(\$(?:\.[^.[\]\s]+|\[[0-9]+\])*)/u);
   if (!match) return "";
   const segments = [];
@@ -168,6 +258,67 @@ function schemaInstancePathToJsonPointer(schemaError) {
     segments.push(escapePointer(token[1] ?? token[2]));
   }
   return segments.length === 0 ? "" : `/${segments.join("/")}`;
+}
+
+function resolveLocalSchemaRef(rootSchema, ref) {
+  if (!ref.startsWith("#/")) throw new Error(`unsupported Schema ref ${ref}`);
+  return ref.slice(2).split("/").reduce((node, token) => {
+    const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
+    return node?.[key];
+  }, rootSchema);
+}
+
+function closedSchemaPropertyPointer(schemaError, value, schema) {
+  return closedSchemaPropertyPointerMap(value, schema).get(schemaError)?.[0] ?? null;
+}
+
+function closedSchemaPropertyPointerMap(value, schema) {
+  const matches = [];
+  collectClosedSchemaPropertyPointers(value, schema, schema, "$", "", matches);
+  const pointersByError = new Map();
+  for (const entry of matches) {
+    const key = `${entry.instance_path} is not allowed`;
+    if (!pointersByError.has(key)) pointersByError.set(key, []);
+    pointersByError.get(key).push(entry.json_pointer);
+  }
+  return pointersByError;
+}
+
+function collectClosedSchemaPropertyPointers(value, schema, rootSchema, instancePath, jsonPointer, output) {
+  if (!schema || typeof schema !== "object") return;
+  let node = schema;
+  if (node.$ref) {
+    try {
+      node = resolveLocalSchemaRef(rootSchema, node.$ref);
+    } catch {
+      return;
+    }
+  }
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if (node.properties?.[key]) {
+        collectClosedSchemaPropertyPointers(child, node.properties[key], rootSchema, `${instancePath}.${key}`, `${jsonPointer}/${escapePointer(key)}`, output);
+      } else if (node.additionalProperties === false) {
+        output.push({
+          instance_path: `${instancePath}.${key}`,
+          json_pointer: `${jsonPointer}/${escapePointer(key)}`,
+        });
+      }
+    }
+  } else if (Array.isArray(value) && node.items) {
+    value.forEach((child, index) => {
+      collectClosedSchemaPropertyPointers(child, node.items, rootSchema, `${instancePath}[${index}]`, `${jsonPointer}/${index}`, output);
+    });
+  }
+  for (const branch of node.allOf ?? []) {
+    collectClosedSchemaPropertyPointers(value, branch, rootSchema, instancePath, jsonPointer, output);
+  }
+  for (const branch of node.oneOf ?? []) {
+    collectClosedSchemaPropertyPointers(value, branch, rootSchema, instancePath, jsonPointer, output);
+  }
+  if (node.if) collectClosedSchemaPropertyPointers(value, node.if, rootSchema, instancePath, jsonPointer, output);
+  if (node.then) collectClosedSchemaPropertyPointers(value, node.then, rootSchema, instancePath, jsonPointer, output);
+  if (node.else) collectClosedSchemaPropertyPointers(value, node.else, rootSchema, instancePath, jsonPointer, output);
 }
 
 function sortedUnique(values, comparator = compareCodePoints) {
@@ -279,20 +430,107 @@ export function stableTopologicalOrder(tickets) {
   return { ordered, cyclic: ordered.length !== ids.length, outgoing };
 }
 
-function reachable(outgoing, from, to) {
-  const visited = new Set([from]);
-  const queue = [from];
-  for (let cursor = 0; cursor < queue.length; cursor += 1) {
-    const current = queue[cursor];
-    for (const child of outgoing.get(current) ?? []) {
-      if (child === to) return true;
-      if (!visited.has(child)) {
-        visited.add(child);
-        queue.push(child);
+function lowerBoundSelectorPath(entries, targetPath) {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (compareCodePoints(entries[middle].normalizedPath, targetPath) < 0) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function addScopeOverlapPair(pairSet, pairs, leftIndex, rightIndex, state, maxPairs) {
+  state.comparisons += 1;
+  if (state.comparisons > maxPairs) return false;
+  if (leftIndex === rightIndex) return true;
+  const first = Math.min(leftIndex, rightIndex);
+  const second = Math.max(leftIndex, rightIndex);
+  const key = `${first}:${second}`;
+  if (pairSet.has(key)) return true;
+  pairSet.add(key);
+  pairs.push({ left_index: first, right_index: second });
+  return true;
+}
+
+function collectScopeOverlapPairs(tickets, maxPairs) {
+  const entries = [];
+  for (const [ticketIndex, ticket] of tickets.entries()) {
+    if (typeof ticket?.id !== "string" || !Array.isArray(ticket.scope_selectors)) continue;
+    for (const [selectorIndex, selector] of ticket.scope_selectors.entries()) {
+      if ((selector?.kind !== "file" && selector?.kind !== "directory") || !validRelativePath(selector?.path)) continue;
+      entries.push({
+        kind: selector.kind,
+        normalizedPath: collisionKey(selector.path),
+        selector_index: selectorIndex,
+        ticket_index: ticketIndex,
+      });
+    }
+  }
+  entries.sort((left, right) =>
+    compareCodePoints(left.normalizedPath, right.normalizedPath)
+    || compareCodePoints(left.kind, right.kind)
+    || left.ticket_index - right.ticket_index
+    || left.selector_index - right.selector_index,
+  );
+
+  const pairSet = new Set();
+  const pairs = [];
+  const state = { comparisons: 0 };
+  for (let start = 0; start < entries.length;) {
+    let end = start + 1;
+    while (end < entries.length && entries[end].normalizedPath === entries[start].normalizedPath) end += 1;
+    for (let left = start; left < end; left += 1) {
+      for (let right = left + 1; right < end; right += 1) {
+        if (!addScopeOverlapPair(pairSet, pairs, entries[left].ticket_index, entries[right].ticket_index, state, maxPairs)) {
+          return { comparisons: state.comparisons, exceeded: true, pairs };
+        }
+      }
+    }
+    start = end;
+  }
+
+  for (const entry of entries) {
+    if (entry.kind !== "directory") continue;
+    const prefix = `${entry.normalizedPath}/`;
+    for (let index = lowerBoundSelectorPath(entries, prefix);
+      index < entries.length && entries[index].normalizedPath.startsWith(prefix);
+      index += 1) {
+      if (!addScopeOverlapPair(pairSet, pairs, entry.ticket_index, entries[index].ticket_index, state, maxPairs)) {
+        return { comparisons: state.comparisons, exceeded: true, pairs };
       }
     }
   }
-  return false;
+
+  pairs.sort((left, right) => left.left_index - right.left_index || left.right_index - right.right_index);
+  return { comparisons: state.comparisons, exceeded: false, pairs };
+}
+
+function buildReachabilityLookup(tickets, ordered, outgoing) {
+  const ids = tickets.map((ticket) => ticket.id);
+  const indexById = new Map(ids.map((id, index) => [id, index]));
+  const words = Math.ceil(ids.length / 32);
+  const bitsets = ids.map(() => new Uint32Array(words));
+  for (let orderedIndex = ordered.length - 1; orderedIndex >= 0; orderedIndex -= 1) {
+    const id = ordered[orderedIndex];
+    const sourceIndex = indexById.get(id);
+    if (sourceIndex === undefined) continue;
+    const sourceBits = bitsets[sourceIndex];
+    for (const child of outgoing.get(id) ?? []) {
+      const childIndex = indexById.get(child);
+      if (childIndex === undefined) continue;
+      sourceBits[childIndex >> 5] |= 1 << (childIndex & 31);
+      const childBits = bitsets[childIndex];
+      for (let word = 0; word < words; word += 1) sourceBits[word] |= childBits[word];
+    }
+  }
+  return (from, to) => {
+    const fromIndex = indexById.get(from);
+    const toIndex = indexById.get(to);
+    if (fromIndex === undefined || toIndex === undefined) return false;
+    return (bitsets[fromIndex][toIndex >> 5] & (1 << (toIndex & 31))) !== 0;
+  };
 }
 
 function validateStringTree(value, pointer, errors) {
@@ -343,7 +581,7 @@ export function renderTicketDocuments(manifest) {
     `| ${ticket.id} | ${markdownTableCell(ticket.title)} | ${ticket.work_type} | ${ticket.depends_on.join(", ") || "—"} | ${markdownTableCell(ticket.goal)} |`,
   );
   documents.set(`${root}/README.md`, [
-    "<!-- generated-by: autosk-flow/ticket-markdown/v1 -->",
+    RENDERER_HEADER,
     "",
     "# Tickets",
     "",
@@ -355,7 +593,7 @@ export function renderTicketDocuments(manifest) {
     "",
     "## Ticket set",
     "",
-    "| ID | Work type | Work type | Depends on | Goal |".replace("| Work type | Work type |", "| Title | Work type |"),
+    "| ID | Title | Work type | Depends on | Goal |",
     "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
@@ -369,7 +607,7 @@ export function renderTicketDocuments(manifest) {
     const entry = canonicalStringify(ticket).trimEnd();
     const fence = markdownFence(entry);
     documents.set(ticket.document_path, [
-      "<!-- generated-by: autosk-flow/ticket-markdown/v1 -->",
+      RENDERER_HEADER,
       "",
       `# ${ticket.id} — ${oneLine(ticket.title)}`,
       "",
@@ -411,14 +649,32 @@ function documentInventoryEntries(candidateDocuments) {
   return null;
 }
 
+function renderedDocumentLimitConfig(manifest) {
+  const limits = manifest?.policy?.limits ?? {};
+  return {
+    maxEntries: ABSOLUTE_MAX_RENDERED_DOCUMENT_ENTRIES,
+    maxPerDocumentBytes: activeLimit(limits.max_rendered_document_bytes, ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES),
+    maxTotalBytes: activeLimit(limits.max_total_rendered_document_bytes, ABSOLUTE_MAX_TOTAL_RENDERED_DOCUMENT_BYTES),
+  };
+}
+
 export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
   const errors = [];
   const entries = documentInventoryEntries(candidateDocuments);
   if (!entries) {
     return [error("tickets_rendered_path_missing", "/rendered_documents", "candidate rendered document inventory is missing")];
   }
+  const documentLimits = renderedDocumentLimitConfig(manifest);
+  if (entries.length > documentLimits.maxEntries) {
+    return [error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_rendered_document_entries exceeded", {
+      actual: entries.length,
+      limit: documentLimits.maxEntries,
+      limit_name: "max_rendered_document_entries",
+    })];
+  }
 
   const actual = new Map();
+  let totalBytes = 0;
   for (const [index, entry] of entries.entries()) {
     const [documentPath, content] = entry;
     const pointer = `/rendered_documents/${index}`;
@@ -431,12 +687,16 @@ export function compareRenderedTicketDocuments(manifest, candidateDocuments) {
       errors.push(error("tickets_rendered_bytes_mismatch", pointer, "candidate rendered document bytes are invalid", { path: documentPath }));
       continue;
     }
+    pushLimitError(errors, pointer, "max_rendered_document_bytes", bytes.byteLength, documentLimits.maxPerDocumentBytes);
+    totalBytes += bytes.byteLength;
     if (actual.has(documentPath)) {
       errors.push(error("tickets_rendered_path_extra", pointer, "candidate rendered document path is duplicated", { path: documentPath }));
       continue;
     }
     actual.set(documentPath, bytes);
   }
+  pushLimitError(errors, "/rendered_documents", "max_total_rendered_document_bytes", totalBytes, documentLimits.maxTotalBytes);
+  if (errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded")) return errors.sort(errorComparator);
 
   const expected = renderTicketDocuments(manifest);
   const unmatchedActual = new Set(actual.keys());
@@ -506,15 +766,46 @@ function resolveInsideCandidateRoot(candidateRoot, relativePath) {
   return { absoluteRoot, absolutePath };
 }
 
+function pathChainIdentity(candidateRoot, relativePath, includeLeaf) {
+  const absoluteRoot = path.resolve(candidateRoot);
+  const segments = relativePath.split("/");
+  const last = includeLeaf ? segments.length : segments.length - 1;
+  const chain = [];
+  for (let index = 0; index <= last; index += 1) {
+    const current = index === 0 ? absoluteRoot : path.join(absoluteRoot, ...segments.slice(0, index));
+    const metadata = lstatSync(current);
+    chain.push(`${metadata.dev}:${metadata.ino}:${metadata.mode}:${metadata.size}:${metadata.mtimeMs}`);
+  }
+  return chain.join("|");
+}
+
+function readDescriptorBounded(descriptor, maxBytes) {
+  const chunks = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    const length = Math.min(65_536, maxBytes + 1 - total);
+    if (length === 0) break;
+    const chunk = Buffer.allocUnsafe(length);
+    const bytesRead = readSync(descriptor, chunk, 0, length, null);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes = null, limitName = null) {
   const resolved = resolveInsideCandidateRoot(candidateRoot, relativePath);
   if (!resolved) {
     errors.push(error("tickets_path_invalid", pointer, "candidate path escapes, traverses a symlink/non-directory ancestor, or is outside the closed relative-path dialect", { path: relativePath }));
     return null;
   }
+  let descriptor = null;
   try {
-    const metadata = lstatSync(resolved.absolutePath);
-    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    const chainBefore = pathChainIdentity(candidateRoot, relativePath, false);
+    descriptor = openSync(resolved.absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const metadata = fstatSync(descriptor);
+    if (!metadata.isFile()) {
       errors.push(error("tickets_path_invalid", pointer, "candidate path is not a regular non-symlink file", { path: relativePath }));
       return null;
     }
@@ -527,11 +818,19 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
       }));
       return null;
     }
-    const bytes = readFileSync(resolved.absolutePath);
-    if (Number.isInteger(maxBytes) && bytes.byteLength > maxBytes) {
+    const effectiveMaxBytes = Number.isInteger(maxBytes) ? maxBytes : ABSOLUTE_MAX_RENDERED_DOCUMENT_BYTES;
+    const bytes = readDescriptorBounded(descriptor, effectiveMaxBytes);
+    const metadataAfter = fstatSync(descriptor);
+    const chainAfter = pathChainIdentity(candidateRoot, relativePath, false);
+    if (chainAfter !== chainBefore || metadataAfter.dev !== metadata.dev || metadataAfter.ino !== metadata.ino
+        || metadataAfter.size !== metadata.size || metadataAfter.mtimeMs !== metadata.mtimeMs) {
+      errors.push(error("tickets_path_invalid", pointer, "candidate path changed during bounded read", { path: relativePath }));
+      return null;
+    }
+    if (bytes.byteLength > effectiveMaxBytes) {
       errors.push(error("tickets_manifest_limits_exceeded", pointer, `${limitName ?? "file byte limit"} exceeded during read`, {
         actual: bytes.byteLength,
-        limit: maxBytes,
+        limit: effectiveMaxBytes,
         limit_name: limitName,
         path: relativePath,
       }));
@@ -544,7 +843,24 @@ function regularFileBytes(candidateRoot, relativePath, errors, pointer, maxBytes
       path: relativePath,
     }));
     return null;
+  } finally {
+    if (descriptor !== null) closeSync(descriptor);
   }
+}
+
+function boundedDirectoryEntries(absolutePath, maxEntries) {
+  const directory = opendirSync(absolutePath);
+  const entries = [];
+  try {
+    while (entries.length <= maxEntries) {
+      const entry = directory.readSync();
+      if (entry === null) break;
+      entries.push(entry);
+    }
+  } finally {
+    directory.closeSync();
+  }
+  return entries.sort((left, right) => compareCodePoints(left.name, right.name));
 }
 
 export function loadCandidateTicketDocuments(candidateRoot, manifest) {
@@ -561,8 +877,10 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
 
   let rootMetadata;
   let directoryMetadata;
+  const documentLimits = renderedDocumentLimitConfig(manifest);
   let entries;
   try {
+    const chainBefore = pathChainIdentity(candidateRoot, directoryPath, true);
     rootMetadata = lstatSync(resolved.absoluteRoot);
     directoryMetadata = lstatSync(resolved.absolutePath);
     if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
@@ -571,8 +889,10 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
     if (directoryMetadata.isSymbolicLink() || !directoryMetadata.isDirectory()) {
       throw new Error("Tickets path is not a regular directory");
     }
-    entries = readdirSync(resolved.absolutePath, { withFileTypes: true })
-      .sort((left, right) => compareCodePoints(left.name, right.name));
+    entries = boundedDirectoryEntries(resolved.absolutePath, documentLimits.maxEntries);
+    if (pathChainIdentity(candidateRoot, directoryPath, true) !== chainBefore) {
+      throw new Error("candidate Tickets directory changed during enumeration");
+    }
   } catch (cause) {
     return {
       documents,
@@ -582,7 +902,18 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
       })],
     };
   }
+  if (entries.length > documentLimits.maxEntries) {
+    return {
+      documents,
+      errors: [error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_rendered_document_entries exceeded", {
+        actual: entries.length,
+        limit: documentLimits.maxEntries,
+        limit_name: "max_rendered_document_entries",
+      })],
+    };
+  }
 
+  let totalBytes = 0;
   for (const [index, entry] of entries.entries()) {
     const relativePath = `${directoryPath}/${entry.name}`;
     const pointer = `/rendered_documents/${index}`;
@@ -598,22 +929,40 @@ export function loadCandidateTicketDocuments(candidateRoot, manifest) {
       relativePath,
       errors,
       pointer,
-      manifest.policy?.limits?.max_rendered_document_bytes,
+      documentLimits.maxPerDocumentBytes,
       "max_rendered_document_bytes",
     );
-    if (bytes !== null) documents.set(relativePath, bytes);
+    if (bytes !== null) {
+      totalBytes += bytes.byteLength;
+      documents.set(relativePath, bytes);
+      if (totalBytes > documentLimits.maxTotalBytes) {
+        errors.push(error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_total_rendered_document_bytes exceeded", {
+          actual: totalBytes,
+          limit: documentLimits.maxTotalBytes,
+          limit_name: "max_total_rendered_document_bytes",
+        }));
+        break;
+      }
+    }
   }
   return { documents, errors: errors.sort(errorComparator) };
 }
 
-export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath, options = {}) {
+export function validateTicketsCandidateTreeResult(candidateRoot, manifestRelativePath, options = {}) {
   const errors = [];
   let schema = options.schema;
   if (!schema) {
     try {
       schema = JSON.parse(readFileSync(options.schemaPath ?? MANIFEST_SCHEMA_PATH, "utf8"));
     } catch (cause) {
-      return [error("tickets_manifest_schema_invalid", "", "Tickets manifest Schema is missing or invalid", { cause: String(cause) })];
+      return {
+        candidate_documents: new Map(),
+        digests: null,
+        errors: [error("tickets_manifest_schema_invalid", "", "Tickets manifest Schema is missing or invalid", { cause: String(cause) })],
+        manifest: null,
+        raw_bytes: null,
+        raw_text: null,
+      };
     }
   }
 
@@ -628,10 +977,28 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
     requestedManifestLimit,
     "max_manifest_bytes",
   );
-  if (rawBytes === null) return errors.sort(errorComparator);
+  if (rawBytes === null) {
+    return {
+      candidate_documents: new Map(),
+      digests: null,
+      errors: errors.sort(errorComparator),
+      manifest: null,
+      raw_bytes: null,
+      raw_text: null,
+    };
+  }
   const parsed = parseTicketsManifest(rawBytes, { maxManifestBytes: requestedManifestLimit });
   errors.push(...parsed.errors);
-  if (!parsed.manifest || parsed.errors.length > 0) return errors.sort(errorComparator);
+  if (!parsed.manifest || parsed.errors.length > 0) {
+    return {
+      candidate_documents: new Map(),
+      digests: null,
+      errors: errors.sort(errorComparator),
+      manifest: parsed.manifest,
+      raw_bytes: rawBytes,
+      raw_text: parsed.text,
+    };
+  }
 
   const expectedManifestPath = `docs/autosk/epics/${parsed.manifest.epic_id}/tickets/tickets.manifest.json`;
   if (manifestRelativePath !== expectedManifestPath) {
@@ -640,6 +1007,18 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
       expected: expectedManifestPath,
     }));
   }
+  const preflightErrors = validateTicketsManifestPreflight(parsed.manifest, schema, rawBytes);
+  errors.push(...preflightErrors);
+  if (errors.length > 0) {
+    return {
+      candidate_documents: new Map(),
+      digests: null,
+      errors: errors.sort(errorComparator),
+      manifest: parsed.manifest,
+      raw_bytes: rawBytes,
+      raw_text: parsed.text,
+    };
+  }
 
   const inventory = loadCandidateTicketDocuments(candidateRoot, parsed.manifest);
   errors.push(...inventory.errors);
@@ -647,7 +1026,144 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
     candidateDocuments: inventory.documents,
     previousManifestContext: options.previousManifestContext,
   }));
-  return errors.sort(errorComparator);
+  const sortedErrors = errors.sort(errorComparator);
+  return {
+    candidate_documents: inventory.documents,
+    digests: sortedErrors.length === 0 ? ticketManifestDigests(parsed.manifest) : null,
+    errors: sortedErrors,
+    manifest: parsed.manifest,
+    raw_bytes: rawBytes,
+    raw_text: parsed.text,
+  };
+}
+
+export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath, options = {}) {
+  return validateTicketsCandidateTreeResult(candidateRoot, manifestRelativePath, options).errors;
+}
+
+function gitBytes(repositoryRoot, args, maxBuffer) {
+  const result = spawnSync("git", ["-C", path.resolve(repositoryRoot), ...args], {
+    encoding: null,
+    env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" },
+    maxBuffer,
+  });
+  if (result.error || result.status !== 0) {
+    const detail = result.error?.message ?? Buffer.from(result.stderr ?? "").toString("utf8").trim();
+    throw new Error(detail || `git ${args[0]} failed`);
+  }
+  return Buffer.from(result.stdout);
+}
+
+function gitObjectBytes(repositoryRoot, objectOid, maxBytes) {
+  const sizeText = gitBytes(repositoryRoot, ["cat-file", "-s", objectOid], 1024).toString("utf8").trim();
+  const size = Number(sizeText);
+  if (!Number.isSafeInteger(size) || size < 0) throw new Error("Git object size is invalid");
+  if (size > maxBytes) return { bytes: null, size };
+  const bytes = gitBytes(repositoryRoot, ["cat-file", "blob", objectOid], maxBytes + 1);
+  if (bytes.byteLength !== size) throw new Error("Git object size changed during immutable read");
+  return { bytes, size };
+}
+
+export function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifestRelativePath, options = {}) {
+  const empty = (errors) => ({ candidate_documents: new Map(), digests: null, errors, manifest: null, raw_bytes: null, raw_text: null, tree_oid: treeOid });
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(treeOid) || !validRelativePath(manifestRelativePath)) {
+    return empty([error("tickets_path_invalid", "/candidate_tree_oid", "candidate Git tree identity or manifest path is invalid")]);
+  }
+  let schema = options.schema;
+  try {
+    if (!schema) schema = JSON.parse(readFileSync(options.schemaPath ?? MANIFEST_SCHEMA_PATH, "utf8"));
+    const requestedManifestLimit = Number.isInteger(options.maxManifestBytes)
+      ? Math.min(Math.max(0, options.maxManifestBytes), ABSOLUTE_MAX_MANIFEST_BYTES)
+      : ABSOLUTE_MAX_MANIFEST_BYTES;
+    const type = gitBytes(repositoryRoot, ["cat-file", "-t", treeOid], 1024).toString("utf8").trim();
+    if (type !== "tree") return empty([error("tickets_path_invalid", "/candidate_tree_oid", "candidate Git identity is not a tree")]);
+    const manifestOid = gitBytes(repositoryRoot, ["rev-parse", `${treeOid}:${manifestRelativePath}`], 1024).toString("utf8").trim();
+    const manifestObject = gitObjectBytes(repositoryRoot, manifestOid, requestedManifestLimit);
+    if (manifestObject.bytes === null) {
+      return empty([error("tickets_manifest_limits_exceeded", "/manifest_path", "max_manifest_bytes exceeded before Git object read", {
+        actual: manifestObject.size,
+        limit: requestedManifestLimit,
+        limit_name: "max_manifest_bytes",
+      })]);
+    }
+    const parsed = parseTicketsManifest(manifestObject.bytes, { maxManifestBytes: requestedManifestLimit });
+    if (!parsed.manifest || parsed.errors.length > 0) return { ...empty(parsed.errors), raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    const expectedManifestPath = `docs/autosk/epics/${parsed.manifest.epic_id}/tickets/tickets.manifest.json`;
+    if (manifestRelativePath !== expectedManifestPath) {
+      return { ...empty([error("tickets_rendered_path_mismatch", "/manifest_path", "manifest path does not match its exact Epic identity", {
+        actual: manifestRelativePath,
+        expected: expectedManifestPath,
+      })]), manifest: parsed.manifest, raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    }
+    const preflightErrors = validateTicketsManifestPreflight(parsed.manifest, schema, manifestObject.bytes);
+    if (preflightErrors.length > 0) {
+      return { ...empty(preflightErrors), manifest: parsed.manifest, raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    }
+
+    const directoryPath = path.posix.dirname(manifestRelativePath);
+    const listing = gitBytes(repositoryRoot, ["ls-tree", "-z", `${treeOid}:${directoryPath}`], ABSOLUTE_MAX_MANIFEST_BYTES);
+    const records = listing.subarray(0, Math.max(0, listing.length - 1)).toString("utf8").split("\0").filter(Boolean);
+    if (records.length > ABSOLUTE_MAX_RENDERED_DOCUMENT_ENTRIES) {
+      return { ...empty([error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_rendered_document_entries exceeded", {
+        actual: records.length,
+        limit: ABSOLUTE_MAX_RENDERED_DOCUMENT_ENTRIES,
+        limit_name: "max_rendered_document_entries",
+      })]), manifest: parsed.manifest, raw_bytes: manifestObject.bytes, raw_text: parsed.text };
+    }
+    const documentLimits = renderedDocumentLimitConfig(parsed.manifest);
+    const candidateDocuments = new Map();
+    const inventoryErrors = [];
+    let totalBytes = 0;
+    for (const [index, record] of records.sort(compareCodePoints).entries()) {
+      const match = record.match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})\t([^\0]+)$/u);
+      if (!match) {
+        inventoryErrors.push(error("tickets_path_invalid", `/rendered_documents/${index}`, "candidate Git tree entry is malformed"));
+        continue;
+      }
+      const [, mode, type, objectOid, name] = match;
+      const relativePath = `${directoryPath}/${name}`;
+      if (name === "tickets.manifest.json") continue;
+      if (type !== "blob" || (mode !== "100644" && mode !== "100755") || !validRelativePath(relativePath)) {
+        inventoryErrors.push(error("tickets_rendered_path_extra", `/rendered_documents/${index}`, "candidate Tickets inventory contains a non-regular or nested Git entry", { path: relativePath }));
+        continue;
+      }
+      const object = gitObjectBytes(repositoryRoot, objectOid, documentLimits.maxPerDocumentBytes);
+      if (object.bytes === null) {
+        inventoryErrors.push(error("tickets_manifest_limits_exceeded", `/rendered_documents/${index}`, "max_rendered_document_bytes exceeded before Git object read", {
+          actual: object.size,
+          limit: documentLimits.maxPerDocumentBytes,
+          limit_name: "max_rendered_document_bytes",
+          path: relativePath,
+        }));
+        continue;
+      }
+      totalBytes += object.size;
+      if (totalBytes > documentLimits.maxTotalBytes) {
+        inventoryErrors.push(error("tickets_manifest_limits_exceeded", "/rendered_documents", "max_total_rendered_document_bytes exceeded before Git object retention", {
+          actual: totalBytes,
+          limit: documentLimits.maxTotalBytes,
+          limit_name: "max_total_rendered_document_bytes",
+        }));
+        break;
+      }
+      candidateDocuments.set(relativePath, object.bytes);
+    }
+    const errors = [...inventoryErrors, ...validateTicketsManifest(parsed.manifest, schema, manifestObject.bytes, {
+      candidateDocuments,
+      previousManifestContext: options.previousManifestContext,
+    })].sort(errorComparator);
+    return {
+      candidate_documents: candidateDocuments,
+      digests: errors.length === 0 ? ticketManifestDigests(parsed.manifest) : null,
+      errors,
+      manifest: parsed.manifest,
+      raw_bytes: manifestObject.bytes,
+      raw_text: parsed.text,
+      tree_oid: treeOid,
+    };
+  } catch (cause) {
+    return empty([error("tickets_path_invalid", "/candidate_tree_oid", "candidate Git tree is missing, unreadable, or exceeds host bounds", { cause: String(cause) })]);
+  }
 }
 
 function candidateDocumentsFromContractFiles(files) {
@@ -708,6 +1224,51 @@ function pushLimitError(errors, jsonPointer, limitName, actual, limit) {
       limit_name: limitName,
     }));
   }
+}
+
+function activeLimit(declared, absoluteLimit) {
+  return Number.isInteger(declared) ? Math.min(Math.max(0, declared), absoluteLimit) : absoluteLimit;
+}
+
+function jsonShapeLimitErrors(value, maxDepth = ABSOLUTE_MAX_JSON_DEPTH) {
+  const errors = [];
+  const active = new WeakSet();
+  const stack = [{ value, pointer: "", depth: 1, exit: false }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    const item = current.value;
+    if (!item || typeof item !== "object") continue;
+    if (current.exit) {
+      active.delete(item);
+      continue;
+    }
+    if (active.has(item)) {
+      errors.push(error("tickets_manifest_limits_exceeded", current.pointer, "manifest contains a JSON cycle", {
+        limit_name: "max_json_depth",
+      }));
+      continue;
+    }
+    if (current.depth > maxDepth) {
+      errors.push(error("tickets_manifest_limits_exceeded", current.pointer, "max_json_depth exceeded", {
+        actual: current.depth,
+        limit: maxDepth,
+        limit_name: "max_json_depth",
+      }));
+      continue;
+    }
+    active.add(item);
+    stack.push({ value: item, pointer: current.pointer, depth: current.depth, exit: true });
+    if (Array.isArray(item)) {
+      for (let index = item.length - 1; index >= 0; index -= 1) {
+        stack.push({ value: item[index], pointer: `${current.pointer}/${index}`, depth: current.depth + 1, exit: false });
+      }
+    } else {
+      for (const key of Object.keys(item).sort(compareCodePoints).reverse()) {
+        stack.push({ value: item[key], pointer: `${current.pointer}/${escapePointer(key)}`, depth: current.depth + 1, exit: false });
+      }
+    }
+  }
+  return errors.sort(errorComparator);
 }
 
 function countLimitErrors(manifest) {
@@ -945,30 +1506,22 @@ function validateRevisionLineage(manifest, schema, context, errors) {
   }
 }
 
-export function validateTicketsManifest(manifest, schema, rawText = null, options = {}) {
+function validateTicketsManifestPreflight(manifest, schema, rawText = null) {
   const errors = [];
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     return [error("tickets_manifest_schema_invalid", "", "manifest root must be an object")];
   }
-
-  const rawBytes = rawText === null ? Buffer.byteLength(canonicalStringify(manifest), "utf8") : inputByteLength(rawText);
-  const declaredManifestLimit = manifest.policy?.limits?.max_manifest_bytes;
-  if (rawBytes !== null && Number.isInteger(declaredManifestLimit) && rawBytes > declaredManifestLimit) {
-    return [error("tickets_manifest_limits_exceeded", "", "max_manifest_bytes exceeded", {
-      actual: rawBytes,
-      limit: declaredManifestLimit,
-      limit_name: "max_manifest_bytes",
-    })];
-  }
-
-  const countErrors = countLimitErrors(manifest);
-  if (countErrors.length > 0) return [...errors, ...countErrors].sort(errorComparator);
+  const shapeErrors = jsonShapeLimitErrors(manifest);
+  if (shapeErrors.length > 0) return shapeErrors;
 
   const schemaErrors = validateJsonSchema(manifest, schema);
+  const closedPointers = schemaErrors.some((schemaError) => String(schemaError).endsWith(" is not allowed"))
+    ? closedSchemaPropertyPointerMap(manifest, schema)
+    : null;
   for (const schemaError of schemaErrors) {
     errors.push(error(
       "tickets_manifest_schema_invalid",
-      schemaInstancePathToJsonPointer(schemaError),
+      schemaInstancePathToJsonPointer(schemaError, manifest, schema, closedPointers),
       String(schemaError),
     ));
   }
@@ -979,13 +1532,37 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
   }
   if (schemaErrors.length > 0) return errors.sort(errorComparator);
 
+  const rawBytes = rawText === null ? Buffer.byteLength(canonicalStringify(manifest), "utf8") : inputByteLength(rawText);
+  const declaredManifestLimit = manifest.policy.limits.max_manifest_bytes;
+  if (rawBytes !== null && rawBytes > declaredManifestLimit) {
+    errors.push(error("tickets_manifest_limits_exceeded", "", "max_manifest_bytes exceeded", {
+      actual: rawBytes,
+      limit: declaredManifestLimit,
+      limit_name: "max_manifest_bytes",
+    }));
+  }
+  errors.push(...countLimitErrors(manifest));
+  return errors.sort(errorComparator);
+}
+
+export function validateTicketsManifest(manifest, schema, rawText = null, options = {}) {
+  const preflightErrors = validateTicketsManifestPreflight(manifest, schema, rawText);
+  if (preflightErrors.some((entry) => entry.code !== "tickets_manifest_noncanonical")) return preflightErrors;
+  const errors = [...preflightErrors];
+
   const tickets = Array.isArray(manifest.tickets) ? manifest.tickets : [];
   const ticketIds = tickets.map((ticket) => ticket?.id).filter((id) => typeof id === "string");
   if (!sortedUnique(ticketIds)) errors.push(error("tickets_id_duplicate", "/tickets", "Ticket IDs must be unique and sorted"));
   const idSet = new Set(ticketIds);
+  if (!sortedUnique(Array.isArray(manifest.exclusions) ? manifest.exclusions : [])) {
+    errors.push(error("tickets_manifest_noncanonical", "/exclusions", "exclusions must be unique and sorted"));
+  }
   const rootRefs = Array.isArray(manifest.governing_artifacts) ? manifest.governing_artifacts.map((entry) => entry.ref_id) : [];
   if (!sortedUnique(rootRefs)) errors.push(error("tickets_governing_ref_invalid", "/governing_artifacts", "governing refs must be unique and sorted"));
   const rootRefSet = new Set(rootRefs);
+  const rootArtifactByRef = new Map(Array.isArray(manifest.governing_artifacts)
+    ? manifest.governing_artifacts.map((entry) => [entry.ref_id, entry])
+    : []);
   const expectedOidLength = manifest.object_format === "sha256" ? 64 : 40;
   for (const [index, governing] of (manifest.governing_artifacts ?? []).entries()) {
     if (typeof governing?.published_commit_oid === "string" && governing.published_commit_oid.length !== expectedOidLength) {
@@ -1037,11 +1614,36 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
     for (const [referenceIndex, reference] of governingRefs.entries()) {
       if (!rootRefSet.has(reference)) errors.push(error("tickets_governing_ref_invalid", `${pointer}/governing_refs/${referenceIndex}`, "governing ref is not declared at manifest root"));
     }
-    if (!governingRefs.some((reference) => reference.startsWith("tech_plan:"))) {
+    if (!governingRefs.some((reference) => rootArtifactByRef.get(reference)?.kind === "tech_plan")) {
       errors.push(error("tickets_governing_ref_invalid", `${pointer}/governing_refs`, "Planned Ticket must reference Tech Plan authority"));
     }
     if (ticket.review_policy_ref !== manifest.policy?.review_policy_ref) {
       errors.push(error("tickets_governing_ref_invalid", `${pointer}/review_policy_ref`, "Ticket review policy must equal the manifest review policy"));
+    }
+    const materialDecisionRefs = Array.isArray(ticket.material_decision_refs) ? ticket.material_decision_refs : [];
+    if (!sortedUnique(materialDecisionRefs)) {
+      errors.push(error("tickets_governing_ref_invalid", `${pointer}/material_decision_refs`, "material decision refs must be unique and sorted"));
+    }
+    const workContractRefs = Array.isArray(ticket.work_contract_refs) ? ticket.work_contract_refs : [];
+    if (!sortedUnique(workContractRefs)) {
+      errors.push(error("tickets_governing_ref_invalid", `${pointer}/work_contract_refs`, "work contract refs must be unique and sorted"));
+    }
+    const approvalRefs = Array.isArray(ticket.risk_and_rollback?.approval_refs) ? ticket.risk_and_rollback.approval_refs : [];
+    if (!sortedUnique(approvalRefs)) {
+      errors.push(error("tickets_governing_ref_invalid", `${pointer}/risk_and_rollback/approval_refs`, "approval refs must be unique and sorted"));
+    }
+    for (const [impactName, impact] of Object.entries(ticket.impacts ?? {}).sort(([left], [right]) => compareCodePoints(left, right))) {
+      const impactPaths = Array.isArray(impact?.paths) ? impact.paths : [];
+      if (!sortedUnique(impactPaths, selectorComparator)) {
+        errors.push(error("tickets_path_invalid", `${pointer}/impacts/${escapePointer(impactName)}/paths`, "impact paths must be unique and sorted by path then kind"));
+      }
+      const impactPathKeys = new Set();
+      for (const [impactPathIndex, impactPath] of impactPaths.entries()) {
+        if (!validRelativePath(impactPath?.path)) errors.push(error("tickets_path_invalid", `${pointer}/impacts/${escapePointer(impactName)}/paths/${impactPathIndex}/path`, "invalid impact path"));
+        const key = impactPath?.path ? `${collisionKey(impactPath.path)}\0${impactPath.kind}` : `invalid-${impactPathIndex}`;
+        if (impactPathKeys.has(key)) errors.push(error("tickets_path_collision", `${pointer}/impacts/${escapePointer(impactName)}/paths/${impactPathIndex}`, "duplicate/colliding impact path"));
+        impactPathKeys.add(key);
+      }
     }
 
     const criteria = Array.isArray(ticket.acceptance_criteria) ? ticket.acceptance_criteria : [];
@@ -1074,17 +1676,27 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
     errors.push(error("tickets_rendered_bytes_mismatch", "/rendered_documents", "pinned renderer could not produce the document set", { cause: String(cause) }));
   }
   if (renderedDocuments) {
-    const renderedLimit = manifest.policy?.limits?.max_rendered_document_bytes;
+    const renderedLimits = renderedDocumentLimitConfig(manifest);
     const renderedLimitErrors = [];
+    let totalRenderedBytes = 0;
     for (const [documentPath, content] of renderedDocuments.entries()) {
+      const renderedBytes = Buffer.byteLength(content, "utf8");
+      totalRenderedBytes += renderedBytes;
       pushLimitError(
         renderedLimitErrors,
         `/rendered_documents/${escapePointer(documentPath)}`,
         "max_rendered_document_bytes",
-        Buffer.byteLength(content, "utf8"),
-        renderedLimit,
+        renderedBytes,
+        renderedLimits.maxPerDocumentBytes,
       );
     }
+    pushLimitError(
+      renderedLimitErrors,
+      "/rendered_documents",
+      "max_total_rendered_document_bytes",
+      totalRenderedBytes,
+      renderedLimits.maxTotalBytes,
+    );
     if (renderedLimitErrors.length > 0) return [...errors, ...renderedLimitErrors].sort(errorComparator);
     if (!Object.prototype.hasOwnProperty.call(options, "candidateDocuments")) {
       errors.push(error("tickets_rendered_path_missing", "/rendered_documents", "exact candidate rendered document inventory is required"));
@@ -1099,19 +1711,68 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
     errors.push(error("tickets_topological_order_invalid", "/topological_order", "topological_order does not match stable Kahn order", { expected: ordered }));
   }
 
-  for (let leftIndex = 0; leftIndex < tickets.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < tickets.length; rightIndex += 1) {
-      const left = tickets[leftIndex];
-      const right = tickets[rightIndex];
-      const overlaps = (left.scope_selectors ?? []).some((a) => (right.scope_selectors ?? []).some((b) => selectorsOverlap(a, b)));
-      if (!overlaps) continue;
-      if (!reachable(outgoing, left.id, right.id) && !reachable(outgoing, right.id, left.id)) {
-        errors.push(error("tickets_scope_overlap_unordered", `/tickets/${rightIndex}/scope_selectors`, "overlapping Tickets are not transitively ordered", { left: left.id, right: right.id }, [`/tickets/${leftIndex}/scope_selectors`]));
+  const maxOverlapPairs = activeLimit(manifest.policy?.limits?.max_scope_overlap_pairs, ABSOLUTE_MAX_SCOPE_OVERLAP_PAIRS);
+  const overlapPairs = collectScopeOverlapPairs(tickets, maxOverlapPairs);
+  if (overlapPairs.exceeded) {
+    errors.push(error("tickets_manifest_limits_exceeded", "/tickets", "max_scope_overlap_pairs exceeded", {
+      actual: overlapPairs.comparisons,
+      limit: maxOverlapPairs,
+      limit_name: "max_scope_overlap_pairs",
+    }));
+  } else {
+    const isReachable = buildReachabilityLookup(tickets, ordered, outgoing);
+    for (const pair of overlapPairs.pairs) {
+      const left = tickets[pair.left_index];
+      const right = tickets[pair.right_index];
+      if (!isReachable(left.id, right.id) && !isReachable(right.id, left.id)) {
+        errors.push(error("tickets_scope_overlap_unordered", `/tickets/${pair.right_index}/scope_selectors`, "overlapping Tickets are not transitively ordered", { left: left.id, right: right.id }, [`/tickets/${pair.left_index}/scope_selectors`]));
       }
     }
   }
 
   validateRevisionLineage(manifest, schema, options.previousManifestContext, errors);
+  return errors.sort(errorComparator);
+}
+
+export function validateTicketsValidationReceipt(receipt, schema, expectedBindings) {
+  const schemaErrors = validateJsonSchema(receipt, schema);
+  const closedPointers = schemaErrors.some((schemaError) => String(schemaError).endsWith(" is not allowed"))
+    ? closedSchemaPropertyPointerMap(receipt, schema)
+    : null;
+  const errors = schemaErrors.map((schemaError) => error(
+    "tickets_receipt_schema_invalid",
+    schemaInstancePathToJsonPointer(schemaError, receipt, schema, closedPointers),
+    String(schemaError),
+  ));
+  if (errors.length > 0) return errors.sort(errorComparator);
+  if (!expectedBindings || typeof expectedBindings !== "object" || Array.isArray(expectedBindings)) {
+    return [error("tickets_receipt_stale", "", "complete expected receipt bindings are required")];
+  }
+  for (const field of TICKETS_RECEIPT_BINDING_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(expectedBindings, field)) {
+      errors.push(error("tickets_receipt_stale", `/${escapePointer(field)}`, "expected receipt binding is missing"));
+    }
+  }
+  if (errors.length > 0) return errors.sort(errorComparator);
+  const entryIds = receipt.ticket_entry_digests.map((entry) => entry.ticket_id);
+  if (!sortedUnique(entryIds)) {
+    errors.push(error("tickets_receipt_stale", "/ticket_entry_digests", "receipt Ticket entry digests must be unique and sorted"));
+  }
+  if (receipt.rendered_documents.length !== receipt.ticket_entry_digests.length + 1) {
+    errors.push(error("tickets_receipt_stale", "/rendered_documents", "receipt must contain one overview plus one document per Ticket", {
+      rendered_document_count: receipt.rendered_documents.length,
+      ticket_entry_count: receipt.ticket_entry_digests.length,
+    }));
+  }
+  for (const field of TICKETS_RECEIPT_BINDING_FIELDS) {
+    const expected = expectedBindings[field];
+    if (!Object.prototype.hasOwnProperty.call(receipt, field) || canonicalStringify(receipt[field]) !== canonicalStringify(expected)) {
+      errors.push(error("tickets_receipt_stale", `/${escapePointer(field)}`, "receipt binding does not match the expected candidate context", {
+        actual: receipt[field] ?? null,
+        expected,
+      }));
+    }
+  }
   return errors.sort(errorComparator);
 }
 
@@ -1146,7 +1807,7 @@ export function parseTicketsManifest(input, options = {}) {
   if (hasUtf8Bom || text.startsWith("\uFEFF")) errors.push(error("tickets_manifest_noncanonical", "", "UTF-8 BOM is forbidden"));
   if (text.includes("\r")) errors.push(error("tickets_manifest_noncanonical", "", "CR/CRLF is forbidden"));
   for (const duplicate of duplicateJsonKeys(text)) {
-    errors.push(error("tickets_manifest_json_invalid", "", `duplicate JSON key ${duplicate.key}`, { offset: duplicate.offset }));
+    errors.push(error("tickets_manifest_json_invalid", duplicate.pointer ?? "", `duplicate JSON key ${duplicate.key}`, { offset: duplicate.offset }));
   }
   let manifest = null;
   try {
@@ -1154,6 +1815,7 @@ export function parseTicketsManifest(input, options = {}) {
   } catch (cause) {
     errors.push(error("tickets_manifest_json_invalid", "", "invalid JSON", { cause: String(cause) }));
   }
+  if (manifest !== null) errors.push(...jsonShapeLimitErrors(manifest, options.maxJsonDepth ?? ABSOLUTE_MAX_JSON_DEPTH));
   return { manifest, text, errors: errors.sort(errorComparator) };
 }
 
@@ -1206,6 +1868,15 @@ export function validateTicketsManifestDesign(files) {
     }
   }
   const tech = files["03-technical-plan.md"] ?? "";
+  const core = files["01-core-flows.md"] ?? "";
+  for (const reason of ["tickets_manifest_invalid", "tickets_manifest_stale"]) {
+    const resumeRow = `| ${reason} |`;
+    if (!core.includes(resumeRow)) errors.push(`01-core-flows.md: missing resume contract for ${reason}`);
+    if (!tech.includes(resumeRow)) errors.push(`03-technical-plan.md: missing resume contract for ${reason}`);
+  }
+  if (tech.includes("writes/read-backs immutable `tickets_validation_receipt`, freeze_artifact")) {
+    errors.push("03-technical-plan.md: validate_tickets_manifest must not mint the final receipt before freeze");
+  }
   if (!tech.includes("it never parses rendered Markdown for operational values")) {
     errors.push("03-technical-plan.md: manifest-only dispatcher prohibition is missing");
   }
@@ -1221,25 +1892,51 @@ export function ticketsManifestDesignDigest(files) {
   return domainDigest("autosk-flow/tickets-manifest-design/v1", preimage);
 }
 
-function commandLineOption(name) {
-  const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : null;
+function commandLineOptions(argv) {
+  const options = { candidateRoot: null, manifestPath: null };
+  const seen = new Set();
+  for (let index = 0; index < argv.length; index += 2) {
+    const name = argv[index];
+    const value = argv[index + 1];
+    if (name !== "--candidate-root" && name !== "--manifest-path") {
+      return { error: `unknown command-line argument ${name ?? "<missing>"}`, options };
+    }
+    if (seen.has(name)) return { error: `duplicate command-line argument ${name}`, options };
+    if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
+      return { error: `missing value for ${name}`, options };
+    }
+    seen.add(name);
+    if (name === "--candidate-root") options.candidateRoot = value;
+    else options.manifestPath = value;
+  }
+  return { error: null, options };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const candidateRoot = commandLineOption("--candidate-root");
-  const manifestPath = commandLineOption("--manifest-path");
-  if (candidateRoot !== null || manifestPath !== null) {
-    const errors = candidateRoot && manifestPath
-      ? validateTicketsCandidateTree(candidateRoot, manifestPath)
-      : [error("tickets_path_invalid", "/manifest_path", "--candidate-root and --manifest-path are both required")];
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  }
+}
+
+if (isMainModule()) {
+  const cli = commandLineOptions(process.argv.slice(2));
+  if (cli.error !== null) {
+    console.error(cli.error);
+    process.exitCode = 1;
+  } else if (cli.options.candidateRoot !== null || cli.options.manifestPath !== null) {
+    const { candidateRoot, manifestPath } = cli.options;
+    const result = candidateRoot && manifestPath
+      ? validateTicketsCandidateTreeResult(candidateRoot, manifestPath)
+      : { digests: null, errors: [error("tickets_path_invalid", "/manifest_path", "--candidate-root and --manifest-path are both required")] };
+    const errors = result.errors;
     if (errors.length > 0) {
       console.error(errors.map((entry) => `${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`).join("\n"));
       process.exitCode = 1;
     } else {
-      const raw = readFileSync(path.join(path.resolve(candidateRoot), ...manifestPath.split("/")));
-      const manifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
-      const digests = ticketManifestDigests(manifest);
+      const digests = result.digests;
       console.log("Tickets candidate-tree validation PASS");
       console.log(`manifest_digest=${digests.manifest_digest}`);
       console.log(`dag_digest=${digests.dag_digest}`);

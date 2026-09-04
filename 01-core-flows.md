@@ -246,9 +246,10 @@ Judge ранжирует варианты и выдаёт рекомендаци
 
 1. проверяет scope и ignored/untracked files;
 2. вычисляет candidate tree OID через временный Git index;
-3. создаёт недвигающий refs snapshot commit;
-4. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
-5. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.
+3. для Tickets повторно читает exact tree, сверяет pending validation proof и финализирует host-owned `TicketsValidationReceipt` с `candidate_tree_oid`, равным вычисленному tree OID; receipt не входит в самоидентифицируемое дерево;
+4. создаёт недвигающий refs snapshot commit;
+5. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
+6. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.
 
 Маршрут проверяющего выбирается по union фактических author и fixer families:
 
@@ -305,6 +306,8 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
 | Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection |
 | Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
+| tickets_manifest_invalid | validate_tickets_manifest до freeze; dispatch_ticket_dag после publication | corrected canonical manifest и regenerated views проходят Schema, semantic, DAG, indexed-overlap, lineage и exact-byte validation; set/subject change возвращается через present_tickets_breakdown и новый alignment; до повторной проверки Panel/child/blocker side effects отсутствуют |
+| tickets_manifest_stale | validate_tickets_manifest до freeze; dispatch_ticket_dag после publication | current planning/alignment/runtime/protocol/instruction/publication bindings восстановлены либо старый Tickets candidate/receipt/PASS voided через новый artifact cycle; receipt повторно привязан к exact frozen tree до Panel или dispatch |
 | planning_ref_init_invalid | init_planning_ref | corruption with otherwise valid base restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and a fresh init operation while preserving prior audit evidence; no adopt/reset |
 | planning_ref_capability_missing | recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup | pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged |
 | planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition | exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation |

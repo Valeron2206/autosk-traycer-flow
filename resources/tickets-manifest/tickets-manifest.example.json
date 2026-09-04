@@ -43,9 +43,11 @@
       "max_dependencies_per_ticket": 100,
       "max_manifest_bytes": 1048576,
       "max_rendered_document_bytes": 4194304,
+      "max_scope_overlap_pairs": 100000,
       "max_selectors_per_ticket": 100,
       "max_tickets": 1000,
       "max_total_edges": 10000,
+      "max_total_rendered_document_bytes": 16777216,
       "max_verification_bindings_per_criterion": 20
     },
     "path_scope_version": "autosk-flow/path-scope/v1",

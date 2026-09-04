@@ -16,6 +16,7 @@ import {
   MANIFEST_SCHEMA_PATH,
   RECEIPT_SCHEMA_PATH,
   ROOT,
+  TICKETS_RECEIPT_BINDING_FIELDS,
   canonicalStringify,
   compareRenderedTicketDocuments,
   duplicateJsonKeys,
@@ -29,8 +30,11 @@ import {
   ticketsManifestDesignDigest,
   validRelativePath,
   validateTicketsCandidateTree,
+  validateTicketsCandidateGitTree,
+  validateTicketsCandidateTreeResult,
   validateTicketsManifest,
   validateTicketsManifestDesign,
+  validateTicketsValidationReceipt,
 } from "../scripts/validate-tickets-manifest-design.mjs";
 
 const schema = JSON.parse(readFileSync(MANIFEST_SCHEMA_PATH, "utf8"));
@@ -59,6 +63,12 @@ function codes(manifest, rawText = null, options = {}) {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function runGit(repositoryRoot, args) {
+  const result = spawnSync("git", ["-C", repositoryRoot, ...args], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
 }
 
 function previousManifestContext(previous) {
@@ -122,6 +132,28 @@ test("strict parser detects duplicate JSON keys", () => {
   assert.deepEqual(parseTicketsManifest(text).errors.map((entry) => entry.code), ["tickets_manifest_json_invalid"]);
 });
 
+test("duplicate JSON keys expose the smallest available RFC 6901 pointer", () => {
+  const text = '{"outer":{"a/b ~ key":1,"a/b ~ key":2}}\n';
+  const parsed = parseTicketsManifest(text);
+  const duplicate = parsed.errors.find((entry) => entry.code === "tickets_manifest_json_invalid");
+  assert.equal(duplicate?.json_pointer, "/outer/a~1b ~0 key");
+
+  for (const primitive of ["123", "true", "null", "-1.25e+3"]) {
+    const afterPrimitive = parseTicketsManifest(`{"arr":[${primitive},{"x":1,"x":2}]}\n`);
+    const nestedDuplicate = afterPrimitive.errors.find((entry) => entry.code === "tickets_manifest_json_invalid");
+    assert.equal(nestedDuplicate?.json_pointer, "/arr/1/x", primitive);
+  }
+});
+
+test("canonical JSON sorts integer-like object keys by code point", () => {
+  assert.equal(canonicalStringify({
+    "1": "one",
+    "10": "ten",
+    "2": "two",
+    a: "letter",
+  }), `{\n  "1": "one",\n  "10": "ten",\n  "2": "two",\n  "a": "letter"\n}\n`);
+});
+
 test("BOM, CRLF and noncanonical key ordering fail closed", () => {
   assert.ok(parseTicketsManifest(`\uFEFF${exampleText}`).errors.some((entry) => entry.code === "tickets_manifest_noncanonical"));
   assert.ok(parseTicketsManifest(exampleText.replaceAll("\n", "\r\n")).errors.some((entry) => entry.code === "tickets_manifest_noncanonical"));
@@ -155,6 +187,18 @@ test("dangling, self and cyclic dependencies are rejected", () => {
   cycle.tickets[0].depends_on = ["T02"];
   cycle.tickets[0].dependency_rationale = [{ dependency_id: "T02", kind: "semantic", reason: "Creates a cycle." }];
   assert.ok(codes(cycle).includes("tickets_dependency_cycle"));
+
+  const deepCycle = fixture();
+  const third = ticketWithId(deepCycle.tickets[1], "T03", "third");
+  deepCycle.tickets.push(third);
+  deepCycle.tickets[0].depends_on = ["T03"];
+  deepCycle.tickets[0].dependency_rationale = [{ dependency_id: "T03", kind: "semantic", reason: "Closes a deep cycle." }];
+  deepCycle.tickets[1].depends_on = ["T01"];
+  deepCycle.tickets[1].dependency_rationale = [{ dependency_id: "T01", kind: "semantic", reason: "Middle cycle edge." }];
+  deepCycle.tickets[2].depends_on = ["T02"];
+  deepCycle.tickets[2].dependency_rationale = [{ dependency_id: "T02", kind: "semantic", reason: "Final cycle edge." }];
+  deepCycle.topological_order = ["T01", "T02", "T03"];
+  assert.ok(codes(deepCycle).includes("tickets_dependency_cycle"));
 });
 
 test("dependency rationale set must exactly match depends_on", () => {
@@ -234,6 +278,13 @@ test("Planned Tickets must retain Tech Plan authority", () => {
   assert.ok(codes(manifest).includes("tickets_governing_ref_invalid"));
 });
 
+test("Tech Plan authority resolves the root artifact kind rather than the ref prefix", () => {
+  const manifest = fixture();
+  const techPlan = manifest.governing_artifacts.find((entry) => entry.ref_id === "tech_plan:current");
+  techPlan.kind = "brief";
+  assert.ok(codes(manifest).includes("tickets_governing_ref_invalid"));
+});
+
 test("initial manifest cannot claim prior lineage or retirements", () => {
   const lineage = fixture();
   lineage.tickets[0].lineage = { kind: "revise", predecessor_ids: ["T01"] };
@@ -262,12 +313,51 @@ test("resource limits fail before an oversized graph can be accepted", () => {
   assert.ok(codes(manifest).includes("tickets_manifest_limits_exceeded"));
 });
 
+test("impact conditions and irreversible rollback approval are enforced directly", () => {
+  const missingImpactPaths = fixture();
+  missingImpactPaths.tickets[0].impacts.documentation.paths = [];
+  assert.ok(codes(missingImpactPaths).includes("tickets_manifest_schema_invalid"));
+
+  const forbiddenImpactPaths = fixture();
+  forbiddenImpactPaths.tickets[0].impacts.migration.paths = [{ kind: "file", path: "migrations/001.sql" }];
+  assert.ok(codes(forbiddenImpactPaths).includes("tickets_manifest_schema_invalid"));
+
+  const irreversible = fixture();
+  irreversible.tickets[0].risk_and_rollback.irreversible = true;
+  irreversible.tickets[0].risk_and_rollback.rollback_mode = "manual";
+  irreversible.tickets[0].risk_and_rollback.approval_refs = [];
+  assert.ok(codes(irreversible).includes("tickets_manifest_schema_invalid"));
+});
+
+test("stable ordering is enforced for policy-adjacent arrays and impact path sets", () => {
+  const manifest = fixture();
+  manifest.exclusions = ["z later exclusion", "a earlier exclusion"];
+  manifest.tickets[0].material_decision_refs = ["decision:z", "decision:a"];
+  manifest.tickets[0].work_contract_refs = ["work:z", "work:a"];
+  manifest.tickets[0].risk_and_rollback.approval_refs = ["approval:z", "approval:a"];
+  manifest.tickets[0].impacts.documentation.paths = [
+    { kind: "file", path: "docs/z.md" },
+    { kind: "file", path: "docs/a.md" },
+  ];
+
+  const result = validateTicketsManifest(manifest, schema, canonicalStringify(manifest), {
+    candidateDocuments: renderTicketDocuments(manifest),
+  });
+  assert.ok(result.some((entry) => entry.json_pointer === "/exclusions" && entry.code === "tickets_manifest_noncanonical"));
+  assert.ok(result.some((entry) => entry.json_pointer === "/tickets/0/material_decision_refs"));
+  assert.ok(result.some((entry) => entry.json_pointer === "/tickets/0/work_contract_refs"));
+  assert.ok(result.some((entry) => entry.json_pointer === "/tickets/0/risk_and_rollback/approval_refs"));
+  assert.ok(result.some((entry) => entry.json_pointer === "/tickets/0/impacts/documentation/paths"));
+});
+
 test("renderer produces one overview and one deterministic document per Ticket", () => {
   const first = renderTicketDocuments(example);
   const second = renderTicketDocuments(structuredClone(example));
   assert.deepEqual([...first], [...second]);
   assert.equal(first.size, example.tickets.length + 1);
   assert.ok(first.has(`docs/autosk/epics/${example.epic_id}/tickets/README.md`));
+  assert.ok([...first.values()].every((content) => content.startsWith("<!-- generated-by: autosk-flow/ticket-markdown/v1 -->\n\n")));
+  assert.match(first.get(`docs/autosk/epics/${example.epic_id}/tickets/README.md`), /^\| ID \| Title \| Work type \| Depends on \| Goal \|$/mu);
   assert.match(first.get(example.tickets[0].document_path), /Canonical manifest entry/u);
 });
 
@@ -281,6 +371,17 @@ test("domain-separated digests change with manifest, DAG and rendering inputs", 
   assert.notEqual(next.ticket_set_digest, baseline.ticket_set_digest);
   assert.match(baseline.dag_digest, /^[0-9a-f]{64}$/u);
   assert.equal(baseline.ticket_entry_digests.length, example.tickets.length);
+});
+
+test("canonical example digests are pinned vectors", () => {
+  const digests = ticketManifestDigests(example);
+  assert.equal(digests.manifest_bytes_sha256, "af8057df0b19fdcf0318bbb25a7f168994c709b43c547e31aa4aa9ebeda07fdf");
+  assert.equal(digests.manifest_digest, "1c5177400123378b9c6e0e197ed2d51176ddce6f50a2109570950ace6d8722f9");
+  assert.equal(digests.ticket_entry_digests[0].digest, "f8fc6c0202589cb99e44555a8c92923734231f0c350be12a5c8fc9020c084a3d");
+  assert.equal(digests.ticket_entry_digests[1].digest, "588182b97f7f1ab62e55d97107c64c7cbb5291ecb3e2d44bf7854fe7234e91c6");
+  assert.equal(digests.dag_digest, "8650fb0f6e13f53845b73fdf0f60c021536247efa0cb5a9fde7842c73f41c72f");
+  assert.equal(digests.rendered_document_set_digest, "46332c943897f9c5c370a8d5894744fadc27f418b86b4d505f1ba8d4ff4d4c31");
+  assert.equal(digests.ticket_set_digest, "e9d4a9c8426724930d7868e1c3c56263f53f2ec61b4608ef99160c2562e7a527");
 });
 
 test("validation errors have stable pointers and canonical ordering", () => {
@@ -330,6 +431,26 @@ test("validation receipt schema binds exact candidate and tool identities", () =
     validator_distribution_digest: "8".repeat(64),
   };
   assert.deepEqual(validateJsonSchema(receipt, receiptSchema), []);
+  const expectedBindings = Object.fromEntries(TICKETS_RECEIPT_BINDING_FIELDS.map((field) => [field, structuredClone(receipt[field])]));
+  assert.deepEqual(validateTicketsValidationReceipt(receipt, receiptSchema, expectedBindings), []);
+  assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema)
+    .some((entry) => entry.code === "tickets_receipt_stale"));
+  const wrongProject = structuredClone(expectedBindings);
+  wrongProject.project_root_sha256 = "9".repeat(64);
+  assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongProject)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/project_root_sha256"));
+  const wrongTree = structuredClone(expectedBindings);
+  wrongTree.candidate_tree_oid = "a".repeat(40);
+  assert.ok(validateTicketsValidationReceipt(receipt, receiptSchema, wrongTree)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/candidate_tree_oid"));
+  const incompleteReceipt = structuredClone(receipt);
+  incompleteReceipt.rendered_documents.pop();
+  assert.ok(validateTicketsValidationReceipt(incompleteReceipt, receiptSchema, expectedBindings)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/rendered_documents"));
+  const corruptDigest = structuredClone(receipt);
+  corruptDigest.ticket_entry_digests[0].digest = "f".repeat(64);
+  assert.ok(validateTicketsValidationReceipt(corruptDigest, receiptSchema, expectedBindings)
+    .some((entry) => entry.code === "tickets_receipt_stale" && entry.json_pointer === "/ticket_entry_digests"));
   receipt.candidate_tree_oid = "e".repeat(64);
   assert.notDeepEqual(validateJsonSchema(receipt, receiptSchema), []);
 });
@@ -427,6 +548,46 @@ test("every declared resource limit accepts the boundary and rejects one over", 
   const renderedOver = structuredClone(renderedAt);
   renderedOver.policy.limits.max_rendered_document_bytes -= 1;
   hasLimitError(renderedOver);
+
+  const totalRenderedAt = fixture();
+  const totalRenderedBytes = [...renderTicketDocuments(totalRenderedAt).values()]
+    .reduce((sum, content) => sum + Buffer.byteLength(content, "utf8"), 0);
+  totalRenderedAt.policy.limits.max_total_rendered_document_bytes = totalRenderedBytes;
+  noLimitError(totalRenderedAt);
+  const totalRenderedOver = structuredClone(totalRenderedAt);
+  totalRenderedOver.policy.limits.max_total_rendered_document_bytes -= 1;
+  hasLimitError(totalRenderedOver);
+
+  const overlapAt = fixture();
+  overlapAt.tickets[1].scope_selectors[1] = { kind: "directory", path: "src/session" };
+  overlapAt.tickets[1].scope_selectors.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : 1);
+  overlapAt.policy.limits.max_scope_overlap_pairs = 1;
+  noLimitError(overlapAt);
+  const overlapOver = structuredClone(overlapAt);
+  overlapOver.policy.limits.max_scope_overlap_pairs = 0;
+  hasLimitError(overlapOver);
+});
+
+test("candidate rendered inventories enforce host entry and aggregate-byte caps", () => {
+  const tooMany = Array.from({ length: 10_003 }, (_, index) => [
+    `docs/autosk/epics/${example.epic_id}/tickets/EXTRA-${String(index).padStart(5, "0")}.md`,
+    "x\n",
+  ]);
+  assert.ok(compareRenderedTicketDocuments(example, tooMany).some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+
+  const aggregate = fixture();
+  aggregate.policy.limits.max_total_rendered_document_bytes = 2048;
+  assert.ok(codes(aggregate).includes("tickets_manifest_limits_exceeded"));
+});
+
+test("scope overlap pair cap bounds repeated and same-Ticket selector work", () => {
+  const manifest = fixture();
+  manifest.tickets[0].scope_selectors = [
+    { kind: "directory", path: "src/session" },
+    { kind: "file", path: "src/session/store.ts" },
+  ];
+  manifest.policy.limits.max_scope_overlap_pairs = 0;
+  assert.ok(codes(manifest).includes("tickets_manifest_limits_exceeded"));
 });
 
 test("candidate Markdown inventory rejects missing, extra, renamed and byte-drifted documents", () => {
@@ -627,6 +788,23 @@ test("Schema errors expose the smallest RFC 6901 instance pointer", () => {
   assert.equal(schemaError?.json_pointer, "/tickets/0/unexpected_field");
 });
 
+test("Schema errors escape exotic unknown keys in RFC 6901 pointers", () => {
+  const manifest = fixture();
+  manifest.tickets[0]["strange/key ~ [x]"] = true;
+  const errors = validateTicketsManifest(manifest, schema, null, { candidateDocuments: renderTicketDocuments(manifest) });
+  const schemaError = errors.find((entry) => entry.code === "tickets_manifest_schema_invalid" && entry.message.includes("strange/key"));
+  assert.equal(schemaError?.json_pointer, "/tickets/0/strange~1key ~0 [x]");
+
+  const ambiguous = fixture();
+  ambiguous.policy.limits.extra = 1;
+  ambiguous["policy.limits.extra"] = 2;
+  const ambiguousPointers = validateTicketsManifest(ambiguous, schema, null, { candidateDocuments: new Map() })
+    .filter((entry) => entry.code === "tickets_manifest_schema_invalid" && entry.message === "$.policy.limits.extra is not allowed")
+    .map((entry) => entry.json_pointer)
+    .sort();
+  assert.deepEqual(ambiguousPointers, ["/policy.limits.extra", "/policy/limits/extra"]);
+});
+
 test("initial manifest revision is exactly one", () => {
   const manifest = fixture();
   manifest.manifest_revision = 2;
@@ -714,6 +892,24 @@ test("schema-invalid nested shapes fail closed before semantic routines", () => 
   }
 });
 
+test("cyclic or too-deep manifest objects fail before recursive validation routines", () => {
+  const cyclic = fixture();
+  cyclic.tickets[0].cycle = cyclic;
+  assert.doesNotThrow(() => {
+    assert.ok(validateTicketsManifest(cyclic, schema, null, { candidateDocuments: new Map() })
+      .some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+  });
+
+  const tooDeep = fixture();
+  let cursor = tooDeep.tickets[0];
+  for (let index = 0; index < 70; index += 1) {
+    cursor.nested = {};
+    cursor = cursor.nested;
+  }
+  assert.ok(validateTicketsManifest(tooDeep, schema, null, { candidateDocuments: new Map() })
+    .some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+});
+
 test("scope overlap uses the conservative case-collision policy", () => {
   const manifest = fixture();
   manifest.tickets[0].scope_selectors = [{ kind: "file", path: "src/CaseSensitive.ts" }];
@@ -758,6 +954,104 @@ test("candidate-tree stops after strict parser errors", () => {
   }
 });
 
+test("candidate-tree schema preflight rejects unknown versions before Markdown inventory", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-preflight-"));
+  const candidateRoot = path.join(temporaryParent, "candidate");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, candidateRoot, { recursive: true });
+    const manifestPath = path.join(candidateRoot, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/"));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.schema_version = 2;
+    writeFileSync(manifestPath, canonicalStringify(manifest));
+    mkdirSync(path.join(candidateRoot, ...path.posix.join(path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH), "nested").split("/")));
+    const errors = validateTicketsCandidateTree(candidateRoot, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.ok(errors.some((entry) => entry.code === "tickets_manifest_schema_invalid"));
+    assert.equal(errors.some((entry) => entry.code.startsWith("tickets_rendered_") || entry.code === "tickets_path_invalid"), false);
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("candidate-tree result API returns validated manifest and digests", () => {
+  const result = validateTicketsCandidateTreeResult(EXAMPLE_CANDIDATE_ROOT, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.manifest.epic_id, example.epic_id);
+  assert.equal(result.raw_text, exampleText);
+  assert.equal(result.digests.manifest_digest, ticketManifestDigests(example).manifest_digest);
+});
+
+test("authoritative candidate validation reads immutable Git tree bytes", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-git-tree-"));
+  const repositoryRoot = path.join(temporaryParent, "repository");
+  try {
+    cpSync(EXAMPLE_CANDIDATE_ROOT, repositoryRoot, { recursive: true });
+    runGit(repositoryRoot, ["init", "--quiet"]);
+    runGit(repositoryRoot, ["add", "."]);
+    runGit(repositoryRoot, ["-c", "user.name=autosk-test", "-c", "user.email=autosk-test@example.invalid", "commit", "--quiet", "-m", "candidate"]);
+    const treeOid = runGit(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+    const readmeRelativePath = path.posix.join(path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH), "README.md");
+    const readmePath = path.join(repositoryRoot, ...readmeRelativePath.split("/"));
+    const result = validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.tree_oid, treeOid);
+    assert.equal(result.digests.manifest_digest, ticketManifestDigests(example).manifest_digest);
+
+    const originalReadmeOid = runGit(repositoryRoot, ["rev-parse", `${treeOid}:${readmeRelativePath}`]);
+    const replacementPath = path.join(temporaryParent, "replacement.md");
+    writeFileSync(replacementPath, "replacement ref content\n");
+    const replacementOid = runGit(repositoryRoot, ["hash-object", "-w", replacementPath]);
+    runGit(repositoryRoot, ["replace", originalReadmeOid, replacementOid]);
+    assert.deepEqual(
+      validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH).errors,
+      [],
+    );
+
+    const strictLimit = validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH, {
+      maxManifestBytes: Buffer.byteLength(exampleText, "utf8") - 1,
+    });
+    assert.ok(strictLimit.errors.some((entry) => entry.code === "tickets_manifest_limits_exceeded"));
+
+    writeFileSync(readmePath, "mutable worktree drift\n");
+    const repeated = validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.digests.manifest_digest, result.digests.manifest_digest);
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("candidate-tree CLI runs when invoked through a symlink", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-cli-link-"));
+  try {
+    const scriptLink = path.join(temporaryParent, "validate-tickets-link.mjs");
+    symlinkSync(path.join(ROOT, "scripts/validate-tickets-manifest-design.mjs"), scriptLink);
+    const result = spawnSync(process.execPath, [
+      scriptLink,
+      "--candidate-root",
+      EXAMPLE_CANDIDATE_ROOT,
+      "--manifest-path",
+      EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+    ], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Tickets candidate-tree validation PASS/u);
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
+test("candidate-tree CLI rejects unknown, repeated and incomplete arguments", () => {
+  const script = path.join(ROOT, "scripts/validate-tickets-manifest-design.mjs");
+  for (const args of [
+    ["--unknown", "value"],
+    ["--candidate-root", EXAMPLE_CANDIDATE_ROOT, "--candidate-root", EXAMPLE_CANDIDATE_ROOT],
+    ["--manifest-path"],
+    ["unexpected-positional"],
+  ]) {
+    const result = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+    assert.notEqual(result.status, 0, args.join(" "));
+  }
+});
+
 test("candidate files are size-checked before normal validation", () => {
   const manifestBytes = readFileSync(path.join(EXAMPLE_CANDIDATE_ROOT, ...EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH.split("/")));
   const manifestErrors = validateTicketsCandidateTree(
@@ -782,4 +1076,32 @@ test("candidate files are size-checked before normal validation", () => {
   } finally {
     rmSync(temporaryParent, { force: true, recursive: true });
   }
+});
+
+test("design validation guards Tickets pending proof and final receipt lifecycle rows", () => {
+  const files = loadTicketsManifestFiles();
+  const stalePendingProof = structuredClone(files);
+  stalePendingProof["03-technical-plan.md"] = stalePendingProof["03-technical-plan.md"]
+    .replace("pending validation proof without `candidate_tree_oid`", "pending validation proof");
+  assert.ok(validateTicketsManifestDesign(stalePendingProof)
+    .some((entry) => entry.includes("pending validation proof without `candidate_tree_oid`")));
+
+  const staleFinalReceipt = structuredClone(files);
+  staleFinalReceipt["03-technical-plan.md"] = staleFinalReceipt["03-technical-plan.md"]
+    .replace("`tickets_validation_receipt.candidate_tree_oid` equals that exact tree", "`tickets_validation_receipt.candidate_tree_oid` exists");
+  assert.ok(validateTicketsManifestDesign(staleFinalReceipt)
+    .some((entry) => entry.includes("tickets_validation_receipt.candidate_tree_oid")));
+
+  for (const file of ["01-core-flows.md", "03-technical-plan.md"]) {
+    const missingResume = structuredClone(files);
+    missingResume[file] = missingResume[file].replace("| tickets_manifest_invalid |", "| removed_tickets_manifest_invalid |");
+    assert.ok(validateTicketsManifestDesign(missingResume)
+      .some((entry) => entry.includes(`${file}: missing resume contract for tickets_manifest_invalid`)));
+  }
+
+  const earlyReceipt = structuredClone(files);
+  earlyReceipt["03-technical-plan.md"] = earlyReceipt["03-technical-plan.md"]
+    .replace("atomically stores a pending validation proof without `candidate_tree_oid`", "writes/read-backs immutable `tickets_validation_receipt`");
+  assert.ok(validateTicketsManifestDesign(earlyReceipt)
+    .some((entry) => entry.includes("pending validation proof without `candidate_tree_oid`")));
 });

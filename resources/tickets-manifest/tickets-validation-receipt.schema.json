@@ -57,6 +57,7 @@
     "ticket_entry_digests": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 10000,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -70,6 +71,7 @@
     "rendered_documents": {
       "type": "array",
       "minItems": 2,
+      "maxItems": 10001,
       "items": {
         "type": "object",
         "additionalProperties": false,
