@@ -159,7 +159,7 @@
       "required": ["ref_id", "kind", "path", "published_commit_oid", "content_sha256"],
       "properties": {
         "ref_id": { "$ref": "#/$defs/stable_ref" },
-        "kind": { "enum": ["brief", "core_flow", "tech_plan", "decision", "verification"] },
+        "kind": { "enum": ["brief", "core_flow", "tech_plan", "decision", "review_policy", "verification", "work_contract"] },
         "path": { "$ref": "#/$defs/relative_path" },
         "published_commit_oid": { "$ref": "#/$defs/git_oid" },
         "content_sha256": { "$ref": "#/$defs/sha256" }

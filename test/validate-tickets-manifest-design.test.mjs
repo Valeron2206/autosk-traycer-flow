@@ -31,10 +31,10 @@ import {
   ticketManifestDigests,
   ticketsManifestDesignDigest,
   validRelativePath,
-  validateTicketsCandidateTree,
-  validateTicketsCandidateGitTree,
-  validateTicketsCandidateTreeResult,
-  validateTicketsManifest,
+  validateTicketsCandidateTree as validateTicketsCandidateTreeRaw,
+  validateTicketsCandidateGitTree as validateTicketsCandidateGitTreeRaw,
+  validateTicketsCandidateTreeResult as validateTicketsCandidateTreeResultRaw,
+  validateTicketsManifest as validateTicketsManifestRaw,
   validateTicketsManifestDesign,
   validateTicketsValidationReceipt,
 } from "../scripts/validate-tickets-manifest-design.mjs";
@@ -60,7 +60,14 @@ function codes(manifest, rawText = null, options = {}) {
   const candidateDocuments = Object.prototype.hasOwnProperty.call(options, "candidateDocuments")
     ? options.candidateDocuments
     : candidateDocumentsFor(manifest);
-  return validateTicketsManifest(manifest, schema, rawText, { ...options, candidateDocuments }).map((entry) => entry.code);
+  const previousManifestContextValue = Object.hasOwn(options, "previousManifestContext")
+    ? options.previousManifestContext
+    : noPriorPublicationContext();
+  return validateTicketsManifest(manifest, schema, rawText, {
+    ...options,
+    candidateDocuments,
+    previousManifestContext: previousManifestContextValue,
+  }).map((entry) => entry.code);
 }
 
 function sha256(value) {
@@ -89,11 +96,55 @@ function runGit(repositoryRoot, args) {
 function previousManifestContext(previous) {
   const digests = ticketManifestDigests(previous);
   return {
+    kind: "previous_manifest",
     manifest: structuredClone(previous),
     raw_text: canonicalStringify(previous),
     manifest_digest: digests.manifest_digest,
     ticket_entry_digests: digests.ticket_entry_digests,
   };
+}
+
+function noPriorPublicationContext() {
+  return {
+    kind: "no_prior_publication",
+    publication_history_digest: "0".repeat(64),
+  };
+}
+
+function validateTicketsManifest(manifest, schemaValue, rawText = null, options = {}) {
+  return validateTicketsManifestRaw(manifest, schemaValue, rawText, {
+    ...options,
+    previousManifestContext: Object.hasOwn(options, "previousManifestContext")
+      ? options.previousManifestContext
+      : noPriorPublicationContext(),
+  });
+}
+
+function validateTicketsCandidateTree(candidateRoot, manifestRelativePath, options = {}) {
+  return validateTicketsCandidateTreeRaw(candidateRoot, manifestRelativePath, {
+    ...options,
+    previousManifestContext: Object.hasOwn(options, "previousManifestContext")
+      ? options.previousManifestContext
+      : noPriorPublicationContext(),
+  });
+}
+
+function validateTicketsCandidateTreeResult(candidateRoot, manifestRelativePath, options = {}) {
+  return validateTicketsCandidateTreeResultRaw(candidateRoot, manifestRelativePath, {
+    ...options,
+    previousManifestContext: Object.hasOwn(options, "previousManifestContext")
+      ? options.previousManifestContext
+      : noPriorPublicationContext(),
+  });
+}
+
+function validateTicketsCandidateGitTree(repositoryRoot, treeOid, manifestRelativePath, options = {}) {
+  return validateTicketsCandidateGitTreeRaw(repositoryRoot, treeOid, manifestRelativePath, {
+    ...options,
+    previousManifestContext: Object.hasOwn(options, "previousManifestContext")
+      ? options.previousManifestContext
+      : noPriorPublicationContext(),
+  });
 }
 
 function makeRevision(previous, tickets, retirements = []) {
@@ -107,6 +158,18 @@ function makeRevision(previous, tickets, retirements = []) {
   ])].sort();
   manifest.topological_order = stableTopologicalOrder(tickets).ordered;
   manifest.retirements = retirements;
+  for (const retirement of retirements) {
+    if (!manifest.governing_artifacts.some((artifact) => artifact.ref_id === retirement.decision_ref)) {
+      manifest.governing_artifacts.push({
+        content_sha256: sha256(retirement.decision_ref),
+        kind: "decision",
+        path: `docs/decisions/${retirement.decision_ref.replaceAll(":", "-")}.md`,
+        published_commit_oid: sha256(retirement.decision_ref).slice(0, manifest.object_format === "sha256" ? 64 : 40),
+        ref_id: retirement.decision_ref,
+      });
+    }
+  }
+  manifest.governing_artifacts.sort((left, right) => left.ref_id < right.ref_id ? -1 : left.ref_id > right.ref_id ? 1 : 0);
   return manifest;
 }
 
@@ -316,6 +379,28 @@ test("verification and governing references must resolve", () => {
   assert.ok(result.includes("tickets_verification_binding_invalid"));
 });
 
+test("policy, decision, work, approval and retirement refs resolve by governing kind", () => {
+  const policy = fixture();
+  policy.policy.review_policy_ref = "review:missing";
+  assert.ok(codes(policy).includes("tickets_governing_ref_invalid"));
+
+  const ticketRefs = fixture();
+  ticketRefs.tickets[0].material_decision_refs = ["decision:missing"];
+  ticketRefs.tickets[0].work_contract_refs = ["work:missing"];
+  ticketRefs.tickets[0].risk_and_rollback.approval_refs = ["decision:approval-missing"];
+  assert.ok(codes(ticketRefs).includes("tickets_governing_ref_invalid"));
+
+  const retirement = fixture();
+  retirement.retirements = [{
+    decision_ref: "decision:missing",
+    disposition: "dropped",
+    predecessor_id: "T99",
+    rationale: "Invalid unresolved retirement authority.",
+    successor_ids: [],
+  }];
+  assert.ok(codes(retirement).includes("tickets_governing_ref_invalid"));
+});
+
 test("verification binding kinds require pinned governing authority", () => {
   for (const kind of ["recipe", "verification_batch", "deterministic_check", "manual_acceptance"]) {
     const missing = fixture();
@@ -464,13 +549,13 @@ test("domain-separated digests change with manifest, DAG and rendering inputs", 
 
 test("canonical example digests are pinned vectors", () => {
   const digests = ticketManifestDigests(example);
-  assert.equal(digests.manifest_bytes_sha256, "996f58b92785d810d90286756483dde7377acd60c7c3ff203c5232a42bd33e12");
-  assert.equal(digests.manifest_digest, "24bf2988f2b45ade665ec0dbef0098e8fa6e590905cee160e7ab9937f9b38e0f");
+  assert.equal(digests.manifest_bytes_sha256, "b856840f3315b497e2788e1715462145ddd9290950ae4d8690f5a1cd2251cb9b");
+  assert.equal(digests.manifest_digest, "749d702080d9773cdfae6ad845aabc8e7a3c083c48f349424a65dd493a47b999");
   assert.equal(digests.ticket_entry_digests[0].digest, "f8fc6c0202589cb99e44555a8c92923734231f0c350be12a5c8fc9020c084a3d");
   assert.equal(digests.ticket_entry_digests[1].digest, "588182b97f7f1ab62e55d97107c64c7cbb5291ecb3e2d44bf7854fe7234e91c6");
   assert.equal(digests.dag_digest, "8650fb0f6e13f53845b73fdf0f60c021536247efa0cb5a9fde7842c73f41c72f");
   assert.equal(digests.rendered_document_set_digest, "46332c943897f9c5c370a8d5894744fadc27f418b86b4d505f1ba8d4ff4d4c31");
-  assert.equal(digests.ticket_set_digest, "9c954edb8d76ba9a4e3033c0ca52de71c5331215e9877d09b5d726413568e185");
+  assert.equal(digests.ticket_set_digest, "589cbd283ab3b022b15482dc684396c5d74bc82985ce0ce5a9c966f9b3250aa1");
   assert.equal(ticketLimitsDigest(example.policy.limits), "f04813ceb45982c8f9fe3d89e4cca1f137183a8a3fd78fc5bd6c2ee4cdcc72b7");
 });
 
@@ -874,6 +959,8 @@ test("candidate-tree API and CLI reject on-disk Markdown drift", () => {
       temporaryRoot,
       "--manifest-path",
       EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+      "--no-prior-publication-digest",
+      "0".repeat(64),
     ], { encoding: "utf8" });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /tickets_rendered_bytes_mismatch/u);
@@ -1007,6 +1094,9 @@ test("a candidate cannot reset lineage while exact previous context exists", () 
   assert.ok(codes(reset, canonicalStringify(reset), {
     previousManifestContext: previousManifestContext(previous),
   }).includes("tickets_lineage_invalid"));
+  assert.ok(validateTicketsManifestRaw(reset, schema, canonicalStringify(reset), {
+    candidateDocuments: renderTicketDocuments(reset),
+  }).some((entry) => entry.code === "tickets_lineage_invalid" && entry.message.includes("host lineage context is required")));
 });
 
 test("previous manifest context rejects BOM and non-NFC bytes", () => {
@@ -1205,12 +1295,16 @@ test("authoritative candidate validation reads immutable Git tree bytes", () => 
     assert.equal(result.digests.manifest_digest, ticketManifestDigests(example).manifest_digest);
 
     const previousGitDir = process.env.GIT_DIR;
+    const previousPath = process.env.PATH;
     process.env.GIT_DIR = path.join(temporaryParent, "foreign.git");
+    process.env.PATH = temporaryParent;
     try {
       assert.deepEqual(validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH).errors, []);
     } finally {
       if (previousGitDir === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = previousGitDir;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
     }
 
     const originalReadmeOid = runGit(repositoryRoot, ["rev-parse", `${treeOid}:${readmeRelativePath}`]);
@@ -1287,6 +1381,69 @@ test("authoritative Git-tree validation rejects a symlink-mode manifest", () => 
   }
 });
 
+test("authoritative Git-tree inventory rejects missing, extra, renamed, drifted and nested rendered entries", () => {
+  const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-git-inventory-"));
+  const ticketDirectory = path.posix.dirname(EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+  const readmeRelative = `${ticketDirectory}/README.md`;
+  const ticketRelative = `${ticketDirectory}/T01-session-store.md`;
+  const cases = [
+    {
+      code: "tickets_rendered_path_missing",
+      mutate(root) { rmSync(path.join(root, ...ticketRelative.split("/"))); },
+      name: "missing",
+    },
+    {
+      code: "tickets_rendered_path_extra",
+      mutate(root) { writeFileSync(path.join(root, ...`${ticketDirectory}/EXTRA.md`.split("/")), "extra\n"); },
+      name: "extra",
+    },
+    {
+      code: "tickets_rendered_path_renamed",
+      mutate(root) {
+        const readme = path.join(root, ...readmeRelative.split("/"));
+        const bytes = readFileSync(readme);
+        rmSync(readme);
+        writeFileSync(path.join(root, ...`${ticketDirectory}/RENAMED.md`.split("/")), bytes);
+      },
+      name: "renamed",
+    },
+    {
+      code: "tickets_rendered_bytes_mismatch",
+      mutate(root) {
+        const ticket = path.join(root, ...ticketRelative.split("/"));
+        writeFileSync(ticket, Buffer.concat([readFileSync(ticket), Buffer.from("drift")]));
+      },
+      name: "drifted",
+    },
+    {
+      code: "tickets_rendered_path_extra",
+      mutate(root) {
+        const ticket = path.join(root, ...ticketRelative.split("/"));
+        rmSync(ticket);
+        mkdirSync(ticket);
+        writeFileSync(path.join(ticket, "nested.md"), "nested\n");
+      },
+      name: "nested",
+    },
+  ];
+  try {
+    for (const testCase of cases) {
+      const repositoryRoot = path.join(temporaryParent, testCase.name);
+      cpSync(EXAMPLE_CANDIDATE_ROOT, repositoryRoot, { recursive: true });
+      testCase.mutate(repositoryRoot);
+      runGit(repositoryRoot, ["init", "--quiet"]);
+      runGit(repositoryRoot, ["add", "."]);
+      runGit(repositoryRoot, ["-c", "user.name=autosk-test", "-c", "user.email=autosk-test@example.invalid", "commit", "--quiet", "-m", testCase.name]);
+      const treeOid = runGit(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+      const result = validateTicketsCandidateGitTree(repositoryRoot, treeOid, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+      assert.ok(result.errors.some((entry) => entry.code === testCase.code), testCase.name);
+      assert.equal(result.digests, null, testCase.name);
+    }
+  } finally {
+    rmSync(temporaryParent, { force: true, recursive: true });
+  }
+});
+
 test("authoritative Git-tree validation rejects abbreviated OIDs and repository format mismatch", () => {
   const temporaryParent = mkdtempSync(path.join(tmpdir(), "autosk-ticket-sha256-tree-"));
   const repositoryRoot = path.join(temporaryParent, "repository");
@@ -1319,6 +1476,8 @@ test("candidate-tree CLI runs when invoked through a symlink", () => {
       EXAMPLE_CANDIDATE_ROOT,
       "--manifest-path",
       EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH,
+      "--no-prior-publication-digest",
+      "0".repeat(64),
     ], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Tickets candidate-tree validation PASS/u);
@@ -1333,6 +1492,7 @@ test("candidate-tree CLI rejects unknown, repeated and incomplete arguments", ()
     ["--unknown", "value"],
     ["--candidate-root", EXAMPLE_CANDIDATE_ROOT, "--candidate-root", EXAMPLE_CANDIDATE_ROOT],
     ["--manifest-path"],
+    ["--candidate-root", EXAMPLE_CANDIDATE_ROOT, "--manifest-path", EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH],
     ["unexpected-positional"],
   ]) {
     const result = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });

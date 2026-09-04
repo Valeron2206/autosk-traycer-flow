@@ -256,7 +256,7 @@
 - Identity: domain-separated manifest, Ticket-entry, DAG, rendered-document-set и full-set digests связываются с planning parent/candidate tree, alignment, protocol/runtime/project-instruction, schema/validator/renderer and mapping identities. Stable Kahn order, closed file/directory scope selectors, ordered-overlap rule, referential AC/evidence/governing refs and revision lineage fail closed.
 - Альтернатива: parse free-form Markdown, вести JSON и Markdown как две независимо редактируемые истины либо строить blockers из task titles/comments.
 - Обоснование: свободный текст не даёт воспроизводимого graph/recovery API; две редактируемые формы неизбежно расходятся. Canonical JSON даёт stable schema/errors/digests, а deterministic renderer сохраняет удобную human review surface без второго control plane.
-- Границы: #5 публикует artifact, #7 использует DAG/entry digests для execution bases, #8/#9 отвечают за delta/staging, #23/#24 — evidence bindings, #25 — semantic revision dispositions.
+- Границы: #5 публикует artifact, #7 использует DAG/entry digests для execution bases, #8/#9 отвечают за delta/staging, #18 — за structured model results и host-mediated transitions, #23/#24 — за evidence bindings, #25 — semantic revision dispositions.
 - Источники: issue #6; `docs/contracts/tickets-manifest.md`; state machine `validate_tickets_manifest -> freeze_artifact -> Panel -> publish_artifact_pass -> dispatch_ticket_dag`.
 
 ## Оставшиеся риски, не решения

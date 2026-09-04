@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const GIT_EXECUTABLE = process.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
 export const MANIFEST_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.schema.json");
 export const MANIFEST_EXAMPLE_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-manifest.example.json");
 export const RECEIPT_SCHEMA_PATH = path.join(ROOT, "resources/tickets-manifest/tickets-validation-receipt.schema.json");
@@ -105,6 +106,7 @@ const REQUIRED_MARKERS = Object.freeze({
     "Issue #7",
     "Issue #8",
     "Issue #9",
+    "Issue #18",
   ],
   "package.json": ["validate:tickets-manifest"],
   ".github/workflows/validate-traycer-parity.yml": ["npm run validate:tickets-manifest"],
@@ -1115,7 +1117,7 @@ export function validateTicketsCandidateTree(candidateRoot, manifestRelativePath
 }
 
 function gitBytes(repositoryRoot, args, maxBuffer) {
-  const result = spawnSync("git", ["-C", path.resolve(repositoryRoot), ...args], {
+  const result = spawnSync(GIT_EXECUTABLE, ["-C", path.resolve(repositoryRoot), ...args], {
     encoding: null,
     env: {
       GIT_CONFIG_GLOBAL: "/dev/null",
@@ -1442,9 +1444,14 @@ function validateRevisionLineage(manifest, schema, context, errors) {
   if (!sortedUnique(reservedTicketIds)) {
     errors.push(error("tickets_lineage_invalid", "/reserved_ticket_ids", "reserved Ticket IDs must be unique and sorted"));
   }
+  if (context === undefined) {
+    errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "host lineage context is required"));
+    return;
+  }
   if (manifest.previous_manifest_digest === null) {
-    if (context !== null && context !== undefined) {
-      errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "initial lineage is invalid when exact previous published context exists"));
+    if (!context || context.kind !== "no_prior_publication"
+        || !/^[0-9a-f]{64}$/u.test(context.publication_history_digest ?? "")) {
+      errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "initial lineage requires host proof that no prior Tickets publication exists"));
     }
     if (manifest.manifest_revision !== 1) {
       errors.push(error("tickets_lineage_invalid", "/manifest_revision", "initial manifest revision must be exactly 1"));
@@ -1463,7 +1470,7 @@ function validateRevisionLineage(manifest, schema, context, errors) {
     return;
   }
 
-  if (!context || typeof context !== "object") {
+  if (!context || typeof context !== "object" || context.kind !== "previous_manifest") {
     errors.push(error("tickets_lineage_invalid", "/previous_manifest_digest", "revised manifest requires exact previous published manifest context"));
     return;
   }
@@ -1710,6 +1717,14 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
   const rootArtifactByRef = new Map(Array.isArray(manifest.governing_artifacts)
     ? manifest.governing_artifacts.map((entry) => [entry.ref_id, entry])
     : []);
+  for (const [pointer, reference, expectedKind] of [
+    ["/policy/review_policy_ref", manifest.policy?.review_policy_ref, "review_policy"],
+    ["/policy/verification_policy_ref", manifest.policy?.verification_policy_ref, "verification"],
+  ]) {
+    if (rootArtifactByRef.get(reference)?.kind !== expectedKind) {
+      errors.push(error("tickets_governing_ref_invalid", pointer, `policy ref must resolve to governing kind ${expectedKind}`));
+    }
+  }
   const expectedOidLength = manifest.object_format === "sha256" ? 64 : 40;
   for (const [index, governing] of (manifest.governing_artifacts ?? []).entries()) {
     if (typeof governing?.published_commit_oid === "string" && governing.published_commit_oid.length !== expectedOidLength) {
@@ -1771,13 +1786,28 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
     if (!sortedUnique(materialDecisionRefs)) {
       errors.push(error("tickets_governing_ref_invalid", `${pointer}/material_decision_refs`, "material decision refs must be unique and sorted"));
     }
+    for (const [referenceIndex, reference] of materialDecisionRefs.entries()) {
+      if (rootArtifactByRef.get(reference)?.kind !== "decision") {
+        errors.push(error("tickets_governing_ref_invalid", `${pointer}/material_decision_refs/${referenceIndex}`, "material decision ref must resolve to governing kind decision"));
+      }
+    }
     const workContractRefs = Array.isArray(ticket.work_contract_refs) ? ticket.work_contract_refs : [];
     if (!sortedUnique(workContractRefs)) {
       errors.push(error("tickets_governing_ref_invalid", `${pointer}/work_contract_refs`, "work contract refs must be unique and sorted"));
     }
+    for (const [referenceIndex, reference] of workContractRefs.entries()) {
+      if (rootArtifactByRef.get(reference)?.kind !== "work_contract") {
+        errors.push(error("tickets_governing_ref_invalid", `${pointer}/work_contract_refs/${referenceIndex}`, "work contract ref must resolve to governing kind work_contract"));
+      }
+    }
     const approvalRefs = Array.isArray(ticket.risk_and_rollback?.approval_refs) ? ticket.risk_and_rollback.approval_refs : [];
     if (!sortedUnique(approvalRefs)) {
       errors.push(error("tickets_governing_ref_invalid", `${pointer}/risk_and_rollback/approval_refs`, "approval refs must be unique and sorted"));
+    }
+    for (const [referenceIndex, reference] of approvalRefs.entries()) {
+      if (rootArtifactByRef.get(reference)?.kind !== "decision") {
+        errors.push(error("tickets_governing_ref_invalid", `${pointer}/risk_and_rollback/approval_refs/${referenceIndex}`, "approval ref must resolve to governing kind decision"));
+      }
     }
     for (const [impactName, impact] of Object.entries(ticket.impacts ?? {}).sort(([left], [right]) => compareCodePoints(left, right))) {
       const impactPaths = Array.isArray(impact?.paths) ? impact.paths : [];
@@ -1819,6 +1849,12 @@ export function validateTicketsManifest(manifest, schema, rawText = null, option
           errors.push(error("tickets_verification_binding_invalid", `${criterionPointer}/verification_bindings/${bindingIndex}/expected_evidence`, "evidence classes must be unique and sorted"));
         }
       }
+    }
+  }
+
+  for (const [retirementIndex, retirement] of (manifest.retirements ?? []).entries()) {
+    if (rootArtifactByRef.get(retirement?.decision_ref)?.kind !== "decision") {
+      errors.push(error("tickets_governing_ref_invalid", `/retirements/${retirementIndex}/decision_ref`, "retirement decision ref must resolve to governing kind decision"));
     }
   }
 
@@ -2024,7 +2060,10 @@ export function validateTicketsManifestDesign(files) {
       parsed.manifest,
       schema,
       fixtureManifestText,
-      { candidateDocuments: documents },
+      {
+        candidateDocuments: documents,
+        previousManifestContext: { kind: "no_prior_publication", publication_history_digest: "0".repeat(64) },
+      },
     );
     errors.push(...manifestErrors.map((entry) => `manifest example ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
     if (manifestErrors.length === 0) {
@@ -2064,12 +2103,12 @@ export function ticketsManifestDesignDigest(files) {
 }
 
 function commandLineOptions(argv) {
-  const options = { candidateRoot: null, manifestPath: null };
+  const options = { candidateRoot: null, manifestPath: null, noPriorPublicationDigest: null };
   const seen = new Set();
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
     const value = argv[index + 1];
-    if (name !== "--candidate-root" && name !== "--manifest-path") {
+    if (name !== "--candidate-root" && name !== "--manifest-path" && name !== "--no-prior-publication-digest") {
       return { error: `unknown command-line argument ${name ?? "<missing>"}`, options };
     }
     if (seen.has(name)) return { error: `duplicate command-line argument ${name}`, options };
@@ -2078,7 +2117,8 @@ function commandLineOptions(argv) {
     }
     seen.add(name);
     if (name === "--candidate-root") options.candidateRoot = value;
-    else options.manifestPath = value;
+    else if (name === "--manifest-path") options.manifestPath = value;
+    else options.noPriorPublicationDigest = value;
   }
   return { error: null, options };
 }
@@ -2097,11 +2137,13 @@ if (isMainModule()) {
   if (cli.error !== null) {
     console.error(cli.error);
     process.exitCode = 1;
-  } else if (cli.options.candidateRoot !== null || cli.options.manifestPath !== null) {
-    const { candidateRoot, manifestPath } = cli.options;
-    const result = candidateRoot && manifestPath
-      ? validateTicketsCandidateTreeResult(candidateRoot, manifestPath)
-      : { digests: null, errors: [error("tickets_path_invalid", "/manifest_path", "--candidate-root and --manifest-path are both required")] };
+  } else if (cli.options.candidateRoot !== null || cli.options.manifestPath !== null || cli.options.noPriorPublicationDigest !== null) {
+    const { candidateRoot, manifestPath, noPriorPublicationDigest } = cli.options;
+    const result = candidateRoot && manifestPath && /^[0-9a-f]{64}$/u.test(noPriorPublicationDigest ?? "")
+      ? validateTicketsCandidateTreeResult(candidateRoot, manifestPath, {
+        previousManifestContext: { kind: "no_prior_publication", publication_history_digest: noPriorPublicationDigest },
+      })
+      : { digests: null, errors: [error("tickets_lineage_invalid", "/previous_manifest_digest", "--candidate-root, --manifest-path and a 64-hex --no-prior-publication-digest are required")] };
     const errors = result.errors;
     if (errors.length > 0) {
       console.error(errors.map((entry) => `${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`).join("\n"));
@@ -2120,7 +2162,9 @@ if (isMainModule()) {
   } else {
     const files = loadTicketsManifestFiles();
     const errors = validateTicketsManifestDesign(files);
-    const candidateErrors = validateTicketsCandidateTree(EXAMPLE_CANDIDATE_ROOT, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH);
+    const candidateErrors = validateTicketsCandidateTree(EXAMPLE_CANDIDATE_ROOT, EXAMPLE_CANDIDATE_MANIFEST_RELATIVE_PATH, {
+      previousManifestContext: { kind: "no_prior_publication", publication_history_digest: "0".repeat(64) },
+    });
     errors.push(...candidateErrors.map((entry) => `example candidate ${entry.json_pointer || "/"}: ${entry.code}: ${entry.message}`));
     if (errors.length > 0) {
       console.error(errors.sort(compareCodePoints).join("\n"));

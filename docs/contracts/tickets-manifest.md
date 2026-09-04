@@ -26,7 +26,7 @@ The candidate is invalid when the manifest is absent, duplicated, unsupported, n
 
 ## 2. Boundaries
 
-Issue #5 publishes the artifact and supplies `planning_head`. Issue #7 composes execution bases. Issue #8 owns approved deltas. Issue #9 owns staging/final CAS. Issue #23 owns verification recipes, issue #24 work-type/evidence contracts and issue #25 semantic revision decisions. This contract does not store runtime status, sessions, implementation commits, review results or worker assignments.
+Issue #5 publishes the artifact and supplies `planning_head`. Issue #7 composes execution bases. Issue #8 owns approved deltas. Issue #9 owns staging/final CAS. Issue #18 owns structured model-result envelopes and host-mediated result transitions around the Tickets cycle. Issue #23 owns verification recipes, issue #24 work-type/evidence contracts and issue #25 semantic revision decisions. This contract does not store runtime status, sessions, implementation commits, review results or worker assignments.
 
 ## 3. V1 root and Ticket records
 
@@ -37,7 +37,7 @@ The root records:
 - `schema_version=1` and `renderer_version=autosk-flow/ticket-markdown/v1`;
 - immutable `epic_id`, `manifest_revision`, `previous_manifest_digest` and Git `object_format`;
 - closed canonicalization, path-scope, review/verification policy and resource-limit identifiers;
-- set goal, exclusions and exact governing-artifact references;
+- set goal, exclusions and exact governing-artifact references with closed kinds `brief|core_flow|tech_plan|decision|review_policy|verification|work_contract`;
 - Tickets sorted by stable ID;
 - exact stable `topological_order`;
 - explicit retirement mappings for a revised set.
@@ -162,7 +162,7 @@ expected path set == candidate path set
 expected bytes    == candidate bytes
 ```
 
-A missing, extra, renamed or one-byte-different document is invalid. The pre-freeze entry point `validateTicketsCandidateTree` reads the mutable proposal as raw bytes, rejects excessive JSON depth, and completes JSON Schema validation before deriving the Tickets directory or reading any rendered document. It then walks every existing path ancestor without following symlinks, applies host-owned hard caps to entry count, each regular file and the aggregate rendered set before retaining bytes, and detects identity drift before returning only a non-authoritative pending proof. After freeze computes a tree OID, the authoritative `validateTicketsCandidateGitTree` reads the manifest, inventory and blobs directly from that immutable Git tree by object ID and requires the tree OID width to match `object_format`; no live pathname can provide the final receipt. Both paths reject symlinks/non-regular/nested entries and pass an external inventory to the semantic validator. Schema-invalid nested shapes and non-object JSON roots return typed errors before graph, lineage, renderer or file-inventory code and cannot crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes free text to one line, escapes raw HTML and table delimiters, and neutralizes leading CommonMark block and link-reference markers so manifest text cannot forge headings, fences, metadata, overview rows or columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
+A missing, extra, renamed or one-byte-different document is invalid. The pre-freeze entry point `validateTicketsCandidateTree` reads the mutable proposal as raw bytes, rejects excessive JSON depth, and completes JSON Schema validation before deriving the Tickets directory or reading any rendered document. It then walks every existing path ancestor without following symlinks, applies host-owned hard caps to entry count, each regular file and the aggregate rendered set before retaining bytes, and detects identity drift before returning only a non-authoritative pending proof. After freeze computes a tree OID, the authoritative `validateTicketsCandidateGitTree` reads the manifest, inventory and blobs directly from that immutable Git tree by object ID and requires the tree OID width to match `object_format`; no live pathname can provide the final receipt. It invokes a host-owned absolute Git executable whose realpath/content identity is covered by the validator distribution/runtime lock and uses a closed environment that excludes caller `GIT_*` and candidate-controlled `PATH`. Both paths reject symlinks/non-regular/nested entries and pass an external inventory to the semantic validator. Schema-invalid nested shapes and non-object JSON roots return typed errors before graph, lineage, renderer or file-inventory code and cannot crash the host. A caller cannot omit the inventory or substitute freshly rendered bytes for the candidate files. The renderer normalizes free text to one line, escapes raw HTML and table delimiters, and neutralizes leading CommonMark block and link-reference markers so manifest text cannot forge headings, fences, metadata, overview rows or columns. Formatters may not rewrite generated files after validation. Human edits begin by changing the manifest model, then rerendering and minting a new identity.
 
 ## 13. Validation lifecycle
 
