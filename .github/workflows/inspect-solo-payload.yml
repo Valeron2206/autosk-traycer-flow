@@ -1,0 +1,32 @@
+name: Inspect solo-build payload
+on:
+  push:
+    branches: [tooling/publish-solo-build]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Validate archive without executing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=.github/payload/solo-build.tar.gz
+          test -f "$payload"
+          sha256sum "$payload" | tee payload.sha256
+          gzip -t "$payload"
+          tar -tzf "$payload" | LC_ALL=C sort | tee payload.listing
+          ! grep -E '(^|/)\.\.?(/|$)|^/' payload.listing
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: solo-build-payload-inspection
+          path: |
+            payload.sha256
+            payload.listing
+          if-no-files-found: error
+          retention-days: 7
