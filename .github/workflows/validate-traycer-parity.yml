@@ -1,4 +1,4 @@
-name: Validate program design registries
+name: Validate autosk-flow
 
 on:
   push:
@@ -7,9 +7,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: autosk-flow-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
+  node:
+    name: Node 24 / design and runtime
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -21,6 +27,9 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
+
+      - name: Syntax check
+        run: find src scripts test -name '*.mjs' -print0 | xargs -0 -n1 node --check
 
       - name: Run adversarial tests
         run: npm test
@@ -40,3 +49,82 @@ jobs:
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
+
+      - name: Verify clean tracked source
+        run: git diff --check && test -z "$(git status --short)"
+
+  native:
+    name: Native helper / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.23.2
+          cache-dependency-path: native/hostfs/go.sum
+
+      - name: Native unit, race and vet checks
+        run: npm run test:native:go && npm run vet:native:go
+
+      - name: Actual native process and crash-recovery tests
+        run: npm run test:native
+
+      - name: Cross-compile supported targets
+        if: runner.os == 'Linux'
+        run: npm run build:native:cross
+
+  upstream-patch:
+    name: Pinned autoskd integration patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out autosk-flow
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: flow
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out pinned autoskd
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: wierdbytes/autosk
+          ref: 5163f00dd25005480dc7f3e40a0c40d18248857a
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Verify and apply exact upstream patch
+        run: |
+          node flow/scripts/verify-upstream-host-patch.mjs --baseline upstream
+          git -C upstream apply --check "$PWD/flow/patches/autoskd/host-projections.patch"
+          git -C upstream apply "$PWD/flow/patches/autoskd/host-projections.patch"
+          node flow/scripts/verify-upstream-host-patch.mjs --applied upstream
+
+      - name: Run actual Store integration tests
+        run: |
+          mkdir -p upstream/daemon/node_modules/@autosk
+          test ! -e upstream/daemon/node_modules/@autosk/sdk
+          ln -s ../../sdk upstream/daemon/node_modules/@autosk/sdk
+          AUTOSK_UPSTREAM_TEST_ROOT="$PWD/upstream" node --experimental-strip-types --test flow/test/upstream/*.test.mjs

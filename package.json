@@ -10,9 +10,26 @@
     "validate:planning-ref": "node scripts/validate-planning-ref-design.mjs",
     "generate:capabilities": "node scripts/validate-program-capability-matrix.mjs --write-docs",
     "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope",
-    "validate:tickets-manifest": "node scripts/validate-tickets-manifest-design.mjs"
+    "validate:tickets-manifest": "node scripts/validate-tickets-manifest-design.mjs",
+    "test:runtime": "node --test test/runtime-*.test.mjs",
+    "doctor": "node src/cli.mjs doctor",
+    "build:native": "node scripts/build-native-hostfs.mjs",
+    "build:native:cross": "node scripts/build-native-hostfs.mjs --cross",
+    "test:native:go": "node scripts/run-native-go.mjs test",
+    "test:native": "node scripts/build-native-hostfs.mjs --fault-test && node --test test/native/*.test.mjs",
+    "test:upstream": "node --experimental-strip-types --test test/upstream/*.test.mjs",
+    "verify:upstream-host-patch": "node scripts/verify-upstream-host-patch.mjs",
+    "vet:native:go": "node scripts/run-native-go.mjs vet"
   },
   "engines": {
     "node": ">=24"
+  },
+  "bin": {
+    "autosk-flow": "./src/cli.mjs"
+  },
+  "autosk": {
+    "extensions": [
+      "./src/extension.mjs"
+    ]
   }
 }

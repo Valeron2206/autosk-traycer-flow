@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "repository": "wierdbytes/autosk",
+  "commit_oid": "5163f00dd25005480dc7f3e40a0c40d18248857a",
+  "tree_oid": "5b94439a30e5dfe9db008082e9184f4699219c82",
+  "source_archive_sha256": "b5d75ae3e9c48b1abebdbf0d80081249894ff1b3e1f0dfe1c8c6b0237cd77fdc",
+  "license": "MIT",
+  "observed_contract": "daemon/sdk/src: default extension factory; registerWorkflow; ctx.tasks read-only; ctx.transit; ctx.spawn/exec",
+  "production_mutation_port": "not_available_at_pin",
+  "files": [
+    {
+      "path": "daemon/sdk/src/api.ts",
+      "sha256": "53b1d994e23714fca4ecec03495667e6b29d9cd6ae3b7bf499d9de26470be597",
+      "size": 1557
+    },
+    {
+      "path": "daemon/sdk/src/agent.ts",
+      "sha256": "fd8e548b7a25d0ea332c8169ed46d65cc5bd145bbfab7490e1da86a84e4634d2",
+      "size": 7797
+    },
+    {
+      "path": "daemon/sdk/src/workflow.ts",
+      "sha256": "f7919f64796663456ce99dc3ae92b926492a107d05a035fdcae4fb3fd9c59987",
+      "size": 3387
+    },
+    {
+      "path": "daemon/core/src/extensions/loader.ts",
+      "sha256": "b330f6af1ae0ddc217b0d40f74e57bf9f959df6439fe680a85e2a0702c3e7e4e",
+      "size": 10146
+    },
+    {
+      "path": "daemon/core/src/engine/context.ts",
+      "sha256": "4eaebe33f464f3bd36623783abafbf2e5542ba2c074aa4b238e09f57c6711a66",
+      "size": 3170
+    },
+    {
+      "path": "daemon/core/src/store/store.ts",
+      "sha256": "0faef10e29cd7bca5c855ab95088c7dc2c093066e2590bad5d032957634b5cb3",
+      "size": 34309
+    },
+    {
+      "path": "daemon/core/src/store/metadata.ts",
+      "sha256": "167696e6c53d08f6639732ff5cd6fc4f82916a2156c7e48cf8e923cd46eace53",
+      "size": 5658
+    },
+    {
+      "path": "daemon/extensions/feature-dev/package.json",
+      "sha256": "c1c9a1d602c27e7a5cb28d38faed3a180e16815a1e55cb798f0d1f55912ff8ad",
+      "size": 1088
+    }
+  ]
+}

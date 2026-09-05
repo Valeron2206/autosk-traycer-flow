@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "module": "golang.org/x/sys",
+  "version": "v0.22.0",
+  "license": "BSD-3-Clause",
+  "module_sum": "h1:RI27ohtqKCnwULzJLqkv897zojh5/DwS/ENaMzUOaWI=",
+  "go_mod_sum": "h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=",
+  "source": "Go public module proxy/checksum database; authenticated by go.sum",
+  "offline_vendor_optional": true,
+  "runtime_qualification": false
+}

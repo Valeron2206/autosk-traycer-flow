@@ -24,3 +24,9 @@ tmp/
 
 # Local migration inputs are never published
 resources/governance/imported-baseline/
+
+# Native qualification builds, never source/approval evidence
+.build/
+
+# Native module cache/vendor may be materialized locally; dependencies are pinned by go.sum
+native/hostfs/vendor/
