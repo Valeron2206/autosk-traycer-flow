@@ -1,0 +1,36 @@
+name: Export pinned upstream source
+on:
+  push:
+    branches: [tooling/solo-upstream-snapshot]
+    paths: [.github/workflows/export-solo-upstream.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read exact upstream commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: wierdbytes/autosk
+          ref: 5163f00dd25005480dc7f3e40a0c40d18248857a
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Export tracked source without execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 5163f00dd25005480dc7f3e40a0c40d18248857a
+          mkdir -p "$RUNNER_TEMP/upstream-snapshot"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/upstream-snapshot/identity.txt"
+          git archive --format=tar HEAD | gzip -n > "$RUNNER_TEMP/upstream-snapshot/upstream.tar.gz"
+          cd "$RUNNER_TEMP/upstream-snapshot"
+          sha256sum upstream.tar.gz identity.txt > SHA256SUMS
+      - name: Publish source evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: autosk-upstream-5163f00
+          path: ${{ runner.temp }}/upstream-snapshot/
+          if-no-files-found: error
+          retention-days: 7
