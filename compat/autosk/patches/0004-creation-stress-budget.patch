@@ -1,0 +1,63 @@
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index c39eb683d3ec41c814add367ef37c928349295d1..8a60897ae2f22f154e98e78923494708acce42fd 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -175,6 +175,17 @@ async function writeTaskRecord(store: Store, task: StoredTask): Promise<void> {
+   await writeFile(store.paths.taskJson(task.id), serializeTask(task));
+ }
+ 
++/**
++ * How long an anti-hang guard waits before failing the test.
++ *
++ * This is not a latency assertion — the real checks run on the rejection it
++ * returns — so it only has to sit above what a helper spawn and a couple of
++ * messages cost on a loaded machine, and below the creation internals' own bounds
++ * (readiness 10 s, lock and request 30 s) so a genuine hang still surfaces as a
++ * failure instead of being masked by them.
++ */
++const REJECTION_GUARD_MS = 8_000;
++
+ async function rejectedWithin(promise: Promise<unknown>, ms: number): Promise<Error> {
+   const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), ms));
+   const result = await Promise.race([
+@@ -253,6 +264,13 @@ describe("Store.createTaskWithCreationBinding", () => {
+     dir.cleanup();
+   });
+ 
++  // 100 concurrent creates means 100 helper spawns: `withCreationLock` runs the
++  // native binary once per creation, so this test's cost is dominated by process
++  // startup and scales with how loaded the machine is, not with the work under
++  // test. It takes about a second on its own and comfortably exceeds the default
++  // five when the rest of this file — or the rest of the suite, in CI — is running
++  // alongside it. The budget is stated here rather than left to a default that
++  // describes a different machine.
+   test("2/10/100 concurrent same-key creates produce one task and one created outcome", async () => {
+     for (const count of [2, 10, 100]) {
+       const localDir = tempDir();
+@@ -283,7 +301,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         localDir.cleanup();
+       }
+     }
+-  });
++  }, 60_000);
+ 
+   test("same key with a different binding conflicts and creates no second task", async () => {
+     const first = await store.createTaskWithCreationBinding(creationInput());
+@@ -518,7 +536,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+     const previous = process.env.AUTOSK_STORE_LOCK_BIN;
+     process.env.AUTOSK_STORE_LOCK_BIN = join(dir.path, "missing-autosk-store-lock");
+     try {
+-      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), 1000);
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
+       expect(err.message).toMatch(/ENOENT|no such file|missing-autosk-store-lock/);
+       expect(existsSync(store.paths.creationIndexJson)).toBe(false);
+       expect(await store.listTaskViews()).toEqual([]);
+@@ -547,7 +565,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+     const previous = process.env.AUTOSK_STORE_LOCK_BIN;
+     process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
+     try {
+-      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), 2000);
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
+       expect(err.message).toMatch(/autosk-store-lock|stdin|closed|exited/);
+       expect(existsSync(store.paths.creationIndexJson)).toBe(false);
+       expect(await store.listTaskViews()).toEqual([]);
