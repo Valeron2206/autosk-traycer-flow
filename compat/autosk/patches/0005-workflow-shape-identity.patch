@@ -67,10 +67,10 @@ index 8e336d778ee7f775fae0573b7906bca8a06d5039..183d716d0ded96e2b254427017999377
 +}
 diff --git a/daemon/core/src/extensions/graph.ts b/daemon/core/src/extensions/graph.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8e475228061c034a00328dbfd30c752c82537d99
+index 0000000000000000000000000000000000000000..fb90ee0ae7b36a657edb4e9206cd4a132e1f1d7f
 --- /dev/null
 +++ b/daemon/core/src/extensions/graph.ts
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,81 @@
 +/**
 + * The declared shape of a workflow, digested (issue #10, criterion 2).
 + *
@@ -99,7 +99,10 @@ index 0000000000000000000000000000000000000000..8e475228061c034a00328dbfd30c752c
 + *
 + * Names are base64-encoded rather than written literally: a step may be named
 + * anything, including a string containing the separator or a newline, and two
-+ * different workflows must never serialise to the same text.
++ * different workflows must never serialise to the same text. The encoding is over
++ * UTF-16 code units, not UTF-8: a JavaScript string may hold an unpaired surrogate,
++ * and UTF-8 maps every one of those to U+FFFD, so `"\uD800"` and `"\uFFFD"` would
++ * be one name to the digest and two names to the registry.
 + *
 + * Steps are sorted by name and the shape is therefore a SET, not a sequence. Two
 + * reasons, and the second is the load-bearing one. Declaration order carries no
@@ -119,7 +122,7 @@ index 0000000000000000000000000000000000000000..8e475228061c034a00328dbfd30c752c
 +    `ontransit ${typeof wf.onTransit === "function" ? "1" : "0"}`,
 +  ];
 +  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
-+    Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8")),
++    Buffer.compare(Buffer.from(a, "utf16le"), Buffer.from(b, "utf16le")),
 +  );
 +  for (const [stepName, step] of steps) {
 +    lines.push(`step ${b64(stepName)} ${describeStep(step)}`);
@@ -147,10 +150,10 @@ index 0000000000000000000000000000000000000000..8e475228061c034a00328dbfd30c752c
 +}
 +
 +function b64(value: string): string {
-+  return Buffer.from(value, "utf8").toString("base64");
++  return Buffer.from(value, "utf16le").toString("base64");
 +}
 diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
-index af04e54f19532406a7f2e0abd96c7a830b596423..871f53335c61b81de8ea3796ebf22b828c72a6aa 100644
+index af04e54f19532406a7f2e0abd96c7a830b596423..7f56d31ad58ac7bd3c410ac51d61d20d955fc2db 100644
 --- a/daemon/core/src/extensions/registry.ts
 +++ b/daemon/core/src/extensions/registry.ts
 @@ -28,6 +28,7 @@ import {
@@ -191,7 +194,32 @@ index af04e54f19532406a7f2e0abd96c7a830b596423..871f53335c61b81de8ea3796ebf22b82
    // -- diagnostics ---------------------------------------------------------
  
    /** The accumulated load diagnostics (a fresh copy). */
-@@ -115,7 +132,10 @@ export class ExtensionRegistry {
+@@ -100,6 +117,24 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" has no steps`);
+       return;
+     }
++    // Reachability is decided with `in` and property access, which walk the
++    // prototype chain, while every projection of the workflow — the rendered info
++    // and the declared-shape digest (issue #10) — enumerates own keys. A step
++    // inherited from a prototype is therefore reachable and drives a task's status
++    // while being invisible to both. Rather than leave the two disagreeing, a
++    // `steps` object that is not plain is refused.
++    const proto = Object.getPrototypeOf(workflow.steps);
++    if (proto !== Object.prototype && proto !== null) {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" steps must be a plain object`);
++      return;
++    }
++    // `firstStep` is coerced by `in`, so a numeric one passes this check and then
++    // fails far away — inside the shape digest, which only runs under the real
++    // loader. A registration must never throw, so the type is checked here.
++    if (typeof workflow.firstStep !== "string") {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" firstStep must be a string`);
++      return;
++    }
+     if (!(workflow.firstStep in workflow.steps)) {
+       this.recordDiagnostic(
+         source,
+@@ -115,7 +150,10 @@ export class ExtensionRegistry {
        }
      }
      this.workflows.set(name, workflow);
@@ -361,10 +389,10 @@ index bd272693c3884ad734292f4941050a2ba039d6ce..8b38474637afa542865c18c323d7d651
      // there is no earlier admission to launder, so an explicit starting step is
 diff --git a/daemon/core/test/extensions.graph.test.ts b/daemon/core/test/extensions.graph.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5879cd2f3cf5b7262264d4829ac9cc3faa98168f
+index 0000000000000000000000000000000000000000..87e6202bc9271af423e234b542509e5ee4b23146
 --- /dev/null
 +++ b/daemon/core/test/extensions.graph.test.ts
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,96 @@
 +/**
 + * The declared-shape digest (issue #10).
 + *
@@ -441,12 +469,65 @@ index 0000000000000000000000000000000000000000..5879cd2f3cf5b7262264d4829ac9cc3f
 +    expect(canonicalWorkflowGraph(wf())).not.toContain("intake");
 +  });
 +
++  test("an unpaired surrogate is a name, not a replacement character", () => {
++    // A JavaScript string may hold a lone surrogate, and UTF-8 maps every one of
++    // them to U+FFFD — so encoding names as UTF-8 would make "\uD800" and "\uFFFD"
++    // one name to the digest and two to the registry.
++    // One step each, so the encoding of the name is the only thing that can
++    // differ — with two steps the sort order would separate them even if the
++    // encoding collapsed both to the same bytes, and the test would pass for the
++    // wrong reason.
++    const lone = wf({ firstStep: "\uD800", steps: { "\uD800": agent } });
++    const replacement = wf({ firstStep: "\uFFFD", steps: { "\uFFFD": agent } });
++    expect(canonicalWorkflowGraph(lone)).not.toBe(canonicalWorkflowGraph(replacement));
++    expect(workflowGraphDigest(lone)).not.toBe(workflowGraphDigest(replacement));
++  });
++
 +  test("the description is not part of the shape", () => {
 +    // It changes nothing the engine drives, and moving the digest for it would
 +    // park tasks over an edited sentence.
 +    expect(workflowGraphDigest(wf({ description: "a" }))).toBe(workflowGraphDigest(wf()));
 +  });
 +});
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index 751c180ee5d5642c8bac99f6ecab5ea871044c49..3e17c9320ae4c9c991e8f4c62362f5119b3b63c3 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -312,6 +312,34 @@ describe("extension loader — error isolation (daemon stays up)", () => {
+     expect(diag?.error).toMatch(/none of these bytes belong to any extension's runtime identity/);
+   });
+ 
++  test("a workflow whose steps are inherited, or whose firstStep is not a string, is refused", async () => {
++    // Reachability walks the prototype chain (`step in wf.steps`), while every
++    // projection of a workflow enumerates own keys — so an inherited step would be
++    // reachable and drive a task's status while being invisible to the rendered
++    // info and to the declared-shape digest. And `in` coerces, so a numeric
++    // firstStep passes the membership check and then fails deep inside the digest.
++    const { ExtensionRegistry } = await import("../src/index.ts");
++    const registry = new ExtensionRegistry();
++
++    const inherited = Object.create({ review: { status: "human" } }) as Record<string, unknown>;
++    inherited.intake = { onRun: async () => {} };
++    registry.addWorkflow("test", { name: "inherited", firstStep: "intake", steps: inherited } as never);
++    expect(registry.resolveWorkflow("inherited")).toBeUndefined();
++    expect(registry.diagnostics.map((d) => d.error)).toContain(
++      'registerWorkflow: "inherited" steps must be a plain object',
++    );
++
++    registry.addWorkflow("test", {
++      name: "numeric",
++      firstStep: 1,
++      steps: { 1: { status: "human" } },
++    } as never);
++    expect(registry.resolveWorkflow("numeric")).toBeUndefined();
++    expect(registry.diagnostics.map((d) => d.error)).toContain(
++      'registerWorkflow: "numeric" firstStep must be a string',
++    );
++  });
++
+   test("an empty directory in the extensions dir is not reported", async () => {
+     mkdirSync(join(proj, ".autosk/extensions/empty"), { recursive: true });
+     write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf"));
 diff --git a/docs/extensions.md b/docs/extensions.md
 index c5e9ce89ddd6b268ed570a06aeba776bc6c79a61..d1ac223e3ebbe5fd016010ad19562ecfff4e17e9 100644
 --- a/docs/extensions.md
