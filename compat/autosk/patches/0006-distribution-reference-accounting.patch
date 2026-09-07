@@ -1,0 +1,477 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index 217f789899d5c83ba7675a247bf0f9b47b7b014e..dd1b1b655b3ce107cefb0a4cba9528c143a7095d 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -33,6 +33,7 @@ import {
+ import { systemClock, type Clock } from "../store/clock.ts";
+ import { consoleLogger, type Logger } from "../store/logger.ts";
+ import { readRuntimeIdentityPin } from "../store/metadata.ts";
++import { canonicalDistribution } from "../extensions/identity.ts";
+ import { EXTENSION_VERSION_MISMATCH, runtimeIdentityDecision } from "./runtimeIdentity.ts";
+ import { TranscriptWriter } from "./transcript.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+@@ -111,10 +112,38 @@ export class Engine implements SessionHost {
+   async addProject(project: EngineProject): Promise<void> {
+     if (this.projects.has(project.root)) return;
+     this.projects.set(project.root, project);
++    await this.recordDistributions(project);
+     await this.recoverProject(project);
+     this.kickScan();
+   }
+ 
++  /**
++   * Remembers, in the project's runtime index, every distribution the registry was
++   * built from (issue #10). A task's pin says which digest it needs; this says what
++   * that digest consisted of, so a later reader can tell whether a candidate tree
++   * is that distribution.
++   *
++   * Failing to record must not stop a project opening: the index is a record, not
++   * a precondition for running, and a project that cannot write it is still a
++   * project whose tasks are pinned and checked. The failure is logged, not
++   * swallowed.
++   */
++  private async recordDistributions(project: EngineProject): Promise<void> {
++    const byDigest = new Map<string, string>();
++    for (const name of project.registry.workflowNames()) {
++      const admitted = project.registry.workflowAdmission(name);
++      if (!admitted || byDigest.has(admitted.distribution.digest)) continue;
++      byDigest.set(admitted.distribution.digest, canonicalDistribution(admitted.distribution.entries));
++    }
++    for (const [digest, entries] of byDigest) {
++      try {
++        await project.store.recordDistribution(digest, entries);
++      } catch (e) {
++        this.logger.error(`recording distribution ${digest}: ${errMsg(e)}`);
++      }
++    }
++  }
++
+   /** Currently-registered project roots. */
+   projectRoots(): string[] {
+     return [...this.projects.keys()];
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..88bf2ee2d07ef76f5461d6e8cb4907f88b0d8fe3
+--- /dev/null
++++ b/daemon/core/src/store/distributions.ts
+@@ -0,0 +1,111 @@
++/**
++ * The record of which extension distributions a project has seen, and which of
++ * them are still in use (issue #10, criteria 3 and 8).
++ *
++ * Two halves, and the split is deliberate.
++ *
++ * What is REFERENCED is derived, never stored. A task's `runtime_identity` pin
++ * already says which distribution it was admitted under, and open tasks are the
++ * only thing that keeps one alive; a stored count would be a second source of
++ * truth obliged to agree with the tasks, and this repository has spent a day
++ * proving that two structures obliged to agree eventually disagree. The set is
++ * computed on demand and cannot drift.
++ *
++ * What is RECORDED is stored: the index remembers each distribution's digest and
++ * the canonical listing of what it contained, so a later reader can say what a
++ * digest meant. It does NOT store the files themselves — see the boundary note on
++ * `DistributionRecord`.
++ */
++
++/**
++ * One remembered distribution.
++ *
++ * `entries` is the canonical listing the digest was taken over, not the file
++ * contents. That is the honest limit of this record: it can tell you what a
++ * distribution consisted of and prove a candidate tree is or is not that
++ * distribution, and it cannot reconstruct the code. Holding the bytes is a
++ * separate obligation and is not claimed here.
++ */
++export interface DistributionRecord {
++  /** Lowercase sha256 of the distribution, as `distributionIdentity` computes it. */
++  digest: string;
++  /** The canonical listing the digest was taken over. */
++  entries: string;
++  /** When this project first recorded it, from the store's clock. */
++  recorded_at: string;
++}
++
++/** The `.autosk/runtime/v1/index.json` document this module owns. */
++export interface DistributionIndex {
++  version: 1;
++  distributions: DistributionRecord[];
++}
++
++const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
++
++/** An index file that is present but not a well-formed document. */
++export class DistributionIndexError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "DistributionIndexError";
++  }
++}
++
++/**
++ * Parses the index. An ABSENT file is an empty index; a malformed one is an
++ * error, never an empty index — silently treating corruption as "nothing
++ * recorded" would let a damaged file erase the record of every distribution and
++ * then permit deleting them.
++ */
++export function parseDistributionIndex(raw: string | null): DistributionIndex {
++  if (raw === null || raw === "") return { version: 1, distributions: [] };
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(raw);
++  } catch (e) {
++    throw new DistributionIndexError(`runtime index is not JSON: ${e instanceof Error ? e.message : String(e)}`);
++  }
++  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
++    throw new DistributionIndexError("runtime index is not an object");
++  }
++  const record = parsed as Record<string, unknown>;
++  if (record.version !== 1) {
++    throw new DistributionIndexError(`runtime index version is not 1: ${JSON.stringify(record.version)}`);
++  }
++  if (!Array.isArray(record.distributions)) {
++    throw new DistributionIndexError("runtime index has no distributions array");
++  }
++  const seen = new Set<string>();
++  const distributions = record.distributions.map((entry) => {
++    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
++      throw new DistributionIndexError("runtime index entry is not an object");
++    }
++    const item = entry as Record<string, unknown>;
++    const { digest, entries, recorded_at: recordedAt } = item;
++    const extra = Object.keys(item).filter((k) => k !== "digest" && k !== "entries" && k !== "recorded_at");
++    if (extra.length > 0) {
++      throw new DistributionIndexError(`runtime index entry has unexpected keys: ${extra.sort().join(", ")}`);
++    }
++    if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
++      throw new DistributionIndexError("runtime index entry digest is not a lowercase sha256");
++    }
++    if (seen.has(digest)) {
++      throw new DistributionIndexError(`runtime index records ${digest} twice`);
++    }
++    seen.add(digest);
++    if (typeof entries !== "string") {
++      throw new DistributionIndexError("runtime index entry has no canonical entries");
++    }
++    if (typeof recordedAt !== "string" || recordedAt.length === 0) {
++      throw new DistributionIndexError("runtime index entry has no recorded_at");
++    }
++    return { digest, entries, recorded_at: recordedAt };
++  });
++  return { version: 1, distributions };
++}
++
++/** Serialises the index with entries in digest order, so the bytes are stable. */
++export function serializeDistributionIndex(index: DistributionIndex): string {
++  const sorted = [...index.distributions].sort((a, b) => (a.digest < b.digest ? -1 : a.digest > b.digest ? 1 : 0));
++  return `${JSON.stringify({ version: 1, distributions: sorted }, null, 2)}\n`;
++}
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..4b478a69ad2d2c814fd4583255fec247af256c2c 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -50,7 +50,14 @@ import {
+   type CreationLockIO,
+   type CreationReservationRecord,
+ } from "./creation.ts";
++import { createHash } from "node:crypto";
++
+ import { systemClock, type Clock } from "./clock.ts";
++import {
++  parseDistributionIndex,
++  serializeDistributionIndex,
++  type DistributionRecord,
++} from "./distributions.ts";
+ import { KeyedMutex } from "./lock.ts";
+ import {
+   applyMetadataPatch,
+@@ -1134,6 +1141,77 @@ export class Store {
+    * not-open, mirroring {@link buildView}); a scan only ever needs an answer good
+    * enough to gate this pass — the next reconciled scan corrects any staleness.
+    */
++  // -- distribution reference accounting (issue #10) -----------------------
++
++  /**
++   * The distributions this project still depends on: the pins of its OPEN tasks.
++   *
++   * Derived, never counted. A stored tally would be a second source of truth
++   * obliged to agree with the tasks, and one that drifts silently grants
++   * permission to delete something still in use. A closed task holds nothing —
++   * it will not run again, and its pin stays on the record as history.
++   */
++  async referencedDistributions(): Promise<Set<string>> {
++    await this.reconcileAll();
++    return this.referencedFromCache();
++  }
++
++  /** The same set, from the reconciled cache, with no I/O. */
++  private referencedFromCache(): Set<string> {
++    const referenced = new Set<string>();
++    for (const id of this.tasks.cachedIds()) {
++      const t = this.tasks.peek(id);
++      if (!t || !OPEN_STATUSES.has(t.status)) continue;
++      const pin = readRuntimeIdentityPin(t.metadata);
++      if (pin.state === "pinned") referenced.add(pin.pin.digest);
++    }
++    return referenced;
++  }
++
++  /**
++   * Remembers a distribution: its digest and the canonical listing the digest was
++   * taken over. Idempotent — recording the same digest twice is a no-op, and the
++   * first `recorded_at` is kept.
++   *
++   * This stores what a digest MEANT, not the files it covered. Holding the bytes
++   * so an old task can keep running on them is a separate obligation and is not
++   * done here.
++   */
++  async recordDistribution(digest: string, entries: string): Promise<void> {
++    await withCreationLock(this.paths, async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw);
++      if (index.distributions.some((d) => d.digest === digest)) return;
++      const record: DistributionRecord = { digest, entries, recorded_at: this.clock() };
++      index.distributions.push(record);
++      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex(index));
++    });
++  }
++
++  /**
++   * Forgets a distribution, refusing while any open task is pinned to it.
++   *
++   * The reference set is taken from the store's reconciled view immediately
++   * before the lock and re-read from the cache inside it; a task pinned in that
++   * window is not seen. That is stated rather than papered over: reconciling
++   * under the cross-process lock would mean writing task files while holding it,
++   * and this operation removes a record of what a digest meant, not code anything
++   * is running.
++   */
++  async deleteDistribution(digest: string): Promise<void> {
++    await this.reconcileAll();
++    await withCreationLock(this.paths, async (io) => {
++      if (this.referencedFromCache().has(digest)) {
++        throw new Error(`distribution ${digest} is still referenced by an open task`);
++      }
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw);
++      const kept = index.distributions.filter((d) => d.digest !== digest);
++      if (kept.length === index.distributions.length) return;
++      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex({ version: 1, distributions: kept }));
++    });
++  }
++
+   private schedulingRowFor(t: StoredTask): SchedulingRow {
+     const blocked = t.blocked_by.some((bid) => {
+       const b = this.tasks.peek(bid);
+@@ -1307,3 +1385,8 @@ function matchesFilter(v: TaskView, f: TaskFilter): boolean {
+   if (f.blocked !== undefined && v.blocked !== f.blocked) return false;
+   return true;
+ }
++
++/** The conditional-write token for the runtime index: `null` when it is absent. */
++function expectedIndexDigest(raw: string | null): string | null {
++  return raw === null ? null : createHash("sha256").update(raw, "utf8").digest("hex");
++}
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index 8b38474637afa542865c18c323d7d651e5c97635..5474988824709cf3f5ccec5565f69fc50f033410 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -11,6 +11,9 @@ import { afterEach, describe, expect, test } from "bun:test";
+ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+ import path from "node:path";
+ 
++import { withCreationLock } from "../src/store/creation.ts";
++import { parseDistributionIndex } from "../src/store/distributions.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
+ import { loadProjectRegistry } from "../src/extensions/loader.ts";
+ import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
+ import { makeEngine, makeProject, type TestProject } from "./engineHarness.ts";
+@@ -624,6 +627,33 @@ export default (api) => {
+     );
+   });
+ 
++  test("opening a project records the distributions its registry was built from", async () => {
++    // The record has to be written by the production path, not merely be writable:
++    // the previous slice shipped four store operations that nothing called, and
++    // that gap is what this test exists to prevent repeating.
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const raw = await withCreationLock(new ProjectPaths(p.root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    expect(index.distributions.map((d) => d.digest)).toEqual([
++      p.project.registry.workflowIdentity("wf")!.digest,
++    ]);
++    expect(index.distributions[0]!.entries).toContain("file ");
++
++    // And it holds a reference while the task is open.
++    const task = await p.store.createTask({ title: "holds" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    expect([...(await p.store.referencedDistributions())]).toEqual([
++      p.project.registry.workflowIdentity("wf")!.digest,
++    ]);
++    await expect(p.store.deleteDistribution(index.distributions[0]!.digest)).rejects.toThrow(
++      /still referenced/,
++    );
++  });
++
+   test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
+     // The absent-pin refusal must not reach a task that has no workflow yet:
+     // there is no earlier admission to launder, so an explicit starting step is
+diff --git a/daemon/core/test/store.distributions.test.ts b/daemon/core/test/store.distributions.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c552ba3a8c5f23bbf58eb14a0acad6758e2783e0
+--- /dev/null
++++ b/daemon/core/test/store.distributions.test.ts
+@@ -0,0 +1,113 @@
++/**
++ * Distribution reference accounting (issue #10, criteria 3 and 8).
++ *
++ * What keeps a distribution alive is an OPEN task pinned to it. The set is
++ * derived from the tasks rather than counted, so these tests are about the
++ * derivation being right — and about a referenced distribution being undeletable.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++
++import { Store } from "../src/index.ts";
++import { parseDistributionIndex, DistributionIndexError } from "../src/store/distributions.ts";
++import { withCreationLock } from "../src/store/creation.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
++import { tempDir } from "./helpers.ts";
++
++const A = "a".repeat(64);
++const B = "b".repeat(64);
++
++describe("distribution reference accounting", () => {
++  const cleanups: (() => void)[] = [];
++  const stores: Store[] = [];
++  afterEach(async () => {
++    for (const s of stores.splice(0)) await s.close();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  async function project(): Promise<{ store: Store; root: string }> {
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const store = new Store(dir.path, { watch: false });
++    stores.push(store);
++    await store.open();
++    return { store, root: dir.path };
++  }
++
++  /** Enrolls a task and pins it, the way the engine does. */
++  async function pinned(store: Store, digest: string, status: "work" | "done" = "work") {
++    const task = await store.createTask({ title: `pinned to ${digest.slice(0, 6)}` });
++    await store.setPosition(
++      task.id,
++      { status, workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest, graph: A } },
++    );
++    return task.id;
++  }
++
++  test("an open task holds its distribution; a closed one stops holding it", async () => {
++    const { store } = await project();
++    const open = await pinned(store, A, "work");
++    await pinned(store, B, "done");
++
++    expect([...(await store.referencedDistributions())].sort()).toEqual([A]);
++
++    await store.setPosition(open, { status: "done", workflow: "wf", step: "review" });
++    expect([...(await store.referencedDistributions())]).toEqual([]);
++  });
++
++  test("recording a distribution is idempotent and readable back", async () => {
++    const { store, root } = await project();
++    await store.recordDistribution(A, "file abc index.ts\n");
++    await store.recordDistribution(A, "file abc index.ts\n");
++    await store.recordDistribution(B, "file def other.ts\n");
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    expect(index.distributions.map((d) => d.digest)).toEqual([A, B]);
++    expect(index.distributions[0]!.entries).toBe("file abc index.ts\n");
++  });
++
++  test("a referenced distribution cannot be deleted, and the record survives the refusal", async () => {
++    const { store, root } = await project();
++    await store.recordDistribution(A, "file abc index.ts\n");
++    await pinned(store, A, "work");
++
++    await expect(store.deleteDistribution(A)).rejects.toThrow(/still referenced/);
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).distributions.map((d) => d.digest)).toEqual([A]);
++  });
++
++  test("an unreferenced distribution is deleted", async () => {
++    const { store, root } = await project();
++    await store.recordDistribution(A, "file abc index.ts\n");
++    await store.recordDistribution(B, "file def other.ts\n");
++    await pinned(store, A, "work");
++
++    await store.deleteDistribution(B);
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).distributions.map((d) => d.digest)).toEqual([A]);
++  });
++
++  test("two projects account for their own references only", async () => {
++    const one = await project();
++    const two = await project();
++    await pinned(one.store, A, "work");
++    await pinned(two.store, B, "work");
++
++    expect([...(await one.store.referencedDistributions())]).toEqual([A]);
++    expect([...(await two.store.referencedDistributions())]).toEqual([B]);
++  });
++
++  test("a damaged index is an error, never an empty index", async () => {
++    // Reading corruption as "nothing recorded" would erase the record of every
++    // distribution and then permit deleting them.
++    expect(() => parseDistributionIndex("{")).toThrow(DistributionIndexError);
++    expect(() => parseDistributionIndex('{"version":2,"distributions":[]}')).toThrow(/version is not 1/);
++    expect(() => parseDistributionIndex('{"version":1}')).toThrow(/no distributions array/);
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[{"digest":"${A}","entries":"x","recorded_at":"t"},{"digest":"${A}","entries":"y","recorded_at":"t"}]}`)).toThrow(/twice/);
++    expect(parseDistributionIndex(null).distributions).toEqual([]);
++    expect(parseDistributionIndex("").distributions).toEqual([]);
++  });
++});
+diff --git a/docs/extensions.md b/docs/extensions.md
+index d1ac223e3ebbe5fd016010ad19562ecfff4e17e9..14b945a923478bbd0555c9e9ad6b645af193b8bf 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -384,6 +384,31 @@ The shape is recorded only beside a distribution identity. A registry assembled
+ without the loader stays honestly unidentified rather than becoming half-identified
+ by a value derived from an object in memory.
+ 
++### What the project remembers, and what it will not let you remove
++
++Opening a project records, in `.autosk/runtime/v1/index.json`, every distribution its
++registry was built from: the digest and the canonical listing that digest was taken
++over. A task's pin says which digest it needs; this says what that digest consisted
++of, so a later reader can tell whether a candidate tree is that distribution.
++
++It records what a digest **meant**, not the files it covered. It cannot hand an old
++task its old code back — holding the bytes so a pinned task keeps running across an
++update is a separate obligation and is not done here.
++
++A distribution is **referenced** while an open task is pinned to it, and removing a
++referenced one is refused. That set is derived from the tasks every time it is asked
++for, never counted and stored: a tally that drifts from the tasks would eventually
++grant permission to delete something still in use, and two structures obliged to
++agree are exactly the kind of thing that stops agreeing. A closed task holds nothing
++— it will not run again, and its pin stays as history.
++
++Two honest limits. The reference set is read from the store's view taken immediately
++before the cross-process lock, so a task pinned in that window is not seen;
++reconciling under that lock would mean writing task files while holding it, and what
++is being removed is a record rather than code anything is running. And a damaged
++index is an error, never an empty one: reading corruption as "nothing recorded" would
++erase the record of every distribution and then permit deleting them all.
++
+ What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
+ about what the code does once imported or what it fetches at runtime.
+ 

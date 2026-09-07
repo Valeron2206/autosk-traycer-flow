@@ -24,8 +24,10 @@ produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `0003-runtime-identity-admission.patch` produces
 `9362d712d8785ec8fd8558a539abfa0ebc3efaf2`, `0004-creation-stress-budget.patch` produces
 `3b46806c4e11609272c066ec6f6be9f0ec023a59`, and finally
-`0005-workflow-shape-identity.patch` produces the current `result_tree`
-`1211acbe4ebcdf3516b266702123391f1fa8005a`.
+`0005-workflow-shape-identity.patch` produces
+`1211acbe4ebcdf3516b266702123391f1fa8005a`, and finally
+`0006-distribution-reference-accounting.patch` produces the current `result_tree`
+`d1a7792bf7de94872a10dcc46f9d17834348f58e`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "1211acbe4ebcdf3516b266702123391f1fa8005a",
+  "result_tree": "d1a7792bf7de94872a10dcc46f9d17834348f58e",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -26,6 +26,10 @@
     {
       "file": "patches/0005-workflow-shape-identity.patch",
       "sha256": "e6e684a0685c5fadb7afe27f9bb4360a932bc9a4d21ec72a851b0800198b5e59"
+    },
+    {
+      "file": "patches/0006-distribution-reference-accounting.patch",
+      "sha256": "310951679ddff3e0b84a6e2a5a98562b2c8f6be44fb2331932063f2a1a41bede"
     }
   ],
   "license": {
