@@ -26,9 +26,6 @@ jobs:
     timeout-minutes: 20
     env:
       AUTOSK_NO_AUTO_INSTALL: "1"
-      AUTOSKD_BIN: ${{ runner.temp }}/autosk-source/bin/autoskd
-      AUTOSK_STORE_LOCK_BIN: ${{ runner.temp }}/autosk-source/bin/autosk-store-lock
-      SOURCE_DIR: ${{ runner.temp }}/autosk-source
 
     steps:
       - name: Check out source
@@ -40,6 +37,12 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
+
+      - name: Set isolated source and binary paths
+        run: |
+          echo "SOURCE_DIR=$RUNNER_TEMP/autosk-source" >> "$GITHUB_ENV"
+          echo "AUTOSKD_BIN=$RUNNER_TEMP/autosk-source/bin/autoskd" >> "$GITHUB_ENV"
+          echo "AUTOSK_STORE_LOCK_BIN=$RUNNER_TEMP/autosk-source/bin/autosk-store-lock" >> "$GITHUB_ENV"
 
       - name: Verify manifest and prepare exact upstream source
         id: source
