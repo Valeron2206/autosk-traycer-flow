@@ -29,7 +29,7 @@ produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `0006-distribution-reference-accounting.patch` produces
 `5c6657f1d11c0036972637fa3f0a41efd26cf9c0`, and finally
 `0007-migration-planning.patch` produces the current `result_tree`
-`5c6c40bdc89872541512c4693c5cff47b5d08cf8`.
+`2e09cefa12b00d874078e84ea7d08bbaa1cefcc3`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

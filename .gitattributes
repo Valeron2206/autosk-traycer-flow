@@ -2,4 +2,4 @@
 # prepare-autosk.mjs checks whitespace in the reconstructed source separately.
 # Patch bytes are pinned by SHA-256 in compat/autosk/manifest.v1.json, so they must
 # never be line-ending converted on checkout (core.autocrlf=true would break the series).
-compat/autosk/patches/*.patch -text whitespace=-blank-at-eol,-space-before-tab
+compat/autosk/patches/*.patch -text whitespace=-blank-at-eol,-space-before-tab,-blank-at-eof
