@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "5c6657f1d11c0036972637fa3f0a41efd26cf9c0",
+  "result_tree": "89a47c9166c1ab45192a4d40179a4b57fd0ad620",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -30,6 +30,10 @@
     {
       "file": "patches/0006-distribution-reference-accounting.patch",
       "sha256": "5bc033ecca65bc4374cc5b9082acfeff805fce1b239b515683e116828cda5bc6"
+    },
+    {
+      "file": "patches/0007-migration-planning.patch",
+      "sha256": "22afaefe9c993a48873b7b5042c086453cff6a4fe4ea5d8df9cd1d47605ff4be"
     }
   ],
   "license": {
