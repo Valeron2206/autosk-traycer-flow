@@ -214,7 +214,7 @@ index 0000000000000000000000000000000000000000..8e336d778ee7f775fae0573b7906bca8
 +  return { ok: true };
 +}
 diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
-index 85daa7be6ef6da17803e39bac22eb66ab1589913..d340c2742dbe3ee444d1db290d590e1ed1dd4379 100644
+index 85daa7be6ef6da17803e39bac22eb66ab1589913..2d617a19f913cdcf501525c4ec26d266e8de6564 100644
 --- a/daemon/core/src/engine/session.ts
 +++ b/daemon/core/src/engine/session.ts
 @@ -56,6 +56,7 @@ import {
@@ -229,28 +229,45 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..d340c2742dbe3ee444d1db290d590e1e
    private transited = false;
    /** A transit is mid-flight (guards against re-entrant `ctx.transit`). */
    private transiting = false;
-+  /** The transition refusal reason, kept so a swallowed throw still names it. */
-+  private identityRefusal: string | null = null;
++  /** Whether a transition was refused on identity, so a swallowed throw still counts. */
++  private transitRefused = false;
    /** An abort was requested. */
    private aborted = false;
    /** A graceful end was requested (interactive sessions only → seals `done`). */
-@@ -256,7 +259,14 @@ export class SessionRuntime {
+@@ -256,7 +259,31 @@ export class SessionRuntime {
        else await this.finalizeDone();
        return;
      }
 -    await this.finalizeFailed(threw ? errMsg(error) : "agent_did_not_transit");
-+    // An agent that catches the transition refusal and returns normally would
-+    // otherwise be parked as `agent_did_not_transit`, which is true of the agent
-+    // and useless to the operator: after an `ext update` it sends them looking at
-+    // the wrong thing. The refusal is the reason the transition never happened, so
-+    // it is what the park says.
-+    await this.finalizeFailed(
-+      threw ? errMsg(error) : (this.identityRefusal ?? "agent_did_not_transit"),
++    await this.finalizeFailed(threw ? errMsg(error) : this.noTransitReason());
++  }
++
++  /**
++   * Why a task session ended without transiting.
++   *
++   * An agent that catches a refused `ctx.transit` and returns normally would
++   * otherwise be parked as `agent_did_not_transit` — true of the agent and useless
++   * to the operator, who after an `ext update` goes looking for a broken agent
++   * instead of the update. So a refusal counts. But the verdict is re-taken here
++   * rather than replayed from memory: the registry can go back to the admitted
++   * bytes between the refusal and the agent returning, and reporting the old text
++   * would name a digest that is no longer current and blame an update for a
++   * transition the agent never retried — while `resume` succeeds, telling the
++   * operator there is no mismatch after all.
++   */
++  private noTransitReason(): string {
++    if (!this.transitRefused) return "agent_did_not_transit";
++    const identity = runtimeIdentityDecision(
++      this.project.registry,
++      this.project.store.runtimeIdentityPin(this.taskId),
++      this.workflowName,
++      "refuse",
 +    );
++    return identity.ok ? "agent_did_not_transit" : `cannot transit ${this.taskId}: ${identity.reason}`;
    }
  
    // -- ctx.transit --------------------------------------------------------
-@@ -292,6 +302,38 @@ export class SessionRuntime {
+@@ -292,6 +319,39 @@ export class SessionRuntime {
        if (wf.onTransit) {
          await wf.onTransit(tctx, to); // may throw → propagate (retryable)
        }
@@ -281,9 +298,10 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..d340c2742dbe3ee444d1db290d590e1e
 +        "refuse",
 +      );
 +      if (!identity.ok) {
-+        // Remembered so the reason survives an agent that swallows this throw.
-+        this.identityRefusal = `cannot transit ${this.taskId}: ${identity.reason}`;
-+        throw new Error(this.identityRefusal);
++        // Recorded, not stored as text: an agent may swallow this throw, and the
++        // reason has to be true when it is finally written (see `noTransitReason`).
++        this.transitRefused = true;
++        throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
 +      }
 +
        // onTransit approved — claim the single settle now. If an abort landed
@@ -1297,10 +1315,10 @@ index 236900aa365136f32376f35ed708446a2583e98b..75d22fa3a7403046a42d780cdeef306e
      expect(res.handled).toBe(true);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7e9f903b62bce53d6915df3cb918ef758bc2df51
+index 0000000000000000000000000000000000000000..bd272693c3884ad734292f4941050a2ba039d6ce
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,596 @@
+@@ -0,0 +1,645 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -1350,6 +1368,12 @@ index 0000000000000000000000000000000000000000..7e9f903b62bce53d6915df3cb918ef75
 +            // Deliberately hidden: the point of the test is that the engine still
 +            // reports why the transition never happened.
 +          }
++          // A second gate, so a test can change the registry again between the
++          // refusal and this agent returning.
++          const after = process.env.AUTOSK_TEST_AFTER_GATE;
++          if (!after) return;
++          writeFileSync(after + ".entered", "");
++          while (!existsSync(after)) await new Promise((r) => setTimeout(r, 5));
 +        },
 +      },
 +    },
@@ -1790,6 +1814,49 @@ index 0000000000000000000000000000000000000000..7e9f903b62bce53d6915df3cb918ef75
 +    expect(view.step).toBe("runSwallow");
 +  });
 +
++  test("a refusal that stopped being true is not the reason the task is parked", async () => {
++    // The refusal is remembered so a swallowed throw still names it. If the
++    // registry then goes back to the admitted bytes and the agent simply returns
++    // without transiting, the remembered reason is no longer true: it would name a
++    // digest that is not current and blame an update for a transition the agent
++    // never attempted — while `resume` succeeds, so the operator is told about a
++    // mismatch that is not there. Only the latest verdict may survive.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    // Captured before the swap: `addProject` keeps the project object itself, so
++    // `setProjectRegistry` overwrites `a.project.registry` in place.
++    const admitted = a.project.registry;
++    await engine.addProject(a.project);
++
++    const runGate = path.join(a.root, "stale-run-gate");
++    const afterGate = path.join(a.root, "stale-after-gate");
++    process.env.AUTOSK_TEST_GATE = runGate;
++    process.env.AUTOSK_TEST_AFTER_GATE = afterGate;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_AFTER_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "swap back" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "runSwallow" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    engine.setProjectRegistry(a.root, b.project.registry); // the refusal happens here
++    writeFileSync(runGate, "");
++    await waitFor(async () => existsSync(`${afterGate}.entered`));
++
++    engine.setProjectRegistry(a.root, admitted); // …and stops being true
++    writeFileSync(afterGate, "");
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("agent_did_not_transit")),
++    );
++    const comments = (await a.store.listComments(task.id)).map((c) => c.text);
++    expect(comments.some((t) => t.includes("extension_version_mismatch"))).toBe(false);
++  });
++
 +  test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
 +    // The absent-pin refusal must not reach a task that has no workflow yet:
 +    // there is no earlier admission to launder, so an explicit starting step is
@@ -2182,7 +2249,7 @@ index 512ea1a924064a68375b9cc4e37fe43dbd1355d5..deb46ed29dd71ee8d14fae0fe9407293
      await expect(
        client.call("task.metadata.set", { cwd, id: t.id, patch: [1, 2] }),
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d815192d299f7992e7fccd89803c341fd3ac74ae..e14eb9efe1ff7d266a76fa8a3e030895fdb55145 100644
+index d815192d299f7992e7fccd89803c341fd3ac74ae..c5e9ce89ddd6b268ed570a06aeba776bc6c79a61 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
 @@ -290,6 +290,154 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
@@ -2257,9 +2324,9 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..e14eb9efe1ff7d266a76fa8a3e030895
 +Deleting the reserved key does not release the task — dispatch and both transition
 +paths park it, and resuming or re-enrolling it where it stands is refused, because
 +either would continue mid-flight on code the task was never admitted under. `resume`
-+has no exception at all: it requires the pin to match wherever the task stands, first
-+step included, whether the pin is absent or wrong. `enroll` is the one that reads a
-+first step as a restart, and the rule below is that rule.
++has no exception at all: it never re-pins and never adopts a missing pin, wherever the
++task stands, first step included. `enroll` is the one that reads a first step as a
++restart, and the rule below is that rule.
 +
 +**One act re-pins, and it is the same act in every case: entering a workflow at its
 +first step.** That is a restart — the task begins the workflow again, on today's
