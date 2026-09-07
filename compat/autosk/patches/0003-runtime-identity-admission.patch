@@ -457,10 +457,10 @@ index a61777778ac6b545988834f53aa257c43130317a..b653f67f6aa6327b7952df2e95da696d
  }
 diff --git a/daemon/core/src/extensions/identity.ts b/daemon/core/src/extensions/identity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..81457521003a2fa45c14221855250c9cd7621b72
+index 0000000000000000000000000000000000000000..808fb40a7e10d4020e12e07bf30c12a975076d46
 --- /dev/null
 +++ b/daemon/core/src/extensions/identity.ts
-@@ -0,0 +1,319 @@
+@@ -0,0 +1,325 @@
 +/**
 + * Extension distribution identity (issue #10).
 + *
@@ -702,13 +702,19 @@ index 0000000000000000000000000000000000000000..81457521003a2fa45c14221855250c9c
 +
 +/**
 + * The path of `absolute` relative to `root` in POSIX form, or `null` when it is
-+ * not inside the root. Used to re-check that a memoised distribution really
-+ * contains a given entry.
++ * not inside the root or either end cannot be resolved. Used to re-check that a
++ * memoised distribution really contains a given entry.
 + */
 +export function relativeWithin(root: string, absolute: string): string | null {
-+  const rootBuf = Buffer.from(realpathSync(path.resolve(root)));
++  // Both ends resolve the same way. The root was readable when the distribution
++  // was digested, but it can go away before this re-check, and throwing here would
++  // take down the whole `loadProjectRegistry` instead of skipping one entry with a
++  // diagnostic — the opposite of the loader's rule that a bad extension is never
++  // fatal.
++  let rootBuf: Buffer;
 +  let target: Buffer;
 +  try {
++    rootBuf = Buffer.from(realpathSync(path.resolve(root)));
 +    target = Buffer.from(realpathSync(path.resolve(absolute)));
 +  } catch {
 +    return null;
@@ -1237,7 +1243,7 @@ index a467c87c2621e572ef11f17677843b169d9ba8f9..6cfada5d6c16b351b40d0ddf9a6be2a7
 +  meta[RUNTIME_IDENTITY_KEY] = { workflow: pin.workflow, digest: pin.digest };
 +}
 diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
-index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f4665447cd2 100644
+index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..0e9ad210e6c42ec308abb8f9e1594cd67476857b 100644
 --- a/daemon/core/src/store/store.ts
 +++ b/daemon/core/src/store/store.ts
 @@ -52,7 +52,15 @@ import {
@@ -1276,10 +1282,10 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f46
      });
      this.notifyTaskChange(id);
      return this.taskView(id);
-@@ -1113,6 +1125,15 @@ export class Store {
-    * not-open, mirroring {@link buildView}); a scan only ever needs an answer good
-    * enough to gate this pass — the next reconciled scan corrects any staleness.
-    */
+@@ -1107,6 +1119,15 @@ export class Store {
+     return t ? this.schedulingRowFor(t) : null;
+   }
+ 
 +  /**
 +   * The reserved runtime identity pin of a task (issue #10), read from the
 +   * in-memory record without extra I/O. Distinguishes absent from malformed:
@@ -1289,9 +1295,9 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f46
 +    return readRuntimeIdentityPin(this.tasks.peek(id)?.metadata);
 +  }
 +
-   private schedulingRowFor(t: StoredTask): SchedulingRow {
-     const blocked = t.blocked_by.some((bid) => {
-       const b = this.tasks.peek(bid);
+   /**
+    * Derives a {@link SchedulingRow} from a stored record. `blocked` is computed
+    * from the blockers' CACHED statuses (a dangling/unknown blocker is treated as
 diff --git a/daemon/core/test/engine.interactive.test.ts b/daemon/core/test/engine.interactive.test.ts
 index 236900aa365136f32376f35ed708446a2583e98b..75d22fa3a7403046a42d780cdeef306e112fc488 100644
 --- a/daemon/core/test/engine.interactive.test.ts
@@ -1966,15 +1972,15 @@ index 0000000000000000000000000000000000000000..bd272693c3884ad734292f4941050a2b
 +});
 diff --git a/daemon/core/test/extensions.identity.test.ts b/daemon/core/test/extensions.identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9919da2120fd75c71a6c50d0258bc13614d89b67
+index 0000000000000000000000000000000000000000..26ed0dc925623482833090ff693bf42c36ac4f84
 --- /dev/null
 +++ b/daemon/core/test/extensions.identity.test.ts
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,207 @@
 +import { describe, expect, test } from "bun:test";
 +import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 +import path from "node:path";
 +
-+import { distributionIdentity } from "../src/extensions/identity";
++import { distributionIdentity, relativeWithin } from "../src/extensions/identity";
 +import { tempDir } from "./helpers.ts";
 +
 +/** Writes a tree under a fresh temp dir and returns its root. */
@@ -2163,6 +2169,18 @@ index 0000000000000000000000000000000000000000..9919da2120fd75c71a6c50d0258bc136
 +    const other = tree({ "index.ts": "1\n" });
 +    expect(() => distributionIdentity(root, path.join(other, "index.ts"))).toThrow(/outside the distribution root/);
 +    expect(() => distributionIdentity(root, path.join(root, "missing.ts"))).toThrow();
++  });
++
++  test("relativeWithin answers null for an unresolvable end, never throws", () => {
++    // The loader calls this to re-check a memoised distribution, and a throw there
++    // would take down the whole project open instead of skipping one entry with a
++    // diagnostic. A root that has gone away since it was digested is the reachable
++    // case; both ends must behave the same way.
++    const root = tree({ "index.ts": "export default () => {};\n" });
++    const entry = path.join(root, "index.ts");
++    expect(relativeWithin(root, entry)).toBe("index.ts");
++    expect(relativeWithin(path.join(root, "gone"), entry)).toBe(null);
++    expect(relativeWithin(root, path.join(root, "gone.ts"))).toBe(null);
 +  });
 +});
 diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
