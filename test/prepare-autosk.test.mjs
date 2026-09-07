@@ -110,6 +110,9 @@ for (const [name, mutate, error] of [
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "f0916e4f430e1ae4e1e46d08fb6337077bb601a6");
-  assert.equal(manifest.patches.length, 1);
+  assert.equal(manifest.result_tree, "a274439d7c5c128ff14ab8148abd7f7860484ff5");
+  assert.deepEqual(
+    manifest.patches.map((patch) => patch.file),
+    ["patches/0001-atomic-task-creation.patch", "patches/0002-runtime-snapshot-store.patch"],
+  );
 });
