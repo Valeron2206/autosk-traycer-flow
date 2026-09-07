@@ -1,0 +1,164 @@
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index f42cd4da806bb6efbabad960c182abcea5c9b60c..316a13a445d12f228f96f463436a4de930f39124 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -8,7 +8,7 @@
+  */
+ 
+ import { afterEach, describe, expect, test } from "bun:test";
+-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+ import path from "node:path";
+ 
+ import { withCreationLock } from "../src/store/creation.ts";
+@@ -38,6 +38,20 @@ export default (api) => {
+           await ctx.transit({ step: "review" });
+         },
+       },
++      // Transits to ANOTHER agent step, so a task can be caught between two steps.
++      chain: {
++        onRun: async (ctx) => {
++          const gate = process.env.AUTOSK_TEST_GATE;
++          while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
++          await ctx.transit({ step: "second" });
++        },
++      },
++      second: {
++        onRun: async (ctx) => {
++          writeFileSync(process.env.AUTOSK_TEST_SECOND + ".entered", "");
++          await ctx.transit({ step: "review" });
++        },
++      },
+       // Mints a candidate through the per-session MCP server: the in-daemon path
+       // a workflow uses to fan out into child tasks.
+       spawn: {
+@@ -718,6 +732,105 @@ export default (api) => {
+     expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
+   });
+ 
++  test("a hot reload between two steps does not let the task continue on new code", async () => {
++    // The mandatory scenario, isolated rather than raced. Swapping the registry
++    // right after opening the gate does exercise a reload "around" the transition,
++    // but which of the two guards catches it is then a scheduling accident — the
++    // first draft asserted one side and the race handed it the other, and neither
++    // guard on its own made that draft fail, so it pinned nothing down.
++    //
++    // The gap this scenario names is the one where DISPATCH is the only guard: the
++    // transition already committed under the admitted code, and the next step has
++    // not been claimed yet. A blocker holds the task in exactly that gap — the scan
++    // skips a blocked task — so the reload lands there deterministically instead of
++    // by luck.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    // Captured before the swap: `setProjectRegistry` replaces `a.project.registry`
++    // in place, so reading the digest afterwards would read beta's.
++    const admittedDigest = a.project.registry.workflowIdentity("wf")!.digest;
++    const gatePath = path.join(a.root, "chain-gate");
++    const secondPath = path.join(a.root, "second");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    process.env.AUTOSK_TEST_SECOND = secondPath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_SECOND;
++    });
++
++    const holder = await a.store.createTask({ title: "holds the gap open" });
++    const task = await a.store.createTask({ title: "between two steps" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "chain" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    // Blocked while its session runs: the transition still commits, and the task
++    // then sits at `second` in `work` without being claimed.
++    await a.store.block(task.id, holder.id);
++    writeFileSync(gatePath, "");
++    await waitFor(async () => {
++      const view = await a.store.taskView(task.id);
++      return view.step === "second" && view.status === "work";
++    });
++    expect(existsSync(`${secondPath}.entered`)).toBe(false); // not claimed yet
++
++    engine.setProjectRegistry(a.root, b.project.registry); // the hot reload
++    await a.store.unblock(task.id, holder.id); // the gap closes; dispatch may claim
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    expect(view.step).toBe("second");
++    // The step never ran: the new code did not execute a single line for this task.
++    expect(existsSync(`${secondPath}.entered`)).toBe(false);
++    // And nothing re-admitted the task onto the new bytes.
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(admittedDigest);
++  });
++
++  test("a task whose distribution is gone stops, and the record of it cannot be dropped", async () => {
++    // "missing old version": not a workflow serving OTHER bytes (that is the
++    // corrupted-distribution case, refused with extension_version_mismatch), but
++    // the extension no longer being there at all. The task must stop, and the
++    // recorded distribution must stay undeletable while the task still names it —
++    // otherwise the one record of what the task needs could be dropped precisely
++    // when the code behind it is already gone.
++    const p = await project("v1");
++    const first = makeEngine();
++    engines.push(first.engine);
++    await first.engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "orphaned" });
++    await first.engine.enroll(p.root, task.id, { workflow: "wf" });
++    const digest = p.project.registry.workflowIdentity("wf")!.digest;
++    first.engine.stop();
++
++    await p.store.setPosition(task.id, { status: "work", workflow: "wf", step: "review" });
++
++    // The extension is removed outright, the way `ext remove` or a deleted
++    // directory leaves it: the registry serves nothing at all.
++    rmSync(path.join(p.root, ".autosk", "extensions", "wf.js"));
++    const empty = await loadProjectRegistry(p.root);
++    expect(empty.workflowNames()).toEqual([]);
++
++    const second = makeEngine();
++    engines.push(second.engine);
++    await second.engine.addProject({ ...p.project, registry: empty });
++
++    await waitFor(async () =>
++      (await p.store.listComments(task.id)).some((c) => c.text === "workflow_missing: wf"),
++    );
++    expect((await p.store.taskView(task.id)).status).toBe("human");
++    // Still referenced, so the record of the distribution it needs survives.
++    expect([...(await p.store.referencedDistributions())]).toEqual([digest]);
++    await expect(p.store.deleteDistribution(digest)).rejects.toThrow(/still referenced/);
++  });
++
+   test("two Epics run concurrently on different distributions, each on its own", async () => {
+     // The scenario the issue names, executed rather than described. The previous
+     // coverage claim rested on a test that enrols both tasks into a status step,
+diff --git a/docs/extensions.md b/docs/extensions.md
+index eef11c7682d450ae5afecf6d7f5ae24090165b57..2095fe2dc3437ec96140e692c185899981a4c438 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -384,6 +384,19 @@ The shape is recorded only beside a distribution identity. A registry assembled
+ without the loader stays honestly unidentified rather than becoming half-identified
+ by a value derived from an object in memory.
+ 
++### When the code is gone rather than different
++
++A distribution that changed is refused with `extension_version_mismatch`. A
++workflow that is no longer served **at all** — `ext remove`, a deleted directory,
++a package that failed to load — is a different stop: the task parks with
++`workflow_missing: <workflow>`, from the open-time guard, from a hot reload, or
++from the scheduler on the next scan.
++
++What the two have in common is that the record survives the code. The
++distribution the task is pinned to stays in the project's runtime index and stays
++undeletable while an open task names it, so the one statement of what that task
++needs is not dropped at the moment the code behind it disappears.
++
+ ### Two projects, two versions
+ 
+ Identity is per project, and so is everything built on it. Two projects opened in
