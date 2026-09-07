@@ -1,8 +1,8 @@
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
-index 642fe28b03a75e6597cdb6f2ec4e6ba6249b4bff..743e30ec88974aaafc4a3cbb5431a63b33673377 100644
+index 642fe28b03a75e6597cdb6f2ec4e6ba6249b4bff..f42cd4da806bb6efbabad960c182abcea5c9b60c 100644
 --- a/daemon/core/test/engine.runtime-identity.test.ts
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -718,6 +718,86 @@ export default (api) => {
+@@ -718,6 +718,90 @@ export default (api) => {
      expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
    });
  
@@ -36,10 +36,14 @@ index 642fe28b03a75e6597cdb6f2ec4e6ba6249b4bff..743e30ec88974aaafc4a3cbb5431a63b
 +    await engine.enroll(a.root, taskA.id, { workflow: "wf", step: "run" });
 +    await engine.enroll(b.root, taskB.id, { workflow: "wf", step: "run" });
 +
-+    // Both are live at the SAME time — asserted together, not one after the other.
-+    await waitFor(async () =>
-+      a.store.sessions.hasLiveSession(taskA.id) && b.store.sessions.hasLiveSession(taskB.id),
-+    );
++    // Both are RUNNING at the same time. `hasLiveSession` would not say that:
++    // it counts `queued` too, so with a one-worker pool it is satisfied while the
++    // second Epic merely waits its turn — the two would be serialized and the word
++    // "concurrently" would be doing work no assertion supports. Waiting on the
++    // status (rather than asserting it afterwards) avoids a queued→running race.
++    const running = (p: TestProject, id: string) =>
++      p.store.sessions.liveSessionsForTask(id)[0]?.status === "running";
++    await waitFor(async () => running(a, taskA.id) && running(b, taskB.id));
 +
 +    // Each session records the distribution of ITS project, not the other's.
 +    const [metaA] = a.store.sessions.liveSessionsForTask(taskA.id);
