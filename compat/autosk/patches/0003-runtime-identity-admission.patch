@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
-index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ab5898148ff200352e29ec4ec391125e602b8bff 100644
+index c204c4528a35793b5ade951a6d3f7c3ec56141c2..509a55fad94cf71c661892a28e0a127561cd9a1b 100644
 --- a/daemon/core/src/engine/engine.ts
 +++ b/daemon/core/src/engine/engine.ts
 @@ -32,6 +32,8 @@ import {
@@ -96,7 +96,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ab5898148ff200352e29ec4ec391125e
      });
      this.emitTask(project, updated);
      this.kickScan();
-@@ -460,6 +517,19 @@ export class Engine implements SessionHost {
+@@ -460,6 +517,28 @@ export class Engine implements SessionHost {
        await this.park(project, taskId, `workflow_missing: ${row.workflow} has no step ${row.step}`);
        return;
      }
@@ -109,6 +109,15 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ab5898148ff200352e29ec4ec391125e
 +      "refuse",
 +    );
 +    if (!identity.ok) {
++      // Never park out from under a live session — the invariant `hazard.ts`
++      // holds on the reload path. The park-on-missing branches above may sit
++      // where they do because a MISSING workflow means no session can be running
++      // it; a mismatched identity carries no such guarantee, since the session is
++      // running the workflow object it captured and is stopped at its own
++      // boundary by the transition check. The scan pre-filters live tasks, so
++      // this only re-checks a snapshot that can go stale across the awaits above;
++      // once the session settles, the next scan parks the task.
++      if (project.store.sessions.hasLiveSession(taskId)) return;
 +      await this.park(project, taskId, identity.reason);
 +      return;
 +    }
@@ -252,7 +261,7 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..b053d1fa378c7c3e9b404245c027c6f0
      try {
        validateTarget(wf, to);
 diff --git a/daemon/core/src/extensions/discovery.ts b/daemon/core/src/extensions/discovery.ts
-index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f6de5fb6d 100644
+index a61777778ac6b545988834f53aa257c43130317a..b653f67f6aa6327b7952df2e95da696d96abd156 100644
 --- a/daemon/core/src/extensions/discovery.ts
 +++ b/daemon/core/src/extensions/discovery.ts
 @@ -18,6 +18,8 @@
@@ -280,7 +289,7 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
    /** Operator-facing label for `project.diagnostics` (path or package name). */
    source: string;
  }
-@@ -86,21 +97,35 @@ export function resolveExtensionEntries(dir: string): string[] | null {
+@@ -86,21 +97,37 @@ export function resolveExtensionEntries(dir: string): string[] | null {
    return null;
  }
  
@@ -299,10 +308,12 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
   * file/subdir path it was discovered from.
 + *
 + * A subdirectory that holds files but declares no entry point is not an
-+ * extension, and it is reported rather than skipped in silence: the neighbouring
-+ * bare-file extensions may import from it, and what a bare file imports is
-+ * outside its runtime identity (issue #10), so editing those bytes would change
-+ * what runs without parking the tasks pinned to the importer.
++ * extension, and it is reported rather than skipped in silence. It may be data,
++ * or a typo, or — the case worth the noise — helper code a neighbouring bare-file
++ * extension imports: what a bare file imports is outside its runtime identity
++ * (issue #10), so editing those bytes would change what runs without parking the
++ * tasks pinned to the importer. The diagnostic states the fact (nothing here is
++ * an extension, none of it is identified) and leaves the reading to the operator.
   */
 -export function discoverDir(dir: string): ExtensionEntry[] {
 -  if (!existsSync(dir)) return [];
@@ -321,7 +332,7 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
    for (const name of names) {
      if (name.startsWith(".")) continue;
      const entryPath = join(dir, name);
-@@ -116,17 +141,43 @@ export function discoverDir(dir: string): ExtensionEntry[] {
+@@ -116,17 +143,43 @@ export function discoverDir(dir: string): ExtensionEntry[] {
        continue;
      }
      if (isFile && isExtensionFile(name)) {
@@ -348,8 +359,8 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
 +          source: entryPath,
 +          error:
 +            "directory declares no usable extension entry point (no index.ts/index.js, and no " +
-+            "valid package.json#autosk.extensions), so it is not an extension; code a neighbouring " +
-+            "bare-file extension imports from here is outside that extension's runtime identity",
++            "valid package.json#autosk.extensions), so nothing here is loaded as an extension and " +
++            "none of these bytes belong to any extension's runtime identity",
 +        });
        }
      }
@@ -368,7 +379,7 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
  }
  
  /**
-@@ -167,7 +218,7 @@ export function resolvePackageEntries(packagesDir: string, packageName: string):
+@@ -167,7 +220,7 @@ export function resolvePackageEntries(packagesDir: string, packageName: string):
        error: "installed but declares no extension (no package.json#autosk.extensions entry or index.ts/js)",
      };
    }
@@ -377,7 +388,7 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
  }
  
  /**
-@@ -192,7 +243,9 @@ export function resolveLocalPath(absPath: string): PackageResolution {
+@@ -192,7 +245,9 @@ export function resolveLocalPath(absPath: string): PackageResolution {
      if (!isExtensionFile(absPath)) {
        return { entries: [], error: `local path is not a .ts/.js extension file: ${absPath}` };
      }
@@ -388,7 +399,7 @@ index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f
    }
    if (st.isDirectory()) {
      const resolved = resolveExtensionEntries(absPath);
-@@ -202,7 +255,7 @@ export function resolveLocalPath(absPath: string): PackageResolution {
+@@ -202,7 +257,7 @@ export function resolveLocalPath(absPath: string): PackageResolution {
          error: "directory declares no extension (no package.json#autosk.extensions entry or index.ts/js)",
        };
      }
@@ -1023,6 +1034,28 @@ index 4e86eccd865471f8e9a03111be4e7913d3c1847c..af04e54f19532406a7f2e0abd96c7a83
    }
  
    /**
+diff --git a/daemon/core/src/rpc/errors.ts b/daemon/core/src/rpc/errors.ts
+index 3bca6badef1588411a4c9ee84ec5e026002078f1..c76317ac8c9c1c4a5c087511d6cf440f76e4132d 100644
+--- a/daemon/core/src/rpc/errors.ts
++++ b/daemon/core/src/rpc/errors.ts
+@@ -15,6 +15,7 @@ import { EngineError } from "../engine/types.ts";
+ import { InvalidExtensionSourceError } from "../extensions/source.ts";
+ import { InvalidProjectError, ProjectNotFoundError } from "../project/resolve.ts";
+ import { TaskCreationError } from "../store/creation.ts";
++import { ReservedMetadataKeyError } from "../store/metadata.ts";
+ 
+ /** A typed error a handler can throw to control the wire `code`/`message`/`details`. */
+ export class RpcError extends Error {
+@@ -49,6 +50,9 @@ export function toRpcError(e: unknown): RpcErrorPayload {
+   if (e instanceof InvalidExtensionSourceError) {
+     return { code: ErrorCodes.INVALID_PARAMS, message: e.message };
+   }
++  if (e instanceof ReservedMetadataKeyError) {
++    return { code: ErrorCodes.INVALID_PARAMS, message: e.message };
++  }
+   return { code: ErrorCodes.INTERNAL_ERROR, message: e instanceof Error ? e.message : String(e) };
+ }
+ 
 diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
 index d6f84e6dec3f0cd9cb208c27c85e4110b0447123..cbc77c0f26c86c5336e74100f62299c0062956b3 100644
 --- a/daemon/core/src/store/index.ts
@@ -1040,7 +1073,7 @@ index d6f84e6dec3f0cd9cb208c27c85e4110b0447123..cbc77c0f26c86c5336e74100f62299c0
    applyMetadataUnset,
  } from "./metadata.ts";
 diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
-index a467c87c2621e572ef11f17677843b169d9ba8f9..547d809becf00365d649dd2f89c19dced1502cb9 100644
+index a467c87c2621e572ef11f17677843b169d9ba8f9..6cfada5d6c16b351b40d0ddf9a6be2a70051fd94 100644
 --- a/daemon/core/src/store/metadata.ts
 +++ b/daemon/core/src/store/metadata.ts
 @@ -66,6 +66,7 @@ export function applyMetadataPatch(
@@ -1051,7 +1084,7 @@ index a467c87c2621e572ef11f17677843b169d9ba8f9..547d809becf00365d649dd2f89c19dce
    for (const [path, value] of Object.entries(patch)) {
      setDotPath(meta, splitPath(path), value);
    }
-@@ -77,11 +78,27 @@ export function applyMetadataPatch(
+@@ -77,11 +78,40 @@ export function applyMetadataPatch(
   * also drops the now-empty `step_visits`). Unknown paths are a no-op.
   */
  export function applyMetadataUnset(meta: Record<string, unknown>, keys: string[]): void {
@@ -1065,21 +1098,34 @@ index a467c87c2621e572ef11f17677843b169d9ba8f9..547d809becf00365d649dd2f89c19dce
 + * Refuses an edit that would reach the engine-owned runtime identity pin.
 + *
 + * `step_visits` is deliberately human-editable — the worst outcome of corrupting
-+ * it is a miscounted cap. The runtime pin is a control: clearing it would drop a
-+ * task back to unpinned, and the next dispatch would adopt whatever is registered
-+ * then, resuming the task at its parked step on bytes it was never admitted to.
++ * it is a miscounted cap. The runtime pin is a control: an edit through this
++ * surface would corrupt or clear the record of the code a task was admitted under.
 + * Both edit RPCs therefore refuse the path instead of silently applying it.
 + */
 +function requireEditableMetadataPath(path: string): void {
 +  if (splitPath(path)[0] === RUNTIME_IDENTITY_KEY) {
-+    throw new Error(`${RUNTIME_IDENTITY_KEY} is engine-owned and cannot be edited through metadata`);
++    throw new ReservedMetadataKeyError(
++      `${RUNTIME_IDENTITY_KEY} is engine-owned and cannot be edited through metadata`,
++    );
++  }
++}
++
++/**
++ * An edit aimed at an engine-owned metadata key. Named so the RPC layer can map
++ * it to `INVALID_PARAMS`: the caller asked for something not allowed, which is
++ * not the daemon failing, and a client must not retry it as if it were.
++ */
++export class ReservedMetadataKeyError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "ReservedMetadataKeyError";
 +  }
 +}
 +
  // ---------------------------------------------------------------------------
  // Dot-path internals.
  // ---------------------------------------------------------------------------
-@@ -134,3 +151,63 @@ function deleteDotPath(root: Record<string, unknown>, segments: string[]): void
+@@ -134,3 +164,63 @@ function deleteDotPath(root: Record<string, unknown>, segments: string[]): void
      delete chain[i - 1]![segments[i - 1]!];
    }
  }
@@ -1201,10 +1247,10 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f46
        const b = this.tasks.peek(bid);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..f8ece85e4ae9a561128fb4b212f82033af2472a7
+index 0000000000000000000000000000000000000000..23cd76bdf5be8afb5616af53ab4949c7b749fc1b
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,500 @@
+@@ -0,0 +1,501 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -1650,8 +1696,9 @@ index 0000000000000000000000000000000000000000..f8ece85e4ae9a561128fb4b212f82033
 +    await engine.enroll(p.root, task.id, { workflow: "wf" });
 +    const digest = p.project.registry.workflowIdentity("wf")!.digest;
 +
-+    // Clearing the pin would drop the task to unpinned, and the next dispatch would
-+    // adopt whatever is registered then — a resume at the parked step on new bytes.
++    // The pin is a control, and this is the one surface workflow code can reach
++    // without touching the filesystem: an edit here would corrupt or clear the
++    // record of the code the task was admitted under.
 +    await expect(p.store.mergeMetadata(task.id, { runtime_identity: {} })).rejects.toThrow(
 +      /engine-owned/,
 +    );
@@ -1907,7 +1954,7 @@ index 0000000000000000000000000000000000000000..9919da2120fd75c71a6c50d0258bc136
 +  });
 +});
 diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
-index 7078c7914b0ab5ec5193e67a078951f2a667f107..a6bdbc9a53c9ef2687183159fa6d01d30a9265ba 100644
+index 7078c7914b0ab5ec5193e67a078951f2a667f107..751c180ee5d5642c8bac99f6ecab5ea871044c49 100644
 --- a/daemon/core/test/extensions.loader.test.ts
 +++ b/daemon/core/test/extensions.loader.test.ts
 @@ -11,7 +11,7 @@
@@ -1956,7 +2003,7 @@ index 7078c7914b0ab5ec5193e67a078951f2a667f107..a6bdbc9a53c9ef2687183159fa6d01d3
 +
 +    expect(registry.workflowNames()).toEqual(["wf"]);
 +    const diag = registry.diagnostics.find((d) => basename(d.source) === "lib");
-+    expect(diag?.error).toMatch(/outside that extension's runtime identity/);
++    expect(diag?.error).toMatch(/none of these bytes belong to any extension's runtime identity/);
 +  });
 +
 +  test("an empty directory in the extensions dir is not reported", async () => {
@@ -1969,6 +2016,26 @@ index 7078c7914b0ab5ec5193e67a078951f2a667f107..a6bdbc9a53c9ef2687183159fa6d01d3
      expect(registry.diagnostics).toEqual([]);
    });
  });
+diff --git a/daemon/core/test/rpc.behaviour.test.ts b/daemon/core/test/rpc.behaviour.test.ts
+index 512ea1a924064a68375b9cc4e37fe43dbd1355d5..deb46ed29dd71ee8d14fae0fe940729398046546 100644
+--- a/daemon/core/test/rpc.behaviour.test.ts
++++ b/daemon/core/test/rpc.behaviour.test.ts
+@@ -102,6 +102,15 @@ describe("task lifecycle + done/cancel/reopen", () => {
+       client.call("task.metadata.unset", { cwd, id: "ask-nope01", keys: ["a"] }),
+     ).rejects.toMatchObject({ code: ErrorCodes.NOT_FOUND });
+ 
++    // The engine-owned runtime pin is refused as a caller error, not as an
++    // INTERNAL_ERROR: the daemon did not fail, and a client must not retry it.
++    await expect(
++      client.call("task.metadata.set", { cwd, id: t.id, patch: { runtime_identity: {} } }),
++    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
++    await expect(
++      client.call("task.metadata.unset", { cwd, id: t.id, keys: ["runtime_identity"] }),
++    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
++
+     // Malformed params → INVALID_PARAMS.
+     await expect(
+       client.call("task.metadata.set", { cwd, id: t.id, patch: [1, 2] }),
 diff --git a/docs/extensions.md b/docs/extensions.md
 index d815192d299f7992e7fccd89803c341fd3ac74ae..899d045eb4dba345a94dfab4f9931ba6ff6a6b77 100644
 --- a/docs/extensions.md
