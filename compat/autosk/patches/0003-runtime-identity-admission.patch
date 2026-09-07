@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
-index c204c4528a35793b5ade951a6d3f7c3ec56141c2..509a55fad94cf71c661892a28e0a127561cd9a1b 100644
+index c204c4528a35793b5ade951a6d3f7c3ec56141c2..217f789899d5c83ba7675a247bf0f9b47b7b014e 100644
 --- a/daemon/core/src/engine/engine.ts
 +++ b/daemon/core/src/engine/engine.ts
 @@ -32,6 +32,8 @@ import {
@@ -88,15 +88,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..509a55fad94cf71c661892a28e0a1275
      const target: StepTarget = to ?? { step: view.step };
      // `runOnTransit` validates the target before invoking `onTransit`, so no
      // separate `validateTarget` call is needed here (ISSUE #9c).
-@@ -263,6 +319,7 @@ export class Engine implements SessionHost {
-     // a `{ status }` resume flips status without re-entering a step.
-     const updated = await project.store.setPosition(taskId, positionFor(wf, view.step, target), {
-       countVisit: "step" in target ? target.step : undefined,
-+      pinRuntimeIdentity: decision.pin,
-     });
-     this.emitTask(project, updated);
-     this.kickScan();
-@@ -460,6 +517,28 @@ export class Engine implements SessionHost {
+@@ -460,6 +516,28 @@ export class Engine implements SessionHost {
        await this.park(project, taskId, `workflow_missing: ${row.workflow} has no step ${row.step}`);
        return;
      }
@@ -222,7 +214,7 @@ index 0000000000000000000000000000000000000000..8e336d778ee7f775fae0573b7906bca8
 +  return { ok: true };
 +}
 diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
-index 85daa7be6ef6da17803e39bac22eb66ab1589913..b053d1fa378c7c3e9b404245c027c6f034ff1af9 100644
+index 85daa7be6ef6da17803e39bac22eb66ab1589913..fb0a9b658fc55b16d4b267599b07e5d9dde813e2 100644
 --- a/daemon/core/src/engine/session.ts
 +++ b/daemon/core/src/engine/session.ts
 @@ -56,6 +56,7 @@ import {
@@ -233,33 +225,41 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..b053d1fa378c7c3e9b404245c027c6f0
  import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
  import { ENGINE_COMMENT_AUTHOR, errMsg, type EngineProject, type SessionHost } from "./types.ts";
  
-@@ -279,6 +280,26 @@ export class SessionRuntime {
-     if (this.transiting) {
-       throw new Error("transit already in progress for this session");
-     }
-+    // The registry can be swapped by `ext reload` while this session runs, so the
-+    // admitted identity is re-checked here — the second, independent transition
-+    // entry (issue #10). It is a PRECONDITION, checked before the settle is
-+    // claimed: refusing after the claim would leave the session `running` for
-+    // ever, `hasLiveSession` true, and the task neither advanced nor parked.
-+    // Refusing here throws out of `ctx.transit` like any other rejected target, so
-+    // an agent that lets it propagate settles through `finalizeFailed`, which
-+    // parks the task with this reason.
-+    //
-+    // Only refuse; adopting would be wrong. The task was admitted when it was
-+    // dispatched, so a pin that no longer matches means the registry moved under a
-+    // session still running the workflow object it captured, and recording the new
-+    // digest would be a false record.
-+    const identity = runtimeIdentityDecision(
-+      this.project.registry,
-+      this.project.store.runtimeIdentityPin(this.taskId),
-+      this.workflowName,
-+      "refuse",
-+    );
-+    if (!identity.ok) throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
-     this.transiting = true;
-     try {
-       validateTarget(wf, to);
+@@ -292,6 +293,34 @@ export class SessionRuntime {
+       if (wf.onTransit) {
+         await wf.onTransit(tctx, to); // may throw → propagate (retryable)
+       }
++      // The registry can be swapped by `ext reload` while this session runs, so the
++      // admitted identity is re-checked here — the second, independent transition
++      // entry (issue #10). The placement is exact, and both halves of it matter:
++      //
++      //  - AFTER `onTransit`, because `onTransit` is arbitrary code with an
++      //    arbitrary await, and a swap inside that await would otherwise commit the
++      //    transition on a pin that no longer matches;
++      //  - BEFORE the settle is claimed, because a refusal after the claim reaches
++      //    no finalizer (`onRunSettled` returns on `transited`, `finalizeFailed`
++      //    fails the same claim) and would strand the session `running` for ever
++      //    with the task neither advanced nor parked.
++      //
++      // Refusing here leaves by the same door as any rejected target, so an agent
++      // that lets it propagate settles through `finalizeFailed`, which parks the
++      // task with this reason. Nothing awaits between here and the claim.
++      //
++      // Only refuse; adopting would be wrong. The task was admitted when it was
++      // dispatched, so a pin that no longer matches means the registry moved under a
++      // session still running the workflow object it captured, and recording the new
++      // digest would be a false record.
++      const identity = runtimeIdentityDecision(
++        this.project.registry,
++        this.project.store.runtimeIdentityPin(this.taskId),
++        this.workflowName,
++        "refuse",
++      );
++      if (!identity.ok) throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
++
+       // onTransit approved — claim the single settle now. If an abort landed
+       // during onTransit's await, the claim fails and the transit is rejected
+       // (the session already ended) rather than committing a stale transition.
 diff --git a/daemon/core/src/extensions/discovery.ts b/daemon/core/src/extensions/discovery.ts
 index a61777778ac6b545988834f53aa257c43130317a..b653f67f6aa6327b7952df2e95da696d96abd156 100644
 --- a/daemon/core/src/extensions/discovery.ts
@@ -1247,10 +1247,10 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f46
        const b = this.tasks.peek(bid);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..23cd76bdf5be8afb5616af53ab4949c7b749fc1b
+index 0000000000000000000000000000000000000000..afd0dc1c1315c7fa85fbe894bd7b9e4a895cfc0a
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,501 @@
+@@ -0,0 +1,550 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -1261,7 +1261,7 @@ index 0000000000000000000000000000000000000000..23cd76bdf5be8afb5616af53ab4949c7
 + */
 +
 +import { afterEach, describe, expect, test } from "bun:test";
-+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 +import path from "node:path";
 +
 +import { loadProjectRegistry } from "../src/extensions/loader.ts";
@@ -1270,7 +1270,7 @@ index 0000000000000000000000000000000000000000..23cd76bdf5be8afb5616af53ab4949c7
 +import { waitFor } from "./helpers.ts";
 +
 +const WORKFLOW_SOURCE = (marker: string) => `
-+import { existsSync } from "node:fs";
++import { existsSync, writeFileSync } from "node:fs";
 +
 +export default (api) => {
 +  api.registerWorkflow({
@@ -1288,6 +1288,15 @@ index 0000000000000000000000000000000000000000..23cd76bdf5be8afb5616af53ab4949c7
 +          await ctx.transit({ step: "review" });
 +        },
 +      },
++    },
++    // A transition hook that blocks only when the test asks for it, so the
++    // registry can be swapped while onTransit is awaiting — the window between
++    // the identity check and the commit.
++    onTransit: async () => {
++      const gate = process.env.AUTOSK_TEST_TRANSIT_GATE;
++      if (!gate) return;
++      writeFileSync(gate + ".entered", "");
++      while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
 +    },
 +    // ${marker}
 +  });
@@ -1643,6 +1652,46 @@ index 0000000000000000000000000000000000000000..23cd76bdf5be8afb5616af53ab4949c7
 +    expect(view.status).toBe("human");
 +    expect(view.step).toBe("run"); // not advanced to review
 +    await waitFor(async () => !a.store.sessions.hasLiveSession(task.id));
++  });
++
++  test("a registry swapped while onTransit awaits does not slip the transition through", async () => {
++    // `onTransit` is arbitrary user code with an arbitrary await, and it runs
++    // between the transition's entry and its commit. Checking the identity only on
++    // entry would let a swap inside that window commit the transition on a pin that
++    // no longer matches — the task moves, and nothing records the mismatch.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const runGate = path.join(a.root, "run-gate");
++    const transitGate = path.join(a.root, "transit-gate");
++    process.env.AUTOSK_TEST_GATE = runGate;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_TRANSIT_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "swap inside onTransit" });
++    // `enroll` runs `onTransit` too, so the hook is armed only once the session
++    // is live — otherwise enrollment itself would block on the gate.
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "run" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    process.env.AUTOSK_TEST_TRANSIT_GATE = transitGate;
++    writeFileSync(runGate, ""); // the agent calls ctx.transit → onTransit blocks
++    await waitFor(async () => existsSync(`${transitGate}.entered`));
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    writeFileSync(transitGate, ""); // onTransit returns; the commit must not land
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.step).toBe("run"); // NOT advanced to review on the swapped code
++    expect(view.status).toBe("human");
 +  });
 +
 +  test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
@@ -2037,10 +2086,10 @@ index 512ea1a924064a68375b9cc4e37fe43dbd1355d5..deb46ed29dd71ee8d14fae0fe9407293
      await expect(
        client.call("task.metadata.set", { cwd, id: t.id, patch: [1, 2] }),
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d815192d299f7992e7fccd89803c341fd3ac74ae..899d045eb4dba345a94dfab4f9931ba6ff6a6b77 100644
+index d815192d299f7992e7fccd89803c341fd3ac74ae..e9f50dc4eb9ec19308a4e038f04e5fd8ea3600a9 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -290,6 +290,140 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+@@ -290,6 +290,153 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
  or naming a package in `settings.json` *is* the consent. Treat these locations
  as you would any code you run.
  
@@ -2110,8 +2159,10 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..899d045eb4dba345a94dfab4f9931ba6
 +workflow code cannot clear it through the supported surface; and on a task that
 +already carries a workflow, an absent pin is treated exactly like a mismatched one.
 +Deleting the reserved key does not release the task — dispatch and both transition
-+paths park it, and resuming or re-enrolling it *at the step it sits on* is refused,
-+because either would continue mid-flight on code the task was never admitted under.
++paths park it, and resuming or re-enrolling it where it stands is refused, because
++either would continue mid-flight on code the task was never admitted under. The one
++exception is a task standing on the workflow's own first step: there "where it
++stands" and "a restart" are the same position, and the rule below applies.
 +
 +**One act re-pins, and it is the same act in every case: entering a workflow at its
 +first step.** That is a restart — the task begins the workflow again, on today's
@@ -2121,10 +2172,19 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..899d045eb4dba345a94dfab4f9931ba6
 +up. A task that has no workflow yet was never admitted anywhere and pins freely at
 +whatever step it starts on.
 +
-+Restarting is not the same as continuing, and this feature deliberately offers only
-+the first. Continuing an in-flight task across an extension update is the migration
-+workflow of #10, which does not exist yet; until it does, an update parks the tasks
-+it affects and they restart or wait.
++Be exact about what that promises. It is **not** a wall against a determined
++operator: enrolling at the first step and then resuming forward walks a task back to
++where it was, on the new code. That was already reachable before this rule existed —
++a restart through a second workflow got to the same place in three calls instead of
++two — so the rule removed an arbitrary asymmetry rather than opening a door.
++
++What is guaranteed is narrower and worth more: **no step ever runs on a digest other
++than the one the task carries while it runs, and a task's digest changes only by an
++explicit restart.** Nothing re-pins automatically, silently, or as a side effect of
++an update. Continuing an in-flight task across an update — keeping its position and
++its history while moving it onto new code — is the migration workflow of #10, which
++does not exist yet; until it does, an update parks the tasks it affects and they
++restart or wait.
 +
 +A symbolic link resolving **inside** the root is recorded by its target and not
 +followed: the bytes it points at are already covered by their own entry, and
@@ -2168,9 +2228,11 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..899d045eb4dba345a94dfab4f9931ba6
 +- A task enrolled before this existed carries no pin. On a task that already has
 +  a workflow an absent pin is refused exactly like a mismatched one, so it parks
 +  once and is re-enrolled at the workflow's first step; nothing adopts a missing
-+  pin on an automatic path. The transition check runs *before* the session claims
-+  its settle, so a registry swapped mid-session parks the task and ends the
-+  session rather than stranding both. A pin that has been hand-edited into an invalid shape
++  pin on an automatic path. The transition check runs *after* `onTransit` — which
++  is arbitrary code with an arbitrary await, so a swap inside it would otherwise
++  commit on a stale pin — and still *before* the session claims its settle, so a
++  registry swapped mid-session parks the task and ends the session rather than
++  stranding both. A pin that has been hand-edited into an invalid shape
 +  is refused outright and never repaired — including when the task is being
 +  switched to another workflow, so a refusal cannot be washed out by enrolling
 +  away and back.
