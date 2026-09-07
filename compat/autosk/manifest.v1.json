@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "c45f47eb3895072ffccf72c8456cd3a26f4ad281",
+  "result_tree": "9242baec104cfa14df183edd55bcfda2fb50a29f",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -42,6 +42,10 @@
     {
       "file": "patches/0009-migration-rollback.patch",
       "sha256": "0caa939bcc58521efb4fd01c6e01553e72cc558d352dec085b9082418f95ce34"
+    },
+    {
+      "file": "patches/0010-session-candidate-identity.patch",
+      "sha256": "5bdc4daaa73d9d3171450b5d09c6c11685bd8b78c47f71c807d1eeb51d5ef3f3"
     }
   ],
   "license": {

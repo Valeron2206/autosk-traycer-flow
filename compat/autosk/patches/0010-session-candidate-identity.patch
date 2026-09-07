@@ -1,0 +1,882 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index dd1b1b655b3ce107cefb0a4cba9528c143a7095d..73b0bc8725e90eb4ba3409957e348d1d20e7bd0e 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -22,6 +22,7 @@
+ import {
+   isStatusStep,
+   newSessionId,
++  type RuntimeIdentityPin,
+   type SessionMeta,
+   type StepTarget,
+   type TaskView,
+@@ -240,7 +241,12 @@ export class Engine implements SessionHost {
+    * continued edge, matching `resume`); a fresh enroll (or a switch to another
+    * workflow) leaves the empty pre-enrolment step `""`.
+    */
+-  async enroll(root: string, taskId: string, target: EnrollTarget): Promise<TaskView> {
++  async enroll(
++    root: string,
++    taskId: string,
++    target: EnrollTarget,
++    inherit: RuntimeIdentityPin | null = null,
++  ): Promise<TaskView> {
+     const project = this.requireProject(root);
+     const wf = project.registry.resolveWorkflow(target.workflow);
+     if (!wf) throw EngineError.invalidParams(`unknown workflow: ${target.workflow}`);
+@@ -297,6 +303,33 @@ export class Engine implements SessionHost {
+       restarting || view.workflow === null ? "adopt" : "refuse",
+     );
+     if (!decision.ok) throw EngineError.conflict(`cannot enroll ${taskId}: ${decision.reason}`);
++    // A task a live session mints (a panel seat, an Arena candidate) is enrolled at
++    // a first step, so the rule above re-pins it onto whatever is registered NOW.
++    // That is right for an operator and wrong for a session: the session is still
++    // running the workflow object it captured, so an `ext update` between its
++    // dispatch and this call would let the Epic fan out from code it is no longer
++    // admitted to, with nothing recording it.
++    //
++    // The question is about the PARENT, not the child. Requiring the child's
++    // workflow to share the parent's distribution would be a different rule and a
++    // wrong one: a registry holds one distribution per package, directory and bare
++    // file, and fanning out into a workflow from another package is the ordinary
++    // shape — the shipped extensions are separate packages. It is asked by the
++    // function that decides admission everywhere else, so there is no second
++    // comparison here to drift away from that one.
++    if (inherit) {
++      const parent = runtimeIdentityDecision(
++        project.registry,
++        { state: "pinned", pin: inherit },
++        inherit.workflow,
++        "refuse",
++      );
++      if (!parent.ok) {
++        throw EngineError.conflict(
++          `cannot enroll ${taskId}: the session that asked for it is no longer admitted: ${parent.reason}`,
++        );
++      }
++    }
+ 
+     const to: StepTarget = { step: toStep };
+     const leavingStep = sameWorkflow ? (view.step ?? "") : "";
+@@ -305,7 +338,7 @@ export class Engine implements SessionHost {
+     // with the position write); `onTransit` already ran, so the bump is post-read.
+     const updated = await project.store.setPosition(taskId, positionFor(wf, leavingStep, to), {
+       countVisit: to.step,
+-      pinRuntimeIdentity: decision.pin,
++      pinRuntimeIdentity: decision.admitted ?? undefined,
+     });
+     this.emitTask(project, updated);
+     this.kickScan();
+@@ -578,6 +611,9 @@ export class Engine implements SessionHost {
+       workflow: row.workflow,
+       step: row.step,
+       agent: row.step, // the step key IS the agent name
++      // The identity this claim was granted on, recorded where it stays readable
++      // after the process that ran it is gone.
++      runtime_identity: identity.admitted ?? undefined,
+       cwd: project.root, // the run dir is always the project root (isolation is agent-owned)
+       timestamp: this.clock(),
+     });
+@@ -597,6 +633,7 @@ export class Engine implements SessionHost {
+       sessionId,
+       taskId,
+       step: row.step,
++      runtimeIdentity: identity.admitted,
+     });
+     this.running.set(sessionId, runtime);
+     this.queue.push(runtime);
+@@ -685,8 +722,13 @@ export class Engine implements SessionHost {
+    * workflow on behalf of a per-session MCP server's `task create --workflow`.
+    * Delegates to {@link enroll} (which validates + runs `onTransit`).
+    */
+-  enrollTask(project: EngineProject, taskId: string, target: { workflow: string }): Promise<TaskView> {
+-    return this.enroll(project.root, taskId, target);
++  enrollTask(
++    project: EngineProject,
++    taskId: string,
++    target: { workflow: string },
++    admitted: RuntimeIdentityPin | null,
++  ): Promise<TaskView> {
++    return this.enroll(project.root, taskId, target, admitted);
+   }
+ 
+   async notifyTaskChanged(project: EngineProject, taskId: string): Promise<void> {
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+index fc1d4710d4cc768a3668971fdf4e72de7331943e..3f4c14d531676fb2fea04b0d100f50e6bee17885 100644
+--- a/daemon/core/src/engine/runtimeIdentity.ts
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -20,12 +20,26 @@ export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";
+ export type AbsentPinPolicy = "adopt" | "refuse";
+ 
+ export type RuntimeIdentityDecision =
+-  | { ok: true; pin?: RuntimeIdentityPin }
++  /**
++   * `admitted` is the identity the task is admitted under: the pin it already
++   * carries when that pin matched, the one it is being given when the caller may
++   * adopt, and `null` only when the workflow has no identity at all.
++   *
++   * It is ONE field rather than a verdict plus a separate "pin to write", because
++   * those two would have to be kept equal by hand. Persisting `admitted` is
++   * correct in every case: where the caller may not adopt, it is what the task
++   * already carries.
++   */
++  | { ok: true; admitted: RuntimeIdentityPin | null }
+   | { ok: false; reason: string };
+ 
+ /**
+  * Decides whether a task may run on `workflowName` right now.
+  *
++ * The refusal texts say "admitted under" rather than "the task pinned", because
++ * the same verdict answers the same question about a live session: whether the
++ * candidates it mints may still be admitted from the code it is running.
++ *
+  * A malformed pin is a refusal, not a hint to repair: the pin is a control, and
+  * a hand-edited or truncated one must never be silently reset.
+  *
+@@ -41,11 +55,8 @@ export type RuntimeIdentityDecision =
+  * transition — passes what the task actually carries and `"refuse"`, so a pin that
+  * is missing or wrong stops the task mid-flight either way.
+  *
+- * `pin` is returned only in the adopt case, so the caller can write it in the same
+- * write that moves the task.
+- *
+  * A registry assembled without the loader has no identity for its workflows, so
+- * `pin` is absent and nothing is invented. The loader refuses any entry whose
++ * `admitted` is `null` and nothing is invented. The loader refuses any entry whose
+  * bytes it cannot identify, so every workflow reachable in production is
+  * identified.
+  */
+@@ -61,14 +72,14 @@ export function runtimeIdentityDecision(
+   // One lookup, so the two digests cannot be seen out of step with each other.
+   const current = registry.workflowAdmission(workflowName);
+   if (pinned.state === "absent") {
+-    if (!current) return { ok: true };
++    if (!current) return { ok: true, admitted: null };
+     if (absent === "refuse") {
+       return {
+         ok: false,
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded runtime identity for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, pin: makePin(workflowName, current.distribution.digest, current.graph) };
++    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph) };
+   }
+   if (pinned.pin.workflow !== workflowName) {
+     return {
+@@ -82,7 +93,7 @@ export function runtimeIdentityDecision(
+   if (current.distribution.digest !== pinned.pin.digest) {
+     return {
+       ok: false,
+-      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.distribution.digest}, task pinned ${pinned.pin.digest}`,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.distribution.digest}, admitted under ${pinned.pin.digest}`,
+     };
+   }
+   // The declared shape is checked separately, because the distribution digest
+@@ -101,15 +112,17 @@ export function runtimeIdentityDecision(
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded workflow shape for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, pin: makePin(workflowName, current.distribution.digest, current.graph) };
++    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph) };
+   }
+   if (current.graph !== pinned.pin.graph) {
+     return {
+       ok: false,
+-      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} declares a different workflow now (shape ${current.graph}, task pinned ${pinned.pin.graph})`,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} declares a different workflow now (shape ${current.graph}, admitted under ${pinned.pin.graph})`,
+     };
+   }
+-  return { ok: true };
++  // Built from `current`, whose two halves this function has just compared with the
++  // pin's, so it is the verified lookup and not a second read of the registry.
++  return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph) };
+ }
+ 
+ /** The pin to write: a workflow with a distribution always has a shape too. */
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 2d617a19f913cdcf501525c4ec26d266e8de6564..64ad70ec6a33437b55863dec7cf068576550f099 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -38,6 +38,7 @@ import type {
+   AgentDefinition,
+   AgentRunContext,
+   ExecOptions,
++  RuntimeIdentityPin,
+   SessionActivity,
+   SessionKind,
+   SessionMeta,
+@@ -73,6 +74,13 @@ export interface TaskSessionRuntimeInit {
+   sessionId: string;
+   taskId: string;
+   step: string;
++  /**
++   * The identity the scheduler admitted this session under (issue #10), or `null`
++   * when the workflow has no identity at all. Captured at construction rather than
++   * re-read later: the registry can be swapped while this session runs, and what a
++   * candidate this session mints must inherit is what THIS session was admitted to.
++   */
++  runtimeIdentity: RuntimeIdentityPin | null;
+ }
+ 
+ /**
+@@ -105,6 +113,8 @@ export class SessionRuntime {
+   private readonly agent: AgentDefinition;
+   private readonly agentName: string;
+   private readonly step: string;
++  /** What this session was admitted under; `null` when there was nothing to admit. */
++  private readonly admitted: RuntimeIdentityPin | null;
+ 
+   /**
+    * The directory the agent runs in: ALWAYS the project root (isolation no
+@@ -152,12 +162,16 @@ export class SessionRuntime {
+       this.wf = null;
+       this.workflowName = "";
+       this.step = "";
++      // An interactive session is a taskless chat an operator opened; it entered no
++      // workflow, so there is no admission for a task it creates to inherit.
++      this.admitted = null;
+     } else {
+       this.runtimeKind = "task";
+       this.taskId = init.taskId;
+       this.wf = init.workflow;
+       this.workflowName = init.workflowName;
+       this.step = init.step;
++      this.admitted = init.runtimeIdentity;
+     }
+ 
+     this.transcript = new TranscriptWriter(
+@@ -609,7 +623,7 @@ export class SessionRuntime {
+     const backend = directStoreBackend({
+       store: this.project.store,
+       author,
+-      enroll: (id, target) => this.host.enrollTask(this.project, id, target),
++      enroll: (id, target) => this.host.enrollTask(this.project, id, target, this.admitted),
+     });
+     const server = startMcpHttpServer({ backend, transitEnabled: this.runtimeKind === "task" });
+     this.mcpServers.push(server);
+diff --git a/daemon/core/src/engine/types.ts b/daemon/core/src/engine/types.ts
+index 39d10d6686778c038c9720fa3095ef93f127d428..bc7a4c2927e26e1ca5cd74ebfbe83b7822d6f6e4 100644
+--- a/daemon/core/src/engine/types.ts
++++ b/daemon/core/src/engine/types.ts
+@@ -10,6 +10,7 @@
+ 
+ import {
+   ErrorCodes,
++  type RuntimeIdentityPin,
+   type SessionMeta,
+   type TaskView,
+   type TranscriptEntry,
+@@ -71,8 +72,18 @@ export interface SessionHost {
+   /**
+    * Enrolls a (freshly-created) task into a workflow — the per-session MCP
+    * server's `task create --workflow` path. Runs `onTransit` for the entry edge.
++   *
++   * `admitted` is the identity of the session asking, which the new task must be
++   * admitted under too (issue #10); `null` says the session has none. It has no
++   * default: a caller that forgot it would silently enroll the candidate on
++   * whatever is registered at that moment, which is the whole defect.
+    */
+-  enrollTask(project: EngineProject, taskId: string, target: { workflow: string }): Promise<TaskView>;
++  enrollTask(
++    project: EngineProject,
++    taskId: string,
++    target: { workflow: string },
++    admitted: RuntimeIdentityPin | null,
++  ): Promise<TaskView>;
+   /** Re-reads the task and emits a `task-changed` event. */
+   notifyTaskChanged(project: EngineProject, taskId: string): Promise<void>;
+   /** Emits a session lifecycle event. */
+diff --git a/daemon/core/src/mcp/store-backend.ts b/daemon/core/src/mcp/store-backend.ts
+index 82197683ff70eb1a30bc485ecc67e2807d00759c..711f639d3c252cd67a2f5c85c29112ec335bc9b7 100644
+--- a/daemon/core/src/mcp/store-backend.ts
++++ b/daemon/core/src/mcp/store-backend.ts
+@@ -38,8 +38,10 @@ export interface StoreBackendBinding {
+   /** Default author for `comment add` / created tasks (the running step). */
+   author: string;
+   /**
+-   * Enrolls a (freshly-created) task into a workflow, mirroring the CLI's
+-   * `create --workflow`. Bound to the engine + project root by the caller.
++   * Enrolls a (freshly-created) task into a workflow. Bound to the engine +
++   * project root by the caller — and, on the per-session path, to the identity
++   * that session was admitted under, which the CLI's `create --workflow` has no
++   * equivalent of.
+    */
+   enroll: (id: string, target: { workflow: string }) => Promise<TaskView>;
+ }
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 37b9ee58ede303b1aa425b27d5ac9516ff66d6f2..957532e523cb80887349bdffd4c0c24d9a1df145 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -17,6 +17,8 @@
+  * the removal.
+  */
+ 
++import type { RuntimeIdentityPin } from "@autosk/sdk";
++
+ /** The reserved metadata sub-object the engine auto-maintains (step → count). */
+ export const STEP_VISITS_KEY = "step_visits";
+ 
+@@ -177,18 +179,13 @@ function deleteDotPath(root: Record<string, unknown>, segments: string[]): void
+  */
+ export const RUNTIME_IDENTITY_KEY = "runtime_identity";
+ 
+-/** The workflow a task is enrolled on and the digests it is pinned to. */
+-export interface RuntimeIdentityPin {
+-  workflow: string;
+-  /** The distribution the task was admitted under. */
+-  digest: string;
+-  /**
+-   * The workflow's declared shape at admission. Optional in the shape because a
+-   * pin written before this existed does not carry it; callers decide what a
+-   * missing one means rather than having it forged here.
+-   */
+-  graph?: string;
+-}
++/**
++ * The workflow a task is enrolled on and the digests it is pinned to.
++ *
++ * Defined in the SDK because a session meta carries the same record, and one
++ * shape read by one validation is the point (see `SessionMeta.runtime_identity`).
++ */
++export type { RuntimeIdentityPin };
+ 
+ /** The three distinguishable states of the reserved pin. */
+ export type RuntimeIdentityPinRead =
+diff --git a/daemon/core/src/store/records.ts b/daemon/core/src/store/records.ts
+index 6749975239ac92c3d36bd02d20e06467cce772f5..6386362d6b7e1a57d27d3be9379c47ebfb7c447c 100644
+--- a/daemon/core/src/store/records.ts
++++ b/daemon/core/src/store/records.ts
+@@ -22,7 +22,7 @@ import type {
+   TranscriptLine,
+ } from "@autosk/sdk";
+ 
+-import { isEmptyMetadata } from "./metadata.ts";
++import { isEmptyMetadata, readRuntimeIdentityPin, setRuntimeIdentityPin } from "./metadata.ts";
+ 
+ // ---------------------------------------------------------------------------
+ // Stored task (`tasks/<id>/task.json`). Note `blocked_by` is a flat string[] of
+@@ -264,8 +264,11 @@ export function serializeSessionMeta(m: SessionMeta): string {
+     workflow: m.workflow,
+     step: m.step,
+     agent: m.agent,
+-    status: m.status,
+   };
++  // Written through the same canonicaliser as the task pin, so the two records of
++  // one admission are byte-identical rather than merely similar.
++  if (m.runtime_identity !== undefined) setRuntimeIdentityPin(ordered, m.runtime_identity);
++  ordered.status = m.status;
+   if (m.activity !== undefined) ordered.activity = m.activity;
+   if (m.error !== undefined) ordered.error = m.error;
+   ordered.started_at = m.started_at;
+@@ -280,6 +283,13 @@ export function parseSessionMeta(text: string): SessionMeta {
+   if (!isSessionStatus(status)) {
+     throw new Error(`session meta: invalid status ${JSON.stringify(raw.status)}`);
+   }
++  // Read by the reader that reads the task pin, and refused on the same terms: a
++  // corrupt record of the code a session ran is not repaired into a plausible one.
++  // The caller turns a throw into "not found", which is the fail-closed answer.
++  const identity = readRuntimeIdentityPin(raw);
++  if (identity.state === "malformed") {
++    throw new Error(`session meta: ${identity.reason}`);
++  }
+   const meta: SessionMeta = {
+     id: String(raw.id ?? ""),
+     // Sessions written before the interactive-session work have no `kind`;
+@@ -293,6 +303,7 @@ export function parseSessionMeta(text: string): SessionMeta {
+     started_at: typeof raw.started_at === "string" ? raw.started_at : null,
+     ended_at: typeof raw.ended_at === "string" ? raw.ended_at : null,
+   };
++  if (identity.state === "pinned") meta.runtime_identity = identity.pin;
+   if (raw.activity === "idle" || raw.activity === "busy") meta.activity = raw.activity;
+   if (typeof raw.error === "string") meta.error = raw.error;
+   return meta;
+diff --git a/daemon/core/src/store/sessionStore.ts b/daemon/core/src/store/sessionStore.ts
+index 1bc3308170f3eef1197eb4b9bcd4c2f026b602ea..b6c407c52439deb55fb888331dfb398784198522 100644
+--- a/daemon/core/src/store/sessionStore.ts
++++ b/daemon/core/src/store/sessionStore.ts
+@@ -12,6 +12,7 @@
+ import { readFile, readdir, stat } from "node:fs/promises";
+ 
+ import type {
++  RuntimeIdentityPin,
+   SessionActivity,
+   SessionHeader,
+   SessionKind,
+@@ -44,6 +45,12 @@ export interface CreateSessionInput {
+   agent: string;
+   /** Initial live turn activity (interactive sessions open `idle`); omitted for task sessions. */
+   activity?: SessionActivity;
++  /**
++   * The runtime identity the scheduler admitted this session under (issue #10),
++   * or omitted for an interactive session and for a workflow the registry cannot
++   * identify.
++   */
++  runtime_identity?: RuntimeIdentityPin;
+   /** The cwd recorded in the transcript header (always the project root — isolation no longer rewrites the run dir). */
+   cwd: string;
+   /** The header timestamp (RFC3339 UTC). */
+@@ -186,6 +193,7 @@ export class SessionStore {
+         started_at: null,
+         ended_at: null,
+       };
++      if (input.runtime_identity !== undefined) meta.runtime_identity = input.runtime_identity;
+       if (input.activity !== undefined) meta.activity = input.activity;
+       const header: SessionHeader = {
+         type: "session",
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index ef43a8d0005a304d8b246115c2162e271a0973b3..642fe28b03a75e6597cdb6f2ec4e6ba6249b4bff 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -38,6 +38,32 @@ export default (api) => {
+           await ctx.transit({ step: "review" });
+         },
+       },
++      // Mints a candidate through the per-session MCP server: the in-daemon path
++      // a workflow uses to fan out into child tasks.
++      spawn: {
++        onRun: async (ctx) => {
++          const gate = process.env.AUTOSK_TEST_GATE;
++          while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
++          const mcp = await ctx.newMCPServer();
++          const res = await fetch(mcp.url, {
++            method: "POST",
++            headers: { authorization: "Bearer " + mcp.token, "content-type": "application/json" },
++            body: JSON.stringify({
++              jsonrpc: "2.0",
++              id: 1,
++              method: "tools/call",
++              params: {
++                name: "task",
++                arguments: {
++                  action: "create",
++                  args: { title: "candidate", workflow: process.env.AUTOSK_TEST_CHILD_WF || "child" },
++                },
++              },
++            }),
++          });
++          writeFileSync(process.env.AUTOSK_TEST_OUT, await res.text());
++        },
++      },
+       // The same, but hiding a refused transit — the shape that would otherwise
+       // reduce the park reason to "agent_did_not_transit".
+       runSwallow: {
+@@ -70,6 +96,23 @@ export default (api) => {
+     },
+     // ${marker}
+   });
++  // The workflow a candidate is minted into, in the same distribution.
++  api.registerWorkflow({
++    name: "child",
++    firstStep: "await",
++    steps: { await: { status: "human" } },
++  });
++};
++`;
++
++/** A second, independent distribution carrying only the candidate's workflow. */
++const SIBLING_SOURCE = `
++export default (api) => {
++  api.registerWorkflow({
++    name: "sibling",
++    firstStep: "await",
++    steps: { await: { status: "human" } },
++  });
+ };
+ `;
+ 
+@@ -148,7 +191,7 @@ describe("engine — runtime identity admission", () => {
+     writeExtension(p.root, "v2");
+     const reloaded = await loadProjectRegistry(p.root);
+ 
+-    expect(reloaded.workflowNames()).toEqual(["wf"]);
++    expect(reloaded.workflowNames().sort()).toEqual(["child", "wf"]);
+     expect(reloaded.workflowIdentity("wf")!.digest).toBe(importedDigest);
+     expect(reloaded.diagnostics.map((d) => d.error).join("\n")).toMatch(
+       /distribution changed on disk after it was imported/,
+@@ -229,7 +272,7 @@ describe("engine — runtime identity admission", () => {
+ 
+     await waitFor(async () =>
+       (await a.store.listComments(task.id)).some((c) =>
+-        c.text === `extension_version_mismatch: wf is now ${currentDigest}, task pinned ${pinnedDigest}`,
++        c.text === `extension_version_mismatch: wf is now ${currentDigest}, admitted under ${pinnedDigest}`,
+       ),
+     );
+     expect((await a.store.taskView(task.id)).status).toBe("human");
+@@ -734,11 +777,13 @@ export default (api) => {
+       path.join(pkg, "package.json"),
+       '{"name":"pkg","autosk":{"extensions":["one.js","two.js"]}}\n',
+     );
+-    writeFileSync(path.join(pkg, "one.js"), WORKFLOW_SOURCE("one").replace('"wf"', '"one"'));
+-    writeFileSync(path.join(pkg, "two.js"), WORKFLOW_SOURCE("two").replace('"wf"', '"two"'));
++    const entry = (name: string) =>
++      WORKFLOW_SOURCE(name).replace('"wf"', `"${name}"`).replaceAll('"child"', `"${name}-child"`);
++    writeFileSync(path.join(pkg, "one.js"), entry("one"));
++    writeFileSync(path.join(pkg, "two.js"), entry("two"));
+ 
+     const registry = await loadProjectRegistry(p.root);
+-    expect(registry.workflowNames().sort()).toEqual(["one", "two"]);
++    expect(registry.workflowNames().sort()).toEqual(["one", "one-child", "two", "two-child"]);
+     // One tree, one identity: the digest is computed per distribution, not per
+     // declared entry, so a package with N entries is not hashed N times.
+     expect(registry.workflowIdentity("two")!.digest).toBe(registry.workflowIdentity("one")!.digest);
+@@ -763,4 +808,156 @@ export default (api) => {
+       /distribution cannot be identified: symbolic link escapes/,
+     );
+   });
++
++  test("a dispatched session records the identity it was admitted under", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const gatePath = path.join(p.root, "session-identity-gate");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++    });
++
++    const task = await p.store.createTask({ title: "recorded" });
++    await engine.enroll(p.root, task.id, { workflow: "wf", step: "run" });
++    await waitFor(async () => p.store.sessions.hasLiveSession(task.id));
++
++    const admitted = p.project.registry.workflowAdmission("wf")!;
++    // Read off disk, not out of the cache: the record has to survive the process
++    // that wrote it, which is the only way it can say what a finished session ran.
++    const [meta] = p.store.sessions.liveSessionsForTask(task.id);
++    const onDisk = JSON.parse(
++      readFileSync(path.join(p.root, ".autosk", "sessions", `${meta!.id}.json`), "utf8"),
++    ) as Record<string, unknown>;
++    expect(onDisk.runtime_identity).toEqual({
++      workflow: "wf",
++      digest: admitted.distribution.digest,
++      graph: admitted.graph,
++    });
++
++    writeFileSync(gatePath, "");
++    await waitFor(async () => !p.store.sessions.hasLiveSession(task.id));
++  });
++
++  test("a candidate a live session mints is refused when the registry moved under it", async () => {
++    // A session runs the workflow object it captured, so an `ext update` mid-flight
++    // leaves the parent on the old bytes. A child task enrolled from that session
++    // enters the workflow at its first step, which is a restart and therefore pins
++    // whatever is registered NOW — so the Epic would fan out into a candidate
++    // running code the Epic itself was never admitted to, with nothing recording it.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const gatePath = path.join(a.root, "spawn-gate");
++    const outPath = path.join(a.root, "spawn-out.json");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    process.env.AUTOSK_TEST_OUT = outPath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_OUT;
++    });
++
++    const task = await a.store.createTask({ title: "fans out" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "spawn" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    engine.setProjectRegistry(a.root, b.project.registry); // the ext update
++    writeFileSync(gatePath, "");
++    await waitFor(async () => existsSync(outPath));
++
++    expect(readFileSync(outPath, "utf8")).toContain("extension_version_mismatch");
++    // The task the refused create left behind is unenrolled and unpinned: nothing
++    // was admitted under the new bytes. Asserting the count matters — an empty list
++    // would satisfy a per-item check without proving anything.
++    const others = (await a.store.listTaskViews()).filter((t) => t.id !== task.id);
++    expect(others).toHaveLength(1);
++    expect(others[0]!.workflow).toBeNull();
++    expect(readRuntimeIdentityPin(others[0]!.metadata).state).toBe("absent");
++    await waitFor(async () => !a.store.sessions.hasLiveSession(task.id));
++  });
++
++  test("a candidate in another distribution of the same registry is enrolled normally", async () => {
++    // A registry holds many distributions: every package, directory and bare file is
++    // its own. A workflow that fans out into a workflow from another package is the
++    // ordinary shape here — the shipped extensions are separate packages — and no
++    // update has happened, so refusing it would break fan-out permanently.
++    const p = track(await makeProject({ workflows: [] }));
++    writeExtension(p.root, "v1");
++    writeFileSync(path.join(p.root, ".autosk", "extensions", "sibling.js"), SIBLING_SOURCE);
++    p.project.registry = await loadProjectRegistry(p.root);
++    // The premise, asserted so this test cannot quietly become a same-distribution one.
++    expect(p.project.registry.workflowIdentity("sibling")!.digest).not.toBe(
++      p.project.registry.workflowIdentity("wf")!.digest,
++    );
++
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const gatePath = path.join(p.root, "spawn-gate");
++    const outPath = path.join(p.root, "spawn-out.json");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    process.env.AUTOSK_TEST_OUT = outPath;
++    process.env.AUTOSK_TEST_CHILD_WF = "sibling";
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_OUT;
++      delete process.env.AUTOSK_TEST_CHILD_WF;
++    });
++
++    const task = await p.store.createTask({ title: "fans out across packages" });
++    await engine.enroll(p.root, task.id, { workflow: "wf", step: "spawn" });
++    await waitFor(async () => p.store.sessions.hasLiveSession(task.id));
++
++    writeFileSync(gatePath, "");
++    await waitFor(async () => existsSync(outPath));
++
++    expect(readFileSync(outPath, "utf8")).not.toContain("extension_version_mismatch");
++    const others = (await p.store.listTaskViews()).filter((t) => t.id !== task.id);
++    expect(others).toHaveLength(1);
++    expect(others[0]!.workflow).toBe("sibling");
++    const pin = readRuntimeIdentityPin(others[0]!.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(
++      p.project.registry.workflowIdentity("sibling")!.digest,
++    );
++    await waitFor(async () => !p.store.sessions.hasLiveSession(task.id));
++  });
++
++  test("a candidate minted on the admitted distribution is enrolled normally", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const gatePath = path.join(p.root, "spawn-gate");
++    const outPath = path.join(p.root, "spawn-out.json");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    process.env.AUTOSK_TEST_OUT = outPath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_OUT;
++    });
++
++    const task = await p.store.createTask({ title: "fans out" });
++    await engine.enroll(p.root, task.id, { workflow: "wf", step: "spawn" });
++    await waitFor(async () => p.store.sessions.hasLiveSession(task.id));
++
++    writeFileSync(gatePath, "");
++    await waitFor(async () => existsSync(outPath));
++
++    expect(readFileSync(outPath, "utf8")).not.toContain("extension_version_mismatch");
++    const [child] = (await p.store.listTaskViews()).filter((t) => t.id !== task.id);
++    expect(child!.workflow).toBe("child");
++    const pin = readRuntimeIdentityPin(child!.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(
++      p.project.registry.workflowIdentity("child")!.digest,
++    );
++    await waitFor(async () => !p.store.sessions.hasLiveSession(task.id));
++  });
+ });
+diff --git a/daemon/core/test/records.golden.test.ts b/daemon/core/test/records.golden.test.ts
+index 5f06b23754da7dac850e8d77959e48c10e65fab7..f2dc070a6f691e8f65d844d9071028a7c8c81054 100644
+--- a/daemon/core/test/records.golden.test.ts
++++ b/daemon/core/test/records.golden.test.ts
+@@ -16,6 +16,7 @@ import {
+   TaskStore,
+   ProjectPaths,
+   parseCommentsLenient,
++  parseSessionMeta,
+   parseTask,
+   parseTranscriptLenient,
+   serializeComments,
+@@ -270,7 +271,38 @@ const GOLDEN_SESSION_FAILED_JSON = `{
+ }
+ `;
+ 
++const GOLDEN_SESSION_PINNED_JSON = `{
++  "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
++  "kind": "task",
++  "task_id": "ask-3f9b2c",
++  "workflow": "feature-dev",
++  "step": "dev",
++  "agent": "@autosk/pi-agent/dev",
++  "runtime_identity": {
++    "workflow": "feature-dev",
++    "digest": "${"1".repeat(64)}",
++    "graph": "${"2".repeat(64)}"
++  },
++  "status": "queued",
++  "started_at": null,
++  "ended_at": null
++}
++`;
++
+ describe("session meta golden", () => {
++  test("pinned meta: the identity sits with what it describes, before the lifecycle keys", () => {
++    const pinned: SessionMeta = {
++      ...GOLDEN_SESSION_QUEUED,
++      runtime_identity: {
++        workflow: "feature-dev",
++        digest: "1".repeat(64),
++        graph: "2".repeat(64),
++      },
++    };
++    expect(serializeSessionMeta(pinned)).toBe(GOLDEN_SESSION_PINNED_JSON);
++    expect(parseSessionMeta(GOLDEN_SESSION_PINNED_JSON)).toEqual(pinned);
++  });
++
+   test("queued meta: no error key, null timestamps", () => {
+     expect(serializeSessionMeta(GOLDEN_SESSION_QUEUED)).toBe(GOLDEN_SESSION_QUEUED_JSON);
+   });
+diff --git a/daemon/core/test/sessionStore.test.ts b/daemon/core/test/sessionStore.test.ts
+index 4bbd1ad6908d20fd7a00f3e5382c95152c80c761..55cb898917fc4b388156f67dd6495471d166812b 100644
+--- a/daemon/core/test/sessionStore.test.ts
++++ b/daemon/core/test/sessionStore.test.ts
+@@ -3,7 +3,7 @@
+  */
+ 
+ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+-import { appendFile, mkdir, writeFile } from "node:fs/promises";
++import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+ 
+ import { CapturingLogger, KeyedMutex, ProjectPaths, SessionStore } from "../src/index.ts";
+ import type { CustomEntry } from "@autosk/sdk";
+@@ -128,4 +128,36 @@ describe("SessionStore", () => {
+     expect(await lenient.getMeta(id)).toBeNull();
+     expect(log.warns.some((w) => w.includes(id) && w.includes("unparseable"))).toBe(true);
+   });
++
++  test("create records the runtime identity the session was admitted under", async () => {
++    const id = "0190a1b2-0000-7000-8000-000000000012";
++    const pin = { workflow: "wf", digest: "a".repeat(64), graph: "b".repeat(64) };
++    await sessions.create({ id, ...base, runtime_identity: pin });
++
++    // Read back through the parser, not the cache: the record is only worth
++    // anything if it survives the process that wrote it.
++    const reread = new SessionStore(paths, new KeyedMutex());
++    expect((await reread.getMeta(id))!.runtime_identity).toEqual(pin);
++  });
++
++  test("a corrupt runtime identity is refused, not dropped", async () => {
++    // Dropping it would turn a tampered record of the code a session ran into a
++    // clean "this session had no identity", which reads as an ordinary session.
++    const log = new CapturingLogger();
++    const lenient = new SessionStore(paths, new KeyedMutex(), log);
++    const id = "0190a1b2-0000-7000-8000-000000000013";
++    await sessions.create({
++      id,
++      ...base,
++      runtime_identity: { workflow: "wf", digest: "a".repeat(64) },
++    });
++    const text = await readFile(paths.sessionMeta(id), "utf8");
++    await writeFile(
++      paths.sessionMeta(id),
++      text.replace('"digest": "' + "a".repeat(64) + '"', '"digest": "nope"'),
++    );
++
++    expect(await lenient.getMeta(id)).toBeNull();
++    expect(log.warns.some((w) => w.includes("digest is not a lowercase sha256"))).toBe(true);
++  });
+ });
+diff --git a/daemon/sdk/src/types.ts b/daemon/sdk/src/types.ts
+index a0c187d410f995a26c353acadc6ff35bb2786c44..e659aaf7e052beff3b01f7d1b1132dbf4316c42e 100644
+--- a/daemon/sdk/src/types.ts
++++ b/daemon/sdk/src/types.ts
+@@ -120,6 +120,27 @@ export type SessionActivity = "idle" | "busy";
+  */
+ export type SessionKind = "task" | "interactive";
+ 
++/**
++ * The extension distribution, and the workflow shape within it, that a task or a
++ * session was admitted under (issue #10).
++ *
++ * It lives here rather than in the daemon because it is part of two records the
++ * daemon publishes: the reserved `runtime_identity` in a task's metadata, and
++ * {@link SessionMeta.runtime_identity}. Both are the same record and are read
++ * back by the same validation, so they are one type.
++ */
++export interface RuntimeIdentityPin {
++  workflow: string;
++  /** The distribution the task was admitted under. */
++  digest: string;
++  /**
++   * The workflow's declared shape at admission. Optional in the shape because a
++   * pin written before this existed does not carry it; callers decide what a
++   * missing one means rather than having it forged here.
++   */
++  graph?: string;
++}
++
+ /**
+  * Session metadata (`./.autosk/sessions/<id>.json`, plan §3.2). Listing a
+  * task's sessions = filtering metas by `task_id`.
+@@ -135,6 +156,16 @@ export interface SessionMeta {
+   workflow: string;
+   step: string;
+   agent: string;
++  /**
++   * The runtime identity this session was admitted under (issue #10) — what the
++   * scheduler verified before it claimed the task. Absent for an interactive
++   * session, and for a workflow whose distribution the registry cannot identify.
++   *
++   * A session runs the workflow object it captured at dispatch, so this is the
++   * durable answer to "which code produced this transcript" once the process that
++   * ran it is gone.
++   */
++  runtime_identity?: RuntimeIdentityPin;
+   status: SessionStatus;
+   /**
+    * Live turn activity for an interactive (`running`) session: `"busy"` while the
+diff --git a/docs/extensions.md b/docs/extensions.md
+index 174993d8f7800353fb16d210e94acc19b662756c..b94c86817ab419548969b3ffce57432451c4d44e 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -384,6 +384,49 @@ The shape is recorded only beside a distribution identity. A registry assembled
+ without the loader stays honestly unidentified rather than becoming half-identified
+ by a value derived from an object in memory.
+ 
++### Sessions, and the candidates they mint
++
++A session records the identity it was admitted under in its own meta
++(`.autosk/sessions/<id>.json`, key `runtime_identity`) — the same record as the
++task's pin, written by the same canonicaliser and read back by the same
++validation, so a corrupt one is refused rather than repaired into a plausible
++one. A session runs the workflow object it captured at dispatch, so this is the
++durable answer to *which code produced this transcript* after the process that
++ran it is gone.
++
++That capture is also what a **candidate** is checked against. A workflow fans out
++by creating tasks and enrolling them — a panel seat, an Arena candidate, a
++code-review child. Enrolling enters a workflow at its first step, which is a
++restart and therefore pins whatever is registered *now*. For an operator that is
++right. For a session it is not: an `ext update` between the session's dispatch and
++its `task create --workflow` would let the Epic fan out from code it is no longer
++admitted to, with nothing recording it. So the per-session MCP path re-asks
++whether **the session itself is still admitted**, and refuses the new task with
++`extension_version_mismatch` when it is not.
++
++The question is about the parent, not the child. Requiring the candidate's
++workflow to come from the parent's own distribution would be a different rule, and
++a wrong one: a registry holds one distribution per package, per extension
++subdirectory and per bare file, so fanning out into a workflow from another
++package is the ordinary shape — the extensions shipped here *are* separate
++packages. A candidate enters on its own distribution exactly as an operator
++enrolling it would, with its own pin — including when that distribution is the
++one that was just updated, because the candidate is a new task that was never
++admitted to anything and the Epic's own code is unchanged.
++
++The refused create leaves the task behind, unenrolled and unpinned, because the
++create and the enrol are two steps and only the second is refused. That is
++visible rather than silent — the same residue any rejected enrol leaves, an
++unknown workflow included — and nothing about it is admitted anywhere.
++
++Two enrolment paths are deliberately outside this. The `task.enroll` RPC has no
++session behind it — it is the operator surface, and re-pinning on a first-step
++enroll is exactly how a task parked by an update is re-admitted. An interactive
++(taskless) chat entered no workflow, so it has no admission to pass on. An agent
++that shells out to the `autosk` CLI reaches the RPC surface too, and the daemon
++cannot attribute that call to the session it came from; that is a limit of this
++check, not something it covers.
++
+ ### What the project remembers, and what it will not let you remove
+ 
+ Opening a project records, in `.autosk/runtime/v1/index.json`, the distribution behind
