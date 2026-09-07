@@ -1,0 +1,752 @@
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..f41a86da59aada749484ae9f33da232e1fcf7a20 100644
+--- a/daemon/core/src/store/distributions.ts
++++ b/daemon/core/src/store/distributions.ts
+@@ -37,10 +37,71 @@ export interface DistributionRecord {
+   recorded_at: string;
+ }
+ 
++/**
++ * One migration, from the moment it was decided to the moment it was verified.
++ *
++ * The `id` is derived from the plan itself — source, target, workflow and the exact
++ * task set — so re-running the same migration finds this record and continues it
++ * instead of starting a second one. No external identifier is minted, because an
++ * identifier the caller chooses is an identifier the caller can get wrong, and a
++ * duplicate migration is precisely what the receipt exists to prevent.
++ *
++ * `completed_at` appears only after every task has been read back and found on the
++ * target. An interruption at any phase therefore leaves the receipt open, and the
++ * next run finishes it.
++ */
++export interface MigrationReceipt {
++  id: string;
++  from: string;
++  to: string;
++  /**
++   * The declared shape of the target workflow.
++   *
++   * A pin has two identity components and the admission check refuses on either,
++   * so a migration that moved only the digest would seal a receipt while leaving
++   * the task parked — the whole operation claiming success and achieving nothing.
++   * The receipt has to be able to say what it migrated onto, not merely which
++   * bytes.
++   */
++  to_graph: string;
++  workflow: string;
++  /** The exact tasks the plan named, sorted. */
++  tasks: string[];
++  started_at: string;
++  /** Present only once read-back has confirmed every task. */
++  completed_at?: string;
++}
++
+ /** The `.autosk/runtime/v1/index.json` document this module owns. */
+ export interface DistributionIndex {
+   version: 1;
+   distributions: DistributionRecord[];
++  migrations: MigrationReceipt[];
++}
++
++/**
++ * The identifier of a migration, derived from what it does rather than chosen.
++ *
++ * Two runs of the same migration produce the same id and therefore the same
++ * receipt; two different migrations cannot collide into one. The task list is part
++ * of it because a plan over a different set of tasks is a different migration even
++ * between the same two distributions.
++ */
++export function migrationId(
++  from: string,
++  to: string,
++  toGraph: string,
++  workflow: string,
++  tasks: readonly string[],
++): string {
++  // The digests go in raw because they are validated as lowercase hex on both the
++  // write and the read, so they cannot contain the separator. The workflow name and
++  // the task ids are arbitrary strings and are encoded. Saying "every field is
++  // encoded" would be neater and untrue, and an untrue comment beside a correct
++  // line is what this whole series has been about.
++  const encode = (v: string): string => Buffer.from(v, "utf16le").toString("base64");
++  const canonical = [from, to, toGraph, encode(workflow), ...[...tasks].sort().map(encode)].join("\n");
++  return createHash("sha256").update(canonical, "utf8").digest("hex");
+ }
+ 
+ const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
+@@ -64,7 +125,7 @@ export class DistributionIndexError extends Error {
+  * exactly the damage the paragraph above forbids.
+  */
+ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+-  if (raw === null) return { version: 1, distributions: [] };
++  if (raw === null) return { version: 1, distributions: [], migrations: [] };
+   if (raw === "") throw new DistributionIndexError("runtime index is present but empty");
+   let parsed: unknown;
+   try {
+@@ -82,6 +143,12 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+   if (!Array.isArray(record.distributions)) {
+     throw new DistributionIndexError("runtime index has no distributions array");
+   }
++  // Absent `migrations` is an empty list, not an error: an index written before
++  // migrations existed is old, not damaged, and refusing it would strand every
++  // project that upgraded.
++  if (record.migrations !== undefined && !Array.isArray(record.migrations)) {
++    throw new DistributionIndexError("runtime index migrations is not an array");
++  }
+   const seen = new Set<string>();
+   const distributions = record.distributions.map((entry) => {
+     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+@@ -116,11 +183,85 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+     }
+     return { digest, entries, recorded_at: recordedAt };
+   });
+-  return { version: 1, distributions };
++  const migrations = ((record.migrations ?? []) as unknown[]).map(parseReceipt);
++  const seenMigrations = new Set<string>();
++  for (const receipt of migrations) {
++    if (seenMigrations.has(receipt.id)) {
++      throw new DistributionIndexError(`runtime index records migration ${receipt.id} twice`);
++    }
++    seenMigrations.add(receipt.id);
++  }
++  return { version: 1, distributions, migrations };
++}
++
++/** Parses one receipt, refusing anything whose id does not describe its own contents. */
++function parseReceipt(entry: unknown): MigrationReceipt {
++  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
++    throw new DistributionIndexError("migration receipt is not an object");
++  }
++  const item = entry as Record<string, unknown>;
++  const allowed = new Set(["id", "from", "to", "to_graph", "workflow", "tasks", "started_at", "completed_at"]);
++  const extra = Object.keys(item).filter((k) => !allowed.has(k));
++  if (extra.length > 0) {
++    throw new DistributionIndexError(`migration receipt has unexpected keys: ${extra.sort().join(", ")}`);
++  }
++  const {
++    id,
++    from,
++    to,
++    to_graph: toGraph,
++    workflow,
++    tasks,
++    started_at: startedAt,
++    completed_at: completedAt,
++  } = item;
++  for (const [name, value] of [["from", from], ["to", to], ["to_graph", toGraph], ["id", id]] as const) {
++    if (typeof value !== "string" || !DIGEST_PATTERN.test(value)) {
++      throw new DistributionIndexError(`migration receipt ${name} is not a lowercase sha256`);
++    }
++  }
++  if (typeof workflow !== "string" || workflow.length === 0) {
++    throw new DistributionIndexError("migration receipt has no workflow");
++  }
++  if (!Array.isArray(tasks) || tasks.some((t) => typeof t !== "string" || t.length === 0)) {
++    throw new DistributionIndexError("migration receipt tasks is not a list of task ids");
++  }
++  if (new Set(tasks as string[]).size !== tasks.length) {
++    throw new DistributionIndexError("migration receipt names the same task twice");
++  }
++  if (tasks.length === 0) {
++    // A migration of nothing would seal as "completed" having moved nothing, which
++    // is a true statement about an operation nobody asked for.
++    throw new DistributionIndexError("migration receipt names no tasks");
++  }
++  if (typeof startedAt !== "string" || startedAt.length === 0) {
++    throw new DistributionIndexError("migration receipt has no started_at");
++  }
++  if (completedAt !== undefined && (typeof completedAt !== "string" || completedAt.length === 0)) {
++    throw new DistributionIndexError("migration receipt completed_at is not a timestamp");
++  }
++  // The id is derived from the contents, so a receipt whose id does not match
++  // describes a different migration than the one it claims to be.
++  const expected = migrationId(from as string, to as string, toGraph as string, workflow, tasks as string[]);
++  if (expected !== id) {
++    throw new DistributionIndexError(`migration receipt ${id as string} does not describe itself (${expected})`);
++  }
++  const receipt: MigrationReceipt = {
++    id: id as string,
++    from: from as string,
++    to: to as string,
++    to_graph: toGraph as string,
++    workflow,
++    tasks: [...(tasks as string[])].sort(),
++    started_at: startedAt,
++  };
++  if (completedAt !== undefined) receipt.completed_at = completedAt;
++  return receipt;
+ }
+ 
+ /** Serialises the index with entries in digest order, so the bytes are stable. */
+ export function serializeDistributionIndex(index: DistributionIndex): string {
+   const sorted = [...index.distributions].sort((a, b) => (a.digest < b.digest ? -1 : a.digest > b.digest ? 1 : 0));
+-  return `${JSON.stringify({ version: 1, distributions: sorted }, null, 2)}\n`;
++  const migrations = [...index.migrations].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
++  return `${JSON.stringify({ version: 1, distributions: sorted, migrations }, null, 2)}\n`;
+ }
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 8aff9eafb429c22048fdf4292807bb6cff27d440..be0faf1e3ab45365b0ebed606abf2fba23452288 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -54,9 +54,11 @@ import { createHash } from "node:crypto";
+ 
+ import { systemClock, type Clock } from "./clock.ts";
+ import {
++  migrationId,
+   parseDistributionIndex,
+   serializeDistributionIndex,
+   type DistributionRecord,
++  type MigrationReceipt,
+ } from "./distributions.ts";
+ import { KeyedMutex } from "./lock.ts";
+ import {
+@@ -1195,6 +1197,14 @@ export class Store {
+    * done here.
+    */
+   async recordDistribution(digest: string, entries: string): Promise<void> {
++    // Checked before the write, not only on read. The parser refuses a pair that
++    // does not hash together, so writing one unvalidated would leave an index that
++    // every later distribution operation — including the one that would fix it —
++    // refuses to load.
++    const actual = createHash("sha256").update(entries, "utf8").digest("hex");
++    if (actual !== digest) {
++      throw new Error(`distribution ${digest} does not match the listing given for it (${actual})`);
++    }
+     await withCreationLock(this.paths, async (io) => {
+       const raw = await io.readRuntimeIndex();
+       const index = parseDistributionIndex(raw);
+@@ -1246,8 +1256,170 @@ export class Store {
+       const index = parseDistributionIndex(raw);
+       const kept = index.distributions.filter((d) => d.digest !== digest);
+       if (kept.length === index.distributions.length) return;
+-      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex({ version: 1, distributions: kept }));
++      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex({ ...index, distributions: kept }));
++    });
++  }
++
++  // -- migration (issue #10, criterion 5) ----------------------------------
++
++  /**
++   * Opens a migration, or returns the existing receipt for exactly this plan —
++   * open or already sealed.
++   *
++   * The receipt is the crash anchor. Its id is derived from the plan, so a second
++   * run of the same migration finds this record instead of starting a rival one,
++   * and a plan over a different task set is a different migration even between the
++   * same two distributions.
++   */
++  async beginMigration(
++    from: string,
++    to: string,
++    toGraph: string,
++    workflow: string,
++    tasks: readonly string[],
++  ): Promise<MigrationReceipt> {
++    // Validated here rather than only on read. A receipt the parser will refuse is
++    // not merely a bad record: it is written into the one index every distribution
++    // operation reads, so an unvalidated write bricks recording and forgetting too.
++    for (const [name, value] of [["from", from], ["to", to], ["to_graph", toGraph]] as const) {
++      if (!/^[0-9a-f]{64}$/.test(value)) throw new Error(`migration ${name} is not a lowercase sha256`);
++    }
++    if (workflow.length === 0) throw new Error("migration workflow is empty");
++    const unique = [...new Set(tasks)].sort();
++    if (unique.length === 0) throw new Error("migration names no tasks");
++    if (unique.length !== tasks.length) throw new Error("migration names the same task twice");
++
++    const id = migrationId(from, to, toGraph, workflow, unique);
++    let receipt: MigrationReceipt | undefined;
++    await withCreationLock(this.paths, async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw);
++      const existing = index.migrations.find((m) => m.id === id);
++      if (existing) {
++        receipt = existing;
++        return;
++      }
++      const opened: MigrationReceipt = {
++        id,
++        from,
++        to,
++        to_graph: toGraph,
++        workflow,
++        tasks: unique,
++        started_at: this.clock(),
++      };
++      index.migrations.push(opened);
++      receipt = opened;
++      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex(index));
+     });
++    if (!receipt) throw new Error(`migration ${id} could not be opened`);
++    return receipt;
++  }
++
++  /**
++   * Applies an open migration and seals it, in three phases that may be
++   * interrupted at any point and resumed by calling this again.
++   *
++   *  1. **Move.** Each task still on `from` is re-pinned to `to`. A task already on
++   *     `to` is skipped, which is what makes a resumed run safe. A task on anything
++   *     else stops the migration: something moved it, and continuing on a plan that
++   *     no longer describes reality is how one ends up with a receipt that says
++   *     something untrue.
++   *  2. **Read back.** Every task is re-read from the store and its pin checked.
++   *     Writing and believing the write is not verification.
++   *  3. **Seal.** `completed_at` is written only after phase 2 passes, so an
++   *     interruption anywhere leaves the receipt open and the next run finishes it.
++   */
++  async applyMigration(id: string): Promise<MigrationReceipt> {
++    const opened = await this.findMigration(id);
++    if (!opened) throw new Error(`migration ${id} was never opened`);
++    if (opened.completed_at !== undefined) return opened;
++
++    for (const taskId of opened.tasks) {
++      // No reconcile here: `mutateTask` reconciles under the per-task lock, so the
++      // check and the write see one record. Reading outside the lock and writing
++      // back what was read is what let a concurrent position write be overwritten
++      // without the third-digest guard firing.
++      let moved = false;
++      await this.mutateTask(taskId, (t) => {
++        const current = readRuntimeIdentityPin(t.metadata);
++        if (current.state === "pinned" && current.pin.digest === opened.to) return;
++        if (current.state !== "pinned" || current.pin.digest !== opened.from) {
++          throw new Error(
++            `migration ${id}: ${taskId} is no longer pinned to ${opened.from}, refusing to continue`,
++          );
++        }
++        // BOTH identity components move. A pin carries a distribution digest and a
++        // declared shape, and admission refuses on either — moving only the digest
++        // would seal a receipt while leaving the task parked, the operation claiming
++        // success and achieving nothing.
++        setRuntimeIdentityPin(t.metadata, {
++          workflow: current.pin.workflow,
++          digest: opened.to,
++          graph: opened.to_graph,
++        });
++        moved = true;
++      });
++      if (moved) this.notifyTaskChange(taskId);
++    }
++
++    // The verified receipt is the only way to reach the sealing step. Deleting the
++    // verification does not merely fail a test — it stops compiling, which is the
++    // difference between a rule and a habit. No test could catch its removal from
++    // inside a single call, because phase 2 can only fail if a write did not stick.
++    const verified = await this.verifyMigration(id);
++
++    let sealed: MigrationReceipt | undefined;
++    await withCreationLock(this.paths, async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw);
++      const found = index.migrations.find((m) => m.id === verified.id);
++      if (!found) throw new Error(`migration ${verified.id} vanished from the index`);
++      if (found.completed_at !== undefined) {
++        sealed = found;
++        return;
++      }
++      found.completed_at = this.clock();
++      sealed = found;
++      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex(index));
++    });
++    if (!sealed) throw new Error(`migration ${id} could not be sealed`);
++    return sealed;
++  }
++
++  /**
++   * Phase 2 on its own: re-reads every task named by the receipt and refuses unless
++   * each one is on the target.
++   *
++   * It is a separate method because a verification that only ever runs inside the
++   * thing it verifies cannot be tested apart from it — and an untested read-back is
++   * indistinguishable from writing and believing the write.
++   */
++  async verifyMigration(id: string): Promise<MigrationReceipt> {
++    const opened = await this.findMigration(id);
++    if (!opened) throw new Error(`migration ${id} was never opened`);
++    for (const taskId of opened.tasks) {
++      await this.reconcileTask(taskId);
++      const after = readRuntimeIdentityPin(this.tasks.peek(taskId)?.metadata);
++      // Both halves, because a read-back that checks only what the move wrote is
++      // not a verification of the move, it is a restatement of it.
++      if (after.state !== "pinned" || after.pin.digest !== opened.to) {
++        throw new Error(`migration ${id}: ${taskId} did not read back on ${opened.to}`);
++      }
++      if (after.pin.graph !== opened.to_graph) {
++        throw new Error(
++          `migration ${id}: ${taskId} read back on shape ${after.pin.graph ?? "none"}, expected ${opened.to_graph}`,
++        );
++      }
++    }
++    return opened;
++  }
++
++  /** One migration receipt by id, or `undefined`. */
++  async findMigration(id: string): Promise<MigrationReceipt | undefined> {
++    return withCreationLock(this.paths, async (io) =>
++      parseDistributionIndex(await io.readRuntimeIndex()).migrations.find((m) => m.id === id),
++    );
+   }
+ 
+   private schedulingRowFor(t: StoredTask): SchedulingRow {
+diff --git a/daemon/core/test/engine.migration.test.ts b/daemon/core/test/engine.migration.test.ts
+index 5bb4d4c4d7c4059bcf5105e671c2dc99650ff8a8..9ca565c356f82a926f2cde82750bc39a062049ec 100644
+--- a/daemon/core/test/engine.migration.test.ts
++++ b/daemon/core/test/engine.migration.test.ts
+@@ -16,7 +16,8 @@ import { planMigration } from "../src/engine/migration.ts";
+ import type { StoredTask } from "../src/store/records.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+-const OLD = "1".repeat(64);
++const LISTING = "file abc index.ts\n";
++const OLD = createHash("sha256").update(LISTING, "utf8").digest("hex");
+ 
+ /** A byte-level fingerprint of every file under a directory. */
+ function snapshot(root: string): string {
+@@ -239,7 +240,7 @@ describe("migration planning", () => {
+       { status: "human", workflow: "wf", step: "review" },
+       { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: "0".repeat(64) } },
+     );
+-    await store.recordDistribution(OLD, "file abc index.ts\n");
++    await store.recordDistribution(OLD, LISTING);
+ 
+     const before = snapshot(path.join(dir.path, ".autosk"));
+     for (const [reg, rec] of [
+diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1877b7aed2b92b29ec45d7133602ffc0137466ad
+--- /dev/null
++++ b/daemon/core/test/store.migration.test.ts
+@@ -0,0 +1,278 @@
++/**
++ * Applying a migration (issue #10, criterion 5).
++ *
++ * The properties under test are all about interruption: every phase may be cut
++ * short, and a resumed run must reach the same end state without doing anything
++ * twice. So the tests stop the work at each boundary and call again, rather than
++ * asserting that one uninterrupted run succeeds.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { createHash } from "node:crypto";
++import { readFile, writeFile } from "node:fs/promises";
++import { join } from "node:path";
++
++import { Store } from "../src/index.ts";
++import { migrationId, parseDistributionIndex } from "../src/store/distributions.ts";
++import { withCreationLock } from "../src/store/creation.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
++import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
++import { tempDir } from "./helpers.ts";
++
++const OLD = "1".repeat(64);
++const NEW = "2".repeat(64);
++const OTHER = "3".repeat(64);
++const GRAPH = "0".repeat(64);
++const NEW_GRAPH = "4".repeat(64);
++const LISTING = "file abc index.ts\n";
++const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
++
++describe("applying a migration", () => {
++  const cleanups: (() => void)[] = [];
++  const stores: Store[] = [];
++  afterEach(async () => {
++    for (const s of stores.splice(0)) await s.close();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  async function project() {
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const store = new Store(dir.path, { watch: false });
++    stores.push(store);
++    await store.open();
++    return { store, root: dir.path };
++  }
++
++  async function pinned(store: Store, digest: string): Promise<string> {
++    const t = await store.createTask({ title: "migrating" });
++    await store.setPosition(
++      t.id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest, graph: GRAPH } },
++    );
++    return t.id;
++  }
++
++  async function digestOf(store: Store, id: string): Promise<string | undefined> {
++    const pin = readRuntimeIdentityPin((await store.taskView(id)).metadata);
++    return pin.state === "pinned" ? pin.pin.digest : undefined;
++  }
++
++  test("the receipt is derived from the plan, so reopening finds the same one", async () => {
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const first = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    const again = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    expect(again.id).toBe(first.id);
++    expect(again.started_at).toBe(first.started_at);
++    expect(first.id).toBe(migrationId(OLD, NEW, NEW_GRAPH, "wf", [a]));
++    // A different task set is a different migration, not a second attempt at this.
++    const b = await pinned(store, OLD);
++    expect((await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a, b])).id).not.toBe(first.id);
++  });
++
++  test("an interruption mid-apply is finished by the next run", async () => {
++    // A real interruption, not a narrated one: the second task is made unreadable
++    // so phase 1 stops after moving the first, then it is restored and the
++    // migration is asked to continue. Without this the test would pass on an
++    // uninterrupted run and prove nothing about resuming.
++    const { store, root } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const [first, second] = ids as [string, string];
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", ids);
++
++    const secondFile = join(root, ".autosk", "tasks", second, "task.json");
++    const saved = await readFile(secondFile, "utf8");
++    await writeFile(secondFile, "{ interrupted");
++
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow();
++    expect(await digestOf(store, first)).toBe(NEW);
++    expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++
++    await writeFile(secondFile, saved);
++    const sealed = await store.applyMigration(receipt.id);
++    expect(sealed.completed_at).toBeDefined();
++    expect(await digestOf(store, second)).toBe(NEW);
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const stored = parseDistributionIndex(raw).migrations;
++    expect(stored).toHaveLength(1);
++    expect(stored[0]!.completed_at).toBeDefined();
++  });
++
++  test("a run that died after the moves, before sealing, is finished by the next", async () => {
++    // The other crash boundary. Phase 1 having completed is indistinguishable from
++    // every task already being on the target, so it is induced by moving them and
++    // leaving the receipt open — no simulation, the same state a dead process
++    // leaves behind.
++    const { store, root } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", ids);
++    for (const id of ids) {
++      await store.setPosition(
++        id,
++        { status: "human", workflow: "wf", step: "review" },
++        // Phase 1 writes BOTH halves, so the simulated dead run must too.
++        { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: NEW_GRAPH } },
++      );
++    }
++    expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++
++    const sealed = await store.applyMigration(receipt.id);
++    expect(sealed.completed_at).toBeDefined();
++    for (const id of ids) expect(await digestOf(store, id)).toBe(NEW);
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).migrations).toHaveLength(1);
++  });
++
++  test("applying twice changes nothing the second time", async () => {
++    const { store, root } = await project();
++    const a = await pinned(store, OLD);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    const once = await store.applyMigration(receipt.id);
++    const twice = await store.applyMigration(receipt.id);
++    expect(twice.completed_at).toBe(once.completed_at!);
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).migrations).toHaveLength(1);
++  });
++
++  test("a task moved by something else stops the migration", async () => {
++    // Continuing on a plan that no longer describes reality is how a receipt ends
++    // up asserting something untrue.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a, b]);
++    await store.setPosition(
++      b,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OTHER, graph: GRAPH } },
++    );
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow(/no longer pinned to/);
++    expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++  });
++
++  test("read-back refuses a task that never reached the target", async () => {
++    // The verification is exercised on its own, because a read-back that only ever
++    // runs inside the thing it verifies is indistinguishable from writing and
++    // believing the write.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await expect(store.verifyMigration(receipt.id)).rejects.toThrow(/did not read back on/);
++    await store.applyMigration(receipt.id);
++    expect((await store.verifyMigration(receipt.id)).id).toBe(receipt.id);
++  });
++
++  test("a receipt whose id does not describe its contents is refused", () => {
++    // The id is derived from source, target, workflow and task set, so a mismatch
++    // means the record describes a different migration than the one it claims.
++    const honest = migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-a"]);
++    const doc = (id: string) =>
++      `{"version":1,"distributions":[],"migrations":[{"id":"${id}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":["ask-a"],"started_at":"t"}]}`;
++    expect(parseDistributionIndex(doc(honest)).migrations).toHaveLength(1);
++    expect(() => parseDistributionIndex(doc(OTHER))).toThrow(/does not describe itself/);
++  });
++
++  test("the shape moves with the digest, so the task is actually admitted after", async () => {
++    // The point of the whole operation. A pin has two identity components and
++    // admission refuses on either, so moving only the digest would seal a receipt
++    // while leaving the task parked — success claimed, nothing achieved.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.applyMigration(receipt.id);
++
++    const pin = readRuntimeIdentityPin((await store.taskView(a)).metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(NEW);
++    expect(pin.state === "pinned" && pin.pin.graph).toBe(NEW_GRAPH);
++    expect(receipt.to_graph).toBe(NEW_GRAPH);
++  });
++
++  test("read-back refuses a task that moved its digest but kept the old shape", () => {
++    // Exactly what the previous version of this code produced: the digest moved,
++    // the shape did not, and the read-back checked only the half that had been
++    // written. Phase 1 skips the task because its digest already matches, so the
++    // shape is the only thing left to catch it.
++    return (async () => {
++      const { store } = await project();
++      const a = await pinned(store, OLD);
++      const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++      await store.setPosition(
++        a,
++        { status: "human", workflow: "wf", step: "review" },
++        { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: GRAPH } },
++      );
++      await expect(store.applyMigration(receipt.id)).rejects.toThrow(/read back on shape/);
++      expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++    })();
++  });
++
++  test("a distribution record whose listing does not hash to its digest is never written", () => {
++    return (async () => {
++      const { store } = await project();
++      await expect(store.recordDistribution(NEW, LISTING)).rejects.toThrow(/does not match the listing/);
++      // The index is untouched and still usable.
++      await store.recordDistribution(sha(LISTING), LISTING);
++    })();
++  });
++
++  test("a receipt the parser would refuse is never written", () => {
++    // An unvalidated write does not merely store a bad record: it lands in the one
++    // index every distribution operation reads, so recording and forgetting die too.
++    return (async () => {
++      const { store } = await project();
++      const a = await pinned(store, OLD);
++      await expect(store.beginMigration("nope", NEW, NEW_GRAPH, "wf", [a])).rejects.toThrow(
++        /from is not a lowercase sha256/,
++      );
++      await expect(store.beginMigration(OLD, NEW, "nope", "wf", [a])).rejects.toThrow(
++        /to_graph is not a lowercase sha256/,
++      );
++      await expect(store.beginMigration(OLD, NEW, NEW_GRAPH, "", [a])).rejects.toThrow(/workflow is empty/);
++      await expect(store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [])).rejects.toThrow(/names no tasks/);
++      await expect(store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a, a])).rejects.toThrow(/same task twice/);
++      // The index is still usable after every refusal.
++      await store.recordDistribution(sha(LISTING), LISTING);
++    })();
++  });
++
++  test("forgetting a distribution does not erase the migration record", async () => {
++    const { store, root } = await project();
++    const a = await pinned(store, NEW);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.recordDistribution(sha(LISTING), LISTING);
++    await store.deleteDistribution(sha(LISTING));
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    expect(index.distributions).toHaveLength(0);
++    expect(index.migrations.map((m) => m.id)).toEqual([receipt.id]);
++  });
++
++  test("the parser refuses a duplicated id and a receipt naming no tasks", () => {
++    // Both were guards without a test. `beginMigration` refuses an empty task list
++    // first, so only a hand-edited index reaches the parser's version of it — which
++    // is exactly when it matters.
++    const one = `{"id":"${migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-a"])}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":["ask-a"],"started_at":"t"}`;
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[],"migrations":[${one},${one}]}`)).toThrow(
++      /records migration .* twice/,
++    );
++    const empty = `{"id":"${migrationId(OLD, NEW, NEW_GRAPH, "wf", [])}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":[],"started_at":"t"}`;
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[],"migrations":[${empty}]}`)).toThrow(
++      /names no tasks/,
++    );
++    const dup = `{"id":"${migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-a", "ask-a"])}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":["ask-a","ask-a"],"started_at":"t"}`;
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[],"migrations":[${dup}]}`)).toThrow(
++      /same task twice/,
++    );
++  });
++
++  test("a migration that was never opened cannot be applied", async () => {
++    const { store } = await project();
++    await expect(store.applyMigration(migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-x"]))).rejects.toThrow(
++      /was never opened/,
++    );
++  });
++});
+diff --git a/docs/extensions.md b/docs/extensions.md
+index d3b5d3dd27d4cfbd863995a27918a34c96c5eb29..561ba6d0a0ee5184fa7ee26c0b1948123219f6b6 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -519,9 +519,48 @@ is mid-run has no exit until its session settles. It will settle — the identit
+ parks it — but the operator who tries the remedy first and the daemon that has not
+ finished are not looking at the same moment.
+ 
+-Applying a supported migration — idempotent phases, read-back, a receipt with before
+-and after hashes — is not implemented. Neither is rollback, and the issue says
+-plainly that keeping old blobs does not by itself provide it.
++### Applying one
++
++A migration is applied in three phases that may be cut short at any point and
++resumed by asking again.
++
++**The receipt is the anchor.** Its identifier is derived from the plan — source,
++target, workflow and the exact task set — so a second run finds the open receipt and
++continues it rather than starting a rival. Nothing mints an identifier the caller
++could get wrong, and a record whose id does not describe its own contents is refused
++on read: it describes a different migration than the one it claims to be.
++
++**Both halves of the pin move.** A pin carries a distribution digest and a declared
++shape, and admission refuses on either, so moving only the digest would seal a
++receipt while leaving the task parked — the operation claiming success and achieving
++nothing, with a read-back that checks the same half the move wrote and therefore
++cannot see it. The receipt records the target shape too: one that cannot say what it
++migrated onto is not a receipt.
++
++**Move, then read back, then seal.** A task already on the target is skipped, which
++is what makes a resumed run safe. A task on some third digest stops everything —
++something else moved it, and continuing on a plan that no longer describes reality is
++how a receipt ends up asserting something untrue. Only after every task has been
++re-read from the store and found on the target is `completed_at` written, so an
++interruption anywhere leaves the receipt open and the next run finishes it.
++
++One window is not closed and is named rather than implied. No lock spans both the
++task pins and the index, so a task moved between the read-back and the seal leaves a
++receipt that says `completed` about a state that has since changed. The same limit
++already applies to forgetting a distribution. Closing it would mean holding the
++cross-process lock across task writes, which is a larger change than this one and
++would trade a narrow window for a wide one.
++
++The verification returns the receipt the sealing step needs, so skipping it does not
++merely fail a test — it stops compiling. That was deliberate: no test can catch its
++removal from inside a single call, because the read-back can only fail if a write did
++not stick, and a rule that depends on remembering it is not a rule.
++
++What this moves is the whole pin — both halves — and not the code: the
++distribution's bytes are still not stored, so a migrated task runs on whatever the
++registry serves. Rollback is not
++implemented, and the issue says plainly that keeping old blobs does not by itself
++provide it.
+ 
+ A symbolic link resolving **inside** the root is recorded by its target and not
+ followed: the bytes it points at are already covered by their own entry, and
