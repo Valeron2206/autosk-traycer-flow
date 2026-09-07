@@ -579,7 +579,7 @@ index dfed4185e1619cd7698434397fbf79dd45b2646c..c39eb683d3ec41c814add367ef37c928
    let dir: ReturnType<typeof tempDir>;
    let store: Store;
 diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
-index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64acd5c9b6 100644
+index a67f5091c35bb92335c9680a0114c4b91b5be503..76474c80818dc5a79bed5fa8a221d41e02d2ed16 100644
 --- a/internal/storelock/lock_unix.go
 +++ b/internal/storelock/lock_unix.go
 @@ -3,7 +3,9 @@
@@ -964,7 +964,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64
  func (l *Lock) openTasksDir(create bool) (int, bool, error) {
  	if create {
  		fd, err := ensureChildDir(l.autoskFD, tasksDirName, 0o755)
-@@ -441,6 +762,48 @@ func requireRegularSingleLink(fd int, label string) error {
+@@ -441,6 +762,51 @@ func requireRegularSingleLink(fd int, label string) error {
  	return nil
  }
  
@@ -988,7 +988,10 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64
 +// wrapCreateFinalError keeps the underlying errno comparable while naming the
 +// filesystem requirement when no-replace rename is unsupported.
 +func wrapCreateFinalError(err error) error {
-+	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.ENOTSUP) {
++	// On Darwin ENOTSUP and EOPNOTSUPP are distinct values, so both are needed;
++	// on Linux they are the same errno and the extra check is a no-op.
++	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSYS) ||
++		errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
 +		return fmt.Errorf("create final file: filesystem does not support no-replace rename: %w", err)
 +	}
 +	return fmt.Errorf("create final file: %w", err)
@@ -1013,7 +1016,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64
  func statFD(fd int, label string) (unix.Stat_t, error) {
  	var st unix.Stat_t
  	if err := unix.Fstat(fd, &st); err != nil {
-@@ -536,6 +899,21 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
+@@ -536,6 +902,21 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
  }
  
  func readRegularFile(parentFD int, name string) (ReadResult, error) {
@@ -1035,7 +1038,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64
  	if err := validateChildName(name); err != nil {
  		return ReadResult{}, err
  	}
-@@ -555,9 +933,21 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+@@ -555,9 +936,21 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
  		closeErr := unix.Close(fd)
  		return ReadResult{}, errors.Join(err, closeErr)
  	}
@@ -1059,7 +1062,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64
  	}
  	file := os.NewFile(uintptr(fd), name)
  	if file == nil {
-@@ -566,20 +956,64 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+@@ -566,20 +959,64 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
  		}
  		return ReadResult{}, errors.New("wrap file fd")
  	}
@@ -1133,7 +1136,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64
  func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err error) {
  	if err := validateChildName(name); err != nil {
  		return err
-@@ -625,6 +1059,35 @@ func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err err
+@@ -625,6 +1062,35 @@ func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err err
  	return nil
  }
  
@@ -1201,10 +1204,10 @@ index 0000000000000000000000000000000000000000..9fb75534bf7108dda8e953e441641f53
 +}
 diff --git a/internal/storelock/runtime_test.go b/internal/storelock/runtime_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..4aad6e93153819c90f8c3c077f1dbc9e103f9ad6
+index 0000000000000000000000000000000000000000..ad14e7298dbdd9ade0252c828d0625562b09dcff
 --- /dev/null
 +++ b/internal/storelock/runtime_test.go
-@@ -0,0 +1,571 @@
+@@ -0,0 +1,573 @@
 +package storelock
 +
 +import (
@@ -1731,7 +1734,9 @@ index 0000000000000000000000000000000000000000..4aad6e93153819c90f8c3c077f1dbc9e
 +
 +func TestRuntimeReadRejectsUnknownRootDevice(t *testing.T) {
 +	// A zero rootID means the caller could not identify the project root device.
-+	// Runtime reads must refuse rather than silently skip the comparison.
++	// Runtime reads must refuse rather than silently skip the comparison. This
++	// covers the zero case only: a mismatch between two non-zero devices needs a
++	// second filesystem, which the suite cannot mount.
 +	root := t.TempDir()
 +	data := []byte("runtime blob\n")
 +	name := runtimeBlobFileName(runtimeDigest(data))
@@ -1757,7 +1762,7 @@ index 0000000000000000000000000000000000000000..4aad6e93153819c90f8c3c077f1dbc9e
 +	// A filesystem without RENAME_NOREPLACE/RENAME_EXCL reports EINVAL, ENOSYS or
 +	// ENOTSUP. Those were not reproducible on the development filesystems, so the
 +	// mapping is proven here rather than through a real unsupported mount.
-+	for _, errno := range []unix.Errno{unix.EINVAL, unix.ENOSYS, unix.ENOTSUP} {
++	for _, errno := range []unix.Errno{unix.EINVAL, unix.ENOSYS, unix.ENOTSUP, unix.EOPNOTSUPP} {
 +		err := wrapCreateFinalError(errno)
 +		if !strings.Contains(err.Error(), "no-replace rename") {
 +			t.Fatalf("expected %v to name the unsupported operation, got %v", errno, err)

@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "8fec5e7b0e901e4e936fdd67610f1c17419718a2");
+  assert.equal(manifest.result_tree, "3868362cace85f3f3cc51cdcb55d8b1115a4ddab");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     ["patches/0001-atomic-task-creation.patch", "patches/0002-runtime-snapshot-store.patch"],
