@@ -26,8 +26,10 @@ produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `3b46806c4e11609272c066ec6f6be9f0ec023a59`, and finally
 `0005-workflow-shape-identity.patch` produces
 `1211acbe4ebcdf3516b266702123391f1fa8005a`, and finally
-`0006-distribution-reference-accounting.patch` produces the current `result_tree`
-`5c6657f1d11c0036972637fa3f0a41efd26cf9c0`.
+`0006-distribution-reference-accounting.patch` produces
+`5c6657f1d11c0036972637fa3f0a41efd26cf9c0`, and finally
+`0007-migration-planning.patch` produces the current `result_tree`
+`5c6c40bdc89872541512c4693c5cff47b5d08cf8`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

@@ -1,0 +1,318 @@
+diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf3f6c7aa702fa748f3cf825520761d7a48f1c1e
+--- /dev/null
++++ b/daemon/core/src/engine/migration.ts
+@@ -0,0 +1,123 @@
++/**
++ * Deciding whether a set of tasks may be moved from one extension distribution to
++ * another (issue #10, criterion 4).
++ *
++ * This module decides and reports. It writes nothing — not as an implementation
++ * detail but as the guarantee it exists to provide: an unsupported migration must
++ * make no partial writes, and the cheapest way to be sure of that is for the code
++ * that answers "is this supported?" to have no way to change anything.
++ *
++ * Applying a supported migration in crash-safe phases, with read-back and a
++ * receipt, is criterion 5 and is deliberately not here.
++ */
++
++import type { ExtensionRegistry } from "../extensions/registry.ts";
++import { readRuntimeIdentityPin } from "../store/metadata.ts";
++import type { StoredTask } from "../store/records.ts";
++
++/** One task the migration would move, and whether it can be. */
++export interface MigrationImpact {
++  taskId: string;
++  workflow: string;
++  /** The step the task is sitting on, or `null` when it carries none. */
++  step: string | null;
++  /** Absent when the task can move; the reason it cannot otherwise. */
++  blocker?: string;
++}
++
++/** Why a pair was refused, or the plan when it was not. */
++export type MigrationPlan =
++  | { supported: false; reason: string; impact: MigrationImpact[] }
++  | { supported: true; from: string; to: string; workflow: string; impact: MigrationImpact[] };
++
++/**
++ * Plans the move of every open task pinned to `from` onto the distribution the
++ * registry currently serves for `workflow`.
++ *
++ * A pair is supported only when all three hold, and each is checked against
++ * something real rather than declared:
++ *
++ *  1. Both digests are recorded, so it is known what each one consisted of. A
++ *     migration onto bytes nobody has a record of cannot be described afterwards,
++ *     and a receipt naming an unknown digest is not a receipt.
++ *  2. The target is what the registry serves for that workflow right now. Planning
++ *     against anything else would describe a migration that cannot be applied.
++ *  3. Every step an affected task is sitting on still exists in the target. A task
++ *     whose step vanished is not migrated but stranded, and calling that a
++ *     successful migration would hide a `workflow_missing` park behind a nicer word.
++ *
++ * The impact list is returned in both cases — a refusal that does not say which
++ * tasks it was about is an answer nobody can act on.
++ */
++export function planMigration(
++  registry: ExtensionRegistry,
++  recordedDigests: ReadonlySet<string>,
++  tasks: readonly StoredTask[],
++  from: string,
++  workflow: string,
++): MigrationPlan {
++  const impact = affectedTasks(tasks, from);
++
++  if (!recordedDigests.has(from)) {
++    return { supported: false, reason: `source distribution ${from} is not recorded`, impact };
++  }
++  const admitted = registry.workflowAdmission(workflow);
++  if (!admitted) {
++    return { supported: false, reason: `${workflow} has no identified distribution to migrate to`, impact };
++  }
++  const to = admitted.distribution.digest;
++  if (!recordedDigests.has(to)) {
++    return { supported: false, reason: `target distribution ${to} is not recorded`, impact };
++  }
++  if (to === from) {
++    return { supported: false, reason: `${workflow} already serves ${from}`, impact };
++  }
++
++  const target = registry.resolveWorkflow(workflow);
++  // `workflowAdmission` is only populated beside a resolved workflow, so this is
++  // unreachable through the registry's own API; it is checked rather than asserted
++  // because an unreachable branch that is wrong is still wrong.
++  if (!target) {
++    return { supported: false, reason: `${workflow} is not registered`, impact };
++  }
++
++  // The blockers are only knowable once the target is resolved, so the impact is
++  // marked here rather than in `affectedTasks`.
++  const marked = markStranded(impact, new Set(Object.keys(target.steps)));
++  const stranded = marked.filter((item) => item.blocker !== undefined);
++  if (stranded.length > 0) {
++    return {
++      supported: false,
++      reason: `${stranded.length} task(s) cannot move: ${stranded
++        .slice(0, 3)
++        .map((item) => `${item.taskId} (${item.blocker})`)
++        .join(", ")}`,
++      impact: marked,
++    };
++  }
++  return { supported: true, from, to, workflow, impact: marked };
++}
++
++/**
++ * The open tasks pinned to `from`, each with the reason it cannot move if it
++ * cannot. A closed task is not affected: it will not run again, so nothing about
++ * it needs to change.
++ */
++function affectedTasks(tasks: readonly StoredTask[], from: string): MigrationImpact[] {
++  const impact: MigrationImpact[] = [];
++  for (const task of tasks) {
++    const pin = readRuntimeIdentityPin(task.metadata);
++    if (pin.state !== "pinned" || pin.pin.digest !== from) continue;
++    impact.push({ taskId: task.id, workflow: pin.pin.workflow, step: task.step });
++  }
++  return impact.sort((a, b) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0));
++}
++
++/** Fills in each impact's blocker against the target workflow's steps. */
++function markStranded(impact: MigrationImpact[], targetSteps: ReadonlySet<string>): MigrationImpact[] {
++  return impact.map((item) =>
++    item.step !== null && !targetSteps.has(item.step)
++      ? { ...item, blocker: `step ${item.step} does not exist in the target` }
++      : item,
++  );
++}
+diff --git a/daemon/core/test/engine.migration.test.ts b/daemon/core/test/engine.migration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6bccfd1362400d9039a6d985194edd4976ac9bad
+--- /dev/null
++++ b/daemon/core/test/engine.migration.test.ts
+@@ -0,0 +1,148 @@
++/**
++ * Migration planning (issue #10, criterion 4).
++ *
++ * The guarantee under test is negative: an unsupported pair must make no partial
++ * writes. So the assertions are not "it returned false" but "the project on disk
++ * is byte-identical to what it was before the call".
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { createHash } from "node:crypto";
++import { readdirSync, readFileSync, statSync } from "node:fs";
++import path from "node:path";
++
++import { ExtensionRegistry, Store } from "../src/index.ts";
++import { planMigration } from "../src/engine/migration.ts";
++import type { StoredTask } from "../src/store/records.ts";
++import { tempDir } from "./helpers.ts";
++
++const OLD = "1".repeat(64);
++
++/** A byte-level fingerprint of every file under a directory. */
++function snapshot(root: string): string {
++  const lines: string[] = [];
++  const walk = (dir: string): void => {
++    for (const name of readdirSync(dir).sort()) {
++      const full = path.join(dir, name);
++      const st = statSync(full);
++      if (st.isDirectory()) walk(full);
++      else lines.push(`${path.relative(root, full)} ${createHash("sha256").update(readFileSync(full)).digest("hex")}`);
++    }
++  };
++  walk(root);
++  return lines.join("\n");
++}
++
++function registryWith(name: string, steps: Record<string, unknown>, digest: string): ExtensionRegistry {
++  const registry = new ExtensionRegistry();
++  registry.addWorkflow(
++    "test",
++    { name, firstStep: Object.keys(steps)[0]!, steps } as never,
++    { root: "/x", entry: "index.ts", entries: [], bytes: 0, digest } as never,
++  );
++  return registry;
++}
++
++function task(id: string, step: string | null, digest: string, workflow = "wf"): StoredTask {
++  return {
++    id,
++    status: "human",
++    workflow,
++    step,
++    metadata: { runtime_identity: { workflow, digest, graph: "0".repeat(64) } },
++  } as unknown as StoredTask;
++}
++
++describe("migration planning", () => {
++  const cleanups: (() => void)[] = [];
++  const stores: Store[] = [];
++  afterEach(async () => {
++    for (const s of stores.splice(0)) await s.close();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  const NEW = "2".repeat(64);
++  const recorded = new Set([OLD, NEW]);
++  const steps = { intake: { status: "human" }, review: { status: "human" } };
++
++  test("a supported pair names both digests and every task it would move", () => {
++    const plan = planMigration(
++      registryWith("wf", steps, NEW),
++      recorded,
++      [task("ask-b", "review", OLD), task("ask-a", "intake", OLD), task("ask-c", "intake", "9".repeat(64))],
++      OLD,
++      "wf",
++    );
++    expect(plan.supported).toBe(true);
++    if (!plan.supported) throw new Error("unreachable");
++    expect(plan.from).toBe(OLD);
++    expect(plan.to).toBe(NEW);
++    // Sorted, and a task pinned elsewhere is not affected.
++    expect(plan.impact.map((i) => i.taskId)).toEqual(["ask-a", "ask-b"]);
++  });
++
++  test("an unrecorded source or target is refused", () => {
++    const registry = registryWith("wf", steps, NEW);
++    expect(planMigration(registry, new Set([NEW]), [], OLD, "wf")).toMatchObject({
++      supported: false,
++      reason: expect.stringContaining("source distribution"),
++    });
++    expect(planMigration(registry, new Set([OLD]), [], OLD, "wf")).toMatchObject({
++      supported: false,
++      reason: expect.stringContaining("target distribution"),
++    });
++  });
++
++  test("an unregistered workflow, and a target equal to the source, are refused", () => {
++    expect(planMigration(new ExtensionRegistry(), recorded, [], OLD, "wf")).toMatchObject({
++      supported: false,
++      reason: expect.stringContaining("no identified distribution"),
++    });
++    expect(planMigration(registryWith("wf", steps, OLD), recorded, [], OLD, "wf")).toMatchObject({
++      supported: false,
++      reason: expect.stringContaining("already serves"),
++    });
++  });
++
++  test("a task sitting on a step the target does not declare strands the whole plan", () => {
++    // Not migrated but stranded: calling this a success would hide a
++    // `workflow_missing` park behind a nicer word.
++    const plan = planMigration(
++      registryWith("wf", { intake: { status: "human" } }, NEW),
++      recorded,
++      [task("ask-a", "review", OLD)],
++      OLD,
++      "wf",
++    );
++    expect(plan.supported).toBe(false);
++    expect(plan).toMatchObject({ reason: expect.stringContaining("does not exist in the target") });
++    expect(plan.impact[0]!.blocker).toContain("review");
++  });
++
++  test("a refused plan writes nothing at all", async () => {
++    // The point of the criterion. Not "no visible change" — the same bytes.
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const store = new Store(dir.path, { watch: false });
++    stores.push(store);
++    await store.open();
++    const t = await store.createTask({ title: "pinned" });
++    await store.setPosition(
++      t.id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: "0".repeat(64) } },
++    );
++    await store.recordDistribution(OLD, "file abc index.ts\n");
++
++    const before = snapshot(path.join(dir.path, ".autosk"));
++    for (const [reg, rec] of [
++      [registryWith("wf", steps, NEW), new Set([NEW])] as const,
++      [new ExtensionRegistry(), recorded] as const,
++      [registryWith("wf", { intake: { status: "human" } }, NEW), recorded] as const,
++    ]) {
++      const plan = planMigration(reg, rec, [task(t.id, "review", OLD)], OLD, "wf");
++      expect(plan.supported).toBe(false);
++    }
++    expect(snapshot(path.join(dir.path, ".autosk"))).toBe(before);
++  });
++});
+diff --git a/docs/extensions.md b/docs/extensions.md
+index 7e68489cf1e8524b044babde420b2e60171b9900..fa8f9bade323896dfc92fc4f4d7cd6efecced688 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -427,6 +427,30 @@ it stays as it is until someone deletes the file; the next project open then rec
+ the distributions it can see. That is deliberate — quietly rewriting a file whose
+ contents cannot be trusted is how the record of everything else gets lost.
+ 
++### Deciding whether a migration may happen at all
++
++Moving tasks from one distribution to another is decided before anything is written,
++by code that has no way to write. That is the guarantee, not an implementation
++detail: an unsupported migration must leave the project byte-identical, and the
++cheapest way to be certain is for the deciding code to be unable to change anything.
++
++A pair is supported only when all three hold:
++
++- **both digests are recorded**, so it is known what each one consisted of — a
++  receipt naming a digest nobody has a record of is not a receipt;
++- **the target is what the registry serves for that workflow right now**, because
++  planning against anything else describes a migration that cannot be applied;
++- **every step an affected task is sitting on still exists in the target**. A task
++  whose step vanished is not migrated but stranded, and calling that a successful
++  migration would hide a `workflow_missing` park behind a nicer word.
++
++The report of which tasks would move is returned whether the answer is yes or no. A
++refusal that does not say which tasks it was about is an answer nobody can act on.
++
++Applying a supported migration — idempotent phases, read-back, a receipt with before
++and after hashes — is not implemented. Neither is rollback, and the issue says
++plainly that keeping old blobs does not by itself provide it.
++
+ What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
+ about what the code does once imported or what it fetches at runtime.
+ 
