@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
-index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92deb5f4ebe2 100644
+index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ab5898148ff200352e29ec4ec391125e602b8bff 100644
 --- a/daemon/core/src/engine/engine.ts
 +++ b/daemon/core/src/engine/engine.ts
 @@ -32,6 +32,8 @@ import {
@@ -11,7 +11,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92de
  import { TranscriptWriter } from "./transcript.ts";
  import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
  import { SessionRuntime } from "./session.ts";
-@@ -222,13 +224,55 @@ export class Engine implements SessionHost {
+@@ -222,13 +224,59 @@ export class Engine implements SessionHost {
        );
      }
  
@@ -45,16 +45,20 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92de
 +          `${pinned.pin.workflow} may only switch to ${workflowName} at its first step`,
 +      );
 +    }
-+    // Entering at the first step is the genuine restart that may adopt a missing
-+    // pin; a task with no workflow at all was never admitted anywhere, so nothing
-+    // can be laundered by pinning it here. Anywhere else an absent pin is a
-+    // refusal, exactly as a mismatched one is.
++    // Entering a workflow at its FIRST step is a restart: the task begins the
++    // workflow again on today's code, so it re-pins whatever it carried before —
++    // the same act that already re-pins a switch to another workflow, and the only
++    // way a task parked by an `ext update` becomes runnable again before the
++    // migration slice exists. Anywhere else the pin must match, absent included: a
++    // task that has no workflow at all was never admitted anywhere and pins freely,
++    // but one that carries a workflow may not be re-admitted mid-flight.
 +    const toStep = target.step ?? wf.firstStep;
++    const restarting = toStep === wf.firstStep;
 +    const decision = runtimeIdentityDecision(
 +      project.registry,
-+      sameWorkflow ? pinned : { state: "absent" },
++      restarting ? { state: "absent" } : pinned,
 +      workflowName,
-+      view.workflow === null || toStep === wf.firstStep ? "adopt" : "refuse",
++      restarting || view.workflow === null ? "adopt" : "refuse",
 +    );
 +    if (!decision.ok) throw EngineError.conflict(`cannot enroll ${taskId}: ${decision.reason}`);
 +
@@ -69,7 +73,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92de
      });
      this.emitTask(project, updated);
      this.kickScan();
-@@ -255,6 +299,14 @@ export class Engine implements SessionHost {
+@@ -255,6 +303,14 @@ export class Engine implements SessionHost {
      if (!wf) {
        throw EngineError.conflict(`cannot resume ${taskId}: workflow_missing: ${view.workflow}`);
      }
@@ -84,7 +88,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92de
      const target: StepTarget = to ?? { step: view.step };
      // `runOnTransit` validates the target before invoking `onTransit`, so no
      // separate `validateTarget` call is needed here (ISSUE #9c).
-@@ -263,6 +315,7 @@ export class Engine implements SessionHost {
+@@ -263,6 +319,7 @@ export class Engine implements SessionHost {
      // a `{ status }` resume flips status without re-entering a step.
      const updated = await project.store.setPosition(taskId, positionFor(wf, view.step, target), {
        countVisit: "step" in target ? target.step : undefined,
@@ -92,7 +96,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92de
      });
      this.emitTask(project, updated);
      this.kickScan();
-@@ -460,6 +513,19 @@ export class Engine implements SessionHost {
+@@ -460,6 +517,19 @@ export class Engine implements SessionHost {
        await this.park(project, taskId, `workflow_missing: ${row.workflow} has no step ${row.step}`);
        return;
      }
@@ -114,10 +118,10 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..ec99accb8af7c5b0d29674fd31bb92de
      if (project.store.sessions.hasLiveSession(taskId)) return; // already running/queued
 diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4913d6204cfaa4feb4556d6f35f6338e6820ab8d
+index 0000000000000000000000000000000000000000..8e336d778ee7f775fae0573b7906bca8a06d5039
 --- /dev/null
 +++ b/daemon/core/src/engine/runtimeIdentity.ts
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,90 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -153,11 +157,13 @@ index 0000000000000000000000000000000000000000..4913d6204cfaa4feb4556d6f35f6338e
 + * already carries a workflow the two are indistinguishable: `task.json` is shared
 + * with the operator and the store takes an external edit wholesale, so "delete the
 + * reserved key" would otherwise be a supported way to re-admit a task under code it
-+ * was never admitted to. The design already answers this for a mismatched pin —
-+ * only a genuine restart at the workflow's first step re-pins — and `absent` lets
-+ * each caller say whether it is that restart. Only `enroll` ever passes `"adopt"`,
-+ * and only when the task is entering at the first step (or has no workflow at all,
-+ * which is a task that was never admitted anywhere).
++ * was never admitted to.
++ *
++ * Re-admission is the caller's decision, not this function's: `enroll` reports an
++ * absent pin when the task is entering the workflow at its first step, because that
++ * restarts it on today's code. Everything else — resume, dispatch, the session
++ * transition — passes what the task actually carries and `"refuse"`, so a pin that
++ * is missing or wrong stops the task mid-flight either way.
 + *
 + * `pin` is returned only in the adopt case, so the caller can write it in the same
 + * write that moves the task.
@@ -207,7 +213,7 @@ index 0000000000000000000000000000000000000000..4913d6204cfaa4feb4556d6f35f6338e
 +  return { ok: true };
 +}
 diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
-index 85daa7be6ef6da17803e39bac22eb66ab1589913..fe2fc368b8bb10d2517b4359d6be7ed910d3e333 100644
+index 85daa7be6ef6da17803e39bac22eb66ab1589913..b053d1fa378c7c3e9b404245c027c6f034ff1af9 100644
 --- a/daemon/core/src/engine/session.ts
 +++ b/daemon/core/src/engine/session.ts
 @@ -56,6 +56,7 @@ import {
@@ -218,29 +224,33 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..fe2fc368b8bb10d2517b4359d6be7ed9
  import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
  import { ENGINE_COMMENT_AUTHOR, errMsg, type EngineProject, type SessionHost } from "./types.ts";
  
-@@ -310,6 +311,22 @@ export class SessionRuntime {
-     const wf = this.wf!; // only reachable for a task session (transit() guarded wf)
-     const from = { workflow: this.workflowName, step: this.step };
- 
+@@ -279,6 +280,26 @@ export class SessionRuntime {
+     if (this.transiting) {
+       throw new Error("transit already in progress for this session");
+     }
 +    // The registry can be swapped by `ext reload` while this session runs, so the
-+    // admitted identity is re-checked before the transition applies. This is the
-+    // second, independent transition entry; the engine's own `onTransit` path is
-+    // covered by its enroll/resume callers (issue #10).
++    // admitted identity is re-checked here — the second, independent transition
++    // entry (issue #10). It is a PRECONDITION, checked before the settle is
++    // claimed: refusing after the claim would leave the session `running` for
++    // ever, `hasLiveSession` true, and the task neither advanced nor parked.
++    // Refusing here throws out of `ctx.transit` like any other rejected target, so
++    // an agent that lets it propagate settles through `finalizeFailed`, which
++    // parks the task with this reason.
++    //
++    // Only refuse; adopting would be wrong. The task was admitted when it was
++    // dispatched, so a pin that no longer matches means the registry moved under a
++    // session still running the workflow object it captured, and recording the new
++    // digest would be a false record.
 +    const identity = runtimeIdentityDecision(
 +      this.project.registry,
 +      this.project.store.runtimeIdentityPin(this.taskId),
 +      this.workflowName,
 +      "refuse",
 +    );
-+    // Only refuse here; adopting would be wrong. Dispatch already adopted before
-+    // this session started, so an absent pin at this point means the registry was
-+    // swapped mid-session, and recording the NEW digest for a session running the
-+    // captured old workflow object would be a false record.
 +    if (!identity.ok) throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
-+
-     // 1. Task position first — while the session is still `running` (live), so a
-     //    concurrent scan sees the live session and skips re-dispatching. Entering
-     //    a named step counts a visit (atomically with the position write, after
+     this.transiting = true;
+     try {
+       validateTarget(wf, to);
 diff --git a/daemon/core/src/extensions/discovery.ts b/daemon/core/src/extensions/discovery.ts
 index a61777778ac6b545988834f53aa257c43130317a..0d7645d3857e1f52452c2f5a9c71cf4f6de5fb6d 100644
 --- a/daemon/core/src/extensions/discovery.ts
@@ -1191,10 +1201,10 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f46
        const b = this.tasks.peek(bid);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..93d3201dba64ac465249985c481ea947a2018776
+index 0000000000000000000000000000000000000000..f8ece85e4ae9a561128fb4b212f82033af2472a7
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,424 @@
+@@ -0,0 +1,500 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -1214,11 +1224,25 @@ index 0000000000000000000000000000000000000000..93d3201dba64ac465249985c481ea947
 +import { waitFor } from "./helpers.ts";
 +
 +const WORKFLOW_SOURCE = (marker: string) => `
++import { existsSync } from "node:fs";
++
 +export default (api) => {
 +  api.registerWorkflow({
 +    name: "wf",
 +    firstStep: "intake",
-+    steps: { intake: { status: "human" }, review: { status: "human" } },
++    steps: {
++      intake: { status: "human" },
++      review: { status: "human" },
++      // Waits on a file the test creates, so the registry can be swapped while
++      // this session is genuinely live, then transits.
++      run: {
++        onRun: async (ctx) => {
++          const gate = process.env.AUTOSK_TEST_GATE;
++          while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
++          await ctx.transit({ step: "review" });
++        },
++      },
++    },
 +    // ${marker}
 +  });
 +};
@@ -1511,6 +1535,68 @@ index 0000000000000000000000000000000000000000..93d3201dba64ac465249985c481ea947
 +    expect(view.step).toBe("intake");
 +    const pin = readRuntimeIdentityPin(view.metadata);
 +    expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("re-enrolling at the first step re-admits a task an ext update parked", async () => {
++    // A mismatched pin is not a dead end. Restarting the workflow at its first step
++    // is the same act that already re-pins a switch to another workflow, and it is
++    // how a task parked by an ordinary `ext update` becomes runnable again. What it
++    // must NOT do is re-admit the task where it stands.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "updated under" });
++    await engine.enroll(a.root, task.id, { workflow: "wf" });
++    await engine.resume(a.root, task.id, { step: "review" });
++    engine.setProjectRegistry(a.root, b.project.registry); // the ext update
++
++    await expect(engine.resume(a.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++    await expect(
++      engine.enroll(a.root, task.id, { workflow: "wf", step: "review" }),
++    ).rejects.toThrow(/extension_version_mismatch/);
++
++    await engine.enroll(a.root, task.id, { workflow: "wf" }); // restart at intake
++
++    const view = await a.store.taskView(task.id);
++    expect(view.step).toBe("intake");
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(b.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("a registry swapped mid-session parks the task instead of stranding it", async () => {
++    // The transition check is a precondition, not a post-commit assertion. Refusing
++    // after the session claimed its single settle would leave it `running` for ever:
++    // `hasLiveSession` stays true, dispatch never looks at the task again, and the
++    // park comment this feature promises never appears.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const gatePath = path.join(a.root, "open-the-gate");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "mid-session swap" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "run" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    writeFileSync(gatePath, "");
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    expect(view.step).toBe("run"); // not advanced to review
++    await waitFor(async () => !a.store.sessions.hasLiveSession(task.id));
 +  });
 +
 +  test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
@@ -1884,10 +1970,10 @@ index 7078c7914b0ab5ec5193e67a078951f2a667f107..a6bdbc9a53c9ef2687183159fa6d01d3
    });
  });
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d815192d299f7992e7fccd89803c341fd3ac74ae..57797a9444ca709433087fae9a68892985a88985 100644
+index d815192d299f7992e7fccd89803c341fd3ac74ae..899d045eb4dba345a94dfab4f9931ba6ff6a6b77 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -290,6 +290,131 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+@@ -290,6 +290,140 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
  or naming a package in `settings.json` *is* the consent. Treat these locations
  as you would any code you run.
  
@@ -1959,13 +2045,19 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..57797a9444ca709433087fae9a688929
 +Deleting the reserved key does not release the task — dispatch and both transition
 +paths park it, and resuming or re-enrolling it *at the step it sits on* is refused,
 +because either would continue mid-flight on code the task was never admitted under.
-+Only the restart the design already blesses re-pins: enrolling the workflow at its
-+first step. A task that has no workflow yet was never admitted anywhere and pins
-+freely at whatever step it starts on.
 +
-+That restart is also the migration for a task enrolled before identities existed: it
-+parks once with `extension_version_mismatch`, and a re-enroll admits it under the
-+current code.
++**One act re-pins, and it is the same act in every case: entering a workflow at its
++first step.** That is a restart — the task begins the workflow again, on today's
++code — so it re-pins whatever it carried before: nothing, the wrong digest, or a
++digest from another workflow. It is how a task parked by an ordinary `ext update`
++becomes runnable again, and how a task enrolled before identities existed picks one
++up. A task that has no workflow yet was never admitted anywhere and pins freely at
++whatever step it starts on.
++
++Restarting is not the same as continuing, and this feature deliberately offers only
++the first. Continuing an in-flight task across an extension update is the migration
++workflow of #10, which does not exist yet; until it does, an update parks the tasks
++it affects and they restart or wait.
 +
 +A symbolic link resolving **inside** the root is recorded by its target and not
 +followed: the bytes it points at are already covered by their own entry, and
@@ -2006,12 +2098,15 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..57797a9444ca709433087fae9a688929
 +  the bounds (20 000 files, 5 000 directories, 256 MiB) each produce a
 +  `project.diagnostics` entry and no registration. Each bound is checked before
 +  the work it guards, so a hostile tree cannot burn unbounded time first.
-+- A task enrolled before this existed carries no pin. It adopts the current
-+  identity the next time it is enrolled, resumed, dispatched or transited, rather
-+  than being refused retroactively. A pin that has been hand-edited into an
-+  invalid shape is refused outright and never repaired — including when the task
-+  is being switched to another workflow, so a refusal cannot be washed out by
-+  enrolling away and back.
++- A task enrolled before this existed carries no pin. On a task that already has
++  a workflow an absent pin is refused exactly like a mismatched one, so it parks
++  once and is re-enrolled at the workflow's first step; nothing adopts a missing
++  pin on an automatic path. The transition check runs *before* the session claims
++  its settle, so a registry swapped mid-session parks the task and ends the
++  session rather than stranding both. A pin that has been hand-edited into an invalid shape
++  is refused outright and never repaired — including when the task is being
++  switched to another workflow, so a refusal cannot be washed out by enrolling
++  away and back.
 +- Filenames are digested as raw bytes, not as decoded strings, so two distinct
 +  names that are not valid UTF-8 cannot collapse onto the same digest. (APFS
 +  refuses such names outright; the case is reachable on Linux.)
