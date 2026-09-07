@@ -37,6 +37,12 @@ and extra fields are rejected before reading task values. The result is copied
 and recursively frozen before marker checks or return, so later SDK-side mutation
 cannot change the validated result. This is a scoped result projection, not an
 unrestricted upstream TaskView.
+Title and description retain the grant's text bounds; `blocked_by` is a dense
+array of at most 256 unique task IDs (not upstream TaskRef objects). Lifecycle
+status is one of the upstream values `new`, `work`, `human`, `done`, `cancel`;
+workflow and step are null or bounded logical identifiers. A fresh child's blocker
+set must match the admitted grant. A same-binding retry may return a changed
+blocker set and lifecycle, but their values must still satisfy this contract.
 The supplied SDK object must originate from the trusted supervisor/Store; checking
 its shape in this library does not prove that provenance.
 

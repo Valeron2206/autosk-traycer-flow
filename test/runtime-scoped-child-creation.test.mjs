@@ -140,11 +140,12 @@ for(const field of ['id','status','workflow','step','title','description','block
 }
 
 test('SDK result is a detached immutable snapshot for fresh and progressed children',async()=>{
-  const grant=compileTaskCreationGrant(input());
+  const requested=input();requested.slots.forEach(slot=>slot.display.blocked_by=['ask-cccccc']);
+  const grant=compileTaskCreationGrant(requested);
   for(const outcome of ['created','existing_same_binding']){
     const raw=await apiDouble(grant).create('gpt');raw.outcome=outcome;
     if(outcome==='existing_same_binding')Object.assign(raw.task,{status:'work',workflow:'panel',step:'review'});
-    raw.task.blocked_by=['ask-cccccc'];
+    raw.task.blocked_by=[...raw.task.blocked_by];
     const expected=structuredClone(raw);
     const result=await createGrantedChild(apiDouble(grant,raw),grant,'gpt');
     assert.notEqual(result,raw);assert.notEqual(result.task,raw.task);
@@ -153,4 +154,48 @@ test('SDK result is a detached immutable snapshot for fresh and progressed child
     assert.ok(Object.isFrozen(result));assert.ok(Object.isFrozen(result.task));assert.ok(Object.isFrozen(result.task.blocked_by));
     assert.throws(()=>{result.task.status='done';},TypeError);
   }
+});
+
+for(const [name,change] of [
+  ['non-string title',task=>task.title=1],['blank title',task=>task.title=' '],
+  ['oversized title',task=>task.title='x'.repeat(8193)],
+  ['non-string description',task=>task.description={}],['oversized description',task=>task.description='x'.repeat(65537)],
+  ['non-array blockers',task=>task.blocked_by={}],['invalid blocker',task=>task.blocked_by=['other']],
+  ['duplicate blockers',task=>task.blocked_by=['ask-cccccc','ask-cccccc']],
+  ['too many blockers',task=>task.blocked_by=Array.from({length:257},(_,i)=>`ask-${i.toString(16).padStart(6,'0')}`)],
+  ['non-string status',task=>task.status={}],['unknown status',task=>task.status='success'],
+  ['non-string workflow',task=>task.workflow=1],['invalid workflow',task=>task.workflow='../panel'],
+  ['non-string step',task=>task.step={}],['invalid step',task=>task.step='review\n'],
+])test(`SDK result rejects ${name} values`,async()=>{
+  const grant=compileTaskCreationGrant(input());
+  for(const outcome of ['created','existing_same_binding']){
+    const raw=await apiDouble(grant).create('gpt');raw.outcome=outcome;change(raw.task);
+    await assert.rejects(createGrantedChild(apiDouble(grant,raw),grant,'gpt'),e=>typeof e.code==='string');
+  }
+});
+
+test('fresh SDK child must preserve admitted blockers while a retry may have changed blockers',async()=>{
+  const grant=compileTaskCreationGrant(input());
+  const raw=await apiDouble(grant).create('gpt');raw.task.blocked_by=['ask-cccccc'];
+  await assert.rejects(createGrantedChild(apiDouble(grant,raw),grant,'gpt'),{code:'creation_result_mismatch'});
+  raw.outcome='existing_same_binding';
+  assert.deepEqual((await createGrantedChild(apiDouble(grant,raw),grant,'gpt')).task.blocked_by,['ask-cccccc']);
+});
+
+test('SDK retry accepts all upstream statuses and exact display/blocker limits',async()=>{
+  const grant=compileTaskCreationGrant(input());
+  for(const status of ['new','work','human','done','cancel']){
+    const raw=await apiDouble(grant).create('gpt');raw.outcome='existing_same_binding';
+    Object.assign(raw.task,{status,workflow:status==='new'?null:'panel',step:status==='new'?null:'review',
+      title:'x'.repeat(8192),description:'x'.repeat(65536),
+      blocked_by:Array.from({length:256},(_,i)=>`ask-${i.toString(16).padStart(6,'0')}`)});
+    assert.deepEqual(await createGrantedChild(apiDouble(grant,raw),grant,'gpt'),raw);
+  }
+});
+
+test('fresh SDK blocker comparison uses set identity',async()=>{
+  const requested=input();requested.slots.forEach(slot=>slot.display.blocked_by=['ask-cccccc','ask-dddddd']);
+  const grant=compileTaskCreationGrant(requested),raw=await apiDouble(grant).create('gpt');
+  raw.task.blocked_by=[...raw.task.blocked_by].reverse();
+  assert.deepEqual(await createGrantedChild(apiDouble(grant,raw),grant,'gpt'),raw);
 });

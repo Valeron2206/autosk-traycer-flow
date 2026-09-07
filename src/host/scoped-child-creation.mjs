@@ -108,11 +108,22 @@ export async function createGrantedChild(api, grant, slotId) {
   closedRecord(raw,['outcome','task']);
   closedRecord(raw.task,['id','status','workflow','step','title','description','blocked_by','creation_key','creation_binding_hash']);
   const result=immutable(raw);
+  const task=result.task;
+  demand(typeof task.title==='string' && task.title.trim().length>0 && Buffer.byteLength(task.title)<=8192
+    && typeof task.description==='string' && Buffer.byteLength(task.description)<=65536,
+  'creation_result_mismatch','Invalid returned display text');
+  list(task.blocked_by,0,256);task.blocked_by.forEach(taskId);
+  demand(new Set(task.blocked_by).size===task.blocked_by.length
+    && ['new','work','human','done','cancel'].includes(task.status),
+  'creation_result_mismatch','Invalid returned blockers or lifecycle status');
+  for(const name of ['workflow','step'])if(task[name]!==null)identifier(task[name]);
   demand(['created','existing_same_binding'].includes(result.outcome) && result.task?.creation_key===slot.input.creation_key
     && result.task?.creation_binding_hash===slot.input.creation_binding_hash,
   'creation_result_mismatch','SDK child result has the wrong outcome or creation identity');
   taskId(result.task.id);
   if(result.outcome==='created')demand(result.task.status==='new' && result.task.workflow===null && result.task.step===null,
     'creation_result_mismatch','Fresh child was already enrolled outside the creation operation');
+  if(result.outcome==='created')demand(sameIdentity([...task.blocked_by].sort(compareCodePoints),slot.input.blocked_by),
+    'creation_result_mismatch','Fresh child blockers differ from the admitted grant');
   return result;
 }
