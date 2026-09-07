@@ -33,7 +33,7 @@ produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `0008-migration-apply.patch` produces
 `74c05ee7f39a4d8669ad04cf3c26035129d7dda0`, and finally
 `0009-migration-rollback.patch` produces the current `result_tree`
-`d6cc1a24a09f3627e8d2fb14af22a9d2ee2bc08f`.
+`07f5abdf6c57fb3ef2ff35bf34c1cdb27ca9efd2`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 
