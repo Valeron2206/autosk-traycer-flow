@@ -1,5 +1,5 @@
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
-index f42cd4da806bb6efbabad960c182abcea5c9b60c..316a13a445d12f228f96f463436a4de930f39124 100644
+index f42cd4da806bb6efbabad960c182abcea5c9b60c..6d7446fc9c406207ca4f216e11afa94aba5ff520 100644
 --- a/daemon/core/test/engine.runtime-identity.test.ts
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
 @@ -8,7 +8,7 @@
@@ -32,7 +32,7 @@ index f42cd4da806bb6efbabad960c182abcea5c9b60c..316a13a445d12f228f96f463436a4de9
        // Mints a candidate through the per-session MCP server: the in-daemon path
        // a workflow uses to fan out into child tasks.
        spawn: {
-@@ -718,6 +732,105 @@ export default (api) => {
+@@ -718,6 +732,111 @@ export default (api) => {
      expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
    });
  
@@ -82,7 +82,13 @@ index f42cd4da806bb6efbabad960c182abcea5c9b60c..316a13a445d12f228f96f463436a4de9
 +    expect(existsSync(`${secondPath}.entered`)).toBe(false); // not claimed yet
 +
 +    engine.setProjectRegistry(a.root, b.project.registry); // the hot reload
-+    await a.store.unblock(task.id, holder.id); // the gap closes; dispatch may claim
++    await a.store.unblock(task.id, holder.id); // the gap closes
++    // `unblock` notifies the store, and only the RPC layer wires that seam to the
++    // engine; the harness does not, and `makeEngine` runs with no rescan timer. So
++    // the scan is kicked explicitly. Without it the task is claimed only if the
++    // scan the swap kicked happens to observe the unblock, which is a race and not
++    // the determinism this test is written to have.
++    engine.kickScan();
 +
 +    await waitFor(async () =>
 +      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
