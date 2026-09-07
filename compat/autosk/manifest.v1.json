@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "3868362cace85f3f3cc51cdcb55d8b1115a4ddab",
+  "result_tree": "4f616d3c12cee6f57fb80ce5666219e8db88b640",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -14,6 +14,10 @@
     {
       "file": "patches/0002-runtime-snapshot-store.patch",
       "sha256": "df90ffe3bed05da497fc7fc290b56826036c5ff31921c5151d23f921494ca17a"
+    },
+    {
+      "file": "patches/0003-runtime-identity-admission.patch",
+      "sha256": "17a9becd2db035bb27e57685a6a81b639068591b204924dfc3dd6dec03a587ae"
     }
   ],
   "license": {

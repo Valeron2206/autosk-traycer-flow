@@ -1,0 +1,987 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index c204c4528a35793b5ade951a6d3f7c3ec56141c2..20cbb5c524560e3e00678cf1c6c603390c364ae3 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -32,6 +32,8 @@ import {
+ 
+ import { systemClock, type Clock } from "../store/clock.ts";
+ import { consoleLogger, type Logger } from "../store/logger.ts";
++import { readRuntimeIdentityPin } from "../store/metadata.ts";
++import { runtimeIdentityDecision } from "./runtimeIdentity.ts";
+ import { TranscriptWriter } from "./transcript.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+ import { SessionRuntime } from "./session.ts";
+@@ -222,13 +224,24 @@ export class Engine implements SessionHost {
+       );
+     }
+ 
++    // Re-enrolling onto the SAME workflow must respect the pin; switching to a
++    // different workflow is an explicit operator act that re-pins from scratch.
++    const sameWorkflow = view.workflow === workflowName;
++    const decision = runtimeIdentityDecision(
++      project.registry,
++      sameWorkflow ? readRuntimeIdentityPin(view.metadata) : { state: "absent" },
++      workflowName,
++    );
++    if (!decision.ok) throw EngineError.conflict(`cannot enroll ${taskId}: ${decision.reason}`);
++
+     const to: StepTarget = { step: target.step ?? wf.firstStep };
+-    const leavingStep = view.workflow === workflowName ? (view.step ?? "") : "";
++    const leavingStep = sameWorkflow ? (view.step ?? "") : "";
+     await this.runOnTransit(project, wf, taskId, workflowName, leavingStep, to);
+     // `to` is always a `{ step }` here, so entering it counts a visit (atomically
+     // with the position write); `onTransit` already ran, so the bump is post-read.
+     const updated = await project.store.setPosition(taskId, positionFor(wf, leavingStep, to), {
+       countVisit: to.step,
++      pinRuntimeIdentity: decision.pin,
+     });
+     this.emitTask(project, updated);
+     this.kickScan();
+@@ -255,6 +268,13 @@ export class Engine implements SessionHost {
+     if (!wf) {
+       throw EngineError.conflict(`cannot resume ${taskId}: workflow_missing: ${view.workflow}`);
+     }
++    const decision = runtimeIdentityDecision(
++      project.registry,
++      readRuntimeIdentityPin(view.metadata),
++      view.workflow,
++    );
++    if (!decision.ok) throw EngineError.conflict(`cannot resume ${taskId}: ${decision.reason}`);
++
+     const target: StepTarget = to ?? { step: view.step };
+     // `runOnTransit` validates the target before invoking `onTransit`, so no
+     // separate `validateTarget` call is needed here (ISSUE #9c).
+@@ -263,6 +283,7 @@ export class Engine implements SessionHost {
+     // a `{ status }` resume flips status without re-entering a step.
+     const updated = await project.store.setPosition(taskId, positionFor(wf, view.step, target), {
+       countVisit: "step" in target ? target.step : undefined,
++      pinRuntimeIdentity: decision.pin,
+     });
+     this.emitTask(project, updated);
+     this.kickScan();
+@@ -460,6 +481,17 @@ export class Engine implements SessionHost {
+       await this.park(project, taskId, `workflow_missing: ${row.workflow} has no step ${row.step}`);
+       return;
+     }
++    // The registry can be swapped between two steps by `ext reload`, so the
++    // admitted identity is re-checked here and not only at enroll/resume.
++    const identity = runtimeIdentityDecision(
++      project.registry,
++      project.store.runtimeIdentityPin(taskId),
++      row.workflow,
++    );
++    if (!identity.ok) {
++      await this.park(project, taskId, identity.reason);
++      return;
++    }
+     if (isStatusStep(step)) return; // terminal/park step: never scheduled
+     const agent = step; // an agent step IS the agent definition (inline)
+     if (project.store.sessions.hasLiveSession(taskId)) return; // already running/queued
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..893f91bc10c4f1d74b722021fc0cd65b1f8a6835
+--- /dev/null
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -0,0 +1,68 @@
++/**
++ * Runtime identity admission (issue #10).
++ *
++ * A task records the digest of the extension distribution it was admitted under.
++ * Every path that would run or advance that task re-checks the digest against
++ * the one currently registered, so a global update cannot change the semantics
++ * of the steps an active Epic is already running.
++ *
++ * The decision lives here rather than on the engine because the transition has
++ * two independent entries — the engine's own `onTransit` path and the session
++ * runtime's `commitTransit` — and both must apply the same rule.
++ */
++import type { ExtensionRegistry } from "../extensions/registry.ts";
++import type { RuntimeIdentityPin, RuntimeIdentityPinRead } from "../store/metadata.ts";
++
++/** The park reason and error prefix for a refused runtime identity. */
++export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";
++
++export type RuntimeIdentityDecision =
++  | { ok: true; pin?: RuntimeIdentityPin }
++  | { ok: false; reason: string };
++
++/**
++ * Decides whether a task may run on `workflowName` right now.
++ *
++ * A malformed pin is a refusal, not a hint to repair: the pin is a control, and
++ * a hand-edited or truncated one must never be silently reset.
++ *
++ * `pin` is returned when the task has no pin yet and the workflow has an
++ * identity, so the caller can adopt it in the same write that moves the task. A
++ * task enrolled before this existed therefore adopts the current identity on its
++ * next enroll or resume rather than being refused retroactively; that
++ * transitional window is deliberate and is not a migration.
++ *
++ * A registry assembled without the loader has no identity for its workflows, so
++ * `pin` is absent and nothing is invented. The loader refuses any entry whose
++ * bytes it cannot identify, so every workflow reachable in production is
++ * identified.
++ */
++export function runtimeIdentityDecision(
++  registry: ExtensionRegistry,
++  pinned: RuntimeIdentityPinRead,
++  workflowName: string,
++): RuntimeIdentityDecision {
++  if (pinned.state === "malformed") {
++    return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}` };
++  }
++  const current = registry.workflowIdentity(workflowName);
++  if (pinned.state === "absent") {
++    return { ok: true, pin: current ? { workflow: workflowName, digest: current.digest } : undefined };
++  }
++  if (pinned.pin.workflow !== workflowName) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: task is pinned to workflow ${pinned.pin.workflow}, not ${workflowName}`,
++    };
++  }
++  if (!current) {
++    return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no identified distribution` };
++  }
++  if (current.digest !== pinned.pin.digest) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.digest}, task pinned ${pinned.pin.digest}`,
++    };
++  }
++  return { ok: true };
++}
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 85daa7be6ef6da17803e39bac22eb66ab1589913..dd00f828ce30fafd4b6635740ad1350924133279 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -56,6 +56,7 @@ import {
+ import { TranscriptWriter } from "./transcript.ts";
+ import { execOneShot, spawnChild } from "./child.ts";
+ import { directStoreBackend, startMcpHttpServer, type McpHttpServer } from "../mcp/index.ts";
++import { runtimeIdentityDecision } from "./runtimeIdentity.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+ import { ENGINE_COMMENT_AUTHOR, errMsg, type EngineProject, type SessionHost } from "./types.ts";
+ 
+@@ -310,6 +311,17 @@ export class SessionRuntime {
+     const wf = this.wf!; // only reachable for a task session (transit() guarded wf)
+     const from = { workflow: this.workflowName, step: this.step };
+ 
++    // The registry can be swapped by `ext reload` while this session runs, so the
++    // admitted identity is re-checked before the transition applies. This is the
++    // second, independent transition entry; the engine's own `onTransit` path is
++    // covered by its enroll/resume callers (issue #10).
++    const identity = runtimeIdentityDecision(
++      this.project.registry,
++      this.project.store.runtimeIdentityPin(this.taskId),
++      this.workflowName,
++    );
++    if (!identity.ok) throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
++
+     // 1. Task position first — while the session is still `running` (live), so a
+     //    concurrent scan sees the live session and skips re-dispatching. Entering
+     //    a named step counts a visit (atomically with the position write, after
+diff --git a/daemon/core/src/extensions/identity.ts b/daemon/core/src/extensions/identity.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..83bdf9d17e40b7109d2bf306b1dbad154cff0703
+--- /dev/null
++++ b/daemon/core/src/extensions/identity.ts
+@@ -0,0 +1,166 @@
++/**
++ * Extension distribution identity (issue #10).
++ *
++ * The daemon must be able to say which exact bytes produced a running workflow.
++ * Nothing else in the tree does: the registry keeps a `source` label, sessions
++ * keep names, and a task keeps its creation binding — none of which changes when
++ * an extension's code changes underneath a running Epic.
++ *
++ * **What the digest covers.** Every regular file under the extension's root, by
++ * relative path and content digest, plus the entry module's relative path. The
++ * whole footprint is covered on purpose: a static import scan cannot see
++ * computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
++ * targets, so hashing only the entry (or only its declared imports) would claim
++ * more than it proves.
++ *
++ * **What it does not cover, and must not be said to cover.** It pins bytes on
++ * disk. It is not a sandbox, it does not prove the absence of network or
++ * runtime-resolved dependencies, and it says nothing about what the code does
++ * once Bun imports it.
++ *
++ * **Bounds.** A distribution larger than {@link MAX_DISTRIBUTION_FILES} files or
++ * {@link MAX_DISTRIBUTION_BYTES} bytes cannot be identified within these limits,
++ * and that is reported as a failure rather than as a partial identity. An
++ * unidentifiable distribution is refused, never admitted "as far as we got".
++ */
++import { createHash } from "node:crypto";
++import { closeSync, openSync, opendirSync, readSync, fstatSync } from "node:fs";
++import path from "node:path";
++
++/** Upper bound on the number of regular files in one extension distribution. */
++export const MAX_DISTRIBUTION_FILES = 20_000;
++/** Upper bound on the total bytes hashed for one extension distribution. */
++export const MAX_DISTRIBUTION_BYTES = 256 * 1024 * 1024;
++
++/** Bounds within which a distribution can be identified. */
++export interface DistributionLimits {
++  maxFiles: number;
++  maxBytes: number;
++}
++
++/** The bounds used unless a caller narrows them (tests do, to exercise refusal). */
++export const DEFAULT_DISTRIBUTION_LIMITS: DistributionLimits = {
++  maxFiles: MAX_DISTRIBUTION_FILES,
++  maxBytes: MAX_DISTRIBUTION_BYTES,
++};
++
++/** One file of a distribution: its path relative to the root, and its digest. */
++export interface DistributionFile {
++  path: string;
++  sha256: string;
++}
++
++/** The identity of the exact bytes an extension was loaded from. */
++export interface DistributionIdentity {
++  /** Absolute path of the captured root. */
++  root: string;
++  /** Entry module path, relative to `root`, in POSIX form. */
++  entry: string;
++  /** Every regular file under `root`, sorted by relative path. */
++  files: DistributionFile[];
++  /** Total bytes covered. */
++  bytes: number;
++  /** Digest over the canonical serialization of `entry` and `files`. */
++  digest: string;
++}
++
++function digestFile(absolute: string): { sha256: string; bytes: number } {
++  const fd = openSync(absolute, "r");
++  try {
++    const hash = createHash("sha256");
++    const buffer = Buffer.allocUnsafe(64 * 1024);
++    let bytes = 0;
++    for (;;) {
++      const read = readSync(fd, buffer, 0, buffer.length, null);
++      if (read === 0) break;
++      hash.update(buffer.subarray(0, read));
++      bytes += read;
++    }
++    return { sha256: hash.digest("hex"), bytes };
++  } finally {
++    closeSync(fd);
++  }
++}
++
++/**
++ * Collects every regular file under `root`, depth first in a deterministic
++ * order. Symbolic links are not followed and are refused: a distribution whose
++ * contents depend on a link target is not identified by its own bytes.
++ */
++function collect(
++  root: string,
++  relative: string,
++  out: DistributionFile[],
++  totals: { bytes: number },
++  limits: DistributionLimits,
++): void {
++  const dir = opendirSync(path.join(root, relative));
++  try {
++    const names: string[] = [];
++    for (let entry = dir.readSync(); entry !== null; entry = dir.readSync()) {
++      if (entry.isSymbolicLink()) {
++        throw new Error(`symbolic link in distribution: ${path.posix.join(relative, entry.name) || entry.name}`);
++      }
++      if (!entry.isDirectory() && !entry.isFile()) {
++        throw new Error(`unsupported file type in distribution: ${path.posix.join(relative, entry.name) || entry.name}`);
++      }
++      names.push(entry.name);
++    }
++    names.sort();
++    for (const name of names) {
++      const childRelative = relative ? path.posix.join(relative, name) : name;
++      const absolute = path.join(root, childRelative);
++      const fd = openSync(absolute, 0);
++      let isDirectory: boolean;
++      try {
++        isDirectory = fstatSync(fd).isDirectory();
++      } finally {
++        closeSync(fd);
++      }
++      if (isDirectory) {
++        collect(root, childRelative, out, totals, limits);
++        continue;
++      }
++      if (out.length >= limits.maxFiles) {
++        throw new Error(`distribution exceeds ${limits.maxFiles} files`);
++      }
++      const { sha256, bytes } = digestFile(absolute);
++      totals.bytes += bytes;
++      if (totals.bytes > limits.maxBytes) {
++        throw new Error(`distribution exceeds ${limits.maxBytes} bytes`);
++      }
++      out.push({ path: childRelative, sha256 });
++    }
++  } finally {
++    dir.closeSync();
++  }
++}
++
++/** The canonical bytes the digest is taken over. Stable across platforms. */
++export function canonicalDistribution(entry: string, files: DistributionFile[]): string {
++  const lines = [`entry ${entry}`];
++  for (const file of files) lines.push(`file ${file.sha256} ${file.path}`);
++  return `${lines.join("\n")}\n`;
++}
++
++/**
++ * Computes the identity of the distribution that `entryPath` belongs to. The
++ * root is the directory holding the entry module. Throws with a specific reason
++ * when the distribution cannot be identified; callers must treat that as a
++ * refusal, not as an absent identity.
++ */
++export function distributionIdentity(
++  entryPath: string,
++  limits: DistributionLimits = DEFAULT_DISTRIBUTION_LIMITS,
++): DistributionIdentity {
++  const root = path.dirname(path.resolve(entryPath));
++  const entry = path.basename(entryPath);
++  const files: DistributionFile[] = [];
++  const totals = { bytes: 0 };
++  collect(root, "", files, totals, limits);
++  if (!files.some((file) => file.path === entry)) {
++    throw new Error(`entry module ${entry} is not a regular file in the distribution`);
++  }
++  const digest = createHash("sha256").update(canonicalDistribution(entry, files)).digest("hex");
++  return { root, entry, files, bytes: totals.bytes, digest };
++}
+diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
+index 5e0a1c956c45730e24e2cf43510105e6f1793e70..ac8f59d4df0e9892e2784127535c5d520e80b2d0 100644
+--- a/daemon/core/src/extensions/loader.ts
++++ b/daemon/core/src/extensions/loader.ts
+@@ -19,6 +19,8 @@
+ import { join } from "node:path";
+ import { pathToFileURL } from "node:url";
+ 
++import { distributionIdentity, type DistributionIdentity } from "./identity.ts";
++
+ import type { AutoskAPI, ExtensionFactory, ExtensionLoadError } from "@autosk/sdk";
+ 
+ import { AUTOSK_DIR } from "../store/paths.ts";
+@@ -170,6 +172,18 @@ function errMsg(e: unknown): string {
+  * `human` (skipping any with a live session, which self-heal once they settle).
+  */
+ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Promise<void> {
++  // Identify the exact bytes before importing them (issue #10). A distribution
++  // that cannot be identified is refused rather than loaded unidentified: a
++  // workflow with no identity could not be pinned to a task, and an unpinnable
++  // workflow silently loses the guarantee that a running Epic keeps its code.
++  let identity: DistributionIdentity;
++  try {
++    identity = distributionIdentity(entry.entryPath);
++  } catch (e) {
++    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${errMsg(e)}`);
++    return;
++  }
++
+   let mod: unknown;
+   try {
+     mod = await import(pathToFileURL(entry.entryPath).href);
+@@ -185,8 +199,8 @@ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Pr
+   }
+ 
+   const api: AutoskAPI = {
+-    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow),
+-    registerAgent: (registration) => registry.addAgent(entry.source, registration),
++    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow, identity),
++    registerAgent: (registration) => registry.addAgent(entry.source, registration, identity),
+   };
+   try {
+     await (factory as ExtensionFactory)(api);
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index 4e86eccd865471f8e9a03111be4e7913d3c1847c..304a063f1fa86af8f3d2953f0b5e74278f6dd939 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -28,6 +28,8 @@ import {
+   type WorkflowStepInfo,
+ } from "@autosk/sdk";
+ 
++import type { DistributionIdentity } from "./identity.ts";
++
+ /** The result of validating a `(workflow, step)` position against the registry. */
+ export interface PositionValidation {
+   ok: boolean;
+@@ -39,8 +41,34 @@ export class ExtensionRegistry {
+   private readonly workflows = new Map<string, WorkflowDefinition>();
+   /** Named agents registered via `AutoskAPI.registerAgent` (interactive sessions). */
+   private readonly agents = new Map<string, AgentRegistration>();
++  /**
++   * The distribution each registered name came from (issue #10). Keyed the same
++   * way as `workflows` / `agents`, so a caller that resolves a workflow can also
++   * resolve the exact bytes that defined it.
++   *
++   * The loader always supplies an identity, and refuses an entry whose bytes it
++   * cannot identify, so every workflow reachable through {@link loadProjectRegistry}
++   * is identified. A registry assembled directly — as tests do — registers
++   * definitions that have no distribution on disk at all; those are honestly
++   * unidentified, and the engine records them as unpinned rather than inventing
++   * a digest for them.
++   */
++  private readonly workflowIdentities = new Map<string, DistributionIdentity>();
++  private readonly agentIdentities = new Map<string, DistributionIdentity>();
+   private readonly loadErrors: ExtensionLoadError[] = [];
+ 
++  // -- distribution identity ----------------------------------------------
++
++  /** The distribution a registered workflow was loaded from, if it is registered. */
++  workflowIdentity(name: string): DistributionIdentity | undefined {
++    return this.workflowIdentities.get(name);
++  }
++
++  /** The distribution a registered agent was loaded from, if it is registered. */
++  agentIdentity(name: string): DistributionIdentity | undefined {
++    return this.agentIdentities.get(name);
++  }
++
+   // -- diagnostics ---------------------------------------------------------
+ 
+   /** The accumulated load diagnostics (a fresh copy). */
+@@ -64,7 +92,7 @@ export class ExtensionRegistry {
+    * wins on a collision. The definition is stored exactly as written — agents
+    * live inline in `steps`, so there is no harvest into a separate agent map.
+    */
+-  addWorkflow(source: string, workflow: WorkflowDefinition): void {
++  addWorkflow(source: string, workflow: WorkflowDefinition, identity?: DistributionIdentity): void {
+     const name = workflow?.name;
+     if (typeof name !== "string" || name.length === 0) {
+       this.recordDiagnostic(source, "registerWorkflow: workflow.name must be a non-empty string");
+@@ -93,6 +121,7 @@ export class ExtensionRegistry {
+       }
+     }
+     this.workflows.set(name, workflow);
++    if (identity) this.workflowIdentities.set(name, identity);
+   }
+ 
+   /**
+@@ -102,7 +131,7 @@ export class ExtensionRegistry {
+    * running). First-registered wins on a collision, so the higher-priority
+    * source (project beats global) keeps the name.
+    */
+-  addAgent(source: string, registration: AgentRegistration): void {
++  addAgent(source: string, registration: AgentRegistration, identity?: DistributionIdentity): void {
+     const name = registration?.name;
+     if (typeof name !== "string" || name.length === 0) {
+       this.recordDiagnostic(source, "registerAgent: registration.name must be a non-empty string");
+@@ -118,6 +147,7 @@ export class ExtensionRegistry {
+       return;
+     }
+     this.agents.set(name, registration);
++    if (identity) this.agentIdentities.set(name, identity);
+   }
+ 
+   // -- resolution (engine-facing) ------------------------------------------
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index d6f84e6dec3f0cd9cb208c27c85e4110b0447123..cbc77c0f26c86c5336e74100f62299c0062956b3 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -53,6 +53,11 @@ export {
+   isEmptyMetadata,
+   getStepVisits,
+   bumpStepVisit,
++  RUNTIME_IDENTITY_KEY,
++  readRuntimeIdentityPin,
++  setRuntimeIdentityPin,
++  type RuntimeIdentityPin,
++  type RuntimeIdentityPinRead,
+   applyMetadataPatch,
+   applyMetadataUnset,
+ } from "./metadata.ts";
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index a467c87c2621e572ef11f17677843b169d9ba8f9..f77ed681874c50beca5d3f94820444ecbbe6ea84 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -134,3 +134,63 @@ function deleteDotPath(root: Record<string, unknown>, segments: string[]): void
+     delete chain[i - 1]![segments[i - 1]!];
+   }
+ }
++
++/**
++ * The reserved metadata sub-object holding the runtime identity a task is
++ * pinned to (issue #10).
++ *
++ * Unlike {@link STEP_VISITS_KEY}, this one is NOT defensively tolerated. A
++ * visit counter that a human corrupts may self-heal, because the worst outcome
++ * is a miscounted cap. A corrupt or hand-forged runtime pin is the difference
++ * between running the code a task was enrolled on and running something else,
++ * so a malformed pin is reported and refused rather than ignored or reset.
++ */
++export const RUNTIME_IDENTITY_KEY = "runtime_identity";
++
++/** The workflow a task is enrolled on and the distribution digest it is pinned to. */
++export interface RuntimeIdentityPin {
++  workflow: string;
++  digest: string;
++}
++
++/** The three distinguishable states of the reserved pin. */
++export type RuntimeIdentityPinRead =
++  | { state: "absent" }
++  | { state: "pinned"; pin: RuntimeIdentityPin }
++  | { state: "malformed"; reason: string };
++
++const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
++
++/**
++ * Reads the reserved runtime identity pin. Returns `absent` only when the key is
++ * genuinely missing; anything present but not an exact `{ workflow, digest }`
++ * record with a lowercase SHA-256 digest is `malformed`, which callers must
++ * treat as a refusal.
++ */
++export function readRuntimeIdentityPin(
++  meta: Record<string, unknown> | undefined | null,
++): RuntimeIdentityPinRead {
++  if (meta == null || !(RUNTIME_IDENTITY_KEY in meta)) return { state: "absent" };
++  const raw = meta[RUNTIME_IDENTITY_KEY];
++  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
++    return { state: "malformed", reason: "runtime identity pin is not an object" };
++  }
++  const record = raw as Record<string, unknown>;
++  const extra = Object.keys(record).filter((key) => key !== "workflow" && key !== "digest");
++  if (extra.length > 0) {
++    return { state: "malformed", reason: `runtime identity pin has unexpected keys: ${extra.sort().join(", ")}` };
++  }
++  const { workflow, digest } = record;
++  if (typeof workflow !== "string" || workflow.length === 0) {
++    return { state: "malformed", reason: "runtime identity pin has no workflow name" };
++  }
++  if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
++    return { state: "malformed", reason: "runtime identity pin digest is not a lowercase sha256" };
++  }
++  return { state: "pinned", pin: { workflow, digest } };
++}
++
++/** Writes the reserved runtime identity pin, mutating `meta` in place. */
++export function setRuntimeIdentityPin(meta: Record<string, unknown>, pin: RuntimeIdentityPin): void {
++  meta[RUNTIME_IDENTITY_KEY] = { workflow: pin.workflow, digest: pin.digest };
++}
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..7fa5e3bce64c540da4c9ec4083698f4665447cd2 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -52,7 +52,15 @@ import {
+ } from "./creation.ts";
+ import { systemClock, type Clock } from "./clock.ts";
+ import { KeyedMutex } from "./lock.ts";
+-import { applyMetadataPatch, applyMetadataUnset, bumpStepVisit } from "./metadata.ts";
++import {
++  applyMetadataPatch,
++  applyMetadataUnset,
++  bumpStepVisit,
++  readRuntimeIdentityPin,
++  setRuntimeIdentityPin,
++  type RuntimeIdentityPin,
++  type RuntimeIdentityPinRead,
++} from "./metadata.ts";
+ import { consoleLogger, type Logger } from "./logger.ts";
+ import { ProjectPaths } from "./paths.ts";
+ import { parseTask, serializeTask, type StoredTask } from "./records.ts";
+@@ -859,13 +867,17 @@ export class Store {
+   async setPosition(
+     id: string,
+     pos: { status: TaskStatus; workflow: string | null; step: string | null },
+-    opts?: { countVisit?: string },
++    opts?: { countVisit?: string; pinRuntimeIdentity?: RuntimeIdentityPin },
+   ): Promise<TaskView> {
+     await this.mutateTask(id, (t) => {
+       t.status = pos.status;
+       t.workflow = pos.workflow;
+       t.step = pos.step;
+       if (opts?.countVisit !== undefined) bumpStepVisit(t.metadata, opts.countVisit);
++      // The pin lands in the SAME write as the position, so a task is never
++      // observable as enrolled on a workflow without the identity it was
++      // admitted under (issue #10).
++      if (opts?.pinRuntimeIdentity) setRuntimeIdentityPin(t.metadata, opts.pinRuntimeIdentity);
+     });
+     this.notifyTaskChange(id);
+     return this.taskView(id);
+@@ -1113,6 +1125,15 @@ export class Store {
+    * not-open, mirroring {@link buildView}); a scan only ever needs an answer good
+    * enough to gate this pass — the next reconciled scan corrects any staleness.
+    */
++  /**
++   * The reserved runtime identity pin of a task (issue #10), read from the
++   * in-memory record without extra I/O. Distinguishes absent from malformed:
++   * callers must refuse a malformed pin rather than treat it as unpinned.
++   */
++  runtimeIdentityPin(id: string): RuntimeIdentityPinRead {
++    return readRuntimeIdentityPin(this.tasks.peek(id)?.metadata);
++  }
++
+   private schedulingRowFor(t: StoredTask): SchedulingRow {
+     const blocked = t.blocked_by.some((bid) => {
+       const b = this.tasks.peek(bid);
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..21201b8c8ac11f1e10df6d231b8259eec266d830
+--- /dev/null
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -0,0 +1,209 @@
++/**
++ * Runtime identity admission (issue #10).
++ *
++ * A task records the digest of the extension distribution it was admitted under,
++ * and every path that would run or advance it re-checks that digest. These tests
++ * use the real loader against real files, so the digest comes from bytes on disk
++ * rather than from a hand-built fixture.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { mkdirSync, writeFileSync } from "node:fs";
++import path from "node:path";
++
++import { loadProjectRegistry } from "../src/extensions/loader.ts";
++import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
++import { makeEngine, makeProject, type TestProject } from "./engineHarness.ts";
++import { waitFor } from "./helpers.ts";
++
++const WORKFLOW_SOURCE = (marker: string) => `
++export default (api) => {
++  api.registerWorkflow({
++    name: "wf",
++    firstStep: "review",
++    steps: { review: { status: "human" } },
++    // ${marker}
++  });
++};
++`;
++
++function writeExtension(root: string, marker: string): void {
++  const dir = path.join(root, ".autosk", "extensions");
++  mkdirSync(dir, { recursive: true });
++  writeFileSync(path.join(dir, "wf.js"), WORKFLOW_SOURCE(marker));
++}
++
++describe("engine — runtime identity admission", () => {
++  const cleanups: (() => void)[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const c of cleanups.splice(0)) c();
++  });
++  function track(p: TestProject): TestProject {
++    cleanups.push(p.cleanup);
++    return p;
++  }
++
++  async function project(marker: string) {
++    const p = track(await makeProject({ workflows: [] }));
++    writeExtension(p.root, marker);
++    const registry = await loadProjectRegistry(p.root);
++    p.project.registry = registry;
++    return p;
++  }
++
++  test("enrolling pins the distribution the task was admitted under", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "pinned" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++
++    const view = await p.store.taskView(task.id);
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state).toBe("pinned");
++    if (pin.state !== "pinned") throw new Error("unreachable");
++    expect(pin.pin.workflow).toBe("wf");
++    expect(pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("the same version with different bytes is refused on resume", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "drifting" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    const pinnedDigest = p.project.registry.workflowIdentity("wf")!.digest;
++
++    // Edit the installed extension in place. Bun would keep serving the cached
++    // module for this path, which is exactly why the digest is taken from the
++    // bytes on disk instead of from the loaded object.
++    writeExtension(p.root, "v2");
++    const reloaded = await loadProjectRegistry(p.root);
++    expect(reloaded.workflowIdentity("wf")!.digest).not.toBe(pinnedDigest);
++    engine.setProjectRegistry(p.root, reloaded);
++
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++
++    const view = await p.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(pinnedDigest);
++  });
++
++  test("dispatch parks a work task whose distribution changed under it", async () => {
++    const p = await project("v1");
++    const first = makeEngine();
++    engines.push(first.engine);
++    await first.engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "running" });
++    await first.engine.enroll(p.root, task.id, { workflow: "wf" });
++    const pinnedDigest = p.project.registry.workflowIdentity("wf")!.digest;
++    first.engine.stop();
++
++    // The task is mid-flight when the installed code changes underneath it.
++    await p.store.setPosition(task.id, { status: "work", workflow: "wf", step: "review" });
++    writeExtension(p.root, "v2");
++    const reloaded = await loadProjectRegistry(p.root);
++    const currentDigest = reloaded.workflowIdentity("wf")!.digest;
++    expect(currentDigest).not.toBe(pinnedDigest);
++
++    const second = makeEngine();
++    engines.push(second.engine);
++    await second.engine.addProject({ ...p.project, registry: reloaded }); // kicks a scan → dispatch
++
++    // park() flips the status and then writes the comment naming the reason.
++    await waitFor(async () =>
++      (await p.store.listComments(task.id)).some((c) =>
++        c.text === `extension_version_mismatch: wf is now ${currentDigest}, task pinned ${pinnedDigest}`,
++      ),
++    );
++    expect((await p.store.taskView(task.id)).status).toBe("human");
++  });
++
++  test("a task pinned to an identity the registry no longer identifies is refused", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "unidentified" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++
++    // A hand-built registry carries the same workflow name with no distribution.
++    const { ExtensionRegistry } = await import("../src/index.ts");
++    const bare = new ExtensionRegistry();
++    bare.addWorkflow("hand-built", {
++      name: "wf",
++      firstStep: "review",
++      steps: { review: { status: "human" } },
++    });
++    engine.setProjectRegistry(p.root, bare);
++
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: wf has no identified distribution/,
++    );
++  });
++
++  test("a malformed pin is refused rather than repaired", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "forged" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    await p.store.mergeMetadata(task.id, { "runtime_identity.digest": "not-a-digest" });
++
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: runtime identity pin digest is not a lowercase sha256/,
++    );
++    // The forged pin is left exactly as it was found; nothing self-heals.
++    const view = await p.store.taskView(task.id);
++    expect((view.metadata.runtime_identity as Record<string, unknown>).digest).toBe("not-a-digest");
++  });
++
++  test("two projects on different bytes each keep their own identity", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const digestA = a.project.registry.workflowIdentity("wf")!.digest;
++    const digestB = b.project.registry.workflowIdentity("wf")!.digest;
++    expect(digestA).not.toBe(digestB);
++
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++    await engine.addProject(b.project);
++
++    const taskA = await a.store.createTask({ title: "in a" });
++    const taskB = await b.store.createTask({ title: "in b" });
++    await engine.enroll(a.root, taskA.id, { workflow: "wf" });
++    await engine.enroll(b.root, taskB.id, { workflow: "wf" });
++
++    const pinA = readRuntimeIdentityPin((await a.store.taskView(taskA.id)).metadata);
++    const pinB = readRuntimeIdentityPin((await b.store.taskView(taskB.id)).metadata);
++    expect(pinA.state === "pinned" && pinA.pin.digest).toBe(digestA);
++    expect(pinB.state === "pinned" && pinB.pin.digest).toBe(digestB);
++  });
++
++  test("an extension whose bytes cannot be identified is refused at load", async () => {
++    const p = track(await makeProject({ workflows: [] }));
++    writeExtension(p.root, "v1");
++    const { symlinkSync } = await import("node:fs");
++    symlinkSync(
++      path.join(p.root, ".autosk", "extensions", "wf.js"),
++      path.join(p.root, ".autosk", "extensions", "linked.js"),
++    );
++    const registry = await loadProjectRegistry(p.root);
++    expect(registry.workflowNames()).toEqual([]);
++    expect(registry.diagnostics.map((d) => d.error).join("\n")).toMatch(
++      /distribution cannot be identified: symbolic link/,
++    );
++  });
++});
+diff --git a/daemon/core/test/extensions.identity.test.ts b/daemon/core/test/extensions.identity.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c64267d0a46a7e4b6583913f1fe5858db87d028
+--- /dev/null
++++ b/daemon/core/test/extensions.identity.test.ts
+@@ -0,0 +1,88 @@
++import { describe, expect, test } from "bun:test";
++import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
++import path from "node:path";
++
++import {
++  canonicalDistribution,
++  distributionIdentity,
++} from "../src/extensions/identity";
++import { tempDir } from "./helpers.ts";
++
++function distribution(files: Record<string, string>): string {
++  const dir = tempDir();
++  for (const [relative, content] of Object.entries(files)) {
++    const absolute = path.join(dir.path, relative);
++    mkdirSync(path.dirname(absolute), { recursive: true });
++    writeFileSync(absolute, content);
++  }
++  return path.join(dir.path, "index.ts");
++}
++
++describe("distribution identity", () => {
++  test("the same bytes produce the same digest and a different byte changes it", () => {
++    const first = distributionIdentity(distribution({ "index.ts": "export default () => {};\n" }));
++    const second = distributionIdentity(distribution({ "index.ts": "export default () => {};\n" }));
++    expect(second.digest).toBe(first.digest);
++    expect(first.entry).toBe("index.ts");
++
++    const changed = distributionIdentity(distribution({ "index.ts": "export default () => {}; //\n" }));
++    expect(changed.digest).not.toBe(first.digest);
++  });
++
++  test("a sibling module that the entry could import at runtime is covered", () => {
++    const base = { "index.ts": "export default () => {};\n" };
++    const alone = distributionIdentity(distribution(base));
++    const withSibling = distributionIdentity(distribution({ ...base, "helper.ts": "export const x = 1;\n" }));
++    expect(withSibling.digest).not.toBe(alone.digest);
++    expect(withSibling.files.map((f) => f.path)).toEqual(["helper.ts", "index.ts"]);
++
++    const changedSibling = distributionIdentity(
++      distribution({ ...base, "helper.ts": "export const x = 2;\n" }),
++    );
++    expect(changedSibling.digest).not.toBe(withSibling.digest);
++  });
++
++  test("nested files are covered and listed in a deterministic order", () => {
++    const identity = distributionIdentity(
++      distribution({
++        "index.ts": "export default () => {};\n",
++        "b/second.ts": "2\n",
++        "a/first.ts": "1\n",
++      }),
++    );
++    expect(identity.files.map((f) => f.path)).toEqual(["a/first.ts", "b/second.ts", "index.ts"]);
++    expect(identity.digest).toBe(
++      Bun.SHA256.hash(canonicalDistribution(identity.entry, identity.files), "hex"),
++    );
++  });
++
++  test("a symbolic link is refused rather than followed", () => {
++    const dir = tempDir();
++    writeFileSync(path.join(dir.path, "index.ts"), "export default () => {};\n");
++    const outside = tempDir();
++    writeFileSync(path.join(outside.path, "secret.ts"), "export const secret = 1;\n");
++    symlinkSync(path.join(outside.path, "secret.ts"), path.join(dir.path, "linked.ts"));
++    expect(() => distributionIdentity(path.join(dir.path, "index.ts"))).toThrow(/symbolic link/);
++  });
++
++  test("a distribution beyond the bounds is refused, not partially identified", () => {
++    const entry = distribution({
++      "index.ts": "export default () => {};\n",
++      "one.ts": "1\n",
++      "two.ts": "2\n",
++    });
++    expect(() => distributionIdentity(entry, { maxFiles: 2, maxBytes: 1 << 20 })).toThrow(
++      /exceeds 2 files/,
++    );
++    expect(() => distributionIdentity(entry, { maxFiles: 100, maxBytes: 4 })).toThrow(
++      /exceeds 4 bytes/,
++    );
++    expect(distributionIdentity(entry, { maxFiles: 100, maxBytes: 1 << 20 }).files).toHaveLength(3);
++  });
++
++  test("an entry that is not a file in the distribution is refused", () => {
++    const dir = tempDir();
++    writeFileSync(path.join(dir.path, "other.ts"), "1\n");
++    expect(() => distributionIdentity(path.join(dir.path, "index.ts"))).toThrow(/entry module/);
++  });
++});
+diff --git a/docs/extensions.md b/docs/extensions.md
+index d815192d299f7992e7fccd89803c341fd3ac74ae..52c5591fc29d7a38cad9cfd5d774b54a9603eded 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -290,6 +290,41 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+ or naming a package in `settings.json` *is* the consent. Treat these locations
+ as you would any code you run.
+ 
++## Runtime identity
++
++Every extension is identified by the exact bytes it was loaded from. Before the
++loader imports an entry, it walks that entry's directory, digests every regular
++file, and hashes the sorted `(path, digest)` listing together with the entry's
++own name. Enrolling a task records that digest on the task, and enroll, resume,
++dispatch and both transition paths re-check it. If the digest no longer matches,
++the task stops with `extension_version_mismatch` instead of continuing on code it
++was never admitted to; a `work` task is parked with that reason.
++
++This is what makes an in-place edit safe to detect. Bun keeps serving the cached
++module for a path it has already imported, so editing an installed extension and
++reloading gives you the *old* code until the process restarts (see
++[The live-code hazard](#the-live-code-hazard)). The digest is taken from the
++bytes on disk, not from the loaded object, so the drift is caught even when the
++cache hides it.
++
++The whole directory is covered on purpose. A static import scan cannot see
++computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
++targets, so hashing only the entry file would claim more than it proves.
++
++What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
++about what the code does once imported or what it fetches at runtime.
++
++Two consequences worth knowing:
++
++- A distribution the loader cannot identify is **refused**, not loaded
++  unidentified. A symbolic link inside the directory, a non-regular file, or a
++  tree beyond the built-in bounds (20 000 files, 256 MiB) each produce a
++  `project.diagnostics` entry and no registration.
++- A task enrolled before this existed carries no pin. It adopts the current
++  identity on its next enroll or resume rather than being refused retroactively.
++  A pin that has been hand-edited into an invalid shape is refused outright and
++  never repaired.
++
+ ## Error isolation & `project.diagnostics`
+ 
+ A broken extension never takes the daemon down. Each of these is caught,
+diff --git a/internal/changelog/CHANGELOG.md b/internal/changelog/CHANGELOG.md
+index 71e72204b8ae3cf8db7cac86660c0018724f96b8..1ed6dd5c3d2f306eab42a1d1aefcaebc7d5123c3 100644
+--- a/internal/changelog/CHANGELOG.md
++++ b/internal/changelog/CHANGELOG.md
+@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ### Added
+ - **create:** add idempotent creation binding receipts for automation (#11).
++- **engine:** refuse to run a task whose extension bytes changed after enrollment (#10).
+ 
+ ### Fixed
+ - **pi-agent:** gate prompts on pi's `agent_settled`, ending "Agent is already processing" session failures (#19).
