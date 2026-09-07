@@ -1,0 +1,121 @@
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index 642fe28b03a75e6597cdb6f2ec4e6ba6249b4bff..743e30ec88974aaafc4a3cbb5431a63b33673377 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -718,6 +718,86 @@ export default (api) => {
+     expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
+   });
+ 
++  test("two Epics run concurrently on different distributions, each on its own", async () => {
++    // The scenario the issue names, executed rather than described. The previous
++    // coverage claim rested on a test that enrols both tasks into a status step,
++    // so no session is ever dispatched and no Epic runs; two pins being different
++    // is not two Epics running. Here both projects have a LIVE session at the same
++    // time, on distributions with different digests, in one engine over one worker
++    // pool — the only shape in which a check that consulted the wrong project's
++    // registry would show itself.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const digestA = a.project.registry.workflowIdentity("wf")!.digest;
++    const digestB = b.project.registry.workflowIdentity("wf")!.digest;
++    expect(digestA).not.toBe(digestB);
++
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++    await engine.addProject(b.project);
++
++    const gatePath = path.join(a.root, "concurrent-gate");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++    });
++
++    const taskA = await a.store.createTask({ title: "epic in a" });
++    const taskB = await b.store.createTask({ title: "epic in b" });
++    await engine.enroll(a.root, taskA.id, { workflow: "wf", step: "run" });
++    await engine.enroll(b.root, taskB.id, { workflow: "wf", step: "run" });
++
++    // Both are live at the SAME time — asserted together, not one after the other.
++    await waitFor(async () =>
++      a.store.sessions.hasLiveSession(taskA.id) && b.store.sessions.hasLiveSession(taskB.id),
++    );
++
++    // Each session records the distribution of ITS project, not the other's.
++    const [metaA] = a.store.sessions.liveSessionsForTask(taskA.id);
++    const [metaB] = b.store.sessions.liveSessionsForTask(taskB.id);
++    expect(metaA!.runtime_identity?.digest).toBe(digestA);
++    expect(metaB!.runtime_identity?.digest).toBe(digestB);
++
++    // Both transit, on their own code, without either being refused.
++    writeFileSync(gatePath, "");
++    await waitFor(async () =>
++      (await a.store.taskView(taskA.id)).step === "review" &&
++      (await b.store.taskView(taskB.id)).step === "review",
++    );
++    for (const [p, id] of [[a, taskA.id], [b, taskB.id]] as const) {
++      const view = await p.store.taskView(id);
++      expect(view.status).toBe("human"); // review is a status step, not a park
++      // Written as a plain predicate: `toContain` compares members, so passing it
++      // an asymmetric matcher would be a check that can never fail.
++      const comments = (await p.store.listComments(id)).map((c) => c.text);
++      expect(comments.some((t) => t.includes("extension_version_mismatch"))).toBe(false);
++    }
++    const pinA = readRuntimeIdentityPin((await a.store.taskView(taskA.id)).metadata);
++    const pinB = readRuntimeIdentityPin((await b.store.taskView(taskB.id)).metadata);
++    expect(pinA.state === "pinned" && pinA.pin.digest).toBe(digestA);
++    expect(pinB.state === "pinned" && pinB.pin.digest).toBe(digestB);
++  });
++
++  test("each project's runtime index records its own distribution and not the other's", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++    await engine.addProject(b.project);
++
++    const read = async (p: TestProject) =>
++      parseDistributionIndex(
++        await withCreationLock(new ProjectPaths(p.root), (io) => io.readRuntimeIndex()),
++      ).distributions.map((d) => d.digest);
++
++    const digestA = a.project.registry.workflowIdentity("wf")!.digest;
++    const digestB = b.project.registry.workflowIdentity("wf")!.digest;
++    expect(await read(a)).toEqual([digestA]);
++    expect(await read(b)).toEqual([digestB]);
++  });
++
+   test("two projects on different bytes each keep their own identity", async () => {
+     const a = await project("alpha");
+     const b = await project("beta");
+diff --git a/docs/extensions.md b/docs/extensions.md
+index b94c86817ab419548969b3ffce57432451c4d44e..eef11c7682d450ae5afecf6d7f5ae24090165b57 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -384,6 +384,25 @@ The shape is recorded only beside a distribution identity. A registry assembled
+ without the loader stays honestly unidentified rather than becoming half-identified
+ by a value derived from an object in memory.
+ 
++### Two projects, two versions
++
++Identity is per project, and so is everything built on it. Two projects opened in
++one daemon hold their own registries, their own pins and their own runtime index,
++and both can run Epics at the same time on distributions with different digests —
++each admitted, dispatched and transited against its own project's registry, over
++the one worker pool the daemon has. Neither project's index records the other's
++distribution.
++
++That holds for extensions each project installs for itself. It does **not** yet
++hold for one extension installed globally and shared by both: the daemon serves
++the module it first imported for a path, so after a global update the second
++project does not get the new code — the loader keeps the identity of what is
++actually running and reports the drift in `project.diagnostics` rather than
++advertising bytes the process is not executing (see
++[The live-code hazard](#the-live-code-hazard)). Keeping the old version available
++for the first project while the second starts on the new one needs the
++distribution's bytes to be held, which this design records but does not yet store.
++
+ ### Sessions, and the candidates they mint
+ 
+ A session records the identity it was admitted under in its own meta
