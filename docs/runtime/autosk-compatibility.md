@@ -22,7 +22,7 @@ apply in the listed order: `0001-atomic-task-creation.patch` produces tree
 `f0916e4f430e1ae4e1e46d08fb6337077bb601a6`, `0002-runtime-snapshot-store.patch`
 produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `0003-runtime-identity-admission.patch` produces the current `result_tree`
-`e33befb85b7fbb47f8d5357f251bf3fd2f606c24`.
+`667c2ea83e7d1d0842fd58bca0601e63d29314ab`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

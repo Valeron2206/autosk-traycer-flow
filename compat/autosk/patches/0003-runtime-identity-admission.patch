@@ -1297,10 +1297,10 @@ index 236900aa365136f32376f35ed708446a2583e98b..75d22fa3a7403046a42d780cdeef306e
      expect(res.handled).toBe(true);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..dae519a27c48358ed53054b7b0705f8b6c423300
+index 0000000000000000000000000000000000000000..7e9f903b62bce53d6915df3cb918ef758bc2df51
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,592 @@
+@@ -0,0 +1,596 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -1778,12 +1778,16 @@ index 0000000000000000000000000000000000000000..dae519a27c48358ed53054b7b0705f8b
 +    engine.setProjectRegistry(a.root, b.project.registry);
 +    writeFileSync(runGate, "");
 +
-+    await waitFor(async () => (await a.store.taskView(task.id)).status === "human");
-+    const comments = (await a.store.listComments(task.id)).map((c) => c.text);
++    // Wait on the comment, not on the status: `park` flips the status first and
++    // adds the reason after, so `human` is observable before the reason exists.
 +    // Not "agent_did_not_transit": that is true of the agent and useless to the
 +    // operator, who would go looking for a broken agent instead of an update.
-+    expect(comments.some((t) => t.includes("extension_version_mismatch"))).toBe(true);
-+    expect((await a.store.taskView(task.id)).step).toBe("runSwallow");
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    expect(view.step).toBe("runSwallow");
 +  });
 +
 +  test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
@@ -2178,10 +2182,10 @@ index 512ea1a924064a68375b9cc4e37fe43dbd1355d5..deb46ed29dd71ee8d14fae0fe9407293
      await expect(
        client.call("task.metadata.set", { cwd, id: t.id, patch: [1, 2] }),
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d815192d299f7992e7fccd89803c341fd3ac74ae..e9f50dc4eb9ec19308a4e038f04e5fd8ea3600a9 100644
+index d815192d299f7992e7fccd89803c341fd3ac74ae..e14eb9efe1ff7d266a76fa8a3e030895fdb55145 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -290,6 +290,153 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+@@ -290,6 +290,154 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
  or naming a package in `settings.json` *is* the consent. Treat these locations
  as you would any code you run.
  
@@ -2252,9 +2256,10 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..e9f50dc4eb9ec19308a4e038f04e5fd8
 +already carries a workflow, an absent pin is treated exactly like a mismatched one.
 +Deleting the reserved key does not release the task — dispatch and both transition
 +paths park it, and resuming or re-enrolling it where it stands is refused, because
-+either would continue mid-flight on code the task was never admitted under. The one
-+exception is a task standing on the workflow's own first step: there "where it
-+stands" and "a restart" are the same position, and the rule below applies.
++either would continue mid-flight on code the task was never admitted under. `resume`
++has no exception at all: it requires the pin to match wherever the task stands, first
++step included, whether the pin is absent or wrong. `enroll` is the one that reads a
++first step as a restart, and the rule below is that rule.
 +
 +**One act re-pins, and it is the same act in every case: entering a workflow at its
 +first step.** That is a restart — the task begins the workflow again, on today's
