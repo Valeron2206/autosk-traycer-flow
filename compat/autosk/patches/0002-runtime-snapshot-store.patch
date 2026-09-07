@@ -1,0 +1,1783 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index e1fa7ec3e4856956108229f72d773bf4a54b39fd..f799a1b1fea3d5b2b618ed06d2e88a7c37778f7d 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -13,7 +13,7 @@ import (
+ 	"autosk/internal/storelock"
+ )
+ 
+-const maxRequestBytes = 16 * 1024 * 1024
++const maxRequestBytes = 64 * 1024 * 1024
+ 
+ type readyMessage struct {
+ 	OK  bool `json:"ok"`
+@@ -21,17 +21,19 @@ type readyMessage struct {
+ }
+ 
+ type requestMessage struct {
+-	ID     int64  `json:"id"`
+-	Op     string `json:"op"`
+-	TaskID string `json:"task_id,omitempty"`
+-	Data   string `json:"data,omitempty"`
++	ID             int64   `json:"id"`
++	Op             string  `json:"op"`
++	TaskID         string  `json:"task_id,omitempty"`
++	Digest         string  `json:"digest,omitempty"`
++	ExpectedDigest *string `json:"expected_digest,omitempty"`
++	Data           string  `json:"data,omitempty"`
+ }
+ 
+ type responseMessage struct {
+ 	ID     int64    `json:"id"`
+ 	OK     bool     `json:"ok"`
+ 	Exists bool     `json:"exists"`
+-	Data   string   `json:"data,omitempty"`
++	Data   string   `json:"data"`
+ 	IDs    []string `json:"ids"`
+ 	Error  string   `json:"error,omitempty"`
+ }
+@@ -140,6 +142,28 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ 			return responseError(req.ID, err)
+ 		}
+ 		return responseMessage{ID: req.ID, OK: true}
++	case "read_runtime_blob":
++		result, err := lock.ReadRuntimeBlob(req.Digest)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Exists: result.Exists, Data: string(result.Data)}
++	case "write_runtime_blob":
++		if err := lock.WriteRuntimeBlob(req.Digest, []byte(req.Data)); err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true}
++	case "read_runtime_index":
++		result, err := lock.ReadRuntimeIndex()
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Exists: result.Exists, Data: string(result.Data)}
++	case "write_runtime_index":
++		if err := lock.WriteRuntimeIndex(req.ExpectedDigest, []byte(req.Data)); err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true}
+ 	default:
+ 		return responseMessage{ID: req.ID, OK: false, Error: fmt.Sprintf("unknown op %q", req.Op)}
+ 	}
+diff --git a/cmd/autosk-store-lock/main_test.go b/cmd/autosk-store-lock/main_test.go
+index 7a365f218407df8333eebdbbb667741c97283d8d..602acfd51aab7842e6c4e3c4839cdba583c0fbaf 100644
+--- a/cmd/autosk-store-lock/main_test.go
++++ b/cmd/autosk-store-lock/main_test.go
+@@ -3,12 +3,15 @@ package main
+ import (
+ 	"bufio"
+ 	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
+ 	"encoding/json"
+ 	"errors"
+ 	"io"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
++	"strings"
+ 	"testing"
+ 	"time"
+ 
+@@ -201,6 +204,205 @@ func TestCommandExecutesBoundIO(t *testing.T) {
+ 	}
+ }
+ 
++func TestCommandExecutesRuntimeIO(t *testing.T) {
++	root := t.TempDir()
++	cmd := exec.Command(os.Args[0], "--root", root, "--timeout-ms", "1000")
++	cmd.Env = append(os.Environ(),
++		"AUTOSK_STORELOCK_CMD_HELPER=1",
++		"AUTOSK_NO_AUTO_INSTALL=1",
++		"HOME="+filepath.Join(root, "home"),
++	)
++	stdin, err := cmd.StdinPipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	stdout, err := cmd.StdoutPipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var stderr bytes.Buffer
++	cmd.Stderr = &stderr
++	if err := cmd.Start(); err != nil {
++		t.Fatal(err)
++	}
++	processDone := false
++	defer func() {
++		if processDone {
++			return
++		}
++		if killErr := cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
++			t.Logf("cleanup kill failed: %v", killErr)
++		}
++		if waitErr := cmd.Wait(); waitErr != nil {
++			t.Logf("cleanup wait reported: %v", waitErr)
++		}
++	}()
++
++	reader := bufio.NewReader(stdout)
++	line, err := reader.ReadString('\n')
++	if err != nil {
++		t.Fatalf("helper did not report readiness: %v", err)
++	}
++	var readyMsg readyMessage
++	if err := json.Unmarshal([]byte(line), &readyMsg); err != nil {
++		t.Fatal(err)
++	}
++	if !readyMsg.OK || readyMsg.PID <= 0 {
++		t.Fatalf("unexpected ready message: %+v", readyMsg)
++	}
++
++	blob := "runtime blob\n"
++	blobDigest := commandRuntimeDigest([]byte(blob))
++	writeRequest(t, stdin, requestMessage{ID: 1, Op: "write_runtime_blob", Digest: blobDigest, Data: blob})
++	expectOKResponse(t, reader, 1)
++	writeRequest(t, stdin, requestMessage{ID: 2, Op: "write_runtime_blob", Digest: blobDigest, Data: blob})
++	expectOKResponse(t, reader, 2)
++	writeRequest(t, stdin, requestMessage{ID: 3, Op: "read_runtime_blob", Digest: blobDigest})
++	readBlob := expectOKResponse(t, reader, 3)
++	if !readBlob.Exists || readBlob.Data != blob {
++		t.Fatalf("unexpected runtime blob response: %+v", readBlob)
++	}
++
++	emptyDigest := commandRuntimeDigest(nil)
++	writeRequest(t, stdin, requestMessage{ID: 10, Op: "write_runtime_blob", Digest: emptyDigest})
++	expectOKResponse(t, reader, 10)
++	writeRequest(t, stdin, requestMessage{ID: 11, Op: "read_runtime_blob", Digest: emptyDigest})
++	emptyBlobLine, err := reader.ReadString('\n')
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(emptyBlobLine, `"data":""`) {
++		t.Fatalf("empty runtime blob response omitted data field: %s", emptyBlobLine)
++	}
++	var emptyBlob responseMessage
++	if err := json.Unmarshal([]byte(emptyBlobLine), &emptyBlob); err != nil {
++		t.Fatal(err)
++	}
++	if emptyBlob.ID != 11 || !emptyBlob.OK || !emptyBlob.Exists || emptyBlob.Data != "" {
++		t.Fatalf("unexpected empty runtime blob response: %+v", emptyBlob)
++	}
++
++	writeRequest(t, stdin, requestMessage{ID: 4, Op: "read_runtime_index"})
++	missingIndex := expectOKResponse(t, reader, 4)
++	if missingIndex.Exists || missingIndex.Data != "" {
++		t.Fatalf("unexpected missing runtime index response: %+v", missingIndex)
++	}
++
++	index1 := "{\"revision\":1}\n"
++	index1Digest := commandRuntimeDigest([]byte(index1))
++	writeRequest(t, stdin, requestMessage{ID: 5, Op: "write_runtime_index", Data: index1})
++	expectOKResponse(t, reader, 5)
++	stale := commandRuntimeDigest([]byte("stale\n"))
++	writeRequest(t, stdin, requestMessage{ID: 6, Op: "write_runtime_index", ExpectedDigest: &stale, Data: "{\"revision\":2}\n"})
++	expectErrorResponse(t, reader, 6)
++	writeRequest(t, stdin, requestMessage{ID: 7, Op: "read_runtime_index"})
++	readIndex := expectOKResponse(t, reader, 7)
++	if !readIndex.Exists || readIndex.Data != index1 {
++		t.Fatalf("stale CAS changed runtime index: %+v", readIndex)
++	}
++
++	index2 := "{\"revision\":2}\n"
++	writeRequest(t, stdin, requestMessage{ID: 8, Op: "write_runtime_index", ExpectedDigest: &index1Digest, Data: index2})
++	expectOKResponse(t, reader, 8)
++	writeRequest(t, stdin, requestMessage{ID: 9, Op: "read_runtime_index"})
++	readIndex = expectOKResponse(t, reader, 9)
++	if !readIndex.Exists || readIndex.Data != index2 {
++		t.Fatalf("unexpected runtime index after CAS write: %+v", readIndex)
++	}
++
++	if err := stdin.Close(); err != nil {
++		t.Fatal(err)
++	}
++	if err := cmd.Wait(); err != nil {
++		t.Fatal(err)
++	}
++	processDone = true
++	if text := stderr.String(); text != "" {
++		t.Fatalf("helper stderr: %s", text)
++	}
++}
++
++func TestCommandAcceptsEscapedRuntimePayloadAboveOldRequestLimit(t *testing.T) {
++	root := t.TempDir()
++	cmd := exec.Command(os.Args[0], "--root", root, "--timeout-ms", "1000")
++	cmd.Env = append(os.Environ(),
++		"AUTOSK_STORELOCK_CMD_HELPER=1",
++		"AUTOSK_NO_AUTO_INSTALL=1",
++		"HOME="+filepath.Join(root, "home"),
++	)
++	stdin, err := cmd.StdinPipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	stdout, err := cmd.StdoutPipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var stderr bytes.Buffer
++	cmd.Stderr = &stderr
++	if err := cmd.Start(); err != nil {
++		t.Fatal(err)
++	}
++	processDone := false
++	defer func() {
++		if processDone {
++			return
++		}
++		if killErr := cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
++			t.Logf("cleanup kill failed: %v", killErr)
++		}
++		if waitErr := cmd.Wait(); waitErr != nil {
++			t.Logf("cleanup wait reported: %v", waitErr)
++		}
++	}()
++
++	reader := bufio.NewReader(stdout)
++	line, err := reader.ReadString('\n')
++	if err != nil {
++		t.Fatalf("helper did not report readiness: %v", err)
++	}
++	var readyMsg readyMessage
++	if err := json.Unmarshal([]byte(line), &readyMsg); err != nil {
++		t.Fatal(err)
++	}
++	if !readyMsg.OK || readyMsg.PID <= 0 {
++		t.Fatalf("unexpected ready message: %+v", readyMsg)
++	}
++
++	payload := strings.Repeat("\x00", 3*1024*1024)
++	digest := commandRuntimeDigest([]byte(payload))
++	writeRequest(t, stdin, requestMessage{ID: 1, Op: "write_runtime_blob", Digest: digest, Data: payload})
++	expectOKResponse(t, reader, 1)
++
++	if err := stdin.Close(); err != nil {
++		t.Fatal(err)
++	}
++	if err := cmd.Wait(); err != nil {
++		t.Fatal(err)
++	}
++	processDone = true
++	if text := stderr.String(); text != "" {
++		t.Fatalf("helper stderr: %s", text)
++	}
++
++	lock, err := storelock.Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		if err := lock.Close(); err != nil {
++			t.Fatal(err)
++		}
++	}()
++	read, err := lock.ReadRuntimeBlob(digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !read.Exists || !bytes.Equal(read.Data, []byte(payload)) {
++		t.Fatalf("unexpected large escaped runtime blob read: exists=%v len=%d", read.Exists, len(read.Data))
++	}
++}
++
+ func writeRequest(t *testing.T, writer io.Writer, req requestMessage) {
+ 	t.Helper()
+ 	encoded, err := json.Marshal(req)
+@@ -227,3 +429,24 @@ func expectOKResponse(t *testing.T, reader *bufio.Reader, id int64) responseMess
+ 	}
+ 	return resp
+ }
++
++func expectErrorResponse(t *testing.T, reader *bufio.Reader, id int64) responseMessage {
++	t.Helper()
++	line, err := reader.ReadString('\n')
++	if err != nil {
++		t.Fatal(err)
++	}
++	var resp responseMessage
++	if err := json.Unmarshal([]byte(line), &resp); err != nil {
++		t.Fatal(err)
++	}
++	if resp.ID != id || resp.OK || resp.Error == "" {
++		t.Fatalf("unexpected response for id %d: %+v", id, resp)
++	}
++	return resp
++}
++
++func commandRuntimeDigest(data []byte) string {
++	sum := sha256.Sum256(data)
++	return hex.EncodeToString(sum[:])
++}
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index ac9aa7ca8f6258f2af5bc9709c19b77561dba0be..258b1071da78c51e6b523322536a053540d59432 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -20,7 +20,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
+ const SHUTDOWN_TIMEOUT_MS = 5_000;
+ const KILL_WAIT_TIMEOUT_MS = 2_000;
+ const MAX_STDERR_BYTES = 64 * 1024;
+-const MAX_LINE_BYTES = 16 * 1024 * 1024;
++const MAX_LINE_BYTES = 64 * 1024 * 1024;
++const MAX_RUNTIME_BYTES = 8 * 1024 * 1024;
+ const MAX_QUEUED_LINES = 1024;
+ const MAX_TITLE_BYTES = 8192;
+ const MAX_DESCRIPTION_BYTES = 65_536;
+@@ -67,8 +68,11 @@ export interface CreationIndexRecord {
+ 
+ interface HelperRequest {
+   id: number;
+-  op: "read_creation_index" | "write_creation_index" | "list_task_ids" | "read_task" | "write_task";
++  op: "read_creation_index" | "write_creation_index" | "list_task_ids" | "read_task" | "write_task"
++    | "read_runtime_blob" | "write_runtime_blob" | "read_runtime_index" | "write_runtime_index";
+   task_id?: string;
++  digest?: string;
++  expected_digest?: string | null;
+   data?: string;
+ }
+ 
+@@ -93,6 +97,10 @@ export interface CreationLockIO {
+   listTaskIds(): Promise<string[]>;
+   readTask(taskId: string): Promise<string | null>;
+   writeTask(taskId: string, data: string): Promise<void>;
++  readRuntimeBlob(digest: string): Promise<string | null>;
++  writeRuntimeBlob(digest: string, data: string): Promise<void>;
++  readRuntimeIndex(): Promise<string | null>;
++  writeRuntimeIndex(expectedDigest: string | null, data: string): Promise<void>;
+ }
+ 
+ export function creationKeyHash(key: string): string {
+@@ -444,6 +452,37 @@ class HelperClient implements CreationLockIO {
+     await this.request({ op: "write_task", task_id: taskId, data });
+   }
+ 
++  async readRuntimeBlob(digest: string): Promise<string | null> {
++    return this.readRuntime({ op: "read_runtime_blob", digest });
++  }
++
++  async writeRuntimeBlob(digest: string, data: string): Promise<void> {
++    validateRuntimeText(data);
++    await this.request({ op: "write_runtime_blob", digest, data });
++  }
++
++  async readRuntimeIndex(): Promise<string | null> {
++    return this.readRuntime({ op: "read_runtime_index" });
++  }
++
++  async writeRuntimeIndex(expectedDigest: string | null, data: string): Promise<void> {
++    validateRuntimeText(data);
++    await this.request({ op: "write_runtime_index", expected_digest: expectedDigest, data });
++  }
++
++  private async readRuntime(command: Omit<HelperRequest, "id">): Promise<string | null> {
++    const response = await this.request(command);
++    if (typeof response.exists !== "boolean") {
++      throw new Error(`autosk-store-lock returned invalid existence flag for ${command.op}`);
++    }
++    if (!response.exists) return null;
++    if (typeof response.data !== "string") {
++      throw new Error(`autosk-store-lock returned invalid data for ${command.op}`);
++    }
++    validateRuntimeText(response.data);
++    return response.data;
++  }
++
+   private request(command: Omit<HelperRequest, "id">): Promise<HelperResponse> {
+     const run = this.queue.tail.then(() => this.requestNow(command));
+     this.queue.tail = run.catch(() => {});
+@@ -480,6 +519,15 @@ class HelperClient implements CreationLockIO {
+   }
+ }
+ 
++function validateRuntimeText(data: string): void {
++  if (typeof data !== "string" || Buffer.byteLength(data, "utf8") > MAX_RUNTIME_BYTES) {
++    throw new Error("runtime text exceeds the 8 MiB payload limit");
++  }
++  if (Buffer.from(data, "utf8").toString("utf8") !== data) {
++    throw new Error("runtime text is not lossless UTF-8");
++  }
++}
++
+ class LineReader {
+   private buffer = "";
+   private bufferBytes = 0;
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index dfed4185e1619cd7698434397fbf79dd45b2646c..c39eb683d3ec41c814add367ef37c928349295d1 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -11,6 +11,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+ import { dirname, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { spawn, spawnSync } from "node:child_process";
++import { createHash } from "node:crypto";
+ 
+ import {
+   CapturingLogger,
+@@ -25,6 +26,7 @@ import {
+   type TaskCreationResult,
+ } from "../src/index.ts";
+ import { withCreationLock } from "../src/store/creation.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
+ import { fixedClock, tempDir, waitFor } from "./helpers.ts";
+ 
+ const KEY = `flow:${"a".repeat(64)}`;
+@@ -760,6 +762,149 @@ describe("Store.createTaskWithCreationBinding", () => {
+   });
+ });
+ 
++describe("native runtime snapshot storage", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let paths: ProjectPaths;
++
++  beforeEach(() => {
++    dir = tempDir();
++    paths = new ProjectPaths(dir.path);
++  });
++
++  afterEach(() => dir.cleanup());
++
++  const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
++
++  test("retains exact UTF-8 snapshot bytes across helper restarts and repeated installation", async () => {
++    const snapshot = 'export const version = "1.0.0"; // Unicode: é\n';
++    const hash = digest(snapshot);
++    await withCreationLock(paths, async (io) => {
++      expect(await io.readRuntimeBlob(hash)).toBeNull();
++      await io.writeRuntimeBlob(hash, snapshot);
++      expect(await io.readRuntimeBlob(hash)).toBe(snapshot);
++    });
++    await withCreationLock(paths, async (io) => {
++      await io.writeRuntimeBlob(hash, snapshot);
++      expect(await io.readRuntimeBlob(hash)).toBe(snapshot);
++    });
++  });
++
++  test("distinguishes an existing empty blob and index from absent files", async () => {
++    await withCreationLock(paths, async (io) => {
++      await io.writeRuntimeBlob(digest(""), "");
++      await io.writeRuntimeIndex(null, "");
++    });
++    await withCreationLock(paths, async (io) => {
++      expect(await io.readRuntimeBlob(digest(""))).toBe("");
++      expect(await io.readRuntimeIndex()).toBe("");
++      await io.writeRuntimeIndex(digest(""), "next");
++      expect(await io.readRuntimeIndex()).toBe("next");
++    });
++  });
++
++  test("round-trips allowed text whose JSON escaping exceeds 16 MiB", async () => {
++    const source = "\0".repeat(3 * 1024 * 1024);
++    await withCreationLock(paths, async (io) => {
++      await io.writeRuntimeBlob(digest(source), source);
++      expect(await io.readRuntimeBlob(digest(source))).toBe(source);
++    });
++  }, 30_000);
++
++  test("rejects lossy Unicode and oversized text before writing runtime files", async () => {
++    const lossy = String.fromCharCode(0xd800);
++    const oversized = "x".repeat(8 * 1024 * 1024 + 1);
++    await withCreationLock(paths, async (io) => {
++      await expect(io.writeRuntimeBlob(digest(lossy), lossy)).rejects.toThrow("lossless UTF-8");
++      await expect(io.writeRuntimeIndex(null, lossy)).rejects.toThrow("lossless UTF-8");
++      await expect(io.writeRuntimeBlob(digest(oversized), oversized)).rejects.toThrow("8 MiB");
++      await expect(io.writeRuntimeIndex(null, oversized)).rejects.toThrow("8 MiB");
++      expect(await io.readRuntimeBlob(digest(lossy))).toBeNull();
++      expect(await io.readRuntimeBlob(digest(oversized))).toBeNull();
++      expect(await io.readRuntimeIndex()).toBeNull();
++    });
++  });
++
++  test("retains old snapshot bytes after installing a changed version", async () => {
++    const oldSource = "export const value = 1;";
++    const newSource = "export const value = 2;";
++    await withCreationLock(paths, async (io) => {
++      await io.writeRuntimeBlob(digest(oldSource), oldSource);
++      await io.writeRuntimeBlob(digest(newSource), newSource);
++    });
++    await withCreationLock(paths, async (io) => {
++      expect(await io.readRuntimeBlob(digest(oldSource))).toBe(oldSource);
++      expect(await io.readRuntimeBlob(digest(newSource))).toBe(newSource);
++    });
++  });
++
++  test("refuses different bytes under an existing snapshot digest", async () => {
++    const source = "export const value = 1;";
++    const hash = digest(source);
++    await withCreationLock(paths, (io) => io.writeRuntimeBlob(hash, source));
++    await expect(withCreationLock(paths, (io) => io.writeRuntimeBlob(hash, "changed"))).rejects.toThrow();
++    expect(await withCreationLock(paths, (io) => io.readRuntimeBlob(hash))).toBe(source);
++  });
++
++  test("refuses corrupted cached bytes without replacing them", async () => {
++    const source = "export const value = 1;";
++    const hash = digest(source);
++    await withCreationLock(paths, (io) => io.writeRuntimeBlob(hash, source));
++    const path = join(dir.path, ".autosk/runtime/v1/blobs", `${hash}.blob`);
++    await writeFile(path, "corrupt");
++    await expect(withCreationLock(paths, (io) => io.readRuntimeBlob(hash))).rejects.toThrow();
++    await expect(withCreationLock(paths, (io) => io.writeRuntimeBlob(hash, source))).rejects.toThrow();
++    expect(await readFile(path, "utf8")).toBe("corrupt");
++  });
++
++  test("updates the runtime index only from its exact expected bytes", async () => {
++    const first = '{"revision":1}';
++    const second = '{"revision":2}';
++    await withCreationLock(paths, async (io) => {
++      expect(await io.readRuntimeIndex()).toBeNull();
++      await io.writeRuntimeIndex(null, first);
++      expect(await io.readRuntimeIndex()).toBe(first);
++    });
++    await expect(withCreationLock(paths, (io) => io.writeRuntimeIndex(null, second))).rejects.toThrow();
++    await withCreationLock(paths, (io) => io.writeRuntimeIndex(digest(first), second));
++    await expect(withCreationLock(paths, (io) => io.writeRuntimeIndex(digest(first), first))).rejects.toThrow();
++    expect(await withCreationLock(paths, (io) => io.readRuntimeIndex())).toBe(second);
++  });
++
++  test("only one independent native writer wins an index compare-and-swap", async () => {
++    const first = '{"revision":1}';
++    await withCreationLock(paths, (io) => io.writeRuntimeIndex(null, first));
++    const candidates = Array.from({ length: 10 }, (_, i) => JSON.stringify({ revision: 2, winner: i }));
++    const results = await Promise.allSettled(candidates.map((data) =>
++      withCreationLock(paths, (io) => io.writeRuntimeIndex(digest(first), data)),
++    ));
++    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
++    expect(results.filter((result) => result.status === "rejected")).toHaveLength(9);
++    const winner = results.findIndex((result) => result.status === "fulfilled");
++    expect(await withCreationLock(paths, (io) => io.readRuntimeIndex())).toBe(candidates[winner]!);
++  });
++
++  test("separates runtime indexes and snapshots between canonical projects", async () => {
++    const other = tempDir();
++    const otherPaths = new ProjectPaths(other.path);
++    const source = "export default 1;";
++    try {
++      await withCreationLock(paths, async (io) => {
++        await io.writeRuntimeBlob(digest(source), source);
++        await io.writeRuntimeIndex(null, "project-a");
++      });
++      await withCreationLock(otherPaths, async (io) => {
++        expect(await io.readRuntimeBlob(digest(source))).toBeNull();
++        expect(await io.readRuntimeIndex()).toBeNull();
++        await io.writeRuntimeIndex(null, "project-b");
++      });
++      expect(await withCreationLock(paths, (io) => io.readRuntimeIndex())).toBe("project-a");
++      expect(await withCreationLock(otherPaths, (io) => io.readRuntimeIndex())).toBe("project-b");
++    } finally {
++      other.cleanup();
++    }
++  });
++});
++
+ describe("reconciliation of keyed records", () => {
+   let dir: ReturnType<typeof tempDir>;
+   let store: Store;
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index a67f5091c35bb92335c9680a0114c4b91b5be503..76474c80818dc5a79bed5fa8a221d41e02d2ed16 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -3,7 +3,9 @@
+ package storelock
+ 
+ import (
++	"bytes"
+ 	"crypto/rand"
++	"crypto/sha256"
+ 	"encoding/hex"
+ 	"errors"
+ 	"fmt"
+@@ -12,21 +14,26 @@ import (
+ 	"path/filepath"
+ 	"sort"
+ 	"time"
++	"unicode/utf8"
+ 
+ 	"golang.org/x/sys/unix"
+ )
+ 
+ const (
+-	autoskDirName   = ".autosk"
+-	creationDirName = "creation"
+-	versionDirName  = "v1"
+-	tasksDirName    = "tasks"
+-	taskFileName    = "task.json"
+-	indexFileName   = "index.json"
+-	lockFileName    = "store.lock"
+-	maxFileBytes    = 16 * 1024 * 1024
+-	maxTaskEntries  = 100000
+-	lockOpenRetry   = 250 * time.Millisecond
++	autoskDirName       = ".autosk"
++	creationDirName     = "creation"
++	runtimeDirName      = "runtime"
++	versionDirName      = "v1"
++	blobsDirName        = "blobs"
++	blobFileSuffix      = ".blob"
++	tasksDirName        = "tasks"
++	taskFileName        = "task.json"
++	indexFileName       = "index.json"
++	lockFileName        = "store.lock"
++	maxFileBytes        = 16 * 1024 * 1024
++	maxRuntimeFileBytes = 8 * 1024 * 1024
++	maxTaskEntries      = 100000
++	lockOpenRetry       = 250 * time.Millisecond
+ )
+ 
+ var ErrTimeout = errors.New("store lock timeout")
+@@ -55,6 +62,16 @@ type ReadResult struct {
+ 	Data   []byte
+ }
+ 
++type runtimeHandles struct {
++	lock      *Lock
++	runtimeFD int
++	versionFD int
++	blobsFD   int
++	runtimeID fileIdentity
++	versionID fileIdentity
++	blobsID   fileIdentity
++}
++
+ func Acquire(root string, timeout time.Duration) (_ *Lock, err error) {
+ 	rootPath, err := filepath.Abs(root)
+ 	if err != nil {
+@@ -266,6 +283,207 @@ func (l *Lock) WriteTask(taskID string, data []byte) error {
+ 	return errors.Join(writeErr, closeErr)
+ }
+ 
++func (l *Lock) ReadRuntimeBlob(digest string) (_ ReadResult, err error) {
++	if err := validateRuntimeDigest(digest); err != nil {
++		return ReadResult{}, err
++	}
++	handles, err := l.openRuntimeBlobsDir(false)
++	if errors.Is(err, unix.ENOENT) {
++		if verifyErr := l.verifyLockPath(); verifyErr != nil {
++			return ReadResult{}, verifyErr
++		}
++		return ReadResult{Exists: false}, nil
++	}
++	if err != nil {
++		return ReadResult{}, err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return ReadResult{}, err
++	}
++	result, err := readRuntimeFile(handles.blobsFD, runtimeBlobFileName(digest), l.rootID)
++	if err != nil {
++		return ReadResult{}, err
++	}
++	if !result.Exists {
++		if err := handles.verify(); err != nil {
++			return ReadResult{}, err
++		}
++		return result, nil
++	}
++	if err := verifyRuntimeDataDigest(runtimeBlobFileName(digest), digest, result.Data); err != nil {
++		return ReadResult{}, err
++	}
++	if err := handles.verify(); err != nil {
++		return ReadResult{}, err
++	}
++	return result, nil
++}
++
++func (l *Lock) WriteRuntimeBlob(digest string, data []byte) (err error) {
++	if err := validateRuntimeDigest(digest); err != nil {
++		return err
++	}
++	if len(data) > maxRuntimeFileBytes {
++		return fmt.Errorf("runtime blob exceeds %d bytes", maxRuntimeFileBytes)
++	}
++	if !utf8.Valid(data) {
++		return errors.New("runtime blob data is not valid UTF-8")
++	}
++	if actual := runtimeDataDigest(data); actual != digest {
++		return fmt.Errorf("runtime blob digest mismatch: expected %s actual %s", digest, actual)
++	}
++	handles, err := l.openRuntimeBlobsDir(true)
++	if err != nil {
++		return err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return err
++	}
++	name := runtimeBlobFileName(digest)
++	existing, err := readRuntimeFile(handles.blobsFD, name, l.rootID)
++	if err != nil {
++		return err
++	}
++	if existing.Exists {
++		if err := verifyRuntimeDataDigest(name, digest, existing.Data); err != nil {
++			return err
++		}
++		if !bytes.Equal(existing.Data, data) {
++			return fmt.Errorf("runtime blob %s already exists with different data", digest)
++		}
++		return handles.verify()
++	}
++	if err := atomicCreateAt(handles.blobsFD, name, data, 0o600); err != nil {
++		if errors.Is(err, unix.EEXIST) {
++			raced, readErr := readRuntimeFile(handles.blobsFD, name, l.rootID)
++			if readErr != nil {
++				return errors.Join(fmt.Errorf("runtime blob appeared during write: %w", err), readErr)
++			}
++			if !raced.Exists {
++				return fmt.Errorf("runtime blob appeared during write: %w", err)
++			}
++			if digestErr := verifyRuntimeDataDigest(name, digest, raced.Data); digestErr != nil {
++				return digestErr
++			}
++			if bytes.Equal(raced.Data, data) {
++				return handles.verify()
++			}
++		}
++		return err
++	}
++	written, err := readRuntimeFile(handles.blobsFD, name, l.rootID)
++	if err != nil {
++		return err
++	}
++	if !written.Exists || !bytes.Equal(written.Data, data) {
++		return fmt.Errorf("runtime blob %s was not written intact", digest)
++	}
++	if err := verifyRuntimeDataDigest(name, digest, written.Data); err != nil {
++		return err
++	}
++	return handles.verify()
++}
++
++func (l *Lock) ReadRuntimeIndex() (_ ReadResult, err error) {
++	handles, err := l.openRuntimeVersionDir(false)
++	if errors.Is(err, unix.ENOENT) {
++		if verifyErr := l.verifyLockPath(); verifyErr != nil {
++			return ReadResult{}, verifyErr
++		}
++		return ReadResult{Exists: false}, nil
++	}
++	if err != nil {
++		return ReadResult{}, err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return ReadResult{}, err
++	}
++	result, err := readRuntimeFile(handles.versionFD, indexFileName, l.rootID)
++	if err != nil {
++		return ReadResult{}, err
++	}
++	if !result.Exists {
++		if err := handles.verify(); err != nil {
++			return ReadResult{}, err
++		}
++		return result, nil
++	}
++	if err := handles.verify(); err != nil {
++		return ReadResult{}, err
++	}
++	return result, nil
++}
++
++func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error) {
++	if expectedDigest != nil {
++		if err := validateRuntimeDigest(*expectedDigest); err != nil {
++			return fmt.Errorf("invalid expected runtime index digest: %w", err)
++		}
++	}
++	if len(data) > maxRuntimeFileBytes {
++		return fmt.Errorf("runtime index exceeds %d bytes", maxRuntimeFileBytes)
++	}
++	if !utf8.Valid(data) {
++		return errors.New("runtime index data is not valid UTF-8")
++	}
++	handles, err := l.openRuntimeVersionDir(true)
++	if err != nil {
++		return err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return err
++	}
++	current, err := readRuntimeFile(handles.versionFD, indexFileName, l.rootID)
++	if err != nil {
++		return err
++	}
++	if expectedDigest == nil {
++		if current.Exists {
++			return errors.New("runtime index already exists")
++		}
++	} else {
++		if !current.Exists {
++			return errors.New("runtime index missing for expected digest")
++		}
++		actual := runtimeDataDigest(current.Data)
++		if actual != *expectedDigest {
++			return fmt.Errorf("runtime index digest mismatch: expected %s actual %s", *expectedDigest, actual)
++		}
++	}
++	if expectedDigest == nil {
++		if err := atomicCreateAt(handles.versionFD, indexFileName, data, 0o600); err != nil {
++			if errors.Is(err, unix.EEXIST) {
++				return errors.New("runtime index already exists")
++			}
++			return err
++		}
++	} else {
++		if err := atomicWriteAt(handles.versionFD, indexFileName, data, 0o600); err != nil {
++			return err
++		}
++	}
++	written, err := readRuntimeFile(handles.versionFD, indexFileName, l.rootID)
++	if err != nil {
++		return err
++	}
++	if !written.Exists || !bytes.Equal(written.Data, data) {
++		return errors.New("runtime index was not written intact")
++	}
++	return handles.verify()
++}
++
+ func (l *Lock) verifyLockPath() error {
+ 	if err := verifyRootPath(l.rootPath, l.rootFD, l.rootID); err != nil {
+ 		return err
+@@ -282,6 +500,109 @@ func (l *Lock) verifyLockPath() error {
+ 	return verifyLockFilePath(l.versionFD, l.fd, l.lockID)
+ }
+ 
++func (l *Lock) openRuntimeVersionDir(create bool) (*runtimeHandles, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return nil, err
++	}
++	runtimeFD, runtimeID, err := l.openRuntimeDirAt(l.autoskFD, runtimeDirName, runtimeDirName+" dir", create)
++	if err != nil {
++		return nil, err
++	}
++	versionFD, versionID, err := l.openRuntimeDirAt(runtimeFD, versionDirName, "runtime version dir", create)
++	if err != nil {
++		closeErr := unix.Close(runtimeFD)
++		return nil, errors.Join(err, closeErr)
++	}
++	return &runtimeHandles{
++		lock:      l,
++		runtimeFD: runtimeFD,
++		versionFD: versionFD,
++		blobsFD:   -1,
++		runtimeID: runtimeID,
++		versionID: versionID,
++	}, nil
++}
++
++func (l *Lock) openRuntimeBlobsDir(create bool) (*runtimeHandles, error) {
++	handles, err := l.openRuntimeVersionDir(create)
++	if err != nil {
++		return nil, err
++	}
++	blobsFD, blobsID, err := l.openRuntimeDirAt(handles.versionFD, blobsDirName, "runtime blobs dir", create)
++	if err != nil {
++		closeErr := handles.close()
++		return nil, errors.Join(err, closeErr)
++	}
++	handles.blobsFD = blobsFD
++	handles.blobsID = blobsID
++	return handles, nil
++}
++
++func (l *Lock) openRuntimeDirAt(parentFD int, name string, label string, create bool) (int, fileIdentity, error) {
++	if create {
++		if err := unix.Mkdirat(parentFD, name, 0o700); err == nil {
++			if syncErr := unix.Fsync(parentFD); syncErr != nil {
++				return -1, fileIdentity{}, fmt.Errorf("fsync parent after mkdir %s: %w", name, syncErr)
++			}
++		} else if !errors.Is(err, unix.EEXIST) {
++			return -1, fileIdentity{}, err
++		}
++	}
++	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
++	if err != nil {
++		return -1, fileIdentity{}, err
++	}
++	id, err := requireRuntimeDir(fd, label, l.rootID)
++	if err != nil {
++		closeErr := unix.Close(fd)
++		return -1, fileIdentity{}, errors.Join(err, closeErr)
++	}
++	return fd, id, nil
++}
++
++func (h *runtimeHandles) close() error {
++	if h == nil {
++		return nil
++	}
++	blobsFD := h.blobsFD
++	versionFD := h.versionFD
++	runtimeFD := h.runtimeFD
++	h.blobsFD = -1
++	h.versionFD = -1
++	h.runtimeFD = -1
++	return errors.Join(closeFD(blobsFD), closeFD(versionFD), closeFD(runtimeFD))
++}
++
++func (h *runtimeHandles) verify() error {
++	if h == nil || h.lock == nil {
++		return errors.New("runtime handles are not open")
++	}
++	if err := h.lock.verifyLockPath(); err != nil {
++		return err
++	}
++	if err := verifyChildPath(h.lock.autoskFD, runtimeDirName, h.runtimeFD, h.runtimeID, "runtime dir"); err != nil {
++		return err
++	}
++	if _, err := requireRuntimeDir(h.runtimeFD, "runtime dir", h.lock.rootID); err != nil {
++		return err
++	}
++	if err := verifyChildPath(h.runtimeFD, versionDirName, h.versionFD, h.versionID, "runtime version dir"); err != nil {
++		return err
++	}
++	if _, err := requireRuntimeDir(h.versionFD, "runtime version dir", h.lock.rootID); err != nil {
++		return err
++	}
++	if h.blobsFD >= 0 {
++		if err := verifyChildPath(h.versionFD, blobsDirName, h.blobsFD, h.blobsID, "runtime blobs dir"); err != nil {
++			return err
++		}
++		if _, err := requireRuntimeDir(h.blobsFD, "runtime blobs dir", h.lock.rootID); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
+ func (l *Lock) openTasksDir(create bool) (int, bool, error) {
+ 	if create {
+ 		fd, err := ensureChildDir(l.autoskFD, tasksDirName, 0o755)
+@@ -441,6 +762,51 @@ func requireRegularSingleLink(fd int, label string) error {
+ 	return nil
+ }
+ 
++func requireRuntimeDir(fd int, label string, rootID fileIdentity) (fileIdentity, error) {
++	st, err := statFD(fd, label)
++	if err != nil {
++		return fileIdentity{}, err
++	}
++	if st.Mode&unix.S_IFMT != unix.S_IFDIR {
++		return fileIdentity{}, fmt.Errorf("%s is not a directory", label)
++	}
++	if uint64(st.Dev) != rootID.dev {
++		return fileIdentity{}, fmt.Errorf("%s is not on the project root device", label)
++	}
++	if err := requirePrivateFileOwnership(st, label); err != nil {
++		return fileIdentity{}, err
++	}
++	return fileIdentity{dev: uint64(st.Dev), ino: uint64(st.Ino)}, nil
++}
++
++// wrapCreateFinalError keeps the underlying errno comparable while naming the
++// filesystem requirement when no-replace rename is unsupported.
++func wrapCreateFinalError(err error) error {
++	// On Darwin ENOTSUP and EOPNOTSUPP are distinct values, so both are needed;
++	// on Linux they are the same errno and the extra check is a no-op.
++	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSYS) ||
++		errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
++		return fmt.Errorf("create final file: filesystem does not support no-replace rename: %w", err)
++	}
++	return fmt.Errorf("create final file: %w", err)
++}
++
++func requirePrivateFileOwnership(st unix.Stat_t, label string) error {
++	if st.Uid != uint32(unix.Geteuid()) {
++		return fmt.Errorf("%s is not owned by the current user", label)
++	}
++	if st.Mode&0o077 != 0 {
++		return fmt.Errorf("%s has unsafe mode %03o", label, st.Mode&0o777)
++	}
++	return nil
++}
++
++func readAllAndClose(r io.ReadCloser, maxBytes int64) ([]byte, error) {
++	data, readErr := io.ReadAll(io.LimitReader(r, maxBytes+1))
++	closeErr := r.Close()
++	return data, errors.Join(readErr, closeErr)
++}
++
+ func statFD(fd int, label string) (unix.Stat_t, error) {
+ 	var st unix.Stat_t
+ 	if err := unix.Fstat(fd, &st); err != nil {
+@@ -536,6 +902,21 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
+ }
+ 
+ func readRegularFile(parentFD int, name string) (ReadResult, error) {
++	return readRegularFileLimit(parentFD, name, maxFileBytes, fileIdentity{}, false)
++}
++
++func readRuntimeFile(parentFD int, name string, rootID fileIdentity) (ReadResult, error) {
++	result, err := readRegularFileLimit(parentFD, name, maxRuntimeFileBytes, rootID, true)
++	if err != nil || !result.Exists {
++		return result, err
++	}
++	if !utf8.Valid(result.Data) {
++		return ReadResult{}, fmt.Errorf("%s is not valid UTF-8", name)
++	}
++	return result, nil
++}
++
++func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID fileIdentity, runtimeFile bool) (ReadResult, error) {
+ 	if err := validateChildName(name); err != nil {
+ 		return ReadResult{}, err
+ 	}
+@@ -555,9 +936,21 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+ 		closeErr := unix.Close(fd)
+ 		return ReadResult{}, errors.Join(err, closeErr)
+ 	}
+-	if st.Size > maxFileBytes {
++	if runtimeFile {
++		// A zero rootID means the project root device was never identified, which is
++		// a reason to refuse the bytes rather than to skip the comparison.
++		if uint64(st.Dev) != rootID.dev {
++			closeErr := unix.Close(fd)
++			return ReadResult{}, errors.Join(fmt.Errorf("%s is not on the project root device", name), closeErr)
++		}
++		if err := requirePrivateFileOwnership(st, name); err != nil {
++			closeErr := unix.Close(fd)
++			return ReadResult{}, errors.Join(err, closeErr)
++		}
++	}
++	if st.Size > maxBytes {
+ 		closeErr := unix.Close(fd)
+-		return ReadResult{}, errors.Join(fmt.Errorf("%s exceeds %d bytes", name, maxFileBytes), closeErr)
++		return ReadResult{}, errors.Join(fmt.Errorf("%s exceeds %d bytes", name, maxBytes), closeErr)
+ 	}
+ 	file := os.NewFile(uintptr(fd), name)
+ 	if file == nil {
+@@ -566,20 +959,64 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+ 		}
+ 		return ReadResult{}, errors.New("wrap file fd")
+ 	}
+-	data, readErr := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
+-	closeErr := file.Close()
+-	if readErr != nil {
+-		return ReadResult{}, readErr
+-	}
+-	if closeErr != nil {
+-		return ReadResult{}, closeErr
++	data, err := readAllAndClose(file, maxBytes)
++	if err != nil {
++		return ReadResult{}, err
+ 	}
+-	if len(data) > maxFileBytes {
+-		return ReadResult{}, fmt.Errorf("%s exceeds %d bytes", name, maxFileBytes)
++	if int64(len(data)) > maxBytes {
++		return ReadResult{}, fmt.Errorf("%s exceeds %d bytes", name, maxBytes)
+ 	}
+ 	return ReadResult{Exists: true, Data: data}, nil
+ }
+ 
++func atomicCreateAt(parentFD int, name string, data []byte, mode uint32) (err error) {
++	if err := validateChildName(name); err != nil {
++		return err
++	}
++	tmp, err := randomTempName(name)
++	if err != nil {
++		return err
++	}
++	tmpCreated := false
++	fd, err := unix.Openat(parentFD, tmp, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, mode)
++	if err != nil {
++		return fmt.Errorf("open temp file: %w", err)
++	}
++	tmpCreated = true
++	defer func() {
++		if tmpCreated {
++			err = errors.Join(err, unix.Unlinkat(parentFD, tmp, 0))
++		}
++	}()
++	if err := requireRegularSingleLink(fd, "temp file"); err != nil {
++		closeErr := unix.Close(fd)
++		return errors.Join(err, closeErr)
++	}
++	if err := writeAll(fd, data); err != nil {
++		closeErr := unix.Close(fd)
++		return errors.Join(fmt.Errorf("write temp file: %w", err), closeErr)
++	}
++	if err := unix.Fchmod(fd, mode); err != nil {
++		closeErr := unix.Close(fd)
++		return errors.Join(fmt.Errorf("chmod temp file: %w", err), closeErr)
++	}
++	if err := unix.Fsync(fd); err != nil {
++		closeErr := unix.Close(fd)
++		return errors.Join(fmt.Errorf("fsync temp file: %w", err), closeErr)
++	}
++	if err := unix.Close(fd); err != nil {
++		return fmt.Errorf("close temp file: %w", err)
++	}
++	if err := renameNoReplaceAt(parentFD, tmp, name); err != nil {
++		return wrapCreateFinalError(err)
++	}
++	tmpCreated = false
++	if err := unix.Fsync(parentFD); err != nil {
++		return fmt.Errorf("fsync parent directory: %w", err)
++	}
++	return nil
++}
++
+ func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err error) {
+ 	if err := validateChildName(name); err != nil {
+ 		return err
+@@ -625,6 +1062,35 @@ func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err err
+ 	return nil
+ }
+ 
++func validateRuntimeDigest(digest string) error {
++	if len(digest) != 64 {
++		return fmt.Errorf("digest must be 64 lowercase hex characters")
++	}
++	for _, ch := range digest {
++		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
++			return fmt.Errorf("digest must be 64 lowercase hex characters")
++		}
++	}
++	return nil
++}
++
++func runtimeBlobFileName(digest string) string {
++	return digest + blobFileSuffix
++}
++
++func runtimeDataDigest(data []byte) string {
++	sum := sha256.Sum256(data)
++	return hex.EncodeToString(sum[:])
++}
++
++func verifyRuntimeDataDigest(label string, digest string, data []byte) error {
++	actual := runtimeDataDigest(data)
++	if actual != digest {
++		return fmt.Errorf("%s digest mismatch: expected %s actual %s", label, digest, actual)
++	}
++	return nil
++}
++
+ func randomTempName(base string) (string, error) {
+ 	token := make([]byte, 16)
+ 	if _, err := io.ReadFull(rand.Reader, token); err != nil {
+diff --git a/internal/storelock/rename_darwin.go b/internal/storelock/rename_darwin.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..fbb8ed28026d6d9d3ff02743259726cde734bc5a
+--- /dev/null
++++ b/internal/storelock/rename_darwin.go
+@@ -0,0 +1,9 @@
++//go:build darwin
++
++package storelock
++
++import "golang.org/x/sys/unix"
++
++func renameNoReplaceAt(parentFD int, oldName string, newName string) error {
++	return unix.RenameatxNp(parentFD, oldName, parentFD, newName, unix.RENAME_EXCL)
++}
+diff --git a/internal/storelock/rename_linux.go b/internal/storelock/rename_linux.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..9fb75534bf7108dda8e953e441641f5336d9fc4d
+--- /dev/null
++++ b/internal/storelock/rename_linux.go
+@@ -0,0 +1,9 @@
++//go:build linux
++
++package storelock
++
++import "golang.org/x/sys/unix"
++
++func renameNoReplaceAt(parentFD int, oldName string, newName string) error {
++	return unix.Renameat2(parentFD, oldName, parentFD, newName, unix.RENAME_NOREPLACE)
++}
+diff --git a/internal/storelock/runtime_test.go b/internal/storelock/runtime_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad14e7298dbdd9ade0252c828d0625562b09dcff
+--- /dev/null
++++ b/internal/storelock/runtime_test.go
+@@ -0,0 +1,573 @@
++package storelock
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"syscall"
++	"testing"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++func runtimeDigest(data []byte) string {
++	sum := sha256.Sum256(data)
++	return hex.EncodeToString(sum[:])
++}
++
++func withRuntimeLock(t *testing.T, root string) *Lock {
++	t.Helper()
++	lock, err := Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if err := lock.Close(); err != nil {
++			t.Fatal(err)
++		}
++	})
++	return lock
++}
++
++func TestRuntimeBlobWriteReadAndImmutableRetry(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	data := []byte("runtime blob\n")
++	digest := runtimeDigest(data)
++
++	if err := lock.WriteRuntimeBlob(digest, data); err != nil {
++		t.Fatal(err)
++	}
++	if err := lock.WriteRuntimeBlob(digest, data); err != nil {
++		t.Fatalf("same blob retry should be accepted: %v", err)
++	}
++	read, err := lock.ReadRuntimeBlob(digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !read.Exists || !bytes.Equal(read.Data, data) {
++		t.Fatalf("unexpected blob read: exists=%v data=%q", read.Exists, read.Data)
++	}
++
++	if err := lock.WriteRuntimeBlob(digest, []byte("changed\n")); err == nil {
++		t.Fatal("expected mismatched blob digest to be rejected")
++	}
++	read, err = lock.ReadRuntimeBlob(digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Equal(read.Data, data) {
++		t.Fatalf("blob was overwritten: %q", read.Data)
++	}
++}
++
++func TestAtomicCreateAtUsesNoReplaceRename(t *testing.T) {
++	root := t.TempDir()
++	dirFD, err := openDirNoFollow(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		if err := closeFD(dirFD); err != nil {
++			t.Fatal(err)
++		}
++	}()
++
++	if err := os.WriteFile(filepath.Join(root, "from.tmp"), []byte("new\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(root, "to.txt"), []byte("old\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := renameNoReplaceAt(dirFD, "from.tmp", "to.txt"); err == nil {
++		t.Fatal("expected no-replace rename to reject an existing destination")
++	}
++	got, err := os.ReadFile(filepath.Join(root, "to.txt"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(got) != "old\n" {
++		t.Fatalf("existing destination was replaced: %q", got)
++	}
++	if _, err := os.Stat(filepath.Join(root, "from.tmp")); err != nil {
++		t.Fatalf("source temp should remain after failed no-replace rename: %v", err)
++	}
++
++	if err := atomicCreateAt(dirFD, "created.txt", []byte("created\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	info, err := os.Stat(filepath.Join(root, "created.txt"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	st, ok := info.Sys().(*syscall.Stat_t)
++	if !ok {
++		t.Fatalf("unexpected stat type %T", info.Sys())
++	}
++	if st.Nlink != 1 {
++		t.Fatalf("created file has unsafe link count %d", st.Nlink)
++	}
++}
++
++func TestRuntimeBlobRejectsInvalidDigestAndOversizeBeforeCreatingRuntimeDir(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	data := []byte("runtime blob\n")
++
++	for _, digest := range []string{"", strings.Repeat("0", 63), strings.Repeat("g", 64), "../" + strings.Repeat("0", 64)} {
++		if err := lock.WriteRuntimeBlob(digest, data); err == nil {
++			t.Fatalf("expected digest %q to be rejected", digest)
++		}
++	}
++	if _, err := lock.ReadRuntimeBlob("../" + strings.Repeat("0", 64)); err == nil {
++		t.Fatal("expected traversal digest read to be rejected")
++	}
++	if _, err := os.Stat(filepath.Join(root, ".autosk", "runtime")); !errors.Is(err, os.ErrNotExist) {
++		t.Fatalf("runtime dir should not exist after invalid digests: %v", err)
++	}
++
++	tooLarge := bytes.Repeat([]byte("x"), maxRuntimeFileBytes+1)
++	if err := lock.WriteRuntimeBlob(runtimeDigest(tooLarge), tooLarge); err == nil {
++		t.Fatal("expected oversized blob to be rejected")
++	}
++	if _, err := os.Stat(filepath.Join(root, ".autosk", "runtime")); !errors.Is(err, os.ErrNotExist) {
++		t.Fatalf("runtime dir should not exist after oversize reject: %v", err)
++	}
++}
++
++func TestRuntimeBlobRejectsCorruptExistingHardlinkAndFIFO(t *testing.T) {
++	root := t.TempDir()
++	blobDir := filepath.Join(root, ".autosk", "runtime", "v1", "blobs")
++	if err := os.MkdirAll(blobDir, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	data := []byte("runtime blob\n")
++	digest := runtimeDigest(data)
++	blobPath := filepath.Join(blobDir, digest+".blob")
++	if err := os.WriteFile(blobPath, []byte("corrupt\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	lock := withRuntimeLock(t, root)
++	if err := lock.WriteRuntimeBlob(digest, data); err == nil {
++		t.Fatal("expected corrupt existing blob to be rejected")
++	}
++	if _, err := lock.ReadRuntimeBlob(digest); err == nil {
++		t.Fatal("expected corrupt existing blob read to be rejected")
++	}
++	if got, err := os.ReadFile(blobPath); err != nil || string(got) != "corrupt\n" {
++		t.Fatalf("corrupt blob changed: %q err=%v", got, err)
++	}
++
++	linkedDigest := runtimeDigest([]byte("linked\n"))
++	linkedPath := filepath.Join(blobDir, linkedDigest+".blob")
++	if err := os.WriteFile(linkedPath, []byte("linked\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Link(linkedPath, filepath.Join(blobDir, "other-hardlink")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.ReadRuntimeBlob(linkedDigest); err == nil || !strings.Contains(err.Error(), "unsafe link count") {
++		t.Fatalf("expected hardlinked blob to be rejected, got %v", err)
++	}
++
++	fifoDigest := runtimeDigest([]byte("fifo\n"))
++	if err := syscall.Mkfifo(filepath.Join(blobDir, fifoDigest+".blob"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan error, 1)
++	go func() {
++		_, readErr := lock.ReadRuntimeBlob(fifoDigest)
++		done <- readErr
++	}()
++	select {
++	case err := <-done:
++		if err == nil || !strings.Contains(err.Error(), "regular file") {
++			t.Fatalf("expected FIFO blob to be rejected, got %v", err)
++		}
++	case <-time.After(500 * time.Millisecond):
++		t.Fatal("ReadRuntimeBlob blocked on FIFO")
++	}
++}
++
++func TestRuntimeRejectsSymlinkIntermediateAndIndexLeaf(t *testing.T) {
++	root := t.TempDir()
++	target := t.TempDir()
++	if err := os.MkdirAll(filepath.Join(root, ".autosk"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(target, filepath.Join(root, ".autosk", "runtime")); err != nil {
++		t.Fatal(err)
++	}
++	lock := withRuntimeLock(t, root)
++	if err := lock.WriteRuntimeBlob(runtimeDigest([]byte("x")), []byte("x")); err == nil {
++		t.Fatal("expected symlink runtime dir to be rejected")
++	}
++
++	root = t.TempDir()
++	indexDir := filepath.Join(root, ".autosk", "runtime", "v1")
++	if err := os.MkdirAll(indexDir, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	outside := filepath.Join(root, "outside.json")
++	if err := os.WriteFile(outside, []byte("outside\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(indexDir, "index.json")); err != nil {
++		t.Fatal(err)
++	}
++	lock = withRuntimeLock(t, root)
++	if err := lock.WriteRuntimeIndex(nil, []byte("{}\n")); err == nil {
++		t.Fatal("expected symlink runtime index leaf to be rejected")
++	}
++	got, err := os.ReadFile(outside)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(got) != "outside\n" {
++		t.Fatalf("outside target changed: %q", got)
++	}
++}
++
++func TestRuntimeIndexCASAndConcurrentCreate(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	missing, err := lock.ReadRuntimeIndex()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if missing.Exists {
++		t.Fatal("expected missing runtime index")
++	}
++
++	first := []byte("{\"revision\":1}\n")
++	firstDigest := runtimeDigest(first)
++	if err := lock.WriteRuntimeIndex(nil, first); err != nil {
++		t.Fatal(err)
++	}
++	for _, expected := range []*string{nil, ptrRuntimeDigest(strings.Repeat("0", 64))} {
++		if err := lock.WriteRuntimeIndex(expected, []byte("{\"revision\":2}\n")); err == nil {
++			t.Fatal("expected stale or nil CAS to fail")
++		}
++	}
++	read, err := lock.ReadRuntimeIndex()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Equal(read.Data, first) {
++		t.Fatalf("stale CAS overwrote index: %q", read.Data)
++	}
++	if err := lock.WriteRuntimeIndex(&firstDigest, []byte("{\"revision\":2}\n")); err != nil {
++		t.Fatal(err)
++	}
++
++	root = t.TempDir()
++	var wg sync.WaitGroup
++	// Each goroutine sends the write result and, on failure, a deferred close error,
++	// so the channel must hold four sends or wg.Wait blocks until the binary timeout.
++	errs := make(chan error, 4)
++	for _, body := range [][]byte{[]byte("{\"writer\":1}\n"), []byte("{\"writer\":2}\n")} {
++		body := body
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			lock, err := Acquire(root, time.Second)
++			if err != nil {
++				errs <- err
++				return
++			}
++			defer func() {
++				if closeErr := lock.Close(); closeErr != nil {
++					errs <- closeErr
++				}
++			}()
++			errs <- lock.WriteRuntimeIndex(nil, body)
++		}()
++	}
++	wg.Wait()
++	close(errs)
++	successes := 0
++	failures := 0
++	for err := range errs {
++		if err == nil {
++			successes++
++		} else if strings.Contains(err.Error(), "already exists") {
++			failures++
++		} else {
++			t.Fatalf("unexpected concurrent CAS error: %v", err)
++		}
++	}
++	if successes != 1 || failures != 1 {
++		t.Fatalf("expected one CAS success and one failure, got success=%d failure=%d", successes, failures)
++	}
++}
++
++func TestRuntimeIndexRejectsInvalidExpectedAndOversizeBeforeCreatingRuntimeDir(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	for _, expected := range []string{"", strings.Repeat("0", 63), strings.Repeat("g", 64)} {
++		if err := lock.WriteRuntimeIndex(&expected, []byte("{}\n")); err == nil {
++			t.Fatalf("expected invalid expected digest %q to be rejected", expected)
++		}
++	}
++	if err := lock.WriteRuntimeIndex(nil, bytes.Repeat([]byte("x"), maxRuntimeFileBytes+1)); err == nil {
++		t.Fatal("expected oversized runtime index to be rejected")
++	}
++	if _, err := os.Stat(filepath.Join(root, ".autosk", "runtime")); !errors.Is(err, os.ErrNotExist) {
++		t.Fatalf("runtime dir should not exist after invalid index writes: %v", err)
++	}
++}
++
++func TestRuntimeRejectsInvalidUTF8BeforeCreatingRuntimeDir(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	invalid := []byte{0xff}
++	if err := lock.WriteRuntimeBlob(runtimeDigest(invalid), invalid); err == nil {
++		t.Fatal("expected invalid UTF-8 runtime blob to be rejected")
++	}
++	if err := lock.WriteRuntimeIndex(nil, invalid); err == nil {
++		t.Fatal("expected invalid UTF-8 runtime index to be rejected")
++	}
++	if _, err := os.Stat(filepath.Join(root, ".autosk", "runtime")); !errors.Is(err, os.ErrNotExist) {
++		t.Fatalf("runtime dir should not exist after invalid UTF-8 writes: %v", err)
++	}
++
++	root = t.TempDir()
++	blobDir := filepath.Join(root, ".autosk", "runtime", "v1", "blobs")
++	if err := os.MkdirAll(blobDir, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	digest := runtimeDigest(invalid)
++	if err := os.WriteFile(filepath.Join(blobDir, digest+".blob"), invalid, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	lock = withRuntimeLock(t, root)
++	if _, err := lock.ReadRuntimeBlob(digest); err == nil {
++		t.Fatal("expected invalid UTF-8 runtime blob read to be rejected")
++	}
++
++	root = t.TempDir()
++	indexDir := filepath.Join(root, ".autosk", "runtime", "v1")
++	if err := os.MkdirAll(indexDir, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(indexDir, "index.json"), invalid, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	lock = withRuntimeLock(t, root)
++	if _, err := lock.ReadRuntimeIndex(); err == nil {
++		t.Fatal("expected invalid UTF-8 runtime index read to be rejected")
++	}
++}
++
++func TestRuntimeRejectsUnsafeDirectoryMode(t *testing.T) {
++	root := t.TempDir()
++	runtimeDir := filepath.Join(root, ".autosk", "runtime")
++	if err := os.MkdirAll(filepath.Join(runtimeDir, "v1"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(runtimeDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	lock := withRuntimeLock(t, root)
++	if err := lock.WriteRuntimeIndex(nil, []byte("{}\n")); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected unsafe runtime dir mode to be rejected, got %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(runtimeDir, "v1", "index.json")); !errors.Is(err, os.ErrNotExist) {
++		t.Fatalf("runtime index should not be written through unsafe dir: %v", err)
++	}
++}
++
++func TestRuntimeHierarchyValidationRejectsDirectorySwap(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	handles, err := lock.openRuntimeVersionDir(true)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		if err := handles.close(); err != nil {
++			t.Fatal(err)
++		}
++	}()
++	versionPath := filepath.Join(root, ".autosk", "runtime", "v1")
++	if err := os.Rename(versionPath, versionPath+"-old"); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.MkdirAll(versionPath, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := handles.verify(); err == nil || !strings.Contains(err.Error(), "runtime version dir path changed") {
++		t.Fatalf("expected runtime version dir drift error, got %v", err)
++	}
++}
++
++func ptrRuntimeDigest(value string) *string {
++	return &value
++}
++
++func TestRuntimeRejectsGroupOrWorldAccessibleBlob(t *testing.T) {
++	root := t.TempDir()
++	blobDir := filepath.Join(root, ".autosk", "runtime", "v1", "blobs")
++	if err := os.MkdirAll(blobDir, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	data := []byte("runtime blob\n")
++	digest := runtimeDigest(data)
++	blobPath := filepath.Join(blobDir, digest+".blob")
++	if err := os.WriteFile(blobPath, data, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(blobPath, 0o644); err != nil {
++		t.Fatal(err)
++	}
++	lock := withRuntimeLock(t, root)
++	if _, err := lock.ReadRuntimeBlob(digest); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected world-readable blob to be rejected, got %v", err)
++	}
++	if err := lock.WriteRuntimeBlob(digest, data); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected write over world-readable blob to be rejected, got %v", err)
++	}
++	if got, err := os.ReadFile(blobPath); err != nil || !bytes.Equal(got, data) {
++		t.Fatalf("existing blob changed: %q err=%v", got, err)
++	}
++
++	groupData := []byte("group blob\n")
++	groupDigest := runtimeDigest(groupData)
++	groupPath := filepath.Join(blobDir, groupDigest+".blob")
++	if err := os.WriteFile(groupPath, groupData, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(groupPath, 0o660); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.ReadRuntimeBlob(groupDigest); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected group-writable blob to be rejected, got %v", err)
++	}
++	if err := lock.WriteRuntimeBlob(groupDigest, groupData); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected write over group-writable blob to be rejected, got %v", err)
++	}
++	if got, err := os.ReadFile(groupPath); err != nil || !bytes.Equal(got, groupData) {
++		t.Fatalf("existing group blob changed: %q err=%v", got, err)
++	}
++}
++
++func TestRuntimeRejectsGroupOrWorldAccessibleIndex(t *testing.T) {
++	root := t.TempDir()
++	lock := withRuntimeLock(t, root)
++	data := []byte("{\"generation\":1}\n")
++	if err := lock.WriteRuntimeIndex(nil, data); err != nil {
++		t.Fatal(err)
++	}
++	indexPath := filepath.Join(root, ".autosk", "runtime", "v1", indexFileName)
++	if err := os.Chmod(indexPath, 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.ReadRuntimeIndex(); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected world-readable index to be rejected, got %v", err)
++	}
++	digest := runtimeDigest(data)
++	if err := lock.WriteRuntimeIndex(ptrRuntimeDigest(digest), []byte("{\"generation\":2}\n")); err == nil ||
++		!strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected CAS write over world-readable index to be rejected, got %v", err)
++	}
++	if got, err := os.ReadFile(indexPath); err != nil || !bytes.Equal(got, data) {
++		t.Fatalf("existing index changed: %q err=%v", got, err)
++	}
++}
++
++// TestRequirePrivateFileOwnership exercises the stat predicate directly. A file owned by
++// another UID cannot be created without privileges the test suite does not have, so the
++// foreign-owner branch is proven at the predicate level only; the real-file scenarios above
++// prove the mode branch against files that exist in the project tree.
++func TestRequirePrivateFileOwnership(t *testing.T) {
++	euid := uint32(unix.Geteuid())
++	if err := requirePrivateFileOwnership(unix.Stat_t{Uid: euid, Mode: unix.S_IFREG | 0o600}, "blob"); err != nil {
++		t.Fatalf("private file owned by the current user should be accepted: %v", err)
++	}
++	if err := requirePrivateFileOwnership(unix.Stat_t{Uid: euid + 1, Mode: unix.S_IFREG | 0o600}, "blob"); err == nil ||
++		!strings.Contains(err.Error(), "not owned by the current user") {
++		t.Fatalf("expected foreign owner to be rejected, got %v", err)
++	}
++	if err := requirePrivateFileOwnership(unix.Stat_t{Uid: euid, Mode: unix.S_IFREG | 0o640}, "blob"); err == nil ||
++		!strings.Contains(err.Error(), "unsafe mode") {
++		t.Fatalf("expected group-readable mode to be rejected, got %v", err)
++	}
++}
++
++type failingReadCloser struct {
++	readErr  error
++	closeErr error
++}
++
++func (f failingReadCloser) Read([]byte) (int, error) { return 0, f.readErr }
++
++func (f failingReadCloser) Close() error { return f.closeErr }
++
++func TestReadAllAndCloseKeepsBothErrors(t *testing.T) {
++	readErr := errors.New("read failed")
++	closeErr := errors.New("close failed")
++	if _, err := readAllAndClose(failingReadCloser{readErr: readErr, closeErr: closeErr}, 16); err == nil ||
++		!errors.Is(err, readErr) || !errors.Is(err, closeErr) {
++		t.Fatalf("expected both read and close errors to be preserved, got %v", err)
++	}
++	if _, err := readAllAndClose(failingReadCloser{readErr: io.EOF, closeErr: closeErr}, 16); !errors.Is(err, closeErr) {
++		t.Fatalf("expected close error to be reported, got %v", err)
++	}
++}
++
++func TestRuntimeReadRejectsUnknownRootDevice(t *testing.T) {
++	// A zero rootID means the caller could not identify the project root device.
++	// Runtime reads must refuse rather than silently skip the comparison. This
++	// covers the zero case only: a mismatch between two non-zero devices needs a
++	// second filesystem, which the suite cannot mount.
++	root := t.TempDir()
++	data := []byte("runtime blob\n")
++	name := runtimeBlobFileName(runtimeDigest(data))
++	if err := os.WriteFile(filepath.Join(root, name), data, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	dirFD, err := openDirNoFollow(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		if err := closeFD(dirFD); err != nil {
++			t.Fatal(err)
++		}
++	}()
++	if _, err := readRuntimeFile(dirFD, name, fileIdentity{}); err == nil ||
++		!strings.Contains(err.Error(), "is not on the project root device") {
++		t.Fatalf("expected an unidentified root device to be rejected, got %v", err)
++	}
++}
++
++func TestCreateFinalErrorNamesUnsupportedNoReplaceRename(t *testing.T) {
++	// A filesystem without RENAME_NOREPLACE/RENAME_EXCL reports EINVAL, ENOSYS or
++	// ENOTSUP. Those were not reproducible on the development filesystems, so the
++	// mapping is proven here rather than through a real unsupported mount.
++	for _, errno := range []unix.Errno{unix.EINVAL, unix.ENOSYS, unix.ENOTSUP, unix.EOPNOTSUPP} {
++		err := wrapCreateFinalError(errno)
++		if !strings.Contains(err.Error(), "no-replace rename") {
++			t.Fatalf("expected %v to name the unsupported operation, got %v", errno, err)
++		}
++		if !errors.Is(err, errno) {
++			t.Fatalf("expected %v to stay unwrapped-comparable, got %v", errno, err)
++		}
++	}
++	// WriteRuntimeBlob distinguishes a lost create race by errors.Is(err, unix.EEXIST);
++	// that identity must survive the mapping.
++	exists := wrapCreateFinalError(unix.EEXIST)
++	if !errors.Is(exists, unix.EEXIST) {
++		t.Fatalf("expected EEXIST to remain detectable, got %v", exists)
++	}
++	if strings.Contains(exists.Error(), "no-replace rename") {
++		t.Fatalf("EEXIST must not be reported as an unsupported filesystem: %v", exists)
++	}
++}

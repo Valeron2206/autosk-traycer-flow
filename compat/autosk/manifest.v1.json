@@ -5,11 +5,15 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "f0916e4f430e1ae4e1e46d08fb6337077bb601a6",
+  "result_tree": "3868362cace85f3f3cc51cdcb55d8b1115a4ddab",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
       "sha256": "cacd54499a1b4facf0b7d6a1bfa6292bb0e7442937f0ae1eaa77300f12bf0e81"
+    },
+    {
+      "file": "patches/0002-runtime-snapshot-store.patch",
+      "sha256": "df90ffe3bed05da497fc7fc290b56826036c5ff31921c5151d23f921494ca17a"
     }
   ],
   "license": {
