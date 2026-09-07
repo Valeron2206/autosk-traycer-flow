@@ -1,12 +1,14 @@
 diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
-index 8e336d778ee7f775fae0573b7906bca8a06d5039..183d716d0ded96e2b2544270179993774edaa135 100644
+index 8e336d778ee7f775fae0573b7906bca8a06d5039..fc1d4710d4cc768a3668971fdf4e72de7331943e 100644
 --- a/daemon/core/src/engine/runtimeIdentity.ts
 +++ b/daemon/core/src/engine/runtimeIdentity.ts
-@@ -59,17 +59,16 @@ export function runtimeIdentityDecision(
+@@ -58,18 +58,17 @@ export function runtimeIdentityDecision(
+   if (pinned.state === "malformed") {
      return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}` };
    }
-   const current = registry.workflowIdentity(workflowName);
-+  const currentGraph = registry.workflowGraph(workflowName);
+-  const current = registry.workflowIdentity(workflowName);
++  // One lookup, so the two digests cannot be seen out of step with each other.
++  const current = registry.workflowAdmission(workflowName);
    if (pinned.state === "absent") {
      if (!current) return { ok: true };
      if (absent === "refuse") {
@@ -19,14 +21,22 @@ index 8e336d778ee7f775fae0573b7906bca8a06d5039..183d716d0ded96e2b254427017999377
        };
      }
 -    return { ok: true, pin: { workflow: workflowName, digest: current.digest } };
-+    return { ok: true, pin: makePin(workflowName, current.digest, currentGraph) };
++    return { ok: true, pin: makePin(workflowName, current.distribution.digest, current.graph) };
    }
    if (pinned.pin.workflow !== workflowName) {
      return {
-@@ -86,5 +85,41 @@ export function runtimeIdentityDecision(
-       reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.digest}, task pinned ${pinned.pin.digest}`,
-     };
+@@ -80,11 +79,46 @@ export function runtimeIdentityDecision(
+   if (!current) {
+     return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no identified distribution` };
    }
+-  if (current.digest !== pinned.pin.digest) {
++  if (current.distribution.digest !== pinned.pin.digest) {
+     return {
+       ok: false,
+-      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.digest}, task pinned ${pinned.pin.digest}`,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.distribution.digest}, task pinned ${pinned.pin.digest}`,
++    };
++  }
 +  // The declared shape is checked separately, because the distribution digest
 +  // cannot see it: a factory may build its steps from data outside its own tree,
 +  // and then the workflow changes while every byte of the distribution matches.
@@ -37,27 +47,26 @@ index 8e336d778ee7f775fae0573b7906bca8a06d5039..183d716d0ded96e2b254427017999377
 +  // absent pin a refusal. It is answered the same way, so the same restart
 +  // re-admits it.
 +  if (pinned.pin.graph === undefined) {
-+    if (currentGraph === undefined) return { ok: true };
 +    if (absent === "refuse") {
 +      return {
 +        ok: false,
 +        reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded workflow shape for this task${remedyFor(registry, workflowName)}`,
 +      };
 +    }
-+    return { ok: true, pin: makePin(workflowName, current.digest, currentGraph) };
++    return { ok: true, pin: makePin(workflowName, current.distribution.digest, current.graph) };
 +  }
-+  if (currentGraph !== undefined && currentGraph !== pinned.pin.graph) {
++  if (current.graph !== pinned.pin.graph) {
 +    return {
 +      ok: false,
-+      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} declares a different workflow now (shape ${currentGraph}, task pinned ${pinned.pin.graph})`,
-+    };
-+  }
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} declares a different workflow now (shape ${current.graph}, task pinned ${pinned.pin.graph})`,
+     };
+   }
    return { ok: true };
  }
 +
-+/** The pin to write: the graph rides along whenever the registry has one. */
-+function makePin(workflow: string, digest: string, graph: string | undefined): RuntimeIdentityPin {
-+  return graph === undefined ? { workflow, digest } : { workflow, digest, graph };
++/** The pin to write: a workflow with a distribution always has a shape too. */
++function makePin(workflow: string, digest: string, graph: string): RuntimeIdentityPin {
++  return { workflow, digest, graph };
 +}
 +
 +/** The actionable half of a refusal: which step re-admits the task. */
@@ -153,48 +162,74 @@ index 0000000000000000000000000000000000000000..fb90ee0ae7b36a657edb4e9206cd4a13
 +  return Buffer.from(value, "utf16le").toString("base64");
 +}
 diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
-index af04e54f19532406a7f2e0abd96c7a830b596423..7f56d31ad58ac7bd3c410ac51d61d20d955fc2db 100644
+index af04e54f19532406a7f2e0abd96c7a830b596423..f1fa98b1d3b9d60d0d7c1941e61c6d1fdf7feb62 100644
 --- a/daemon/core/src/extensions/registry.ts
 +++ b/daemon/core/src/extensions/registry.ts
-@@ -28,6 +28,7 @@ import {
+@@ -28,8 +28,22 @@ import {
    type WorkflowStepInfo,
  } from "@autosk/sdk";
  
 +import { workflowGraphDigest } from "./graph.ts";
  import type { DistributionIdentity } from "./identity.ts";
  
++/**
++ * What a registered workflow was admitted under: the bytes it came from and the
++ * shape it declared (issue #10). Recorded only for a workflow that has a
++ * distribution — a registry assembled without the loader stays honestly
++ * unidentified rather than half-identified by a value derived from an object in
++ * memory.
++ */
++export interface WorkflowAdmission {
++  distribution: DistributionIdentity;
++  /** The digest of the declared shape; see `extensions/graph.ts`. */
++  graph: string;
++}
++
  /** The result of validating a `(workflow, step)` position against the registry. */
-@@ -54,6 +55,13 @@ export class ExtensionRegistry {
+ export interface PositionValidation {
+   ok: boolean;
+@@ -53,14 +67,38 @@ export class ExtensionRegistry {
+    * unidentified, and the engine records them as unpinned rather than inventing
     * a digest for them.
     */
-   private readonly workflowIdentities = new Map<string, DistributionIdentity>();
-+  /**
-+   * The digest of what each workflow DECLARED (issue #10). Recorded only beside a
-+   * distribution identity: a registry assembled without the loader stays honestly
-+   * unidentified, exactly as it does for the distribution, rather than becoming
-+   * half-identified by a value derived from an object in memory.
-+   */
-+  private readonly workflowGraphs = new Map<string, string>();
+-  private readonly workflowIdentities = new Map<string, DistributionIdentity>();
++  private readonly workflowIdentities = new Map<string, WorkflowAdmission>();
    private readonly loadErrors: ExtensionLoadError[] = [];
  
    // -- distribution identity ----------------------------------------------
-@@ -63,6 +71,15 @@ export class ExtensionRegistry {
-     return this.workflowIdentities.get(name);
-   }
  
++  /**
++   * Everything a registered workflow is admitted under, or `undefined` when it has
++   * no distribution at all.
++   *
++   * The two digests live in ONE record on purpose. They are recorded together and
++   * are meaningless apart, and a caller that could see the distribution while the
++   * shape was missing would have to decide what that means — which is a decision
++   * with only one safe answer and several tempting ones. Holding them together
++   * makes "the shape is present exactly when the distribution is" a fact about the
++   * type rather than an agreement between two maps.
++   */
++  workflowAdmission(name: string): WorkflowAdmission | undefined {
++    return this.workflowIdentities.get(name);
++  }
++
+   /** The distribution a registered workflow was loaded from, if it is registered. */
+   workflowIdentity(name: string): DistributionIdentity | undefined {
+-    return this.workflowIdentities.get(name);
++    return this.workflowIdentities.get(name)?.distribution;
++  }
++
 +  /**
 +   * The digest of a registered workflow's declared shape, present exactly when
 +   * {@link workflowIdentity} is. It catches what the distribution digest cannot:
 +   * a factory that builds its steps from data outside its own tree.
 +   */
 +  workflowGraph(name: string): string | undefined {
-+    return this.workflowGraphs.get(name);
-+  }
-+
-   // -- diagnostics ---------------------------------------------------------
++    return this.workflowIdentities.get(name)?.graph;
+   }
  
-   /** The accumulated load diagnostics (a fresh copy). */
-@@ -100,6 +117,24 @@ export class ExtensionRegistry {
+   // -- diagnostics ---------------------------------------------------------
+@@ -100,6 +138,24 @@ export class ExtensionRegistry {
        this.recordDiagnostic(source, `registerWorkflow: "${name}" has no steps`);
        return;
      }
@@ -219,14 +254,16 @@ index af04e54f19532406a7f2e0abd96c7a830b596423..7f56d31ad58ac7bd3c410ac51d61d20d
      if (!(workflow.firstStep in workflow.steps)) {
        this.recordDiagnostic(
          source,
-@@ -115,7 +150,10 @@ export class ExtensionRegistry {
+@@ -115,7 +171,12 @@ export class ExtensionRegistry {
        }
      }
      this.workflows.set(name, workflow);
 -    if (identity) this.workflowIdentities.set(name, identity);
 +    if (identity) {
-+      this.workflowIdentities.set(name, identity);
-+      this.workflowGraphs.set(name, workflowGraphDigest(workflow));
++      this.workflowIdentities.set(name, {
++        distribution: identity,
++        graph: workflowGraphDigest(workflow),
++      });
 +    }
    }
  

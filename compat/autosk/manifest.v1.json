@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "9004b489ddb634e3d8eb09cda63cfec510a5e9d0",
+  "result_tree": "1211acbe4ebcdf3516b266702123391f1fa8005a",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -25,7 +25,7 @@
     },
     {
       "file": "patches/0005-workflow-shape-identity.patch",
-      "sha256": "c0e912032066616a4d1f3eccf3026a6e42487485ed77e374db1895175ff090d6"
+      "sha256": "e6e684a0685c5fadb7afe27f9bb4360a932bc9a4d21ec72a851b0800198b5e59"
     }
   ],
   "license": {
