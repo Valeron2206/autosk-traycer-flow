@@ -59,6 +59,8 @@
 
 По решению владельца SOLO_BUILD промежуточные панели разработки перенесены на финальную приёмку. Публикуются отдельные проверяемые изменения в порядке зависимостей roadmap #40. Первый runtime-компонент — [контракты создания дочерних задач](docs/runtime/creation-contracts.md) для #11/#38. Он не заменяет атомарный Store, production wiring или запуск workflows; эти обязательства остаются открытыми. Обязательные панели внутри продукта сохраняются.
 
+[Совместимая версия autosk](docs/runtime/autosk-compatibility.md) собирается из закреплённого upstream commit и проверяемой серии патчей этого репозитория. CI проверяет реальное создание задач, восстановление после остановки процесса и состав трёх бинарников. Это поставка предпосылки Store; полное расширение и подключение ограниченного SDK ещё не завершены.
+
 ## Контракт Epic planning ref
 
 `docs/contracts/epic-planning-ref.md` фиксирует issue #5: Planned Epic создаёт приватный `refs/autosk/epics/<epic_ref_key>/planning`, где key детерминированно выводится из project/Epic identity; каждый approved artifact публикуется отдельным first-parent descendant commit, а `select_next` видит kind завершённым только после read-back verified CAS. Recorded verdict/waiver без публикации не является planning PASS. Anchor rebuild не rewinds ref и использует descendant invalidation commit; target branch остаётся неизменной до будущего staging/final-CAS contract issues #8–#9.

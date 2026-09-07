@@ -1,0 +1,3 @@
+# Unified diffs require context prefixes before blank lines and Makefile tabs.
+# prepare-autosk.mjs checks whitespace in the reconstructed source separately.
+compat/autosk/patches/*.patch whitespace=-blank-at-eol,-space-before-tab
