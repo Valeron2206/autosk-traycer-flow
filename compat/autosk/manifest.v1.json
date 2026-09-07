@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "d8a8e4f2afe0788a9306c8d8f54d21401b99c9f7",
+  "result_tree": "3b46806c4e11609272c066ec6f6be9f0ec023a59",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -21,7 +21,7 @@
     },
     {
       "file": "patches/0004-creation-stress-budget.patch",
-      "sha256": "1a0aec37c03599375d74989c1c9da49ad89d3fd335d2bd18b38fd4e3911f4e6d"
+      "sha256": "1016de5802ed1ee8e38d8e2e526fbb51f89aa654cbd6876312898ce2410b3be5"
     }
   ],
   "license": {
