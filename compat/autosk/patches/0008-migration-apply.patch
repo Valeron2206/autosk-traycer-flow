@@ -294,10 +294,10 @@ index 8aff9eafb429c22048fdf4292807bb6cff27d440..096028119840131500896be35baff936
        const b = this.tasks.peek(bid);
 diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0c61fe0c7c35c2998ce15250d9dd2fb4f7d9116e
+index 0000000000000000000000000000000000000000..1f0fe21e07e5f37ef26a1a18a05517f006ed7384
 --- /dev/null
 +++ b/daemon/core/test/store.migration.test.ts
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,180 @@
 +/**
 + * Applying a migration (issue #10, criterion 5).
 + *
@@ -395,6 +395,31 @@ index 0000000000000000000000000000000000000000..0c61fe0c7c35c2998ce15250d9dd2fb4
 +    const stored = parseDistributionIndex(raw).migrations;
 +    expect(stored).toHaveLength(1);
 +    expect(stored[0]!.completed_at).toBeDefined();
++  });
++
++  test("a run that died after the moves, before sealing, is finished by the next", async () => {
++    // The other crash boundary. Phase 1 having completed is indistinguishable from
++    // every task already being on the target, so it is induced by moving them and
++    // leaving the receipt open — no simulation, the same state a dead process
++    // leaves behind.
++    const { store, root } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const receipt = await store.beginMigration(OLD, NEW, "wf", ids);
++    for (const id of ids) {
++      await store.setPosition(
++        id,
++        { status: "human", workflow: "wf", step: "review" },
++        { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: GRAPH } },
++      );
++    }
++    expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++
++    const sealed = await store.applyMigration(receipt.id);
++    expect(sealed.completed_at).toBeDefined();
++    for (const id of ids) expect(await digestOf(store, id)).toBe(NEW);
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).migrations).toHaveLength(1);
 +  });
 +
 +  test("applying twice changes nothing the second time", async () => {
