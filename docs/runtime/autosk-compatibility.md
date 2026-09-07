@@ -18,22 +18,21 @@ to the foreign upstream repository.
 `compat/autosk/manifest.v1.json` is the build input. It pins upstream commit
 `5163f00dd25005480dc7f3e40a0c40d18248857a`, its tree, the ordered patch hashes,
 the resulting tree, the original MIT license, and the build toolchains. Patches
-apply in the listed order: `0001-atomic-task-creation.patch` produces tree
-`f0916e4f430e1ae4e1e46d08fb6337077bb601a6`, `0002-runtime-snapshot-store.patch`
-produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
-`0003-runtime-identity-admission.patch` produces
-`9362d712d8785ec8fd8558a539abfa0ebc3efaf2`, `0004-creation-stress-budget.patch` produces
-`3b46806c4e11609272c066ec6f6be9f0ec023a59`, and finally
-`0005-workflow-shape-identity.patch` produces
-`1211acbe4ebcdf3516b266702123391f1fa8005a`, and finally
-`0006-distribution-reference-accounting.patch` produces
-`5c6657f1d11c0036972637fa3f0a41efd26cf9c0`, and finally
-`0007-migration-planning.patch` produces
-`89a47c9166c1ab45192a4d40179a4b57fd0ad620`, and finally
-`0008-migration-apply.patch` produces
-`74c05ee7f39a4d8669ad04cf3c26035129d7dda0`, and finally
-`0009-migration-rollback.patch` produces the current `result_tree`
-`c45f47eb3895072ffccf72c8456cd3a26f4ad281`.
+apply in the listed order, each producing the tree beside it:
+
+| Patch | Tree after it |
+| --- | --- |
+| `0001-atomic-task-creation.patch` | `f0916e4f430e1ae4e1e46d08fb6337077bb601a6` |
+| `0002-runtime-snapshot-store.patch` | `3868362cace85f3f3cc51cdcb55d8b1115a4ddab` |
+| `0003-runtime-identity-admission.patch` | `9362d712d8785ec8fd8558a539abfa0ebc3efaf2` |
+| `0004-creation-stress-budget.patch` | `3b46806c4e11609272c066ec6f6be9f0ec023a59` |
+| `0005-workflow-shape-identity.patch` | `1211acbe4ebcdf3516b266702123391f1fa8005a` |
+| `0006-distribution-reference-accounting.patch` | `5c6657f1d11c0036972637fa3f0a41efd26cf9c0` |
+| `0007-migration-planning.patch` | `89a47c9166c1ab45192a4d40179a4b57fd0ad620` |
+| `0008-migration-apply.patch` | `74c05ee7f39a4d8669ad04cf3c26035129d7dda0` |
+| `0009-migration-rollback.patch` | `c45f47eb3895072ffccf72c8456cd3a26f4ad281` |
+| `0010-session-candidate-identity.patch` | `9242baec104cfa14df183edd55bcfda2fb50a29f` — the current `result_tree` |
+
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 
@@ -124,7 +123,7 @@ snapshots therefore remain available when a new snapshot is installed.
 This layer stores bytes and compares their identities. It does not validate a
 workflow manifest, decide whether an installation is authorized, or pin a running
 task. Loader provenance, engine preflight, session identity and approved migration
-are separate remaining parts of issue #10. Retaining files without a deletion
+are separate parts of issue #10, carried by the later patches in this series. Retaining files without a deletion
 operation is not yet a complete installer, upgrade or rollback workflow. The
 complete filesystem threat model, including helper replacement, remains in #13.
 
