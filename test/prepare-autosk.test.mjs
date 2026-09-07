@@ -108,6 +108,21 @@ for (const [name, mutate, error] of [
   });
 }
 
+test("distributed patches are excluded from line-ending conversion", () => {
+  // Patch bytes are pinned by SHA-256, so a checkout that rewrites line endings
+  // (core.autocrlf=true) would break every hash in the series.
+  const { manifest } = loadAutoskManifest();
+  const repoRoot = path.resolve(import.meta.dirname, "..");
+  const paths = manifest.patches.map((patch) => path.posix.join("compat/autosk", patch.file));
+  const output = execFileSync("git", ["check-attr", "text", "--", ...paths], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const lines = output.trim().split("\n");
+  assert.equal(lines.length, manifest.patches.length);
+  for (const line of lines) assert.match(line, /: text: unset$/);
+});
+
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
   assert.equal(manifest.result_tree, "a274439d7c5c128ff14ab8148abd7f7860484ff5");
