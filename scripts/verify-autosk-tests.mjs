@@ -6,7 +6,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BUN_STATUSES = ["pass", "fail", "skip", "todo", "canceled"];
-const GO_ACTIONS = new Set(["start", "run", "pause", "cont", "output", "pass", "fail", "skip", "bench"]);
+const BUN_STATUS_SYMBOLS = new Map([
+  ["\u2713", "pass"],
+  ["\u2717", "fail"],
+  ["\u00BB", "skip"],
+  ["\u270E", "todo"],
+]);
+const GO_ACTIONS = new Set([
+  "start",
+  "run",
+  "pause",
+  "cont",
+  "output",
+  "pass",
+  "fail",
+  "skip",
+  "bench",
+  "build-output",
+  "build-fail",
+]);
 
 function emptyBunCounts() {
   return Object.fromEntries(BUN_STATUSES.map((status) => [status, 0]));
@@ -20,14 +38,46 @@ function stripAnsi(text) {
   return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
-function parseCount(value) {
+function parseCount(value, errors, suiteName, label) {
   const count = Number.parseInt(value, 10);
-  if (!Number.isSafeInteger(count) || count < 0) throw new Error(`invalid count ${value}`);
+  if (!Number.isSafeInteger(count) || count < 0) {
+    errors.push(`${suiteName}: invalid ${label} count ${value}`);
+    return 0;
+  }
   return count;
 }
 
-function sumCounts(counts) {
-  return Object.values(counts).reduce((total, count) => total + count, 0);
+function addCount(counts, status, count, errors, suiteName, label) {
+  if (count === 0) return;
+  const next = counts[status] + count;
+  if (!Number.isSafeInteger(next)) {
+    errors.push(`${suiteName}: ${label} count overflow`);
+    counts[status] = Number.MAX_SAFE_INTEGER;
+    return;
+  }
+  counts[status] = next;
+}
+
+function sumCounts(counts, errors, suiteName, label) {
+  let total = 0;
+  for (const count of Object.values(counts)) {
+    const next = total + count;
+    if (!Number.isSafeInteger(next)) {
+      errors.push(`${suiteName}: ${label} total overflow`);
+      return Number.MAX_SAFE_INTEGER;
+    }
+    total = next;
+  }
+  return total;
+}
+
+function parseBunBodyStatus(line) {
+  const parenthesized = line.match(/^\((pass|fail|skip|todo|canceled|cancelled)\)\s/);
+  if (parenthesized) return normalizeBunStatus(parenthesized[1]);
+  for (const [symbol, status] of BUN_STATUS_SYMBOLS.entries()) {
+    if (line.startsWith(`${symbol} `)) return status;
+  }
+  return null;
 }
 
 export function parseBunTestLog(text, suiteName = "bun") {
@@ -40,8 +90,8 @@ export function parseBunTestLog(text, suiteName = "bun") {
 
   const bodyCounts = emptyBunCounts();
   for (const { line } of nonEmpty) {
-    const bodyMatch = line.match(/^\((pass|fail|skip|todo|canceled|cancelled)\)\s/);
-    if (bodyMatch) bodyCounts[normalizeBunStatus(bodyMatch[1])] += 1;
+    const status = parseBunBodyStatus(line);
+    if (status) addCount(bodyCounts, status, 1, errors, suiteName, `body ${status}`);
   }
 
   let version = null;
@@ -66,8 +116,8 @@ export function parseBunTestLog(text, suiteName = "bun") {
     if (!finalMatch) {
       errors.push(`${suiteName}: missing or malformed final test summary`);
     } else {
-      tests = parseCount(finalMatch[1]);
-      files = parseCount(finalMatch[2]);
+      tests = parseCount(finalMatch[1], errors, suiteName, "reported tests");
+      files = parseCount(finalMatch[2], errors, suiteName, "reported files");
       duration = finalMatch[3];
     }
   }
@@ -83,13 +133,20 @@ export function parseBunTestLog(text, suiteName = "bun") {
         const status = normalizeBunStatus(statusMatch[2]);
         if (seenSummaryStatuses.has(status)) errors.push(`${suiteName}: duplicate ${status} summary line`);
         seenSummaryStatuses.add(status);
-        summaryCounts[status] += parseCount(statusMatch[1]);
+        addCount(
+          summaryCounts,
+          status,
+          parseCount(statusMatch[1], errors, suiteName, status),
+          errors,
+          suiteName,
+          status,
+        );
         continue;
       }
       const expectMatch = line.match(/^\s*(\d+)\s+expect\(\) calls\b/);
       if (expectMatch) {
         if (expectCalls !== null) errors.push(`${suiteName}: duplicate expect() summary line`);
-        expectCalls = parseCount(expectMatch[1]);
+        expectCalls = parseCount(expectMatch[1], errors, suiteName, "expect()");
         continue;
       }
       break;
@@ -101,8 +158,8 @@ export function parseBunTestLog(text, suiteName = "bun") {
   if (expectCalls === null) errors.push(`${suiteName}: missing expect() count in final summary`);
 
   if (tests > 0 || files > 0 || duration !== null) {
-    const summaryTotal = sumCounts(summaryCounts);
-    const bodyTotal = sumCounts(bodyCounts);
+    const summaryTotal = sumCounts(summaryCounts, errors, suiteName, "summary status");
+    const bodyTotal = sumCounts(bodyCounts, errors, suiteName, "body status");
     if (summaryTotal !== tests) {
       errors.push(`${suiteName}: summary status total ${summaryTotal} does not match reported tests ${tests}`);
     }
@@ -173,9 +230,11 @@ export function parseGoTestJsonl(text, suiteName = "go") {
   const failedTests = [];
   const skippedTests = [];
   const failedPackages = [];
+  const failedBuilds = [];
   const packagesWithNoTests = [];
   const skippedPackages = [];
   const packageFinal = {};
+  const buildActions = { output: 0, fail: 0 };
 
   const rawText = String(text).replace(/\r\n/g, "\n");
   if (rawText.trim() === "") errors.push(`${suiteName}: empty log`);
@@ -199,6 +258,23 @@ export function parseGoTestJsonl(text, suiteName = "go") {
     }
     if (typeof event.Action !== "string" || !GO_ACTIONS.has(event.Action)) {
       errors.push(`${suiteName}: line ${lineIndex + 1} has invalid Action`);
+      continue;
+    }
+    if (event.Action === "build-output" || event.Action === "build-fail") {
+      if (typeof event.ImportPath !== "string" || event.ImportPath === "") {
+        errors.push(`${suiteName}: line ${lineIndex + 1} has invalid ImportPath`);
+        continue;
+      }
+      if (event.Action === "build-output") {
+        if (typeof event.Output !== "string") {
+          errors.push(`${suiteName}: line ${lineIndex + 1} has invalid Output`);
+          continue;
+        }
+        buildActions.output += 1;
+      } else {
+        buildActions.fail += 1;
+        failedBuilds.push(event.ImportPath);
+      }
       continue;
     }
     if (typeof event.Package !== "string" || event.Package === "") {
@@ -285,6 +361,7 @@ export function parseGoTestJsonl(text, suiteName = "go") {
   if (individual.pass <= 0) errors.push(`${suiteName}: expected a positive individual pass count`);
   if (individual.fail !== 0) errors.push(`${suiteName}: ${individual.fail} failed individual test(s)`);
   if (packageActions.fail !== 0) errors.push(`${suiteName}: ${packageActions.fail} failed package(s)`);
+  if (buildActions.fail !== 0) errors.push(`${suiteName}: ${buildActions.fail} build failure(s)`);
   if (individual.skip !== 0) errors.push(`${suiteName}: ${individual.skip} skipped individual test(s)`);
 
   return {
@@ -292,6 +369,7 @@ export function parseGoTestJsonl(text, suiteName = "go") {
     status: errors.length === 0 ? "passed" : "failed",
     individual,
     packageActions,
+    buildActions,
     packagesWithNoTests,
     skippedPackages,
     packagesWithoutNoTestOutput: skippedPackages.filter((packageName) => !packages.get(packageName)?.sawNoTestFiles),
@@ -299,6 +377,7 @@ export function parseGoTestJsonl(text, suiteName = "go") {
     failedTests,
     skippedTests,
     failedPackages,
+    failedBuilds,
     incompletePackages,
     incompleteTests,
     errors,
@@ -319,6 +398,7 @@ export function verifyAutoskTests({ bunLog, goTestJsonl, piLog }) {
     todo: suites.bun.todo + suites.pi.todo,
     canceled: suites.bun.canceled + suites.pi.canceled,
     failedGoPackages: suites.go.packageActions.fail,
+    failedGoBuilds: suites.go.buildActions.fail,
     goPackagesWithNoTests: suites.go.packagesWithNoTests.length,
   };
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  parseBunTestLog,
   parseGoTestJsonl,
   runCli,
   verifyAutoskTests,
@@ -26,6 +27,36 @@ function bunLog({ pass = 1, fail = 0, skip = 0, todo = 0, canceled = 0 } = {}) {
   lines.push(` ${pass + fail} expect() calls`);
   lines.push(`Ran ${pass + fail + skip + todo + canceled} tests across 1 file. [1.00ms]`);
   return `${lines.join("\n")}\n`;
+}
+
+function bunColorPositiveLog() {
+  return [
+    "\x1B[0m\x1B[1mbun test \x1B[0m\x1B[2mv1.4.0 (34cbb9a40)\x1B[0m",
+    "\x1B[0m",
+    "format.test.ts:",
+    "\x1B[0m\x1B[32m\u2713\x1B[0m\x1B[0m\x1B[1m passes\x1B[0m \x1B[0m\x1B[2m[0.24ms\x1B[0m\x1B[2m]\x1B[0m",
+    "",
+    "\x1B[0m\x1B[32m 1 pass\x1B[0m",
+    "\x1B[0m\x1B[2m 0 fail\x1B[0m",
+    " 1 expect() calls",
+    "Ran 1 test across 1 file. \x1B[0m\x1B[2m[\x1B[1m47.00ms\x1B[0m\x1B[2m]\x1B[0m",
+    "",
+  ].join("\n");
+}
+
+function unsafeBunCountLog() {
+  return [
+    "bun test v1.4.0 (34cbb9a40)",
+    "",
+    "format.test.ts:",
+    "(pass) passes [0.03ms]",
+    "",
+    " 9007199254740992 pass",
+    " 0 fail",
+    " 1 expect() calls",
+    "Ran 1 test across 1 file. [4.00ms]",
+    "",
+  ].join("\n");
 }
 
 function goEvent(event) {
@@ -56,6 +87,47 @@ function goLog({ pass = 1, fail = 0, skip = 0, noTestPackage = true } = {}) {
   return text;
 }
 
+function goWarningLog() {
+  return goEvent({
+    Action: "build-output",
+    ImportPath: "example.invalid/logformat [example.invalid/logformat.test]",
+    Output: "# example.invalid/logformat [example.invalid/logformat.test]\n./warning.go:3:2: warning: \"autosk format probe warning\" [-W#warnings]\n",
+  })
+    + goEvent({ Action: "start", Package: "example.invalid/logformat" })
+    + goEvent({ Action: "run", Package: "example.invalid/logformat", Test: "TestPass" })
+    + goEvent({ Action: "pass", Package: "example.invalid/logformat", Test: "TestPass", Elapsed: 0 })
+    + goEvent({ Action: "pass", Package: "example.invalid/logformat", Elapsed: 0.397 });
+}
+
+function goBuildFailLog() {
+  return goEvent({
+    Action: "build-output",
+    ImportPath: "example.invalid/logformat [example.invalid/logformat.test]",
+    Output: "# example.invalid/logformat [example.invalid/logformat.test]\n",
+  })
+    + goEvent({
+      Action: "build-output",
+      ImportPath: "example.invalid/logformat [example.invalid/logformat.test]",
+      Output: "./broken.go:2:14: undefined: undefinedForProbe\n",
+    })
+    + goEvent({
+      Action: "build-fail",
+      ImportPath: "example.invalid/logformat [example.invalid/logformat.test]",
+    })
+    + goEvent({ Action: "start", Package: "example.invalid/logformat" })
+    + goEvent({
+      Action: "output",
+      Package: "example.invalid/logformat",
+      Output: "FAIL\texample.invalid/logformat [build failed]\n",
+    })
+    + goEvent({
+      Action: "fail",
+      Package: "example.invalid/logformat",
+      Elapsed: 0,
+      FailedBuild: "example.invalid/logformat [example.invalid/logformat.test]",
+    });
+}
+
 function messages(report) {
   return report.errors.join("\n");
 }
@@ -72,6 +144,57 @@ test("accepts complete Bun, Go and Pi reports with positive pass counts", () => 
   assert.equal(report.suites.go.packageActions.skip, 1);
   assert.deepEqual(report.suites.go.packagesWithNoTests, ["fixture/notests"]);
   assert.equal(report.totals.goPackagesWithNoTests, 1);
+});
+
+test("counts Bun colored unicode status symbols after stripping ANSI", () => {
+  const parsed = parseBunTestLog(bunColorPositiveLog());
+  assert.equal(parsed.status, "passed");
+  assert.equal(parsed.pass, 1);
+  assert.equal(parsed.tests, 1);
+  assert.deepEqual(parsed.bodyCounts, { pass: 1, fail: 0, skip: 0, todo: 0, canceled: 0 });
+});
+
+test("CLI writes a failure report for unsafe Bun counts", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "autosk-test-summary-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bunPath = path.join(root, "bun-test.log");
+  const goPath = path.join(root, "go-test.jsonl");
+  const piPath = path.join(root, "pi-test.log");
+  const outputPath = path.join(root, "build/evidence/test-summary.json");
+  writeFileSync(bunPath, unsafeBunCountLog());
+  writeFileSync(goPath, goLog({ pass: 1 }));
+  writeFileSync(piPath, bunLog({ pass: 1 }));
+
+  const originalError = console.error;
+  const errors = [];
+  console.error = (message) => errors.push(message);
+  try {
+    assert.equal(runCli(["--bun", bunPath, "--go", goPath, "--pi", piPath, "--output", outputPath]), 1);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(existsSync(outputPath), true);
+  const report = JSON.parse(readFileSync(outputPath, "utf8"));
+  assert.equal(report.status, "failed");
+  assert.match(messages(report), /bun: invalid pass count/);
+  assert.match(errors.join("\n"), /bun: invalid pass count/);
+});
+
+test("rejects Bun summary count totals that overflow safe integers", () => {
+  const parsed = parseBunTestLog([
+    "bun test v1.4.0 (34cbb9a40)",
+    "",
+    "fixture.test.ts:",
+    "(pass) passes [0.01ms]",
+    "",
+    " 9007199254740991 pass",
+    " 1 fail",
+    " 1 expect() calls",
+    "Ran 1 test across 1 file. [1.00ms]",
+    "",
+  ].join("\n"));
+  assert.equal(parsed.status, "failed");
+  assert.match(messages(parsed), /bun: summary status total overflow/);
 });
 
 test("rejects individual skips from Bun and Go reports", () => {
@@ -160,6 +283,36 @@ test("keeps Go package skips separate from individual skips", () => {
   assert.equal(parsed.individual.skip, 0);
   assert.equal(parsed.packageActions.skip, 1);
   assert.deepEqual(parsed.packagesWithNoTests, ["fixture/notests"]);
+});
+
+test("accepts Go build-output warnings with ImportPath", () => {
+  const parsed = parseGoTestJsonl(goWarningLog());
+  assert.equal(parsed.status, "passed");
+  assert.equal(parsed.individual.pass, 1);
+  assert.equal(parsed.packageActions.pass, 1);
+  assert.equal(parsed.buildActions.output, 1);
+  assert.equal(parsed.buildActions.fail, 0);
+});
+
+test("reports Go build failures separately from test results and no-test packages", () => {
+  const parsed = parseGoTestJsonl(goBuildFailLog());
+  assert.equal(parsed.status, "failed");
+  assert.equal(parsed.individual.fail, 0);
+  assert.equal(parsed.packageActions.fail, 1);
+  assert.equal(parsed.buildActions.output, 2);
+  assert.equal(parsed.buildActions.fail, 1);
+  assert.deepEqual(parsed.failedBuilds, ["example.invalid/logformat [example.invalid/logformat.test]"]);
+  assert.deepEqual(parsed.packagesWithNoTests, []);
+  assert.match(messages(parsed), /go: 1 build failure/);
+});
+
+test("rejects malformed Go build events", () => {
+  const parsed = parseGoTestJsonl(
+    goEvent({ Action: "build-output", ImportPath: "", Output: "warning\n" })
+      + goLog({ pass: 1, noTestPackage: false }),
+  );
+  assert.equal(parsed.status, "failed");
+  assert.match(messages(parsed), /go: line 1 has invalid ImportPath/);
 });
 
 test("rejects Go terminal events without lifecycle prerequisites", () => {
