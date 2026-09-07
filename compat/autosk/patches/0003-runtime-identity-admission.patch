@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
-index c204c4528a35793b5ade951a6d3f7c3ec56141c2..f3862012ebf4b8a7646da107662b8a349f774b43 100644
+index c204c4528a35793b5ade951a6d3f7c3ec56141c2..8a0a5c835d5a93f8ef57f86c0fce24dcf86acfe3 100644
 --- a/daemon/core/src/engine/engine.ts
 +++ b/daemon/core/src/engine/engine.ts
 @@ -32,6 +32,8 @@ import {
@@ -11,7 +11,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..f3862012ebf4b8a7646da107662b8a34
  import { TranscriptWriter } from "./transcript.ts";
  import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
  import { SessionRuntime } from "./session.ts";
-@@ -222,13 +224,34 @@ export class Engine implements SessionHost {
+@@ -222,13 +224,49 @@ export class Engine implements SessionHost {
        );
      }
  
@@ -26,6 +26,21 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..f3862012ebf4b8a7646da107662b8a34
 +    if (pinned.state === "malformed") {
 +      throw EngineError.conflict(
 +        `cannot enroll ${taskId}: ${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}`,
++      );
++    }
++    // Switching workflows re-pins because it restarts the task. That premise only
++    // holds at the target's first step: `enroll` accepts an explicit step, so a
++    // refused resume could otherwise be laundered by enrolling away and back to the
++    // very step the task was parked at, on new bytes.
++    if (
++      !sameWorkflow &&
++      pinned.state === "pinned" &&
++      target.step !== undefined &&
++      target.step !== wf.firstStep
++    ) {
++      throw EngineError.conflict(
++        `cannot enroll ${taskId}: ${EXTENSION_VERSION_MISMATCH}: a task pinned to ` +
++          `${pinned.pin.workflow} may only switch to ${workflowName} at its first step`,
 +      );
 +    }
 +    const decision = runtimeIdentityDecision(
@@ -47,7 +62,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..f3862012ebf4b8a7646da107662b8a34
      });
      this.emitTask(project, updated);
      this.kickScan();
-@@ -255,6 +278,13 @@ export class Engine implements SessionHost {
+@@ -255,6 +293,13 @@ export class Engine implements SessionHost {
      if (!wf) {
        throw EngineError.conflict(`cannot resume ${taskId}: workflow_missing: ${view.workflow}`);
      }
@@ -61,7 +76,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..f3862012ebf4b8a7646da107662b8a34
      const target: StepTarget = to ?? { step: view.step };
      // `runOnTransit` validates the target before invoking `onTransit`, so no
      // separate `validateTarget` call is needed here (ISSUE #9c).
-@@ -263,6 +293,7 @@ export class Engine implements SessionHost {
+@@ -263,6 +308,7 @@ export class Engine implements SessionHost {
      // a `{ status }` resume flips status without re-entering a step.
      const updated = await project.store.setPosition(taskId, positionFor(wf, view.step, target), {
        countVisit: "step" in target ? target.step : undefined,
@@ -69,7 +84,7 @@ index c204c4528a35793b5ade951a6d3f7c3ec56141c2..f3862012ebf4b8a7646da107662b8a34
      });
      this.emitTask(project, updated);
      this.kickScan();
-@@ -460,6 +491,21 @@ export class Engine implements SessionHost {
+@@ -460,6 +506,21 @@ export class Engine implements SessionHost {
        await this.park(project, taskId, `workflow_missing: ${row.workflow} has no step ${row.step}`);
        return;
      }
@@ -200,30 +215,42 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..451dd532ed48ae23afb8198dd555ada3
      //    concurrent scan sees the live session and skips re-dispatching. Entering
      //    a named step counts a visit (atomically with the position write, after
 diff --git a/daemon/core/src/extensions/discovery.ts b/daemon/core/src/extensions/discovery.ts
-index a61777778ac6b545988834f53aa257c43130317a..2f9ffbf3b8c4f632f66a7548b15c131a5217b245 100644
+index a61777778ac6b545988834f53aa257c43130317a..d4f558a0fa471777a82570d71e626e9368136885 100644
 --- a/daemon/core/src/extensions/discovery.ts
 +++ b/daemon/core/src/extensions/discovery.ts
-@@ -26,6 +26,14 @@ import { join, resolve } from "node:path";
+@@ -16,7 +16,7 @@
+  */
+ 
+ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+-import { join, resolve } from "node:path";
++import { dirname, join, resolve } from "node:path";
+ 
+ /**
+  * A discovered extension entry: the absolute module path to import, plus an
+@@ -26,6 +26,15 @@ import { join, resolve } from "node:path";
  export interface ExtensionEntry {
    /** Absolute path to the entry module to import. */
    entryPath: string;
 +  /**
-+   * Absolute path of the distribution this entry belongs to: the single file for
-+   * a bare `foo.ts`, otherwise the package or extension directory. This is the
-+   * unit whose bytes identify the extension (issue #10), and it is deliberately
-+   * NOT derived from `entryPath` — a package that declares `dist/index.js` would
-+   * otherwise be identified by `dist/` alone while its code imports `../lib`.
++   * Absolute path of the distribution this entry belongs to: the package directory,
++   * the extension subdirectory, or — for a bare `foo.ts` — the directory holding
++   * it, because such a file can import its siblings. This is the unit whose bytes
++   * identify the extension (issue #10), and it is deliberately NOT derived from
++   * `entryPath` — a package that declares `dist/index.js` would otherwise be
++   * identified by `dist/` alone while its code imports `../lib`.
 +   */
 +  root: string;
    /** Operator-facing label for `project.diagnostics` (path or package name). */
    source: string;
  }
-@@ -116,13 +124,13 @@ export function discoverDir(dir: string): ExtensionEntry[] {
+@@ -116,13 +125,15 @@ export function discoverDir(dir: string): ExtensionEntry[] {
        continue;
      }
      if (isFile && isExtensionFile(name)) {
 -      entries.push({ entryPath, source: entryPath });
-+      entries.push({ entryPath, root: entryPath, source: entryPath });
++      // A bare file's siblings are reachable through its relative imports, so the
++      // distribution is the directory it sits in, not the file alone.
++      entries.push({ entryPath, root: dir, source: entryPath });
        continue;
      }
      if (isDir) {
@@ -234,7 +261,7 @@ index a61777778ac6b545988834f53aa257c43130317a..2f9ffbf3b8c4f632f66a7548b15c131a
        }
      }
    }
-@@ -167,7 +175,7 @@ export function resolvePackageEntries(packagesDir: string, packageName: string):
+@@ -167,7 +178,7 @@ export function resolvePackageEntries(packagesDir: string, packageName: string):
        error: "installed but declares no extension (no package.json#autosk.extensions entry or index.ts/js)",
      };
    }
@@ -243,16 +270,18 @@ index a61777778ac6b545988834f53aa257c43130317a..2f9ffbf3b8c4f632f66a7548b15c131a
  }
  
  /**
-@@ -192,7 +200,7 @@ export function resolveLocalPath(absPath: string): PackageResolution {
+@@ -192,7 +203,9 @@ export function resolveLocalPath(absPath: string): PackageResolution {
      if (!isExtensionFile(absPath)) {
        return { entries: [], error: `local path is not a .ts/.js extension file: ${absPath}` };
      }
 -    return { entries: [{ entryPath: absPath, source: absPath }] };
-+    return { entries: [{ entryPath: absPath, root: absPath, source: absPath }] };
++    // As with a bare file in an extensions directory, a local file entry can import
++    // its siblings, so the directory holding it is the distribution.
++    return { entries: [{ entryPath: absPath, root: dirname(absPath), source: absPath }] };
    }
    if (st.isDirectory()) {
      const resolved = resolveExtensionEntries(absPath);
-@@ -202,7 +210,7 @@ export function resolveLocalPath(absPath: string): PackageResolution {
+@@ -202,7 +215,7 @@ export function resolveLocalPath(absPath: string): PackageResolution {
          error: "directory declares no extension (no package.json#autosk.extensions entry or index.ts/js)",
        };
      }
@@ -263,10 +292,10 @@ index a61777778ac6b545988834f53aa257c43130317a..2f9ffbf3b8c4f632f66a7548b15c131a
  }
 diff --git a/daemon/core/src/extensions/identity.ts b/daemon/core/src/extensions/identity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075be5abf2a7
+index 0000000000000000000000000000000000000000..0e289be61469125fad2fa490d56669bde0df17e3
 --- /dev/null
 +++ b/daemon/core/src/extensions/identity.ts
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,283 @@
 +/**
 + * Extension distribution identity (issue #10).
 + *
@@ -276,8 +305,11 @@ index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075b
 + * an extension's code changes underneath a running Epic.
 + *
 + * **What the digest covers.** Every regular file under the distribution ROOT, by
-+ * relative path and content digest, plus the entry module's path relative to
-+ * that root. The root is the unit discovery found — the package directory, the
++ * relative path and content digest, in depth-first order sorted by raw name at
++ * each level. It identifies the DISTRIBUTION, not one entry
++ * within it: a package declaring several entries has one identity, and the choice
++ * of entry is itself part of the tree (it is declared in the package manifest,
++ * which is hashed like any other file). The root is the unit discovery found — the package directory, the
 + * extension subdirectory, or the single file — and never merely the entry's own
 + * directory: a package declaring `dist/index.js` would otherwise be identified
 + * by `dist/` alone while its code imports `../lib`, which defeats the guarantee
@@ -351,7 +383,8 @@ index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075b
 + */
 +export type DistributionEntry =
 +  | { path: string; rawPath: Buffer; kind: "file"; sha256: string }
-+  | { path: string; rawPath: Buffer; kind: "link"; rawTarget: Buffer };
++  | { path: string; rawPath: Buffer; kind: "link"; rawTarget: Buffer }
++  | { path: string; rawPath: Buffer; kind: "dir" };
 +
 +/** The identity of the exact bytes an extension was loaded from. */
 +export interface DistributionIdentity {
@@ -359,7 +392,7 @@ index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075b
 +  root: string;
 +  /** Entry module path, relative to `root`, in POSIX form. */
 +  entry: string;
-+  /** Every member under `root`, sorted by relative path. */
++  /** Every member under `root`, depth first, sorted by raw name at each level. */
 +  entries: DistributionEntry[];
 +  /** Total bytes covered. */
 +  bytes: number;
@@ -479,6 +512,9 @@ index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075b
 +      continue;
 +    }
 +    if (st.isDirectory()) {
++      // Recorded in its own right, so two trees differing only by an empty
++      // directory do not share a digest.
++      out.push({ path: display, rawPath: childRaw, kind: "dir" });
 +      collect(root, childRaw, out, totals, limits);
 +      continue;
 +    }
@@ -495,21 +531,21 @@ index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075b
 +}
 +
 +/**
-+ * The canonical bytes the digest is taken over. Paths are the RAW filename bytes,
++ * The canonical bytes the digest is taken over — the distribution's members only;
++ * the entry is not part of it, so every entry of one package shares one identity.
++ * Paths are the RAW filename bytes,
 + * base64-encoded: filenames are arbitrary byte strings, so two distinct non-UTF-8
 + * names would both decode to U+FFFD and collide if the path were serialised as a
 + * decoded string. Link targets are encoded the same way, and each line carries an
 + * explicit kind tag so a link line can never be read as a file line.
 + */
-+export function canonicalDistribution(entry: Buffer, entries: DistributionEntry[]): string {
-+  const lines = [`entry ${entry.toString("base64")}`];
++export function canonicalDistribution(entries: DistributionEntry[]): string {
++  const lines: string[] = [];
 +  for (const item of entries) {
 +    const encodedPath = item.rawPath.toString("base64");
-+    lines.push(
-+      item.kind === "file"
-+        ? `file ${item.sha256} ${encodedPath}`
-+        : `link ${item.rawTarget.toString("base64")} ${encodedPath}`,
-+    );
++    if (item.kind === "file") lines.push(`file ${item.sha256} ${encodedPath}`);
++    else if (item.kind === "link") lines.push(`link ${item.rawTarget.toString("base64")} ${encodedPath}`);
++    else lines.push(`dir ${encodedPath}`);
 +  }
 +  return `${lines.join("\n")}\n`;
 +}
@@ -532,45 +568,54 @@ index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075b
 +  }
 +  const totals: Totals = { bytes: 0, dirs: 0 };
 +  const entries: DistributionEntry[] = [];
-+  const rootStat = lstatSync(root);
-+  let entryRaw: Buffer;
-+  if (rootStat.isDirectory()) {
-+    collect(root, Buffer.alloc(0), entries, totals, limits);
-+    entryRaw = entryAbsolute.subarray(root.length + 1);
-+  } else if (rootStat.isFile()) {
-+    // A bare `foo.ts` in an extensions directory is its own distribution; its
-+    // siblings belong to other extensions and must not change its identity.
-+    const lastSeparator = root.lastIndexOf(SEPARATOR_BYTE);
-+    entryRaw = root.subarray(lastSeparator + 1);
-+    entries.push({
-+      path: entryRaw.toString(),
-+      rawPath: entryRaw,
-+      kind: "file",
-+      sha256: digestFile(root, rootStat.size, totals, limits),
-+    });
-+  } else {
-+    throw new Error("distribution root is neither a file nor a directory");
++  if (!lstatSync(root).isDirectory()) {
++    throw new Error("distribution root is not a directory");
 +  }
++  collect(root, Buffer.alloc(0), entries, totals, limits);
++  const entryRaw = entryAbsolute.subarray(root.length + 1);
 +  if (!entries.some((item) => item.kind === "file" && item.rawPath.equals(entryRaw))) {
 +    throw new Error(`entry module ${entryRaw.toString()} is not a regular file in the distribution`);
 +  }
-+  const digest = createHash("sha256").update(canonicalDistribution(entryRaw, entries)).digest("hex");
++  const digest = createHash("sha256").update(canonicalDistribution(entries)).digest("hex");
 +  return { root: root.toString(), entry: entryRaw.toString(), entries, bytes: totals.bytes, digest };
 +}
 diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
-index 5e0a1c956c45730e24e2cf43510105e6f1793e70..d352114263ea56987e4d5dd6bcba5d198ebe23b6 100644
+index 5e0a1c956c45730e24e2cf43510105e6f1793e70..cb28d00ca31918674f4e14c9cc7caffc9562d3b9 100644
 --- a/daemon/core/src/extensions/loader.ts
 +++ b/daemon/core/src/extensions/loader.ts
-@@ -19,6 +19,8 @@
+@@ -17,8 +17,31 @@
+  */
+ 
  import { join } from "node:path";
++import { realpathSync } from "node:fs";
  import { pathToFileURL } from "node:url";
  
 +import { distributionIdentity, type DistributionIdentity } from "./identity.ts";
 +
++/**
++ * The distribution identity each entry URL was actually IMPORTED under, for the
++ * life of this process (issue #10).
++ *
++ * The digest is read from disk, but `import()` returns the cached namespace for a
++ * URL this process already imported — the documented restart-only semantics of
++ * editing an installed extension in place. Taking the identity from disk on a
++ * later build would therefore advertise a digest for code the process is not
++ * running: a task enrolled after a reload would be pinned to the on-disk digest
++ * while executing the cached module, and a daemon restart would then make that
++ * false pin match.
++ *
++ * So the identity is bound at first import and reused for the life of the process.
++ * The registry always describes the code it actually serves. A later build that
++ * finds different bytes records a diagnostic — the operator is told a restart is
++ * needed — and keeps the identity of what is running, which is also what upstream
++ * already does with the code itself.
++ */
++const importedIdentities = new Map<string, DistributionIdentity>();
++
  import type { AutoskAPI, ExtensionFactory, ExtensionLoadError } from "@autosk/sdk";
  
  import { AUTOSK_DIR } from "../store/paths.ts";
-@@ -117,7 +119,7 @@ export function resolveProjectEntries(
+@@ -117,7 +140,7 @@ export function resolveProjectEntries(
          seenNpm.add(classified.name);
          const res = resolvePackageEntries(packagesDir, classified.name);
          // Source label is the operator-facing settings entry (`npm:<spec>`).
@@ -579,7 +624,7 @@ index 5e0a1c956c45730e24e2cf43510105e6f1793e70..d352114263ea56987e4d5dd6bcba5d19
          if (res.error) packageDiagnostics.push({ source: entry, error: res.error });
        } else {
          if (seenLocal.has(classified.path)) continue; // project beats global
-@@ -169,7 +171,32 @@ function errMsg(e: unknown): string {
+@@ -169,10 +192,57 @@ function errMsg(e: unknown): string {
   * new code dropped a workflow/step parks the now-orphaned in-flight tasks to
   * `human` (skipping any with a live session, which self-heal once they settle).
   */
@@ -594,35 +639,64 @@ index 5e0a1c956c45730e24e2cf43510105e6f1793e70..d352114263ea56987e4d5dd6bcba5d19
 +  // workflow with no identity could not be pinned to a task, and an unpinnable
 +  // workflow silently loses the guarantee that a running Epic keeps its code.
 +  // A package that declares several entries shares one distribution, so its tree
-+  // is hashed once per registry build rather than once per entry.
-+  let cached = identities.get(entry.root);
++  // is hashed once per registry build rather than once per entry. The cache is
++  // keyed by the RESOLVED root, so two spellings of the same directory share one
++  // computation, and it lives exactly one build — `ext reload` builds a fresh
++  // registry and therefore re-reads the tree rather than serving a stale digest.
++  let key: string;
++  try {
++    key = realpathSync(entry.root);
++  } catch (e) {
++    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${errMsg(e)}`);
++    return;
++  }
++  let cached = identities.get(key);
 +  if (cached === undefined) {
 +    try {
 +      cached = distributionIdentity(entry.root, entry.entryPath);
 +    } catch (e) {
 +      cached = e instanceof Error ? e : new Error(errMsg(e));
 +    }
-+    identities.set(entry.root, cached);
++    identities.set(key, cached);
 +  }
 +  if (cached instanceof Error) {
 +    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${cached.message}`);
 +    return;
 +  }
-+  const identity = cached;
++  let identity = cached;
++
++  const url = pathToFileURL(entry.entryPath).href;
++  const imported = importedIdentities.get(url);
++  if (imported !== undefined && imported.digest !== identity.digest) {
++    registry.recordDiagnostic(
++      entry.source,
++      "distribution changed on disk after it was imported; this process keeps serving the " +
++        `code it already loaded until the daemon restarts (running ${imported.digest}, ` +
++        `on disk ${identity.digest})`,
++    );
++    identity = imported;
++  }
 +
    let mod: unknown;
    try {
-     mod = await import(pathToFileURL(entry.entryPath).href);
-@@ -185,7 +212,7 @@ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Pr
+-    mod = await import(pathToFileURL(entry.entryPath).href);
++    mod = await import(url);
+   } catch (e) {
+     registry.recordDiagnostic(entry.source, `failed to import: ${errMsg(e)}`);
+     return;
+@@ -184,8 +254,10 @@ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Pr
+     return;
    }
  
++  importedIdentities.set(url, identity);
++
    const api: AutoskAPI = {
 -    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow),
 +    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow, identity),
      registerAgent: (registration) => registry.addAgent(entry.source, registration),
    };
    try {
-@@ -212,8 +239,9 @@ export async function loadProjectRegistry(
+@@ -212,8 +284,9 @@ export async function loadProjectRegistry(
    for (const d of packageDiagnostics) registry.recordDiagnostic(d.source, d.error);
    // Sequential (not Promise.all): registration order is the priority order, so
    // first-registered wins a name collision deterministically.
@@ -852,10 +926,10 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..a2d82973f0dbac7d538bab56f6a3edeb
        const b = this.tasks.peek(bid);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..bc4feebf801c4f3c5e7518b3547b562753ce78d2
+index 0000000000000000000000000000000000000000..bf68d4e6a680830a45a000386a5c985af7410069
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,307 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -878,8 +952,8 @@ index 0000000000000000000000000000000000000000..bc4feebf801c4f3c5e7518b3547b5627
 +export default (api) => {
 +  api.registerWorkflow({
 +    name: "wf",
-+    firstStep: "review",
-+    steps: { review: { status: "human" } },
++    firstStep: "intake",
++    steps: { intake: { status: "human" }, review: { status: "human" } },
 +    // ${marker}
 +  });
 +};
@@ -928,61 +1002,102 @@ index 0000000000000000000000000000000000000000..bc4feebf801c4f3c5e7518b3547b5627
 +    expect(pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
 +  });
 +
-+  test("the same version with different bytes is refused on resume", async () => {
++  test("after an in-place edit the identity still describes the code being served", async () => {
++    // Bun keeps serving the module it already imported for a path, so taking the
++    // identity from disk on a rebuild would advertise a digest for code the process
++    // is not running — and a later restart would make that false pin match. The
++    // identity stays bound to what was imported, and the drift is reported.
 +    const p = await project("v1");
-+    const { engine } = makeEngine();
-+    engines.push(engine);
-+    await engine.addProject(p.project);
++    const importedDigest = p.project.registry.workflowIdentity("wf")!.digest;
 +
-+    const task = await p.store.createTask({ title: "drifting" });
-+    await engine.enroll(p.root, task.id, { workflow: "wf" });
-+    const pinnedDigest = p.project.registry.workflowIdentity("wf")!.digest;
-+
-+    // Edit the installed extension in place. Bun would keep serving the cached
-+    // module for this path, which is exactly why the digest is taken from the
-+    // bytes on disk instead of from the loaded object.
 +    writeExtension(p.root, "v2");
 +    const reloaded = await loadProjectRegistry(p.root);
-+    expect(reloaded.workflowIdentity("wf")!.digest).not.toBe(pinnedDigest);
-+    engine.setProjectRegistry(p.root, reloaded);
 +
-+    await expect(engine.resume(p.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++    expect(reloaded.workflowNames()).toEqual(["wf"]);
++    expect(reloaded.workflowIdentity("wf")!.digest).toBe(importedDigest);
++    expect(reloaded.diagnostics.map((d) => d.error).join("\n")).toMatch(
++      /distribution changed on disk after it was imported/,
++    );
++    expect(reloaded.diagnostics.map((d) => d.error).join("\n")).toContain(importedDigest);
++  });
 +
-+    const view = await p.store.taskView(task.id);
++  test("the same workflow name on different bytes is refused on resume", async () => {
++    // Two projects, two distributions, one workflow name. Swapping the registry
++    // gives a genuine digest mismatch without touching the module cache.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "drifting" });
++    await engine.enroll(a.root, task.id, { workflow: "wf" });
++    const pinnedDigest = a.project.registry.workflowIdentity("wf")!.digest;
++    const otherDigest = b.project.registry.workflowIdentity("wf")!.digest;
++    expect(otherDigest).not.toBe(pinnedDigest);
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    await expect(engine.resume(a.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++
++    const view = await a.store.taskView(task.id);
 +    expect(view.status).toBe("human");
 +    const pin = readRuntimeIdentityPin(view.metadata);
 +    expect(pin.state === "pinned" && pin.pin.digest).toBe(pinnedDigest);
 +  });
 +
++  test("a refused resume cannot be laundered by re-entering at the parked step", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "laundered" });
++    await engine.enroll(a.root, task.id, { workflow: "wf" });
++    await engine.resume(a.root, task.id, { step: "review" }); // parked away from the first step
++    engine.setProjectRegistry(a.root, b.project.registry);
++    await expect(engine.resume(a.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++
++    // Enrolling onto another workflow and back at the SAME step would be a resume
++    // in disguise, so it is refused; only a genuine restart at the first step
++    // re-pins.
++    b.project.registry.addWorkflow("test", {
++      name: "other",
++      firstStep: "start",
++      steps: { start: { status: "human" } },
++    });
++    await engine.enroll(a.root, task.id, { workflow: "other" });
++    await expect(
++      engine.enroll(a.root, task.id, { workflow: "wf", step: "review" }),
++    ).rejects.toThrow(/may only switch to wf at its first step/);
++  });
++
 +  test("dispatch parks a work task whose distribution changed under it", async () => {
-+    const p = await project("v1");
++    const a = await project("alpha");
++    const b = await project("beta");
 +    const first = makeEngine();
 +    engines.push(first.engine);
-+    await first.engine.addProject(p.project);
++    await first.engine.addProject(a.project);
 +
-+    const task = await p.store.createTask({ title: "running" });
-+    await first.engine.enroll(p.root, task.id, { workflow: "wf" });
-+    const pinnedDigest = p.project.registry.workflowIdentity("wf")!.digest;
++    const task = await a.store.createTask({ title: "running" });
++    await first.engine.enroll(a.root, task.id, { workflow: "wf" });
++    const pinnedDigest = a.project.registry.workflowIdentity("wf")!.digest;
++    const currentDigest = b.project.registry.workflowIdentity("wf")!.digest;
 +    first.engine.stop();
 +
-+    // The task is mid-flight when the installed code changes underneath it.
-+    await p.store.setPosition(task.id, { status: "work", workflow: "wf", step: "review" });
-+    writeExtension(p.root, "v2");
-+    const reloaded = await loadProjectRegistry(p.root);
-+    const currentDigest = reloaded.workflowIdentity("wf")!.digest;
-+    expect(currentDigest).not.toBe(pinnedDigest);
++    // The task is mid-flight when the registry it schedules over changes.
++    await a.store.setPosition(task.id, { status: "work", workflow: "wf", step: "review" });
 +
 +    const second = makeEngine();
 +    engines.push(second.engine);
-+    await second.engine.addProject({ ...p.project, registry: reloaded }); // kicks a scan → dispatch
++    await second.engine.addProject({ ...a.project, registry: b.project.registry });
 +
-+    // park() flips the status and then writes the comment naming the reason.
 +    await waitFor(async () =>
-+      (await p.store.listComments(task.id)).some((c) =>
++      (await a.store.listComments(task.id)).some((c) =>
 +        c.text === `extension_version_mismatch: wf is now ${currentDigest}, task pinned ${pinnedDigest}`,
 +      ),
 +    );
-+    expect((await p.store.taskView(task.id)).status).toBe("human");
++    expect((await a.store.taskView(task.id)).status).toBe("human");
 +  });
 +
 +  test("a task pinned to an identity the registry no longer identifies is refused", async () => {
@@ -1124,10 +1239,10 @@ index 0000000000000000000000000000000000000000..bc4feebf801c4f3c5e7518b3547b5627
 +});
 diff --git a/daemon/core/test/extensions.identity.test.ts b/daemon/core/test/extensions.identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2be5954a165967751ad8952219dc928024b217c7
+index 0000000000000000000000000000000000000000..8450f48dfb5798530c2ebb602bb2849f5e09ef97
 --- /dev/null
 +++ b/daemon/core/test/extensions.identity.test.ts
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,186 @@
 +import { describe, expect, test } from "bun:test";
 +import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 +import path from "node:path";
@@ -1179,11 +1294,24 @@ index 0000000000000000000000000000000000000000..2be5954a165967751ad8952219dc9280
 +    expect(distributionIdentity(root, entry).entry).toBe("dist/index.js");
 +  });
 +
-+  test("a single-file distribution is not disturbed by its siblings", () => {
-+    const dir = tree({ "one.ts": "export default () => {};\n", "two.ts": "export default () => {};\n" });
-+    const one = distributionIdentity(path.join(dir, "one.ts"), path.join(dir, "one.ts"));
-+    writeFileSync(path.join(dir, "two.ts"), "export default () => {}; // edited\n");
-+    expect(distributionIdentity(path.join(dir, "one.ts"), path.join(dir, "one.ts")).digest).toBe(one.digest);
++  test("a bare file is identified with its siblings, because it can import them", () => {
++    // Rooting a bare `foo.ts` at the file alone would repeat the package mistake at
++    // file granularity: `foo.ts` importing `./helper.ts` would run changed code
++    // under an unchanged digest. The directory holding it is the distribution, so
++    // a sibling edit moves the digest. Coarser, and sound.
++    const dir = tree({ "one.ts": "export default () => {};\n", "helper.ts": "export const v = 1;\n" });
++    const before = distributionIdentity(dir, path.join(dir, "one.ts")).digest;
++    writeFileSync(path.join(dir, "helper.ts"), "export const v = 2;\n");
++    expect(distributionIdentity(dir, path.join(dir, "one.ts")).digest).not.toBe(before);
++  });
++
++  test("an empty directory is part of the identity", () => {
++    const withoutDir = tree({ "index.ts": "export default () => {};\n" });
++    const withDir = tree({ "index.ts": "export default () => {};\n" });
++    mkdirSync(path.join(withDir, "empty"));
++    expect(distributionIdentity(withDir, path.join(withDir, "index.ts")).digest).not.toBe(
++      distributionIdentity(withoutDir, path.join(withoutDir, "index.ts")).digest,
++    );
 +  });
 +
 +  test("an in-root link is recorded by its target and re-pointing it changes the digest", () => {
@@ -1230,6 +1358,28 @@ index 0000000000000000000000000000000000000000..2be5954a165967751ad8952219dc9280
 +    symlinkSync("d/up/../..", path.join(root, "escape")); // not path.join: it would normalize the ".." away
 +    expect(() => distributionIdentity(root, path.join(root, "index.ts"))).toThrow(
 +      /escapes the distribution/,
++    );
++  });
++
++  test("a pnpm-style root whose node_modules links outside is refused, not silently partial", () => {
++    // pnpm resolves a package to `.pnpm/<name>@<ver>/node_modules/<name>` and fills
++    // its `node_modules/` with links to sibling stores outside that root. Those
++    // bytes cannot be covered, so the distribution is refused with a reason rather
++    // than identified as if the dependency were not there. This documents a real
++    // limitation of the layout, verified rather than argued.
++    const store = tempDir();
++    mkdirSync(path.join(store.path, "dep"), { recursive: true });
++    writeFileSync(path.join(store.path, "dep", "index.js"), "export const v = 1;\n");
++
++    const root = tree({
++      "index.js": "export default () => {};\n",
++      "package.json": '{"name":"p","autosk":{"extensions":["index.js"]}}\n',
++    });
++    mkdirSync(path.join(root, "node_modules"));
++    symlinkSync(path.join(store.path, "dep"), path.join(root, "node_modules", "dep"));
++
++    expect(() => distributionIdentity(root, path.join(root, "index.js"))).toThrow(
++      /symbolic link escapes the distribution: node_modules\/dep/,
 +    );
 +  });
 +
@@ -1280,10 +1430,10 @@ index 0000000000000000000000000000000000000000..2be5954a165967751ad8952219dc9280
 +  });
 +});
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d815192d299f7992e7fccd89803c341fd3ac74ae..3135e67584dfe69253a8151af3f6e81b624791e8 100644
+index d815192d299f7992e7fccd89803c341fd3ac74ae..a46c04426cd44f23b3ff57cb452d28eaf13aedb6 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -290,6 +290,76 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+@@ -290,6 +290,100 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
  or naming a package in `settings.json` *is* the consent. Treat these locations
  as you would any code you run.
  
@@ -1302,14 +1452,28 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..3135e67584dfe69253a8151af3f6e81b
 +package that declares `dist/index.js` would otherwise be identified by `dist/`
 +alone, while `dist/index.js` is free to `import("../lib/...")` — which is the
 +ordinary compiled-npm layout, so that mistake would defeat the guarantee silently
-+in the common case.
++in the common case. For the same reason a bare `foo.ts` in an extensions directory
++is identified together with the whole directory: it can import its siblings.
 +
-+This is what makes an in-place edit safe to detect. Bun keeps serving the cached
-+module for a path it has already imported, so editing an installed extension and
-+reloading gives you the *old* code until the process restarts (see
-+[The live-code hazard](#the-live-code-hazard)). The digest is taken from the
-+bytes on disk, not from the loaded object, so the drift is caught even when the
-+cache hides it.
++That last choice has a visible cost. Adding or editing *any* file in an extensions
++directory moves the identity of every bare-file extension in it, so after a restart
++tasks pinned to the previous identity are refused. On macOS this includes Finder
++writing `.DS_Store`. The coarser unit is deliberate — a narrower one would not
++cover what the code can actually import.
++
++The identity is bound at the **first import** of an entry and reused for the life
++of the process. That is not an optimisation, it is the only truthful choice: Bun
++keeps serving the module it already imported for a path, so editing an installed
++extension and reloading gives you the *old* code until the process restarts (see
++[The live-code hazard](#the-live-code-hazard)). Taking the digest from disk on a
++rebuild would advertise an identity for code the daemon is not running — and a
++later restart would make that false pin match. A rebuild that finds different
++bytes therefore keeps the identity of what is running and records a
++`project.diagnostics` entry telling the operator a restart is needed.
++
++After the restart the extension is read fresh, its identity is the new one, and a
++task still pinned to the old identity is refused — which is the protection working
++as intended.
 +
 +The whole directory is covered on purpose. A static import scan cannot see
 +computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
@@ -1332,13 +1496,23 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..3135e67584dfe69253a8151af3f6e81b
 +enough — `link -> d/up/../..` with `d/up -> ..` normalizes to `.` yet resolves
 +above the root.
 +
-+### What this does not cover
++### What this does not cover — read this before relying on it
 +
-+The identity covers the distribution's own tree. Code the extension resolves
-+**outside** that tree is not covered — most importantly an npm dependency hoisted
-+into a parent `node_modules`, which needs no symlink at all. This pins what an
-+update to the extension itself changes, which is the realistic `ext update` path;
-+it does not pin the dependency graph around it.
++The identity covers the distribution's **own tree**. Code the extension resolves
++**outside** that tree is not covered. Concretely:
++
++- An npm dependency **hoisted** into a parent `node_modules` is outside the
++  package root and needs no symlink at all. Updating that dependency under a
++  running Epic does not move the digest.
++- A **pnpm-style** layout, whose `node_modules/` is filled with links to sibling
++  stores, is refused outright with a `project.diagnostics` entry rather than
++  identified as if the dependency were absent.
++
++So "a task runs only on the extension bytes it was enrolled on" means the bytes of
++the extension's own distribution. It pins what an `ext update` to the extension
++itself changes — the realistic update path — and it does not pin the dependency
++graph around it. Extending the identity to the resolved dependency graph is
++separate work.
 +
 +Three more consequences worth knowing:
 +
@@ -1361,14 +1535,14 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..3135e67584dfe69253a8151af3f6e81b
  
  A broken extension never takes the daemon down. Each of these is caught,
 diff --git a/internal/changelog/CHANGELOG.md b/internal/changelog/CHANGELOG.md
-index 71e72204b8ae3cf8db7cac86660c0018724f96b8..1ed6dd5c3d2f306eab42a1d1aefcaebc7d5123c3 100644
+index 71e72204b8ae3cf8db7cac86660c0018724f96b8..0478a55c58d33a76c61732f252b0900278843361 100644
 --- a/internal/changelog/CHANGELOG.md
 +++ b/internal/changelog/CHANGELOG.md
 @@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
  ### Added
  - **create:** add idempotent creation binding receipts for automation (#11).
-+- **engine:** refuse to run a task whose extension bytes changed after enrollment (#10).
++- **engine:** refuse to run a task whose extension distribution changed after enrollment (#10).
  
  ### Fixed
  - **pi-agent:** gate prompts on pi's `agent_settled`, ending "Agent is already processing" session failures (#19).
