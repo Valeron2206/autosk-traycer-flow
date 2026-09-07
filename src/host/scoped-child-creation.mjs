@@ -104,8 +104,10 @@ export async function createGrantedChild(api, grant, slotId) {
     'creation_grant_binding_mismatch','SDK capability does not bind this exact grant');
   const slot=slots.find(s=>s.slot_id===slotId);
   demand(slot,'creation_slot_missing','Child slot is absent from the admitted grant');
-  const result=await api.create(slotId);
-  closedRecord(result,['outcome','task']);
+  const raw=await api.create(slotId);
+  closedRecord(raw,['outcome','task']);
+  closedRecord(raw.task,['id','status','workflow','step','title','description','blocked_by','creation_key','creation_binding_hash']);
+  const result=immutable(raw);
   demand(['created','existing_same_binding'].includes(result.outcome) && result.task?.creation_key===slot.input.creation_key
     && result.task?.creation_binding_hash===slot.input.creation_binding_hash,
   'creation_result_mismatch','SDK child result has the wrong outcome or creation identity');

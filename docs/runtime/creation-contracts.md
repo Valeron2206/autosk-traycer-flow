@@ -30,6 +30,13 @@ slot. It checks the exact grant binding and returned markers. `created` must be
 `new` and not enrolled; `existing_same_binding` may already have progressed, so
 its mutable lifecycle fields are not mistaken for the original creation intent.
 Unknown, malformed, absent or mismatched results fail with a machine error.
+The result task is a closed own-data-property record containing exactly `id`,
+`status`, `workflow`, `step`, `title`, `description`, `blocked_by`, `creation_key`
+and `creation_binding_hash`. Inherited fields, accessors, symbols, hidden fields
+and extra fields are rejected before reading task values. The result is copied
+and recursively frozen before marker checks or return, so later SDK-side mutation
+cannot change the validated result. This is a scoped result projection, not an
+unrestricted upstream TaskView.
 The supplied SDK object must originate from the trusted supervisor/Store; checking
 its shape in this library does not prove that provenance.
 

@@ -11,8 +11,8 @@ function input() {
       display:{title:'Reviewer',description:'Non-authoritative display text',blocked_by:[]},
     }))};
 }
-// These two tests use an explicit API double for output validation. Actual Store
-// and native persistence are exercised separately in test/upstream/creation-scope.
+// These tests use an explicit API double for output validation. They do not
+// exercise the actual Store or native persistence, which remain prerequisites.
 function apiDouble(grant, result) {
   const {slots,...binding}=grant;
   return {capabilities:{protocol:'autosk-scoped-task-creation/v1'},binding,slot_ids:slots.map(s=>s.slot_id),
@@ -107,4 +107,50 @@ test('blocker ordering is canonical and cannot create a different identity', () 
   const first = compileTaskCreationGrant(raw);
   raw.slots[0].display.blocked_by.reverse();
   assert.deepEqual(compileTaskCreationGrant(raw), first);
+});
+
+for(const [name,change] of [
+  ['inherited fields',task=>Object.create(task)],
+  ['inherited marker',task=>{
+    const inherited=Object.create({creation_key:task.creation_key});
+    Object.assign(inherited,task);delete inherited.creation_key;return inherited;
+  }],
+  ['symbol field',task=>({...task,[Symbol('extra')]:true})],
+  ['unexpected field',task=>({...task,extra:true})],
+  ['missing field',task=>{delete task.description;return task;}],
+  ['hidden field',task=>{Object.defineProperty(task,'description',{enumerable:false});return task;}],
+])test(`SDK result rejects ${name}`,async()=>{
+  const grant=compileTaskCreationGrant(input()),ok=await apiDouble(grant).create('gpt');
+  for(const outcome of ['created','existing_same_binding']){
+    const task=change(structuredClone(ok.task));
+    await assert.rejects(createGrantedChild(apiDouble(grant,{outcome,task}),grant,'gpt'),{code:'invalid_record'});
+  }
+});
+
+for(const field of ['id','status','workflow','step','title','description','blocked_by','creation_key','creation_binding_hash']){
+  test(`SDK task ${field} getter is rejected without invocation`,async()=>{
+    const grant=compileTaskCreationGrant(input()),ok=await apiDouble(grant).create('gpt');let calls=0;
+    for(const outcome of ['created','existing_same_binding']){
+      const task={...ok.task};
+      Object.defineProperty(task,field,{enumerable:true,get(){calls++;return ok.task[field];}});
+      await assert.rejects(createGrantedChild(apiDouble(grant,{outcome,task}),grant,'gpt'),{code:'invalid_record'});
+    }
+    assert.equal(calls,0);
+  });
+}
+
+test('SDK result is a detached immutable snapshot for fresh and progressed children',async()=>{
+  const grant=compileTaskCreationGrant(input());
+  for(const outcome of ['created','existing_same_binding']){
+    const raw=await apiDouble(grant).create('gpt');raw.outcome=outcome;
+    if(outcome==='existing_same_binding')Object.assign(raw.task,{status:'work',workflow:'panel',step:'review'});
+    raw.task.blocked_by=['ask-cccccc'];
+    const expected=structuredClone(raw);
+    const result=await createGrantedChild(apiDouble(grant,raw),grant,'gpt');
+    assert.notEqual(result,raw);assert.notEqual(result.task,raw.task);
+    raw.outcome='invalid';raw.task.creation_key='changed';raw.task.blocked_by.push('ask-dddddd');
+    assert.deepEqual(result,expected);
+    assert.ok(Object.isFrozen(result));assert.ok(Object.isFrozen(result.task));assert.ok(Object.isFrozen(result.task.blocked_by));
+    assert.throws(()=>{result.task.status='done';},TypeError);
+  }
 });
