@@ -20,7 +20,7 @@ to the foreign upstream repository.
 the resulting tree, the original MIT license, and the build toolchains. Patches
 apply in the listed order: `0001-atomic-task-creation.patch` produces tree
 `f0916e4f430e1ae4e1e46d08fb6337077bb601a6`, and `0002-runtime-snapshot-store.patch`
-produces the current `result_tree` `a274439d7c5c128ff14ab8148abd7f7860484ff5`.
+produces the current `result_tree` `8fec5e7b0e901e4e936fdd67610f1c17419718a2`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

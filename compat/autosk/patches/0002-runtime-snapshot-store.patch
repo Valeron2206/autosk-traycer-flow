@@ -579,7 +579,7 @@ index dfed4185e1619cd7698434397fbf79dd45b2646c..c39eb683d3ec41c814add367ef37c928
    let dir: ReturnType<typeof tempDir>;
    let store: Store;
 diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
-index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46ccf2b3931 100644
+index a67f5091c35bb92335c9680a0114c4b91b5be503..c7011d5ad499119ab4088b68dd0c0e64acd5c9b6 100644
 --- a/internal/storelock/lock_unix.go
 +++ b/internal/storelock/lock_unix.go
 @@ -3,7 +3,9 @@
@@ -964,7 +964,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
  func (l *Lock) openTasksDir(create bool) (int, bool, error) {
  	if create {
  		fd, err := ensureChildDir(l.autoskFD, tasksDirName, 0o755)
-@@ -441,6 +762,39 @@ func requireRegularSingleLink(fd int, label string) error {
+@@ -441,6 +762,48 @@ func requireRegularSingleLink(fd int, label string) error {
  	return nil
  }
  
@@ -983,6 +983,15 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
 +		return fileIdentity{}, err
 +	}
 +	return fileIdentity{dev: uint64(st.Dev), ino: uint64(st.Ino)}, nil
++}
++
++// wrapCreateFinalError keeps the underlying errno comparable while naming the
++// filesystem requirement when no-replace rename is unsupported.
++func wrapCreateFinalError(err error) error {
++	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.ENOTSUP) {
++		return fmt.Errorf("create final file: filesystem does not support no-replace rename: %w", err)
++	}
++	return fmt.Errorf("create final file: %w", err)
 +}
 +
 +func requirePrivateFileOwnership(st unix.Stat_t, label string) error {
@@ -1004,7 +1013,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
  func statFD(fd int, label string) (unix.Stat_t, error) {
  	var st unix.Stat_t
  	if err := unix.Fstat(fd, &st); err != nil {
-@@ -536,6 +890,21 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
+@@ -536,6 +899,21 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
  }
  
  func readRegularFile(parentFD int, name string) (ReadResult, error) {
@@ -1022,20 +1031,22 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
 +	return result, nil
 +}
 +
-+func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID fileIdentity, requirePrivate bool) (ReadResult, error) {
++func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID fileIdentity, runtimeFile bool) (ReadResult, error) {
  	if err := validateChildName(name); err != nil {
  		return ReadResult{}, err
  	}
-@@ -555,9 +924,19 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+@@ -555,9 +933,21 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
  		closeErr := unix.Close(fd)
  		return ReadResult{}, errors.Join(err, closeErr)
  	}
 -	if st.Size > maxFileBytes {
-+	if rootID.dev != 0 && uint64(st.Dev) != rootID.dev {
-+		closeErr := unix.Close(fd)
-+		return ReadResult{}, errors.Join(fmt.Errorf("%s is not on the project root device", name), closeErr)
-+	}
-+	if requirePrivate {
++	if runtimeFile {
++		// A zero rootID means the project root device was never identified, which is
++		// a reason to refuse the bytes rather than to skip the comparison.
++		if uint64(st.Dev) != rootID.dev {
++			closeErr := unix.Close(fd)
++			return ReadResult{}, errors.Join(fmt.Errorf("%s is not on the project root device", name), closeErr)
++		}
 +		if err := requirePrivateFileOwnership(st, name); err != nil {
 +			closeErr := unix.Close(fd)
 +			return ReadResult{}, errors.Join(err, closeErr)
@@ -1048,7 +1059,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
  	}
  	file := os.NewFile(uintptr(fd), name)
  	if file == nil {
-@@ -566,20 +945,64 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+@@ -566,20 +956,64 @@ func readRegularFile(parentFD int, name string) (ReadResult, error) {
  		}
  		return ReadResult{}, errors.New("wrap file fd")
  	}
@@ -1110,7 +1121,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
 +		return fmt.Errorf("close temp file: %w", err)
 +	}
 +	if err := renameNoReplaceAt(parentFD, tmp, name); err != nil {
-+		return fmt.Errorf("create final file: %w", err)
++		return wrapCreateFinalError(err)
 +	}
 +	tmpCreated = false
 +	if err := unix.Fsync(parentFD); err != nil {
@@ -1122,7 +1133,7 @@ index a67f5091c35bb92335c9680a0114c4b91b5be503..5910460fc5158eb4fbafcb3445b9a46c
  func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err error) {
  	if err := validateChildName(name); err != nil {
  		return err
-@@ -625,6 +1048,35 @@ func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err err
+@@ -625,6 +1059,35 @@ func atomicWriteAt(parentFD int, name string, data []byte, mode uint32) (err err
  	return nil
  }
  
@@ -1190,10 +1201,10 @@ index 0000000000000000000000000000000000000000..9fb75534bf7108dda8e953e441641f53
 +}
 diff --git a/internal/storelock/runtime_test.go b/internal/storelock/runtime_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..02ac357629688404ce440ae1fc6b6e7de535d73e
+index 0000000000000000000000000000000000000000..4aad6e93153819c90f8c3c077f1dbc9e103f9ad6
 --- /dev/null
 +++ b/internal/storelock/runtime_test.go
-@@ -0,0 +1,521 @@
+@@ -0,0 +1,571 @@
 +package storelock
 +
 +import (
@@ -1465,7 +1476,9 @@ index 0000000000000000000000000000000000000000..02ac357629688404ce440ae1fc6b6e7d
 +
 +	root = t.TempDir()
 +	var wg sync.WaitGroup
-+	errs := make(chan error, 2)
++	// Each goroutine sends the write result and, on failure, a deferred close error,
++	// so the channel must hold four sends or wg.Wait blocks until the binary timeout.
++	errs := make(chan error, 4)
 +	for _, body := range [][]byte{[]byte("{\"writer\":1}\n"), []byte("{\"writer\":2}\n")} {
 +		body := body
 +		wg.Add(1)
@@ -1713,5 +1726,53 @@ index 0000000000000000000000000000000000000000..02ac357629688404ce440ae1fc6b6e7d
 +	}
 +	if _, err := readAllAndClose(failingReadCloser{readErr: io.EOF, closeErr: closeErr}, 16); !errors.Is(err, closeErr) {
 +		t.Fatalf("expected close error to be reported, got %v", err)
++	}
++}
++
++func TestRuntimeReadRejectsUnknownRootDevice(t *testing.T) {
++	// A zero rootID means the caller could not identify the project root device.
++	// Runtime reads must refuse rather than silently skip the comparison.
++	root := t.TempDir()
++	data := []byte("runtime blob\n")
++	name := runtimeBlobFileName(runtimeDigest(data))
++	if err := os.WriteFile(filepath.Join(root, name), data, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	dirFD, err := openDirNoFollow(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		if err := closeFD(dirFD); err != nil {
++			t.Fatal(err)
++		}
++	}()
++	if _, err := readRuntimeFile(dirFD, name, fileIdentity{}); err == nil ||
++		!strings.Contains(err.Error(), "is not on the project root device") {
++		t.Fatalf("expected an unidentified root device to be rejected, got %v", err)
++	}
++}
++
++func TestCreateFinalErrorNamesUnsupportedNoReplaceRename(t *testing.T) {
++	// A filesystem without RENAME_NOREPLACE/RENAME_EXCL reports EINVAL, ENOSYS or
++	// ENOTSUP. Those were not reproducible on the development filesystems, so the
++	// mapping is proven here rather than through a real unsupported mount.
++	for _, errno := range []unix.Errno{unix.EINVAL, unix.ENOSYS, unix.ENOTSUP} {
++		err := wrapCreateFinalError(errno)
++		if !strings.Contains(err.Error(), "no-replace rename") {
++			t.Fatalf("expected %v to name the unsupported operation, got %v", errno, err)
++		}
++		if !errors.Is(err, errno) {
++			t.Fatalf("expected %v to stay unwrapped-comparable, got %v", errno, err)
++		}
++	}
++	// WriteRuntimeBlob distinguishes a lost create race by errors.Is(err, unix.EEXIST);
++	// that identity must survive the mapping.
++	exists := wrapCreateFinalError(unix.EEXIST)
++	if !errors.Is(exists, unix.EEXIST) {
++		t.Fatalf("expected EEXIST to remain detectable, got %v", exists)
++	}
++	if strings.Contains(exists.Error(), "no-replace rename") {
++		t.Fatalf("EEXIST must not be reported as an unsupported filesystem: %v", exists)
 +	}
 +}
