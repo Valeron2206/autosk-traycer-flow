@@ -1,8 +1,8 @@
 diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
-index 1588454b939d05da6ee33f214ea861119e005cfe..cd59b8cd451d43f40f9f956070ee67418cc0b496 100644
+index 1588454b939d05da6ee33f214ea861119e005cfe..65ea51568740a9812c26f7ff2b5cc7b9e49dc5c2 100644
 --- a/daemon/core/src/engine/migration.ts
 +++ b/daemon/core/src/engine/migration.ts
-@@ -184,3 +184,64 @@ function markStranded(impact: MigrationImpact[], targetSteps: ReadonlySet<string
+@@ -184,3 +184,67 @@ function markStranded(impact: MigrationImpact[], targetSteps: ReadonlySet<string
        : item,
    );
  }
@@ -28,11 +28,14 @@ index 1588454b939d05da6ee33f214ea861119e005cfe..cd59b8cd451d43f40f9f956070ee6741
 + *    saying it in those words rather than delegating avoids answering with the
 + *    forward planner's true and useless "that workflow already serves that digest".
 + *
-+ * It does NOT check that the tasks are still where the migration left them. A task
-+ * that has since moved to a third distribution is simply not part of this plan, and
-+ * the guarantee that such a task stops the work lives in `applyMigration`, which
-+ * refuses to continue when a task is no longer pinned where the receipt says. Listing
-+ * that here as something the planner does would describe a check that is not written.
++ * It does NOT check that the tasks are still where the migration left them, and the
++ * distinction matters more than it looks. A task that moved to a third distribution
++ * BEFORE planning is not part of this plan at all: it is absent from the impact, so
++ * absent from the receipt, so `applyMigration` never sees it — it is simply not this
++ * migration's business, and admission refuses it on its own account. A task that
++ * moves AFTER the receipt is opened is the case `applyMigration` catches, refusing to
++ * continue when a task is no longer pinned where the receipt says. Attributing the
++ * first to `applyMigration` would credit a guard with work it never does.
 + *
 + * The plan is returned as a migration whose `reverses` names the original, so the
 + * record cannot be mistaken for a fresh move in the opposite direction.
@@ -68,7 +71,7 @@ index 1588454b939d05da6ee33f214ea861119e005cfe..cd59b8cd451d43f40f9f956070ee6741
 +  return { ...plan, reverses: original.id };
 +}
 diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
-index f41a86da59aada749484ae9f33da232e1fcf7a20..5a14152fc71986f2cb8030b8cc4ed506e2038984 100644
+index f41a86da59aada749484ae9f33da232e1fcf7a20..e133173bf8145dff3f7e78cf5a69d2a3e1638439 100644
 --- a/daemon/core/src/store/distributions.ts
 +++ b/daemon/core/src/store/distributions.ts
 @@ -70,6 +70,17 @@ export interface MigrationReceipt {
@@ -81,9 +84,9 @@ index f41a86da59aada749484ae9f33da232e1fcf7a20..5a14152fc71986f2cb8030b8cc4ed506
 +   * Without it the history reads as two independent migrations in opposite
 +   * directions and a later reader cannot tell a rollback from a fresh move back.
 +   * It is part of the id derivation, so the claim cannot be altered after the fact
-+   * without the record failing to describe itself. That is immutability, not truth:
-+   * nothing checks that the named migration exists, exactly as nothing checks that
-+   * the digests name distributions that do.
++   * without the record failing to describe itself, and `beginMigration` refuses to
++   * write one naming a migration that does not exist. Both, because immutability
++   * alone would only fix a claim in place, true or not.
 +   */
 +  reverses?: string;
  }
@@ -163,7 +166,7 @@ index f41a86da59aada749484ae9f33da232e1fcf7a20..5a14152fc71986f2cb8030b8cc4ed506
  }
  
 diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
-index be0faf1e3ab45365b0ebed606abf2fba23452288..83d88745a8145bddec581e6d1fde7bad6e497497 100644
+index be0faf1e3ab45365b0ebed606abf2fba23452288..59664cab4ff5e0a30356c0fa17b46e7aaacddc94 100644
 --- a/daemon/core/src/store/store.ts
 +++ b/daemon/core/src/store/store.ts
 @@ -1277,6 +1277,7 @@ export class Store {
@@ -174,7 +177,7 @@ index be0faf1e3ab45365b0ebed606abf2fba23452288..83d88745a8145bddec581e6d1fde7bad
    ): Promise<MigrationReceipt> {
      // Validated here rather than only on read. A receipt the parser will refuse is
      // not merely a bad record: it is written into the one index every distribution
-@@ -1289,7 +1290,10 @@ export class Store {
+@@ -1289,11 +1290,24 @@ export class Store {
      if (unique.length === 0) throw new Error("migration names no tasks");
      if (unique.length !== tasks.length) throw new Error("migration names the same task twice");
  
@@ -186,7 +189,21 @@ index be0faf1e3ab45365b0ebed606abf2fba23452288..83d88745a8145bddec581e6d1fde7bad
      let receipt: MigrationReceipt | undefined;
      await withCreationLock(this.paths, async (io) => {
        const raw = await io.readRuntimeIndex();
-@@ -1308,6 +1312,7 @@ export class Store {
+       const index = parseDistributionIndex(raw);
++      // Checked here, where the index is already parsed and held under the lock.
++      // Two lines, atomic, and permanently valid: receipts are append-only — nothing
++      // in this store removes one — so a reference verified once cannot go stale.
++      // That is exactly why the digests are NOT checked the same way: a distribution
++      // can be forgotten, so an existence check on `from` or `to` would be true at
++      // the moment of writing and false afterwards, which is worse than not claiming
++      // it at all.
++      if (reverses !== undefined && !index.migrations.some((m) => m.id === reverses)) {
++        throw new Error(`migration ${reverses} does not exist, so nothing can reverse it`);
++      }
+       const existing = index.migrations.find((m) => m.id === id);
+       if (existing) {
+         receipt = existing;
+@@ -1308,6 +1322,7 @@ export class Store {
          tasks: unique,
          started_at: this.clock(),
        };
@@ -300,48 +317,52 @@ index 9ca565c356f82a926f2cde82750bc39a062049ec..2bc8b3dafdfd5e8a3853644049a86434
      // The point of the criterion. Not "no visible change" — the same bytes.
      const dir = tempDir();
 diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
-index 1877b7aed2b92b29ec45d7133602ffc0137466ad..2508a55cb46c7c691648127d7b0bb4527346a759 100644
+index 1877b7aed2b92b29ec45d7133602ffc0137466ad..c53c02e7fd3a730a405c3bb78a9bcac8184f7bf0 100644
 --- a/daemon/core/test/store.migration.test.ts
 +++ b/daemon/core/test/store.migration.test.ts
-@@ -269,6 +269,33 @@ describe("applying a migration", () => {
+@@ -269,6 +269,37 @@ describe("applying a migration", () => {
      );
    });
  
-+  test("a rollback receipt carries what it reverses, into the id and back out of the index", () => {
++  test("a rollback receipt carries what it reverses, and only a real migration can be reversed", async () => {
 +    // The store half of the rollback slice had no test at all. Dropping `reverses`
 +    // from the id derivation would still write, and then the whole index would stop
-+    // parsing — the exact failure the write-side validation exists to prevent, and
-+    // it passed every test.
-+    return (async () => {
-+      const { store, root } = await project();
-+      const a = await pinned(store, NEW);
-+      const original = migrationId(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    // parsing — the exact failure the write-side validation exists to prevent.
++    const { store, root } = await project();
++    const a = await pinned(store, OLD);
++    const forward = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.applyMigration(forward.id);
 +
-+      const plain = await store.beginMigration(NEW, OLD, GRAPH, "wf", [a]);
-+      const rollback = await store.beginMigration(NEW, OLD, GRAPH, "wf", [a], original);
-+      // The same direction and tasks, but one reverses something: different receipts.
-+      expect(rollback.id).not.toBe(plain.id);
-+      expect(rollback.id).toBe(migrationId(NEW, OLD, GRAPH, "wf", [a], original));
-+      expect(rollback.reverses).toBe(original);
++    const plain = await store.beginMigration(NEW, OLD, GRAPH, "wf", [a]);
++    const rollback = await store.beginMigration(NEW, OLD, GRAPH, "wf", [a], forward.id);
++    // Same direction and tasks, but one reverses something: different receipts.
++    expect(rollback.id).not.toBe(plain.id);
++    expect(rollback.id).toBe(migrationId(NEW, OLD, GRAPH, "wf", [a], forward.id));
++    expect(rollback.reverses).toBe(forward.id);
 +
-+      const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
-+      const stored = parseDistributionIndex(raw).migrations.find((m) => m.id === rollback.id);
-+      expect(stored?.reverses).toBe(original);
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const stored = parseDistributionIndex(raw).migrations.find((m) => m.id === rollback.id);
++    expect(stored?.reverses).toBe(forward.id);
 +
-+      await expect(store.beginMigration(NEW, OLD, GRAPH, "wf", [a], "not-a-digest")).rejects.toThrow(
-+        /reverses is not a lowercase sha256/,
-+      );
-+    })();
++    await expect(store.beginMigration(NEW, OLD, GRAPH, "wf", [a], "not-a-digest")).rejects.toThrow(
++      /reverses is not a lowercase sha256/,
++    );
++    // Naming a migration that was never recorded is refused, not merely fixed in
++    // place by the id: receipts are append-only, so a reference checked once stays
++    // true, which is why this can be checked here and the digests cannot.
++    await expect(store.beginMigration(NEW, OLD, GRAPH, "wf", [a], "5".repeat(64))).rejects.toThrow(
++      /does not exist, so nothing can reverse it/,
++    );
 +  });
 +
    test("a migration that was never opened cannot be applied", async () => {
      const { store } = await project();
      await expect(store.applyMigration(migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-x"]))).rejects.toThrow(
 diff --git a/docs/extensions.md b/docs/extensions.md
-index 561ba6d0a0ee5184fa7ee26c0b1948123219f6b6..c47964dd4c05bae285dd9a390663272a7ed92bd2 100644
+index 561ba6d0a0ee5184fa7ee26c0b1948123219f6b6..174993d8f7800353fb16d210e94acc19b662756c 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -558,9 +558,34 @@ not stick, and a rule that depends on remembering it is not a rule.
+@@ -558,9 +558,38 @@ not stick, and a rule that depends on remembering it is not a rule.
  
  What this moves is the whole pin — both halves — and not the code: the
  distribution's bytes are still not stored, so a migrated task runs on whatever the
@@ -366,12 +387,16 @@ index 561ba6d0a0ee5184fa7ee26c0b1948123219f6b6..c47964dd4c05bae285dd9a390663272a
 +migration is not reversed either: there is nothing settled to undo, and treating an
 +interrupted state as final is how a half-applied move becomes permanent.
 +
-+The reversal's receipt names the migration it reverses, and that name is part of the
-+receipt's id, so the claim cannot be altered after the fact without the record failing
-+to describe itself. It is not a claim that can be *verified*: nothing checks that the
-+named migration exists, any more than anything checks that the digests do. Without the
-+name at all, though, the history reads as two independent migrations in opposite
-+directions.
++The reversal's receipt names the migration it reverses. That name is part of the
++receipt's id, so it cannot be altered afterwards without the record failing to
++describe itself, and the migration it names must already be recorded — a rollback of
++something that never happened is refused. Both, because immutability alone would only
++fix a claim in place, true or not.
++
++The digests are deliberately not checked the same way, and the asymmetry has a reason
++rather than an excuse: a distribution can be forgotten, so "this digest exists" would
++be true when written and false later, which is worse than not claiming it. Receipts
++are append-only — nothing removes one — so a reference checked once stays true.
 +
 +Restoring the distribution's bytes is not part of this. The issue says plainly that
 +keeping old blobs does not by itself provide rollback, and this code does not pretend
