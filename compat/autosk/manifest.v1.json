@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "9242baec104cfa14df183edd55bcfda2fb50a29f",
+  "result_tree": "eda6fbcb67759d349777827e4ecb2b29c90e9937",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -46,6 +46,10 @@
     {
       "file": "patches/0010-session-candidate-identity.patch",
       "sha256": "5bdc4daaa73d9d3171450b5d09c6c11685bd8b78c47f71c807d1eeb51d5ef3f3"
+    },
+    {
+      "file": "patches/0011-concurrent-epics.patch",
+      "sha256": "9da9965c86b842b5bdefac25fa48424d7ced0d12985efc1b47f7997183f229bb"
     }
   ],
   "license": {
