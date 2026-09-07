@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/wierdbytes/autosk.git",
+    "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
+    "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
+  },
+  "result_tree": "f0916e4f430e1ae4e1e46d08fb6337077bb601a6",
+  "patches": [
+    {
+      "file": "patches/0001-atomic-task-creation.patch",
+      "sha256": "cacd54499a1b4facf0b7d6a1bfa6292bb0e7442937f0ae1eaa77300f12bf0e81"
+    }
+  ],
+  "license": {
+    "file": "LICENSE",
+    "sha256": "9e41dab5571001a0780c8963698f1207b012480706fb2ed8a04aba7db2c46495"
+  },
+  "toolchains": {
+    "node": "24",
+    "bun": "1.4.0",
+    "go": "1.25.0"
+  }
+}
