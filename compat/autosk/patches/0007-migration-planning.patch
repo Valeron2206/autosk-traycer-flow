@@ -1,9 +1,9 @@
 diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..aff127aaf388acf7c921745b26bb31a7cec5f089
+index 0000000000000000000000000000000000000000..1588454b939d05da6ee33f214ea861119e005cfe
 --- /dev/null
 +++ b/daemon/core/src/engine/migration.ts
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,186 @@
 +/**
 + * Deciding whether a set of tasks may be moved from one extension distribution to
 + * another (issue #10, criterion 4).
@@ -20,7 +20,6 @@ index 0000000000000000000000000000000000000000..aff127aaf388acf7c921745b26bb31a7
 +import type { ExtensionRegistry } from "../extensions/registry.ts";
 +import { readRuntimeIdentityPin } from "../store/metadata.ts";
 +import { OPEN_STATUSES, type StoredTask } from "../store/records.ts";
-+
 +
 +/** One task the migration would move, and whether it can be. */
 +export interface MigrationImpact {
@@ -67,12 +66,23 @@ index 0000000000000000000000000000000000000000..aff127aaf388acf7c921745b26bb31a7
 +  // a planner that silently planned around tasks it was not shown would answer a
 +  // question nobody asked. `Store.deleteDistribution` makes the same demand of
 +  // itself by refusing while any task on disk is unaccounted for.
-+  const { impact, unreadable } = affectedTasks(tasks, from, workflow);
++  const { impact, unreadable, split } = affectedTasks(tasks, from, workflow);
 +
++  // Two different states, and they are reported apart. One is "the pin cannot be
++  // read at all", found across the whole project; the other is "pin and position
++  // name different workflows", found only among tasks on this distribution. Sharing
++  // one sentence would tell an operator neither which happened nor where to look.
 +  if (unreadable.length > 0) {
 +    return {
 +      supported: false,
-+      reason: `cannot determine what ${unreadable.length} open task(s) require (${unreadable.slice(0, 3).join(", ")})`,
++      reason: `cannot read the pin of ${unreadable.length} open task(s) (${unreadable.slice(0, 3).join(", ")})`,
++      impact,
++    };
++  }
++  if (split.length > 0) {
++    return {
++      supported: false,
++      reason: `${split.length} open task(s) name different workflows in their pin and their position (${split.slice(0, 3).join(", ")})`,
 +      impact,
 +    };
 +  }
@@ -138,9 +148,10 @@ index 0000000000000000000000000000000000000000..aff127aaf388acf7c921745b26bb31a7
 +  tasks: readonly StoredTask[],
 +  from: string,
 +  workflow: string,
-+): { impact: MigrationImpact[]; unreadable: string[] } {
++): { impact: MigrationImpact[]; unreadable: string[]; split: string[] } {
 +  const impact: MigrationImpact[] = [];
 +  const unreadable: string[] = [];
++  const split: string[] = [];
 +  for (const task of tasks) {
 +    if (!OPEN_STATUSES.has(task.status)) continue;
 +    const pin = readRuntimeIdentityPin(task.metadata);
@@ -150,20 +161,25 @@ index 0000000000000000000000000000000000000000..aff127aaf388acf7c921745b26bb31a7
 +    }
 +    if (pin.state !== "pinned" || pin.pin.digest !== from) continue;
 +    // The pin says which workflow admitted the task; `task.step` belongs to
-+    // `task.workflow`. When those disagree the task is in a state no plan can
-+    // describe honestly — judging its step by the pinned workflow's steps is the
-+    // same error as judging another workflow's task, only narrower. It is reported
-+    // as undeterminable rather than guessed at.
-+    if (pin.pin.workflow !== workflow) continue;
-+    if (task.workflow !== workflow) {
-+      unreadable.push(task.id);
++    // `task.workflow`. Either half naming this migration while the other names
++    // something else describes a task no plan can speak about honestly — and it is
++    // checked in BOTH directions, because a guard that fires one way is not a guard,
++    // it is a coincidence. The mirror case matters concretely: a task standing in
++    // this workflow while pinned elsewhere would leave the old distribution
++    // referenced for ever after a migration that reported nothing to move.
++    const pinNames = pin.pin.workflow === workflow;
++    const positionNames = task.workflow === workflow;
++    if (pinNames !== positionNames) {
++      split.push(task.id);
 +      continue;
 +    }
++    if (!pinNames) continue;
 +    impact.push({ taskId: task.id, workflow: pin.pin.workflow, step: task.step });
 +  }
 +  impact.sort((a, b) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0));
 +  unreadable.sort();
-+  return { impact, unreadable };
++  split.sort();
++  return { impact, unreadable, split };
 +}
 +
 +/** Fills in each impact's blocker against the target workflow's steps. */
@@ -196,33 +212,31 @@ index b817784ad6235ab23fb6384ed18aa3a89e9d9da4..6749975239ac92c3d36bd02d20e06467
    id: string;
    title: string;
 diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
-index 6ebd7ec532a1513fd0a6999ca098800a0328c334..916b0fc1bffdfa0a4421ff90f8393f9ea546d9d0 100644
+index 6ebd7ec532a1513fd0a6999ca098800a0328c334..8aff9eafb429c22048fdf4292807bb6cff27d440 100644
 --- a/daemon/core/src/store/store.ts
 +++ b/daemon/core/src/store/store.ts
-@@ -70,13 +70,15 @@ import {
+@@ -70,14 +70,11 @@ import {
  } from "./metadata.ts";
  import { consoleLogger, type Logger } from "./logger.ts";
  import { ProjectPaths } from "./paths.ts";
 -import { parseTask, serializeTask, type StoredTask } from "./records.ts";
-+import { parseTask, serializeTask, type StoredTask,
-+  OPEN_STATUSES,
-+} from "./records.ts";
++import { OPEN_STATUSES, parseTask, serializeTask, type StoredTask } from "./records.ts";
  import { SessionStore } from "./sessionStore.ts";
  import { TaskStore } from "./taskStore.ts";
  import { TasksWatcher, type WatcherOptions } from "./watcher.ts";
  
- /** Statuses that count as an *open* blocker (anything not terminal). */
+-/** Statuses that count as an *open* blocker (anything not terminal). */
 -const OPEN_STATUSES: ReadonlySet<TaskStatus> = new Set(["new", "work", "human"]);
-+
- 
+-
  /**
   * The minimal task projection the scheduler needs (plan §3.7(3)). Deliberately
+  * lighter than {@link TaskView}: NO `comment_count` (a per-task `comments.jsonl`
 diff --git a/daemon/core/test/engine.migration.test.ts b/daemon/core/test/engine.migration.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d0d8bf24f88aa76609c8c7e3aed31a0534472066
+index 0000000000000000000000000000000000000000..5bb4d4c4d7c4059bcf5105e671c2dc99650ff8a8
 --- /dev/null
 +++ b/daemon/core/test/engine.migration.test.ts
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,255 @@
 +/**
 + * Migration planning (issue #10, criterion 4).
 + *
@@ -405,7 +419,9 @@ index 0000000000000000000000000000000000000000..d0d8bf24f88aa76609c8c7e3aed31a05
 +      "wf",
 +    );
 +    expect(plan.supported).toBe(false);
-+    expect(plan).toMatchObject({ reason: expect.stringContaining("cannot determine what") });
++    // Reported apart from the split state: one says the pin is unreadable, the
++    // other says pin and position disagree.
++    expect(plan).toMatchObject({ reason: expect.stringContaining("cannot read the pin") });
 +    // A closed task with a broken pin is nobody's problem.
 +    const closed = planMigration(
 +      registryWith("wf", steps, NEW),
@@ -424,7 +440,18 @@ index 0000000000000000000000000000000000000000..d0d8bf24f88aa76609c8c7e3aed31a05
 +    const wrong = { ...task("ask-x", "publish", OLD, "wf"), workflow: "other" } as StoredTask;
 +    const plan = planMigration(registryWith("wf", steps, NEW), recorded, [wrong], OLD, "wf");
 +    expect(plan.supported).toBe(false);
-+    expect(plan).toMatchObject({ reason: expect.stringContaining("cannot determine what") });
++    expect(plan).toMatchObject({ reason: expect.stringContaining("name different workflows") });
++  });
++
++  test("the mirror of a split task is caught too", () => {
++    // A guard that fires one way is not a guard, it is a coincidence. Here the
++    // POSITION names the migrated workflow while the pin names another: reported as
++    // supported with nothing to move, the old distribution would stay referenced for
++    // ever by a task the plan claimed not to exist.
++    const mirrored = { ...task("ask-b", "intake", OLD, "other"), workflow: "wf" } as StoredTask;
++    const plan = planMigration(registryWith("wf", steps, NEW), recorded, [mirrored], OLD, "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan).toMatchObject({ reason: expect.stringContaining("name different workflows") });
 +  });
 +
 +  test("the snapshot helper notices a directory with no files in it", () => {
@@ -466,10 +493,10 @@ index 0000000000000000000000000000000000000000..d0d8bf24f88aa76609c8c7e3aed31a05
 +  });
 +});
 diff --git a/docs/extensions.md b/docs/extensions.md
-index 7e68489cf1e8524b044babde420b2e60171b9900..c9b8a32fcf6b624749ba71a37d1b33e10c046d88 100644
+index 7e68489cf1e8524b044babde420b2e60171b9900..d3b5d3dd27d4cfbd863995a27918a34c96c5eb29 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -468,6 +468,54 @@ its history while moving it onto new code — is the migration workflow of #10,
+@@ -468,6 +468,61 @@ its history while moving it onto new code — is the migration workflow of #10,
  does not exist yet; until it does, an update parks the tasks it affects and they
  restart or wait.
  
@@ -514,8 +541,15 @@ index 7e68489cf1e8524b044babde420b2e60171b9900..c9b8a32fcf6b624749ba71a37d1b33e1
 +migrate to — while the reference accounting still counts its digest, so the
 +distribution cannot be forgotten either. The task holds both doors shut. The way out
 +is the one the identity rule already provides: re-enroll it at a registered
-+workflow's first step, which re-pins it, or close it. Neither the planner nor the
-+accounting will do it silently, and neither should.
++workflow's first step, which re-pins it onto today's distribution and releases the
++old one, or close it. Neither the planner nor the accounting will do it silently, and
++neither should.
++
++That exit has a precondition worth stating, because it is easy to walk into: enroll
++refuses a task in `work`, and closing refuses while a session is live. An orphan that
++is mid-run has no exit until its session settles. It will settle — the identity check
++parks it — but the operator who tries the remedy first and the daemon that has not
++finished are not looking at the same moment.
 +
 +Applying a supported migration — idempotent phases, read-back, a receipt with before
 +and after hashes — is not implemented. Neither is rollback, and the issue says
