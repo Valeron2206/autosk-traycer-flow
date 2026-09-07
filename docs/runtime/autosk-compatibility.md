@@ -21,8 +21,10 @@ the resulting tree, the original MIT license, and the build toolchains. Patches
 apply in the listed order: `0001-atomic-task-creation.patch` produces tree
 `f0916e4f430e1ae4e1e46d08fb6337077bb601a6`, `0002-runtime-snapshot-store.patch`
 produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
-`0003-runtime-identity-admission.patch` produces the current `result_tree`
-`9362d712d8785ec8fd8558a539abfa0ebc3efaf2`.
+`0003-runtime-identity-admission.patch` produces
+`9362d712d8785ec8fd8558a539abfa0ebc3efaf2`, and finally
+`0004-creation-stress-budget.patch` produces the current `result_tree`
+`3b46806c4e11609272c066ec6f6be9f0ec023a59`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

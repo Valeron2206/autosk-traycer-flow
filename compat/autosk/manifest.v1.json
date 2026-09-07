@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "9362d712d8785ec8fd8558a539abfa0ebc3efaf2",
+  "result_tree": "3b46806c4e11609272c066ec6f6be9f0ec023a59",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -18,6 +18,10 @@
     {
       "file": "patches/0003-runtime-identity-admission.patch",
       "sha256": "f7162216a3e679e33b25eae425088fa3b0cd779c398341b7530d35044f56cf11"
+    },
+    {
+      "file": "patches/0004-creation-stress-budget.patch",
+      "sha256": "1016de5802ed1ee8e38d8e2e526fbb51f89aa654cbd6876312898ce2410b3be5"
     }
   ],
   "license": {

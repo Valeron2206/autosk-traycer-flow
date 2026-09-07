@@ -1,0 +1,70 @@
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index c39eb683d3ec41c814add367ef37c928349295d1..ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -175,6 +175,24 @@ async function writeTaskRecord(store: Store, task: StoredTask): Promise<void> {
+   await writeFile(store.paths.taskJson(task.id), serializeTask(task));
+ }
+ 
++/**
++ * How long an anti-hang guard waits before failing the test.
++ *
++ * This is not a latency assertion — the real checks run on the rejection it
++ * returns, and a call that resolves instead of rejecting is caught by those
++ * checks whatever this value is. It only has to sit above what a helper spawn and
++ * a couple of messages cost on a loaded machine.
++ *
++ * It does NOT promise that a creation-internal error surfaces first. On the
++ * readiness path the primary error reaches the caller only after `shutdownHelper`,
++ * so the true worst case is readiness 10 s plus shutdown 5 s + 2 s — about 17 s —
++ * and this guard reports the hang before that. Neither guarded test takes that
++ * path (a missing binary is ENOENT immediately, and the fake helper announces
++ * readiness on its first line), and the same was true of the 1 s and 2 s values
++ * this replaced; it is stated so the next reader does not infer a guarantee.
++ */
++const REJECTION_GUARD_MS = 8_000;
++
+ async function rejectedWithin(promise: Promise<unknown>, ms: number): Promise<Error> {
+   const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), ms));
+   const result = await Promise.race([
+@@ -253,6 +271,13 @@ describe("Store.createTaskWithCreationBinding", () => {
+     dir.cleanup();
+   });
+ 
++  // 100 concurrent creates means 100 helper spawns: `withCreationLock` runs the
++  // native binary once per creation, so this test's cost is dominated by process
++  // startup and scales with how loaded the machine is, not with the work under
++  // test. It takes about a second on its own and comfortably exceeds the default
++  // five when the rest of this file — or the rest of the suite, in CI — is running
++  // alongside it. The budget is stated here rather than left to a default that
++  // describes a different machine.
+   test("2/10/100 concurrent same-key creates produce one task and one created outcome", async () => {
+     for (const count of [2, 10, 100]) {
+       const localDir = tempDir();
+@@ -283,7 +308,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         localDir.cleanup();
+       }
+     }
+-  });
++  }, 60_000);
+ 
+   test("same key with a different binding conflicts and creates no second task", async () => {
+     const first = await store.createTaskWithCreationBinding(creationInput());
+@@ -518,7 +543,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+     const previous = process.env.AUTOSK_STORE_LOCK_BIN;
+     process.env.AUTOSK_STORE_LOCK_BIN = join(dir.path, "missing-autosk-store-lock");
+     try {
+-      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), 1000);
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
+       expect(err.message).toMatch(/ENOENT|no such file|missing-autosk-store-lock/);
+       expect(existsSync(store.paths.creationIndexJson)).toBe(false);
+       expect(await store.listTaskViews()).toEqual([]);
+@@ -547,7 +572,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+     const previous = process.env.AUTOSK_STORE_LOCK_BIN;
+     process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
+     try {
+-      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), 2000);
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
+       expect(err.message).toMatch(/autosk-store-lock|stdin|closed|exited/);
+       expect(existsSync(store.paths.creationIndexJson)).toBe(false);
+       expect(await store.listTaskViews()).toEqual([]);
