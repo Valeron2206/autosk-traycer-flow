@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "89a47c9166c1ab45192a4d40179a4b57fd0ad620");
+  assert.equal(manifest.result_tree, "c7331100c1240449aff588a31ef90ea286ed4332");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -136,6 +136,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0005-workflow-shape-identity.patch",
       "patches/0006-distribution-reference-accounting.patch",
       "patches/0007-migration-planning.patch",
+      "patches/0008-migration-apply.patch",
     ],
   );
 });
