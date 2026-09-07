@@ -1,0 +1,406 @@
+diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
+index 1588454b939d05da6ee33f214ea861119e005cfe..65ea51568740a9812c26f7ff2b5cc7b9e49dc5c2 100644
+--- a/daemon/core/src/engine/migration.ts
++++ b/daemon/core/src/engine/migration.ts
+@@ -184,3 +184,67 @@ function markStranded(impact: MigrationImpact[], targetSteps: ReadonlySet<string
+       : item,
+   );
+ }
++
++/**
++ * Plans the reversal of a completed migration (issue #10, the rollback scenario).
++ *
++ * Rolling a pin backwards on its own restores nothing: the task would be pinned to a
++ * distribution the registry does not serve, admission would refuse it, and the only
++ * thing that changed would be the reason it is stopped. So a rollback is not a
++ * special mechanism — it is an ordinary migration whose target is the previous
++ * distribution, and it is only meaningful once the operator has put that
++ * distribution back and the registry serves it again. The same three conditions
++ * therefore apply, checked by the same code.
++ *
++ * What a rollback adds is exactly two refusals of its own:
++ *
++ *  - an unsealed migration is not reversed. There is nothing settled to undo, and
++ *    treating an interrupted state as final is how a half-applied move becomes
++ *    permanent;
++ *  - the registry must already serve the distribution being rolled back to. That is
++ *    the operator's condition — they have to put the old version back first — and
++ *    saying it in those words rather than delegating avoids answering with the
++ *    forward planner's true and useless "that workflow already serves that digest".
++ *
++ * It does NOT check that the tasks are still where the migration left them, and the
++ * distinction matters more than it looks. A task that moved to a third distribution
++ * BEFORE planning is not part of this plan at all: it is absent from the impact, so
++ * absent from the receipt, so `applyMigration` never sees it — it is simply not this
++ * migration's business, and admission refuses it on its own account. A task that
++ * moves AFTER the receipt is opened is the case `applyMigration` catches, refusing to
++ * continue when a task is no longer pinned where the receipt says. Attributing the
++ * first to `applyMigration` would credit a guard with work it never does.
++ *
++ * The plan is returned as a migration whose `reverses` names the original, so the
++ * record cannot be mistaken for a fresh move in the opposite direction.
++ */
++export function planRollback(
++  registry: ExtensionRegistry,
++  recordedDigests: ReadonlySet<string>,
++  tasks: readonly StoredTask[],
++  original: { id: string; from: string; to: string; workflow: string; completed_at?: string },
++): MigrationPlan & { reverses?: string } {
++  if (original.completed_at === undefined) {
++    return {
++      supported: false,
++      reason: `migration ${original.id} is not completed, there is nothing settled to reverse`,
++      impact: [],
++    };
++  }
++  // Checked before delegating, so the answer is the rollback's own. Handing this to
++  // the forward planner first produces a true statement — "the workflow already
++  // serves that digest" — that answers a question the operator did not ask. What
++  // they need to hear is that the distribution being rolled back to is not the one
++  // being served, which is the same as saying they have not put it back yet.
++  const served = registry.workflowAdmission(original.workflow)?.distribution.digest;
++  if (served !== original.from) {
++    return {
++      supported: false,
++      reason: `rolling back ${original.id} needs ${original.workflow} to serve ${original.from}; it serves ${served ?? "nothing"}, so the registry does not serve the distribution it came from`,
++      impact: [],
++    };
++  }
++  const plan = planMigration(registry, recordedDigests, tasks, original.to, original.workflow);
++  if (!plan.supported) return plan;
++  return { ...plan, reverses: original.id };
++}
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+index f41a86da59aada749484ae9f33da232e1fcf7a20..e133173bf8145dff3f7e78cf5a69d2a3e1638439 100644
+--- a/daemon/core/src/store/distributions.ts
++++ b/daemon/core/src/store/distributions.ts
+@@ -70,6 +70,17 @@ export interface MigrationReceipt {
+   started_at: string;
+   /** Present only once read-back has confirmed every task. */
+   completed_at?: string;
++  /**
++   * The completed migration this one reverses, when it is a rollback.
++   *
++   * Without it the history reads as two independent migrations in opposite
++   * directions and a later reader cannot tell a rollback from a fresh move back.
++   * It is part of the id derivation, so the claim cannot be altered after the fact
++   * without the record failing to describe itself, and `beginMigration` refuses to
++   * write one naming a migration that does not exist. Both, because immutability
++   * alone would only fix a claim in place, true or not.
++   */
++  reverses?: string;
+ }
+ 
+ /** The `.autosk/runtime/v1/index.json` document this module owns. */
+@@ -93,6 +104,7 @@ export function migrationId(
+   toGraph: string,
+   workflow: string,
+   tasks: readonly string[],
++  reverses?: string,
+ ): string {
+   // The digests go in raw because they are validated as lowercase hex on both the
+   // write and the read, so they cannot contain the separator. The workflow name and
+@@ -100,7 +112,7 @@ export function migrationId(
+   // encoded" would be neater and untrue, and an untrue comment beside a correct
+   // line is what this whole series has been about.
+   const encode = (v: string): string => Buffer.from(v, "utf16le").toString("base64");
+-  const canonical = [from, to, toGraph, encode(workflow), ...[...tasks].sort().map(encode)].join("\n");
++  const canonical = [from, to, toGraph, reverses ?? "-", encode(workflow), ...[...tasks].sort().map(encode)].join("\n");
+   return createHash("sha256").update(canonical, "utf8").digest("hex");
+ }
+ 
+@@ -200,7 +212,17 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     throw new DistributionIndexError("migration receipt is not an object");
+   }
+   const item = entry as Record<string, unknown>;
+-  const allowed = new Set(["id", "from", "to", "to_graph", "workflow", "tasks", "started_at", "completed_at"]);
++  const allowed = new Set([
++    "id",
++    "from",
++    "to",
++    "to_graph",
++    "workflow",
++    "tasks",
++    "started_at",
++    "completed_at",
++    "reverses",
++  ]);
+   const extra = Object.keys(item).filter((k) => !allowed.has(k));
+   if (extra.length > 0) {
+     throw new DistributionIndexError(`migration receipt has unexpected keys: ${extra.sort().join(", ")}`);
+@@ -214,6 +236,7 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     tasks,
+     started_at: startedAt,
+     completed_at: completedAt,
++    reverses,
+   } = item;
+   for (const [name, value] of [["from", from], ["to", to], ["to_graph", toGraph], ["id", id]] as const) {
+     if (typeof value !== "string" || !DIGEST_PATTERN.test(value)) {
+@@ -240,9 +263,19 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+   if (completedAt !== undefined && (typeof completedAt !== "string" || completedAt.length === 0)) {
+     throw new DistributionIndexError("migration receipt completed_at is not a timestamp");
+   }
++  if (reverses !== undefined && (typeof reverses !== "string" || !DIGEST_PATTERN.test(reverses))) {
++    throw new DistributionIndexError("migration receipt reverses is not a lowercase sha256");
++  }
+   // The id is derived from the contents, so a receipt whose id does not match
+   // describes a different migration than the one it claims to be.
+-  const expected = migrationId(from as string, to as string, toGraph as string, workflow, tasks as string[]);
++  const expected = migrationId(
++    from as string,
++    to as string,
++    toGraph as string,
++    workflow,
++    tasks as string[],
++    reverses as string | undefined,
++  );
+   if (expected !== id) {
+     throw new DistributionIndexError(`migration receipt ${id as string} does not describe itself (${expected})`);
+   }
+@@ -256,6 +289,7 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     started_at: startedAt,
+   };
+   if (completedAt !== undefined) receipt.completed_at = completedAt;
++  if (reverses !== undefined) receipt.reverses = reverses as string;
+   return receipt;
+ }
+ 
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index be0faf1e3ab45365b0ebed606abf2fba23452288..59664cab4ff5e0a30356c0fa17b46e7aaacddc94 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -1277,6 +1277,7 @@ export class Store {
+     toGraph: string,
+     workflow: string,
+     tasks: readonly string[],
++    reverses?: string,
+   ): Promise<MigrationReceipt> {
+     // Validated here rather than only on read. A receipt the parser will refuse is
+     // not merely a bad record: it is written into the one index every distribution
+@@ -1289,11 +1290,24 @@ export class Store {
+     if (unique.length === 0) throw new Error("migration names no tasks");
+     if (unique.length !== tasks.length) throw new Error("migration names the same task twice");
+ 
+-    const id = migrationId(from, to, toGraph, workflow, unique);
++    if (reverses !== undefined && !/^[0-9a-f]{64}$/.test(reverses)) {
++      throw new Error("migration reverses is not a lowercase sha256");
++    }
++    const id = migrationId(from, to, toGraph, workflow, unique, reverses);
+     let receipt: MigrationReceipt | undefined;
+     await withCreationLock(this.paths, async (io) => {
+       const raw = await io.readRuntimeIndex();
+       const index = parseDistributionIndex(raw);
++      // Checked here, where the index is already parsed and held under the lock.
++      // Two lines, atomic, and permanently valid: receipts are append-only — nothing
++      // in this store removes one — so a reference verified once cannot go stale.
++      // That is exactly why the digests are NOT checked the same way: a distribution
++      // can be forgotten, so an existence check on `from` or `to` would be true at
++      // the moment of writing and false afterwards, which is worse than not claiming
++      // it at all.
++      if (reverses !== undefined && !index.migrations.some((m) => m.id === reverses)) {
++        throw new Error(`migration ${reverses} does not exist, so nothing can reverse it`);
++      }
+       const existing = index.migrations.find((m) => m.id === id);
+       if (existing) {
+         receipt = existing;
+@@ -1308,6 +1322,7 @@ export class Store {
+         tasks: unique,
+         started_at: this.clock(),
+       };
++      if (reverses !== undefined) opened.reverses = reverses;
+       index.migrations.push(opened);
+       receipt = opened;
+       await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex(index));
+diff --git a/daemon/core/test/engine.migration.test.ts b/daemon/core/test/engine.migration.test.ts
+index 9ca565c356f82a926f2cde82750bc39a062049ec..2bc8b3dafdfd5e8a3853644049a8643427b61806 100644
+--- a/daemon/core/test/engine.migration.test.ts
++++ b/daemon/core/test/engine.migration.test.ts
+@@ -12,7 +12,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+ import path from "node:path";
+ 
+ import { ExtensionRegistry, Store } from "../src/index.ts";
+-import { planMigration } from "../src/engine/migration.ts";
++import { planMigration, planRollback } from "../src/engine/migration.ts";
+ import type { StoredTask } from "../src/store/records.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+@@ -227,6 +227,91 @@ describe("migration planning", () => {
+     expect(snapshot(dir.path)).not.toBe(before);
+   });
+ 
++  describe("rolling one back", () => {
++    const completed = { id: "9".repeat(64), from: OLD, to: NEW, workflow: "wf", completed_at: "t" };
++
++    test("an unsealed migration is not reversed", () => {
++      const { completed_at: _drop, ...unsealed } = completed;
++      const plan = planRollback(registryWith("wf", steps, OLD), recorded, [], unsealed);
++      expect(plan.supported).toBe(false);
++      expect(plan).toMatchObject({ reason: expect.stringContaining("nothing settled to reverse") });
++    });
++
++    test("a rollback is refused while the registry still serves what was migrated to", () => {
++      // The honest answer to a rollback attempt without the old bytes back: the
++      // registry serves NEW, so reversing would land on NEW, not on OLD.
++      const plan = planRollback(
++        registryWith("wf", steps, NEW),
++        recorded,
++        [task("ask-a", "intake", NEW)],
++        completed,
++      );
++      expect(plan.supported).toBe(false);
++      expect(plan).toMatchObject({
++        reason: expect.stringContaining("does not serve the distribution it came from"),
++      });
++    });
++
++    test("once the old distribution is served again, the reversal is an ordinary migration", () => {
++      // What a real rollback is: the operator put the extension back, so the
++      // registry serves OLD again and the tasks move to it by the same rules.
++      const plan = planRollback(
++        registryWith("wf", steps, OLD),
++        recorded,
++        [task("ask-a", "intake", NEW)],
++        completed,
++      );
++      expect(plan.supported).toBe(true);
++      if (!plan.supported) throw new Error("unreachable");
++      expect(plan.from).toBe(NEW);
++      expect(plan.to).toBe(OLD);
++      expect(plan.reverses).toBe(completed.id);
++      expect(plan.impact.map((i) => i.taskId)).toEqual(["ask-a"]);
++    });
++
++    test("a refused rollback writes nothing either", async () => {
++      // The same negative guarantee as a refused forward plan, asserted the same
++      // way: the identical fingerprint of every file and directory under `.autosk`.
++      const dir = tempDir();
++      cleanups.push(dir.cleanup);
++      const store = new Store(dir.path, { watch: false });
++      stores.push(store);
++      await store.open();
++      const t = await store.createTask({ title: "rolled" });
++      await store.setPosition(
++        t.id,
++        { status: "human", workflow: "wf", step: "review" },
++        { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: "0".repeat(64) } },
++      );
++      await store.recordDistribution(OLD, LISTING);
++
++      const before = snapshot(path.join(dir.path, ".autosk"));
++      const { completed_at: _drop, ...unsealed } = completed;
++      expect(planRollback(registryWith("wf", steps, OLD), recorded, [], unsealed).supported).toBe(false);
++      // Pinned to the served-distribution reason, not merely to "it refused": the
++      // forward planner would refuse this too, for a different and less useful
++      // reason, so without this the served check could be deleted unnoticed.
++      expect(
++        planRollback(registryWith("wf", steps, NEW), recorded, [task(t.id, "review", NEW)], completed),
++      ).toMatchObject({
++        supported: false,
++        reason: expect.stringContaining("does not serve the distribution it came from"),
++      });
++      expect(snapshot(path.join(dir.path, ".autosk"))).toBe(before);
++    });
++
++    test("a task stranded by the reversal blocks it, exactly as a forward migration", () => {
++      const plan = planRollback(
++        registryWith("wf", { intake: { status: "human" } }, OLD),
++        recorded,
++        [task("ask-a", "review", NEW)],
++        completed,
++      );
++      expect(plan.supported).toBe(false);
++      expect(plan).toMatchObject({ reason: expect.stringContaining("does not exist in the target") });
++    });
++  });
++
+   test("a refused plan writes nothing at all", async () => {
+     // The point of the criterion. Not "no visible change" — the same bytes.
+     const dir = tempDir();
+diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
+index 1877b7aed2b92b29ec45d7133602ffc0137466ad..c53c02e7fd3a730a405c3bb78a9bcac8184f7bf0 100644
+--- a/daemon/core/test/store.migration.test.ts
++++ b/daemon/core/test/store.migration.test.ts
+@@ -269,6 +269,37 @@ describe("applying a migration", () => {
+     );
+   });
+ 
++  test("a rollback receipt carries what it reverses, and only a real migration can be reversed", async () => {
++    // The store half of the rollback slice had no test at all. Dropping `reverses`
++    // from the id derivation would still write, and then the whole index would stop
++    // parsing — the exact failure the write-side validation exists to prevent.
++    const { store, root } = await project();
++    const a = await pinned(store, OLD);
++    const forward = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.applyMigration(forward.id);
++
++    const plain = await store.beginMigration(NEW, OLD, GRAPH, "wf", [a]);
++    const rollback = await store.beginMigration(NEW, OLD, GRAPH, "wf", [a], forward.id);
++    // Same direction and tasks, but one reverses something: different receipts.
++    expect(rollback.id).not.toBe(plain.id);
++    expect(rollback.id).toBe(migrationId(NEW, OLD, GRAPH, "wf", [a], forward.id));
++    expect(rollback.reverses).toBe(forward.id);
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const stored = parseDistributionIndex(raw).migrations.find((m) => m.id === rollback.id);
++    expect(stored?.reverses).toBe(forward.id);
++
++    await expect(store.beginMigration(NEW, OLD, GRAPH, "wf", [a], "not-a-digest")).rejects.toThrow(
++      /reverses is not a lowercase sha256/,
++    );
++    // Naming a migration that was never recorded is refused, not merely fixed in
++    // place by the id: receipts are append-only, so a reference checked once stays
++    // true, which is why this can be checked here and the digests cannot.
++    await expect(store.beginMigration(NEW, OLD, GRAPH, "wf", [a], "5".repeat(64))).rejects.toThrow(
++      /does not exist, so nothing can reverse it/,
++    );
++  });
++
+   test("a migration that was never opened cannot be applied", async () => {
+     const { store } = await project();
+     await expect(store.applyMigration(migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-x"]))).rejects.toThrow(
+diff --git a/docs/extensions.md b/docs/extensions.md
+index 561ba6d0a0ee5184fa7ee26c0b1948123219f6b6..174993d8f7800353fb16d210e94acc19b662756c 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -558,9 +558,38 @@ not stick, and a rule that depends on remembering it is not a rule.
+ 
+ What this moves is the whole pin — both halves — and not the code: the
+ distribution's bytes are still not stored, so a migrated task runs on whatever the
+-registry serves. Rollback is not
+-implemented, and the issue says plainly that keeping old blobs does not by itself
+-provide it.
++registry serves.
++
++### Rolling one back
++
++Rolling a pin backwards on its own restores nothing. The task would be pinned to a
++distribution the registry does not serve, admission would refuse it, and the only
++thing that changed would be the reason it is stopped. So there is no separate
++rollback mechanism, and building one that pretended otherwise would be a lie in
++code: **a rollback is an ordinary migration whose target is the previous
++distribution**, and it becomes possible only once the operator has put that
++distribution back and the registry serves it again.
++
++Attempting it before then is refused, and the refusal says why in the operator's
++terms — the workflow does not serve the distribution being rolled back to — rather
++than in the forward planner's terms, which would be true and useless. An unsealed
++migration is not reversed either: there is nothing settled to undo, and treating an
++interrupted state as final is how a half-applied move becomes permanent.
++
++The reversal's receipt names the migration it reverses. That name is part of the
++receipt's id, so it cannot be altered afterwards without the record failing to
++describe itself, and the migration it names must already be recorded — a rollback of
++something that never happened is refused. Both, because immutability alone would only
++fix a claim in place, true or not.
++
++The digests are deliberately not checked the same way, and the asymmetry has a reason
++rather than an excuse: a distribution can be forgotten, so "this digest exists" would
++be true when written and false later, which is worse than not claiming it. Receipts
++are append-only — nothing removes one — so a reference checked once stays true.
++
++Restoring the distribution's bytes is not part of this. The issue says plainly that
++keeping old blobs does not by itself provide rollback, and this code does not pretend
++that re-pinning does either.
+ 
+ A symbolic link resolving **inside** the root is recorded by its target and not
+ followed: the bytes it points at are already covered by their own entry, and
