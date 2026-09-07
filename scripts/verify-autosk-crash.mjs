@@ -95,6 +95,7 @@ let current = null;
 let indexWrites = 0;
 let injecting = false;
 let failed = false;
+let faultHit = null;
 
 const watchdog = setTimeout(() => {
   fail(new Error("fault helper timed out"));
@@ -115,14 +116,15 @@ function inject(edge, response) {
   const point = current?.point ? current.point + "." + edge : null;
   if (point !== readPlan().point) return false;
   injecting = true;
-  writeFileSync(path, JSON.stringify({
+  faultHit = {
     hit: point,
     request: current.request,
     response,
     nativePid: child.pid,
-    nativeSignal: "SIGKILL",
-  }), { mode: 0o600 });
-  child.kill("SIGKILL");
+    requestedSignal: "SIGKILL",
+  };
+  faultHit.killReturned = child.kill("SIGKILL");
+  writeFileSync(path, JSON.stringify(faultHit), { mode: 0o600 });
   return true;
 }
 
@@ -200,9 +202,15 @@ child.stdout.on("end", () => {
     fail(error);
   }
 });
-child.on("close", (code) => {
+child.on("close", (code, signal) => {
   clearTimeout(watchdog);
-  process.exit(injecting ? 86 : failed ? 88 : code ?? 1);
+  if (faultHit) {
+    faultHit.nativeCloseCode = code;
+    faultHit.nativeCloseSignal = signal;
+    faultHit.proxyFailed = failed;
+    writeFileSync(path, JSON.stringify(faultHit), { mode: 0o600 });
+  }
+  process.exit(failed ? 88 : injecting ? 86 : code ?? 1);
 });
 `);
 await chmod(proxyPath, 0o755);
@@ -292,7 +300,11 @@ try {
 
     const hit = JSON.parse(await readFile(planPath, "utf8"));
     assert.equal(hit.hit, point, "the selected native persistence boundary must be reached");
-    assert.equal(hit.nativeSignal, "SIGKILL", "fault helper must kill the native writer with SIGKILL");
+    assert.equal(hit.requestedSignal, "SIGKILL", "fault helper must request SIGKILL");
+    assert.equal(hit.killReturned, true, "native writer must receive the requested signal");
+    assert.equal(hit.nativeCloseSignal, "SIGKILL", "native writer must actually close from SIGKILL");
+    assert.equal(hit.nativeCloseCode, null, "native writer must not exit normally");
+    assert.equal(hit.proxyFailed, false, "fault proxy must complete without an unrelated error");
     if (point.endsWith(".after")) assert.equal(hit.response.ok, true, "native write must acknowledge fsync before injection");
 
     const indexPath = path.join(cwd, ".autosk", "creation", "v1", "index.json");
@@ -327,6 +339,9 @@ try {
       taskId: result.task.id,
       outcome: result.outcome,
       nativeAcknowledged: hit.response?.ok === true,
+      nativeCloseCode: hit.nativeCloseCode,
+      nativeCloseSignal: hit.nativeCloseSignal,
+      killReturned: hit.killReturned,
     });
     console.log(`PASS ${point}`);
   }
@@ -338,6 +353,7 @@ try {
     runtime: process.version,
     platform: process.platform,
     arch: process.arch,
+    cases: evidence,
   }));
 } finally {
   try {

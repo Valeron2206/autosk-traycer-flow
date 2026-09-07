@@ -2,6 +2,7 @@ name: Qualify autosk compatibility patch
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -93,6 +94,14 @@ jobs:
           (cd "$SOURCE_DIR/pi-tools" && bun run typecheck) > build/evidence/pi-typecheck.log 2>&1
           (cd "$SOURCE_DIR/pi-tools" && bun test) > build/evidence/pi-test.log 2>&1
 
+      - name: Verify upstream test summaries
+        run: |
+          node scripts/verify-autosk-tests.mjs \
+            --bun build/evidence/bun-test.log \
+            --go build/evidence/go-test.jsonl \
+            --pi build/evidence/pi-test.log \
+            --output build/evidence/test-summary.json
+
       - name: Record verified source and binary identities
         run: |
           mkdir -p build/package/bin build/artifacts
@@ -113,6 +122,9 @@ jobs:
           const source = JSON.parse(readFileSync('build/evidence/source-receipt.json', 'utf8'));
           assert.equal(source.manifest_sha256, manifestSha256);
           assert.equal(source.source_tree, manifest.result_tree);
+          const testSummary = JSON.parse(readFileSync('build/evidence/test-summary.json', 'utf8'));
+          assert.equal(testSummary.schema_version, 1);
+          assert.equal(testSummary.status, 'passed');
           const files = ['bin/autosk', 'bin/autoskd', 'bin/autosk-store-lock', 'LICENSE', 'compatibility-manifest.json'].map(path => {
             const bytes = readFileSync(`build/package/${path}`);
             if (path.startsWith('bin/')) assert.ok(statSync(`build/package/${path}`).mode & 0o111);
@@ -121,7 +133,7 @@ jobs:
           const receipt = { schema_version: 1, source, repository_commit: process.env.GITHUB_SHA,
             run_id: process.env.GITHUB_RUN_ID, platform: process.platform, arch: process.arch,
             toolchains: { node: process.version, bun: execFileSync('bun', ['--version'], { encoding: 'utf8' }).trim(),
-              go: execFileSync('go', ['version'], { encoding: 'utf8' }).trim() }, files };
+              go: execFileSync('go', ['version'], { encoding: 'utf8' }).trim() }, test_summary: testSummary, files };
           writeFileSync('build/package/build-receipt.json', `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
           NODE
           tar -czf "build/artifacts/autosk-compat-${{ matrix.target }}.tar.gz" -C build/package .

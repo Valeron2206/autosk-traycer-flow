@@ -73,8 +73,8 @@ The compatibility workflow runs on Ubuntu x64 and macOS arm64, using
 It builds all three binaries, runs these scenarios, full upstream Go/Bun and Pi
 tests, checks types and native races, then verifies the source tree again. The
 archive contains the license, compatibility manifest and a build receipt with
-source identity, CI commit/run, actual toolchain versions and hashes of the
-distributed files. The archive has a separate SHA-256 file. Binary identity is
+source identity, CI commit/run, actual toolchain versions, validated test counts,
+log hashes and hashes of the distributed files. The archive has a separate SHA-256 file. Binary identity is
 recorded for each build; bit-identical builds across platforms are not claimed.
 
 Only successful jobs upload a binary bundle. Logs are retained even when a job
