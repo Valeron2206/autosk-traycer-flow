@@ -1,0 +1,2439 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index c204c4528a35793b5ade951a6d3f7c3ec56141c2..217f789899d5c83ba7675a247bf0f9b47b7b014e 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -32,6 +32,8 @@ import {
+ 
+ import { systemClock, type Clock } from "../store/clock.ts";
+ import { consoleLogger, type Logger } from "../store/logger.ts";
++import { readRuntimeIdentityPin } from "../store/metadata.ts";
++import { EXTENSION_VERSION_MISMATCH, runtimeIdentityDecision } from "./runtimeIdentity.ts";
+ import { TranscriptWriter } from "./transcript.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+ import { SessionRuntime } from "./session.ts";
+@@ -222,13 +224,59 @@ export class Engine implements SessionHost {
+       );
+     }
+ 
+-    const to: StepTarget = { step: target.step ?? wf.firstStep };
+-    const leavingStep = view.workflow === workflowName ? (view.step ?? "") : "";
++    // Re-enrolling onto the SAME workflow must respect the pin; switching to a
++    // different workflow is an explicit operator act that re-pins from scratch.
++    const sameWorkflow = view.workflow === workflowName;
++    const pinned = readRuntimeIdentityPin(view.metadata);
++    // A tampered pin is refused whichever workflow is being entered: discarding it
++    // on a switch would let a refused resume be laundered by enrolling away and
++    // back. A switch to a DIFFERENT workflow is a fresh enrollment and legitimately
++    // re-pins, since the task restarts at that workflow's first step.
++    if (pinned.state === "malformed") {
++      throw EngineError.conflict(
++        `cannot enroll ${taskId}: ${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}`,
++      );
++    }
++    // Switching workflows re-pins because it restarts the task. That premise only
++    // holds at the target's first step: `enroll` accepts an explicit step, so a
++    // refused resume could otherwise be laundered by enrolling away and back to the
++    // very step the task was parked at, on new bytes.
++    if (
++      !sameWorkflow &&
++      pinned.state === "pinned" &&
++      target.step !== undefined &&
++      target.step !== wf.firstStep
++    ) {
++      throw EngineError.conflict(
++        `cannot enroll ${taskId}: ${EXTENSION_VERSION_MISMATCH}: a task pinned to ` +
++          `${pinned.pin.workflow} may only switch to ${workflowName} at its first step`,
++      );
++    }
++    // Entering a workflow at its FIRST step is a restart: the task begins the
++    // workflow again on today's code, so it re-pins whatever it carried before —
++    // the same act that already re-pins a switch to another workflow, and the only
++    // way a task parked by an `ext update` becomes runnable again before the
++    // migration slice exists. Anywhere else the pin must match, absent included: a
++    // task that has no workflow at all was never admitted anywhere and pins freely,
++    // but one that carries a workflow may not be re-admitted mid-flight.
++    const toStep = target.step ?? wf.firstStep;
++    const restarting = toStep === wf.firstStep;
++    const decision = runtimeIdentityDecision(
++      project.registry,
++      restarting ? { state: "absent" } : pinned,
++      workflowName,
++      restarting || view.workflow === null ? "adopt" : "refuse",
++    );
++    if (!decision.ok) throw EngineError.conflict(`cannot enroll ${taskId}: ${decision.reason}`);
++
++    const to: StepTarget = { step: toStep };
++    const leavingStep = sameWorkflow ? (view.step ?? "") : "";
+     await this.runOnTransit(project, wf, taskId, workflowName, leavingStep, to);
+     // `to` is always a `{ step }` here, so entering it counts a visit (atomically
+     // with the position write); `onTransit` already ran, so the bump is post-read.
+     const updated = await project.store.setPosition(taskId, positionFor(wf, leavingStep, to), {
+       countVisit: to.step,
++      pinRuntimeIdentity: decision.pin,
+     });
+     this.emitTask(project, updated);
+     this.kickScan();
+@@ -255,6 +303,14 @@ export class Engine implements SessionHost {
+     if (!wf) {
+       throw EngineError.conflict(`cannot resume ${taskId}: workflow_missing: ${view.workflow}`);
+     }
++    const decision = runtimeIdentityDecision(
++      project.registry,
++      readRuntimeIdentityPin(view.metadata),
++      view.workflow,
++      "refuse",
++    );
++    if (!decision.ok) throw EngineError.conflict(`cannot resume ${taskId}: ${decision.reason}`);
++
+     const target: StepTarget = to ?? { step: view.step };
+     // `runOnTransit` validates the target before invoking `onTransit`, so no
+     // separate `validateTarget` call is needed here (ISSUE #9c).
+@@ -460,6 +516,28 @@ export class Engine implements SessionHost {
+       await this.park(project, taskId, `workflow_missing: ${row.workflow} has no step ${row.step}`);
+       return;
+     }
++    // The registry can be swapped between two steps by `ext reload`, so the
++    // admitted identity is re-checked here and not only at enroll/resume.
++    const identity = runtimeIdentityDecision(
++      project.registry,
++      project.store.runtimeIdentityPin(taskId),
++      row.workflow,
++      "refuse",
++    );
++    if (!identity.ok) {
++      // Never park out from under a live session — the invariant `hazard.ts`
++      // holds on the reload path. The park-on-missing branches above may sit
++      // where they do because a MISSING workflow means no session can be running
++      // it; a mismatched identity carries no such guarantee, since the session is
++      // running the workflow object it captured and is stopped at its own
++      // boundary by the transition check. The scan pre-filters live tasks, so
++      // this only re-checks a snapshot that can go stale across the awaits above;
++      // once the session settles, the next scan parks the task.
++      if (project.store.sessions.hasLiveSession(taskId)) return;
++      await this.park(project, taskId, identity.reason);
++      return;
++    }
++
+     if (isStatusStep(step)) return; // terminal/park step: never scheduled
+     const agent = step; // an agent step IS the agent definition (inline)
+     if (project.store.sessions.hasLiveSession(taskId)) return; // already running/queued
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8e336d778ee7f775fae0573b7906bca8a06d5039
+--- /dev/null
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -0,0 +1,90 @@
++/**
++ * Runtime identity admission (issue #10).
++ *
++ * A task records the digest of the extension distribution it was admitted under.
++ * Every path that would run or advance that task re-checks the digest against
++ * the one currently registered, so a global update cannot change the semantics
++ * of the steps an active Epic is already running.
++ *
++ * The decision lives here rather than on the engine because the transition has
++ * two independent entries — the engine's own `onTransit` path and the session
++ * runtime's `commitTransit` — and both must apply the same rule.
++ */
++import type { ExtensionRegistry } from "../extensions/registry.ts";
++import type { RuntimeIdentityPin, RuntimeIdentityPinRead } from "../store/metadata.ts";
++
++/** The park reason and error prefix for a refused runtime identity. */
++export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";
++
++/** Whether this path is a genuine (re)start, and so may adopt a missing pin. */
++export type AbsentPinPolicy = "adopt" | "refuse";
++
++export type RuntimeIdentityDecision =
++  | { ok: true; pin?: RuntimeIdentityPin }
++  | { ok: false; reason: string };
++
++/**
++ * Decides whether a task may run on `workflowName` right now.
++ *
++ * A malformed pin is a refusal, not a hint to repair: the pin is a control, and
++ * a hand-edited or truncated one must never be silently reset.
++ *
++ * An ABSENT pin is treated exactly like a mismatched one, because on a task that
++ * already carries a workflow the two are indistinguishable: `task.json` is shared
++ * with the operator and the store takes an external edit wholesale, so "delete the
++ * reserved key" would otherwise be a supported way to re-admit a task under code it
++ * was never admitted to.
++ *
++ * Re-admission is the caller's decision, not this function's: `enroll` reports an
++ * absent pin when the task is entering the workflow at its first step, because that
++ * restarts it on today's code. Everything else — resume, dispatch, the session
++ * transition — passes what the task actually carries and `"refuse"`, so a pin that
++ * is missing or wrong stops the task mid-flight either way.
++ *
++ * `pin` is returned only in the adopt case, so the caller can write it in the same
++ * write that moves the task.
++ *
++ * A registry assembled without the loader has no identity for its workflows, so
++ * `pin` is absent and nothing is invented. The loader refuses any entry whose
++ * bytes it cannot identify, so every workflow reachable in production is
++ * identified.
++ */
++export function runtimeIdentityDecision(
++  registry: ExtensionRegistry,
++  pinned: RuntimeIdentityPinRead,
++  workflowName: string,
++  absent: AbsentPinPolicy,
++): RuntimeIdentityDecision {
++  if (pinned.state === "malformed") {
++    return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}` };
++  }
++  const current = registry.workflowIdentity(workflowName);
++  if (pinned.state === "absent") {
++    if (!current) return { ok: true };
++    if (absent === "refuse") {
++      const firstStep = registry.resolveWorkflow(workflowName)?.firstStep;
++      const remedy = firstStep ? `; re-enroll it at ${firstStep} to admit it under the current code` : "";
++      return {
++        ok: false,
++        reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded runtime identity for this task${remedy}`,
++      };
++    }
++    return { ok: true, pin: { workflow: workflowName, digest: current.digest } };
++  }
++  if (pinned.pin.workflow !== workflowName) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: task is pinned to workflow ${pinned.pin.workflow}, not ${workflowName}`,
++    };
++  }
++  if (!current) {
++    return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no identified distribution` };
++  }
++  if (current.digest !== pinned.pin.digest) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.digest}, task pinned ${pinned.pin.digest}`,
++    };
++  }
++  return { ok: true };
++}
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 85daa7be6ef6da17803e39bac22eb66ab1589913..2d617a19f913cdcf501525c4ec26d266e8de6564 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -56,6 +56,7 @@ import {
+ import { TranscriptWriter } from "./transcript.ts";
+ import { execOneShot, spawnChild } from "./child.ts";
+ import { directStoreBackend, startMcpHttpServer, type McpHttpServer } from "../mcp/index.ts";
++import { runtimeIdentityDecision } from "./runtimeIdentity.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+ import { ENGINE_COMMENT_AUTHOR, errMsg, type EngineProject, type SessionHost } from "./types.ts";
+ 
+@@ -127,6 +128,8 @@ export class SessionRuntime {
+   private transited = false;
+   /** A transit is mid-flight (guards against re-entrant `ctx.transit`). */
+   private transiting = false;
++  /** Whether a transition was refused on identity, so a swallowed throw still counts. */
++  private transitRefused = false;
+   /** An abort was requested. */
+   private aborted = false;
+   /** A graceful end was requested (interactive sessions only → seals `done`). */
+@@ -256,7 +259,31 @@ export class SessionRuntime {
+       else await this.finalizeDone();
+       return;
+     }
+-    await this.finalizeFailed(threw ? errMsg(error) : "agent_did_not_transit");
++    await this.finalizeFailed(threw ? errMsg(error) : this.noTransitReason());
++  }
++
++  /**
++   * Why a task session ended without transiting.
++   *
++   * An agent that catches a refused `ctx.transit` and returns normally would
++   * otherwise be parked as `agent_did_not_transit` — true of the agent and useless
++   * to the operator, who after an `ext update` goes looking for a broken agent
++   * instead of the update. So a refusal counts. But the verdict is re-taken here
++   * rather than replayed from memory: the registry can go back to the admitted
++   * bytes between the refusal and the agent returning, and reporting the old text
++   * would name a digest that is no longer current and blame an update for a
++   * transition the agent never retried — while `resume` succeeds, telling the
++   * operator there is no mismatch after all.
++   */
++  private noTransitReason(): string {
++    if (!this.transitRefused) return "agent_did_not_transit";
++    const identity = runtimeIdentityDecision(
++      this.project.registry,
++      this.project.store.runtimeIdentityPin(this.taskId),
++      this.workflowName,
++      "refuse",
++    );
++    return identity.ok ? "agent_did_not_transit" : `cannot transit ${this.taskId}: ${identity.reason}`;
+   }
+ 
+   // -- ctx.transit --------------------------------------------------------
+@@ -292,6 +319,39 @@ export class SessionRuntime {
+       if (wf.onTransit) {
+         await wf.onTransit(tctx, to); // may throw → propagate (retryable)
+       }
++      // The registry can be swapped by `ext reload` while this session runs, so the
++      // admitted identity is re-checked here — the second, independent transition
++      // entry (issue #10). The placement is exact, and both halves of it matter:
++      //
++      //  - AFTER `onTransit`, because `onTransit` is arbitrary code with an
++      //    arbitrary await, and a swap inside that await would otherwise commit the
++      //    transition on a pin that no longer matches;
++      //  - BEFORE the settle is claimed, because a refusal after the claim reaches
++      //    no finalizer (`onRunSettled` returns on `transited`, `finalizeFailed`
++      //    fails the same claim) and would strand the session `running` for ever
++      //    with the task neither advanced nor parked.
++      //
++      // Refusing here leaves by the same door as any rejected target, so an agent
++      // that lets it propagate settles through `finalizeFailed`, which parks the
++      // task with this reason. Nothing awaits between here and the claim.
++      //
++      // Only refuse; adopting would be wrong. The task was admitted when it was
++      // dispatched, so a pin that no longer matches means the registry moved under a
++      // session still running the workflow object it captured, and recording the new
++      // digest would be a false record.
++      const identity = runtimeIdentityDecision(
++        this.project.registry,
++        this.project.store.runtimeIdentityPin(this.taskId),
++        this.workflowName,
++        "refuse",
++      );
++      if (!identity.ok) {
++        // Recorded, not stored as text: an agent may swallow this throw, and the
++        // reason has to be true when it is finally written (see `noTransitReason`).
++        this.transitRefused = true;
++        throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
++      }
++
+       // onTransit approved — claim the single settle now. If an abort landed
+       // during onTransit's await, the claim fails and the transit is rejected
+       // (the session already ended) rather than committing a stale transition.
+diff --git a/daemon/core/src/extensions/discovery.ts b/daemon/core/src/extensions/discovery.ts
+index a61777778ac6b545988834f53aa257c43130317a..b653f67f6aa6327b7952df2e95da696d96abd156 100644
+--- a/daemon/core/src/extensions/discovery.ts
++++ b/daemon/core/src/extensions/discovery.ts
+@@ -18,6 +18,8 @@
+ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+ import { join, resolve } from "node:path";
+ 
++import type { ExtensionLoadError } from "@autosk/sdk";
++
+ /**
+  * A discovered extension entry: the absolute module path to import, plus an
+  * operator-facing `source` label for diagnostics — a file/dir path for the
+@@ -26,6 +28,15 @@ import { join, resolve } from "node:path";
+ export interface ExtensionEntry {
+   /** Absolute path to the entry module to import. */
+   entryPath: string;
++  /**
++   * Absolute path of the distribution this entry belongs to: the package directory,
++   * the extension subdirectory, or the file itself for a bare `foo.ts`. This is the
++   * unit whose bytes identify the extension (issue #10), and for a directory it is
++   * deliberately NOT derived from `entryPath` — a package that declares
++   * `dist/index.js` would otherwise be identified by `dist/` alone while its code
++   * imports `../lib`.
++   */
++  root: string;
+   /** Operator-facing label for `project.diagnostics` (path or package name). */
+   source: string;
+ }
+@@ -86,21 +97,37 @@ export function resolveExtensionEntries(dir: string): string[] | null {
+   return null;
+ }
+ 
++/** What one extensions directory contributed: its entries plus its diagnostics. */
++export interface DirDiscovery {
++  entries: ExtensionEntry[];
++  /** Subdirectories that hold code but declare no entry point (see {@link discoverDir}). */
++  diagnostics: ExtensionLoadError[];
++}
++
+ /**
+  * Discovers all extension entries directly under `dir` (one level), in sorted
+- * filename order. A non-existent or unreadable directory yields `[]` (the
++ * filename order. A non-existent or unreadable directory yields nothing (the
+  * global/project dirs are optional). The `source` label of every entry is the
+  * file/subdir path it was discovered from.
++ *
++ * A subdirectory that holds files but declares no entry point is not an
++ * extension, and it is reported rather than skipped in silence. It may be data,
++ * or a typo, or — the case worth the noise — helper code a neighbouring bare-file
++ * extension imports: what a bare file imports is outside its runtime identity
++ * (issue #10), so editing those bytes would change what runs without parking the
++ * tasks pinned to the importer. The diagnostic states the fact (nothing here is
++ * an extension, none of it is identified) and leaves the reading to the operator.
+  */
+-export function discoverDir(dir: string): ExtensionEntry[] {
+-  if (!existsSync(dir)) return [];
++export function discoverDir(dir: string): DirDiscovery {
++  const entries: ExtensionEntry[] = [];
++  const diagnostics: ExtensionLoadError[] = [];
++  if (!existsSync(dir)) return { entries, diagnostics };
+   let names: string[];
+   try {
+     names = readdirSync(dir).sort();
+   } catch {
+-    return [];
++    return { entries, diagnostics };
+   }
+-  const entries: ExtensionEntry[] = [];
+   for (const name of names) {
+     if (name.startsWith(".")) continue;
+     const entryPath = join(dir, name);
+@@ -116,17 +143,43 @@ export function discoverDir(dir: string): ExtensionEntry[] {
+       continue;
+     }
+     if (isFile && isExtensionFile(name)) {
+-      entries.push({ entryPath, source: entryPath });
++      // A bare file is its own distribution. Rooting it at the shared extensions
++      // directory would cover its sibling imports, but it would also make every
++      // unrelated file there part of its identity — adding one extension would
++      // park tasks pinned to another, and one symlinked neighbour would make it
++      // unidentifiable. What it imports from that directory is outside its
++      // identity, and that boundary is documented; a subdirectory or a package
++      // gets tree-wide coverage.
++      entries.push({ entryPath, root: entryPath, source: entryPath });
+       continue;
+     }
+     if (isDir) {
+       const resolved = resolveExtensionEntries(entryPath);
+       if (resolved) {
+-        for (const e of resolved) entries.push({ entryPath: e, source: entryPath });
++        for (const e of resolved) entries.push({ entryPath: e, root: entryPath, source: entryPath });
++        continue;
++      }
++      if (hasContents(entryPath)) {
++        diagnostics.push({
++          source: entryPath,
++          error:
++            "directory declares no usable extension entry point (no index.ts/index.js, and no " +
++            "valid package.json#autosk.extensions), so nothing here is loaded as an extension and " +
++            "none of these bytes belong to any extension's runtime identity",
++        });
+       }
+     }
+   }
+-  return entries;
++  return { entries, diagnostics };
++}
++
++/** Whether a directory holds anything at all (an unreadable one counts as empty). */
++function hasContents(dir: string): boolean {
++  try {
++    return readdirSync(dir).length > 0;
++  } catch {
++    return false;
++  }
+ }
+ 
+ /**
+@@ -167,7 +220,7 @@ export function resolvePackageEntries(packagesDir: string, packageName: string):
+       error: "installed but declares no extension (no package.json#autosk.extensions entry or index.ts/js)",
+     };
+   }
+-  return { entries: resolved.map((entryPath) => ({ entryPath, source: packageName })) };
++  return { entries: resolved.map((entryPath) => ({ entryPath, root: packageDir, source: packageName })) };
+ }
+ 
+ /**
+@@ -192,7 +245,9 @@ export function resolveLocalPath(absPath: string): PackageResolution {
+     if (!isExtensionFile(absPath)) {
+       return { entries: [], error: `local path is not a .ts/.js extension file: ${absPath}` };
+     }
+-    return { entries: [{ entryPath: absPath, source: absPath }] };
++    // As with a bare file in an extensions directory, a local file entry is its own
++    // distribution; see the note there.
++    return { entries: [{ entryPath: absPath, root: absPath, source: absPath }] };
+   }
+   if (st.isDirectory()) {
+     const resolved = resolveExtensionEntries(absPath);
+@@ -202,7 +257,7 @@ export function resolveLocalPath(absPath: string): PackageResolution {
+         error: "directory declares no extension (no package.json#autosk.extensions entry or index.ts/js)",
+       };
+     }
+-    return { entries: resolved.map((entryPath) => ({ entryPath, source: absPath })) };
++    return { entries: resolved.map((entryPath) => ({ entryPath, root: absPath, source: absPath })) };
+   }
+   return { entries: [], error: `local path is neither a file nor a directory: ${absPath}` };
+ }
+diff --git a/daemon/core/src/extensions/identity.ts b/daemon/core/src/extensions/identity.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..808fb40a7e10d4020e12e07bf30c12a975076d46
+--- /dev/null
++++ b/daemon/core/src/extensions/identity.ts
+@@ -0,0 +1,325 @@
++/**
++ * Extension distribution identity (issue #10).
++ *
++ * The daemon must be able to say which exact bytes produced a running workflow.
++ * Nothing else in the tree does: the registry keeps a `source` label, sessions
++ * keep names, and a task keeps its creation binding — none of which changes when
++ * an extension's code changes underneath a running Epic.
++ *
++ * **What the digest covers.** Every regular file under the distribution ROOT, by
++ * relative path and content digest, in depth-first order sorted by raw name at
++ * each level. It identifies the DISTRIBUTION, not one entry
++ * within it: a package declaring several entries has one identity, and the choice
++ * of entry is itself part of the tree (it is declared in the package manifest,
++ * which is hashed like any other file). The root is the unit discovery found — the package directory, the
++ * extension subdirectory, or the single file — and never merely the entry's own
++ * directory: a package declaring `dist/index.js` would otherwise be identified
++ * by `dist/` alone while its code imports `../lib`, which defeats the guarantee
++ * silently on the ordinary compiled-npm layout.
++ *
++ * The whole footprint is covered on purpose. A static import scan cannot see
++ * computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
++ * targets, so hashing only the entry would claim more than it proves.
++ *
++ * **Symbolic links.** A link resolving INSIDE the root is recorded by its target
++ * without being followed: the bytes it points at are already covered by their own
++ * entry, and re-pointing the link changes the digest. A link resolving OUTSIDE the
++ * root is refused.
++ *
++ * Hashing an escaping link's target instead of refusing it was tried and is
++ * unsound: the runtime resolves a linked module to its realpath, so that module's
++ * own relative imports load from outside the root — files the digest never sees.
++ * The bytes would match while the executed code differed.
++ *
++ * The escape test resolves the target with `realpath`; a lexical test is not
++ * enough, because `R/link -> d/up/../..` with `R/d/up -> ..` normalizes to `.`
++ * yet resolves above the root.
++ *
++ * **The boundary this does not cross.** The identity covers the distribution's own
++ * tree. Code the extension resolves OUTSIDE that tree is not covered — most
++ * importantly an npm dependency hoisted into a parent `node_modules`, which needs
++ * no symlink at all. That is a real limit, stated here rather than implied away:
++ * this pins what an update to the extension itself changes, which is the realistic
++ * `ext update` path, and it does not pin the dependency graph around it.
++ *
++ * **What it does not cover, and must not be said to cover.** It pins bytes on
++ * disk. It is not a sandbox, it does not prove the absence of network or
++ * runtime-resolved dependencies, and it says nothing about what the code does
++ * once Bun imports it.
++ *
++ * **Bounds.** Files, directories and total bytes are each bounded, and each bound
++ * is checked BEFORE the work it guards, so a hostile tree cannot burn unbounded
++ * time before being refused. A distribution beyond the bounds is reported as a
++ * failure rather than as a partial identity, and an unidentifiable distribution
++ * is refused rather than admitted "as far as we got".
++ */
++import { createHash } from "node:crypto";
++import { closeSync, lstatSync, openSync, readSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
++import path from "node:path";
++
++/** Upper bound on the number of regular files in one extension distribution. */
++export const MAX_DISTRIBUTION_FILES = 20_000;
++/** Upper bound on the number of directories walked in one distribution. */
++export const MAX_DISTRIBUTION_DIRS = 5_000;
++/** Upper bound on the total bytes hashed for one extension distribution. */
++export const MAX_DISTRIBUTION_BYTES = 256 * 1024 * 1024;
++
++/** Bounds within which a distribution can be identified. */
++export interface DistributionLimits {
++  maxFiles: number;
++  maxDirs: number;
++  maxBytes: number;
++}
++
++/** The bounds used unless a caller narrows them (tests do, to exercise refusal). */
++export const DEFAULT_DISTRIBUTION_LIMITS: DistributionLimits = {
++  maxFiles: MAX_DISTRIBUTION_FILES,
++  maxDirs: MAX_DISTRIBUTION_DIRS,
++  maxBytes: MAX_DISTRIBUTION_BYTES,
++};
++
++/**
++ * One member of a distribution. `rawPath` is the relative path as raw filename
++ * bytes and is what the digest is taken over; `path` is its best-effort UTF-8
++ * rendering, for diagnostics only.
++ */
++export type DistributionEntry =
++  | { path: string; rawPath: Buffer; kind: "file"; sha256: string }
++  | { path: string; rawPath: Buffer; kind: "link"; rawTarget: Buffer }
++  | { path: string; rawPath: Buffer; kind: "dir" };
++
++/** The identity of the exact bytes an extension was loaded from. */
++export interface DistributionIdentity {
++  /** Absolute, symlink-resolved path of the captured root. */
++  root: string;
++  /** Entry module path, relative to `root`, in POSIX form. */
++  entry: string;
++  /** Every member under `root`, depth first, sorted by raw name at each level. */
++  entries: DistributionEntry[];
++  /** Total bytes covered. */
++  bytes: number;
++  /** Digest over the canonical serialization of `entry` and `entries`. */
++  digest: string;
++}
++
++interface Totals {
++  bytes: number;
++  dirs: number;
++}
++
++function digestFile(absolute: Buffer, size: number, totals: Totals, limits: DistributionLimits): string {
++  // Charge the size against the budget BEFORE reading, so a single oversized file
++  // is refused without being hashed first.
++  if (totals.bytes + size > limits.maxBytes) {
++    throw new Error(`distribution exceeds ${limits.maxBytes} bytes`);
++  }
++  const fd = openSync(absolute, "r");
++  try {
++    const hash = createHash("sha256");
++    const buffer = Buffer.allocUnsafe(64 * 1024);
++    let read = 0;
++    for (;;) {
++      const n = readSync(fd, buffer, 0, buffer.length, null);
++      if (n === 0) break;
++      hash.update(buffer.subarray(0, n));
++      read += n;
++      // A file that grows while it is being read must not slip past the budget.
++      if (totals.bytes + read > limits.maxBytes) {
++        throw new Error(`distribution exceeds ${limits.maxBytes} bytes`);
++      }
++    }
++    totals.bytes += read;
++    return hash.digest("hex");
++  } finally {
++    closeSync(fd);
++  }
++}
++
++const SEPARATOR = Buffer.from("/");
++const SEPARATOR_BYTE = SEPARATOR[0]!;
++
++/**
++ * Every path is carried as raw bytes end to end. Rendering one as a string for a
++ * filesystem call would replace any invalid byte with U+FFFD, and the call would
++ * then miss the file entirely.
++ */
++function within(root: Buffer, candidate: Buffer): boolean {
++  if (candidate.equals(root)) return true;
++  return (
++    candidate.length > root.length &&
++    candidate.subarray(0, root.length).equals(root) &&
++    candidate[root.length] === SEPARATOR_BYTE
++  );
++}
++
++function joinRaw(relative: Buffer, name: Buffer): Buffer {
++  return relative.length === 0 ? name : Buffer.concat([relative, SEPARATOR, name]);
++}
++
++function absoluteOf(root: Buffer, relative: Buffer): Buffer {
++  return relative.length === 0 ? root : Buffer.concat([root, SEPARATOR, relative]);
++}
++
++/**
++ * Resolves a link target to decide whether it stays inside the root. Uses
++ * `realpath`, so a chain that normalizes to an inside path lexically but resolves
++ * outside is caught. A broken or looping link resolves to nothing and is refused.
++ */
++function resolveLinkTarget(linkAbsolute: Buffer): Buffer {
++  return realpathSync(linkAbsolute, { encoding: "buffer" });
++}
++
++function collect(
++  root: Buffer,
++  relative: Buffer,
++  out: DistributionEntry[],
++  totals: Totals,
++  limits: DistributionLimits,
++): void {
++  if (totals.dirs >= limits.maxDirs) {
++    throw new Error(`distribution exceeds ${limits.maxDirs} directories`);
++  }
++  totals.dirs += 1;
++  const absoluteDir = absoluteOf(root, relative);
++  // Checked before the read, not only after it: a directory entered at the cap
++  // would otherwise materialise its whole listing before being rejected.
++  if (out.length >= limits.maxFiles) {
++    throw new Error(`distribution exceeds ${limits.maxFiles} files`);
++  }
++  // Filenames are arbitrary bytes; reading them as Buffers keeps two distinct
++  // non-UTF-8 names from collapsing to the same replacement characters. Sorting
++  // on the raw bytes also makes the order independent of any decoding.
++  const names = readdirSync(absoluteDir, { encoding: "buffer" });
++  if (out.length + names.length > limits.maxFiles) {
++    throw new Error(`distribution exceeds ${limits.maxFiles} files`);
++  }
++  names.sort(Buffer.compare);
++  for (const name of names) {
++    const childRaw = joinRaw(relative, name);
++    const absolute = absoluteOf(root, childRaw);
++    const display = childRaw.toString();
++    const st = lstatSync(absolute);
++    if (out.length >= limits.maxFiles) {
++      throw new Error(`distribution exceeds ${limits.maxFiles} files`);
++    }
++    if (st.isSymbolicLink()) {
++      const target = readlinkSync(absolute, { encoding: "buffer" });
++      let resolved: Buffer;
++      try {
++        resolved = resolveLinkTarget(absolute);
++      } catch {
++        throw new Error(`symbolic link cannot be resolved: ${display}`);
++      }
++      if (!within(root, resolved)) {
++        throw new Error(`symbolic link escapes the distribution: ${display}`);
++      }
++      // The target's bytes are covered by their own entry; recording the target
++      // means re-pointing the link changes the digest.
++      out.push({ path: display, rawPath: childRaw, kind: "link", rawTarget: target });
++      continue;
++    }
++    if (st.isDirectory()) {
++      // Recorded in its own right, so two trees differing only by an empty
++      // directory do not share a digest.
++      out.push({ path: display, rawPath: childRaw, kind: "dir" });
++      collect(root, childRaw, out, totals, limits);
++      continue;
++    }
++    if (!st.isFile()) {
++      throw new Error(`unsupported file type in distribution: ${display}`);
++    }
++    out.push({
++      path: display,
++      rawPath: childRaw,
++      kind: "file",
++      sha256: digestFile(absolute, st.size, totals, limits),
++    });
++  }
++}
++
++/**
++ * The path of `absolute` relative to `root` in POSIX form, or `null` when it is
++ * not inside the root or either end cannot be resolved. Used to re-check that a
++ * memoised distribution really contains a given entry.
++ */
++export function relativeWithin(root: string, absolute: string): string | null {
++  // Both ends resolve the same way. The root was readable when the distribution
++  // was digested, but it can go away before this re-check, and throwing here would
++  // take down the whole `loadProjectRegistry` instead of skipping one entry with a
++  // diagnostic — the opposite of the loader's rule that a bad extension is never
++  // fatal.
++  let rootBuf: Buffer;
++  let target: Buffer;
++  try {
++    rootBuf = Buffer.from(realpathSync(path.resolve(root)));
++    target = Buffer.from(realpathSync(path.resolve(absolute)));
++  } catch {
++    return null;
++  }
++  if (target.equals(rootBuf)) return path.basename(root);
++  if (!within(rootBuf, target)) return null;
++  return target.subarray(rootBuf.length + 1).toString();
++}
++
++/**
++ * The canonical bytes the digest is taken over — the distribution's members only;
++ * the entry is not part of it, so every entry of one package shares one identity.
++ * Paths are the RAW filename bytes,
++ * base64-encoded: filenames are arbitrary byte strings, so two distinct non-UTF-8
++ * names would both decode to U+FFFD and collide if the path were serialised as a
++ * decoded string. Link targets are encoded the same way, and each line carries an
++ * explicit kind tag so a link line can never be read as a file line.
++ */
++export function canonicalDistribution(entries: DistributionEntry[]): string {
++  const lines: string[] = [];
++  for (const item of entries) {
++    const encodedPath = item.rawPath.toString("base64");
++    if (item.kind === "file") lines.push(`file ${item.sha256} ${encodedPath}`);
++    else if (item.kind === "link") lines.push(`link ${item.rawTarget.toString("base64")} ${encodedPath}`);
++    else lines.push(`dir ${encodedPath}`);
++  }
++  return `${lines.join("\n")}\n`;
++}
++
++/**
++ * Computes the identity of the distribution `entryPath` belongs to, rooted at
++ * `rootPath` (the unit discovery found). Throws with a specific reason when the
++ * distribution cannot be identified; callers must treat that as a refusal, not as
++ * an absent identity.
++ */
++export function distributionIdentity(
++  rootPath: string,
++  entryPath: string,
++  limits: DistributionLimits = DEFAULT_DISTRIBUTION_LIMITS,
++): DistributionIdentity {
++  const root = realpathSync(path.resolve(rootPath), { encoding: "buffer" });
++  const entryAbsolute = realpathSync(path.resolve(entryPath), { encoding: "buffer" });
++  if (!within(root, entryAbsolute)) {
++    throw new Error("entry module is outside the distribution root");
++  }
++  const totals: Totals = { bytes: 0, dirs: 0 };
++  const entries: DistributionEntry[] = [];
++  const rootStat = lstatSync(root);
++  let entryRaw: Buffer;
++  if (rootStat.isDirectory()) {
++    collect(root, Buffer.alloc(0), entries, totals, limits);
++    entryRaw = entryAbsolute.subarray(root.length + 1);
++  } else if (rootStat.isFile()) {
++    // A bare file is its own distribution: what it imports from the directory it
++    // sits in is outside its identity, exactly as a hoisted npm dependency is.
++    entryRaw = root.subarray(root.lastIndexOf(SEPARATOR_BYTE) + 1);
++    entries.push({
++      path: entryRaw.toString(),
++      rawPath: entryRaw,
++      kind: "file",
++      sha256: digestFile(root, rootStat.size, totals, limits),
++    });
++  } else {
++    throw new Error("distribution root is neither a file nor a directory");
++  }
++  if (!entries.some((item) => item.kind === "file" && item.rawPath.equals(entryRaw))) {
++    throw new Error(`entry module ${entryRaw.toString()} is not a regular file in the distribution`);
++  }
++  const digest = createHash("sha256").update(canonicalDistribution(entries)).digest("hex");
++  return { root: root.toString(), entry: entryRaw.toString(), entries, bytes: totals.bytes, digest };
++}
+diff --git a/daemon/core/src/extensions/index.ts b/daemon/core/src/extensions/index.ts
+index 47411ac07f0558735815eda7cbd77e9edef9770c..ebcb66087937ba59762d622a2583f4afc2f7cf74 100644
+--- a/daemon/core/src/extensions/index.ts
++++ b/daemon/core/src/extensions/index.ts
+@@ -15,6 +15,7 @@ export {
+   resolveLocalPath,
+   readAutoskExtensionPaths,
+   isExtensionFile,
++  type DirDiscovery,
+   type ExtensionEntry,
+   type PackageResolution,
+ } from "./discovery.ts";
+diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
+index 5e0a1c956c45730e24e2cf43510105e6f1793e70..1db31bfada86ece1fa6fd0a8970b64a0427bcc04 100644
+--- a/daemon/core/src/extensions/loader.ts
++++ b/daemon/core/src/extensions/loader.ts
+@@ -17,8 +17,33 @@
+  */
+ 
+ import { join } from "node:path";
++import { realpathSync } from "node:fs";
+ import { pathToFileURL } from "node:url";
+ 
++import { distributionIdentity, relativeWithin, type DistributionIdentity } from "./identity.ts";
++
++/**
++ * The distribution identity each RESOLVED entry path was actually IMPORTED under,
++ * for the life of this process (issue #10). The key is the realpath, because
++ * Bun's module cache resolves symlinks and `..` before keying: two spellings of
++ * one file share one cached module and must therefore share one identity.
++ *
++ * The digest is read from disk, but `import()` returns the cached namespace for a
++ * URL this process already imported — the documented restart-only semantics of
++ * editing an installed extension in place. Taking the identity from disk on a
++ * later build would therefore advertise a digest for code the process is not
++ * running: a task enrolled after a reload would be pinned to the on-disk digest
++ * while executing the cached module, and a daemon restart would then make that
++ * false pin match.
++ *
++ * So the identity is bound at first import and reused for the life of the process.
++ * The registry always describes the code it actually serves. A later build that
++ * finds different bytes records a diagnostic — the operator is told a restart is
++ * needed — and keeps the identity of what is running, which is also what upstream
++ * already does with the code itself.
++ */
++const importedIdentities = new Map<string, DistributionIdentity>();
++
+ import type { AutoskAPI, ExtensionFactory, ExtensionLoadError } from "@autosk/sdk";
+ 
+ import { AUTOSK_DIR } from "../store/paths.ts";
+@@ -39,15 +64,16 @@ export interface ExtensionEnv {
+ 
+ /**
+  * The merged discovery result for a project: the priority-ordered, deduplicated
+- * entry list plus any diagnostics raised during discovery itself (today: a
+- * `settings.json`-listed npm package that resolved to nothing). Discovery-time
++ * entry list plus any diagnostics raised during discovery itself — a
++ * `settings.json`-listed package that resolved to nothing, or an extensions
++ * subdirectory that holds code but declares no entry point. Discovery-time
+  * diagnostics are kept separate from load-time ones so {@link loadProjectRegistry}
+  * can fold them into the same `project.diagnostics` surface.
+  */
+ export interface ResolvedProjectEntries {
+   entries: ExtensionEntry[];
+-  /** Settings-listed packages that contributed no entries (not installed / empty). */
+-  packageDiagnostics: ExtensionLoadError[];
++  /** Sources that contributed no entries: uninstalled packages, non-extension subdirs. */
++  discoveryDiagnostics: ExtensionLoadError[];
+ }
+ 
+ /**
+@@ -82,17 +108,20 @@ export function resolveProjectEntries(
+   const globalExtDir = globalAutosk ? join(globalAutosk, "extensions") : "";
+ 
+   const ordered: ExtensionEntry[] = [];
++  const discoveryDiagnostics: ExtensionLoadError[] = [];
+ 
+   // (1) project-local dir, then (2) global dir.
+-  ordered.push(...discoverDir(projectExtDir));
+-  if (globalExtDir) ordered.push(...discoverDir(globalExtDir));
++  for (const extDir of globalExtDir ? [projectExtDir, globalExtDir] : [projectExtDir]) {
++    const found = discoverDir(extDir);
++    ordered.push(...found.entries);
++    discoveryDiagnostics.push(...found.diagnostics);
++  }
+ 
+   // (3) settings packages: project settings first, then global. An npm entry
+   // resolves under its own scope's packages dir; a local entry resolves in place.
+   // An operator that LISTS a package but never installs it (typo, forgot to
+   // install) gets a diagnostic rather than silence — this is the one source with
+   // no load-time error surface, so we give it a discovery-time one.
+-  const packageDiagnostics: ExtensionLoadError[] = [];
+   const seenNpm = new Set<string>();
+   const seenLocal = new Set<string>();
+   const settingsScopes: { settings: string; baseDir: string; packagesDir: string }[] = [
+@@ -109,7 +138,7 @@ export function resolveProjectEntries(
+     for (const entry of readSettingsExtensions(settings)) {
+       const classified = classifySettingsEntry(entry, { baseDir, home });
+       if (classified.kind === "invalid") {
+-        packageDiagnostics.push({ source: entry, error: classified.reason });
++        discoveryDiagnostics.push({ source: entry, error: classified.reason });
+         continue;
+       }
+       if (classified.kind === "npm") {
+@@ -117,14 +146,14 @@ export function resolveProjectEntries(
+         seenNpm.add(classified.name);
+         const res = resolvePackageEntries(packagesDir, classified.name);
+         // Source label is the operator-facing settings entry (`npm:<spec>`).
+-        for (const e of res.entries) ordered.push({ entryPath: e.entryPath, source: entry });
+-        if (res.error) packageDiagnostics.push({ source: entry, error: res.error });
++        for (const e of res.entries) ordered.push({ entryPath: e.entryPath, root: e.root, source: entry });
++        if (res.error) discoveryDiagnostics.push({ source: entry, error: res.error });
+       } else {
+         if (seenLocal.has(classified.path)) continue; // project beats global
+         seenLocal.add(classified.path);
+         const res = resolveLocalPath(classified.path);
+         ordered.push(...res.entries);
+-        if (res.error) packageDiagnostics.push({ source: classified.path, error: res.error });
++        if (res.error) discoveryDiagnostics.push({ source: classified.path, error: res.error });
+       }
+     }
+   }
+@@ -137,7 +166,7 @@ export function resolveProjectEntries(
+     seen.add(entry.entryPath);
+     entries.push(entry);
+   }
+-  return { entries, packageDiagnostics };
++  return { entries, discoveryDiagnostics };
+ }
+ 
+ function errMsg(e: unknown): string {
+@@ -169,10 +198,77 @@ function errMsg(e: unknown): string {
+  * new code dropped a workflow/step parks the now-orphaned in-flight tasks to
+  * `human` (skipping any with a live session, which self-heal once they settle).
+  */
+-async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Promise<void> {
++async function loadEntry(
++  registry: ExtensionRegistry,
++  entry: ExtensionEntry,
++  identities: Map<string, DistributionIdentity | Error>,
++): Promise<void> {
++  // Identify the exact bytes before importing them (issue #10). A distribution
++  // that cannot be identified is refused rather than loaded unidentified: a
++  // workflow with no identity could not be pinned to a task, and an unpinnable
++  // workflow silently loses the guarantee that a running Epic keeps its code.
++  // A package that declares several entries shares one distribution, so its tree
++  // is hashed once per registry build rather than once per entry. The cache is
++  // keyed by the RESOLVED root, so two spellings of the same directory share one
++  // computation, and it lives exactly one build — `ext reload` builds a fresh
++  // registry and therefore re-reads the tree rather than serving a stale digest.
++  let key: string;
++  try {
++    key = realpathSync(entry.root);
++  } catch (e) {
++    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${errMsg(e)}`);
++    return;
++  }
++  let cached = identities.get(key);
++  if (cached === undefined) {
++    try {
++      cached = distributionIdentity(entry.root, entry.entryPath);
++    } catch (e) {
++      cached = e instanceof Error ? e : new Error(errMsg(e));
++    }
++    identities.set(key, cached);
++  }
++  if (cached instanceof Error) {
++    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${cached.message}`);
++    return;
++  }
++  // The memo skips `distributionIdentity`'s own entry-in-tree check for a
++  // package's second and later entries, so it is repeated here.
++  const relative = relativeWithin(cached.root, entry.entryPath);
++  if (relative === null || !cached.entries.some((e) => e.kind === "file" && e.path === relative)) {
++    registry.recordDiagnostic(
++      entry.source,
++      `entry ${entry.entryPath} is not a regular file in its distribution`,
++    );
++    return;
++  }
++  let identity = cached;
++
++  // Bun's module cache resolves symlinks and `..`, so two spellings of one file
++  // share one cached module. The binding key must resolve the same way or a second
++  // spelling would bind a fresh identity for code that is not re-evaluated.
++  let resolvedEntry: string;
++  try {
++    resolvedEntry = realpathSync(entry.entryPath);
++  } catch (e) {
++    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${errMsg(e)}`);
++    return;
++  }
++  const url = pathToFileURL(entry.entryPath).href;
++  const imported = importedIdentities.get(resolvedEntry);
++  if (imported !== undefined && imported.digest !== identity.digest) {
++    registry.recordDiagnostic(
++      entry.source,
++      "distribution changed on disk after it was imported; this process keeps serving the " +
++        `code it already loaded until the daemon restarts (running ${imported.digest}, ` +
++        `on disk ${identity.digest})`,
++    );
++    identity = imported;
++  }
++
+   let mod: unknown;
+   try {
+-    mod = await import(pathToFileURL(entry.entryPath).href);
++    mod = await import(url);
+   } catch (e) {
+     registry.recordDiagnostic(entry.source, `failed to import: ${errMsg(e)}`);
+     return;
+@@ -184,8 +280,10 @@ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Pr
+     return;
+   }
+ 
++  importedIdentities.set(resolvedEntry, identity);
++
+   const api: AutoskAPI = {
+-    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow),
++    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow, identity),
+     registerAgent: (registration) => registry.addAgent(entry.source, registration),
+   };
+   try {
+@@ -206,14 +304,15 @@ export async function loadProjectRegistry(
+   env: ExtensionEnv = {},
+ ): Promise<ExtensionRegistry> {
+   const registry = new ExtensionRegistry();
+-  const { entries, packageDiagnostics } = resolveProjectEntries(projectRoot, env);
++  const { entries, discoveryDiagnostics } = resolveProjectEntries(projectRoot, env);
+   // Record discovery-time diagnostics (e.g. a listed-but-not-installed package)
+   // before the factories run, so they sit at the top of `project.diagnostics`.
+-  for (const d of packageDiagnostics) registry.recordDiagnostic(d.source, d.error);
++  for (const d of discoveryDiagnostics) registry.recordDiagnostic(d.source, d.error);
+   // Sequential (not Promise.all): registration order is the priority order, so
+   // first-registered wins a name collision deterministically.
++  const identities = new Map<string, DistributionIdentity | Error>();
+   for (const entry of entries) {
+-    await loadEntry(registry, entry);
++    await loadEntry(registry, entry, identities);
+   }
+   return registry;
+ }
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index 4e86eccd865471f8e9a03111be4e7913d3c1847c..af04e54f19532406a7f2e0abd96c7a830b596423 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -28,6 +28,8 @@ import {
+   type WorkflowStepInfo,
+ } from "@autosk/sdk";
+ 
++import type { DistributionIdentity } from "./identity.ts";
++
+ /** The result of validating a `(workflow, step)` position against the registry. */
+ export interface PositionValidation {
+   ok: boolean;
+@@ -39,8 +41,28 @@ export class ExtensionRegistry {
+   private readonly workflows = new Map<string, WorkflowDefinition>();
+   /** Named agents registered via `AutoskAPI.registerAgent` (interactive sessions). */
+   private readonly agents = new Map<string, AgentRegistration>();
++  /**
++   * The distribution each registered name came from (issue #10). Keyed the same
++   * way as `workflows` / `agents`, so a caller that resolves a workflow can also
++   * resolve the exact bytes that defined it.
++   *
++   * The loader always supplies an identity, and refuses an entry whose bytes it
++   * cannot identify, so every workflow reachable through {@link loadProjectRegistry}
++   * is identified. A registry assembled directly — as tests do — registers
++   * definitions that have no distribution on disk at all; those are honestly
++   * unidentified, and the engine records them as unpinned rather than inventing
++   * a digest for them.
++   */
++  private readonly workflowIdentities = new Map<string, DistributionIdentity>();
+   private readonly loadErrors: ExtensionLoadError[] = [];
+ 
++  // -- distribution identity ----------------------------------------------
++
++  /** The distribution a registered workflow was loaded from, if it is registered. */
++  workflowIdentity(name: string): DistributionIdentity | undefined {
++    return this.workflowIdentities.get(name);
++  }
++
+   // -- diagnostics ---------------------------------------------------------
+ 
+   /** The accumulated load diagnostics (a fresh copy). */
+@@ -64,7 +86,7 @@ export class ExtensionRegistry {
+    * wins on a collision. The definition is stored exactly as written — agents
+    * live inline in `steps`, so there is no harvest into a separate agent map.
+    */
+-  addWorkflow(source: string, workflow: WorkflowDefinition): void {
++  addWorkflow(source: string, workflow: WorkflowDefinition, identity?: DistributionIdentity): void {
+     const name = workflow?.name;
+     if (typeof name !== "string" || name.length === 0) {
+       this.recordDiagnostic(source, "registerWorkflow: workflow.name must be a non-empty string");
+@@ -93,6 +115,7 @@ export class ExtensionRegistry {
+       }
+     }
+     this.workflows.set(name, workflow);
++    if (identity) this.workflowIdentities.set(name, identity);
+   }
+ 
+   /**
+diff --git a/daemon/core/src/rpc/errors.ts b/daemon/core/src/rpc/errors.ts
+index 3bca6badef1588411a4c9ee84ec5e026002078f1..c76317ac8c9c1c4a5c087511d6cf440f76e4132d 100644
+--- a/daemon/core/src/rpc/errors.ts
++++ b/daemon/core/src/rpc/errors.ts
+@@ -15,6 +15,7 @@ import { EngineError } from "../engine/types.ts";
+ import { InvalidExtensionSourceError } from "../extensions/source.ts";
+ import { InvalidProjectError, ProjectNotFoundError } from "../project/resolve.ts";
+ import { TaskCreationError } from "../store/creation.ts";
++import { ReservedMetadataKeyError } from "../store/metadata.ts";
+ 
+ /** A typed error a handler can throw to control the wire `code`/`message`/`details`. */
+ export class RpcError extends Error {
+@@ -49,6 +50,9 @@ export function toRpcError(e: unknown): RpcErrorPayload {
+   if (e instanceof InvalidExtensionSourceError) {
+     return { code: ErrorCodes.INVALID_PARAMS, message: e.message };
+   }
++  if (e instanceof ReservedMetadataKeyError) {
++    return { code: ErrorCodes.INVALID_PARAMS, message: e.message };
++  }
+   return { code: ErrorCodes.INTERNAL_ERROR, message: e instanceof Error ? e.message : String(e) };
+ }
+ 
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index d6f84e6dec3f0cd9cb208c27c85e4110b0447123..cbc77c0f26c86c5336e74100f62299c0062956b3 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -53,6 +53,11 @@ export {
+   isEmptyMetadata,
+   getStepVisits,
+   bumpStepVisit,
++  RUNTIME_IDENTITY_KEY,
++  readRuntimeIdentityPin,
++  setRuntimeIdentityPin,
++  type RuntimeIdentityPin,
++  type RuntimeIdentityPinRead,
+   applyMetadataPatch,
+   applyMetadataUnset,
+ } from "./metadata.ts";
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index a467c87c2621e572ef11f17677843b169d9ba8f9..6cfada5d6c16b351b40d0ddf9a6be2a70051fd94 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -66,6 +66,7 @@ export function applyMetadataPatch(
+   meta: Record<string, unknown>,
+   patch: Record<string, unknown>,
+ ): void {
++  for (const path of Object.keys(patch)) requireEditableMetadataPath(path);
+   for (const [path, value] of Object.entries(patch)) {
+     setDotPath(meta, splitPath(path), value);
+   }
+@@ -77,11 +78,40 @@ export function applyMetadataPatch(
+  * also drops the now-empty `step_visits`). Unknown paths are a no-op.
+  */
+ export function applyMetadataUnset(meta: Record<string, unknown>, keys: string[]): void {
++  for (const key of keys) requireEditableMetadataPath(key);
+   for (const key of keys) {
+     deleteDotPath(meta, splitPath(key));
+   }
+ }
+ 
++/**
++ * Refuses an edit that would reach the engine-owned runtime identity pin.
++ *
++ * `step_visits` is deliberately human-editable — the worst outcome of corrupting
++ * it is a miscounted cap. The runtime pin is a control: an edit through this
++ * surface would corrupt or clear the record of the code a task was admitted under.
++ * Both edit RPCs therefore refuse the path instead of silently applying it.
++ */
++function requireEditableMetadataPath(path: string): void {
++  if (splitPath(path)[0] === RUNTIME_IDENTITY_KEY) {
++    throw new ReservedMetadataKeyError(
++      `${RUNTIME_IDENTITY_KEY} is engine-owned and cannot be edited through metadata`,
++    );
++  }
++}
++
++/**
++ * An edit aimed at an engine-owned metadata key. Named so the RPC layer can map
++ * it to `INVALID_PARAMS`: the caller asked for something not allowed, which is
++ * not the daemon failing, and a client must not retry it as if it were.
++ */
++export class ReservedMetadataKeyError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "ReservedMetadataKeyError";
++  }
++}
++
+ // ---------------------------------------------------------------------------
+ // Dot-path internals.
+ // ---------------------------------------------------------------------------
+@@ -134,3 +164,63 @@ function deleteDotPath(root: Record<string, unknown>, segments: string[]): void
+     delete chain[i - 1]![segments[i - 1]!];
+   }
+ }
++
++/**
++ * The reserved metadata sub-object holding the runtime identity a task is
++ * pinned to (issue #10).
++ *
++ * Unlike {@link STEP_VISITS_KEY}, this one is NOT defensively tolerated. A
++ * visit counter that a human corrupts may self-heal, because the worst outcome
++ * is a miscounted cap. A corrupt or hand-forged runtime pin is the difference
++ * between running the code a task was enrolled on and running something else,
++ * so a malformed pin is reported and refused rather than ignored or reset.
++ */
++export const RUNTIME_IDENTITY_KEY = "runtime_identity";
++
++/** The workflow a task is enrolled on and the distribution digest it is pinned to. */
++export interface RuntimeIdentityPin {
++  workflow: string;
++  digest: string;
++}
++
++/** The three distinguishable states of the reserved pin. */
++export type RuntimeIdentityPinRead =
++  | { state: "absent" }
++  | { state: "pinned"; pin: RuntimeIdentityPin }
++  | { state: "malformed"; reason: string };
++
++const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
++
++/**
++ * Reads the reserved runtime identity pin. Returns `absent` only when the key is
++ * genuinely missing; anything present but not an exact `{ workflow, digest }`
++ * record with a lowercase SHA-256 digest is `malformed`, which callers must
++ * treat as a refusal.
++ */
++export function readRuntimeIdentityPin(
++  meta: Record<string, unknown> | undefined | null,
++): RuntimeIdentityPinRead {
++  if (meta == null || !(RUNTIME_IDENTITY_KEY in meta)) return { state: "absent" };
++  const raw = meta[RUNTIME_IDENTITY_KEY];
++  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
++    return { state: "malformed", reason: "runtime identity pin is not an object" };
++  }
++  const record = raw as Record<string, unknown>;
++  const extra = Object.keys(record).filter((key) => key !== "workflow" && key !== "digest");
++  if (extra.length > 0) {
++    return { state: "malformed", reason: `runtime identity pin has unexpected keys: ${extra.sort().join(", ")}` };
++  }
++  const { workflow, digest } = record;
++  if (typeof workflow !== "string" || workflow.length === 0) {
++    return { state: "malformed", reason: "runtime identity pin has no workflow name" };
++  }
++  if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
++    return { state: "malformed", reason: "runtime identity pin digest is not a lowercase sha256" };
++  }
++  return { state: "pinned", pin: { workflow, digest } };
++}
++
++/** Writes the reserved runtime identity pin, mutating `meta` in place. */
++export function setRuntimeIdentityPin(meta: Record<string, unknown>, pin: RuntimeIdentityPin): void {
++  meta[RUNTIME_IDENTITY_KEY] = { workflow: pin.workflow, digest: pin.digest };
++}
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..0e9ad210e6c42ec308abb8f9e1594cd67476857b 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -52,7 +52,15 @@ import {
+ } from "./creation.ts";
+ import { systemClock, type Clock } from "./clock.ts";
+ import { KeyedMutex } from "./lock.ts";
+-import { applyMetadataPatch, applyMetadataUnset, bumpStepVisit } from "./metadata.ts";
++import {
++  applyMetadataPatch,
++  applyMetadataUnset,
++  bumpStepVisit,
++  readRuntimeIdentityPin,
++  setRuntimeIdentityPin,
++  type RuntimeIdentityPin,
++  type RuntimeIdentityPinRead,
++} from "./metadata.ts";
+ import { consoleLogger, type Logger } from "./logger.ts";
+ import { ProjectPaths } from "./paths.ts";
+ import { parseTask, serializeTask, type StoredTask } from "./records.ts";
+@@ -859,13 +867,17 @@ export class Store {
+   async setPosition(
+     id: string,
+     pos: { status: TaskStatus; workflow: string | null; step: string | null },
+-    opts?: { countVisit?: string },
++    opts?: { countVisit?: string; pinRuntimeIdentity?: RuntimeIdentityPin },
+   ): Promise<TaskView> {
+     await this.mutateTask(id, (t) => {
+       t.status = pos.status;
+       t.workflow = pos.workflow;
+       t.step = pos.step;
+       if (opts?.countVisit !== undefined) bumpStepVisit(t.metadata, opts.countVisit);
++      // The pin lands in the SAME write as the position, so a task is never
++      // observable as enrolled on a workflow without the identity it was
++      // admitted under (issue #10).
++      if (opts?.pinRuntimeIdentity) setRuntimeIdentityPin(t.metadata, opts.pinRuntimeIdentity);
+     });
+     this.notifyTaskChange(id);
+     return this.taskView(id);
+@@ -1107,6 +1119,15 @@ export class Store {
+     return t ? this.schedulingRowFor(t) : null;
+   }
+ 
++  /**
++   * The reserved runtime identity pin of a task (issue #10), read from the
++   * in-memory record without extra I/O. Distinguishes absent from malformed:
++   * callers must refuse a malformed pin rather than treat it as unpinned.
++   */
++  runtimeIdentityPin(id: string): RuntimeIdentityPinRead {
++    return readRuntimeIdentityPin(this.tasks.peek(id)?.metadata);
++  }
++
+   /**
+    * Derives a {@link SchedulingRow} from a stored record. `blocked` is computed
+    * from the blockers' CACHED statuses (a dangling/unknown blocker is treated as
+diff --git a/daemon/core/test/engine.interactive.test.ts b/daemon/core/test/engine.interactive.test.ts
+index 236900aa365136f32376f35ed708446a2583e98b..75d22fa3a7403046a42d780cdeef306e112fc488 100644
+--- a/daemon/core/test/engine.interactive.test.ts
++++ b/daemon/core/test/engine.interactive.test.ts
+@@ -125,9 +125,14 @@ describe("engine — interactive (taskless) sessions", () => {
+ 
+   test("session.input delivers a followup; sessionEnd seals done without touching a task", async () => {
+     const received: string[] = [];
+-    const { p, engine } = await setup(chatAgent({ received }));
++    const started = gate();
++    const { p, engine } = await setup(chatAgent({ received, started: () => started.open() }));
+     const meta = await engine.createInteractiveSession(p.root, "chat");
+-    await waitForStatus(p, meta.id, "running");
++    // Waiting for the meta to say `running` is not enough to send input: the meta
++    // is written to disk before the runtime marks itself started, so a poller can
++    // observe `running` while `input()` still answers `handled:false`. Waiting for
++    // the agent's own signal is what this test means by "running".
++    await started.wait;
+ 
+     const res = await engine.sessionInput(p.root, meta.id, { kind: "followup", message: "hello model" });
+     expect(res.handled).toBe(true);
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bd272693c3884ad734292f4941050a2ba039d6ce
+--- /dev/null
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -0,0 +1,645 @@
++/**
++ * Runtime identity admission (issue #10).
++ *
++ * A task records the digest of the extension distribution it was admitted under,
++ * and every path that would run or advance it re-checks that digest. These tests
++ * use the real loader against real files, so the digest comes from bytes on disk
++ * rather than from a hand-built fixture.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import path from "node:path";
++
++import { loadProjectRegistry } from "../src/extensions/loader.ts";
++import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
++import { makeEngine, makeProject, type TestProject } from "./engineHarness.ts";
++import { waitFor } from "./helpers.ts";
++
++const WORKFLOW_SOURCE = (marker: string) => `
++import { existsSync, writeFileSync } from "node:fs";
++
++export default (api) => {
++  api.registerWorkflow({
++    name: "wf",
++    firstStep: "intake",
++    steps: {
++      intake: { status: "human" },
++      review: { status: "human" },
++      // Waits on a file the test creates, so the registry can be swapped while
++      // this session is genuinely live, then transits.
++      run: {
++        onRun: async (ctx) => {
++          const gate = process.env.AUTOSK_TEST_GATE;
++          while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
++          await ctx.transit({ step: "review" });
++        },
++      },
++      // The same, but hiding a refused transit — the shape that would otherwise
++      // reduce the park reason to "agent_did_not_transit".
++      runSwallow: {
++        onRun: async (ctx) => {
++          const gate = process.env.AUTOSK_TEST_GATE;
++          while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
++          try {
++            await ctx.transit({ step: "review" });
++          } catch {
++            // Deliberately hidden: the point of the test is that the engine still
++            // reports why the transition never happened.
++          }
++          // A second gate, so a test can change the registry again between the
++          // refusal and this agent returning.
++          const after = process.env.AUTOSK_TEST_AFTER_GATE;
++          if (!after) return;
++          writeFileSync(after + ".entered", "");
++          while (!existsSync(after)) await new Promise((r) => setTimeout(r, 5));
++        },
++      },
++    },
++    // A transition hook that blocks only when the test asks for it, so the
++    // registry can be swapped while onTransit is awaiting — the window between
++    // the identity check and the commit.
++    onTransit: async () => {
++      const gate = process.env.AUTOSK_TEST_TRANSIT_GATE;
++      if (!gate) return;
++      writeFileSync(gate + ".entered", "");
++      while (!existsSync(gate)) await new Promise((r) => setTimeout(r, 5));
++    },
++    // ${marker}
++  });
++};
++`;
++
++function writeExtension(root: string, marker: string): void {
++  const dir = path.join(root, ".autosk", "extensions");
++  mkdirSync(dir, { recursive: true });
++  writeFileSync(path.join(dir, "wf.js"), WORKFLOW_SOURCE(marker));
++}
++
++/** Hand-forges the reserved pin by editing `task.json`, the way an operator could. */
++function forgePin(root: string, taskId: string, pin: unknown): void {
++  editTaskFile(root, taskId, (task) => {
++    task.metadata = { ...(task.metadata ?? {}), runtime_identity: pin };
++  });
++}
++
++/** Deletes the reserved pin from `task.json`, the way an operator could. */
++function clearPin(root: string, taskId: string): void {
++  editTaskFile(root, taskId, (task) => {
++    delete (task.metadata as Record<string, unknown> | undefined)?.runtime_identity;
++  });
++}
++
++function editTaskFile(root: string, taskId: string, edit: (task: Record<string, any>) => void): void {
++  const file = path.join(root, ".autosk", "tasks", taskId, "task.json");
++  const task = JSON.parse(readFileSync(file, "utf8"));
++  edit(task);
++  writeFileSync(file, `${JSON.stringify(task, null, 2)}\n`);
++}
++
++describe("engine — runtime identity admission", () => {
++  const cleanups: (() => void)[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const c of cleanups.splice(0)) c();
++  });
++  function track(p: TestProject): TestProject {
++    cleanups.push(p.cleanup);
++    return p;
++  }
++
++  async function project(marker: string) {
++    const p = track(await makeProject({ workflows: [] }));
++    writeExtension(p.root, marker);
++    const registry = await loadProjectRegistry(p.root);
++    p.project.registry = registry;
++    return p;
++  }
++
++  test("enrolling pins the distribution the task was admitted under", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "pinned" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++
++    const view = await p.store.taskView(task.id);
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state).toBe("pinned");
++    if (pin.state !== "pinned") throw new Error("unreachable");
++    expect(pin.pin.workflow).toBe("wf");
++    expect(pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("after an in-place edit the identity still describes the code being served", async () => {
++    // Bun keeps serving the module it already imported for a path, so taking the
++    // identity from disk on a rebuild would advertise a digest for code the process
++    // is not running — and a later restart would make that false pin match. The
++    // identity stays bound to what was imported, and the drift is reported.
++    const p = await project("v1");
++    const importedDigest = p.project.registry.workflowIdentity("wf")!.digest;
++
++    writeExtension(p.root, "v2");
++    const reloaded = await loadProjectRegistry(p.root);
++
++    expect(reloaded.workflowNames()).toEqual(["wf"]);
++    expect(reloaded.workflowIdentity("wf")!.digest).toBe(importedDigest);
++    expect(reloaded.diagnostics.map((d) => d.error).join("\n")).toMatch(
++      /distribution changed on disk after it was imported/,
++    );
++    expect(reloaded.diagnostics.map((d) => d.error).join("\n")).toContain(importedDigest);
++  });
++
++  test("the same workflow name on different bytes is refused on resume", async () => {
++    // Two projects, two distributions, one workflow name. Swapping the registry
++    // gives a genuine digest mismatch without touching the module cache.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "drifting" });
++    await engine.enroll(a.root, task.id, { workflow: "wf" });
++    const pinnedDigest = a.project.registry.workflowIdentity("wf")!.digest;
++    const otherDigest = b.project.registry.workflowIdentity("wf")!.digest;
++    expect(otherDigest).not.toBe(pinnedDigest);
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    await expect(engine.resume(a.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++
++    const view = await a.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(pinnedDigest);
++  });
++
++  test("a refused resume cannot be laundered by re-entering at the parked step", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "laundered" });
++    await engine.enroll(a.root, task.id, { workflow: "wf" });
++    await engine.resume(a.root, task.id, { step: "review" }); // parked away from the first step
++    engine.setProjectRegistry(a.root, b.project.registry);
++    await expect(engine.resume(a.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++
++    // Enrolling onto another workflow and back at the SAME step would be a resume
++    // in disguise, so it is refused; only a genuine restart at the first step
++    // re-pins.
++    b.project.registry.addWorkflow("test", {
++      name: "other",
++      firstStep: "start",
++      steps: { start: { status: "human" } },
++    });
++    await engine.enroll(a.root, task.id, { workflow: "other" });
++    await expect(
++      engine.enroll(a.root, task.id, { workflow: "wf", step: "review" }),
++    ).rejects.toThrow(/may only switch to wf at its first step/);
++  });
++
++  test("dispatch parks a work task whose distribution changed under it", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const first = makeEngine();
++    engines.push(first.engine);
++    await first.engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "running" });
++    await first.engine.enroll(a.root, task.id, { workflow: "wf" });
++    const pinnedDigest = a.project.registry.workflowIdentity("wf")!.digest;
++    const currentDigest = b.project.registry.workflowIdentity("wf")!.digest;
++    first.engine.stop();
++
++    // The task is mid-flight when the registry it schedules over changes.
++    await a.store.setPosition(task.id, { status: "work", workflow: "wf", step: "review" });
++
++    const second = makeEngine();
++    engines.push(second.engine);
++    await second.engine.addProject({ ...a.project, registry: b.project.registry });
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) =>
++        c.text === `extension_version_mismatch: wf is now ${currentDigest}, task pinned ${pinnedDigest}`,
++      ),
++    );
++    expect((await a.store.taskView(task.id)).status).toBe("human");
++  });
++
++  test("a task pinned to an identity the registry no longer identifies is refused", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "unidentified" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++
++    // A hand-built registry carries the same workflow name with no distribution.
++    const { ExtensionRegistry } = await import("../src/index.ts");
++    const bare = new ExtensionRegistry();
++    bare.addWorkflow("hand-built", {
++      name: "wf",
++      firstStep: "review",
++      steps: { review: { status: "human" } },
++    });
++    engine.setProjectRegistry(p.root, bare);
++
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: wf has no identified distribution/,
++    );
++  });
++
++  test("a malformed pin is refused rather than repaired", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "forged" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    forgePin(p.root, task.id, { workflow: "wf", digest: "not-a-digest" });
++    await p.store.taskView(task.id); // re-read the hand-edited record
++
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: runtime identity pin digest is not a lowercase sha256/,
++    );
++    // The forged pin is left exactly as it was found; nothing self-heals.
++    const view = await p.store.taskView(task.id);
++    expect((view.metadata.runtime_identity as Record<string, unknown>).digest).toBe("not-a-digest");
++  });
++
++  test("a refused resume cannot be laundered by enrolling away and back", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "laundered" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    // Tamper with the pin, then try to wash the refusal out by switching away.
++    forgePin(p.root, task.id, { workflow: "wf", digest: "not-a-digest" });
++    await p.store.taskView(task.id);
++    await expect(engine.enroll(p.root, task.id, { workflow: "wf" })).rejects.toThrow(
++      /extension_version_mismatch/,
++    );
++  });
++
++  test("deleting the pin from task.json parks the task instead of re-pinning it", async () => {
++    // `task.json` is shared with the operator and the store takes an external
++    // edit wholesale, so a dispatch that adopted an absent pin would make
++    // "delete the reserved key" a supported way to re-admit a task under code it
++    // was never admitted to — laundering by file edit rather than by RPC.
++    const p = await project("v1");
++    const first = makeEngine();
++    engines.push(first.engine);
++    await first.engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "unpinned" });
++    await first.engine.enroll(p.root, task.id, { workflow: "wf" });
++    first.engine.stop();
++
++    await p.store.setPosition(task.id, { status: "work", workflow: "wf", step: "review" });
++    clearPin(p.root, task.id);
++    await p.store.taskView(task.id); // re-read the hand-edited record
++    expect(readRuntimeIdentityPin((await p.store.taskView(task.id)).metadata).state).toBe("absent");
++
++    const second = makeEngine();
++    engines.push(second.engine);
++    await second.engine.addProject(p.project); // kicks a scan → dispatch
++
++    await waitFor(async () =>
++      (await p.store.listComments(task.id)).some(
++        (c) =>
++          c.text ===
++          "extension_version_mismatch: wf has no recorded runtime identity for this task; " +
++            "re-enroll it at intake to admit it under the current code",
++      ),
++    );
++    const view = await p.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    // Nothing self-heals: the task is not silently re-pinned onto the current bytes.
++    expect(readRuntimeIdentityPin(view.metadata).state).toBe("absent");
++  });
++
++  test("an unpinned task resumes only by restarting at the first step", async () => {
++    // An absent pin is treated exactly like a mismatched one: neither resuming at
++    // the parked step nor re-enrolling at it re-admits the task, because both would
++    // continue mid-flight on code the task was never admitted under. Only the
++    // restart the design already blesses re-pins — which is also the migration for
++    // a task enrolled before identities existed.
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    // The shape a task enrolled before identities existed leaves behind.
++    const task = await p.store.createTask({ title: "legacy" });
++    await p.store.setPosition(task.id, { status: "human", workflow: "wf", step: "review" });
++    expect(readRuntimeIdentityPin((await p.store.taskView(task.id)).metadata).state).toBe("absent");
++
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: wf has no recorded runtime identity/,
++    );
++    await expect(
++      engine.enroll(p.root, task.id, { workflow: "wf", step: "review" }),
++    ).rejects.toThrow(/extension_version_mismatch: wf has no recorded runtime identity/);
++
++    await engine.enroll(p.root, task.id, { workflow: "wf" }); // restart at intake
++
++    const view = await p.store.taskView(task.id);
++    expect(view.step).toBe("intake");
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("re-enrolling at the first step re-admits a task an ext update parked", async () => {
++    // A mismatched pin is not a dead end. Restarting the workflow at its first step
++    // is the same act that already re-pins a switch to another workflow, and it is
++    // how a task parked by an ordinary `ext update` becomes runnable again. What it
++    // must NOT do is re-admit the task where it stands.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const task = await a.store.createTask({ title: "updated under" });
++    await engine.enroll(a.root, task.id, { workflow: "wf" });
++    await engine.resume(a.root, task.id, { step: "review" });
++    engine.setProjectRegistry(a.root, b.project.registry); // the ext update
++
++    await expect(engine.resume(a.root, task.id)).rejects.toThrow(/extension_version_mismatch/);
++    await expect(
++      engine.enroll(a.root, task.id, { workflow: "wf", step: "review" }),
++    ).rejects.toThrow(/extension_version_mismatch/);
++
++    await engine.enroll(a.root, task.id, { workflow: "wf" }); // restart at intake
++
++    const view = await a.store.taskView(task.id);
++    expect(view.step).toBe("intake");
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(b.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("a registry swapped mid-session parks the task instead of stranding it", async () => {
++    // The transition check is a precondition, not a post-commit assertion. Refusing
++    // after the session claimed its single settle would leave it `running` for ever:
++    // `hasLiveSession` stays true, dispatch never looks at the task again, and the
++    // park comment this feature promises never appears.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const gatePath = path.join(a.root, "open-the-gate");
++    process.env.AUTOSK_TEST_GATE = gatePath;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "mid-session swap" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "run" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    writeFileSync(gatePath, "");
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    expect(view.step).toBe("run"); // not advanced to review
++    await waitFor(async () => !a.store.sessions.hasLiveSession(task.id));
++  });
++
++  test("a registry swapped while onTransit awaits does not slip the transition through", async () => {
++    // `onTransit` is arbitrary user code with an arbitrary await, and it runs
++    // between the transition's entry and its commit. Checking the identity only on
++    // entry would let a swap inside that window commit the transition on a pin that
++    // no longer matches — the task moves, and nothing records the mismatch.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const runGate = path.join(a.root, "run-gate");
++    const transitGate = path.join(a.root, "transit-gate");
++    process.env.AUTOSK_TEST_GATE = runGate;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_TRANSIT_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "swap inside onTransit" });
++    // `enroll` runs `onTransit` too, so the hook is armed only once the session
++    // is live — otherwise enrollment itself would block on the gate.
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "run" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    process.env.AUTOSK_TEST_TRANSIT_GATE = transitGate;
++    writeFileSync(runGate, ""); // the agent calls ctx.transit → onTransit blocks
++    await waitFor(async () => existsSync(`${transitGate}.entered`));
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    writeFileSync(transitGate, ""); // onTransit returns; the commit must not land
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.step).toBe("run"); // NOT advanced to review on the swapped code
++    expect(view.status).toBe("human");
++  });
++
++  test("an agent that hides the refusal does not hide the reason", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++
++    const runGate = path.join(a.root, "swallow-gate");
++    process.env.AUTOSK_TEST_GATE = runGate;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "swallowed refusal" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "runSwallow" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    engine.setProjectRegistry(a.root, b.project.registry);
++    writeFileSync(runGate, "");
++
++    // Wait on the comment, not on the status: `park` flips the status first and
++    // adds the reason after, so `human` is observable before the reason exists.
++    // Not "agent_did_not_transit": that is true of the agent and useless to the
++    // operator, who would go looking for a broken agent instead of an update.
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("extension_version_mismatch")),
++    );
++    const view = await a.store.taskView(task.id);
++    expect(view.status).toBe("human");
++    expect(view.step).toBe("runSwallow");
++  });
++
++  test("a refusal that stopped being true is not the reason the task is parked", async () => {
++    // The refusal is remembered so a swallowed throw still names it. If the
++    // registry then goes back to the admitted bytes and the agent simply returns
++    // without transiting, the remembered reason is no longer true: it would name a
++    // digest that is not current and blame an update for a transition the agent
++    // never attempted — while `resume` succeeds, so the operator is told about a
++    // mismatch that is not there. Only the latest verdict may survive.
++    const a = await project("alpha");
++    const b = await project("beta");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    // Captured before the swap: `addProject` keeps the project object itself, so
++    // `setProjectRegistry` overwrites `a.project.registry` in place.
++    const admitted = a.project.registry;
++    await engine.addProject(a.project);
++
++    const runGate = path.join(a.root, "stale-run-gate");
++    const afterGate = path.join(a.root, "stale-after-gate");
++    process.env.AUTOSK_TEST_GATE = runGate;
++    process.env.AUTOSK_TEST_AFTER_GATE = afterGate;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GATE;
++      delete process.env.AUTOSK_TEST_AFTER_GATE;
++    });
++
++    const task = await a.store.createTask({ title: "swap back" });
++    await engine.enroll(a.root, task.id, { workflow: "wf", step: "runSwallow" });
++    await waitFor(async () => a.store.sessions.hasLiveSession(task.id));
++
++    engine.setProjectRegistry(a.root, b.project.registry); // the refusal happens here
++    writeFileSync(runGate, "");
++    await waitFor(async () => existsSync(`${afterGate}.entered`));
++
++    engine.setProjectRegistry(a.root, admitted); // …and stops being true
++    writeFileSync(afterGate, "");
++
++    await waitFor(async () =>
++      (await a.store.listComments(task.id)).some((c) => c.text.includes("agent_did_not_transit")),
++    );
++    const comments = (await a.store.listComments(task.id)).map((c) => c.text);
++    expect(comments.some((t) => t.includes("extension_version_mismatch"))).toBe(false);
++  });
++
++  test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
++    // The absent-pin refusal must not reach a task that has no workflow yet:
++    // there is no earlier admission to launder, so an explicit starting step is
++    // an ordinary enrollment.
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "fresh" });
++    await engine.enroll(p.root, task.id, { workflow: "wf", step: "review" });
++
++    const view = await p.store.taskView(task.id);
++    expect(view.step).toBe("review");
++    const pin = readRuntimeIdentityPin(view.metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(p.project.registry.workflowIdentity("wf")!.digest);
++  });
++
++  test("two projects on different bytes each keep their own identity", async () => {
++    const a = await project("alpha");
++    const b = await project("beta");
++    const digestA = a.project.registry.workflowIdentity("wf")!.digest;
++    const digestB = b.project.registry.workflowIdentity("wf")!.digest;
++    expect(digestA).not.toBe(digestB);
++
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(a.project);
++    await engine.addProject(b.project);
++
++    const taskA = await a.store.createTask({ title: "in a" });
++    const taskB = await b.store.createTask({ title: "in b" });
++    await engine.enroll(a.root, taskA.id, { workflow: "wf" });
++    await engine.enroll(b.root, taskB.id, { workflow: "wf" });
++
++    const pinA = readRuntimeIdentityPin((await a.store.taskView(taskA.id)).metadata);
++    const pinB = readRuntimeIdentityPin((await b.store.taskView(taskB.id)).metadata);
++    expect(pinA.state === "pinned" && pinA.pin.digest).toBe(digestA);
++    expect(pinB.state === "pinned" && pinB.pin.digest).toBe(digestB);
++  });
++
++  test("the reserved pin cannot be edited or cleared through the metadata RPCs", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "guarded" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    const digest = p.project.registry.workflowIdentity("wf")!.digest;
++
++    // The pin is a control, and this is the one surface workflow code can reach
++    // without touching the filesystem: an edit here would corrupt or clear the
++    // record of the code the task was admitted under.
++    await expect(p.store.mergeMetadata(task.id, { runtime_identity: {} })).rejects.toThrow(
++      /engine-owned/,
++    );
++    await expect(p.store.unsetMetadata(task.id, ["runtime_identity"])).rejects.toThrow(
++      /engine-owned/,
++    );
++    await expect(
++      p.store.mergeMetadata(task.id, { "runtime_identity.digest": "0".repeat(64) }),
++    ).rejects.toThrow(/engine-owned/);
++
++    const pin = readRuntimeIdentityPin((await p.store.taskView(task.id)).metadata);
++    expect(pin.state === "pinned" && pin.pin.digest).toBe(digest);
++  });
++
++  test("every entry a package declares shares one distribution identity", async () => {
++    const p = track(await makeProject({ workflows: [] }));
++    const { mkdirSync } = await import("node:fs");
++    const pkg = path.join(p.root, ".autosk", "extensions", "pkg");
++    mkdirSync(pkg, { recursive: true });
++    writeFileSync(
++      path.join(pkg, "package.json"),
++      '{"name":"pkg","autosk":{"extensions":["one.js","two.js"]}}\n',
++    );
++    writeFileSync(path.join(pkg, "one.js"), WORKFLOW_SOURCE("one").replace('"wf"', '"one"'));
++    writeFileSync(path.join(pkg, "two.js"), WORKFLOW_SOURCE("two").replace('"wf"', '"two"'));
++
++    const registry = await loadProjectRegistry(p.root);
++    expect(registry.workflowNames().sort()).toEqual(["one", "two"]);
++    // One tree, one identity: the digest is computed per distribution, not per
++    // declared entry, so a package with N entries is not hashed N times.
++    expect(registry.workflowIdentity("two")!.digest).toBe(registry.workflowIdentity("one")!.digest);
++  });
++
++  test("an extension whose bytes cannot be identified is refused at load", async () => {
++    const p = track(await makeProject({ workflows: [] }));
++    const { mkdirSync, symlinkSync } = await import("node:fs");
++    // A directory extension whose tree reaches outside itself: those bytes are not
++    // covered by the digest, so the distribution cannot be identified at all.
++    const pkg = path.join(p.root, ".autosk", "extensions", "pkg");
++    mkdirSync(pkg, { recursive: true });
++    writeFileSync(path.join(pkg, "index.js"), WORKFLOW_SOURCE("v1"));
++    const outside = path.join(p.root, "outside");
++    mkdirSync(outside, { recursive: true });
++    writeFileSync(path.join(outside, "impl.js"), "export const x = 1;\n");
++    symlinkSync(outside, path.join(pkg, "linked"));
++
++    const registry = await loadProjectRegistry(p.root);
++    expect(registry.workflowNames()).toEqual([]);
++    expect(registry.diagnostics.map((d) => d.error).join("\n")).toMatch(
++      /distribution cannot be identified: symbolic link escapes/,
++    );
++  });
++});
+diff --git a/daemon/core/test/extensions.identity.test.ts b/daemon/core/test/extensions.identity.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..26ed0dc925623482833090ff693bf42c36ac4f84
+--- /dev/null
++++ b/daemon/core/test/extensions.identity.test.ts
+@@ -0,0 +1,207 @@
++import { describe, expect, test } from "bun:test";
++import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
++import path from "node:path";
++
++import { distributionIdentity, relativeWithin } from "../src/extensions/identity";
++import { tempDir } from "./helpers.ts";
++
++/** Writes a tree under a fresh temp dir and returns its root. */
++function tree(files: Record<string, string>): string {
++  const dir = tempDir();
++  for (const [relative, content] of Object.entries(files)) {
++    const absolute = path.join(dir.path, relative);
++    mkdirSync(path.dirname(absolute), { recursive: true });
++    writeFileSync(absolute, content);
++  }
++  return dir.path;
++}
++
++describe("distribution identity", () => {
++  test("the same bytes produce the same digest and a different byte changes it", () => {
++    const a = tree({ "index.ts": "export default () => {};\n" });
++    const b = tree({ "index.ts": "export default () => {};\n" });
++    const c = tree({ "index.ts": "export default () => {}; //\n" });
++    const first = distributionIdentity(a, path.join(a, "index.ts"));
++    expect(distributionIdentity(b, path.join(b, "index.ts")).digest).toBe(first.digest);
++    expect(distributionIdentity(c, path.join(c, "index.ts")).digest).not.toBe(first.digest);
++    expect(first.entry).toBe("index.ts");
++  });
++
++  test("a package is identified by its whole root, not by the entry's directory", () => {
++    // The ordinary compiled-npm layout: the manifest declares `dist/index.js`
++    // while the code imports `../lib`. Rooting the digest at the entry's own
++    // directory would leave `lib/` and the manifest itself outside the identity.
++    const base = {
++      "package.json": '{"name":"p","autosk":{"extensions":["dist/index.js"]}}\n',
++      "dist/index.js": 'export default () => { import("../lib/impl.js"); };\n',
++      "lib/impl.js": "export const behaviour = 1;\n",
++    };
++    const root = tree(base);
++    const entry = path.join(root, "dist", "index.js");
++    const before = distributionIdentity(root, entry).digest;
++
++    const changed = tree({ ...base, "lib/impl.js": "export const behaviour = 2;\n" });
++    expect(distributionIdentity(changed, path.join(changed, "dist", "index.js")).digest).not.toBe(before);
++
++    const remanifested = tree({ ...base, "package.json": '{"name":"p","autosk":{"extensions":["dist/index.js"]},"x":1}\n' });
++    expect(distributionIdentity(remanifested, path.join(remanifested, "dist", "index.js")).digest).not.toBe(before);
++
++    expect(distributionIdentity(root, entry).entry).toBe("dist/index.js");
++  });
++
++  test("a bare file is its own distribution and its siblings are outside the identity", () => {
++    // There is no root that is both complete and stable for a bare file sitting in a
++    // shared extensions directory. Rooting it at the directory would cover its
++    // sibling imports, but adding an unrelated extension there would then park tasks
++    // pinned to this one, and a single symlinked neighbour would make it
++    // unidentifiable. So the file is the distribution, and what it imports from the
++    // directory is outside the identity — the same boundary as a hoisted npm
++    // dependency. A subdirectory or a package gets tree-wide coverage.
++    const dir = tree({ "one.ts": "export default () => {};\n", "helper.ts": "export const v = 1;\n" });
++    const entry = path.join(dir, "one.ts");
++    const before = distributionIdentity(entry, entry).digest;
++
++    writeFileSync(path.join(dir, "helper.ts"), "export const v = 2;\n");
++    writeFileSync(path.join(dir, "unrelated.ts"), "export default () => {};\n");
++    expect(distributionIdentity(entry, entry).digest).toBe(before);
++
++    writeFileSync(entry, "export default () => {}; // edited\n");
++    expect(distributionIdentity(entry, entry).digest).not.toBe(before);
++  });
++
++  test("an empty directory is part of the identity", () => {
++    const withoutDir = tree({ "index.ts": "export default () => {};\n" });
++    const withDir = tree({ "index.ts": "export default () => {};\n" });
++    mkdirSync(path.join(withDir, "empty"));
++    expect(distributionIdentity(withDir, path.join(withDir, "index.ts")).digest).not.toBe(
++      distributionIdentity(withoutDir, path.join(withoutDir, "index.ts")).digest,
++    );
++  });
++
++  test("an in-root link is recorded by its target and re-pointing it changes the digest", () => {
++    const base = { "index.ts": "export default () => {};\n", "a.js": "1\n", "b.js": "2\n" };
++    const first = tree(base);
++    symlinkSync("a.js", path.join(first, "bin"));
++    const second = tree(base);
++    symlinkSync("b.js", path.join(second, "bin"));
++    const one = distributionIdentity(first, path.join(first, "index.ts"));
++    const two = distributionIdentity(second, path.join(second, "index.ts"));
++    expect(
++      one.entries.some((e) => e.kind === "link" && e.path === "bin" && e.rawTarget.toString() === "a.js"),
++    ).toBe(true);
++    expect(two.digest).not.toBe(one.digest);
++  });
++
++  test("an escaping link is refused, whether it points at a file or a directory", () => {
++    // Hashing the target's content instead was tried and is unsound: the runtime
++    // resolves a linked module to its realpath, so that module's own relative
++    // imports load from outside the root and the digest never sees them.
++    const outside = tempDir();
++    writeFileSync(path.join(outside.path, "dep.js"), "export const v = 1;\n");
++    mkdirSync(path.join(outside.path, "pkg"));
++    writeFileSync(path.join(outside.path, "pkg", "x.js"), "1\n");
++
++    const withFileLink = tree({ "index.ts": "export default () => {};\n" });
++    symlinkSync(path.join(outside.path, "dep.js"), path.join(withFileLink, "dep.js"));
++    expect(() => distributionIdentity(withFileLink, path.join(withFileLink, "index.ts"))).toThrow(
++      /escapes the distribution/,
++    );
++
++    const withDirLink = tree({ "index.ts": "export default () => {};\n" });
++    symlinkSync(path.join(outside.path, "pkg"), path.join(withDirLink, "linked"));
++    expect(() => distributionIdentity(withDirLink, path.join(withDirLink, "index.ts"))).toThrow(
++      /escapes the distribution/,
++    );
++  });
++
++  test("a link that only looks inside lexically is still refused", () => {
++    // `up -> ..` makes `escape -> up/../..` normalize to "." lexically while
++    // resolving above the root. Only a realpath-based test catches this.
++    const root = tree({ "index.ts": "export default () => {};\n", "d/keep.js": "1\n" });
++    symlinkSync("..", path.join(root, "d", "up"));
++    symlinkSync("d/up/../..", path.join(root, "escape")); // not path.join: it would normalize the ".." away
++    expect(() => distributionIdentity(root, path.join(root, "index.ts"))).toThrow(
++      /escapes the distribution/,
++    );
++  });
++
++  test("a pnpm-style root whose node_modules links outside is refused, not silently partial", () => {
++    // pnpm resolves a package to `.pnpm/<name>@<ver>/node_modules/<name>` and fills
++    // its `node_modules/` with links to sibling stores outside that root. Those
++    // bytes cannot be covered, so the distribution is refused with a reason rather
++    // than identified as if the dependency were not there. This documents a real
++    // limitation of the layout, verified rather than argued.
++    const store = tempDir();
++    mkdirSync(path.join(store.path, "dep"), { recursive: true });
++    writeFileSync(path.join(store.path, "dep", "index.js"), "export const v = 1;\n");
++
++    const root = tree({
++      "index.js": "export default () => {};\n",
++      "package.json": '{"name":"p","autosk":{"extensions":["index.js"]}}\n',
++    });
++    mkdirSync(path.join(root, "node_modules"));
++    symlinkSync(path.join(store.path, "dep"), path.join(root, "node_modules", "dep"));
++
++    expect(() => distributionIdentity(root, path.join(root, "index.js"))).toThrow(
++      /symbolic link escapes the distribution: node_modules\/dep/,
++    );
++  });
++
++  test("two distinct non-UTF-8 filenames do not collide", () => {
++    // Decoding a filename before digesting it would turn every invalid byte into
++    // U+FFFD, so two different names would share one digest. APFS refuses such
++    // names outright (EILSEQ), which makes the case unreachable on macOS; on
++    // Linux it is reachable and the raw bytes are what keeps the digest distinct.
++    const first = tree({ "index.ts": "export default () => {};\n" });
++    const second = tree({ "index.ts": "export default () => {};\n" });
++    const nameA = Buffer.concat([Buffer.from(first + "/"), Buffer.from([0xff, 0x2e, 0x6a, 0x73])]);
++    const nameB = Buffer.concat([Buffer.from(second + "/"), Buffer.from([0xfe, 0x2e, 0x6a, 0x73])]);
++    try {
++      writeFileSync(nameA, "1\n");
++      writeFileSync(nameB, "1\n");
++    } catch (e) {
++      expect((e as NodeJS.ErrnoException).code).toBe("EILSEQ");
++      return;
++    }
++    const a = distributionIdentity(first, path.join(first, "index.ts"));
++    const b = distributionIdentity(second, path.join(second, "index.ts"));
++    expect(b.digest).not.toBe(a.digest);
++  });
++
++  test("bounds are refusals, not partial identities", () => {
++    const root = tree({ "index.ts": "export default () => {};\n", "one.ts": "1\n", "two.ts": "2\n" });
++    const entry = path.join(root, "index.ts");
++    expect(() => distributionIdentity(root, entry, { maxFiles: 2, maxDirs: 100, maxBytes: 1 << 20 })).toThrow(
++      /exceeds 2 files/,
++    );
++    expect(() => distributionIdentity(root, entry, { maxFiles: 100, maxDirs: 100, maxBytes: 4 })).toThrow(
++      /exceeds 4 bytes/,
++    );
++    const deep = tree({ "index.ts": "export default () => {};\n", "a/b/c/d/e/f.js": "1\n" });
++    expect(() =>
++      distributionIdentity(deep, path.join(deep, "index.ts"), { maxFiles: 100, maxDirs: 3, maxBytes: 1 << 20 }),
++    ).toThrow(/exceeds 3 directories/);
++    expect(
++      distributionIdentity(root, entry, { maxFiles: 100, maxDirs: 100, maxBytes: 1 << 20 }).entries,
++    ).toHaveLength(3);
++  });
++
++  test("an entry outside the root, or missing, is refused", () => {
++    const root = tree({ "index.ts": "export default () => {};\n" });
++    const other = tree({ "index.ts": "1\n" });
++    expect(() => distributionIdentity(root, path.join(other, "index.ts"))).toThrow(/outside the distribution root/);
++    expect(() => distributionIdentity(root, path.join(root, "missing.ts"))).toThrow();
++  });
++
++  test("relativeWithin answers null for an unresolvable end, never throws", () => {
++    // The loader calls this to re-check a memoised distribution, and a throw there
++    // would take down the whole project open instead of skipping one entry with a
++    // diagnostic. A root that has gone away since it was digested is the reachable
++    // case; both ends must behave the same way.
++    const root = tree({ "index.ts": "export default () => {};\n" });
++    const entry = path.join(root, "index.ts");
++    expect(relativeWithin(root, entry)).toBe("index.ts");
++    expect(relativeWithin(path.join(root, "gone"), entry)).toBe(null);
++    expect(relativeWithin(root, path.join(root, "gone.ts"))).toBe(null);
++  });
++});
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index 7078c7914b0ab5ec5193e67a078951f2a667f107..751c180ee5d5642c8bac99f6ecab5ea871044c49 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -11,7 +11,7 @@
+ 
+ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+ import { mkdirSync, writeFileSync } from "node:fs";
+-import { dirname, join } from "node:path";
++import { basename, dirname, join } from "node:path";
+ 
+ import { loadProjectRegistry, resolveProjectEntries } from "../src/index.ts";
+ import { tempDir } from "./helpers.ts";
+@@ -276,8 +276,8 @@ describe("extension loader — error isolation (daemon stays up)", () => {
+   test("a malformed package.json (null / non-object) contributes nothing; the project still opens", async () => {
+     // A syntactically valid package.json whose top-level value is the JSON
+     // literal `null` (and a sibling whose value is a non-object) must NOT crash
+-    // discovery (`pkg.autosk` on a null would throw). The subdirs contribute
+-    // nothing, no diagnostic, and a sibling good extension still registers.
++    // discovery (`pkg.autosk` on a null would throw). The subdirs contribute no
++    // entries — reported, not silent — and a sibling good extension still registers.
+     write(join(proj, ".autosk/extensions/weird-null/package.json"), "null");
+     write(join(proj, ".autosk/extensions/weird-num/package.json"), "42");
+     write(join(proj, ".autosk/extensions/weird-arr/package.json"), '["./x.ts"]');
+@@ -287,6 +287,38 @@ describe("extension loader — error isolation (daemon stays up)", () => {
+     const registry = await loadProjectRegistry(proj, { home });
+ 
+     expect(registry.workflowNames()).toEqual(["good"]);
++    expect(registry.diagnostics.map((d) => basename(d.source)).sort()).toEqual([
++      "weird-arr",
++      "weird-null",
++      "weird-num",
++    ]);
++    for (const d of registry.diagnostics) {
++      expect(d.error).toMatch(/declares no usable extension entry point/);
++    }
++  });
++
++  test("a code directory with no entry point is reported, not skipped in silence", async () => {
++    // The layout the runtime identity boundary cannot cover: a bare-file
++    // extension whose step logic lives in a sibling directory. `lib/` is nobody's
++    // distribution, so editing `lib/impl.js` changes what runs without moving
++    // `wf.js`'s digest. Discovery says so instead of passing over it.
++    write(join(proj, ".autosk/extensions/lib/impl.js"), "export const steps = {};\n");
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf"));
++
++    const registry = await loadProjectRegistry(proj, { home });
++
++    expect(registry.workflowNames()).toEqual(["wf"]);
++    const diag = registry.diagnostics.find((d) => basename(d.source) === "lib");
++    expect(diag?.error).toMatch(/none of these bytes belong to any extension's runtime identity/);
++  });
++
++  test("an empty directory in the extensions dir is not reported", async () => {
++    mkdirSync(join(proj, ".autosk/extensions/empty"), { recursive: true });
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf"));
++
++    const registry = await loadProjectRegistry(proj, { home });
++
++    expect(registry.workflowNames()).toEqual(["wf"]);
+     expect(registry.diagnostics).toEqual([]);
+   });
+ });
+diff --git a/daemon/core/test/rpc.behaviour.test.ts b/daemon/core/test/rpc.behaviour.test.ts
+index 512ea1a924064a68375b9cc4e37fe43dbd1355d5..deb46ed29dd71ee8d14fae0fe940729398046546 100644
+--- a/daemon/core/test/rpc.behaviour.test.ts
++++ b/daemon/core/test/rpc.behaviour.test.ts
+@@ -102,6 +102,15 @@ describe("task lifecycle + done/cancel/reopen", () => {
+       client.call("task.metadata.unset", { cwd, id: "ask-nope01", keys: ["a"] }),
+     ).rejects.toMatchObject({ code: ErrorCodes.NOT_FOUND });
+ 
++    // The engine-owned runtime pin is refused as a caller error, not as an
++    // INTERNAL_ERROR: the daemon did not fail, and a client must not retry it.
++    await expect(
++      client.call("task.metadata.set", { cwd, id: t.id, patch: { runtime_identity: {} } }),
++    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
++    await expect(
++      client.call("task.metadata.unset", { cwd, id: t.id, keys: ["runtime_identity"] }),
++    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
++
+     // Malformed params → INVALID_PARAMS.
+     await expect(
+       client.call("task.metadata.set", { cwd, id: t.id, patch: [1, 2] }),
+diff --git a/docs/extensions.md b/docs/extensions.md
+index d815192d299f7992e7fccd89803c341fd3ac74ae..c5e9ce89ddd6b268ed570a06aeba776bc6c79a61 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -290,6 +290,154 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+ or naming a package in `settings.json` *is* the consent. Treat these locations
+ as you would any code you run.
+ 
++## Runtime identity
++
++Every extension is identified by the exact bytes it was loaded from. Before the
++loader imports an entry it walks the extension's **root** — the package directory,
++the extension subdirectory, or the single file, whichever discovery found — digests
++every regular file, and hashes the sorted listing. The entry's own path is *not*
++part of the digest, so every entry a package declares shares one identity — the
++distribution is the unit, not the module. Enrolling a task records that digest on
++the task, and enroll, resume, dispatch and both transition paths re-check it. If
++the digest no longer matches, the task stops with `extension_version_mismatch`
++instead of continuing on code it was never admitted to; a `work` task is parked
++with that reason.
++
++For a directory extension the root is the discovery unit and never merely the entry
++file's own directory. A package that declares `dist/index.js` would otherwise be
++identified by `dist/` alone, while `dist/index.js` is free to
++`import("../lib/...")` — the ordinary compiled-npm layout, so that mistake would
++defeat the guarantee silently in the common case.
++
++A **bare `foo.ts`** sitting directly in an extensions directory is its own
++distribution: the file, and nothing else. There is no root that is both complete
++and stable for that layout. Rooting it at the shared directory would cover its
++sibling imports, but then adding an unrelated extension — or Finder writing
++`.DS_Store` — would move its identity and park tasks pinned to it, and one
++symlinked neighbour would make it unidentifiable altogether. So what a bare file
++imports — a sibling file, a helper subdirectory — is **outside** its identity,
++exactly as a hoisted npm dependency is. A subdirectory that holds code but declares
++no entry point of its own is reported in `project.diagnostics`, so this layout is
++visible rather than silent, but the diagnostic is a warning and not a guarantee: it
++cannot see a sibling `.ts` file, which discovery loads as its own distribution.
++
++**If you want tree-wide coverage, put the extension in its own subdirectory** (or
++install it as a package). Then the whole subdirectory is the distribution and every
++file it contains is part of the identity.
++
++The identity is bound at the **first import** of an entry and reused for the life
++of the process. That is not an optimisation, it is the only truthful choice: Bun
++keeps serving the module it already imported for a path, so editing an installed
++extension and reloading gives you the *old* code until the process restarts (see
++[The live-code hazard](#the-live-code-hazard)). Taking the digest from disk on a
++rebuild would advertise an identity for code the daemon is not running — and a
++later restart would make that false pin match. A rebuild that finds different
++bytes therefore keeps the identity of what is running and records a
++`project.diagnostics` entry telling the operator a restart is needed.
++
++After the restart the extension is read fresh, its identity is the new one, and a
++task still pinned to the old identity is refused — which is the protection working
++as intended.
++
++The whole directory is covered on purpose. A static import scan cannot see
++computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
++targets, so hashing only the entry file would claim more than it proves.
++
++What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
++about what the code does once imported or what it fetches at runtime.
++
++Nor is it a defence against an actor who can write into `.autosk/`. The pin lives in
++`task.json`, which the store shares with the operator; anyone who can rewrite that
++file can also replace the extension it points at, so forging a digest buys nothing
++that editing the code did not already give.
++
++What the engine does guarantee is that **a missing pin is never quietly filled in**.
++`runtime_identity` is engine-owned and the metadata API refuses to edit it, so
++workflow code cannot clear it through the supported surface; and on a task that
++already carries a workflow, an absent pin is treated exactly like a mismatched one.
++Deleting the reserved key does not release the task — dispatch and both transition
++paths park it, and resuming or re-enrolling it where it stands is refused, because
++either would continue mid-flight on code the task was never admitted under. `resume`
++has no exception at all: it never re-pins and never adopts a missing pin, wherever the
++task stands, first step included. `enroll` is the one that reads a first step as a
++restart, and the rule below is that rule.
++
++**One act re-pins, and it is the same act in every case: entering a workflow at its
++first step.** That is a restart — the task begins the workflow again, on today's
++code — so it re-pins whatever it carried before: nothing, the wrong digest, or a
++digest from another workflow. It is how a task parked by an ordinary `ext update`
++becomes runnable again, and how a task enrolled before identities existed picks one
++up. A task that has no workflow yet was never admitted anywhere and pins freely at
++whatever step it starts on.
++
++Be exact about what that promises. It is **not** a wall against a determined
++operator: enrolling at the first step and then resuming forward walks a task back to
++where it was, on the new code. That was already reachable before this rule existed —
++a restart through a second workflow got to the same place in three calls instead of
++two — so the rule removed an arbitrary asymmetry rather than opening a door.
++
++What is guaranteed is narrower and worth more: **no step ever runs on a digest other
++than the one the task carries while it runs, and a task's digest changes only by an
++explicit restart.** Nothing re-pins automatically, silently, or as a side effect of
++an update. Continuing an in-flight task across an update — keeping its position and
++its history while moving it onto new code — is the migration workflow of #10, which
++does not exist yet; until it does, an update parks the tasks it affects and they
++restart or wait.
++
++A symbolic link resolving **inside** the root is recorded by its target and not
++followed: the bytes it points at are already covered by their own entry, and
++re-pointing the link changes the digest. A link resolving **outside** the root is
++refused.
++
++Hashing an escaping link's target instead of refusing it was tried and is unsound.
++The runtime resolves a linked module to its realpath, so that module's own relative
++imports load from outside the root — files the digest never sees. The recorded
++bytes would match while the executed code differed.
++
++The escape test resolves each target with `realpath`. A lexical test is not
++enough — `link -> d/up/../..` with `d/up -> ..` normalizes to `.` yet resolves
++above the root.
++
++### What this does not cover — read this before relying on it
++
++The identity covers the distribution's **own tree**. Code the extension resolves
++**outside** that tree is not covered. Concretely:
++
++- An npm dependency **hoisted** into a parent `node_modules` is outside the
++  package root and needs no symlink at all. Updating that dependency under a
++  running Epic does not move the digest.
++- A **pnpm-style** layout, whose `node_modules/` is filled with links to sibling
++  stores, is refused outright with a `project.diagnostics` entry rather than
++  identified as if the dependency were absent.
++
++So "a task runs only on the extension bytes it was enrolled on" means the bytes of
++the extension's own distribution. It pins what an `ext update` to the extension
++itself changes — the realistic update path — and it does not pin the dependency
++graph around it. Extending the identity to the resolved dependency graph is
++separate work.
++
++Three more consequences worth knowing:
++
++- A distribution the loader cannot identify is **refused**, not loaded
++  unidentified. An escaping directory link, a non-regular file, or a tree beyond
++  the bounds (20 000 files, 5 000 directories, 256 MiB) each produce a
++  `project.diagnostics` entry and no registration. Each bound is checked before
++  the work it guards, so a hostile tree cannot burn unbounded time first.
++- A task enrolled before this existed carries no pin. On a task that already has
++  a workflow an absent pin is refused exactly like a mismatched one, so it parks
++  once and is re-enrolled at the workflow's first step; nothing adopts a missing
++  pin on an automatic path. The transition check runs *after* `onTransit` — which
++  is arbitrary code with an arbitrary await, so a swap inside it would otherwise
++  commit on a stale pin — and still *before* the session claims its settle, so a
++  registry swapped mid-session parks the task and ends the session rather than
++  stranding both. A pin that has been hand-edited into an invalid shape
++  is refused outright and never repaired — including when the task is being
++  switched to another workflow, so a refusal cannot be washed out by enrolling
++  away and back.
++- Filenames are digested as raw bytes, not as decoded strings, so two distinct
++  names that are not valid UTF-8 cannot collapse onto the same digest. (APFS
++  refuses such names outright; the case is reachable on Linux.)
++
+ ## Error isolation & `project.diagnostics`
+ 
+ A broken extension never takes the daemon down. Each of these is caught,
+diff --git a/internal/changelog/CHANGELOG.md b/internal/changelog/CHANGELOG.md
+index 71e72204b8ae3cf8db7cac86660c0018724f96b8..0478a55c58d33a76c61732f252b0900278843361 100644
+--- a/internal/changelog/CHANGELOG.md
++++ b/internal/changelog/CHANGELOG.md
+@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ### Added
+ - **create:** add idempotent creation binding receipts for automation (#11).
++- **engine:** refuse to run a task whose extension distribution changed after enrollment (#10).
+ 
+ ### Fixed
+ - **pi-agent:** gate prompts on pi's `agent_settled`, ending "Agent is already processing" session failures (#19).
