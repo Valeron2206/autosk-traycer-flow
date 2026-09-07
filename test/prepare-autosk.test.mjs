@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "4f616d3c12cee6f57fb80ce5666219e8db88b640");
+  assert.equal(manifest.result_tree, "bf2a56358d4a91af7aad1268878f7cf6ddd67a65");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
