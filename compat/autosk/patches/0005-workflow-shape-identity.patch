@@ -1,0 +1,619 @@
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+index 8e336d778ee7f775fae0573b7906bca8a06d5039..fc1d4710d4cc768a3668971fdf4e72de7331943e 100644
+--- a/daemon/core/src/engine/runtimeIdentity.ts
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -58,18 +58,17 @@ export function runtimeIdentityDecision(
+   if (pinned.state === "malformed") {
+     return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}` };
+   }
+-  const current = registry.workflowIdentity(workflowName);
++  // One lookup, so the two digests cannot be seen out of step with each other.
++  const current = registry.workflowAdmission(workflowName);
+   if (pinned.state === "absent") {
+     if (!current) return { ok: true };
+     if (absent === "refuse") {
+-      const firstStep = registry.resolveWorkflow(workflowName)?.firstStep;
+-      const remedy = firstStep ? `; re-enroll it at ${firstStep} to admit it under the current code` : "";
+       return {
+         ok: false,
+-        reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded runtime identity for this task${remedy}`,
++        reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded runtime identity for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, pin: { workflow: workflowName, digest: current.digest } };
++    return { ok: true, pin: makePin(workflowName, current.distribution.digest, current.graph) };
+   }
+   if (pinned.pin.workflow !== workflowName) {
+     return {
+@@ -80,11 +79,46 @@ export function runtimeIdentityDecision(
+   if (!current) {
+     return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no identified distribution` };
+   }
+-  if (current.digest !== pinned.pin.digest) {
++  if (current.distribution.digest !== pinned.pin.digest) {
+     return {
+       ok: false,
+-      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.digest}, task pinned ${pinned.pin.digest}`,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} is now ${current.distribution.digest}, task pinned ${pinned.pin.digest}`,
++    };
++  }
++  // The declared shape is checked separately, because the distribution digest
++  // cannot see it: a factory may build its steps from data outside its own tree,
++  // and then the workflow changes while every byte of the distribution matches.
++  //
++  // A pin with no graph where the registry has one is not "covered": it either
++  // predates this check or had the field removed, and those are indistinguishable
++  // on a task that already carries a workflow — the same reasoning that makes an
++  // absent pin a refusal. It is answered the same way, so the same restart
++  // re-admits it.
++  if (pinned.pin.graph === undefined) {
++    if (absent === "refuse") {
++      return {
++        ok: false,
++        reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded workflow shape for this task${remedyFor(registry, workflowName)}`,
++      };
++    }
++    return { ok: true, pin: makePin(workflowName, current.distribution.digest, current.graph) };
++  }
++  if (current.graph !== pinned.pin.graph) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} declares a different workflow now (shape ${current.graph}, task pinned ${pinned.pin.graph})`,
+     };
+   }
+   return { ok: true };
+ }
++
++/** The pin to write: a workflow with a distribution always has a shape too. */
++function makePin(workflow: string, digest: string, graph: string): RuntimeIdentityPin {
++  return { workflow, digest, graph };
++}
++
++/** The actionable half of a refusal: which step re-admits the task. */
++function remedyFor(registry: ExtensionRegistry, workflowName: string): string {
++  const firstStep = registry.resolveWorkflow(workflowName)?.firstStep;
++  return firstStep ? `; re-enroll it at ${firstStep} to admit it under the current code` : "";
++}
+diff --git a/daemon/core/src/extensions/graph.ts b/daemon/core/src/extensions/graph.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb90ee0ae7b36a657edb4e9206cd4a132e1f1d7f
+--- /dev/null
++++ b/daemon/core/src/extensions/graph.ts
+@@ -0,0 +1,81 @@
++/**
++ * The declared shape of a workflow, digested (issue #10, criterion 2).
++ *
++ * The distribution digest covers the bytes an extension was loaded from, which
++ * catches every change an `ext update` makes. It does not catch one thing: an
++ * extension factory is ordinary code, so it may build `steps` from data OUTSIDE
++ * its distribution — a JSON graph in the project directory, an environment
++ * variable, a document it fetched. Then the workflow changes while every byte of
++ * the distribution stays identical, and nothing notices.
++ *
++ * This digest closes that gap by hashing what the workflow actually declared to
++ * the registry. It deliberately does NOT claim to cover transitions, guards, caps
++ * or recovery targets: in this design those are code, not declarations — the graph
++ * is decided at runtime by `onTransit`, a cap is a number the workflow's own code
++ * reads out of `step_visits`, and recovery is engine-wide rather than per
++ * workflow. Their bytes are covered by the distribution digest and nothing here
++ * pretends otherwise.
++ */
++
++import { createHash } from "node:crypto";
++
++import { isStatusStep, type StepDef, type WorkflowDefinition } from "@autosk/sdk";
++
++/**
++ * The canonical bytes the graph digest is taken over.
++ *
++ * Names are base64-encoded rather than written literally: a step may be named
++ * anything, including a string containing the separator or a newline, and two
++ * different workflows must never serialise to the same text. The encoding is over
++ * UTF-16 code units, not UTF-8: a JavaScript string may hold an unpaired surrogate,
++ * and UTF-8 maps every one of those to U+FFFD, so `"\uD800"` and `"\uFFFD"` would
++ * be one name to the digest and two names to the registry.
++ *
++ * Steps are sorted by name and the shape is therefore a SET, not a sequence. Two
++ * reasons, and the second is the load-bearing one. Declaration order carries no
++ * meaning: the engine enters `firstStep` and goes wherever `onTransit` sends it,
++ * which is why the registry's own projection declares every step as a target. And
++ * "declaration order" is not a thing this code can honestly read — `Object.entries`
++ * yields integer-like keys first in numeric order, so a workflow whose steps are
++ * named `10` and `2` is not seen in the order its author wrote. Claiming an order
++ * that holds for `intake`/`review` and silently fails for `1`/`2` would be a
++ * guarantee with a hole in it; a re-ordered source file moves the distribution
++ * digest anyway.
++ */
++export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {
++  const lines: string[] = [
++    `workflow ${b64(wf.name)}`,
++    `first ${b64(wf.firstStep)}`,
++    `ontransit ${typeof wf.onTransit === "function" ? "1" : "0"}`,
++  ];
++  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
++    Buffer.compare(Buffer.from(a, "utf16le"), Buffer.from(b, "utf16le")),
++  );
++  for (const [stepName, step] of steps) {
++    lines.push(`step ${b64(stepName)} ${describeStep(step)}`);
++  }
++  return `${lines.join("\n")}\n`;
++}
++
++/** The sha256 of {@link canonicalWorkflowGraph}, lowercase hex. */
++export function workflowGraphDigest(wf: WorkflowDefinition): string {
++  return createHash("sha256").update(canonicalWorkflowGraph(wf), "utf8").digest("hex");
++}
++
++/**
++ * One step's declared shape: the kind, the status for a terminal/park step, and
++ * which optional agent hooks are present. Hook presence is declared structure —
++ * an agent that gains an `onAbort` behaves differently on abort — while the hook
++ * bodies are code and belong to the distribution digest.
++ */
++function describeStep(step: StepDef): string {
++  if (isStatusStep(step)) return `status ${b64(step.status)}`;
++  const hooks = (["onRun", "onSteer", "onFollowup", "onAbort"] as const)
++    .filter((hook) => typeof step[hook] === "function")
++    .join(",");
++  return `agent ${hooks.length > 0 ? hooks : "-"}`;
++}
++
++function b64(value: string): string {
++  return Buffer.from(value, "utf16le").toString("base64");
++}
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index af04e54f19532406a7f2e0abd96c7a830b596423..f1fa98b1d3b9d60d0d7c1941e61c6d1fdf7feb62 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -28,8 +28,22 @@ import {
+   type WorkflowStepInfo,
+ } from "@autosk/sdk";
+ 
++import { workflowGraphDigest } from "./graph.ts";
+ import type { DistributionIdentity } from "./identity.ts";
+ 
++/**
++ * What a registered workflow was admitted under: the bytes it came from and the
++ * shape it declared (issue #10). Recorded only for a workflow that has a
++ * distribution — a registry assembled without the loader stays honestly
++ * unidentified rather than half-identified by a value derived from an object in
++ * memory.
++ */
++export interface WorkflowAdmission {
++  distribution: DistributionIdentity;
++  /** The digest of the declared shape; see `extensions/graph.ts`. */
++  graph: string;
++}
++
+ /** The result of validating a `(workflow, step)` position against the registry. */
+ export interface PositionValidation {
+   ok: boolean;
+@@ -53,14 +67,38 @@ export class ExtensionRegistry {
+    * unidentified, and the engine records them as unpinned rather than inventing
+    * a digest for them.
+    */
+-  private readonly workflowIdentities = new Map<string, DistributionIdentity>();
++  private readonly workflowIdentities = new Map<string, WorkflowAdmission>();
+   private readonly loadErrors: ExtensionLoadError[] = [];
+ 
+   // -- distribution identity ----------------------------------------------
+ 
++  /**
++   * Everything a registered workflow is admitted under, or `undefined` when it has
++   * no distribution at all.
++   *
++   * The two digests live in ONE record on purpose. They are recorded together and
++   * are meaningless apart, and a caller that could see the distribution while the
++   * shape was missing would have to decide what that means — which is a decision
++   * with only one safe answer and several tempting ones. Holding them together
++   * makes "the shape is present exactly when the distribution is" a fact about the
++   * type rather than an agreement between two maps.
++   */
++  workflowAdmission(name: string): WorkflowAdmission | undefined {
++    return this.workflowIdentities.get(name);
++  }
++
+   /** The distribution a registered workflow was loaded from, if it is registered. */
+   workflowIdentity(name: string): DistributionIdentity | undefined {
+-    return this.workflowIdentities.get(name);
++    return this.workflowIdentities.get(name)?.distribution;
++  }
++
++  /**
++   * The digest of a registered workflow's declared shape, present exactly when
++   * {@link workflowIdentity} is. It catches what the distribution digest cannot:
++   * a factory that builds its steps from data outside its own tree.
++   */
++  workflowGraph(name: string): string | undefined {
++    return this.workflowIdentities.get(name)?.graph;
+   }
+ 
+   // -- diagnostics ---------------------------------------------------------
+@@ -100,6 +138,24 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" has no steps`);
+       return;
+     }
++    // Reachability is decided with `in` and property access, which walk the
++    // prototype chain, while every projection of the workflow — the rendered info
++    // and the declared-shape digest (issue #10) — enumerates own keys. A step
++    // inherited from a prototype is therefore reachable and drives a task's status
++    // while being invisible to both. Rather than leave the two disagreeing, a
++    // `steps` object that is not plain is refused.
++    const proto = Object.getPrototypeOf(workflow.steps);
++    if (proto !== Object.prototype && proto !== null) {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" steps must be a plain object`);
++      return;
++    }
++    // `firstStep` is coerced by `in`, so a numeric one passes this check and then
++    // fails far away — inside the shape digest, which only runs under the real
++    // loader. A registration must never throw, so the type is checked here.
++    if (typeof workflow.firstStep !== "string") {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" firstStep must be a string`);
++      return;
++    }
+     if (!(workflow.firstStep in workflow.steps)) {
+       this.recordDiagnostic(
+         source,
+@@ -115,7 +171,12 @@ export class ExtensionRegistry {
+       }
+     }
+     this.workflows.set(name, workflow);
+-    if (identity) this.workflowIdentities.set(name, identity);
++    if (identity) {
++      this.workflowIdentities.set(name, {
++        distribution: identity,
++        graph: workflowGraphDigest(workflow),
++      });
++    }
+   }
+ 
+   /**
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 6cfada5d6c16b351b40d0ddf9a6be2a70051fd94..37b9ee58ede303b1aa425b27d5ac9516ff66d6f2 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -177,10 +177,17 @@ function deleteDotPath(root: Record<string, unknown>, segments: string[]): void
+  */
+ export const RUNTIME_IDENTITY_KEY = "runtime_identity";
+ 
+-/** The workflow a task is enrolled on and the distribution digest it is pinned to. */
++/** The workflow a task is enrolled on and the digests it is pinned to. */
+ export interface RuntimeIdentityPin {
+   workflow: string;
++  /** The distribution the task was admitted under. */
+   digest: string;
++  /**
++   * The workflow's declared shape at admission. Optional in the shape because a
++   * pin written before this existed does not carry it; callers decide what a
++   * missing one means rather than having it forged here.
++   */
++  graph?: string;
+ }
+ 
+ /** The three distinguishable states of the reserved pin. */
+@@ -206,21 +213,29 @@ export function readRuntimeIdentityPin(
+     return { state: "malformed", reason: "runtime identity pin is not an object" };
+   }
+   const record = raw as Record<string, unknown>;
+-  const extra = Object.keys(record).filter((key) => key !== "workflow" && key !== "digest");
++  const extra = Object.keys(record).filter(
++    (key) => key !== "workflow" && key !== "digest" && key !== "graph",
++  );
+   if (extra.length > 0) {
+     return { state: "malformed", reason: `runtime identity pin has unexpected keys: ${extra.sort().join(", ")}` };
+   }
+-  const { workflow, digest } = record;
++  const { workflow, digest, graph } = record;
+   if (typeof workflow !== "string" || workflow.length === 0) {
+     return { state: "malformed", reason: "runtime identity pin has no workflow name" };
+   }
+   if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
+     return { state: "malformed", reason: "runtime identity pin digest is not a lowercase sha256" };
+   }
+-  return { state: "pinned", pin: { workflow, digest } };
++  if (graph !== undefined && (typeof graph !== "string" || !DIGEST_PATTERN.test(graph))) {
++    return { state: "malformed", reason: "runtime identity pin graph is not a lowercase sha256" };
++  }
++  return { state: "pinned", pin: graph === undefined ? { workflow, digest } : { workflow, digest, graph } };
+ }
+ 
+ /** Writes the reserved runtime identity pin, mutating `meta` in place. */
+ export function setRuntimeIdentityPin(meta: Record<string, unknown>, pin: RuntimeIdentityPin): void {
+-  meta[RUNTIME_IDENTITY_KEY] = { workflow: pin.workflow, digest: pin.digest };
++  meta[RUNTIME_IDENTITY_KEY] =
++    pin.graph === undefined
++      ? { workflow: pin.workflow, digest: pin.digest }
++      : { workflow: pin.workflow, digest: pin.digest, graph: pin.graph };
+ }
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index bd272693c3884ad734292f4941050a2ba039d6ce..8b38474637afa542865c18c323d7d651e5c97635 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -536,6 +536,94 @@ describe("engine — runtime identity admission", () => {
+     expect(comments.some((t) => t.includes("extension_version_mismatch"))).toBe(false);
+   });
+ 
++  test("a workflow built from data outside its distribution cannot change under a task", async () => {
++    // The gap the distribution digest cannot see. The extension file is one byte
++    // stream and never changes; the steps it registers come from a JSON file that
++    // is NOT part of its distribution, so editing that file changes what runs
++    // while every byte the digest covers stays identical.
++    const p = track(await makeProject({ workflows: [] }));
++    const extDir = path.join(p.root, ".autosk", "extensions");
++    mkdirSync(extDir, { recursive: true });
++    const graphFile = path.join(p.root, "graph.json");
++    writeFileSync(
++      path.join(extDir, "wf.js"),
++      `import { readFileSync } from "node:fs";
++export default (api) => {
++  const declared = JSON.parse(readFileSync(process.env.AUTOSK_TEST_GRAPH, "utf8"));
++  api.registerWorkflow({ name: "wf", firstStep: "intake", steps: declared });
++};
++`,
++    );
++    process.env.AUTOSK_TEST_GRAPH = graphFile;
++    cleanups.push(() => {
++      delete process.env.AUTOSK_TEST_GRAPH;
++    });
++    writeFileSync(graphFile, JSON.stringify({ intake: { status: "human" }, review: { status: "human" } }));
++
++    p.project.registry = await loadProjectRegistry(p.root);
++    const before = p.project.registry.workflowIdentity("wf")!.digest;
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "external graph" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++
++    // The workflow now declares a different set of steps. The file the digest
++    // covers is untouched.
++    writeFileSync(graphFile, JSON.stringify({ intake: { status: "human" }, review: { status: "done" } }));
++    const reloaded = await loadProjectRegistry(p.root);
++    expect(reloaded.workflowIdentity("wf")!.digest).toBe(before); // the bytes did not move
++    expect(reloaded.workflowGraph("wf")).not.toBe(p.project.registry.workflowGraph("wf"));
++
++    engine.setProjectRegistry(p.root, reloaded);
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: wf declares a different workflow now/,
++    );
++  });
++
++  test("a pin written before shapes were recorded is refused, and a restart re-admits it", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "pre-shape pin" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    const pinned = readRuntimeIdentityPin((await p.store.taskView(task.id)).metadata);
++    if (pinned.state !== "pinned") throw new Error("unreachable");
++    expect(pinned.pin.graph).toMatch(/^[0-9a-f]{64}$/);
++
++    // The shape a task pinned before this check leaves behind.
++    forgePin(p.root, task.id, { workflow: "wf", digest: pinned.pin.digest });
++    await p.store.taskView(task.id);
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: wf has no recorded workflow shape for this task; re-enroll it at intake/,
++    );
++
++    await engine.enroll(p.root, task.id, { workflow: "wf" }); // restart re-admits
++    const after = readRuntimeIdentityPin((await p.store.taskView(task.id)).metadata);
++    expect(after.state === "pinned" && after.pin.graph).toBe(p.project.registry.workflowGraph("wf"));
++  });
++
++  test("a forged shape digest is refused, not repaired", async () => {
++    const p = await project("v1");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "forged shape" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    const pinned = readRuntimeIdentityPin((await p.store.taskView(task.id)).metadata);
++    if (pinned.state !== "pinned") throw new Error("unreachable");
++
++    forgePin(p.root, task.id, { workflow: "wf", digest: pinned.pin.digest, graph: "not-a-digest" });
++    await p.store.taskView(task.id);
++    await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++      /extension_version_mismatch: runtime identity pin graph is not a lowercase sha256/,
++    );
++  });
++
+   test("a fresh task may be enrolled at any step; it was never admitted anywhere", async () => {
+     // The absent-pin refusal must not reach a task that has no workflow yet:
+     // there is no earlier admission to launder, so an explicit starting step is
+diff --git a/daemon/core/test/extensions.graph.test.ts b/daemon/core/test/extensions.graph.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..87e6202bc9271af423e234b542509e5ee4b23146
+--- /dev/null
++++ b/daemon/core/test/extensions.graph.test.ts
+@@ -0,0 +1,96 @@
++/**
++ * The declared-shape digest (issue #10).
++ *
++ * These are unit tests over the canonical form: what must move the digest, and
++ * what must not. The engine-level consequence — a workflow built from data
++ * outside its distribution — is covered in `engine.runtime-identity.test.ts`.
++ */
++
++import { describe, expect, test } from "bun:test";
++import type { WorkflowDefinition } from "@autosk/sdk";
++
++import { canonicalWorkflowGraph, workflowGraphDigest } from "../src/extensions/graph.ts";
++
++const agent = { onRun: async () => {} };
++
++function wf(over: Partial<WorkflowDefinition> = {}): WorkflowDefinition {
++  return {
++    name: "wf",
++    firstStep: "intake",
++    steps: { intake: agent, review: { status: "human" } },
++    ...over,
++  } as WorkflowDefinition;
++}
++
++describe("workflow graph digest", () => {
++  test("the same declaration digests the same, and the digest is a lowercase sha256", () => {
++    expect(workflowGraphDigest(wf())).toBe(workflowGraphDigest(wf()));
++    expect(workflowGraphDigest(wf())).toMatch(/^[0-9a-f]{64}$/);
++  });
++
++  test("renaming, re-pointing, re-ordering or re-typing a step all move it", () => {
++    const base = workflowGraphDigest(wf());
++    expect(workflowGraphDigest(wf({ name: "other" }))).not.toBe(base);
++    expect(workflowGraphDigest(wf({ firstStep: "review" }))).not.toBe(base);
++    // Order is NOT part of the shape, and this is deliberate: it carries no
++    // meaning to the engine, and `Object.entries` would not report the author's
++    // order anyway for integer-like names, so claiming it would be a guarantee
++    // that quietly fails on `1`/`2` while holding for `intake`/`review`.
++    expect(
++      workflowGraphDigest(wf({ steps: { review: { status: "human" }, intake: agent } })),
++    ).toBe(base);
++    // The set still has to be exact: dropping a step, or adding one, moves it.
++    expect(workflowGraphDigest(wf({ steps: { intake: agent } }))).not.toBe(base);
++    expect(
++      workflowGraphDigest(wf({ steps: { intake: agent, review: { status: "human" }, extra: agent } })),
++    ).not.toBe(base);
++    // A step that was an agent becomes terminal.
++    expect(workflowGraphDigest(wf({ steps: { intake: { status: "done" }, review: { status: "human" } } }))).not.toBe(base);
++    // The same terminal step with a different status.
++    expect(workflowGraphDigest(wf({ steps: { intake: agent, review: { status: "cancel" } } }))).not.toBe(base);
++  });
++
++  test("gaining or losing an agent hook moves it; the hook body does not", () => {
++    const base = workflowGraphDigest(wf());
++    const steered = workflowGraphDigest(
++      wf({ steps: { intake: { ...agent, onSteer: async () => {} }, review: { status: "human" } } }),
++    );
++    expect(steered).not.toBe(base);
++    // A different body for the same declared hooks is the distribution's business,
++    // not the shape's: this digest describes what was declared, not what it does.
++    const otherBody = workflowGraphDigest(
++      wf({ steps: { intake: { onRun: async () => { throw new Error("different"); } }, review: { status: "human" } } }),
++    );
++    expect(otherBody).toBe(base);
++  });
++
++  test("a name carrying the separator cannot collide with another declaration", () => {
++    // Names are arbitrary strings; encoding them raw would let one workflow
++    // serialise to another's bytes.
++    const sneaky = workflowGraphDigest(
++      wf({ steps: { ["intake\nstep review status human"]: agent, review: { status: "human" } } }),
++    );
++    expect(sneaky).not.toBe(workflowGraphDigest(wf()));
++    expect(canonicalWorkflowGraph(wf())).not.toContain("intake");
++  });
++
++  test("an unpaired surrogate is a name, not a replacement character", () => {
++    // A JavaScript string may hold a lone surrogate, and UTF-8 maps every one of
++    // them to U+FFFD — so encoding names as UTF-8 would make "\uD800" and "\uFFFD"
++    // one name to the digest and two to the registry.
++    // One step each, so the encoding of the name is the only thing that can
++    // differ — with two steps the sort order would separate them even if the
++    // encoding collapsed both to the same bytes, and the test would pass for the
++    // wrong reason.
++    const lone = wf({ firstStep: "\uD800", steps: { "\uD800": agent } });
++    const replacement = wf({ firstStep: "\uFFFD", steps: { "\uFFFD": agent } });
++    expect(canonicalWorkflowGraph(lone)).not.toBe(canonicalWorkflowGraph(replacement));
++    expect(workflowGraphDigest(lone)).not.toBe(workflowGraphDigest(replacement));
++  });
++
++  test("the description is not part of the shape", () => {
++    // It changes nothing the engine drives, and moving the digest for it would
++    // park tasks over an edited sentence.
++    expect(workflowGraphDigest(wf({ description: "a" }))).toBe(workflowGraphDigest(wf()));
++  });
++});
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index 751c180ee5d5642c8bac99f6ecab5ea871044c49..3e17c9320ae4c9c991e8f4c62362f5119b3b63c3 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -312,6 +312,34 @@ describe("extension loader — error isolation (daemon stays up)", () => {
+     expect(diag?.error).toMatch(/none of these bytes belong to any extension's runtime identity/);
+   });
+ 
++  test("a workflow whose steps are inherited, or whose firstStep is not a string, is refused", async () => {
++    // Reachability walks the prototype chain (`step in wf.steps`), while every
++    // projection of a workflow enumerates own keys — so an inherited step would be
++    // reachable and drive a task's status while being invisible to the rendered
++    // info and to the declared-shape digest. And `in` coerces, so a numeric
++    // firstStep passes the membership check and then fails deep inside the digest.
++    const { ExtensionRegistry } = await import("../src/index.ts");
++    const registry = new ExtensionRegistry();
++
++    const inherited = Object.create({ review: { status: "human" } }) as Record<string, unknown>;
++    inherited.intake = { onRun: async () => {} };
++    registry.addWorkflow("test", { name: "inherited", firstStep: "intake", steps: inherited } as never);
++    expect(registry.resolveWorkflow("inherited")).toBeUndefined();
++    expect(registry.diagnostics.map((d) => d.error)).toContain(
++      'registerWorkflow: "inherited" steps must be a plain object',
++    );
++
++    registry.addWorkflow("test", {
++      name: "numeric",
++      firstStep: 1,
++      steps: { 1: { status: "human" } },
++    } as never);
++    expect(registry.resolveWorkflow("numeric")).toBeUndefined();
++    expect(registry.diagnostics.map((d) => d.error)).toContain(
++      'registerWorkflow: "numeric" firstStep must be a string',
++    );
++  });
++
+   test("an empty directory in the extensions dir is not reported", async () => {
+     mkdirSync(join(proj, ".autosk/extensions/empty"), { recursive: true });
+     write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf"));
+diff --git a/docs/extensions.md b/docs/extensions.md
+index c5e9ce89ddd6b268ed570a06aeba776bc6c79a61..d1ac223e3ebbe5fd016010ad19562ecfff4e17e9 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -343,6 +343,47 @@ The whole directory is covered on purpose. A static import scan cannot see
+ computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
+ targets, so hashing only the entry file would claim more than it proves.
+ 
++### The one thing the bytes cannot cover
++
++An extension factory is ordinary code, so it may build its `steps` from data that
++is **not in its distribution** — a JSON graph in the project directory, an
++environment variable, a document it fetched. Then the workflow changes while every
++byte the distribution digest covers stays identical, and that digest alone notices
++nothing.
++
++So a task also records **what the workflow declared**: its name, its first step, the
++set of step names with each step's kind and terminal status, which agent hooks each
++step defines, and whether the workflow has an `onTransit`. Names are encoded rather
++than written literally, because a step may be named anything and two different
++workflows must never serialise to the same text. A change to any of that stops the
++task the same way a changed distribution does.
++
++The steps are a **set**, not a sequence. Declaration order carries no meaning — the
++engine enters `firstStep` and then goes wherever `onTransit` sends it — and it is not
++something this code could read honestly in any case: JavaScript reports integer-like
++keys first in numeric order, so a workflow whose steps are named `10` and `2` is not
++seen in the order its author wrote. An order that held for `intake`/`review` and
++quietly failed for `1`/`2` would be a guarantee with a hole in it, and a re-ordered
++source file moves the distribution digest regardless.
++
++Be exact about what this second digest does **not** cover. It is the declared shape,
++not the behaviour: transitions, guards, caps and recovery targets are code in this
++design — the graph is decided at runtime by `onTransit`, a cap is a number the
++workflow's own code reads out of `step_visits`, and recovery is engine-wide rather
++than per workflow. Their bytes are covered by the distribution digest, and swapping
++one hook's body for another with the same signature moves that digest and not this
++one. Making them declarative would change how extensions are authored, and that is a
++design decision rather than something to settle here.
++
++A pin that carries no shape where the registry has one is refused exactly like a pin
++that carries none at all: on a task that already has a workflow, "written before this
++check existed" and "had the field removed" are indistinguishable. The same restart
++re-admits it.
++
++The shape is recorded only beside a distribution identity. A registry assembled
++without the loader stays honestly unidentified rather than becoming half-identified
++by a value derived from an object in memory.
++
+ What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
+ about what the code does once imported or what it fetches at runtime.
+ 
