@@ -31,7 +31,7 @@ produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `0007-migration-planning.patch` produces
 `89a47c9166c1ab45192a4d40179a4b57fd0ad620`, and finally
 `0008-migration-apply.patch` produces the current `result_tree`
-`4934956804b56eb3941f0e8a18ad392396f289a8`.
+`74c05ee7f39a4d8669ad04cf3c26035129d7dda0`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 

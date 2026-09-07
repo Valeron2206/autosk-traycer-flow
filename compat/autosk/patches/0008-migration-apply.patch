@@ -1,8 +1,8 @@
 diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
-index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..a17b6df5c93f3e738764efbed8951c8c4c4b0ba8 100644
+index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..f41a86da59aada749484ae9f33da232e1fcf7a20 100644
 --- a/daemon/core/src/store/distributions.ts
 +++ b/daemon/core/src/store/distributions.ts
-@@ -37,10 +37,69 @@ export interface DistributionRecord {
+@@ -37,10 +37,71 @@ export interface DistributionRecord {
    recorded_at: string;
  }
  
@@ -63,16 +63,18 @@ index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..a17b6df5c93f3e738764efbed8951c8c
 +  workflow: string,
 +  tasks: readonly string[],
 +): string {
-+  // Every field is encoded, not just the workflow name. Encoding one and not the
-+  // others leaves an asymmetry that outlives the assumption behind it: today task
-+  // ids cannot contain the separator, and nothing says they never will.
++  // The digests go in raw because they are validated as lowercase hex on both the
++  // write and the read, so they cannot contain the separator. The workflow name and
++  // the task ids are arbitrary strings and are encoded. Saying "every field is
++  // encoded" would be neater and untrue, and an untrue comment beside a correct
++  // line is what this whole series has been about.
 +  const encode = (v: string): string => Buffer.from(v, "utf16le").toString("base64");
 +  const canonical = [from, to, toGraph, encode(workflow), ...[...tasks].sort().map(encode)].join("\n");
 +  return createHash("sha256").update(canonical, "utf8").digest("hex");
  }
  
  const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
-@@ -64,7 +123,7 @@ export class DistributionIndexError extends Error {
+@@ -64,7 +125,7 @@ export class DistributionIndexError extends Error {
   * exactly the damage the paragraph above forbids.
   */
  export function parseDistributionIndex(raw: string | null): DistributionIndex {
@@ -81,7 +83,7 @@ index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..a17b6df5c93f3e738764efbed8951c8c
    if (raw === "") throw new DistributionIndexError("runtime index is present but empty");
    let parsed: unknown;
    try {
-@@ -82,6 +141,12 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+@@ -82,6 +143,12 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
    if (!Array.isArray(record.distributions)) {
      throw new DistributionIndexError("runtime index has no distributions array");
    }
@@ -94,7 +96,7 @@ index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..a17b6df5c93f3e738764efbed8951c8c
    const seen = new Set<string>();
    const distributions = record.distributions.map((entry) => {
      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-@@ -116,11 +181,85 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+@@ -116,11 +183,85 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
      }
      return { digest, entries, recorded_at: recordedAt };
    });
@@ -183,7 +185,7 @@ index aad8a6ecf12a941274bd5fc04cc7b6e6bc007703..a17b6df5c93f3e738764efbed8951c8c
 +  return `${JSON.stringify({ version: 1, distributions: sorted, migrations }, null, 2)}\n`;
  }
 diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
-index 8aff9eafb429c22048fdf4292807bb6cff27d440..4db665125c01847320945226a7f9d6118f2f5608 100644
+index 8aff9eafb429c22048fdf4292807bb6cff27d440..be0faf1e3ab45365b0ebed606abf2fba23452288 100644
 --- a/daemon/core/src/store/store.ts
 +++ b/daemon/core/src/store/store.ts
 @@ -54,9 +54,11 @@ import { createHash } from "node:crypto";
@@ -213,7 +215,7 @@ index 8aff9eafb429c22048fdf4292807bb6cff27d440..4db665125c01847320945226a7f9d611
      await withCreationLock(this.paths, async (io) => {
        const raw = await io.readRuntimeIndex();
        const index = parseDistributionIndex(raw);
-@@ -1246,8 +1256,171 @@ export class Store {
+@@ -1246,8 +1256,170 @@ export class Store {
        const index = parseDistributionIndex(raw);
        const kept = index.distributions.filter((d) => d.digest !== digest);
        if (kept.length === index.distributions.length) return;
@@ -298,11 +300,10 @@ index 8aff9eafb429c22048fdf4292807bb6cff27d440..4db665125c01847320945226a7f9d611
 +    if (opened.completed_at !== undefined) return opened;
 +
 +    for (const taskId of opened.tasks) {
-+      await this.reconcileTask(taskId);
-+      // The check and the write happen inside the per-task lock, against the record
-+      // the write will see. Reading outside it and writing back the object that was
-+      // read lets a concurrent position write be overwritten without the
-+      // third-digest guard ever firing.
++      // No reconcile here: `mutateTask` reconciles under the per-task lock, so the
++      // check and the write see one record. Reading outside the lock and writing
++      // back what was read is what let a concurrent position write be overwritten
++      // without the third-digest guard firing.
 +      let moved = false;
 +      await this.mutateTask(taskId, (t) => {
 +        const current = readRuntimeIdentityPin(t.metadata);
@@ -411,10 +412,10 @@ index 5bb4d4c4d7c4059bcf5105e671c2dc99650ff8a8..9ca565c356f82a926f2cde82750bc39a
      for (const [reg, rec] of [
 diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5f9e8b6755cc81238e3c91235e87412884c3dd5a
+index 0000000000000000000000000000000000000000..1877b7aed2b92b29ec45d7133602ffc0137466ad
 --- /dev/null
 +++ b/daemon/core/test/store.migration.test.ts
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,278 @@
 +/**
 + * Applying a migration (issue #10, criterion 5).
 + *
@@ -668,6 +669,24 @@ index 0000000000000000000000000000000000000000..5f9e8b6755cc81238e3c91235e874128
 +    expect(index.migrations.map((m) => m.id)).toEqual([receipt.id]);
 +  });
 +
++  test("the parser refuses a duplicated id and a receipt naming no tasks", () => {
++    // Both were guards without a test. `beginMigration` refuses an empty task list
++    // first, so only a hand-edited index reaches the parser's version of it — which
++    // is exactly when it matters.
++    const one = `{"id":"${migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-a"])}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":["ask-a"],"started_at":"t"}`;
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[],"migrations":[${one},${one}]}`)).toThrow(
++      /records migration .* twice/,
++    );
++    const empty = `{"id":"${migrationId(OLD, NEW, NEW_GRAPH, "wf", [])}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":[],"started_at":"t"}`;
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[],"migrations":[${empty}]}`)).toThrow(
++      /names no tasks/,
++    );
++    const dup = `{"id":"${migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-a", "ask-a"])}","from":"${OLD}","to":"${NEW}","to_graph":"${NEW_GRAPH}","workflow":"wf","tasks":["ask-a","ask-a"],"started_at":"t"}`;
++    expect(() => parseDistributionIndex(`{"version":1,"distributions":[],"migrations":[${dup}]}`)).toThrow(
++      /same task twice/,
++    );
++  });
++
 +  test("a migration that was never opened cannot be applied", async () => {
 +    const { store } = await project();
 +    await expect(store.applyMigration(migrationId(OLD, NEW, NEW_GRAPH, "wf", ["ask-x"]))).rejects.toThrow(
@@ -676,10 +695,10 @@ index 0000000000000000000000000000000000000000..5f9e8b6755cc81238e3c91235e874128
 +  });
 +});
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d3b5d3dd27d4cfbd863995a27918a34c96c5eb29..6fa89b44dcde35c8d9b2ef667edc2ad6d82532ed 100644
+index d3b5d3dd27d4cfbd863995a27918a34c96c5eb29..561ba6d0a0ee5184fa7ee26c0b1948123219f6b6 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -519,9 +519,41 @@ is mid-run has no exit until its session settles. It will settle — the identit
+@@ -519,9 +519,48 @@ is mid-run has no exit until its session settles. It will settle — the identit
  parks it — but the operator who tries the remedy first and the daemon that has not
  finished are not looking at the same moment.
  
@@ -710,6 +729,13 @@ index d3b5d3dd27d4cfbd863995a27918a34c96c5eb29..6fa89b44dcde35c8d9b2ef667edc2ad6
 +how a receipt ends up asserting something untrue. Only after every task has been
 +re-read from the store and found on the target is `completed_at` written, so an
 +interruption anywhere leaves the receipt open and the next run finishes it.
++
++One window is not closed and is named rather than implied. No lock spans both the
++task pins and the index, so a task moved between the read-back and the seal leaves a
++receipt that says `completed` about a state that has since changed. The same limit
++already applies to forgetting a distribution. Closing it would mean holding the
++cross-process lock across task writes, which is a larger change than this one and
++would trade a narrow window for a wide one.
 +
 +The verification returns the receipt the sealing step needs, so skipping it does not
 +merely fail a test — it stops compiling. That was deliberate: no test can catch its
