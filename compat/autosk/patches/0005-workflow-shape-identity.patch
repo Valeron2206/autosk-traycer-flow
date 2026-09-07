@@ -67,10 +67,10 @@ index 8e336d778ee7f775fae0573b7906bca8a06d5039..183d716d0ded96e2b254427017999377
 +}
 diff --git a/daemon/core/src/extensions/graph.ts b/daemon/core/src/extensions/graph.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5e95ca3efb1ba2f22e6d5614d88a7d16e95364a1
+index 0000000000000000000000000000000000000000..8e475228061c034a00328dbfd30c752c82537d99
 --- /dev/null
 +++ b/daemon/core/src/extensions/graph.ts
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,78 @@
 +/**
 + * The declared shape of a workflow, digested (issue #10, criterion 2).
 + *
@@ -99,9 +99,18 @@ index 0000000000000000000000000000000000000000..5e95ca3efb1ba2f22e6d5614d88a7d16
 + *
 + * Names are base64-encoded rather than written literally: a step may be named
 + * anything, including a string containing the separator or a newline, and two
-+ * different workflows must never serialise to the same text. Step order is the
-+ * author's declaration order, because entering `firstStep` is the only order the
-+ * engine promises and re-ordering steps is a change worth catching.
++ * different workflows must never serialise to the same text.
++ *
++ * Steps are sorted by name and the shape is therefore a SET, not a sequence. Two
++ * reasons, and the second is the load-bearing one. Declaration order carries no
++ * meaning: the engine enters `firstStep` and goes wherever `onTransit` sends it,
++ * which is why the registry's own projection declares every step as a target. And
++ * "declaration order" is not a thing this code can honestly read — `Object.entries`
++ * yields integer-like keys first in numeric order, so a workflow whose steps are
++ * named `10` and `2` is not seen in the order its author wrote. Claiming an order
++ * that holds for `intake`/`review` and silently fails for `1`/`2` would be a
++ * guarantee with a hole in it; a re-ordered source file moves the distribution
++ * digest anyway.
 + */
 +export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {
 +  const lines: string[] = [
@@ -109,7 +118,10 @@ index 0000000000000000000000000000000000000000..5e95ca3efb1ba2f22e6d5614d88a7d16
 +    `first ${b64(wf.firstStep)}`,
 +    `ontransit ${typeof wf.onTransit === "function" ? "1" : "0"}`,
 +  ];
-+  for (const [stepName, step] of Object.entries(wf.steps)) {
++  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
++    Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8")),
++  );
++  for (const [stepName, step] of steps) {
 +    lines.push(`step ${b64(stepName)} ${describeStep(step)}`);
 +  }
 +  return `${lines.join("\n")}\n`;
@@ -349,10 +361,10 @@ index bd272693c3884ad734292f4941050a2ba039d6ce..8b38474637afa542865c18c323d7d651
      // there is no earlier admission to launder, so an explicit starting step is
 diff --git a/daemon/core/test/extensions.graph.test.ts b/daemon/core/test/extensions.graph.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8cf5a6845fe16c0fcd0280700528724fbb611727
+index 0000000000000000000000000000000000000000..5879cd2f3cf5b7262264d4829ac9cc3faa98168f
 --- /dev/null
 +++ b/daemon/core/test/extensions.graph.test.ts
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,82 @@
 +/**
 + * The declared-shape digest (issue #10).
 + *
@@ -387,9 +399,17 @@ index 0000000000000000000000000000000000000000..8cf5a6845fe16c0fcd0280700528724f
 +    const base = workflowGraphDigest(wf());
 +    expect(workflowGraphDigest(wf({ name: "other" }))).not.toBe(base);
 +    expect(workflowGraphDigest(wf({ firstStep: "review" }))).not.toBe(base);
-+    // Declaration order is part of the shape: the same two steps, swapped.
++    // Order is NOT part of the shape, and this is deliberate: it carries no
++    // meaning to the engine, and `Object.entries` would not report the author's
++    // order anyway for integer-like names, so claiming it would be a guarantee
++    // that quietly fails on `1`/`2` while holding for `intake`/`review`.
 +    expect(
 +      workflowGraphDigest(wf({ steps: { review: { status: "human" }, intake: agent } })),
++    ).toBe(base);
++    // The set still has to be exact: dropping a step, or adding one, moves it.
++    expect(workflowGraphDigest(wf({ steps: { intake: agent } }))).not.toBe(base);
++    expect(
++      workflowGraphDigest(wf({ steps: { intake: agent, review: { status: "human" }, extra: agent } })),
 +    ).not.toBe(base);
 +    // A step that was an agent becomes terminal.
 +    expect(workflowGraphDigest(wf({ steps: { intake: { status: "done" }, review: { status: "human" } } }))).not.toBe(base);
@@ -428,10 +448,10 @@ index 0000000000000000000000000000000000000000..8cf5a6845fe16c0fcd0280700528724f
 +  });
 +});
 diff --git a/docs/extensions.md b/docs/extensions.md
-index c5e9ce89ddd6b268ed570a06aeba776bc6c79a61..3ccabd138129afd3a2f2a77d474a6527c7c6a4ee 100644
+index c5e9ce89ddd6b268ed570a06aeba776bc6c79a61..d1ac223e3ebbe5fd016010ad19562ecfff4e17e9 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -343,6 +343,39 @@ The whole directory is covered on purpose. A static import scan cannot see
+@@ -343,6 +343,47 @@ The whole directory is covered on purpose. A static import scan cannot see
  computed `import(p)`, `require(p)`, `eval`-based import or real `createRequire`
  targets, so hashing only the entry file would claim more than it proves.
  
@@ -443,12 +463,20 @@ index c5e9ce89ddd6b268ed570a06aeba776bc6c79a61..3ccabd138129afd3a2f2a77d474a6527
 +byte the distribution digest covers stays identical, and that digest alone notices
 +nothing.
 +
-+So a task also records **what the workflow declared**: its name, its first step, its
-+step names in declaration order, each step's kind and terminal status, which agent
-+hooks each step defines, and whether the workflow has an `onTransit`. Names are
-+encoded rather than written literally, because a step may be named anything and two
-+different workflows must never serialise to the same text. A change to any of that
-+stops the task the same way a changed distribution does.
++So a task also records **what the workflow declared**: its name, its first step, the
++set of step names with each step's kind and terminal status, which agent hooks each
++step defines, and whether the workflow has an `onTransit`. Names are encoded rather
++than written literally, because a step may be named anything and two different
++workflows must never serialise to the same text. A change to any of that stops the
++task the same way a changed distribution does.
++
++The steps are a **set**, not a sequence. Declaration order carries no meaning — the
++engine enters `firstStep` and then goes wherever `onTransit` sends it — and it is not
++something this code could read honestly in any case: JavaScript reports integer-like
++keys first in numeric order, so a workflow whose steps are named `10` and `2` is not
++seen in the order its author wrote. An order that held for `intake`/`review` and
++quietly failed for `1`/`2` would be a guarantee with a hole in it, and a re-ordered
++source file moves the distribution digest regardless.
 +
 +Be exact about what this second digest does **not** cover. It is the declared shape,
 +not the behaviour: transitions, guards, caps and recovery targets are code in this
