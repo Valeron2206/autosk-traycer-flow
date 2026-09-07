@@ -166,7 +166,7 @@ index 0000000000000000000000000000000000000000..893f91bc10c4f1d74b722021fc0cd65b
 +  return { ok: true };
 +}
 diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
-index 85daa7be6ef6da17803e39bac22eb66ab1589913..0c41c8bf4df5f58dc03a6c083f8e791a69feef05 100644
+index 85daa7be6ef6da17803e39bac22eb66ab1589913..451dd532ed48ae23afb8198dd555ada3158a6f9b 100644
 --- a/daemon/core/src/engine/session.ts
 +++ b/daemon/core/src/engine/session.ts
 @@ -56,6 +56,7 @@ import {
@@ -177,7 +177,7 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..0c41c8bf4df5f58dc03a6c083f8e791a
  import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
  import { ENGINE_COMMENT_AUTHOR, errMsg, type EngineProject, type SessionHost } from "./types.ts";
  
-@@ -310,6 +311,18 @@ export class SessionRuntime {
+@@ -310,6 +311,21 @@ export class SessionRuntime {
      const wf = this.wf!; // only reachable for a task session (transit() guarded wf)
      const from = { workflow: this.workflowName, step: this.step };
  
@@ -190,8 +190,11 @@ index 85daa7be6ef6da17803e39bac22eb66ab1589913..0c41c8bf4df5f58dc03a6c083f8e791a
 +      this.project.store.runtimeIdentityPin(this.taskId),
 +      this.workflowName,
 +    );
++    // Only refuse here; adopting would be wrong. Dispatch already adopted before
++    // this session started, so an absent pin at this point means the registry was
++    // swapped mid-session, and recording the NEW digest for a session running the
++    // captured old workflow object would be a false record.
 +    if (!identity.ok) throw new Error(`cannot transit ${this.taskId}: ${identity.reason}`);
-+    if (identity.pin) await this.project.store.adoptRuntimeIdentityPin(this.taskId, identity.pin);
 +
      // 1. Task position first — while the session is still `running` (live), so a
      //    concurrent scan sees the live session and skips re-dispatching. Entering
@@ -260,10 +263,10 @@ index a61777778ac6b545988834f53aa257c43130317a..2f9ffbf3b8c4f632f66a7548b15c131a
  }
 diff --git a/daemon/core/src/extensions/identity.ts b/daemon/core/src/extensions/identity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d825209264c
+index 0000000000000000000000000000000000000000..3812d09e792961134914475627cf075be5abf2a7
 --- /dev/null
 +++ b/daemon/core/src/extensions/identity.ts
-@@ -0,0 +1,287 @@
+@@ -0,0 +1,290 @@
 +/**
 + * Extension distribution identity (issue #10).
 + *
@@ -285,18 +288,25 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 + * targets, so hashing only the entry would claim more than it proves.
 + *
 + * **Symbolic links.** A link resolving INSIDE the root is recorded by its target
-+ * string without being followed: the bytes it points at are already covered by
-+ * their own entry, and re-pointing the link changes the digest. A link resolving
-+ * OUTSIDE the root is not covered by anything, so an escaping FILE link is hashed
-+ * by its target's content under the link's own in-root path, and an escaping
-+ * DIRECTORY link is refused — walking outside the root is unbounded and can loop.
++ * without being followed: the bytes it points at are already covered by their own
++ * entry, and re-pointing the link changes the digest. A link resolving OUTSIDE the
++ * root is refused.
++ *
++ * Hashing an escaping link's target instead of refusing it was tried and is
++ * unsound: the runtime resolves a linked module to its realpath, so that module's
++ * own relative imports load from outside the root — files the digest never sees.
++ * The bytes would match while the executed code differed.
 + *
 + * The escape test resolves the target with `realpath`; a lexical test is not
 + * enough, because `R/link -> d/up/../..` with `R/d/up -> ..` normalizes to `.`
 + * yet resolves above the root.
 + *
-+ * Refusing every link is not an option once package roots are covered: real npm
-+ * and pnpm layouts carry `node_modules/.bin` links and cross-package links.
++ * **The boundary this does not cross.** The identity covers the distribution's own
++ * tree. Code the extension resolves OUTSIDE that tree is not covered — most
++ * importantly an npm dependency hoisted into a parent `node_modules`, which needs
++ * no symlink at all. That is a real limit, stated here rather than implied away:
++ * this pins what an update to the extension itself changes, which is the realistic
++ * `ext update` path, and it does not pin the dependency graph around it.
 + *
 + * **What it does not cover, and must not be said to cover.** It pins bytes on
 + * disk. It is not a sandbox, it does not prove the absence of network or
@@ -341,7 +351,7 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 + */
 +export type DistributionEntry =
 +  | { path: string; rawPath: Buffer; kind: "file"; sha256: string }
-+  | { path: string; rawPath: Buffer; kind: "link"; target: string };
++  | { path: string; rawPath: Buffer; kind: "link"; rawTarget: Buffer };
 +
 +/** The identity of the exact bytes an extension was loaded from. */
 +export interface DistributionIdentity {
@@ -359,11 +369,10 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +
 +interface Totals {
 +  bytes: number;
-+  files: number;
 +  dirs: number;
 +}
 +
-+function digestFile(absolute: string, size: number, totals: Totals, limits: DistributionLimits): string {
++function digestFile(absolute: Buffer, size: number, totals: Totals, limits: DistributionLimits): string {
 +  // Charge the size against the budget BEFORE reading, so a single oversized file
 +  // is refused without being hashed first.
 +  if (totals.bytes + size > limits.maxBytes) {
@@ -391,19 +400,29 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +  }
 +}
 +
-+function within(root: string, candidate: string): boolean {
-+  return candidate === root || candidate.startsWith(root + path.sep);
-+}
-+
 +const SEPARATOR = Buffer.from("/");
++const SEPARATOR_BYTE = SEPARATOR[0]!;
++
++/**
++ * Every path is carried as raw bytes end to end. Rendering one as a string for a
++ * filesystem call would replace any invalid byte with U+FFFD, and the call would
++ * then miss the file entirely.
++ */
++function within(root: Buffer, candidate: Buffer): boolean {
++  if (candidate.equals(root)) return true;
++  return (
++    candidate.length > root.length &&
++    candidate.subarray(0, root.length).equals(root) &&
++    candidate[root.length] === SEPARATOR_BYTE
++  );
++}
 +
 +function joinRaw(relative: Buffer, name: Buffer): Buffer {
 +  return relative.length === 0 ? name : Buffer.concat([relative, SEPARATOR, name]);
 +}
 +
-+function absoluteOf(root: string, relative: Buffer): Buffer {
-+  const prefix = Buffer.from(relative.length === 0 ? root : root + path.sep);
-+  return relative.length === 0 ? prefix : Buffer.concat([prefix, relative]);
++function absoluteOf(root: Buffer, relative: Buffer): Buffer {
++  return relative.length === 0 ? root : Buffer.concat([root, SEPARATOR, relative]);
 +}
 +
 +/**
@@ -411,12 +430,12 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 + * `realpath`, so a chain that normalizes to an inside path lexically but resolves
 + * outside is caught. A broken or looping link resolves to nothing and is refused.
 + */
-+function resolveLinkTarget(linkAbsolute: Buffer): string {
-+  return realpathSync(linkAbsolute.toString());
++function resolveLinkTarget(linkAbsolute: Buffer): Buffer {
++  return realpathSync(linkAbsolute, { encoding: "buffer" });
 +}
 +
 +function collect(
-+  root: string,
++  root: Buffer,
 +  relative: Buffer,
 +  out: DistributionEntry[],
 +  totals: Totals,
@@ -431,46 +450,32 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +  // non-UTF-8 names from collapsing to the same replacement characters. Sorting
 +  // on the raw bytes also makes the order independent of any decoding.
 +  const names = readdirSync(absoluteDir, { encoding: "buffer" });
++  if (out.length + names.length > limits.maxFiles) {
++    throw new Error(`distribution exceeds ${limits.maxFiles} files`);
++  }
 +  names.sort(Buffer.compare);
 +  for (const name of names) {
 +    const childRaw = joinRaw(relative, name);
 +    const absolute = absoluteOf(root, childRaw);
 +    const display = childRaw.toString();
-+    const st = lstatSync(absolute.toString());
++    const st = lstatSync(absolute);
 +    if (out.length >= limits.maxFiles) {
 +      throw new Error(`distribution exceeds ${limits.maxFiles} files`);
 +    }
 +    if (st.isSymbolicLink()) {
-+      const target = readlinkSync(absolute.toString());
-+      let resolved: string;
++      const target = readlinkSync(absolute, { encoding: "buffer" });
++      let resolved: Buffer;
 +      try {
 +        resolved = resolveLinkTarget(absolute);
 +      } catch {
 +        throw new Error(`symbolic link cannot be resolved: ${display}`);
 +      }
-+      if (within(root, resolved)) {
-+        // The target's bytes are covered by their own entry; recording the target
-+        // string means re-pointing the link changes the digest.
-+        out.push({ path: display, rawPath: childRaw, kind: "link", target });
-+        continue;
++      if (!within(root, resolved)) {
++        throw new Error(`symbolic link escapes the distribution: ${display}`);
 +      }
-+      const targetStat = lstatSync(resolved);
-+      if (targetStat.isDirectory()) {
-+        // Walking outside the root is unbounded and can loop, so an escaping
-+        // directory link is refused rather than partially covered.
-+        throw new Error(`symbolic link to a directory escapes the distribution: ${display}`);
-+      }
-+      if (!targetStat.isFile()) {
-+        throw new Error(`symbolic link to an unsupported file type: ${display}`);
-+      }
-+      // An escaping file link is covered by hashing what it points at, under the
-+      // link's own in-root path, so its bytes are part of the identity.
-+      out.push({
-+        path: display,
-+        rawPath: childRaw,
-+        kind: "file",
-+        sha256: digestFile(resolved, targetStat.size, totals, limits),
-+      });
++      // The target's bytes are covered by their own entry; recording the target
++      // means re-pointing the link changes the digest.
++      out.push({ path: display, rawPath: childRaw, kind: "link", rawTarget: target });
 +      continue;
 +    }
 +    if (st.isDirectory()) {
@@ -484,7 +489,7 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +      path: display,
 +      rawPath: childRaw,
 +      kind: "file",
-+      sha256: digestFile(absolute.toString(), st.size, totals, limits),
++      sha256: digestFile(absolute, st.size, totals, limits),
 +    });
 +  }
 +}
@@ -493,8 +498,8 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 + * The canonical bytes the digest is taken over. Paths are the RAW filename bytes,
 + * base64-encoded: filenames are arbitrary byte strings, so two distinct non-UTF-8
 + * names would both decode to U+FFFD and collide if the path were serialised as a
-+ * decoded string. Link targets are JSON-encoded, and each line carries an explicit
-+ * kind tag so a link line can never be read as a file line.
++ * decoded string. Link targets are encoded the same way, and each line carries an
++ * explicit kind tag so a link line can never be read as a file line.
 + */
 +export function canonicalDistribution(entry: Buffer, entries: DistributionEntry[]): string {
 +  const lines = [`entry ${entry.toString("base64")}`];
@@ -503,7 +508,7 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +    lines.push(
 +      item.kind === "file"
 +        ? `file ${item.sha256} ${encodedPath}`
-+        : `link ${JSON.stringify(item.target)} ${encodedPath}`,
++        : `link ${item.rawTarget.toString("base64")} ${encodedPath}`,
 +    );
 +  }
 +  return `${lines.join("\n")}\n`;
@@ -520,22 +525,23 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +  entryPath: string,
 +  limits: DistributionLimits = DEFAULT_DISTRIBUTION_LIMITS,
 +): DistributionIdentity {
-+  const root = realpathSync(path.resolve(rootPath));
-+  const entryAbsolute = realpathSync(path.resolve(entryPath));
++  const root = realpathSync(path.resolve(rootPath), { encoding: "buffer" });
++  const entryAbsolute = realpathSync(path.resolve(entryPath), { encoding: "buffer" });
 +  if (!within(root, entryAbsolute)) {
 +    throw new Error("entry module is outside the distribution root");
 +  }
-+  const totals: Totals = { bytes: 0, files: 0, dirs: 0 };
++  const totals: Totals = { bytes: 0, dirs: 0 };
 +  const entries: DistributionEntry[] = [];
 +  const rootStat = lstatSync(root);
 +  let entryRaw: Buffer;
 +  if (rootStat.isDirectory()) {
 +    collect(root, Buffer.alloc(0), entries, totals, limits);
-+    entryRaw = Buffer.from(path.relative(root, entryAbsolute).split(path.sep).join("/"));
++    entryRaw = entryAbsolute.subarray(root.length + 1);
 +  } else if (rootStat.isFile()) {
 +    // A bare `foo.ts` in an extensions directory is its own distribution; its
 +    // siblings belong to other extensions and must not change its identity.
-+    entryRaw = Buffer.from(path.basename(root));
++    const lastSeparator = root.lastIndexOf(SEPARATOR_BYTE);
++    entryRaw = root.subarray(lastSeparator + 1);
 +    entries.push({
 +      path: entryRaw.toString(),
 +      rawPath: entryRaw,
@@ -549,10 +555,10 @@ index 0000000000000000000000000000000000000000..be3663075d06cdf836d9d5fc50936d82
 +    throw new Error(`entry module ${entryRaw.toString()} is not a regular file in the distribution`);
 +  }
 +  const digest = createHash("sha256").update(canonicalDistribution(entryRaw, entries)).digest("hex");
-+  return { root, entry: entryRaw.toString(), entries, bytes: totals.bytes, digest };
++  return { root: root.toString(), entry: entryRaw.toString(), entries, bytes: totals.bytes, digest };
 +}
 diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
-index 5e0a1c956c45730e24e2cf43510105e6f1793e70..adfa24ca222959519507355fd8f5259232a952ce 100644
+index 5e0a1c956c45730e24e2cf43510105e6f1793e70..d352114263ea56987e4d5dd6bcba5d198ebe23b6 100644
 --- a/daemon/core/src/extensions/loader.ts
 +++ b/daemon/core/src/extensions/loader.ts
 @@ -19,6 +19,8 @@
@@ -573,26 +579,41 @@ index 5e0a1c956c45730e24e2cf43510105e6f1793e70..adfa24ca222959519507355fd8f52592
          if (res.error) packageDiagnostics.push({ source: entry, error: res.error });
        } else {
          if (seenLocal.has(classified.path)) continue; // project beats global
-@@ -170,6 +172,18 @@ function errMsg(e: unknown): string {
+@@ -169,7 +171,32 @@ function errMsg(e: unknown): string {
+  * new code dropped a workflow/step parks the now-orphaned in-flight tasks to
   * `human` (skipping any with a live session, which self-heal once they settle).
   */
- async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Promise<void> {
+-async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Promise<void> {
++async function loadEntry(
++  registry: ExtensionRegistry,
++  entry: ExtensionEntry,
++  identities: Map<string, DistributionIdentity | Error>,
++): Promise<void> {
 +  // Identify the exact bytes before importing them (issue #10). A distribution
 +  // that cannot be identified is refused rather than loaded unidentified: a
 +  // workflow with no identity could not be pinned to a task, and an unpinnable
 +  // workflow silently loses the guarantee that a running Epic keeps its code.
-+  let identity: DistributionIdentity;
-+  try {
-+    identity = distributionIdentity(entry.root, entry.entryPath);
-+  } catch (e) {
-+    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${errMsg(e)}`);
++  // A package that declares several entries shares one distribution, so its tree
++  // is hashed once per registry build rather than once per entry.
++  let cached = identities.get(entry.root);
++  if (cached === undefined) {
++    try {
++      cached = distributionIdentity(entry.root, entry.entryPath);
++    } catch (e) {
++      cached = e instanceof Error ? e : new Error(errMsg(e));
++    }
++    identities.set(entry.root, cached);
++  }
++  if (cached instanceof Error) {
++    registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${cached.message}`);
 +    return;
 +  }
++  const identity = cached;
 +
    let mod: unknown;
    try {
      mod = await import(pathToFileURL(entry.entryPath).href);
-@@ -185,7 +199,7 @@ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Pr
+@@ -185,7 +212,7 @@ async function loadEntry(registry: ExtensionRegistry, entry: ExtensionEntry): Pr
    }
  
    const api: AutoskAPI = {
@@ -601,6 +622,17 @@ index 5e0a1c956c45730e24e2cf43510105e6f1793e70..adfa24ca222959519507355fd8f52592
      registerAgent: (registration) => registry.addAgent(entry.source, registration),
    };
    try {
+@@ -212,8 +239,9 @@ export async function loadProjectRegistry(
+   for (const d of packageDiagnostics) registry.recordDiagnostic(d.source, d.error);
+   // Sequential (not Promise.all): registration order is the priority order, so
+   // first-registered wins a name collision deterministically.
++  const identities = new Map<string, DistributionIdentity | Error>();
+   for (const entry of entries) {
+-    await loadEntry(registry, entry);
++    await loadEntry(registry, entry, identities);
+   }
+   return registry;
+ }
 diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
 index 4e86eccd865471f8e9a03111be4e7913d3c1847c..af04e54f19532406a7f2e0abd96c7a830b596423 100644
 --- a/daemon/core/src/extensions/registry.ts
@@ -820,10 +852,10 @@ index 10dc80335b98dc039f25a3ae611ec7d78d5bfc24..a2d82973f0dbac7d538bab56f6a3edeb
        const b = this.tasks.peek(bid);
 diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3c3b0ef9a83caf75b7d0bb2a3fd00b5ab61606b5
+index 0000000000000000000000000000000000000000..bc4feebf801c4f3c5e7518b3547b562753ce78d2
 --- /dev/null
 +++ b/daemon/core/test/engine.runtime-identity.test.ts
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,266 @@
 +/**
 + * Runtime identity admission (issue #10).
 + *
@@ -1051,6 +1083,25 @@ index 0000000000000000000000000000000000000000..3c3b0ef9a83caf75b7d0bb2a3fd00b5a
 +    expect(pinB.state === "pinned" && pinB.pin.digest).toBe(digestB);
 +  });
 +
++  test("every entry a package declares shares one distribution identity", async () => {
++    const p = track(await makeProject({ workflows: [] }));
++    const { mkdirSync } = await import("node:fs");
++    const pkg = path.join(p.root, ".autosk", "extensions", "pkg");
++    mkdirSync(pkg, { recursive: true });
++    writeFileSync(
++      path.join(pkg, "package.json"),
++      '{"name":"pkg","autosk":{"extensions":["one.js","two.js"]}}\n',
++    );
++    writeFileSync(path.join(pkg, "one.js"), WORKFLOW_SOURCE("one").replace('"wf"', '"one"'));
++    writeFileSync(path.join(pkg, "two.js"), WORKFLOW_SOURCE("two").replace('"wf"', '"two"'));
++
++    const registry = await loadProjectRegistry(p.root);
++    expect(registry.workflowNames().sort()).toEqual(["one", "two"]);
++    // One tree, one identity: the digest is computed per distribution, not per
++    // declared entry, so a package with N entries is not hashed N times.
++    expect(registry.workflowIdentity("two")!.digest).toBe(registry.workflowIdentity("one")!.digest);
++  });
++
 +  test("an extension whose bytes cannot be identified is refused at load", async () => {
 +    const p = track(await makeProject({ workflows: [] }));
 +    const { mkdirSync, symlinkSync } = await import("node:fs");
@@ -1067,16 +1118,16 @@ index 0000000000000000000000000000000000000000..3c3b0ef9a83caf75b7d0bb2a3fd00b5a
 +    const registry = await loadProjectRegistry(p.root);
 +    expect(registry.workflowNames()).toEqual([]);
 +    expect(registry.diagnostics.map((d) => d.error).join("\n")).toMatch(
-+      /distribution cannot be identified: symbolic link to a directory escapes/,
++      /distribution cannot be identified: symbolic link escapes/,
 +    );
 +  });
 +});
 diff --git a/daemon/core/test/extensions.identity.test.ts b/daemon/core/test/extensions.identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ba60f74767d301476423a4fe40c5808da125f6bb
+index 0000000000000000000000000000000000000000..2be5954a165967751ad8952219dc928024b217c7
 --- /dev/null
 +++ b/daemon/core/test/extensions.identity.test.ts
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,151 @@
 +import { describe, expect, test } from "bun:test";
 +import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 +import path from "node:path";
@@ -1143,29 +1194,31 @@ index 0000000000000000000000000000000000000000..ba60f74767d301476423a4fe40c5808d
 +    symlinkSync("b.js", path.join(second, "bin"));
 +    const one = distributionIdentity(first, path.join(first, "index.ts"));
 +    const two = distributionIdentity(second, path.join(second, "index.ts"));
-+    expect(one.entries.some((e) => e.kind === "link" && e.path === "bin" && e.target === "a.js")).toBe(true);
++    expect(
++      one.entries.some((e) => e.kind === "link" && e.path === "bin" && e.rawTarget.toString() === "a.js"),
++    ).toBe(true);
 +    expect(two.digest).not.toBe(one.digest);
 +  });
 +
-+  test("an escaping file link is covered by hashing what it points at", () => {
++  test("an escaping link is refused, whether it points at a file or a directory", () => {
++    // Hashing the target's content instead was tried and is unsound: the runtime
++    // resolves a linked module to its realpath, so that module's own relative
++    // imports load from outside the root and the digest never sees them.
 +    const outside = tempDir();
 +    writeFileSync(path.join(outside.path, "dep.js"), "export const v = 1;\n");
-+    const root = tree({ "index.ts": "export default () => {};\n" });
-+    symlinkSync(path.join(outside.path, "dep.js"), path.join(root, "dep.js"));
-+    const before = distributionIdentity(root, path.join(root, "index.ts")).digest;
-+
-+    writeFileSync(path.join(outside.path, "dep.js"), "export const v = 2;\n");
-+    expect(distributionIdentity(root, path.join(root, "index.ts")).digest).not.toBe(before);
-+  });
-+
-+  test("an escaping directory link is refused rather than partially covered", () => {
-+    const outside = tempDir();
 +    mkdirSync(path.join(outside.path, "pkg"));
 +    writeFileSync(path.join(outside.path, "pkg", "x.js"), "1\n");
-+    const root = tree({ "index.ts": "export default () => {};\n" });
-+    symlinkSync(path.join(outside.path, "pkg"), path.join(root, "linked"));
-+    expect(() => distributionIdentity(root, path.join(root, "index.ts"))).toThrow(
-+      /directory escapes the distribution/,
++
++    const withFileLink = tree({ "index.ts": "export default () => {};\n" });
++    symlinkSync(path.join(outside.path, "dep.js"), path.join(withFileLink, "dep.js"));
++    expect(() => distributionIdentity(withFileLink, path.join(withFileLink, "index.ts"))).toThrow(
++      /escapes the distribution/,
++    );
++
++    const withDirLink = tree({ "index.ts": "export default () => {};\n" });
++    symlinkSync(path.join(outside.path, "pkg"), path.join(withDirLink, "linked"));
++    expect(() => distributionIdentity(withDirLink, path.join(withDirLink, "index.ts"))).toThrow(
++      /escapes the distribution/,
 +    );
 +  });
 +
@@ -1227,10 +1280,10 @@ index 0000000000000000000000000000000000000000..ba60f74767d301476423a4fe40c5808d
 +  });
 +});
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d815192d299f7992e7fccd89803c341fd3ac74ae..f2a5c2869657ad9bb3069d147a7ae7144705f96f 100644
+index d815192d299f7992e7fccd89803c341fd3ac74ae..3135e67584dfe69253a8151af3f6e81b624791e8 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -290,6 +290,70 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
+@@ -290,6 +290,76 @@ prompt-on-first-load gate (unlike pi). Putting code into `.autosk/extensions/`
  or naming a package in `settings.json` *is* the consent. Treat these locations
  as you would any code you run.
  
@@ -1265,21 +1318,27 @@ index d815192d299f7992e7fccd89803c341fd3ac74ae..f2a5c2869657ad9bb3069d147a7ae714
 +What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
 +about what the code does once imported or what it fetches at runtime.
 +
-+Symbolic links are handled rather than banned, because real npm and pnpm layouts
-+carry them:
++A symbolic link resolving **inside** the root is recorded by its target and not
++followed: the bytes it points at are already covered by their own entry, and
++re-pointing the link changes the digest. A link resolving **outside** the root is
++refused.
 +
-+- A link resolving **inside** the root is recorded by its target string and not
-+  followed. The bytes it points at are already covered by their own entry, and
-+  re-pointing the link changes the digest.
-+- A link to a **file outside** the root is covered by hashing what it points at,
-+  under the link's own path, so cross-package links in a workspace still identify
-+  the code they bring in.
-+- A link to a **directory outside** the root is refused: walking outside is
-+  unbounded and can loop, so it cannot be covered honestly.
++Hashing an escaping link's target instead of refusing it was tried and is unsound.
++The runtime resolves a linked module to its realpath, so that module's own relative
++imports load from outside the root — files the digest never sees. The recorded
++bytes would match while the executed code differed.
 +
 +The escape test resolves each target with `realpath`. A lexical test is not
 +enough — `link -> d/up/../..` with `d/up -> ..` normalizes to `.` yet resolves
 +above the root.
++
++### What this does not cover
++
++The identity covers the distribution's own tree. Code the extension resolves
++**outside** that tree is not covered — most importantly an npm dependency hoisted
++into a parent `node_modules`, which needs no symlink at all. This pins what an
++update to the extension itself changes, which is the realistic `ext update` path;
++it does not pin the dependency graph around it.
 +
 +Three more consequences worth knowing:
 +
