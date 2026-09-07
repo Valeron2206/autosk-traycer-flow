@@ -60,6 +60,33 @@ test('sparse/accessor arrays and cycles cannot become identities; shared data ca
   const shared = { x: 1 }; assert.doesNotThrow(() => canonicalBytes([shared, shared]));
 });
 
+test('custom array prototypes are refused without invoking inherited methods', () => {
+  for (const method of ['map', Symbol.iterator]) {
+    let calls = 0;
+    const array = [1];
+    Object.setPrototypeOf(array, Object.assign(Object.create(Array.prototype), {
+      [method]() { calls++; return method === 'map' ? ['1'] : [1][Symbol.iterator](); },
+    }));
+    assert.throws(() => canonicalBytes({ array }), { code: 'invalid_identity' });
+    assert.equal(calls, 0);
+  }
+});
+
+test('identity proxies are rejected before invoking traps', () => {
+  for (const target of [{ value: 1 }, [1]]) {
+    let calls = 0;
+    const proxy = new Proxy(target, {
+      get(object, key) { calls++; return Reflect.get(object, key); },
+      getPrototypeOf(object) { calls++; return Reflect.getPrototypeOf(object); },
+      ownKeys(object) { calls++; return Reflect.ownKeys(object); },
+    });
+    assert.throws(() => canonicalBytes(proxy), { code: 'invalid_identity' });
+    assert.equal(calls, 0);
+  }
+  const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
+  assert.throws(() => closedRecord(proxy, []), { code: 'invalid_record' });
+});
+
 test('depth and byte budgets reject oversized identity before returning a digest', () => {
   let deep = null;
   for (let i = 0; i < 66; i++) deep = [deep];

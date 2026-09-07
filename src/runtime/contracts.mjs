@@ -1,5 +1,6 @@
 /** Shared, fail-closed primitives for the runtime (not a task store). */
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { types } from 'node:util';
 
 export class FlowError extends Error {
   constructor(code, message, details = {}) {
@@ -16,7 +17,7 @@ export function demand(condition, code, message, details = {}) {
 }
 
 export function closedRecord(value, keys, pointer = '') {
-  demand(value !== null && typeof value === 'object' && !Array.isArray(value)
+  demand(value !== null && typeof value === 'object' && !types.isProxy(value) && !Array.isArray(value)
     && [Object.prototype, null].includes(Object.getPrototypeOf(value)),
   'invalid_record', 'Expected a plain record', { pointer });
   const actual = Reflect.ownKeys(value);
@@ -55,10 +56,11 @@ export function canonicalBytes(value) {
         && !item.includes('\0'), 'invalid_identity', 'Identity strings must be NFC Unicode without NUL');
       return JSON.stringify(item);
     }
-    demand(item && typeof item === 'object' && !active.has(item), 'invalid_identity', 'Non-JSON or cyclic identity');
+    demand(item && typeof item === 'object' && !types.isProxy(item) && !active.has(item), 'invalid_identity', 'Non-JSON or cyclic identity');
     active.add(item);
     let result;
     if (Array.isArray(item)) {
+      demand(Object.getPrototypeOf(item) === Array.prototype, 'invalid_identity', 'Expected a standard array');
       demand(Reflect.ownKeys(item).length === item.length + 1, 'invalid_identity', 'Sparse arrays or array properties are forbidden');
       for (let i = 0; i < item.length; i += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(item, String(i));

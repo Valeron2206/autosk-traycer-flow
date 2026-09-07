@@ -53,6 +53,9 @@ It uses UTF-8 NFC strings, code-point-sorted object keys, safe integer numbers,
 closed plain records, JSON encoding and one terminal LF. Hash preimages are
 `<versioned-domain> + NUL + exact canonical bytes`. Undefined fields, accessors,
 symbol properties, sparse arrays, cyclic data and non-JSON types are rejected.
+Arrays must have the standard array prototype. Proxy records and arrays are
+rejected before reflection or iteration so their traps cannot execute during
+validation or canonicalization; custom inherited array methods are never used.
 
 Limits include 64 slots, 256 unique blockers per slot, 8,192 title bytes, 65,536
 description bytes and 1,048,576 serialized grant bytes. The immutable context

@@ -199,3 +199,44 @@ test('fresh SDK blocker comparison uses set identity',async()=>{
   raw.task.blocked_by=[...raw.task.blocked_by].reverse();
   assert.deepEqual(await createGrantedChild(apiDouble(grant,raw),grant,'gpt'),raw);
 });
+
+test('SDK blocker array cannot invoke a method inherited from a custom prototype',async()=>{
+  const grant=compileTaskCreationGrant(input());
+  for(const outcome of ['created','existing_same_binding']){
+    const raw=await apiDouble(grant).create('gpt');raw.outcome=outcome;let calls=0;
+    raw.task.blocked_by=[];
+    Object.setPrototypeOf(raw.task.blocked_by,Object.assign(Object.create(Array.prototype),{
+      map(){calls++;return [];},
+    }));
+    await assert.rejects(createGrantedChild(apiDouble(grant,raw),grant,'gpt'),{code:'invalid_identity'});
+    assert.equal(calls,0);
+  }
+});
+
+test('grant arrays reject inherited iteration before invoking it',()=>{
+  for(const field of ['slots','blocked_by']){
+    const raw=input();let calls=0;
+    const array=field==='slots'?raw.slots:raw.slots[0].display.blocked_by;
+    Object.setPrototypeOf(array,Object.assign(Object.create(Array.prototype),{
+      [Symbol.iterator](){calls++;return Array.prototype[Symbol.iterator].call(this);},
+    }));
+    assert.throws(()=>compileTaskCreationGrant(raw),{code:'creation_grant_invalid'});
+    assert.equal(calls,0);
+  }
+});
+
+test('SDK result proxies are refused without executing traps',async()=>{
+  const grant=compileTaskCreationGrant(input());
+  for(const field of ['task','blocked_by']){
+    const raw=await apiDouble(grant).create('gpt');let calls=0;
+    const target=field==='task'?raw.task:raw.task.blocked_by;
+    const proxy=new Proxy(target,{
+      get(object,key){calls++;return Reflect.get(object,key);},
+      getPrototypeOf(object){calls++;return Reflect.getPrototypeOf(object);},
+      ownKeys(object){calls++;return Reflect.ownKeys(object);},
+    });
+    if(field==='task')raw.task=proxy;else raw.task.blocked_by=proxy;
+    await assert.rejects(createGrantedChild(apiDouble(grant,raw),grant,'gpt'),{code:field==='blocked_by'?'invalid_identity':'invalid_record'});
+    assert.equal(calls,0);
+  }
+});

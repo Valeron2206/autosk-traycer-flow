@@ -4,13 +4,15 @@
 import { closedRecord, demand, assertDigest, digest, immutable, sameIdentity, compareCodePoints } from '../runtime/contracts.mjs';
 import { validateContext } from '../runtime/context.mjs';
 import { compileChildCreationIntent } from './child-creation-intent.mjs';
+import { types } from 'node:util';
 export const MAX_CREATION_GRANT_BYTES = 1_048_576;
 const FIELDS = ['schema_version','grant_id','context','parent_task_id','session_id','workflow','step','step_visit','operation_id','expires_at_ms','slots'];
 const BINDING = ['schema_version','grant_id','project_sha256','parent_task_id','session_id','workflow','step','step_visit','operation_id','context_digest','expires_at_ms'];
 const identifier = value => demand(typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(value), 'creation_grant_invalid', 'Invalid bounded logical identifier');
 const taskId = value => demand(typeof value === 'string' && /^ask-[a-f0-9]{6}$/u.test(value), 'creation_grant_invalid', 'Invalid task ID');
 function list(value, min, max) {
-  demand(Array.isArray(value) && value.length >= min && value.length <= max
+  demand(!types.isProxy(value) && Array.isArray(value) && Object.getPrototypeOf(value)===Array.prototype
+    && value.length >= min && value.length <= max
     && Reflect.ownKeys(value).length === value.length + 1,'creation_grant_invalid','Invalid bounded array');
   for (let i=0;i<value.length;i++) {
     const d=Object.getOwnPropertyDescriptor(value,String(i));
