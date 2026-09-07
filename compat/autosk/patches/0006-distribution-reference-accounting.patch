@@ -198,7 +198,7 @@ index 0000000000000000000000000000000000000000..aad8a6ecf12a941274bd5fc04cc7b6e6
 +  return `${JSON.stringify({ version: 1, distributions: sorted }, null, 2)}\n`;
 +}
 diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
-index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..218228a921a72f22d2fd834b4a8e799f029a85bb 100644
+index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..6ebd7ec532a1513fd0a6999ca098800a0328c334 100644
 --- a/daemon/core/src/store/store.ts
 +++ b/daemon/core/src/store/store.ts
 @@ -50,7 +50,14 @@ import {
@@ -216,7 +216,7 @@ index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..218228a921a72f22d2fd834b4a8e799f
  import { KeyedMutex } from "./lock.ts";
  import {
    applyMetadataPatch,
-@@ -1134,6 +1141,96 @@ export class Store {
+@@ -1134,6 +1141,118 @@ export class Store {
     * not-open, mirroring {@link buildView}); a scan only ever needs an answer good
     * enough to gate this pass — the next reconciled scan corrects any staleness.
     */
@@ -243,14 +243,28 @@ index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..218228a921a72f22d2fd834b4a8e799f
 +
 +  /** The same set, from the reconciled cache, with no I/O. */
 +  private referencedFromCache(): Set<string> {
++    return this.accountFromCache().referenced;
++  }
++
++  /**
++   * The reference set together with the open tasks whose pin could not be read.
++   *
++   * A malformed pin is not "no reference" — it is a task whose requirement cannot
++   * be determined, which is the same position as a task that is not in the cache
++   * at all. Both are answered the same way, because the alternative is to apply
++   * "not seeing is a refusal" only where it is convenient.
++   */
++  private accountFromCache(): { referenced: Set<string>; unreadable: string[] } {
 +    const referenced = new Set<string>();
++    const unreadable: string[] = [];
 +    for (const id of this.tasks.cachedIds()) {
 +      const t = this.tasks.peek(id);
 +      if (!t || !OPEN_STATUSES.has(t.status)) continue;
 +      const pin = readRuntimeIdentityPin(t.metadata);
 +      if (pin.state === "pinned") referenced.add(pin.pin.digest);
++      else if (pin.state === "malformed") unreadable.push(id);
 +    }
-+    return referenced;
++    return { referenced, unreadable };
 +  }
 +
 +  /**
@@ -276,11 +290,13 @@ index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..218228a921a72f22d2fd834b4a8e799f
 +  /**
 +   * Forgets a distribution, refusing while any open task is pinned to it.
 +   *
-+   * Two refusals, not one. The obvious one is a live reference. The other is not
-+   * being able to tell: reconciliation drops a task it cannot admit, so a damaged
-+   * creation index empties the cache and the reference set reads empty while
-+   * pinned tasks sit on disk. Every task id on disk must therefore be accounted
-+   * for; "I cannot see them" is a refusal, never a permission.
++   * Three refusals, not one. The obvious one is a live reference. The other two are
++   * both forms of not being able to tell, and they are answered the same way
++   * because the rule is worth nothing if it is applied selectively: reconciliation
++   * drops a task it cannot admit, so every task id on disk must be accounted for;
++   * and an open task whose pin is malformed states no requirement that can be read,
++   * so it counts as unknown rather than as no reference. "I cannot see it" is a
++   * refusal, never a permission.
 +   *
 +   * The set is read from the store's view and the cross-process lock does NOT
 +   * bound the window: a pin is written by `setPosition`, which takes only the
@@ -299,7 +315,13 @@ index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..218228a921a72f22d2fd834b4a8e799f
 +      );
 +    }
 +    await withCreationLock(this.paths, async (io) => {
-+      if (this.referencedFromCache().has(digest)) {
++      const { referenced, unreadable } = this.accountFromCache();
++      if (unreadable.length > 0) {
++        throw new Error(
++          `cannot read the pin of ${unreadable.length} open task(s) (${unreadable.slice(0, 3).join(", ")}), refusing to forget ${digest}`,
++        );
++      }
++      if (referenced.has(digest)) {
 +        throw new Error(`distribution ${digest} is still referenced by an open task`);
 +      }
 +      const raw = await io.readRuntimeIndex();
@@ -313,7 +335,7 @@ index 0e9ad210e6c42ec308abb8f9e1594cd67476857b..218228a921a72f22d2fd834b4a8e799f
    private schedulingRowFor(t: StoredTask): SchedulingRow {
      const blocked = t.blocked_by.some((bid) => {
        const b = this.tasks.peek(bid);
-@@ -1307,3 +1404,8 @@ function matchesFilter(v: TaskView, f: TaskFilter): boolean {
+@@ -1307,3 +1426,8 @@ function matchesFilter(v: TaskView, f: TaskFilter): boolean {
    if (f.blocked !== undefined && v.blocked !== f.blocked) return false;
    return true;
  }
@@ -375,10 +397,10 @@ index 8b38474637afa542865c18c323d7d651e5c97635..ef43a8d0005a304d8b246115c2162e27
      // there is no earlier admission to launder, so an explicit starting step is
 diff --git a/daemon/core/test/store.distributions.test.ts b/daemon/core/test/store.distributions.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..dc8069179ab177cc18c29d10d555d0afbf1928ea
+index 0000000000000000000000000000000000000000..60b297617ac3ad020ec88eec5d49a9086b71a28d
 --- /dev/null
 +++ b/daemon/core/test/store.distributions.test.ts
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,167 @@
 +/**
 + * Distribution reference accounting (issue #10, criteria 3 and 8).
 + *
@@ -388,7 +410,7 @@ index 0000000000000000000000000000000000000000..dc8069179ab177cc18c29d10d555d0af
 + */
 +
 +import { afterEach, describe, expect, test } from "bun:test";
-+import { mkdir, writeFile } from "node:fs/promises";
++import { mkdir, readFile, writeFile } from "node:fs/promises";
 +import { join } from "node:path";
 +
 +import { Store } from "../src/index.ts";
@@ -488,6 +510,22 @@ index 0000000000000000000000000000000000000000..dc8069179ab177cc18c29d10d555d0af
 +    expect([...(await two.store.referencedDistributions())]).toEqual([B]);
 +  });
 +
++  test("deletion is refused while an open task's pin cannot be read", async () => {
++    // A malformed pin is not "no reference": it is a task whose requirement cannot
++    // be determined, which is the same position as a task missing from the cache.
++    // Answering only one of them would apply the rule where it is convenient.
++    const { store, root } = await project();
++    await store.recordDistribution(A, ENTRIES_A);
++    const id = await pinned(store, A, "work");
++    const file = join(root, ".autosk", "tasks", id, "task.json");
++    const task = JSON.parse(await readFile(file, "utf8"));
++    task.metadata.runtime_identity = { workflow: "wf", digest: "not-a-digest" };
++    await writeFile(file, `${JSON.stringify(task, null, 2)}\n`);
++    await store.taskView(id);
++
++    await expect(store.deleteDistribution(A)).rejects.toThrow(/cannot read the pin/);
++  });
++
 +  test("a listing that does not hash to its digest is refused", async () => {
 +    // The pair proves itself: the digest is taken over exactly these bytes. A
 +    // record that fails that check describes some other distribution, and keeping
@@ -531,18 +569,19 @@ index 0000000000000000000000000000000000000000..dc8069179ab177cc18c29d10d555d0af
 +  });
 +});
 diff --git a/docs/extensions.md b/docs/extensions.md
-index d1ac223e3ebbe5fd016010ad19562ecfff4e17e9..40fd09d575a37cc79cd5d676b7efbafb57cf7b7b 100644
+index d1ac223e3ebbe5fd016010ad19562ecfff4e17e9..7e68489cf1e8524b044babde420b2e60171b9900 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
-@@ -384,6 +384,41 @@ The shape is recorded only beside a distribution identity. A registry assembled
+@@ -384,6 +384,49 @@ The shape is recorded only beside a distribution identity. A registry assembled
  without the loader stays honestly unidentified rather than becoming half-identified
  by a value derived from an object in memory.
  
 +### What the project remembers, and what it will not let you remove
 +
-+Opening a project records, in `.autosk/runtime/v1/index.json`, every distribution its
-+registry was built from: the digest and the canonical listing that digest was taken
-+over. A task's pin says which digest it needs; this says what that digest consisted
++Opening a project records, in `.autosk/runtime/v1/index.json`, the distribution behind
++every **workflow** its registry holds: the digest and the canonical listing that digest
++was taken over. A distribution that registered only agents is not recorded, because
++nothing can pin to it — pins name a workflow. A task's pin says which digest it needs; this says what that digest consisted
 +of, so a later reader can tell whether a candidate tree is that distribution.
 +
 +It records what a digest **meant**, not the files it covered. It cannot hand an old
@@ -559,8 +598,10 @@ index d1ac223e3ebbe5fd016010ad19562ecfff4e17e9..40fd09d575a37cc79cd5d676b7efbafb
 +Deriving is not the same as being right. The set sees only tasks the store managed
 +to cache, and reconciliation drops a task it cannot admit — a damaged creation index
 +drops every one, and the set then reads empty while pinned tasks sit on disk. So it
-+is not a permission on its own: removal also requires that every task on disk be
-+accounted for, and "cannot see them" is a refusal.
++is not a permission on its own. Removal also requires that every task on disk be
++accounted for, and that every open task's pin can actually be read — a malformed pin
++states no requirement that can be checked, which is the same position as a task the
++store could not see. "Cannot tell" is a refusal, in each of its forms.
 +
 +Two limits remain, stated rather than implied. The cross-process lock does **not**
 +bound the window: a pin is written by the ordinary position write, which takes only a
@@ -572,6 +613,11 @@ index d1ac223e3ebbe5fd016010ad19562ecfff4e17e9..40fd09d575a37cc79cd5d676b7efbafb
 +
 +The record proves itself: the digest is taken over exactly the listing stored beside
 +it, so a pair that does not hash together is refused rather than believed.
++
++There is no self-repair. A damaged index makes both recording and removal refuse, and
++it stays as it is until someone deletes the file; the next project open then records
++the distributions it can see. That is deliberate — quietly rewriting a file whose
++contents cannot be trusted is how the record of everything else gets lost.
 +
  What this is not: it pins bytes on disk. It is not a sandbox, and it says nothing
  about what the code does once imported or what it fetches at runtime.

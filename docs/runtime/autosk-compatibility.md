@@ -27,7 +27,7 @@ produces `3868362cace85f3f3cc51cdcb55d8b1115a4ddab`, and
 `0005-workflow-shape-identity.patch` produces
 `1211acbe4ebcdf3516b266702123391f1fa8005a`, and finally
 `0006-distribution-reference-accounting.patch` produces the current `result_tree`
-`774811879a1e407311cf240c6fd91eb754e91fa7`.
+`5c6657f1d11c0036972637fa3f0a41efd26cf9c0`.
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
 
