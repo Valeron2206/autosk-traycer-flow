@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "doc_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "doc_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "recipes": [
+    {
+      "recipe_id": "task-create-bound",
+      "feature_id": "bound-task-creation",
+      "path": "docs/verify/features/task-create-bound.md",
+      "surface": "local",
+      "launch": [
+        "make build",
+        "AUTOSK_SOCK=$TMPDIR/d.sock ./bin/autoskd --socket $AUTOSK_SOCK &"
+      ],
+      "doctor": [
+        {
+          "check": "./bin/autosk --json project info",
+          "infrastructure_failure_signal": "exit 1 with code 1001: the daemon is not reachable"
+        }
+      ],
+      "drive": [
+        "run the evidence extension's agent, which calls `autosk create --creation-key ... --json`"
+      ],
+      "evidence": {
+        "observable": "the creation receipt printed by the CLI",
+        "capture_format": "json",
+        "expected": "outcome=created on the first call and existing_same_binding on a retry"
+      },
+      "cleanup": [
+        "kill the daemon",
+        "rm -rf the temporary project root"
+      ],
+      "acceptance_criteria": [
+        "#11 criterion 1",
+        "#11 criterion 2"
+      ],
+      "state": "self_proved",
+      "self_proof": {
+        "doc_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "doc_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "environment_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "recipe_id": "task-create-bound",
+        "executed_at": "2026-09-08T12:00:00.000Z",
+        "evidence_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    },
+    {
+      "recipe_id": "governance-release",
+      "feature_id": "governance-bundle-release",
+      "path": "docs/verify/features/governance-release.md",
+      "surface": "ephemeral",
+      "launch": [
+        "make build"
+      ],
+      "doctor": [
+        {
+          "check": "./bin/autosk-flow doctor --json",
+          "infrastructure_failure_signal": "any check in category daemon reporting fail"
+        }
+      ],
+      "drive": [
+        "run `autosk-flow governance build --version 1.0.0` then `release`"
+      ],
+      "evidence": {
+        "observable": "the released bundle digest and its attestation",
+        "capture_format": "json",
+        "expected": "the digest recomputes and the attestation names four passing seats"
+      },
+      "cleanup": [
+        "remove the temporary governance store"
+      ],
+      "acceptance_criteria": [
+        "#37 criterion 2",
+        "#37 criterion 3"
+      ],
+      "scaffolding": {
+        "batch_contract_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "purpose": "drive a release without a real provider panel",
+        "owner": "verification",
+        "lifecycle": "disposable",
+        "invocation": "node scripts/fake-panel.mjs --candidate <digest>",
+        "expected_red": "a candidate with three verdicts is refused",
+        "expected_green": "a candidate with four verdicts releases",
+        "restore_contract": "the temporary governance store is deleted",
+        "evidence_location": ".autosk-evidence/<epic>/<task>/governance/"
+      },
+      "state": "draft"
+    }
+  ]
+}

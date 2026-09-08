@@ -234,7 +234,8 @@
         "docs/contracts/project-instructions-lock.md",
         "docs/contracts/provider-preflight.md",
         "docs/contracts/stage-carriers.md",
-        "docs/contracts/tickets-manifest.md"
+        "docs/contracts/tickets-manifest.md",
+        "docs/contracts/verify-doc.md"
       ],
       "review": {
         "mode": "full_panel"
@@ -269,7 +270,8 @@
         "provider_preflight",
         "stage_carriers",
         "tech_plan",
-        "tickets"
+        "tickets",
+        "verify_doc"
       ],
       "publication": "governance_ref",
       "model_execution_allowed": false,
@@ -1075,7 +1077,35 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
+    },
+    {
+      "class": "verify_doc",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author",
+        "implementer"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/verify/**"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     }
   ],
-  "registry_digest": "de34f25a4239107666613619e20870a4a200242e4d79752a84864deb1b47830d"
+  "registry_digest": "24677d5ca8c011b5aa7211135a9b5b8e17d15fcd55d0d690d5f8586d0bcd4a37"
 }
