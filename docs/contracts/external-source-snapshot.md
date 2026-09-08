@@ -41,6 +41,12 @@ Issue #13 owns the filesystem boundary a snapshot is written through; #22 owns t
 
 Creating a snapshot must not make the Git worktree under review dirty. A mint that changes what is being reviewed has changed the thing it was supposed to describe.
 
+## 4a. How the mint reads
+
+`lstat`, never `stat`. A symlink where a file was expected is the difference between snapshotting a project's file and snapshotting whatever it points at, and `stat` cannot tell them apart because it answers about the target. The same applies to the destination: the parent directory is resolved before the write, so a directory replaced by a symlink out of the project cannot turn an in-project path into an out-of-project write while the string still looks right.
+
+The read-back is not a formality. A write that returned is a statement about a syscall; the second digest is the statement about the bytes. The record carries both because they are different claims, and a filesystem that truncates satisfies the first and fails the second.
+
 ## 5. Drift guard, immediately before acceptance
 
 Checked at gate acceptance, not at mint, because the window that matters is between reading and deciding:
