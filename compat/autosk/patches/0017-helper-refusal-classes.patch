@@ -1,0 +1,513 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index 95f61a32991b50bc6dd21719bf1a46b75698d6ff..dd243e77c28e0b4127ab6dd13d3416c087d1d819 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -24,7 +24,7 @@ const maxRequestBytes = 64 * 1024 * 1024
+ // out only through a malformed reply, if at all. It is compared exactly: a
+ // different revision means a different contract, and guessing which half of it
+ // still holds is not a decision this side gets to make.
+-const protocolVersion = 1
++const protocolVersion = 2
+ 
+ type readyMessage struct {
+ 	OK       bool `json:"ok"`
+@@ -48,6 +48,9 @@ type responseMessage struct {
+ 	Data   string   `json:"data"`
+ 	IDs    []string `json:"ids"`
+ 	Error  string   `json:"error,omitempty"`
++	// Code names the refusal class when the helper could classify it. Absent means
++	// unclassified — never "fine" and never "some other class"; see storelock.Code.
++	Code string `json:"code,omitempty"`
+ }
+ 
+ func main() {
+@@ -182,7 +185,7 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ }
+ 
+ func responseError(id int64, err error) responseMessage {
+-	return responseMessage{ID: id, OK: false, Error: err.Error()}
++	return responseMessage{ID: id, OK: false, Error: err.Error(), Code: storelock.Code(err)}
+ }
+ 
+ func writeJSONLine(writer *bufio.Writer, value any) error {
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index ca002ee09cce878bd212ad9a3343874f8737fd66..05691184e7ba7db278d247a25ca01000058745de 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -24,7 +24,7 @@ const INDEX_VERSION = 1;
+  * this side can do honestly. Keep in step with `protocolVersion` in
+  * `cmd/autosk-store-lock/main.go`.
+  */
+-const HELPER_PROTOCOL_VERSION = 1;
++const HELPER_PROTOCOL_VERSION = 2;
+ const LOCK_TIMEOUT_MS = 30_000;
+ const READY_TIMEOUT_MS = 10_000;
+ const REQUEST_TIMEOUT_MS = 30_000;
+@@ -94,6 +94,7 @@ interface HelperResponse {
+   data?: unknown;
+   ids?: unknown;
+   error?: unknown;
++  code?: unknown;
+ }
+ 
+ interface HelperExit {
+@@ -524,12 +525,32 @@ class HelperClient implements CreationLockIO {
+       if (typeof response.error !== "string" || response.error.length === 0) {
+         throw new Error(`autosk-store-lock ${request.op} failed without an error message`);
+       }
+-      throw new Error(`autosk-store-lock ${request.op} failed: ${response.error}`);
++      throw new HelperRefusal(request.op, response.error, response.code);
+     }
+     return response;
+   }
+ }
+ 
++/**
++ * A refusal the helper reported, carrying its class when it had one (issue #13).
++ *
++ * `code` is what a caller may branch on; it is absent when the helper did not
++ * classify the refusal, and absence means UNCLASSIFIED — never "fine" and never
++ * "some other class". Reading the message to decide behaviour is what this type
++ * exists to replace: a reworded message is not supposed to be a behaviour change.
++ */
++export class HelperRefusal extends Error {
++  readonly op: string;
++  readonly code: string | undefined;
++
++  constructor(op: string, message: string, code: unknown) {
++    super(`autosk-store-lock ${op} failed: ${message}`);
++    this.name = "HelperRefusal";
++    this.op = op;
++    this.code = typeof code === "string" && code.length > 0 ? code : undefined;
++  }
++}
++
+ function validateRuntimeText(data: string): void {
+   if (typeof data !== "string" || Buffer.byteLength(data, "utf8") > MAX_RUNTIME_BYTES) {
+     throw new Error("runtime text exceeds the 8 MiB payload limit");
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index cbc77c0f26c86c5336e74100f62299c0062956b3..b551f0403d602cbdb52f6eb2e85216b05916b3e2 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -17,6 +17,7 @@ export {
+   TaskCreationError,
+   creationKeyHash,
+   hasCreationBinding,
++  HelperRefusal,
+   readCreationIndex,
+   parseCreationIndexText,
+   emptyCreationIndex,
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index 57798e281dd41454e630eafead11c6cc2f4a36f1..16eddb31f17f0bb8f138d3eb18974d60c279fab4 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -26,7 +26,7 @@ import {
+   type TaskCreationInput,
+   type TaskCreationResult,
+ } from "../src/index.ts";
+-import { withCreationLock } from "../src/store/creation.ts";
++import { HelperRefusal, withCreationLock } from "../src/store/creation.ts";
+ import { ProjectPaths } from "../src/store/paths.ts";
+ import { fixedClock, tempDir, waitFor } from "./helpers.ts";
+ 
+@@ -603,7 +603,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+       fakeHelper,
+       [
+         "#!/bin/sh",
+-        "printf '%s\\n' '{\"ok\":true,\"pid\":123,\"protocol\":1}'",
++        "printf '%s\\n' '{\"ok\":true,\"pid\":123,\"protocol\":2}'",
+         "IFS= read -r first",
+         "printf '%s\\n' '{\"id\":1,\"ok\":true,\"exists\":false}'",
+         "IFS= read -r second",
+@@ -645,7 +645,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         'const tasksDir = join(root, ".autosk", "tasks");',
+         'const taskJson = (id) => join(tasksDir, id, "task.json");',
+         'const put = (file, data) => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, data); };',
+-        'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 1 }) + "\\n");',
++        'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 2 }) + "\\n");',
+         'let buffer = "";',
+         'process.stdin.on("data", (chunk) => {',
+         '  buffer += chunk;',
+@@ -847,7 +847,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         "  process.stdout.write(Buffer.from(bytes.slice(0, split)));",
+         "  setTimeout(() => process.stdout.write(Buffer.from(bytes.slice(split))), 1);",
+         "}",
+-        "splitWrite(JSON.stringify({ ok: true, pid: 123, protocol: 1, note: \"д\" }));",
++        "splitWrite(JSON.stringify({ ok: true, pid: 123, protocol: 2, note: \"д\" }));",
+         "let buffer = \"\";",
+         "process.stdin.on(\"data\", (chunk) => {",
+         "  buffer += chunk.toString(\"utf8\");",
+@@ -896,7 +896,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+       'process.on("SIGTERM", () => {});',
+       'process.stdin.resume();',
+       'setInterval(() => {}, 1000);',
+-      'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 1 }) + "\\n");',
++      'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 2 }) + "\\n");',
+       '',
+     ].join("\n"));
+     await chmod(fakeHelper, 0o755);
+@@ -1261,3 +1261,65 @@ describe("reconciliation of keyed records", () => {
+     expect(log.warns).toHaveLength(0);
+   });
+ });
++
++describe("helper refusal classes", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let store: Store;
++
++  beforeEach(async () => {
++    dir = tempDir();
++    store = new Store(dir.path, { watch: false });
++    await store.open();
++  });
++  afterEach(async () => {
++    await store.close();
++    dir.cleanup();
++  });
++
++  test("a refusal carries the class, so callers stop reading the message", async () => {
++    // The runtime index CAS is the one refusal a caller genuinely branches on.
++    // Before this, telling it apart from any other failure meant matching prose,
++    // which turns a reworded message into a silent behaviour change.
++    await withCreationLock(store.paths, async (io) => {
++      await io.writeRuntimeIndex(null, "{}\n");
++    });
++
++    const refusal = await withCreationLock(store.paths, async (io) => {
++      try {
++        await io.writeRuntimeIndex("0".repeat(64), "{}\n");
++        return null;
++      } catch (e) {
++        return e;
++      }
++    });
++    expect(refusal).toBeInstanceOf(HelperRefusal);
++    expect((refusal as HelperRefusal).code).toBe("cas_mismatch");
++    expect((refusal as HelperRefusal).op).toBe("write_runtime_index");
++    // The message is still there for a human; it is just no longer the contract.
++    expect((refusal as HelperRefusal).message).toMatch(/digest mismatch/);
++  });
++
++  test("a digest that does not match its content is classified", async () => {
++    const refusal = await withCreationLock(store.paths, async (io) => {
++      try {
++        await io.writeRuntimeBlob("a".repeat(64), "not the content of that digest");
++        return null;
++      } catch (e) {
++        return e;
++      }
++    });
++    expect((refusal as HelperRefusal).code).toBe("digest_mismatch");
++  });
++
++  test("a refusal the helper did not classify carries no code", () => {
++    // Absence must mean "not classified", never "some other class": a catch-all
++    // would let a caller branch on a class nobody assigned. Which refusals the
++    // helper classifies is asserted on the Go side (TestCodeClassifiesOnlyWhatItWraps);
++    // this pins the TypeScript half — an omitted, empty or non-string code all
++    // become `undefined` rather than a truthy value someone could switch on.
++    for (const raw of [undefined, "", null, 0, {}]) {
++      expect(new HelperRefusal("read_task", "boom", raw).code).toBeUndefined();
++    }
++    expect(new HelperRefusal("write_runtime_index", "boom", "cas_mismatch").code).toBe("cas_mismatch");
++  });
++});
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b20c94e298 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -38,6 +38,67 @@ const (
+ 
+ var ErrTimeout = errors.New("store lock timeout")
+ 
++// The refusal classes a caller may act on (issue #13, contract item 10).
++//
++// Before these, every refusal reached the daemon as prose and the TypeScript side
++// discriminated by matching substrings — which turns a reworded message into a
++// silent behaviour change. A wrapped sentinel says what KIND of refusal happened
++// while leaving the message free to say which file and why.
++//
++// The set is deliberately not exhaustive. A refusal that is not one of these
++// classes carries no code, and the contract is that a code, when present, is
++// authoritative; its ABSENCE means unclassified, never "fine" and never "some
++// other class". Callers must not infer anything from a missing code.
++var (
++	// ErrNotRegular: the target is not a single-linked regular file — a directory,
++	// a FIFO, a socket, a device, or something with extra hard links.
++	ErrNotRegular = errors.New("not a single-linked regular file")
++	// ErrNotDir: a path component that must be a directory is not one.
++	ErrNotDir = errors.New("not a directory")
++	// ErrOwnership: the file is not private to the current user.
++	ErrOwnership = errors.New("file is not private to the current user")
++	// ErrCrossDevice: the path leaves the device the project root lives on.
++	ErrCrossDevice = errors.New("crosses the project device boundary")
++	// ErrDigestMismatch: content does not hash to the digest it is filed under.
++	ErrDigestMismatch = errors.New("content does not match its digest")
++	// ErrCASMismatch: the expected-existing identity did not hold.
++	ErrCASMismatch = errors.New("expected content identity does not match")
++	// ErrTooLarge: the payload exceeds this helper's limit.
++	ErrTooLarge = errors.New("payload exceeds the size limit")
++	// ErrNotUTF8: the payload is not valid UTF-8.
++	ErrNotUTF8 = errors.New("payload is not valid UTF-8")
++)
++
++// Code names the refusal class of err, or "" when it is unclassified.
++//
++// Order matters only in that each sentinel is disjoint; a wrapped error matches
++// exactly one. An unclassified error returns "" rather than a catch-all, because
++// a catch-all code would let a caller branch on a class nobody assigned.
++func Code(err error) string {
++	switch {
++	case errors.Is(err, ErrTimeout):
++		return "timeout"
++	case errors.Is(err, ErrNotRegular):
++		return "not_regular"
++	case errors.Is(err, ErrNotDir):
++		return "not_dir"
++	case errors.Is(err, ErrOwnership):
++		return "ownership"
++	case errors.Is(err, ErrCrossDevice):
++		return "cross_device"
++	case errors.Is(err, ErrDigestMismatch):
++		return "digest_mismatch"
++	case errors.Is(err, ErrCASMismatch):
++		return "cas_mismatch"
++	case errors.Is(err, ErrTooLarge):
++		return "too_large"
++	case errors.Is(err, ErrNotUTF8):
++		return "not_utf8"
++	default:
++		return ""
++	}
++}
++
+ type Lock struct {
+ 	rootPath   string
+ 	rootFD     int
+@@ -327,13 +388,13 @@ func (l *Lock) WriteRuntimeBlob(digest string, data []byte) (err error) {
+ 		return err
+ 	}
+ 	if len(data) > maxRuntimeFileBytes {
+-		return fmt.Errorf("runtime blob exceeds %d bytes", maxRuntimeFileBytes)
++		return fmt.Errorf("runtime blob exceeds %d bytes: %w", maxRuntimeFileBytes, ErrTooLarge)
+ 	}
+ 	if !utf8.Valid(data) {
+-		return errors.New("runtime blob data is not valid UTF-8")
++		return fmt.Errorf("runtime blob data: %w", ErrNotUTF8)
+ 	}
+ 	if actual := runtimeDataDigest(data); actual != digest {
+-		return fmt.Errorf("runtime blob digest mismatch: expected %s actual %s", digest, actual)
++		return fmt.Errorf("runtime blob digest mismatch: expected %s actual %s: %w", digest, actual, ErrDigestMismatch)
+ 	}
+ 	handles, err := l.openRuntimeBlobsDir(true)
+ 	if err != nil {
+@@ -430,10 +491,10 @@ func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error
+ 		}
+ 	}
+ 	if len(data) > maxRuntimeFileBytes {
+-		return fmt.Errorf("runtime index exceeds %d bytes", maxRuntimeFileBytes)
++		return fmt.Errorf("runtime index exceeds %d bytes: %w", maxRuntimeFileBytes, ErrTooLarge)
+ 	}
+ 	if !utf8.Valid(data) {
+-		return errors.New("runtime index data is not valid UTF-8")
++		return fmt.Errorf("runtime index data: %w", ErrNotUTF8)
+ 	}
+ 	handles, err := l.openRuntimeVersionDir(true)
+ 	if err != nil {
+@@ -451,15 +512,15 @@ func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error
+ 	}
+ 	if expectedDigest == nil {
+ 		if current.Exists {
+-			return errors.New("runtime index already exists")
++			return fmt.Errorf("runtime index already exists: %w", ErrCASMismatch)
+ 		}
+ 	} else {
+ 		if !current.Exists {
+-			return errors.New("runtime index missing for expected digest")
++			return fmt.Errorf("runtime index missing for expected digest: %w", ErrCASMismatch)
+ 		}
+ 		actual := runtimeDataDigest(current.Data)
+ 		if actual != *expectedDigest {
+-			return fmt.Errorf("runtime index digest mismatch: expected %s actual %s", *expectedDigest, actual)
++			return fmt.Errorf("runtime index digest mismatch: expected %s actual %s: %w", *expectedDigest, actual, ErrCASMismatch)
+ 		}
+ 	}
+ 	if expectedDigest == nil {
+@@ -743,7 +804,7 @@ func requireDir(fd int, label string) error {
+ 		return fmt.Errorf("stat %s: %w", label, err)
+ 	}
+ 	if st.Mode&unix.S_IFMT != unix.S_IFDIR {
+-		return fmt.Errorf("%s is not a directory", label)
++		return fmt.Errorf("%s: %w", label, ErrNotDir)
+ 	}
+ 	return nil
+ }
+@@ -754,10 +815,10 @@ func requireRegularSingleLink(fd int, label string) error {
+ 		return err
+ 	}
+ 	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+-		return fmt.Errorf("%s is not a regular file", label)
++		return fmt.Errorf("%s: %w", label, ErrNotRegular)
+ 	}
+ 	if st.Nlink != 1 {
+-		return fmt.Errorf("%s has unsafe link count %d", label, st.Nlink)
++		return fmt.Errorf("%s has unsafe link count %d: %w", label, st.Nlink, ErrNotRegular)
+ 	}
+ 	return nil
+ }
+@@ -771,7 +832,7 @@ func requireRuntimeDir(fd int, label string, rootID fileIdentity) (fileIdentity,
+ 		return fileIdentity{}, fmt.Errorf("%s is not a directory", label)
+ 	}
+ 	if uint64(st.Dev) != rootID.dev {
+-		return fileIdentity{}, fmt.Errorf("%s is not on the project root device", label)
++		return fileIdentity{}, fmt.Errorf("%s: %w", label, ErrCrossDevice)
+ 	}
+ 	if err := requirePrivateFileOwnership(st, label); err != nil {
+ 		return fileIdentity{}, err
+@@ -793,10 +854,10 @@ func wrapCreateFinalError(err error) error {
+ 
+ func requirePrivateFileOwnership(st unix.Stat_t, label string) error {
+ 	if st.Uid != uint32(unix.Geteuid()) {
+-		return fmt.Errorf("%s is not owned by the current user", label)
++		return fmt.Errorf("%s is not owned by the current user: %w", label, ErrOwnership)
+ 	}
+ 	if st.Mode&0o077 != 0 {
+-		return fmt.Errorf("%s has unsafe mode %03o", label, st.Mode&0o777)
++		return fmt.Errorf("%s has unsafe mode %03o: %w", label, st.Mode&0o777, ErrOwnership)
+ 	}
+ 	return nil
+ }
+@@ -941,7 +1002,7 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+ 		// a reason to refuse the bytes rather than to skip the comparison.
+ 		if uint64(st.Dev) != rootID.dev {
+ 			closeErr := unix.Close(fd)
+-			return ReadResult{}, errors.Join(fmt.Errorf("%s is not on the project root device", name), closeErr)
++			return ReadResult{}, errors.Join(fmt.Errorf("%s: %w", name, ErrCrossDevice), closeErr)
+ 		}
+ 		if err := requirePrivateFileOwnership(st, name); err != nil {
+ 			closeErr := unix.Close(fd)
+diff --git a/internal/storelock/runtime_test.go b/internal/storelock/runtime_test.go
+index ad14e7298dbdd9ade0252c828d0625562b09dcff..5632b89da8d055b486277d54a4aab2027ba872b3 100644
+--- a/internal/storelock/runtime_test.go
++++ b/internal/storelock/runtime_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"crypto/sha256"
+ 	"encoding/hex"
+ 	"errors"
++	"fmt"
+ 	"io"
+ 	"os"
+ 	"path/filepath"
+@@ -173,7 +174,7 @@ func TestRuntimeBlobRejectsCorruptExistingHardlinkAndFIFO(t *testing.T) {
+ 	if err := os.Link(linkedPath, filepath.Join(blobDir, "other-hardlink")); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if _, err := lock.ReadRuntimeBlob(linkedDigest); err == nil || !strings.Contains(err.Error(), "unsafe link count") {
++	if _, err := lock.ReadRuntimeBlob(linkedDigest); err == nil || !errors.Is(err, ErrNotRegular) {
+ 		t.Fatalf("expected hardlinked blob to be rejected, got %v", err)
+ 	}
+ 
+@@ -376,7 +377,7 @@ func TestRuntimeRejectsUnsafeDirectoryMode(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	lock := withRuntimeLock(t, root)
+-	if err := lock.WriteRuntimeIndex(nil, []byte("{}\n")); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++	if err := lock.WriteRuntimeIndex(nil, []byte("{}\n")); err == nil || !errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected unsafe runtime dir mode to be rejected, got %v", err)
+ 	}
+ 	if _, err := os.Stat(filepath.Join(runtimeDir, "v1", "index.json")); !errors.Is(err, os.ErrNotExist) {
+@@ -428,10 +429,10 @@ func TestRuntimeRejectsGroupOrWorldAccessibleBlob(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	lock := withRuntimeLock(t, root)
+-	if _, err := lock.ReadRuntimeBlob(digest); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++	if _, err := lock.ReadRuntimeBlob(digest); err == nil || !errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected world-readable blob to be rejected, got %v", err)
+ 	}
+-	if err := lock.WriteRuntimeBlob(digest, data); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++	if err := lock.WriteRuntimeBlob(digest, data); err == nil || !errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected write over world-readable blob to be rejected, got %v", err)
+ 	}
+ 	if got, err := os.ReadFile(blobPath); err != nil || !bytes.Equal(got, data) {
+@@ -447,10 +448,10 @@ func TestRuntimeRejectsGroupOrWorldAccessibleBlob(t *testing.T) {
+ 	if err := os.Chmod(groupPath, 0o660); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if _, err := lock.ReadRuntimeBlob(groupDigest); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++	if _, err := lock.ReadRuntimeBlob(groupDigest); err == nil || !errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected group-writable blob to be rejected, got %v", err)
+ 	}
+-	if err := lock.WriteRuntimeBlob(groupDigest, groupData); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++	if err := lock.WriteRuntimeBlob(groupDigest, groupData); err == nil || !errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected write over group-writable blob to be rejected, got %v", err)
+ 	}
+ 	if got, err := os.ReadFile(groupPath); err != nil || !bytes.Equal(got, groupData) {
+@@ -469,12 +470,12 @@ func TestRuntimeRejectsGroupOrWorldAccessibleIndex(t *testing.T) {
+ 	if err := os.Chmod(indexPath, 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if _, err := lock.ReadRuntimeIndex(); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
++	if _, err := lock.ReadRuntimeIndex(); err == nil || !errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected world-readable index to be rejected, got %v", err)
+ 	}
+ 	digest := runtimeDigest(data)
+ 	if err := lock.WriteRuntimeIndex(ptrRuntimeDigest(digest), []byte("{\"generation\":2}\n")); err == nil ||
+-		!strings.Contains(err.Error(), "unsafe mode") {
++		!errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected CAS write over world-readable index to be rejected, got %v", err)
+ 	}
+ 	if got, err := os.ReadFile(indexPath); err != nil || !bytes.Equal(got, data) {
+@@ -492,11 +493,11 @@ func TestRequirePrivateFileOwnership(t *testing.T) {
+ 		t.Fatalf("private file owned by the current user should be accepted: %v", err)
+ 	}
+ 	if err := requirePrivateFileOwnership(unix.Stat_t{Uid: euid + 1, Mode: unix.S_IFREG | 0o600}, "blob"); err == nil ||
+-		!strings.Contains(err.Error(), "not owned by the current user") {
++		!errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected foreign owner to be rejected, got %v", err)
+ 	}
+ 	if err := requirePrivateFileOwnership(unix.Stat_t{Uid: euid, Mode: unix.S_IFREG | 0o640}, "blob"); err == nil ||
+-		!strings.Contains(err.Error(), "unsafe mode") {
++		!errors.Is(err, ErrOwnership) {
+ 		t.Fatalf("expected group-readable mode to be rejected, got %v", err)
+ 	}
+ }
+@@ -543,7 +544,7 @@ func TestRuntimeReadRejectsUnknownRootDevice(t *testing.T) {
+ 		}
+ 	}()
+ 	if _, err := readRuntimeFile(dirFD, name, fileIdentity{}); err == nil ||
+-		!strings.Contains(err.Error(), "is not on the project root device") {
++		!errors.Is(err, ErrCrossDevice) {
+ 		t.Fatalf("expected an unidentified root device to be rejected, got %v", err)
+ 	}
+ }
+@@ -571,3 +572,30 @@ func TestCreateFinalErrorNamesUnsupportedNoReplaceRename(t *testing.T) {
+ 		t.Fatalf("EEXIST must not be reported as an unsupported filesystem: %v", exists)
+ 	}
+ }
++
++func TestCodeClassifiesOnlyWhatItWraps(t *testing.T) {
++	// The contract is that a code, when present, is authoritative, and that its
++	// ABSENCE means unclassified — never "fine" and never "some other class". A
++	// catch-all default would let a caller branch on a class nobody assigned.
++	for _, tc := range []struct {
++		err  error
++		want string
++	}{
++		{ErrTimeout, "timeout"},
++		{fmt.Errorf("x: %w", ErrNotRegular), "not_regular"},
++		{fmt.Errorf("x: %w", ErrNotDir), "not_dir"},
++		{fmt.Errorf("x: %w", ErrOwnership), "ownership"},
++		{fmt.Errorf("x: %w", ErrCrossDevice), "cross_device"},
++		{fmt.Errorf("x: %w", ErrDigestMismatch), "digest_mismatch"},
++		{fmt.Errorf("x: %w", ErrCASMismatch), "cas_mismatch"},
++		{fmt.Errorf("x: %w", ErrTooLarge), "too_large"},
++		{fmt.Errorf("x: %w", ErrNotUTF8), "not_utf8"},
++		{errors.New("something nobody classified"), ""},
++		{fmt.Errorf("wrapped: %w", errors.New("still unclassified")), ""},
++		{nil, ""},
++	} {
++		if got := Code(tc.err); got != tc.want {
++			t.Fatalf("Code(%v) = %q, want %q", tc.err, got, tc.want)
++		}
++	}
++}

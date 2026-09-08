@@ -37,7 +37,8 @@ apply in the listed order, each producing the tree beside it:
 | `0013-daemon-capability-report.patch` | `3eb7758f59b9793f5162b0a79a5803c33e2b4a8f` |
 | `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
 | `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` |
-| `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` — the current `result_tree` |
+| `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` |
+| `0017-helper-refusal-classes.patch` | `c838735cbbfd327f29889bea73b85ef0b9f137db` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -134,6 +135,35 @@ This is fail-closed in both directions, and deliberately so: an installation who
 guessing. The two constants are `protocolVersion` in
 `cmd/autosk-store-lock/main.go` and `HELPER_PROTOCOL_VERSION` in
 `daemon/core/src/store/creation.ts`; both are shipped by the same release.
+
+### Refusal classes
+
+Every refusal used to reach the daemon as prose, and the TypeScript side told them
+apart by matching substrings — which turns a reworded message into a silent
+behaviour change. The helper now names the class of a refusal it can classify:
+
+| Code | Meaning |
+| --- | --- |
+| `timeout` | the project lock was not acquired in time |
+| `not_regular` | not a single-linked regular file — a directory, FIFO, socket, device, or extra hard links |
+| `not_dir` | a component that must be a directory is not one |
+| `ownership` | the file is not private to the current user (uid or mode) |
+| `cross_device` | the path leaves the device the project root lives on |
+| `digest_mismatch` | content does not hash to the digest it is filed under |
+| `cas_mismatch` | the expected-existing identity did not hold |
+| `too_large` | the payload exceeds the helper's limit |
+| `not_utf8` | the payload is not valid UTF-8 |
+
+The set is deliberately not exhaustive, and the contract is exact: **a code, when
+present, is authoritative; its absence means unclassified — never "fine" and never
+"some other class"**. A catch-all code would let a caller branch on a class nobody
+assigned, so unclassified refusals carry none. On the daemon side they surface as
+`HelperRefusal`, which keeps the message for a human and the class for the code.
+
+Adding the field changed the contract, so the protocol went to **2**. That is the
+handshake above doing its job: bumping it immediately failed every fixture still
+speaking revision 1, which is what a mismatched installation would have done
+silently before.
 
 This closes the **version** half of issue #13's criterion 5. The **digest** half —
 the helper's bytes entering the extension runtime identity — is not done: the

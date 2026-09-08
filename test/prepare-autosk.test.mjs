@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "eabf757e05350ccbe12c29d0756b5c49ac175667");
+  assert.equal(manifest.result_tree, "c838735cbbfd327f29889bea73b85ef0b9f137db");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -145,6 +145,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0014-creation-scenarios.patch",
       "patches/0015-scoped-child-creation.patch",
       "patches/0016-helper-protocol-handshake.patch",
+      "patches/0017-helper-refusal-classes.patch",
     ],
   );
 });

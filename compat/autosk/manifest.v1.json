@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "eabf757e05350ccbe12c29d0756b5c49ac175667",
+  "result_tree": "c838735cbbfd327f29889bea73b85ef0b9f137db",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -70,6 +70,10 @@
     {
       "file": "patches/0016-helper-protocol-handshake.patch",
       "sha256": "ee17ba2f7ac86d3117d69765f74b9de4bc0910909506446d9a65ecdc98dbb225"
+    },
+    {
+      "file": "patches/0017-helper-refusal-classes.patch",
+      "sha256": "cb82b185f810d73a9f7caf2fed70a98f56e9383f4080e01968ce599e12ed8a6f"
     }
   ],
   "license": {
