@@ -211,6 +211,34 @@
       "model_family_policy": "cross_family_required"
     },
     {
+      "class": "changeset_walkthrough",
+      "category": "explanatory",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "approved_delta"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/walkthroughs/*.md"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "explanatory only; its facts are validated against canonical records rather than reviewed for correctness"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "clearance_manifest",
       "category": "runtime_evidence",
       "author_roles": [
@@ -274,6 +302,7 @@
         "docs/contracts/stage-carriers.md",
         "docs/contracts/tickets-manifest.md",
         "docs/contracts/verify-doc.md",
+        "docs/contracts/walkthrough.md",
         "docs/contracts/work-type-gates.md"
       ],
       "review": {
@@ -289,6 +318,7 @@
         "artifact_registry",
         "artifact_write_receipt",
         "autobuild_run",
+        "changeset_walkthrough",
         "clearance_manifest",
         "cost_watch_registry",
         "creation_grant",
@@ -1362,5 +1392,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "8e497130238a88aa6be56399cefa2afcc2ecb4225530e7e490825f54ab4686a2"
+  "registry_digest": "f63759b81bd5d612f7d9a3c8f99f150f2b7e3d407da17c52e9c33aae5fc0e341"
 }

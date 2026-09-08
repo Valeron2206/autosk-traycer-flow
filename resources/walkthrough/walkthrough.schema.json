@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/walkthrough/walkthrough.v1.json",
+  "title": "Changeset walkthrough",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "walkthrough_id",
+    "epic_id",
+    "consent",
+    "staging",
+    "areas",
+    "checks",
+    "links",
+    "facts",
+    "publication",
+    "creates_pass",
+    "semantic_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "walkthrough_id": { "type": "string", "pattern": "^wt-[0-9a-f]{40}$" },
+    "epic_id": { "type": "string", "minLength": 1 },
+    "consent": {
+      "description": "Offered after an aggregate PASS, generated only on consent.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reference"],
+      "properties": {
+        "state": { "enum": ["approved", "declined", "not_offered", "generated_without_consent"] },
+        "reference": { "type": "string", "minLength": 1 },
+        "aggregate_pass_ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "staging": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_oid", "tree_oid", "current_tree_oid"],
+      "properties": {
+        "commit_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "current_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "target_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "target_bound_at": { "type": "string", "format": "date-time" },
+        "semantic_digest_before_binding": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "areas": {
+      "description": "Read in this order. Risk first, mechanical detail last.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["area_id", "title", "risk", "summary"],
+        "properties": {
+          "area_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,40}$" },
+          "title": { "type": "string", "minLength": 4 },
+          "risk": { "enum": ["product", "correctness", "security", "architecture", "mechanical"] },
+          "summary": { "type": "string", "minLength": 16 },
+          "relates_to": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "decisions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "gotchas": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["performed", "remaining"],
+      "properties": {
+        "performed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["description", "command", "evidence_ref", "at_tree_oid"],
+            "properties": {
+              "description": { "type": "string", "minLength": 8 },
+              "command": { "type": "string", "minLength": 3 },
+              "evidence_ref": { "type": "string", "minLength": 1 },
+              "at_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+            }
+          }
+        },
+        "remaining": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["description", "who"],
+            "properties": {
+              "description": { "type": "string", "minLength": 8 },
+              "who": { "enum": ["operator", "reviewer", "user"] },
+              "evidence_ref": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tickets", "adrs", "evidence"],
+      "properties": {
+        "tickets": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "adrs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "manifest": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "debt": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "waivers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "follow_ups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "rollback_notes": { "type": "string", "minLength": 8 }
+      }
+    },
+    "facts": {
+      "description": "Every claim that can be checked, and what it was checked against.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "claimed", "canonical", "matches"],
+        "properties": {
+          "kind": { "enum": ["oid", "ticket", "command", "evidence_link", "status"] },
+          "claimed": { "type": "string", "minLength": 1 },
+          "canonical": { "type": ["string", "null"], "minLength": 1 },
+          "matches": { "type": "boolean" }
+        }
+      }
+    },
+    "publication": { "enum": ["current", "withheld", "superseded"] },
+    "creates_pass": { "const": false },
+    "blocks_epic_when_declined": { "type": "boolean" },
+    "semantic_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "body": { "type": "string" }
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "walkthrough_id": "wt-dddddddddddddddddddddddddddddddddddddddd",
+  "epic_id": "epic-store-lock",
+  "consent": {
+    "state": "generated_without_consent",
+    "reference": "produced automatically after the aggregate PASS"
+  },
+  "staging": {
+    "commit_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tree_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "current_tree_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "target_oid": "cccccccccccccccccccccccccccccccccccccccc",
+    "target_bound_at": "2026-09-08T12:00:00Z",
+    "semantic_digest_before_binding": "36e9612e2e0efd3b39bd4048308fb154640235c6b016887b65b8b8da2a1ecae5"
+  },
+  "areas": [
+    {
+      "area_id": "test-renames",
+      "title": "Test renames and fixture moves",
+      "risk": "mechanical",
+      "summary": "fixtures moved next to the suites that use them; no behaviour changed",
+      "relates_to": [],
+      "decisions": [],
+      "gotchas": []
+    },
+    {
+      "area_id": "transcript-reads",
+      "title": "Chunked transcript reads",
+      "risk": "correctness",
+      "summary": "reads now take an explicit offset and never split a rune at either end",
+      "relates_to": [
+        "helper-protocol"
+      ],
+      "decisions": [
+        "a mid-rune offset is refused rather than rounded, because rounding hides the caller's bug"
+      ],
+      "gotchas": [
+        "the whole-file path had the same defect and was fixed with the chunked one"
+      ]
+    },
+    {
+      "area_id": "helper-protocol",
+      "title": "Helper protocol revision 5",
+      "risk": "architecture",
+      "summary": "the readiness line is compared exactly, so a revision bump is a visible incompatibility",
+      "relates_to": [
+        "transcript-reads"
+      ],
+      "decisions": [
+        "the version lives in one source and the tests read it from there"
+      ],
+      "gotchas": []
+    },
+    {
+      "area_id": "path-guards",
+      "title": "Per-component path guards",
+      "risk": "security",
+      "summary": "every component of an artifact path is opened with O_NOFOLLOW",
+      "relates_to": [],
+      "decisions": [],
+      "gotchas": [
+        "a symlink in a parent directory was the case the old check missed"
+      ]
+    }
+  ],
+  "checks": {
+    "performed": [
+      {
+        "description": "the storelock suite on the staged tree",
+        "command": "go test ./internal/storelock/...",
+        "evidence_ref": "evidence/epic-store-lock/T-102/storelock.json",
+        "at_tree_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "description": "the daemon suite on the staged tree",
+        "command": "bun test daemon/core",
+        "evidence_ref": "evidence/epic-store-lock/T-102/daemon.json",
+        "at_tree_oid": "ffffffffffffffffffffffffffffffffffffffff"
+      }
+    ],
+    "remaining": [
+      {
+        "description": "read a long real session in the terminal",
+        "who": "user",
+        "evidence_ref": "evidence/epic-store-lock/T-102/daemon.json"
+      }
+    ]
+  },
+  "links": {
+    "tickets": [
+      "T-101",
+      "T-102"
+    ],
+    "adrs": [
+      "ADR-049",
+      "ADR-050"
+    ],
+    "manifest": "compat/autosk/manifest.v1.json",
+    "evidence": [
+      "evidence/epic-store-lock/T-102/storelock.json",
+      "evidence/epic-store-lock/T-102/daemon.json"
+    ],
+    "debt": [
+      "the whole-file read still loads the file before trimming"
+    ],
+    "waivers": [],
+    "follow_ups": [
+      "#32 bounded loop covers the retry budget this exposed"
+    ],
+    "rollback_notes": "see /Users/someone/Documents/VPN/notes/rollback.md for the operator steps"
+  },
+  "facts": [
+    {
+      "kind": "oid",
+      "claimed": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "canonical": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "matches": true
+    },
+    {
+      "kind": "oid",
+      "claimed": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "canonical": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "matches": true
+    },
+    {
+      "kind": "ticket",
+      "claimed": "T-999",
+      "canonical": null,
+      "matches": false
+    },
+    {
+      "kind": "command",
+      "claimed": "go test ./internal/storelock/...",
+      "canonical": "go test ./internal/storelock/...",
+      "matches": true
+    },
+    {
+      "kind": "evidence_link",
+      "claimed": "evidence/epic-store-lock/T-102/storelock.json",
+      "canonical": "evidence/epic-store-lock/T-102/storelock.json",
+      "matches": true
+    },
+    {
+      "kind": "status",
+      "claimed": "aggregate PASS",
+      "canonical": "aggregate PASS",
+      "matches": true
+    }
+  ],
+  "publication": "current",
+  "creates_pass": false,
+  "blocks_epic_when_declined": true,
+  "semantic_digest": "44654bcc1f3a978ddac90a5263cbe35f578c21b5e9e268dc355aafad36343f89"
+}
