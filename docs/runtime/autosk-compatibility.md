@@ -35,7 +35,8 @@ apply in the listed order, each producing the tree beside it:
 | `0011-concurrent-epics.patch` | `eda6fbcb67759d349777827e4ecb2b29c90e9937` |
 | `0012-reload-and-missing-version.patch` | `5a16304e20883870375cefc7816b4875c581d354` |
 | `0013-daemon-capability-report.patch` | `3eb7758f59b9793f5162b0a79a5803c33e2b4a8f` |
-| `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` — the current `result_tree` |
+| `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
+| `0015-scoped-child-creation.patch` | `8538735a326cf55a811ecb9e29bf3f4b674da31d` — the current `result_tree` |
 
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.

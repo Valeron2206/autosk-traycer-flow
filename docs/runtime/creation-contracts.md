@@ -116,6 +116,39 @@ they are not evidence of daemon durability, process isolation, or full fan-out.
 | Preflight refuses absent capability | `requireDaemonCapabilities` decides admission from `meta.capabilities`, which the daemon derives from its live handler table | Wiring it into the extension entry point, which does not exist yet |
 | Upstream distribution and platform qualification | Not included in this PR | CI on the fully wired source |
 
+## The scoped creation capability
+
+Child fan-out needs a write path that is neither the CLI nor the whole task API.
+An agent that can create arbitrary tasks can create a child the host never
+admitted, and then write-once creation identity protects nothing downstream. So
+the host compiles a grant — which slots, with which creation identity — and the
+daemon issues a capability over `ctx.scopedCreation(grant)` that can create
+exactly those slots and nothing else.
+
+The creation key and binding hash come from the grant, never from the caller, so
+holding the capability does not let an agent invent a child identity.
+
+**What the daemon verifies.** The grant must name this session, its task, its
+workflow, its step and that step's *current visit count*, and must not have
+expired. The visit comes from the task's own record rather than from the grant, so
+a grant minted for visit 1 cannot be replayed onto visit 2 by asserting the number
+it was minted with — replaying one grant across visits is precisely how a fan-out
+duplicates. Expiry is re-checked on every `create`, not only at mint: a capability
+that checked once would keep admitting children for as long as it was held, and a
+settled session issues nothing and invalidates what it already issued.
+
+**What it does not verify, said plainly.** `project_sha256`, `operation_id` and
+`context_digest` are the host's own canonicalisation and the daemon cannot
+recompute them. They are carried through unchanged, and a capability whose binding
+differs from the grant is refused — which is a narrower claim than "verified", and
+deliberately so.
+
+The shape is closed: exact fields, bounded slots, unique slot ids, unique creation
+keys within a grant, no blocker on the parent, and refusals for non-plain
+prototypes, symbol keys, accessors and array holes. Two slots on one creation key
+would make the second `create` resolve to the first child, so a grant containing
+both is refused rather than treated as a retry.
+
 ## The eleven mandatory scenarios
 
 Issue #11 names eleven scenarios that must be tested. Where each is exercised, and

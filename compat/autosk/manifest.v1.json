@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "726fe5a99b01e719c95e35cb0b41510fbebf7183",
+  "result_tree": "8538735a326cf55a811ecb9e29bf3f4b674da31d",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -62,6 +62,10 @@
     {
       "file": "patches/0014-creation-scenarios.patch",
       "sha256": "50ceac4b8aaa64a9c5598f043875017d4d174349d6c80e75ae41e545703fac91"
+    },
+    {
+      "file": "patches/0015-scoped-child-creation.patch",
+      "sha256": "8aef9a333e6ae6eae58cd9382499b0d0cfd9fd359f14c2267ab0696921e769e3"
     }
   ],
   "license": {
