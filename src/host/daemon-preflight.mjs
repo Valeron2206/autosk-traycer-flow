@@ -7,13 +7,18 @@ import { closedRecord, demand, immutable, compareCodePoints } from '../runtime/c
 import { types } from 'node:util';
 
 /** What autosk-flow cannot run without, at the exact contract revision it was written against.
- * `task.creation-binding` v1: write-once `creation_key` + `creation_binding_hash` under the
+ * `task.creation-binding` v2: write-once `creation_key` + `creation_binding_hash` under the
  * cross-process project lock, exact retry returns the same task, a different binding conflicts,
  * and neither field can be edited afterwards. Without it, child fan-out would have to find a
  * partially-created child by its editable title — the duplicate/orphan hazard #11 exists to remove.
+ *
+ * v2 additionally requires a `session_token` on every bound create (issue #10, criterion 7), so the
+ * daemon can say which session — and therefore which code — minted a task. This flow requires v2
+ * and not "v1 or later": a daemon on v1 accepts unattributable creates, which is the gap, and
+ * accepting it here would make the requirement a description rather than a precondition.
  */
 export const REQUIRED_DAEMON_CAPABILITIES = immutable([
-  { name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] },
+  { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
 ]);
 
 const MAX_CAPABILITIES = 64;

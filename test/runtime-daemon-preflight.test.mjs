@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const report = (overrides = {}) => ({
-  capabilities: [{ name: 'task.creation-binding', version: 1, methods: ['task.create_bound'], ...overrides }],
+  capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'], ...overrides }],
 });
 const refuses = (input, code) => {
   assert.throws(() => requireDaemonCapabilities(input), (error) => {
@@ -21,14 +21,14 @@ const refuses = (input, code) => {
 test('a daemon with the required capability is admitted and the report is pinned', () => {
   const admitted = requireDaemonCapabilities(report());
   assert.deepEqual(admitted, { schema_version: 1,
-    capabilities: [{ name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] }] });
+    capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] }] });
   assert.ok(Object.isFrozen(admitted));
   assert.ok(Object.isFrozen(admitted.capabilities[0]));
 });
 
 test('the required set is exactly what #11 delivers, at the revision this flow was written for', () => {
   assert.deepEqual([...REQUIRED_DAEMON_CAPABILITIES],
-    [{ name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] }]);
+    [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] }]);
   assert.ok(Object.isFrozen(REQUIRED_DAEMON_CAPABILITIES));
 });
 
@@ -43,7 +43,7 @@ test('a required capability implemented by a different method is refused', () =>
 test('a capability naming the same method twice, or sharing one, is refused', () => {
   refuses(report({ methods: ['task.create_bound', 'task.create_bound'] }), 'daemon_capability_invalid');
   refuses({ capabilities: [
-    { name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] },
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
     { name: 'other.thing', version: 1, methods: ['task.create_bound'] },
   ] }, 'daemon_capability_invalid');
 });
@@ -53,11 +53,15 @@ test('a daemon without the capability does not start the flow', () => {
   refuses({ capabilities: [{ name: 'other.thing', version: 1, methods: ['x'] }] }, 'daemon_capability_missing');
 });
 
-test('a later revision is refused, not accepted as "at least"', () => {
+test('any revision but the required one is refused, in both directions', () => {
   // The revision is incremented exactly when a client must notice the change, so
   // accepting a higher one would accept the change the increment exists to warn about.
-  refuses(report({ version: 2 }), 'daemon_capability_version_mismatch');
+  refuses(report({ version: 3 }), 'daemon_capability_version_mismatch');
   refuses(report({ version: 99 }), 'daemon_capability_version_mismatch');
+  // And an EARLIER one is the case that matters now: a v1 daemon accepts bound
+  // creates with no session attached, which is the gap #10 criterion 7 closes.
+  // Starting on it would run the flow against the very hole it requires closed.
+  refuses(report({ version: 1 }), 'daemon_capability_version_mismatch');
 });
 
 test('a capability that names no method is a claim, not a report', () => {
@@ -95,7 +99,7 @@ test('malformed entries are refused field by field', () => {
 
 test('the same capability reported twice is refused rather than deduplicated', () => {
   refuses({ capabilities: [
-    { name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] },
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
     { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
   ] }, 'daemon_capability_invalid');
 });

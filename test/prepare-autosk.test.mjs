@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "72ed6e0ea07646666aaf81d6b7ee34f729b9715b");
+  assert.equal(manifest.result_tree, "8fc807eb1eac3338644c2131a3c75191c558de44");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -156,6 +156,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0025-distribution-bytes.patch",
       "patches/0026-materialize-held-distributions.patch",
       "patches/0027-serve-pinned-code.patch",
+      "patches/0028-session-bound-create.patch",
     ],
   );
 });
