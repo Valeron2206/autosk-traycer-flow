@@ -135,6 +135,7 @@
         "docs/contracts/artifact-registry.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
+        "docs/contracts/finding-registry.md",
         "docs/contracts/project-instructions-lock.md",
         "docs/contracts/tickets-manifest.md"
       ],
@@ -149,6 +150,7 @@
       "impacts": [
         "artifact_registry",
         "delivery_profile",
+        "finding_registry",
         "instruction_lock",
         "planning_ref_contract",
         "tech_plan",
@@ -276,6 +278,36 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "not_required"
+    },
+    {
+      "class": "finding_registry",
+      "category": "governance_defining",
+      "author_roles": [
+        "reviewer"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/reviews/*/findings.registry.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the registry records a review; it is not itself reviewed by a panel"
+      },
+      "identity_fields": [
+        "candidate_identity",
+        "registry_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/finding-registry/finding-registry.schema.json",
+      "validator": "scripts/validate-finding-registry.mjs",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     },
     {
       "class": "governance_update",
@@ -505,5 +537,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "5d84ec0553d769aab962c56a9f98349c3a11d79f3e73137ed03600eea0b301ce"
+  "registry_digest": "139a68ab6af882f68e924da6993267407ae463a600b2c30aca50735ce21689be"
 }

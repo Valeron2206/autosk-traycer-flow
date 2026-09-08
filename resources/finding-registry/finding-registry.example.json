@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "merge_algorithm": "autosk-flow/finding-merge/v1",
+  "candidate_identity": "cand-9f2c1a7e",
+  "seats": [
+    "astra",
+    "grok",
+    "muse",
+    "opus"
+  ],
+  "raw_findings": [
+    {
+      "seat": "opus",
+      "raw_id": "F1",
+      "task_id": "ask-a1b2c3",
+      "session_id": "s-1",
+      "attempt": 1,
+      "severity": "high",
+      "claim": "the enroll path admits a child under a distribution the parent never ran",
+      "evidence_locator": "daemon/core/src/engine/engine.ts:enroll",
+      "violated_anchor": "tech_plan#runtime-identity",
+      "affected_scope": [
+        "daemon/core/src/engine/**"
+      ],
+      "proposed_remedy": "ask whether the parent is still admitted, not whether the child matches"
+    },
+    {
+      "seat": "astra",
+      "raw_id": "F1",
+      "task_id": "ask-a1b2c3",
+      "session_id": "s-2",
+      "attempt": 1,
+      "severity": "critical",
+      "claim": "cross-package fan-out is permanently refused with no update having happened",
+      "evidence_locator": "daemon/core/src/engine/engine.ts:enroll",
+      "violated_anchor": "tech_plan#runtime-identity",
+      "affected_scope": [
+        "daemon/core/src/engine/**"
+      ]
+    },
+    {
+      "seat": "grok",
+      "raw_id": "A7",
+      "task_id": "ask-a1b2c3",
+      "session_id": "s-3",
+      "attempt": 1,
+      "severity": "medium",
+      "claim": "the refusal message names the task pin rather than what was admitted",
+      "evidence_locator": "daemon/core/src/engine/runtimeIdentity.ts",
+      "violated_anchor": "tech_plan#diagnostics",
+      "affected_scope": [
+        "daemon/core/src/engine/runtimeIdentity.ts"
+      ]
+    },
+    {
+      "seat": "muse",
+      "raw_id": "M2",
+      "task_id": "ask-a1b2c3",
+      "session_id": "s-4",
+      "attempt": 1,
+      "severity": "medium",
+      "claim": "the comment claims a guarantee the code does not enforce",
+      "evidence_locator": "docs/extensions.md",
+      "violated_anchor": "tech_plan#documentation",
+      "affected_scope": [
+        "docs/**"
+      ]
+    },
+    {
+      "seat": "muse",
+      "raw_id": "M5",
+      "task_id": "ask-a1b2c3",
+      "session_id": "s-4",
+      "attempt": 1,
+      "severity": "low",
+      "claim": "a test name says pending where the branch pinned is markerless",
+      "evidence_locator": "daemon/core/test/store.singlewriter.test.ts",
+      "violated_anchor": "tech_plan#tests",
+      "affected_scope": [
+        "daemon/core/test/**"
+      ]
+    }
+  ],
+  "canonical_findings": [
+    {
+      "canonical_id": "C001",
+      "originators": [
+        "astra:F1",
+        "opus:F1"
+      ],
+      "reported_severity": "critical",
+      "triage": {
+        "decision": "confirmed"
+      },
+      "contest": [
+        {
+          "seat": "astra",
+          "outcome": "upheld"
+        },
+        {
+          "seat": "opus",
+          "outcome": "upheld"
+        }
+      ],
+      "state": "resolved",
+      "disposition": "fixed"
+    },
+    {
+      "canonical_id": "C002",
+      "originators": [
+        "grok:A7"
+      ],
+      "reported_severity": "medium",
+      "triage": {
+        "decision": "confirmed"
+      },
+      "contest": [
+        {
+          "seat": "grok",
+          "outcome": "upheld"
+        }
+      ],
+      "state": "open",
+      "disposition": "deferred",
+      "debt_ticket": "T14-diagnostic-wording"
+    },
+    {
+      "canonical_id": "C003",
+      "originators": [
+        "muse:M2"
+      ],
+      "reported_severity": "medium",
+      "triage": {
+        "decision": "confirmed_higher_severity",
+        "severity": "high",
+        "reason": "an unenforced guarantee in prose is what a reader relies on"
+      },
+      "contest": [
+        {
+          "seat": "muse",
+          "outcome": "upheld"
+        }
+      ],
+      "state": "resolved",
+      "disposition": "fixed"
+    },
+    {
+      "canonical_id": "C004",
+      "originators": [
+        "muse:M5"
+      ],
+      "reported_severity": "low",
+      "triage": {
+        "decision": "rejected",
+        "rejection_reason": "reviewer_error",
+        "basis": {
+          "kind": "factual_proof",
+          "reference": "the test pins the markerless branch; the name was corrected in the same commit"
+        }
+      },
+      "contest": [
+        {
+          "seat": "muse",
+          "outcome": "withdrawn"
+        }
+      ],
+      "state": "resolved",
+      "disposition": "fixed"
+    }
+  ],
+  "gate": {
+    "blocking_open": 0,
+    "undispositioned_medium": 0,
+    "verdict": "pass"
+  },
+  "registry_digest": "2459ad672b9fc879e1c97c458f80f20cd9caa5cad8f5935fbfc8d9b5e552880b"
+}

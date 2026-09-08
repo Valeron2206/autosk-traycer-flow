@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/finding-registry.v1.json",
+  "title": "Canonical finding registry v1",
+  "description": "Four answers, one decision, computed rather than synthesised. Closed: unknown fields and unknown versions fail.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "merge_algorithm",
+    "candidate_identity",
+    "seats",
+    "raw_findings",
+    "canonical_findings",
+    "gate",
+    "registry_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "merge_algorithm": {
+      "const": "autosk-flow/finding-merge/v1"
+    },
+    "candidate_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seats": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+      }
+    },
+    "raw_findings": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seat",
+          "raw_id",
+          "severity",
+          "claim",
+          "evidence_locator",
+          "violated_anchor",
+          "affected_scope",
+          "attempt"
+        ],
+        "properties": {
+          "seat": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+          },
+          "raw_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,32}$"
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "evidence_locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "violated_anchor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "affected_scope": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "proposed_remedy": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      }
+    },
+    "canonical_findings": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "canonical_id",
+          "originators",
+          "reported_severity",
+          "triage",
+          "state"
+        ],
+        "properties": {
+          "canonical_id": {
+            "type": "string",
+            "pattern": "^C[0-9]{3,6}$"
+          },
+          "originators": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}$"
+            }
+          },
+          "reported_severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "triage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "decision"
+            ],
+            "properties": {
+              "decision": {
+                "enum": [
+                  "confirmed",
+                  "confirmed_higher_severity",
+                  "confirmed_lower_severity",
+                  "rejected"
+                ]
+              },
+              "severity": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "rejection_reason": {
+                "enum": [
+                  "out_of_scope",
+                  "intended_behavior",
+                  "duplicate",
+                  "reviewer_error"
+                ]
+              },
+              "basis": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "reference"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "anchor",
+                      "accepted_decision",
+                      "factual_proof"
+                    ]
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            }
+          },
+          "contest": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "seat",
+                "outcome"
+              ],
+              "properties": {
+                "seat": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+                },
+                "outcome": {
+                  "enum": [
+                    "upheld",
+                    "withdrawn",
+                    "forfeited",
+                    "disagreed"
+                  ]
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              }
+            }
+          },
+          "state": {
+            "enum": [
+              "open",
+              "resolved",
+              "deferred",
+              "stale"
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "fixed",
+              "deferred"
+            ]
+          },
+          "debt_ticket": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidate_identity": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blocking_open",
+        "undispositioned_medium",
+        "verdict"
+      ],
+      "properties": {
+        "blocking_open": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "undispositioned_medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "blocked"
+          ]
+        }
+      }
+    },
+    "registry_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
