@@ -166,6 +166,7 @@
         "docs/contracts/approved-delta.md",
         "docs/contracts/artifact-registry.md",
         "docs/contracts/clean-room-e2e.md",
+        "docs/contracts/creation-grant.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
         "docs/contracts/epic-staging.md",
@@ -188,6 +189,7 @@
       "impacts": [
         "approved_delta",
         "artifact_registry",
+        "creation_grant",
         "delivery_profile",
         "epic_staging",
         "execution_base",
@@ -236,6 +238,36 @@
       "retention": "durable",
       "human_approval": "required",
       "model_family_policy": "cross_family_required"
+    },
+    {
+      "class": "creation_grant",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "model_family_policy": "host_only",
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/grants/*/grant.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "a grant is minted by the host, not authored"
+      },
+      "identity_fields": [
+        "grant_id",
+        "operation_id"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/creation-grant/creation-grant.schema.json",
+      "validator": "scripts/validate-creation-grant.mjs",
+      "impacts": [
+        "model_result"
+      ],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "epic_scoped",
+      "human_approval": "not_required"
     },
     {
       "class": "decision_log",
@@ -771,5 +803,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "191473bfd8f3ffc4852ac1ee70b42f291c717536658864a248c4a10e41bf90db"
+  "registry_digest": "16107d006e2124ffd42d9d95d07a412ec0950cfc8902bab7b1076480f2a16643"
 }
