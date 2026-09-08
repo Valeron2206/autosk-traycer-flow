@@ -42,7 +42,8 @@ apply in the listed order, each producing the tree beside it:
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
 | `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
-| `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` — the current `result_tree` |
+| `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` |
+| `0022-session-meta-through-adapter.patch` | `e7e060e330ba4b0b8e98bbae695a5e557841237a` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -204,7 +205,24 @@ helper would then refuse to read back. Publishing a file that can never be read
 again would be bad on its own; with the view path now tolerating refusals it
 would also show as an empty comment list, which is the worst of both.
 
-The session meta and transcript, and the project registry, remain. The registry is
+The session **meta** followed in patch `0022`, with `read_session_meta`,
+`write_session_meta` and `list_session_ids` — fourteen ops. What routing the write
+buys beyond replacing a file is worth naming, because a plain atomic write already
+replaces a symlinked file rather than following it: the adapter opens every
+*component* with `O_NOFOLLOW`, so a swapped `sessions/` directory is refused
+instead of sending the meta outside the project while reporting success.
+
+`scan()` deliberately stays on plain `fs`, and that is a decision rather than an
+omission. It runs on `open()`, so routing it would make the helper a precondition
+of OPENING a project and would take the project lock for a project that only ever
+gets read — exactly what ADR-028 declined ("A project that never writes trusted
+state should not hold a lock"). Changing that is a change to ADR-028, not a change
+of call site, so it is recorded as the remaining half.
+
+The session transcript and the project registry remain. The registry is out of the
+adapter by ADR-028 (it lives in `$HOME`, not in the project); the transcript needs a
+chunked read, because it is appended without bound and `readTranscript` reads the
+whole file on every paged call. The registry is
 out of the adapter by ADR-028 (it lives in `$HOME`, not in the project); the session
 files are the next slice.
 
