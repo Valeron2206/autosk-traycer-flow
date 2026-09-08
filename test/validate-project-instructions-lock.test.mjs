@@ -258,6 +258,35 @@ test("the contract names the schema it is validated against", () => {
   }
 });
 
+test("an executable instruction file is admitted, with its mode recorded", () => {
+  // The contract admits any regular blob. The executable bit changes nothing
+  // about the bytes, so rejecting on it would be a rule the prose does not have.
+  const lock = mutated((entry) => {
+    entry.admitted[1].mode = "100755";
+  });
+  assert.deepEqual(validateLock(lock, schema), []);
+  // ...and it is part of identity, so it cannot be flipped silently.
+  assert.notEqual(lock.combined_digest, JSON.parse(files[EXAMPLE_PATH]).combined_digest);
+});
+
+test("a mode that is not a regular blob cannot be admitted", () => {
+  assertRejects(
+    mutated((lock) => {
+      lock.admitted[1].mode = "120000";
+    }),
+    /schema:/u,
+  );
+});
+
+test("outside_root is recordable, so the closed set has no dead branch", () => {
+  // A conforming walk of one tree cannot emit it. It exists so a validator can
+  // name what it rejects in a lock this project did not produce.
+  const lock = mutated((entry) => {
+    entry.excluded.push({ path: "../sibling/AGENTS.md", reason: "outside_root" });
+  });
+  assert.deepEqual(validateLock(lock, schema), []);
+});
+
 test("the design digest changes when any of the three files changes", () => {
   const before = instructionLockDesignDigest(files);
   const after = instructionLockDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });

@@ -30,8 +30,16 @@ Discovery is a pure function of one Git tree OID and one closed file list. It ne
 
 1. Start at the canonical project root recorded in the lock. The root is the project identity of issue #10, not `process.cwd()`.
 2. Walk the tree in sorted path order. For each directory, test each `supported_filenames` entry in the recorded order.
-3. A candidate is admitted only when the tree entry is a regular blob. A symlink, a submodule (`gitlink`), a directory, or any other mode is **recorded as excluded with its mode**, never followed and never silently dropped.
+3. A candidate is admitted only when the tree entry is a regular blob — mode `100644` or `100755`; the executable bit changes nothing about the bytes and is recorded rather than used to reject. A symlink (`120000`), a submodule (`160000`), a directory (`040000`), or any other mode is **recorded as excluded with its mode**, never followed and never silently dropped.
 4. A path outside the root, or reachable only through a `..` segment, is not a candidate. There is no lexical prefix test: the tree walk cannot leave the tree, which is why the walk is the mechanism.
+
+   Because of that, `outside_root` is a reason a conforming discovery can never
+   emit — a walk of one tree has no way to produce it. It stays in the closed set
+   for exactly one purpose: a lock this project did not produce, hand-edited or
+   supplied by another tool, can carry such an entry, and the validator must be
+   able to name what it is rejecting. A reason that no producer can ever emit and
+   no consumer can ever name would be a dead branch, and advertising one is the
+   false confidence this contract exists to remove.
 5. Discovery stops at `max_discovered_files` and at `max_total_instruction_bytes`. Reaching either is a **park**, not a truncation.
 
 `supported_filenames` is closed. An unsupported instruction-bearing file that exists in the tree is recorded in `excluded` with reason `unsupported_filename`, so the audit shows the repository had it and the run did not use it. Silence would be indistinguishable from absence.
