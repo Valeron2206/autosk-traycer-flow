@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "debate_id": "dbt-confirmation-policy",
+  "epic_id": "epic-store-lock",
+  "question": "When must the automation ask the operator before an irreversible operation, and when is asking itself the cost?",
+  "scope": "the confirmation policy across daemon-owned operations",
+  "classifier": {
+    "empirical_artifact_test_exists": false,
+    "rationale": "no artifact can be built whose construction settles how often an operator should be interrupted"
+  },
+  "start": {
+    "kind": "explicit_user_request",
+    "reference": "issue #31 comment of 2026-09-08"
+  },
+  "gates": [
+    {
+      "gate": 1,
+      "decision_ref": "decision-0058",
+      "approved_at": "2026-09-08T10:00:00Z",
+      "covers": [
+        "question",
+        "roster"
+      ]
+    },
+    {
+      "gate": 2,
+      "decision_ref": "decision-0059",
+      "approved_at": "2026-09-08T10:20:00Z",
+      "covers": [
+        "routes",
+        "roles",
+        "round_cap",
+        "budget"
+      ]
+    }
+  ],
+  "roster": [
+    {
+      "role": "operator",
+      "stance": "the operator carries the cost of every extra confirmation and should be asked less often",
+      "route": "anthropic/claude-opus-5",
+      "session_id": "s-operator",
+      "availability": "available"
+    },
+    {
+      "role": "auditor",
+      "stance": "an unrecorded decision is the expensive one; ask more often and record the answer",
+      "route": "openai-codex/gpt-6-astra",
+      "session_id": "s-auditor",
+      "availability": "available"
+    },
+    {
+      "role": "maintainer",
+      "stance": "whatever is chosen must survive three people who never read this debate",
+      "route": "cursor/cursor-grok-4.6",
+      "session_id": "s-maintainer",
+      "availability": "available"
+    },
+    {
+      "role": "newcomer",
+      "stance": "a rule that cannot be explained in one sentence will be worked around",
+      "route": "meta/muse-spark-1.3-contributor",
+      "session_id": "s-newcomer",
+      "availability": "degraded",
+      "disposition_ref": "decision-0061"
+    }
+  ],
+  "caps": {
+    "max_rounds": 4,
+    "cost_units": 120,
+    "approved_routes": [
+      "anthropic/claude-opus-5",
+      "openai-codex/gpt-6-astra",
+      "cursor/cursor-grok-4.6",
+      "meta/muse-spark-1.3-contributor"
+    ]
+  },
+  "enforcement": {
+    "caps_enforced_by": "host"
+  },
+  "spent": {
+    "rounds": 2,
+    "cost_units": 64
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "positions": [
+        {
+          "role": "operator",
+          "claims": [
+            {
+              "claim_id": "c1",
+              "text": "operator claim c1 about the confirmation policy",
+              "position": "disagree"
+            }
+          ],
+          "read_other_positions": false
+        },
+        {
+          "role": "auditor",
+          "claims": [
+            {
+              "claim_id": "c2",
+              "text": "auditor claim c2 about the confirmation policy",
+              "position": "agree"
+            }
+          ],
+          "read_other_positions": false
+        },
+        {
+          "role": "maintainer",
+          "claims": [
+            {
+              "claim_id": "c3",
+              "text": "maintainer claim c3 about the confirmation policy",
+              "position": "qualified"
+            }
+          ],
+          "read_other_positions": false
+        },
+        {
+          "role": "newcomer",
+          "claims": [
+            {
+              "claim_id": "c4",
+              "text": "newcomer claim c4 about the confirmation policy",
+              "position": "qualified"
+            }
+          ],
+          "read_other_positions": false
+        }
+      ],
+      "synthesis": {
+        "state": "disagreement",
+        "agreed": [
+          "a decision that is not recorded cannot be revisited"
+        ],
+        "disputed": [
+          "how often the operator is asked"
+        ],
+        "minority_views": [
+          "the newcomer holds that any rule needing a paragraph is already lost"
+        ],
+        "unresolved_assumptions": [
+          "that the operator reads every packet at the time it arrives"
+        ]
+      }
+    },
+    {
+      "round": 2,
+      "positions": [
+        {
+          "role": "operator",
+          "claims": [
+            {
+              "claim_id": "c5",
+              "text": "operator claim c5 about the confirmation policy",
+              "position": "disagree"
+            }
+          ],
+          "examines": [
+            "c2"
+          ],
+          "read_other_positions": false
+        },
+        {
+          "role": "auditor",
+          "claims": [
+            {
+              "claim_id": "c6",
+              "text": "auditor claim c6 about the confirmation policy",
+              "position": "qualified"
+            }
+          ],
+          "examines": [
+            "c1"
+          ],
+          "read_other_positions": false
+        },
+        {
+          "role": "maintainer",
+          "claims": [
+            {
+              "claim_id": "c7",
+              "text": "maintainer claim c7 about the confirmation policy",
+              "position": "qualified"
+            }
+          ],
+          "examines": [
+            "c1",
+            "c2"
+          ],
+          "read_other_positions": false
+        },
+        {
+          "role": "newcomer",
+          "claims": [
+            {
+              "claim_id": "c8",
+              "text": "newcomer claim c8 about the confirmation policy",
+              "position": "qualified"
+            }
+          ],
+          "examines": [
+            "c3"
+          ],
+          "read_other_positions": false
+        }
+      ],
+      "synthesis": {
+        "state": "converging",
+        "agreed": [
+          "confirmation is required for irreversible operations",
+          "the packet must name the consequence per option"
+        ],
+        "disputed": [
+          "whether reversible operations need a confirmation at all"
+        ],
+        "minority_views": [
+          "the newcomer still holds that any rule needing a paragraph is already lost"
+        ],
+        "unresolved_assumptions": [
+          "that reversibility can be decided at dispatch time"
+        ]
+      }
+    }
+  ],
+  "final": {
+    "recommendation": "require confirmation for irreversible operations only, and record the consequence per option in the packet",
+    "impact": "material",
+    "disposition": "accepted",
+    "decision_ref": "decision-0060",
+    "revision_ref": "rev-0011",
+    "decision_log_ref": "docs/autosk/epics/epic-store-lock/decision-log.md#confirmation-policy",
+    "produces_code_pass": false,
+    "substitutes_for": []
+  },
+  "restart": {
+    "resumed_round": 2,
+    "roster_digest": "dced84b102829e1fc8e3d73a913ba6868e739ce5c31be84359e724fab73ca1ff"
+  },
+  "clearance_ref": "clearance-0009"
+}
