@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "600db19b48ac4c9cbb6d332bbea7637281cc1a93",
+  "result_tree": "42b705c7824f63a2d7dec85282c956d7aee61add",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -102,6 +102,10 @@
     {
       "file": "patches/0024-transcript-through-adapter.patch",
       "sha256": "ef5d532195bc90831dcecaf0ba4dc729f5e2564f4e39ba7bed501b30bc1dbb8e"
+    },
+    {
+      "file": "patches/0025-distribution-bytes.patch",
+      "sha256": "534fb2d3792f3dba9338d393df4f075b42428b2fe59334cf8291cd5ac5ae9fd1"
     }
   ],
   "license": {
