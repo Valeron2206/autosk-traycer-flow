@@ -1,0 +1,422 @@
+{
+  "schema_version": 1,
+  "harness_contract": "autosk-flow/verification-batch/v1",
+  "boundaries": [
+    "task_creation",
+    "session_lifecycle",
+    "filesystem_write",
+    "ref_movement",
+    "staging_integration",
+    "aggregate_verification",
+    "final_cas"
+  ],
+  "gate_failing_outcomes": [
+    "mutation_not_applied",
+    "green_control_failed",
+    "restore_failed",
+    "timeout",
+    "indeterminate"
+  ],
+  "groups": [
+    {
+      "id": "F001",
+      "boundary": "task_creation",
+      "description": "crash between the reservation and the task record",
+      "fault": "SIGKILL after the creation index is written, before task.json",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/task_creation/001/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/task_creation/001/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/task_creation/001/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/task_creation/001/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F002",
+      "boundary": "task_creation",
+      "description": "retry after the daemon process exited",
+      "fault": "kill the daemon, restart, repeat the same creation key",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/task_creation/002/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/task_creation/002/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/task_creation/002/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/task_creation/002/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F003",
+      "boundary": "session_lifecycle",
+      "description": "session meta written, transcript header lost",
+      "fault": "SIGKILL between the transcript header and the meta write",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/session_lifecycle/003/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/session_lifecycle/003/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/session_lifecycle/003/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/session_lifecycle/003/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F004",
+      "boundary": "session_lifecycle",
+      "description": "resume under a changed runtime identity",
+      "fault": "swap the installed distribution between enroll and resume",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/session_lifecycle/004/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/session_lifecycle/004/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/session_lifecycle/004/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/session_lifecycle/004/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F005",
+      "boundary": "filesystem_write",
+      "description": "symlinked project subdirectory",
+      "fault": "replace .autosk/sessions with a symlink to a directory outside the project",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/filesystem_write/005/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/filesystem_write/005/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/filesystem_write/005/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/filesystem_write/005/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F006",
+      "boundary": "filesystem_write",
+      "description": "restore returns the branch name but the wrong tree",
+      "fault": "restore a branch pointing at a different tree OID",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/filesystem_write/006/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/filesystem_write/006/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/filesystem_write/006/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/filesystem_write/006/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "restore_failed"
+    },
+    {
+      "id": "F007",
+      "boundary": "ref_movement",
+      "description": "foreign movement of the target between check and CAS",
+      "fault": "advance the target ref from another process inside the CAS window",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/ref_movement/007/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/ref_movement/007/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/ref_movement/007/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/ref_movement/007/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F008",
+      "boundary": "ref_movement",
+      "description": "ABA movement around the recovery boundary",
+      "fault": "move the ref away and back to the recorded OID during recovery",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/ref_movement/008/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/ref_movement/008/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/ref_movement/008/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/ref_movement/008/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F009",
+      "boundary": "staging_integration",
+      "description": "untracked file colliding with an approved entry",
+      "fault": "create an untracked file at an approved entry's path before apply",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/staging_integration/009/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/staging_integration/009/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/staging_integration/009/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/staging_integration/009/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F010",
+      "boundary": "staging_integration",
+      "description": "inherited GIT_DIR redirects the operation",
+      "fault": "run the integration with GIT_DIR pointing at another repository",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/staging_integration/010/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/staging_integration/010/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/staging_integration/010/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/staging_integration/010/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F011",
+      "boundary": "aggregate_verification",
+      "description": "harness exits 0 with no structured result",
+      "fault": "replace the harness with one that prints success and exits 0",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/aggregate_verification/011/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/aggregate_verification/011/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/aggregate_verification/011/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/aggregate_verification/011/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "indeterminate"
+    },
+    {
+      "id": "F012",
+      "boundary": "aggregate_verification",
+      "description": "mutation reported applied but the target did not change",
+      "fault": "no-op injector that reports success",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/aggregate_verification/012/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/aggregate_verification/012/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/aggregate_verification/012/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/aggregate_verification/012/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "mutation_not_applied"
+    },
+    {
+      "id": "F013",
+      "boundary": "aggregate_verification",
+      "description": "unmutated control fails",
+      "fault": "break the control run while leaving the mutation out",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/aggregate_verification/013/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/aggregate_verification/013/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/aggregate_verification/013/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/aggregate_verification/013/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "green_control_failed"
+    },
+    {
+      "id": "F014",
+      "boundary": "aggregate_verification",
+      "description": "observation exceeds its budget",
+      "fault": "hang the observation step past the harness timeout",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/aggregate_verification/014/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/aggregate_verification/014/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/aggregate_verification/014/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/aggregate_verification/014/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "timeout"
+    },
+    {
+      "id": "F015",
+      "boundary": "final_cas",
+      "description": "crash after aggregate PASS, before the CAS",
+      "fault": "SIGKILL between the acceptance record and the ref update",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/final_cas/015/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/final_cas/015/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/final_cas/015/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/final_cas/015/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F016",
+      "boundary": "final_cas",
+      "description": "crash after the CAS, before post-CAS verification",
+      "fault": "SIGKILL between the ref update and the read-back",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/final_cas/016/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/final_cas/016/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/final_cas/016/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/final_cas/016/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    }
+  ]
+}
