@@ -1,0 +1,41 @@
+{
+  "result_schema_version": 1,
+  "kind": "implementation",
+  "role": "implementer",
+  "step_identity": {
+    "task_id": "ask-a1b2c3",
+    "session_id": "0190a1b2-c3d4-7e5f-8a9b-0000000000d1",
+    "attempt": 1,
+    "anchor_digest": "79bfb0e2ba76b9d447606ddbcc494834f05a4c11deb052e74b49ea307a3c5bcd",
+    "runtime_identity_digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+  },
+  "outcome": "ready_for_verification",
+  "summary": "routed the comment file through the boundary adapter and pinned the signature equality",
+  "claimed_changed_paths": [
+    "daemon/core/src/store/taskStore.ts",
+    "internal/storelock/lock_unix.go"
+  ],
+  "evidence": [
+    {
+      "criterion": "AC1",
+      "locator": "daemon/core/test/store.singlewriter.test.ts::the signature the adapter reports"
+    },
+    {
+      "criterion": "AC2",
+      "locator": "internal/storelock/comments_test.go::TestCommentsRejectSymlinkLeaf"
+    }
+  ],
+  "commands_reported": [
+    "bun test",
+    "go test ./internal/storelock/"
+  ],
+  "artifact_impact": [
+    "tech_plan"
+  ],
+  "decisions": [
+    "the change detector stays a cheap stat; only the bytes cross the adapter"
+  ],
+  "assumptions": [],
+  "escalations": [],
+  "attribution_echo": "autosk-flow/protocol/v1#implementer"
+}

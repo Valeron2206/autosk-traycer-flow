@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/model-result.v1.json",
+  "title": "Structured model result v1",
+  "description": "What a model-owned step may return. A model's output is evidence, not an effect. Closed: unknown fields and unknown versions fail.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "result_schema_version",
+    "kind",
+    "role",
+    "step_identity",
+    "outcome",
+    "summary",
+    "attribution_echo"
+  ],
+  "properties": {
+    "result_schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "enum": [
+        "artifact_author",
+        "implementation",
+        "fix",
+        "verification",
+        "verification_batch",
+        "arena_candidate",
+        "requirement_analysis"
+      ]
+    },
+    "role": {
+      "enum": [
+        "author",
+        "coordinator",
+        "gate",
+        "implementer",
+        "mediator",
+        "verifier"
+      ]
+    },
+    "step_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "session_id",
+        "attempt",
+        "anchor_digest",
+        "runtime_identity_digest"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "anchor_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtime_identity_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "outcome": {
+      "enum": [
+        "ready_for_verification",
+        "blocked",
+        "needs_human",
+        "pass",
+        "fail",
+        "tool_failure",
+        "indeterminate"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "claimed_changed_paths": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?!/)(?!.*//)(?!.*(^|/)\\.{1,2}(/|$)).+$"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "criterion",
+          "locator"
+        ],
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "commands_reported": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "artifact_impact": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "escalations": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "attribution_echo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_outcome",
+        "tool_outcome",
+        "environment_outcome",
+        "harness_digest",
+        "mutation_set_digest"
+      ],
+      "properties": {
+        "product_outcome": {
+          "enum": [
+            "pass",
+            "fail",
+            "indeterminate"
+          ]
+        },
+        "tool_outcome": {
+          "enum": [
+            "ok",
+            "tool_failure"
+          ]
+        },
+        "environment_outcome": {
+          "enum": [
+            "ok",
+            "environment_failure"
+          ]
+        },
+        "application_proof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "green_control": {
+          "type": "string",
+          "minLength": 1
+        },
+        "restore_receipt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "harness_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mutation_set_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}
