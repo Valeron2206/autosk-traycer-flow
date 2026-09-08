@@ -36,7 +36,8 @@ apply in the listed order, each producing the tree beside it:
 | `0012-reload-and-missing-version.patch` | `5a16304e20883870375cefc7816b4875c581d354` |
 | `0013-daemon-capability-report.patch` | `3eb7758f59b9793f5162b0a79a5803c33e2b4a8f` |
 | `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
-| `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` — the current `result_tree` |
+| `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` |
+| `0016-helper-protocol-handshake.patch` | `6c07a35fca42ab9899e1bef015c2e436656e6bda` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -118,6 +119,29 @@ scheduler is introduced. The daemon uses the same supervised stdio connection.
 | `write_runtime_blob` | Install bytes under their digest; an identical retry succeeds, while different or corrupt existing bytes fail. |
 | `read_runtime_index` | Read the current runtime index bytes, distinguishing an absent file from an empty file. |
 | `write_runtime_index` | Replace the index only when `expected_digest` matches the existing bytes; `null` requires an absent index. |
+
+### Helper protocol handshake
+
+The helper is the only writer of trusted state under the project lock, and its
+readiness line is the single point at which it can be identified before it writes
+anything. It now announces `protocol`, and the daemon compares it **exactly** —
+a different revision is a different contract, and deciding which half of it still
+holds is not something either side can do honestly. A helper that announces no
+protocol, or another one, is refused before any operation runs.
+
+This is fail-closed in both directions, and deliberately so: an installation whose
+`autosk` and `autosk-store-lock` come from different builds stops rather than
+guessing. The two constants are `protocolVersion` in
+`cmd/autosk-store-lock/main.go` and `HELPER_PROTOCOL_VERSION` in
+`daemon/core/src/store/creation.ts`; both are shipped by the same release.
+
+This closes the **version** half of issue #13's criterion 5. The **digest** half —
+the helper's bytes entering the extension runtime identity — is not done: the
+binary is resolved at runtime from `AUTOSK_STORE_LOCK_BIN` or beside the
+executable, outside any extension distribution root, so swapping it changes no
+task pin. `daemon/core/src/extensions/identity.ts` already states that boundary;
+closing it needs a decision about what a helper upgrade should do to open tasks,
+which the distribution migration machinery does not yet cover.
 
 Snapshots live at `.autosk/runtime/v1/blobs/<digest>.blob`; the index lives at
 `.autosk/runtime/v1/index.json`. Names are fixed or hexadecimal, and each UTF-8 text
