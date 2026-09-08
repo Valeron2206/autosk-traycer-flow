@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "round_id": "rev-0007",
+  "supersedes": "rev-0006",
+  "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+  "epic": {
+    "epic_id": "epic-store-lock",
+    "state": "open"
+  },
+  "original_instruction": {
+    "text": "Транскрипт должен читаться постранично, а не целиком: сейчас длинная сессия не открывается.",
+    "digest": "91a54c873cc58c26eeb888ea812b6eec707a43228d87aba8acdcb6060f70eb59",
+    "recorded_at": "2026-09-08T09:12:00Z"
+  },
+  "normalized_change": "Session transcript reads become chunked with an explicit offset, and a whole-file read is no longer the only path.",
+  "classification": {
+    "kind": "product_behavior",
+    "material": true,
+    "rationale": "what the user gets changes: a long session becomes readable, and the read path is part of the product surface"
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "name": "record the original instruction and the normalized change",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 2,
+      "name": "confirm the intent with the user",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 3,
+      "name": "update the product layer",
+      "state": "complete",
+      "side_effect": "product_artifact"
+    },
+    {
+      "stage": 4,
+      "name": "full panel of affected product artifacts",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 5,
+      "name": "update the technical layer",
+      "state": "complete",
+      "side_effect": "technical_artifact"
+    },
+    {
+      "stage": 6,
+      "name": "full panel of affected technical artifacts",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 7,
+      "name": "regenerate the Tickets manifest",
+      "state": "complete",
+      "side_effect": "tickets_manifest"
+    },
+    {
+      "stage": 8,
+      "name": "Ticket panel",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 9,
+      "name": "impact and disposition map",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 10,
+      "name": "user decision on implemented work",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 11,
+      "name": "consistency sweep",
+      "state": "complete",
+      "side_effect": "none"
+    },
+    {
+      "stage": 12,
+      "name": "hand the approved impact plan to the mechanical rebuild",
+      "state": "complete",
+      "side_effect": "code"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "01-core-flows.md",
+      "layer": "product",
+      "review": "full_panel",
+      "verdict": "pass",
+      "content_digest": "fc737b0e72772418a85de0517e3b501e7eb77ca668a02f2d0401bb3dc305aff0",
+      "content_digest_before": "a73a5edb8b87401c6437eeb9748e7d489ed145e8fbfc4ba162583153475f3c64",
+      "dependencies": []
+    },
+    {
+      "path": "03-technical-plan.md",
+      "layer": "technical",
+      "review": "full_panel",
+      "verdict": "pass",
+      "content_digest": "45069947d93ee30792ab672d08a6f4ce0a11d083f4f5cff8d588d7b334f99499",
+      "content_digest_before": "be684cb7ae64608049d4a7ca48a71781146e79f90da31526ec49f0e6236a6273",
+      "dependencies": [
+        {
+          "path": "01-core-flows.md",
+          "digest": "fc737b0e72772418a85de0517e3b501e7eb77ca668a02f2d0401bb3dc305aff0",
+          "digest_before": "a73a5edb8b87401c6437eeb9748e7d489ed145e8fbfc4ba162583153475f3c64"
+        }
+      ]
+    },
+    {
+      "path": "docs/contracts/platform-support.md",
+      "layer": "technical",
+      "review": "rebound_unaffected",
+      "verdict": "pass",
+      "content_digest": "1533bc4802b03b74f0c3c3a93f4162521368164daebeb72e02c2b07201c55280",
+      "content_digest_before": "1533bc4802b03b74f0c3c3a93f4162521368164daebeb72e02c2b07201c55280",
+      "dependencies": [
+        {
+          "path": "02-architecture.md",
+          "digest": "4ca303a3bf7ddf7be8652031ff027f351973a205cddafbffa580750f61bc93ce",
+          "digest_before": "4ca303a3bf7ddf7be8652031ff027f351973a205cddafbffa580750f61bc93ce"
+        }
+      ]
+    },
+    {
+      "path": "resources/tickets-manifest/tickets.v1.json",
+      "layer": "tickets",
+      "review": "ticket_panel",
+      "verdict": "pass",
+      "content_digest": "15b8a8ff247e4c3c8793fc5233c377ab7864dcc8ef829c12dd66acc8618f45d5",
+      "content_digest_before": "7521808c9077f9dda05a5e5b773653a48e433dc957f5564f023d6de135a30c55",
+      "dependencies": [
+        {
+          "path": "03-technical-plan.md",
+          "digest": "45069947d93ee30792ab672d08a6f4ce0a11d083f4f5cff8d588d7b334f99499",
+          "digest_before": "be684cb7ae64608049d4a7ca48a71781146e79f90da31526ec49f0e6236a6273"
+        }
+      ]
+    }
+  ],
+  "ticket_dispositions": [
+    {
+      "ticket_id": "T-101",
+      "state": "new",
+      "disposition": "regenerated",
+      "references": [
+        "AC-4"
+      ]
+    },
+    {
+      "ticket_id": "T-102",
+      "state": "work",
+      "disposition": "paused",
+      "references": [
+        "AC-4"
+      ]
+    },
+    {
+      "ticket_id": "T-103",
+      "state": "done",
+      "disposition": "unchanged",
+      "references": [
+        "ADR-041"
+      ]
+    },
+    {
+      "ticket_id": "T-104",
+      "state": "staged",
+      "disposition": "correction_ticket",
+      "decision_ref": "decision-0031",
+      "references": [
+        "AC-4"
+      ]
+    },
+    {
+      "ticket_id": "T-105",
+      "state": "integrated",
+      "disposition": "intentional_defer",
+      "decision_ref": "decision-0032",
+      "references": [
+        "ADR-041"
+      ]
+    }
+  ],
+  "sweep": {
+    "searched_references": 41,
+    "superseded_references": [
+      "AC-3",
+      "ADR-039"
+    ],
+    "stale_references": []
+  },
+  "impact_plan": {
+    "digest": "f2717873ade0c53fd58e9d3ec474de7c450200930d5078e98b647b3bb050e5a0",
+    "approved": true,
+    "decision_ref": "decision-0033"
+  },
+  "anchor": {
+    "before": 6,
+    "after": 7,
+    "bumped_by_round": "rev-0007"
+  }
+}
