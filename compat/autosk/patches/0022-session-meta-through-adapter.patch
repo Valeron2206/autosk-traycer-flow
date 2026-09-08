@@ -214,7 +214,7 @@ index b6c407c52439deb55fb888331dfb398784198522..54d2af00e4cc00834e1f3311479ca0d6
      try {
        entries = await readdir(this.paths.sessionsDir);
 diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
-index 13ec1efce84cf28d4a0edab15bdd1d4720db8a74..2c18913d095b67b56294c921382f68fbd805aaad 100644
+index 13ec1efce84cf28d4a0edab15bdd1d4720db8a74..66ad7e8baf87237114670885cd694361c3c085ed 100644
 --- a/daemon/core/test/store.singlewriter.test.ts
 +++ b/daemon/core/test/store.singlewriter.test.ts
 @@ -9,7 +9,7 @@
@@ -226,7 +226,7 @@ index 13ec1efce84cf28d4a0edab15bdd1d4720db8a74..2c18913d095b67b56294c921382f68fb
  import { mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
  import { dirname, join } from "node:path";
  
-@@ -86,53 +86,151 @@ describe("what the boundary adapter covers", () => {
+@@ -86,53 +86,184 @@ describe("what the boundary adapter covers", () => {
      expect((await store.listTaskViews()).map((t) => t.id)).not.toContain(created.task.id);
    });
  
@@ -374,6 +374,39 @@ index 13ec1efce84cf28d4a0edab15bdd1d4720db8a74..2c18913d095b67b56294c921382f68fb
 +    );
 +    expect(refusal).toBeInstanceOf(Error);
 +    expect(readdirSync(outside), "the write escaped into the symlink target").toEqual([]);
++  });
++
++  test("a hostile sessions directory refuses the session, and the transcript is what still escapes", async () => {
++    // Honest boundary of a split adapter. Before this slice both the transcript
++    // header AND the meta landed in the symlink target and `create` SUCCEEDED —
++    // the daemon would run a session whose state lives outside the project. Now
++    // the meta write refuses and no session is registered. One file still lands
++    // there first, because the transcript has not moved through the adapter yet;
++    // that is #13 criterion 4 ("failures leave no partial trusted state") and it
++    // closes with the transcript slice, not with a claim here.
++    const task = await store.createTask({ title: "t" });
++    await store.setPosition(task.id, { status: "work", workflow: "feature-dev", step: "dev" }, { countVisit: "dev" });
++    const outside = join(dir.path, "elsewhere");
++    await mkdir(outside, { recursive: true });
++    await rm(store.paths.sessionsDir, { recursive: true, force: true });
++    await symlink(outside, store.paths.sessionsDir);
++
++    const refusal = await store.sessions.create({
++      id: SESSION_ID,
++      task_id: task.id,
++      workflow: "feature-dev",
++      step: "dev",
++      agent: "@autosk/pi-agent/dev",
++      cwd: dir.path,
++      timestamp: "2026-01-01T00:00:00Z",
++    }).then(() => null, (e: unknown) => e as Error);
++
++    expect(refusal).toBeInstanceOf(Error);
++    expect(refusal!.message).toMatch(/write_session_meta/);
++    expect(store.sessions.sessionsForTask(task.id)).toEqual([]);
++    // Exactly one file escaped, and it is the transcript. If this ever becomes
++    // two, the meta escaped too and the refusal above stopped working.
++    expect(readdirSync(outside)).toEqual([`${SESSION_ID}.jsonl`]);
 +  });
 +
 +  test("a meta write publishes over a symlink instead of through it", async () => {
