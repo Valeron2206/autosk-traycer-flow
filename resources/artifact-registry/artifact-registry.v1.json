@@ -170,6 +170,7 @@
         "docs/contracts/epic-staging.md",
         "docs/contracts/execution-base.md",
         "docs/contracts/finding-registry.md",
+        "docs/contracts/gate-store-projection.md",
         "docs/contracts/model-result.md",
         "docs/contracts/project-instructions-lock.md",
         "docs/contracts/tickets-manifest.md"
@@ -189,6 +190,7 @@
         "epic_staging",
         "execution_base",
         "finding_registry",
+        "gate_projection",
         "instruction_lock",
         "model_result",
         "planning_ref_contract",
@@ -408,6 +410,37 @@
       "validator": "scripts/validate-finding-registry.mjs",
       "impacts": [
         "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "gate_projection",
+      "category": "governance_defining",
+      "author_roles": [
+        "reviewer"
+      ],
+      "model_family_policy": "host_only",
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/reviews/*/gate-projection.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the record proves a run's isolation; it is not itself panel-reviewed"
+      },
+      "identity_fields": [
+        "run_id",
+        "seat",
+        "projection_digest_before"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/gate-store-projection/gate-store-projection.schema.json",
+      "validator": "scripts/validate-gate-store-projection.mjs",
+      "impacts": [
+        "finding_registry"
       ],
       "publication": "planning_ref",
       "model_execution_allowed": false,
@@ -675,5 +708,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "9031e395efd4bda1483307a69c84e00fadeb0a0ec73d2052db27ce9613977aea"
+  "registry_digest": "74d8f0e6f1c58ea2b3e23f4907d7328dd92a5893665117b3f8666e38081a7eaf"
 }

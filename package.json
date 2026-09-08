@@ -18,7 +18,8 @@
     "validate:model-result": "node scripts/validate-model-result.mjs",
     "validate:execution-base": "node scripts/validate-execution-base.mjs",
     "validate:approved-delta": "node scripts/validate-approved-delta.mjs",
-    "validate:epic-staging": "node scripts/validate-epic-staging.mjs"
+    "validate:epic-staging": "node scripts/validate-epic-staging.mjs",
+    "validate:gate-projection": "node scripts/validate-gate-store-projection.mjs"
   },
   "engines": {
     "node": ">=24"
