@@ -55,7 +55,9 @@ Run against the exact staging OID, and its record binds:
 - the instruction-lock digest (issue #12);
 - the included Ticket and delta set.
 
-A **command failure** and an **environment failure** are different outcomes and are recorded as different outcomes. Collapsing them makes "the tests failed" indistinguishable from "the machine could not run them", and only one of those is a statement about the product.
+A **command failure** and an **environment failure** are different outcomes and are recorded as different outcomes. Collapsing them makes "the tests failed" indistinguishable from "the machine could not run them", and only one of those is a statement about the product. A command that could not start did not fail: the two are separated where the run happens, not at the end, where the difference is already lost. An environment failure ends the run, because the checks after it would report on a machine already known not to be running them, and the aggregate outcome is `indeterminate` rather than a verdict.
+
+The checks run in a throwaway worktree checked out at the exact staging commit, detached — a branch there would be a second name for the staging commit that could then move independently of it. The checkout is read back before anything runs: a verification of the wrong tree is worse than no verification, because it produces a PASS. The worktree is removed on every path, refusals included, and a removal that did not happen is reported rather than swallowed by a cleanup that always succeeds.
 
 ## 5. Acceptance
 
