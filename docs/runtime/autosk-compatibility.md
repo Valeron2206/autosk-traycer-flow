@@ -41,7 +41,8 @@ apply in the listed order, each producing the tree beside it:
 | `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
-| `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` — the current `result_tree` |
+| `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
+| `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -157,13 +158,55 @@ not the general property, and nothing enforces that a future writer respects it.
 
 **One writer, but not through the adapter.** This is the real gap. `comments.jsonl`,
 the session meta and transcript, and the project registry each have a single writer,
-and that writer is plain `node:fs`. They get none of the adapter's guarantees: no
+and that writer was plain `node:fs`. They get none of the adapter's guarantees: no
 `O_NOFOLLOW` on each traversed component, no owner check, no mode check, no device
 check. (Compare-and-swap is *not* one of the things they miss — the helper offers it
 on one operation only, `write_runtime_index`; `write_task` and
-`write_creation_index` have none either.) The helper has no operation for any of
-them — its nine ops cover the creation index, task records and the runtime store,
-and nothing else — so closing this needs new operations, not a change of call site.
+`write_creation_index` have none either.) Closing this needs new operations, not a
+change of call site.
+
+`comments.jsonl` is now through, in patch `0021`: `read_comments` and
+`write_comments` bring the eleven-op total, and every comment byte the daemon reads
+or writes crosses the adapter. What deliberately did **not** move is the cheap
+`stat` that `listTaskViews` uses to decide whether anything changed — that path is
+O(N) per listing and documented as such, and routing it measured 7x slower over 200
+tasks (8.8 ms of stats against 61 ms of round-trips). The split is safe because the
+stat is only a cache key: an unchanged signature short-circuits to bytes that were
+themselves read through the adapter, and a changed one asks the adapter, which
+refuses anything the daemon should not consume. A symlinked `comments.jsonl` is the
+case that proves it — the stat happily follows the link, the adapter does not, and
+the daemon gets a `not_regular` refusal instead of comments from outside the project.
+
+Routing a read through the adapter turns a tolerated corruption into a refusal, and
+that had to be placed rather than inherited. The store's standing rule is that one
+unreadable file must not brick `open()` or `listTaskViews`; before this slice a
+symlinked `comments.jsonl` was quietly *followed* and its target served, and the
+first version of this slice traded that for taking `task.list` down for the whole
+project over one planted link. Neither is right. The view path now reports a refused
+comment file as a count of zero and warns once per reason, while a caller who asked
+for that task's comments by name still gets the refusal — tolerating it on the
+listing is not the same as hiding it from the caller who wanted it.
+
+One more thing had to move with the write, and it is easy to miss: **permissions**.
+The daemon's own writer creates an ordinary project file with the mode the
+operator's umask allows; the helper sets modes explicitly, on purpose, because
+several of its files must be private no matter what the umask says. Routing
+comments through it therefore widened `comments.jsonl` from `0600` to `0644` on a
+machine with `umask 077` — silently, while `task.json` beside it stayed `0600`.
+The helper now applies the process umask (read in `init`, before any goroutine of
+ours exists) to the *ordinary* project files, `task.json` and `comments.jsonl`,
+and to nothing else: the `0600` of the creation index and the runtime store is a
+requirement, not a default, and must hold whatever the umask is.
+
+The read limit is new to this path too — the daemon used to read comments with
+plain `readFile`, which has none — so `write_comments` refuses a payload the
+helper would then refuse to read back. Publishing a file that can never be read
+again would be bad on its own; with the view path now tolerating refusals it
+would also show as an empty comment list, which is the worst of both.
+
+The session meta and transcript, and the project registry, remain. The registry is
+out of the adapter by ADR-028 (it lives in `$HOME`, not in the project); the session
+files are the next slice.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:
@@ -239,7 +282,7 @@ refusal it can classify:
 
 | Code | Meaning | Reaches a `HelperRefusal`? |
 | --- | --- | --- |
-| `not_regular` | not a single-linked regular file — directory, FIFO, socket, device, or extra hard links | yes |
+| `not_regular` | not a single-linked regular file — directory, FIFO, socket, device, extra hard links, **or a symlink at the leaf** | yes |
 | `not_dir` | a component that must be a directory is not one (usually `ENOTDIR`, since every open is `O_DIRECTORY`) | yes |
 | `ownership` | the file is not private to the current user (uid or mode) | yes |
 | `cross_device` | the path leaves the device the project root lives on | yes |
@@ -249,6 +292,13 @@ refusal it can classify:
 | `too_large` | the payload exceeds the helper's limit | on read; on write the daemon pre-checks the identical limit, so it does not reach the wire today |
 | `not_utf8` | the payload is not valid UTF-8 | on read; on write, same pre-check |
 | `timeout` | the project lock was not acquired in time | **no** — `Acquire` fails before the readiness line, so this is a spawn failure, never a response |
+
+A symlink at the leaf was the last security-relevant refusal still travelling as
+prose. `O_NOFOLLOW` reports it as `ELOOP`, which `Code` did not recognise, so
+"symlink leaf" — named in #13's own adversarial list — arrived unclassified: not
+"fine" and not "some other class", but nothing a caller could branch on. It is
+`not_regular` now, which is what it is: a symlink is not a single-linked regular
+file. Patch `0021`.
 
 The last column matters: a class that cannot reach a caller is a dead branch, and
 advertising one is the same false confidence this table exists to remove.
