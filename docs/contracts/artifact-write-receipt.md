@@ -73,7 +73,9 @@ Four sources can disagree about one artifact:
 3. this receipt;
 4. temporary model output.
 
-When they disagree, choosing the most recent one is choosing whichever process happened to finish last — which is exactly the failure being diagnosed. So `reconciliation` is `{ state: "agreed" }` or `{ state: "diverged", report }`, and a divergence **parks the workflow** with a report naming each source and what it said.
+When they disagree, choosing the most recent one is choosing whichever process happened to finish last — which is exactly the failure being diagnosed. So `reconciliation` is `{ state: "unreconciled" }`, `{ state: "agreed" }` or `{ state: "diverged", report }`, and a divergence **parks the workflow** with a report naming each source and what it said.
+
+`unreconciled` is not a formality. A write that has landed and been read back has established what is on disk and nothing about the other three sources, and the two-state shape this contract shipped with had no way to say that — which would have forced a freshly written receipt to claim `agreed`, a comparison nobody had made. A receipt is `unreconciled` until the comparison runs, and an unreconciled receipt is never `verified`.
 
 The report is required to name all four, including the ones that agreed. A divergence report that lists only the odd one out cannot be checked by a reader who does not already know the answer.
 

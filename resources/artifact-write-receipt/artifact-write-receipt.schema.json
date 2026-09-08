@@ -235,6 +235,18 @@
           ],
           "properties": {
             "state": {
+              "const": "unreconciled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
               "const": "agreed"
             }
           }
