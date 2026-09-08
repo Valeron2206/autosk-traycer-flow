@@ -262,6 +262,7 @@
         "docs/contracts/finding-registry.md",
         "docs/contracts/gate-store-projection.md",
         "docs/contracts/governance-bundle.md",
+        "docs/contracts/housekeeping.md",
         "docs/contracts/human-decision.md",
         "docs/contracts/model-result.md",
         "docs/contracts/platform-support.md",
@@ -301,6 +302,7 @@
         "finding_registry",
         "gate_projection",
         "governance_bundle",
+        "housekeeping_report",
         "human_decision",
         "instruction_lock",
         "iteration_result",
@@ -813,6 +815,33 @@
       "human_approval": "required"
     },
     {
+      "class": "housekeeping_report",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [
+        "human_decision"
+      ],
+      "paths": [
+        "docs/autosk/housekeeping/*/report.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the report is read by the operator who approves the deletions named in it"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "human_decision",
       "category": "runtime_evidence",
       "author_roles": [
@@ -1299,5 +1328,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "2bab652871384054c3678f185f9951dbca05ab98bf23c8b74543a5e9f65f3507"
+  "registry_digest": "abdbe0cdd37d07b53201ad6094052116b4d526ba5604942daed7e8a7f96a0660"
 }

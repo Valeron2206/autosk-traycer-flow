@@ -38,6 +38,7 @@
     "validate:requirement-revision": "node scripts/validate-requirement-revision.mjs",
     "validate:autobuild-run": "node scripts/validate-autobuild-run.mjs",
     "validate:reflect-cost-watch": "node scripts/validate-reflect-cost-watch.mjs",
+    "validate:housekeeping": "node scripts/validate-housekeeping.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {

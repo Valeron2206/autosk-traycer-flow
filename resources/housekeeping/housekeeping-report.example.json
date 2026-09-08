@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "run_id": "hk-2026-09-08-1",
+  "invocation": {
+    "kind": "explicit_command",
+    "reference": "autosk-flow housekeeping --report"
+  },
+  "objects": [
+    {
+      "object_id": "wt-live",
+      "kind": "worktree",
+      "path": "worktrees/T-301",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "yes",
+        "held_lock": "yes",
+        "in_canonical_line": "no",
+        "unique_work": "yes",
+        "canonical_parent": "yes"
+      },
+      "classification": "in_use",
+      "last_activity_ms": 10,
+      "reclaimed_bytes": {
+        "value": 41000000,
+        "source": "measured"
+      },
+      "proposed": false
+    },
+    {
+      "object_id": "wt-landed",
+      "kind": "worktree",
+      "path": "worktrees/T-288",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "yes",
+        "unique_work": "no",
+        "canonical_parent": "yes"
+      },
+      "classification": "landed",
+      "last_activity_ms": 86400000,
+      "reclaimed_bytes": {
+        "value": 38000000,
+        "source": "measured"
+      },
+      "proposed": true
+    },
+    {
+      "object_id": "wt-at-base",
+      "kind": "worktree",
+      "path": "worktrees/T-291",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "no",
+        "unique_work": "no",
+        "canonical_parent": "yes"
+      },
+      "classification": "at_base",
+      "last_activity_ms": 172800000,
+      "reclaimed_bytes": {
+        "value": 12000000,
+        "source": "measured"
+      },
+      "proposed": true
+    },
+    {
+      "object_id": "snap-unref",
+      "kind": "snapshot",
+      "path": "snapshots/review/9f2c",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "no",
+        "unique_work": "no",
+        "canonical_parent": "yes"
+      },
+      "classification": "unreferenced",
+      "last_activity_ms": 604800000,
+      "reclaimed_bytes": {
+        "value": 8000000,
+        "source": "measured"
+      },
+      "proposed": true
+    },
+    {
+      "object_id": "wt-submodule",
+      "kind": "worktree",
+      "path": "worktrees/T-277",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "yes",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "no",
+        "unique_work": "no",
+        "canonical_parent": "yes"
+      },
+      "classification": "review",
+      "last_activity_ms": 259200000,
+      "reclaimed_bytes": {
+        "value": 30000000,
+        "source": "measured"
+      },
+      "proposed": false
+    },
+    {
+      "object_id": "dir-unknown",
+      "kind": "unknown_directory",
+      "path": "worktrees/.stray",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "unavailable",
+        "unique_work": "unavailable",
+        "canonical_parent": "yes"
+      },
+      "classification": "unknown",
+      "last_activity_ms": 999999999,
+      "reclaimed_bytes": {
+        "value": 1000,
+        "source": "measured"
+      },
+      "proposed": false
+    },
+    {
+      "object_id": "op-orphan",
+      "kind": "operation",
+      "path": "operations/integration/4411",
+      "owner": {
+        "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+        "proof": "owned_by_this_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "no",
+        "unique_work": "no",
+        "canonical_parent": "no"
+      },
+      "classification": "orphaned",
+      "last_activity_ms": 432000000,
+      "reclaimed_bytes": {
+        "value": 2000,
+        "source": "measured"
+      },
+      "proposed": false
+    },
+    {
+      "object_id": "wt-other",
+      "kind": "worktree",
+      "path": "/Users/shared/other-project/worktrees/x",
+      "owner": {
+        "project_identity": "b683ff7f652859dbaa19842b2c8ffc06055b02543d9afe5ea72dbea042e1d8c7",
+        "proof": "owned_by_other_project"
+      },
+      "signals": {
+        "dirty_tracked": "no",
+        "dirty_untracked": "no",
+        "dirty_ignored": "no",
+        "detached_or_null_branch": "no",
+        "submodule_work": "no",
+        "open_or_unmerged_pr": "no",
+        "active_reference": "no",
+        "held_lock": "no",
+        "in_canonical_line": "no",
+        "unique_work": "no",
+        "canonical_parent": "yes"
+      },
+      "classification": "at_base",
+      "last_activity_ms": 864000000,
+      "reclaimed_bytes": {
+        "value": 5000,
+        "source": "measured"
+      },
+      "proposed": false
+    }
+  ],
+  "approval": {
+    "decision_ref": "decision-0051",
+    "approved_objects": [
+      {
+        "object_id": "wt-landed",
+        "path": "worktrees/T-288",
+        "signals_digest": "650ec1844bd17fc5d5b7f226bb4aa1ef051341e4e507dc64e0f9a2c4a7e1d770"
+      },
+      {
+        "object_id": "wt-at-base",
+        "path": "worktrees/T-291",
+        "signals_digest": "587a0550e9a30c6c50764e468ba01283e8dd47a7536edddf6c30370aaf06c994"
+      },
+      {
+        "object_id": "snap-unref",
+        "path": "snapshots/review/9f2c",
+        "signals_digest": "587a0550e9a30c6c50764e468ba01283e8dd47a7536edddf6c30370aaf06c994"
+      }
+    ]
+  },
+  "outcome": {
+    "removed": [
+      {
+        "object_id": "wt-landed",
+        "adapter": "safe_git",
+        "operation_id": "op-hk-1",
+        "revalidated_signals_digest": "650ec1844bd17fc5d5b7f226bb4aa1ef051341e4e507dc64e0f9a2c4a7e1d770"
+      },
+      {
+        "object_id": "snap-unref",
+        "adapter": "safe_project_fs",
+        "operation_id": "op-hk-2",
+        "revalidated_signals_digest": "587a0550e9a30c6c50764e468ba01283e8dd47a7536edddf6c30370aaf06c994"
+      }
+    ],
+    "failed": [
+      {
+        "object_id": "wt-at-base",
+        "reason": "the worktree lock could not be taken",
+        "recoverable": true
+      }
+    ],
+    "kept": [
+      {
+        "object_id": "wt-live",
+        "reason": "in_use"
+      },
+      {
+        "object_id": "wt-submodule",
+        "reason": "classification_not_green"
+      },
+      {
+        "object_id": "dir-unknown",
+        "reason": "classification_not_green"
+      },
+      {
+        "object_id": "op-orphan",
+        "reason": "classification_not_green"
+      },
+      {
+        "object_id": "wt-other",
+        "reason": "ownership_unproven"
+      }
+    ],
+    "relisted": true
+  }
+}

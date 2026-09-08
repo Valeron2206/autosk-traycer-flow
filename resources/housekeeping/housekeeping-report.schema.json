@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/housekeeping/housekeeping-report.v1.json",
+  "title": "Housekeeping report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "invocation",
+    "objects",
+    "approval",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^hk-[0-9a-z-]{3,64}$"
+    },
+    "invocation": {
+      "description": "Housekeeping is a named command, never a side effect of finishing something else.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "reference"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "explicit_command",
+            "side_effect"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object_id",
+          "kind",
+          "path",
+          "owner",
+          "signals",
+          "classification",
+          "last_activity_ms"
+        ],
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "worktree",
+              "branch",
+              "snapshot",
+              "provider_session",
+              "operation",
+              "external_source_snapshot",
+              "evidence_root",
+              "quarantine_root",
+              "lock",
+              "lease",
+              "receipt",
+              "tombstone",
+              "unknown_directory"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_identity",
+              "proof"
+            ],
+            "properties": {
+              "project_identity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "proof": {
+                "enum": [
+                  "owned_by_this_project",
+                  "owned_by_other_project",
+                  "unproven"
+                ]
+              }
+            }
+          },
+          "signals": {
+            "description": "Three states, and the third one is the point.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "dirty_tracked",
+              "dirty_untracked",
+              "dirty_ignored",
+              "detached_or_null_branch",
+              "submodule_work",
+              "open_or_unmerged_pr",
+              "active_reference",
+              "held_lock",
+              "in_canonical_line",
+              "unique_work",
+              "canonical_parent"
+            ],
+            "properties": {
+              "dirty_tracked": {
+                "$ref": "#/$defs/signal"
+              },
+              "dirty_untracked": {
+                "$ref": "#/$defs/signal"
+              },
+              "dirty_ignored": {
+                "$ref": "#/$defs/signal"
+              },
+              "detached_or_null_branch": {
+                "$ref": "#/$defs/signal"
+              },
+              "submodule_work": {
+                "$ref": "#/$defs/signal"
+              },
+              "open_or_unmerged_pr": {
+                "$ref": "#/$defs/signal"
+              },
+              "active_reference": {
+                "$ref": "#/$defs/signal"
+              },
+              "held_lock": {
+                "$ref": "#/$defs/signal"
+              },
+              "in_canonical_line": {
+                "$ref": "#/$defs/signal"
+              },
+              "unique_work": {
+                "$ref": "#/$defs/signal"
+              },
+              "canonical_parent": {
+                "$ref": "#/$defs/signal"
+              }
+            }
+          },
+          "classification": {
+            "enum": [
+              "in_use",
+              "landed",
+              "at_base",
+              "unreferenced",
+              "review",
+              "orphaned",
+              "unknown"
+            ]
+          },
+          "last_activity_ms": {
+            "description": "An ordering signal. It never classifies.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "reclaimed_bytes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value",
+              "source"
+            ],
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source": {
+                "enum": [
+                  "measured",
+                  "estimated"
+                ]
+              }
+            }
+          },
+          "proposed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_ref",
+        "approved_objects"
+      ],
+      "properties": {
+        "decision_ref": {
+          "type": "string",
+          "pattern": "^decision-[0-9a-z-]{3,64}$"
+        },
+        "approved_objects": {
+          "description": "Exact identities and paths. Approving a report is not approving objects that appeared after it.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "object_id",
+              "path",
+              "signals_digest"
+            ],
+            "properties": {
+              "object_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "signals_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "separately_confirmed": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "removed",
+        "failed",
+        "kept",
+        "relisted"
+      ],
+      "properties": {
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "object_id",
+              "adapter",
+              "operation_id",
+              "revalidated_signals_digest"
+            ],
+            "properties": {
+              "object_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "adapter": {
+                "enum": [
+                  "safe_project_fs",
+                  "safe_git",
+                  "model_shell"
+                ]
+              },
+              "operation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revalidated_signals_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "failed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "object_id",
+              "reason",
+              "recoverable"
+            ],
+            "properties": {
+              "object_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 4
+              },
+              "recoverable": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "kept": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "object_id",
+              "reason"
+            ],
+            "properties": {
+              "object_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "enum": [
+                  "not_approved",
+                  "signals_changed",
+                  "classification_not_green",
+                  "ownership_unproven",
+                  "in_use"
+                ]
+              }
+            }
+          }
+        },
+        "relisted": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "signal": {
+      "enum": [
+        "yes",
+        "no",
+        "unavailable"
+      ]
+    }
+  }
+}
