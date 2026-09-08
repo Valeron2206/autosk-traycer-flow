@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/static-analysis/static-analysis-policy.v1.json",
+  "title": "Static analysis policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "enforcement",
+    "conditions",
+    "small_change",
+    "delivery",
+    "digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "policy_id": { "type": "string", "pattern": "^sap-[0-9a-z-]{3,64}$" },
+    "gate_name": { "type": "string", "minLength": 1 },
+    "enforcement": {
+      "description": "disabled runs without the analyzer and claims no PASS; advisory records; required blocks.",
+      "enum": ["disabled", "advisory", "required"]
+    },
+    "conditions": {
+      "description": "The seven conditions, recorded exactly, with the four that apply to a pull request marked.",
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scope", "statement", "applies_to_pull_request"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,48}$" },
+          "scope": { "enum": ["new_code", "overall_code"] },
+          "statement": { "type": "string", "minLength": 8 },
+          "threshold": { "type": ["number", "string", "null"] },
+          "applies_to_pull_request": { "type": "boolean" }
+        }
+      }
+    },
+    "small_change": {
+      "description": "A provider that skips coverage and duplication below a line threshold lets a stream of small edits pass a requirement none of them met.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_fudge_factor", "host_compensates"],
+      "properties": {
+        "provider_fudge_factor": { "enum": ["disabled", "enabled_unsupported_by_provider"] },
+        "host_compensates": { "type": "boolean" },
+        "threshold_lines": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hosted", "decision_ref"],
+      "properties": {
+        "hosted": { "type": "boolean" },
+        "decision_ref": { "type": ["string", "null"], "pattern": "^decision-[0-9a-z-]{3,64}$" },
+        "clearance_ref": { "type": "string", "pattern": "^clearance-[0-9a-z-]{3,64}$" }
+      }
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

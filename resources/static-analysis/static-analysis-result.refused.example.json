@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "operation_id": "sao-0002",
+  "mode": "pull_request",
+  "policy_digest": "f7f51b7e514e8d5b254385e8fbfc4b905514c68b190ec81aef7239108bb6d4de",
+  "candidate": {
+    "commit_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tree_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "current_tree_oid": "cccccccccccccccccccccccccccccccccccccccc",
+    "pathspec": [
+      "daemon/core/src/**",
+      "internal/storelock/**"
+    ]
+  },
+  "provider": {
+    "name": "sonarqube",
+    "server_identity": "sonarcloud.io/2026.3",
+    "scanner_identity": "sonar-scanner-cli/6.2.1",
+    "analyzers": [
+      {
+        "name": "sonar-javascript",
+        "version": "10.14"
+      },
+      {
+        "name": "sonar-go",
+        "version": "1.16"
+      }
+    ],
+    "unsupported_modes": [
+      "arbitrary_branch"
+    ]
+  },
+  "input_reports": [
+    {
+      "kind": "coverage",
+      "path": "coverage/lcov.info",
+      "sha256": "b9c5a21ac38d51c72572125b3ba42cefbee0cdbaa04bfef85ca48acd56d42040",
+      "produced_from_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
+      "producer": "bun test --coverage"
+    },
+    {
+      "kind": "sarif",
+      "path": "reports/gosec.sarif",
+      "sha256": "e9348ee2bef0f7753a4df5c315c7cca988c54b5ca7a6d274f6187ec1269957b6",
+      "produced_from_tree_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "analysis": {
+    "analysis_id": "AZ-analysis-4411",
+    "task_id": "AZ-task-4411",
+    "project_key": "Valeron2206_autosk-traycer-flow",
+    "state": "pending",
+    "receipt_recorded": false
+  },
+  "webhook": {
+    "authenticated": false,
+    "analysis_id": "AZ-analysis-9999",
+    "project_key": "someone_else_project",
+    "delivery_id": "whk-1",
+    "seen_delivery_ids": [
+      "whk-1",
+      "whk-1"
+    ]
+  },
+  "conditions_evaluated": [
+    "no-new-issues",
+    "new-hotspots-reviewed",
+    "new-coverage",
+    "new-duplication",
+    "security-rating",
+    "hotspots-reviewed",
+    "reliability-rating"
+  ],
+  "outcome": "pass",
+  "findings": [
+    {
+      "finding_id": "S3776-1",
+      "kind": "issue",
+      "disposition": "to_fix",
+      "disposed_by": "reviewer",
+      "triage_ref": "findings/epic-store-lock/registry.json#S3776-1"
+    },
+    {
+      "finding_id": "HOT-2",
+      "kind": "security_hotspot",
+      "disposition": "reviewed_safe",
+      "disposed_by": "implementer",
+      "triage_ref": "findings/epic-store-lock/registry.json#HOT-2"
+    }
+  ],
+  "replaces_review": false
+}

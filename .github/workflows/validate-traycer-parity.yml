@@ -130,6 +130,9 @@ jobs:
       - name: Validate changeset walkthrough contract
         run: npm run validate:walkthrough
 
+      - name: Validate static analysis gate contract
+        run: npm run validate:static-analysis
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

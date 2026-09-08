@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "0a5b43f7428316a8addc8ffe28d069a2a815681ef03b66044308cefb3ece175c"
+      "sha256": "2c8105b75bc720a0b8939f89d3b9d348b8e55ef7772a0dc182355daab504a378"
     },
     {
       "path": "README.md",
@@ -133,6 +133,10 @@
     {
       "path": "docs/contracts/stage-carriers.md",
       "sha256": "7056af644fbe187dc5d5c982481f9330a1b28f3571a7cc46fd1c2cf91672d668"
+    },
+    {
+      "path": "docs/contracts/static-analysis.md",
+      "sha256": "0d69fdae1659f738242b1b451df9278e172776f37c3b1742e70db15064ba328d"
     },
     {
       "path": "docs/contracts/tickets-manifest.md",
@@ -339,6 +343,14 @@
       "sha256": "80ad7b82b3ff97a25fd5897a99917a0c33cd099f60fc030f25548a2c584b9987"
     },
     {
+      "path": "resources/static-analysis/static-analysis-policy.schema.json",
+      "sha256": "1ae85ea531a2fd76d858ba38462374c57a792aa6e948b4ca8198106929e8c6e5"
+    },
+    {
+      "path": "resources/static-analysis/static-analysis-result.schema.json",
+      "sha256": "bedec447302250538b7fa59d54b3afff574e04391b83c4b1d99aecd87e9edd2e"
+    },
+    {
       "path": "resources/tickets-manifest/tickets-manifest.schema.json",
       "sha256": "b81c413e39740825dd0e465b08c615cd985f8ec8affd1ceba10956f0d7dff346"
     },
@@ -363,7 +375,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "045b512100d0d417ec2b64a58c3303095639ae1622def4ce3aeab1e17355d4c4",
+  "candidate_digest": "45af04e144c90a7c6a8200c74e0920322dab60689329576b0066a4e4230f5a84",
   "dispositions": [
     {
       "issue": 3,

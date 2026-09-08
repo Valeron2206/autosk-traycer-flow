@@ -300,6 +300,7 @@
         "docs/contracts/reflect-cost-watch.md",
         "docs/contracts/requirement-revision.md",
         "docs/contracts/stage-carriers.md",
+        "docs/contracts/static-analysis.md",
         "docs/contracts/tickets-manifest.md",
         "docs/contracts/verify-doc.md",
         "docs/contracts/walkthrough.md",
@@ -345,6 +346,8 @@
         "reflect_pass",
         "revision_record",
         "stage_carriers",
+        "static_analysis_policy",
+        "static_analysis_result",
         "tech_plan",
         "tickets",
         "verification_batch",
@@ -1251,6 +1254,62 @@
       "human_approval": "required"
     },
     {
+      "class": "static_analysis_policy",
+      "category": "governance_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "delivery_profile"
+      ],
+      "paths": [
+        "resources/static-analysis/static-analysis-policy.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "static_analysis_result",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [
+        "static_analysis_policy"
+      ],
+      "paths": [
+        ".autosk-evidence/**/static-analysis/**"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the result is evidence bound to a candidate; its findings are disposed in the canonical triage"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "tech_plan",
       "category": "behavior_defining",
       "author_roles": [
@@ -1392,5 +1451,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "f63759b81bd5d612f7d9a3c8f99f150f2b7e3d407da17c52e9c33aae5fc0e341"
+  "registry_digest": "b2d4da36cd348dc9802c9dd5555e68e48e6b0e174aa286af81c3dde16b4dd7c7"
 }

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "policy_id": "sap-sonar-way-for-ai-code",
+  "gate_name": "Sonar way for AI Code",
+  "enforcement": "required",
+  "conditions": [
+    {
+      "id": "no-new-issues",
+      "scope": "new_code",
+      "statement": "no new issues",
+      "threshold": 0,
+      "applies_to_pull_request": true
+    },
+    {
+      "id": "new-hotspots-reviewed",
+      "scope": "new_code",
+      "statement": "all new Security Hotspots reviewed",
+      "threshold": "all",
+      "applies_to_pull_request": true
+    },
+    {
+      "id": "new-coverage",
+      "scope": "new_code",
+      "statement": "new-code test coverage at least 80%",
+      "threshold": 80,
+      "applies_to_pull_request": true
+    },
+    {
+      "id": "new-duplication",
+      "scope": "new_code",
+      "statement": "new-code duplication at most 3%",
+      "threshold": 3,
+      "applies_to_pull_request": true
+    },
+    {
+      "id": "security-rating",
+      "scope": "overall_code",
+      "statement": "Security Rating A",
+      "threshold": "A",
+      "applies_to_pull_request": false
+    },
+    {
+      "id": "hotspots-reviewed",
+      "scope": "overall_code",
+      "statement": "all Security Hotspots reviewed",
+      "threshold": "all",
+      "applies_to_pull_request": false
+    },
+    {
+      "id": "reliability-rating",
+      "scope": "overall_code",
+      "statement": "Reliability Rating no worse than C",
+      "threshold": "C",
+      "applies_to_pull_request": false
+    }
+  ],
+  "small_change": {
+    "provider_fudge_factor": "disabled",
+    "host_compensates": false,
+    "threshold_lines": 20
+  },
+  "delivery": {
+    "hosted": true,
+    "decision_ref": "decision-0071",
+    "clearance_ref": "clearance-0011"
+  },
+  "digest": "f7f51b7e514e8d5b254385e8fbfc4b905514c68b190ec81aef7239108bb6d4de"
+}
