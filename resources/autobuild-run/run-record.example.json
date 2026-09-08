@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "run_id": "abr-transcript-0001",
+  "contract_digest": "38f89dc9e2d3488615c6e82f68b20d45a85875770ceb4f7b3be2ecfe1036e880",
+  "contract_version": 2,
+  "opt_in": {
+    "kind": "user_request",
+    "reference": "issue #28 comment of 2026-09-08"
+  },
+  "parties": {
+    "generator": {
+      "session_id": "session-generator-7",
+      "family": "anthropic"
+    },
+    "evaluator": {
+      "session_id": "session-evaluator-7",
+      "family": "openai-codex",
+      "read_only": true
+    }
+  },
+  "sprints": [
+    {
+      "sprint_id": "abs-0001",
+      "ticket_id": "T-201",
+      "depends_on": [],
+      "contract_digest": "38f89dc9e2d3488615c6e82f68b20d45a85875770ceb4f7b3be2ecfe1036e880",
+      "execution_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "worktree": "worktrees/abs-0001",
+      "gates": {
+        "ticket_panel": "pass",
+        "review": "pass",
+        "aggregate_verification": "pass",
+        "integration_receipt": "receipt-0001"
+      },
+      "rubric_scores": [
+        {
+          "criterion_id": "no-new-refusal-paths",
+          "score": 1.0,
+          "met": true
+        },
+        {
+          "criterion_id": "chunk-boundaries",
+          "score": 0.6,
+          "met": true
+        },
+        {
+          "criterion_id": "readable-diff",
+          "score": 0.8,
+          "met": true
+        }
+      ],
+      "evaluator_wrote": false,
+      "discovery": "none",
+      "outcome": "improved"
+    },
+    {
+      "sprint_id": "abs-0002",
+      "ticket_id": "T-202",
+      "depends_on": [
+        "T-201"
+      ],
+      "contract_digest": "38f89dc9e2d3488615c6e82f68b20d45a85875770ceb4f7b3be2ecfe1036e880",
+      "execution_base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "worktree": "worktrees/abs-0002",
+      "gates": {
+        "ticket_panel": "pass",
+        "review": "pass",
+        "aggregate_verification": "pass",
+        "integration_receipt": "receipt-0002"
+      },
+      "rubric_scores": [
+        {
+          "criterion_id": "no-new-refusal-paths",
+          "score": 1.0,
+          "met": true
+        },
+        {
+          "criterion_id": "chunk-boundaries",
+          "score": 0.6,
+          "met": true
+        },
+        {
+          "criterion_id": "readable-diff",
+          "score": 0.8,
+          "met": true
+        }
+      ],
+      "evaluator_wrote": false,
+      "discovery": "minor",
+      "outcome": "no_improvement"
+    },
+    {
+      "sprint_id": "abs-0003",
+      "ticket_id": "T-203",
+      "depends_on": [
+        "T-202"
+      ],
+      "contract_digest": "38f89dc9e2d3488615c6e82f68b20d45a85875770ceb4f7b3be2ecfe1036e880",
+      "execution_base": "cccccccccccccccccccccccccccccccccccccccc",
+      "worktree": "worktrees/abs-0003",
+      "gates": {
+        "ticket_panel": "pass",
+        "review": "pass",
+        "aggregate_verification": "pass",
+        "integration_receipt": "receipt-0003"
+      },
+      "rubric_scores": [
+        {
+          "criterion_id": "no-new-refusal-paths",
+          "score": 1.0,
+          "met": true
+        },
+        {
+          "criterion_id": "chunk-boundaries",
+          "score": 1.0,
+          "met": true
+        },
+        {
+          "criterion_id": "readable-diff",
+          "score": 0.9,
+          "met": true
+        }
+      ],
+      "evaluator_wrote": false,
+      "discovery": "none",
+      "finish_predicate_digest": "18cb39a0a3af4dda1fc8bad182158fe91ef21aece67878441f92c1327144e920",
+      "outcome": "finished"
+    }
+  ],
+  "spent": {
+    "sprints": 3,
+    "wall_clock_ms": 3120000,
+    "cost_units": 210,
+    "tokens": 2400000,
+    "negotiation_rounds": 2,
+    "restarts": 0,
+    "consecutive_non_improving": 0
+  },
+  "trail": [
+    {
+      "seq": 1,
+      "at": "2026-09-08T09:01:00Z",
+      "kind": "proposal",
+      "actor": "generator",
+      "text": "chunk the read at a rune boundary and refuse a mid-rune offset",
+      "prev_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "seq": 2,
+      "at": "2026-09-08T09:02:00Z",
+      "kind": "evaluation",
+      "actor": "evaluator",
+      "text": "the whole-file path has the same defect and is not covered by the proposal",
+      "prev_digest": "b67c0efbd01371a37a4f67719f0cb4afe4a686ca00a8b447ac0656ecac7a3786"
+    },
+    {
+      "seq": 3,
+      "at": "2026-09-08T09:03:00Z",
+      "kind": "finding",
+      "actor": "evaluator",
+      "text": "a whole-file read of a truncated transcript still returns a replacement character",
+      "prev_digest": "64700bb1fef7c14c61cb95005c7b8b702491caedb723056557a53eb9ab1a3020"
+    },
+    {
+      "seq": 4,
+      "at": "2026-09-08T09:04:00Z",
+      "kind": "metric",
+      "actor": "host",
+      "text": "rubric 2.6 of 3.0, improved over the previous sprint",
+      "prev_digest": "7ff45a2209990e563cf91194f67ecf606aa9bb52aed7e00881c2a057c0d1c8ff"
+    },
+    {
+      "seq": 5,
+      "at": "2026-09-08T09:05:00Z",
+      "kind": "decision",
+      "actor": "host",
+      "text": "continue to sprint 2",
+      "prev_digest": "6feab441cdb81f12b43bddbc6e1409c05695f3be0775bb0ed716c5300ac830ef"
+    },
+    {
+      "seq": 6,
+      "at": "2026-09-08T09:06:00Z",
+      "kind": "expenditure",
+      "actor": "host",
+      "text": "210 cost units and 2.4M tokens spent of 400 and 4M",
+      "prev_digest": "8046ad40760e0cf109f5a1244471f471914f99813597a1013907ecc07753c722"
+    },
+    {
+      "seq": 7,
+      "at": "2026-09-08T09:07:00Z",
+      "kind": "stop",
+      "actor": "host",
+      "text": "finish predicate met and verified on the approved recipe",
+      "prev_digest": "cf70680061c210f71e9c01eac3c37f35e9a2f4f1a070fcfa5222594931238cdf"
+    }
+  ],
+  "stop": {
+    "reason": "finish_predicate_met",
+    "detail": "the approved recipe passed on the integrated result",
+    "enforced_by": "host"
+  }
+}

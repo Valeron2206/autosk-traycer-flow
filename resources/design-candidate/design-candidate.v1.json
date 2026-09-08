@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "7dc658742e5d56d563d8d8e8efefe614073953bf2cc13aecdfa17eb37fd8f068"
+      "sha256": "c1eca567a1e203cfa0f84d970677c84e96435593687e54d0a955aca51e329189"
     },
     {
       "path": "README.md",
@@ -33,6 +33,10 @@
     {
       "path": "docs/contracts/artifact-write-receipt.md",
       "sha256": "f34a2aa9b217ccf1c757108054898f265dd951be792c690f6584593320aff834"
+    },
+    {
+      "path": "docs/contracts/autobuild-run.md",
+      "sha256": "3737532054bead035ee0802266ac4d9831c196b1d53de9dbe59873463d229270"
     },
     {
       "path": "docs/contracts/bounded-loop.md",
@@ -141,6 +145,14 @@
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
       "sha256": "66d47455a9093c37a04c5ff3cb25aecee475d645ce9053d8d61e0935d393a391"
+    },
+    {
+      "path": "resources/autobuild-run/run-contract.schema.json",
+      "sha256": "aca23226bd6106a8fd0b9d6092695f0b3e73874752987624d9980c03c1510e0b"
+    },
+    {
+      "path": "resources/autobuild-run/run-record.schema.json",
+      "sha256": "23343d29facc53326da1427d57488d616580ef14cfe298d790bf679661212fc8"
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.schema.json",
@@ -315,7 +327,7 @@
       "sha256": "04ae885ba139010abb542fc5bdc60a2c6a0d721ef579bfe83f0b78b6ee1a1890"
     }
   ],
-  "candidate_digest": "d120d7be4d6634c5e6a02dd3613957448f5bddcfa405ef3bd1cdff12c20eb3c7",
+  "candidate_digest": "86e3da2f944667f8a7d8ef69cd8e1f6f945830742967f11a9c58bc21b67e89ea",
   "dispositions": [
     {
       "issue": 3,

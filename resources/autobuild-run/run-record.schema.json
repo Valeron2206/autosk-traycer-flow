@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/autobuild-run/run-record.v1.json",
+  "title": "Autobuild run record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "contract_digest",
+    "contract_version",
+    "opt_in",
+    "parties",
+    "sprints",
+    "spent",
+    "trail",
+    "stop"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "pattern": "^abr-[0-9a-z-]{3,64}$" },
+    "contract_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "contract_version": { "type": "integer", "minimum": 1 },
+    "opt_in": {
+      "description": "There is no default that starts a run.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reference"],
+      "properties": {
+        "kind": { "enum": ["user_request", "approved_project_policy"] },
+        "reference": { "type": "string", "minLength": 1 }
+      }
+    },
+    "parties": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator", "evaluator"],
+      "properties": {
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["session_id", "family"],
+          "properties": {
+            "session_id": { "type": "string", "minLength": 1 },
+            "family": { "type": "string", "minLength": 1 }
+          }
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["session_id", "family", "read_only"],
+          "properties": {
+            "session_id": { "type": "string", "minLength": 1 },
+            "family": { "type": "string", "minLength": 1 },
+            "read_only": { "const": true }
+          }
+        }
+      }
+    },
+    "sprints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sprint_id",
+          "ticket_id",
+          "contract_digest",
+          "execution_base",
+          "gates",
+          "rubric_scores",
+          "outcome"
+        ],
+        "properties": {
+          "sprint_id": { "type": "string", "pattern": "^abs-[0-9a-z-]{3,64}$" },
+          "ticket_id": { "type": "string", "minLength": 1 },
+          "depends_on": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "contract_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "execution_base": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "worktree": { "type": "string", "minLength": 1 },
+          "gates": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ticket_panel", "review", "aggregate_verification", "integration_receipt"],
+            "properties": {
+              "ticket_panel": { "enum": ["pass", "fail", "not_run"] },
+              "review": { "enum": ["pass", "fail", "not_run"] },
+              "aggregate_verification": { "enum": ["pass", "fail", "not_run"] },
+              "integration_receipt": { "type": ["string", "null"], "minLength": 1 }
+            }
+          },
+          "rubric_scores": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["criterion_id", "score", "met"],
+              "properties": {
+                "criterion_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,40}$" },
+                "score": { "type": "number", "minimum": 0, "maximum": 1 },
+                "met": { "type": "boolean" }
+              }
+            }
+          },
+          "evaluator_wrote": { "type": "boolean" },
+          "discovery": { "enum": ["none", "minor", "major"] },
+          "revision_ref": { "type": "string", "pattern": "^rev-[0-9a-z-]{3,64}$" },
+          "finish_predicate_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "outcome": { "enum": ["improved", "no_improvement", "finished", "stopped"] }
+        }
+      }
+    },
+    "spent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sprints",
+        "wall_clock_ms",
+        "cost_units",
+        "tokens",
+        "negotiation_rounds",
+        "restarts",
+        "consecutive_non_improving"
+      ],
+      "properties": {
+        "sprints": { "type": "integer", "minimum": 0 },
+        "wall_clock_ms": { "type": "integer", "minimum": 0 },
+        "cost_units": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "negotiation_rounds": { "type": "integer", "minimum": 0 },
+        "restarts": { "type": "integer", "minimum": 0 },
+        "consecutive_non_improving": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "trail": {
+      "description": "Append-only, chained, and inert as data.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["seq", "at", "kind", "actor", "text", "prev_digest"],
+        "properties": {
+          "seq": { "type": "integer", "minimum": 1 },
+          "at": { "type": "string", "format": "date-time" },
+          "kind": {
+            "enum": ["proposal", "evaluation", "finding", "metric", "decision", "expenditure", "stop"]
+          },
+          "actor": { "enum": ["generator", "evaluator", "host", "user"] },
+          "text": { "type": "string", "minLength": 1 },
+          "prev_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "stop": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "detail"],
+          "properties": {
+            "reason": {
+              "enum": [
+                "finish_predicate_met",
+                "max_sprints",
+                "wall_clock",
+                "cost",
+                "tokens",
+                "no_progress",
+                "negotiation_cap",
+                "major_discovery",
+                "party_outage",
+                "escape_hatch",
+                "user_stop"
+              ]
+            },
+            "detail": { "type": "string", "minLength": 8 },
+            "enforced_by": { "enum": ["host", "model"] }
+          }
+        }
+      ]
+    }
+  }
+}

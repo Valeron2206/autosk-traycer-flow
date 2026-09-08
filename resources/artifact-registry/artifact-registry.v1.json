@@ -122,6 +122,38 @@
       "human_approval": "not_required"
     },
     {
+      "class": "autobuild_run",
+      "category": "governance_defining",
+      "author_roles": [
+        "author",
+        "implementer"
+      ],
+      "requires": [
+        "human_decision",
+        "revision_record"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/autobuild/*/run.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the run record is evidence of an approved contract and its sprints; each sprint takes the ordinary Ticket gates"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "behavior_pack",
       "category": "behavior_defining",
       "author_roles": [
@@ -215,6 +247,7 @@
         "docs/contracts/approved-delta.md",
         "docs/contracts/artifact-registry.md",
         "docs/contracts/artifact-write-receipt.md",
+        "docs/contracts/autobuild-run.md",
         "docs/contracts/bounded-loop.md",
         "docs/contracts/clean-room-e2e.md",
         "docs/contracts/clearance-manifest.md",
@@ -252,6 +285,7 @@
         "approved_delta",
         "artifact_registry",
         "artifact_write_receipt",
+        "autobuild_run",
         "clearance_manifest",
         "creation_grant",
         "delivery_profile",
@@ -1202,5 +1236,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "7f071ad83fa49f94517e5d35067037f0ee7fef9da703126d60a8660527431ff3"
+  "registry_digest": "daa5a2bbfdfbaa8a6c64768787f4f018c2dc8d5c4a9a81ef4ab1de6b5aaacf21"
 }
