@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "registry_version": 1,
+  "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "governance_files": [
+    {
+      "path": "protocol/principles-digest.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/playbooks/feature.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/playbooks/bugfix.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/playbooks/refactor.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/rubrics/panel.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/rubrics/judge.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/contracts/verification.md",
+      "status": "active"
+    },
+    {
+      "path": "protocol/contracts/contest.md",
+      "status": "active"
+    },
+    {
+      "path": "roles/author.md",
+      "status": "active"
+    },
+    {
+      "path": "roles/implementer.md",
+      "status": "active"
+    },
+    {
+      "path": "roles/reviewer.md",
+      "status": "active"
+    },
+    {
+      "path": "roles/judge.md",
+      "status": "active"
+    },
+    {
+      "path": "roles/mediator.md",
+      "status": "active"
+    }
+  ],
+  "carriers": {
+    "author.brief": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/author.md"
+      ],
+      "anchors": [
+        "project_instructions"
+      ],
+      "forbidden": []
+    },
+    "author.core_flow": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/author.md"
+      ],
+      "anchors": [
+        "brief",
+        "project_instructions"
+      ],
+      "forbidden": []
+    },
+    "author.tech_plan": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/author.md"
+      ],
+      "anchors": [
+        "core_flow",
+        "project_instructions"
+      ],
+      "forbidden": []
+    },
+    "author.tickets": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/author.md"
+      ],
+      "anchors": [
+        "tech_plan",
+        "project_instructions"
+      ],
+      "forbidden": []
+    },
+    "panel.opus": {
+      "required": [
+        "protocol/rubrics/panel.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "panel.astra": {
+      "required": [
+        "protocol/rubrics/panel.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "panel.grok": {
+      "required": [
+        "protocol/rubrics/panel.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "panel.muse": {
+      "required": [
+        "protocol/rubrics/panel.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "contest.reviewer": {
+      "required": [
+        "protocol/contracts/contest.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "finding",
+        "candidate"
+      ],
+      "forbidden": []
+    },
+    "narrow.reviewer": {
+      "required": [
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "finding",
+        "candidate"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "implementer.feature": {
+      "required": [
+        "protocol/playbooks/feature.md",
+        "roles/implementer.md"
+      ],
+      "anchors": [
+        "ticket_manifest_entry",
+        "acceptance_criteria",
+        "project_instructions"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "implementer.bugfix": {
+      "required": [
+        "protocol/playbooks/bugfix.md",
+        "roles/implementer.md"
+      ],
+      "anchors": [
+        "ticket_manifest_entry",
+        "acceptance_criteria",
+        "project_instructions"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "implementer.refactor": {
+      "required": [
+        "protocol/playbooks/refactor.md",
+        "roles/implementer.md"
+      ],
+      "anchors": [
+        "ticket_manifest_entry",
+        "acceptance_criteria",
+        "project_instructions"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "verifier.deterministic": {
+      "required": [
+        "protocol/contracts/verification.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": []
+    },
+    "verifier.model_assisted": {
+      "required": [
+        "protocol/contracts/verification.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": []
+    },
+    "reviewer.code": {
+      "required": [
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "arena.candidate": {
+      "required": [
+        "protocol/playbooks/feature.md",
+        "roles/implementer.md"
+      ],
+      "anchors": [
+        "ticket_manifest_entry",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md",
+        "roles/judge.md"
+      ]
+    },
+    "arena.judge": {
+      "required": [
+        "protocol/rubrics/judge.md",
+        "roles/judge.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": []
+    },
+    "arena.final_implementer": {
+      "required": [
+        "protocol/playbooks/feature.md",
+        "roles/implementer.md"
+      ],
+      "anchors": [
+        "ticket_manifest_entry",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/rubrics/judge.md"
+      ]
+    },
+    "autobuild.generator": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/implementer.md"
+      ],
+      "anchors": [
+        "acceptance_criteria"
+      ],
+      "forbidden": []
+    },
+    "autobuild.evaluator": {
+      "required": [
+        "protocol/contracts/verification.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": []
+    },
+    "reflect.reviewer": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate"
+      ],
+      "forbidden": []
+    },
+    "debate.participant": {
+      "required": [
+        "protocol/contracts/contest.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "finding"
+      ],
+      "forbidden": [
+        "roles/mediator.md"
+      ]
+    },
+    "debate.mediator": {
+      "required": [
+        "protocol/contracts/contest.md",
+        "roles/mediator.md"
+      ],
+      "anchors": [
+        "finding"
+      ],
+      "forbidden": []
+    },
+    "revision.analysis": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/author.md"
+      ],
+      "anchors": [
+        "tech_plan",
+        "acceptance_criteria"
+      ],
+      "forbidden": []
+    },
+    "walkthrough.author": {
+      "required": [
+        "protocol/principles-digest.md",
+        "roles/author.md"
+      ],
+      "anchors": [
+        "candidate"
+      ],
+      "forbidden": []
+    },
+    "walkthrough.fact_validator": {
+      "required": [
+        "protocol/contracts/verification.md",
+        "roles/reviewer.md"
+      ],
+      "anchors": [
+        "candidate"
+      ],
+      "forbidden": []
+    }
+  },
+  "budget": {
+    "max_bytes": 262144,
+    "order": "declared"
+  }
+}

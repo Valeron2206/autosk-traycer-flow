@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "dispatch_id": "dispatch-19a1",
+  "round": 1,
+  "attempt": 1,
+  "carrier_key": "panel.opus",
+  "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "attributions": [
+    {
+      "logical_id": "protocol/rubrics/panel.md",
+      "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "epic_id": "epic-2026-09-a",
+      "task_id": "ask-4f21aa",
+      "role": "panel",
+      "stage": "opus",
+      "dispatch_id": "dispatch-19a1",
+      "round": 1,
+      "attempt": 1,
+      "serialization_version": 1
+    },
+    {
+      "logical_id": "roles/reviewer.md",
+      "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "section_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "epic_id": "epic-2026-09-a",
+      "task_id": "ask-4f21aa",
+      "role": "panel",
+      "stage": "opus",
+      "dispatch_id": "dispatch-19a1",
+      "round": 1,
+      "attempt": 1,
+      "serialization_version": 1
+    }
+  ]
+}

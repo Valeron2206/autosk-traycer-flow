@@ -28,6 +28,7 @@
     "validate:evidence-manifest": "node scripts/validate-evidence-manifest.mjs",
     "validate:governance-bundle": "node scripts/validate-governance-bundle.mjs",
     "validate:clearance-manifest": "node scripts/validate-clearance-manifest.mjs",
+    "validate:stage-carriers": "node scripts/validate-stage-carriers.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {
