@@ -338,7 +338,7 @@ index 64ad70ec6a33437b55863dec7cf068576550f099..733409a572d525d04763d81469abeae9
        workflows: buildWorkflowsApi(this.project.registry, this.wf!, this.step),
        comment: (text) => store.addComment(this.taskId, { author: this.agentName, text }).then(() => {}),
 diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
-index 957532e523cb80887349bdffd4c0c24d9a1df145..95bacae0df499d89f6b102e43c39d3a973a28830 100644
+index 957532e523cb80887349bdffd4c0c24d9a1df145..575f6eb7ed9cafbb754b38ed3b163c67b4f734d6 100644
 --- a/daemon/core/src/store/metadata.ts
 +++ b/daemon/core/src/store/metadata.ts
 @@ -38,9 +38,13 @@ export function isEmptyMetadata(meta: Record<string, unknown> | undefined | null
@@ -356,8 +356,26 @@ index 957532e523cb80887349bdffd4c0c24d9a1df145..95bacae0df499d89f6b102e43c39d3a9
      if (typeof value === "number" && Number.isFinite(value)) out[step] = value;
    }
    return out;
-@@ -95,11 +99,23 @@ export function applyMetadataUnset(meta: Record<string, unknown>, keys: string[]
-  * Both edit RPCs therefore refuse the path instead of silently applying it.
+@@ -89,17 +93,37 @@ export function applyMetadataUnset(meta: Record<string, unknown>, keys: string[]
+ /**
+  * Refuses an edit that would reach the engine-owned runtime identity pin.
+  *
+- * `step_visits` is deliberately human-editable — the worst outcome of corrupting
+- * it is a miscounted cap. The runtime pin is a control: an edit through this
+- * surface would corrupt or clear the record of the code a task was admitted under.
+- * Both edit RPCs therefore refuse the path instead of silently applying it.
++ * `step_visits` stays human-editable, but the cost of corrupting it is no longer
++ * only a miscounted cap: it is also the visit count a scoped creation grant is
++ * checked against (issue #11), so a caller that can write it can satisfy the check
++ * its own grant asserts. That is knowingly accepted — the grant carries no
++ * signature either, so locking the counter would harden one half of a guarantee
++ * whose other half does not exist, and would take away a counter the operator is
++ * meant to be able to reset. `scopedCreation.ts` says the same thing from the
++ * other side.
++ *
++ * The runtime pin is different: it is a control, and an edit through this surface
++ * would corrupt or clear the record of the code a task was admitted under. Both
++ * edit RPCs therefore refuse that path instead of silently applying it.
   */
  function requireEditableMetadataPath(path: string): void {
 -  if (splitPath(path)[0] === RUNTIME_IDENTITY_KEY) {
