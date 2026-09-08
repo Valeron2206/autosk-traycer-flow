@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "b83fa230dde4795ac082a75b41b6965cac577a2b",
+  "result_tree": "b0357eda7b3ee4d8b5589f1d0b4fa248bf664d91",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -118,6 +118,10 @@
     {
       "file": "patches/0028-session-bound-create.patch",
       "sha256": "745f8756b46cbcb8851ab5df2cdd08fc8915d7e5167cce21905244e8a49a2a97"
+    },
+    {
+      "file": "patches/0029-helper-in-identity.patch",
+      "sha256": "98ffd6d0b8ecfb677fa407bfab8c943c03f9e519dab8df85415472af5759d464"
     }
   ],
   "license": {

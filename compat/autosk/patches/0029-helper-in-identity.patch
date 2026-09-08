@@ -1,0 +1,367 @@
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+index 3f4c14d..4961029 100644
+--- a/daemon/core/src/engine/runtimeIdentity.ts
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -11,6 +11,7 @@
+  * runtime's `commitTransit` — and both must apply the same rule.
+  */
+ import type { ExtensionRegistry } from "../extensions/registry.ts";
++import { helperBinaryDigest } from "../store/creation.ts";
+ import type { RuntimeIdentityPin, RuntimeIdentityPinRead } from "../store/metadata.ts";
+ 
+ /** The park reason and error prefix for a refused runtime identity. */
+@@ -65,10 +66,26 @@ export function runtimeIdentityDecision(
+   pinned: RuntimeIdentityPinRead,
+   workflowName: string,
+   absent: AbsentPinPolicy,
++  helperDigest?: string,
+ ): RuntimeIdentityDecision {
+   if (pinned.state === "malformed") {
+     return { ok: false, reason: `${EXTENSION_VERSION_MISMATCH}: ${pinned.reason}` };
+   }
++  // Computed here rather than as a default argument so a helper that cannot be
++  // read is a REFUSAL. Throwing would take down the caller for the one condition
++  // this function exists to answer: "may this task run right now" — and the
++  // answer, when the trusted writer cannot even be identified, is no.
++  let helper: string;
++  try {
++    helper = helperDigest ?? helperBinaryDigest();
++  } catch (error) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: the store helper cannot be identified (${
++        error instanceof Error ? error.message : String(error)
++      })`,
++    };
++  }
+   // One lookup, so the two digests cannot be seen out of step with each other.
+   const current = registry.workflowAdmission(workflowName);
+   if (pinned.state === "absent") {
+@@ -79,7 +96,7 @@ export function runtimeIdentityDecision(
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded runtime identity for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph) };
++    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
+   }
+   if (pinned.pin.workflow !== workflowName) {
+     return {
+@@ -112,7 +129,7 @@ export function runtimeIdentityDecision(
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded workflow shape for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph) };
++    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
+   }
+   if (current.graph !== pinned.pin.graph) {
+     return {
+@@ -120,14 +137,35 @@ export function runtimeIdentityDecision(
+       reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} declares a different workflow now (shape ${current.graph}, admitted under ${pinned.pin.graph})`,
+     };
+   }
++  // The helper is the third half of the identity, and it is checked last because
++  // it is the only one that is not a property of the extension: the same code can
++  // be admitted under one build of the store writer and refused under another.
++  // A pin with no helper digest is answered exactly like a pin with no graph —
++  // predating the check and having the field removed are indistinguishable on a
++  // task that already carries a workflow.
++  if (pinned.pin.helper === undefined) {
++    if (absent === "refuse") {
++      return {
++        ok: false,
++        reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded store helper for this task${remedyFor(registry, workflowName)}`,
++      };
++    }
++    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
++  }
++  if (helper !== pinned.pin.helper) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: the store helper is now ${helper}, admitted under ${pinned.pin.helper}`,
++    };
++  }
+   // Built from `current`, whose two halves this function has just compared with the
+   // pin's, so it is the verified lookup and not a second read of the registry.
+-  return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph) };
++  return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
+ }
+ 
+-/** The pin to write: a workflow with a distribution always has a shape too. */
+-function makePin(workflow: string, digest: string, graph: string): RuntimeIdentityPin {
+-  return { workflow, digest, graph };
++/** The pin to write: a workflow with a distribution always has a shape and a helper. */
++function makePin(workflow: string, digest: string, graph: string, helper: string): RuntimeIdentityPin {
++  return { workflow, digest, graph, helper };
+ }
+ 
+ /** The actionable half of a refusal: which step re-admits the task. */
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 9ed2312..bccc851 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -1,4 +1,5 @@
+ import { createHash } from "node:crypto";
++import { readFileSync, statSync } from "node:fs";
+ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+ import { readFile } from "node:fs/promises";
+ import { dirname, join } from "node:path";
+@@ -1116,6 +1117,33 @@ function resolveStoreLockBinary(): string {
+   return join(dirname(process.execPath), "autosk-store-lock");
+ }
+ 
++/**
++ * The digest of the helper binary this daemon would spawn right now (issue #13,
++ * criterion 5).
++ *
++ * The helper is the only writer of trusted state, so a task admitted while one
++ * build of it was in place is not admitted for another: the protocol revision
++ * catches a changed CONTRACT, and this catches changed bytes behind an unchanged
++ * one.
++ *
++ * Read fresh unless the file is unchanged, which is why the cache is keyed by
++ * the file's own signature rather than by the path. Caching by path for the life
++ * of the process would report the bytes that were there at startup while the
++ * next spawn used the ones on disk — a digest describing something nobody is
++ * running.
++ */
++let cachedHelperDigest: { sig: string; digest: string } | null = null;
++
++export function helperBinaryDigest(): string {
++  const path = resolveStoreLockBinary();
++  const st = statSync(path);
++  const sig = `${path}:${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`;
++  if (cachedHelperDigest?.sig === sig) return cachedHelperDigest.digest;
++  const digest = createHash("sha256").update(readFileSync(path)).digest("hex");
++  cachedHelperDigest = { sig, digest };
++  return digest;
++}
++
+ function helperEnv(paths: ProjectPaths): NodeJS.ProcessEnv {
+   return {
+     ...process.env,
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 575f6eb..0d3ee07 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -235,12 +235,12 @@ export function readRuntimeIdentityPin(
+   }
+   const record = raw as Record<string, unknown>;
+   const extra = Object.keys(record).filter(
+-    (key) => key !== "workflow" && key !== "digest" && key !== "graph",
++    (key) => key !== "workflow" && key !== "digest" && key !== "graph" && key !== "helper",
+   );
+   if (extra.length > 0) {
+     return { state: "malformed", reason: `runtime identity pin has unexpected keys: ${extra.sort().join(", ")}` };
+   }
+-  const { workflow, digest, graph } = record;
++  const { workflow, digest, graph, helper } = record;
+   if (typeof workflow !== "string" || workflow.length === 0) {
+     return { state: "malformed", reason: "runtime identity pin has no workflow name" };
+   }
+@@ -250,13 +250,22 @@ export function readRuntimeIdentityPin(
+   if (graph !== undefined && (typeof graph !== "string" || !DIGEST_PATTERN.test(graph))) {
+     return { state: "malformed", reason: "runtime identity pin graph is not a lowercase sha256" };
+   }
+-  return { state: "pinned", pin: graph === undefined ? { workflow, digest } : { workflow, digest, graph } };
++  if (helper !== undefined && (typeof helper !== "string" || !DIGEST_PATTERN.test(helper))) {
++    return { state: "malformed", reason: "runtime identity pin helper is not a lowercase sha256" };
++  }
++  const pin: RuntimeIdentityPin = { workflow, digest };
++  if (graph !== undefined) pin.graph = graph;
++  if (helper !== undefined) pin.helper = helper;
++  return { state: "pinned", pin };
+ }
+ 
+ /** Writes the reserved runtime identity pin, mutating `meta` in place. */
+ export function setRuntimeIdentityPin(meta: Record<string, unknown>, pin: RuntimeIdentityPin): void {
+-  meta[RUNTIME_IDENTITY_KEY] =
+-    pin.graph === undefined
+-      ? { workflow: pin.workflow, digest: pin.digest }
+-      : { workflow: pin.workflow, digest: pin.digest, graph: pin.graph };
++  // Written field by field, and only the fields that exist: a `graph: undefined`
++  // survives `JSON.stringify` as an absent key but not as an absent FIELD, and
++  // the read above distinguishes the two.
++  const record: Record<string, unknown> = { workflow: pin.workflow, digest: pin.digest };
++  if (pin.graph !== undefined) record.graph = pin.graph;
++  if (pin.helper !== undefined) record.helper = pin.helper;
++  meta[RUNTIME_IDENTITY_KEY] = record;
+ }
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index 1769e2d..da06a46 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -11,14 +11,17 @@ import { afterEach, describe, expect, test } from "bun:test";
+ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+ import path from "node:path";
+ 
+-import { withCreationLock } from "../src/store/creation.ts";
++import { helperBinaryDigest, withCreationLock } from "../src/store/creation.ts";
+ import { parseDistributionIndex } from "../src/store/distributions.ts";
+ import { ProjectPaths } from "../src/store/paths.ts";
+ import { loadProjectRegistry } from "../src/extensions/loader.ts";
+ import { distributionTreeIdentity } from "../src/extensions/identity.ts";
++import { createHash } from "node:crypto";
++import { ExtensionRegistry } from "../src/extensions/registry.ts";
++import { runtimeIdentityDecision } from "../src/engine/runtimeIdentity.ts";
+ import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
+ import { makeEngine, makeProject, type TestProject } from "./engineHarness.ts";
+-import { waitFor } from "./helpers.ts";
++import { tempDir, waitFor } from "./helpers.ts";
+ 
+ const WORKFLOW_SOURCE = (marker: string) => `
+ import { existsSync, writeFileSync } from "node:fs";
+@@ -1091,6 +1094,10 @@ export default (api) => {
+       workflow: "wf",
+       digest: admitted.distribution.digest,
+       graph: admitted.graph,
++      // The store helper is the third part of the identity (issue #13, criterion
++      // 5): the same extension code writing through a different trusted writer
++      // is not the same admission.
++      helper: helperBinaryDigest(),
+     });
+ 
+     writeFileSync(gatePath, "");
+@@ -1216,3 +1223,121 @@ export default (api) => {
+     await waitFor(async () => !p.store.sessions.hasLiveSession(task.id));
+   });
+ });
++
++describe("the store helper is part of the identity", () => {
++  // Issue #13, criterion 5. The protocol revision catches a changed CONTRACT;
++  // this catches changed bytes behind an unchanged one — the same helper
++  // speaking the same protocol, built from different source.
++  const registry = new ExtensionRegistry();
++
++  function pinnedRead(pin: Record<string, unknown> | undefined) {
++    return pin === undefined
++      ? ({ state: "absent" } as const)
++      : readRuntimeIdentityPin({ runtime_identity: pin });
++  }
++
++  test("a changed helper is a refusal, not a warning", () => {
++    const digest = "a".repeat(64);
++    const graph = "b".repeat(64);
++    const helper = "c".repeat(64);
++    const wf = { name: "wf", firstStep: "do", steps: { do: { onRun: async () => {} } } };
++    registry.addWorkflow("test", wf, {
++      root: "/dist", entry: "i.js", entries: [], bytes: 0, digest,
++    });
++    const admitted = registry.workflowAdmission("wf")!;
++
++    const same = runtimeIdentityDecision(
++      registry,
++      pinnedRead({ workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph, helper }),
++      "wf",
++      "refuse",
++      helper,
++    );
++    expect(same.ok).toBe(true);
++
++    const moved = runtimeIdentityDecision(
++      registry,
++      pinnedRead({ workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph, helper }),
++      "wf",
++      "refuse",
++      "d".repeat(64),
++    );
++    expect(moved.ok).toBe(false);
++    if (moved.ok) throw new Error("unreachable");
++    expect(moved.reason).toMatch(/the store helper is now/u);
++  });
++
++  test("a pin with no helper is answered like a pin with no graph", () => {
++    // Predating the check and having the field removed are indistinguishable on
++    // a task that already carries a workflow, so a restart re-admits it and
++    // anything else refuses.
++    const admitted = registry.workflowAdmission("wf")!;
++    const pin = { workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph };
++
++    const refused = runtimeIdentityDecision(registry, pinnedRead(pin), "wf", "refuse", "c".repeat(64));
++    expect(refused.ok).toBe(false);
++    if (refused.ok) throw new Error("unreachable");
++    expect(refused.reason).toMatch(/has no recorded store helper/u);
++
++    const adopted = runtimeIdentityDecision(registry, pinnedRead(pin), "wf", "adopt", "c".repeat(64));
++    expect(adopted.ok).toBe(true);
++    if (!adopted.ok) throw new Error("unreachable");
++    expect(adopted.admitted?.helper).toBe("c".repeat(64));
++  });
++
++  test("a helper digest that is not a sha256 is a malformed pin", () => {
++    const admitted = registry.workflowAdmission("wf")!;
++    const read = pinnedRead({
++      workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph, helper: "not-a-digest",
++    });
++    expect(read.state).toBe("malformed");
++  });
++
++  test("a helper that cannot be read is a refusal, not a crash", () => {
++    // The one condition this function exists to answer is "may this task run
++    // right now". When the trusted writer cannot even be identified, the answer
++    // is no — and throwing would take down the caller instead of parking the task.
++    const admitted = registry.workflowAdmission("wf")!;
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = path.join(tempDir().path, "not-installed");
++    try {
++      const decision = runtimeIdentityDecision(
++        registry,
++        pinnedRead({ workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph, helper: "c".repeat(64) }),
++        "wf",
++        "refuse",
++      );
++      expect(decision.ok).toBe(false);
++      if (decision.ok) throw new Error("unreachable");
++      expect(decision.reason).toMatch(/store helper cannot be identified/u);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  });
++
++  test("the digest is of the bytes on disk, and follows a replacement", () => {
++    // Cached by the file's own signature rather than by path: caching by path
++    // would report the bytes that were there at startup while the next spawn
++    // used the ones on disk.
++    const dir = tempDir();
++    try {
++      const bin = path.join(dir.path, "fake-store-lock");
++      writeFileSync(bin, "one");
++      const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++      process.env.AUTOSK_STORE_LOCK_BIN = bin;
++      try {
++        const first = helperBinaryDigest();
++        expect(first).toBe(createHash("sha256").update("one").digest("hex"));
++        expect(helperBinaryDigest()).toBe(first);
++        writeFileSync(bin, "two");
++        expect(helperBinaryDigest()).toBe(createHash("sha256").update("two").digest("hex"));
++      } finally {
++        if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++        else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++      }
++    } finally {
++      dir.cleanup();
++    }
++  });
++});
+diff --git a/daemon/sdk/src/types.ts b/daemon/sdk/src/types.ts
+index 75264eb..6b38773 100644
+--- a/daemon/sdk/src/types.ts
++++ b/daemon/sdk/src/types.ts
+@@ -188,6 +188,17 @@ export interface RuntimeIdentityPin {
+    * missing one means rather than having it forged here.
+    */
+   graph?: string;
++  /**
++   * The digest of the store helper binary in place at admission (issue #13,
++   * criterion 5).
++   *
++   * The helper is the only writer of trusted state, so a task admitted while one
++   * build of it was in place is not admitted for another. The protocol revision
++   * catches a changed contract; this catches changed bytes behind an unchanged
++   * one. Optional for the same reason as `graph`, and with the same rule: a
++   * missing one is decided by the caller, never forged here.
++   */
++  helper?: string;
+ }
+ 
+ /**

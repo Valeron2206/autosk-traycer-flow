@@ -49,7 +49,8 @@ apply in the listed order, each producing the tree beside it:
 | `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` |
 | `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` |
 | `0027-serve-pinned-code.patch` | `72ed6e0ea07646666aaf81d6b7ee34f729b9715b` |
-| `0028-session-bound-create.patch` | `b83fa230dde4795ac082a75b41b6965cac577a2b` — the current `result_tree` |
+| `0028-session-bound-create.patch` | `b83fa230dde4795ac082a75b41b6965cac577a2b` |
+| `0029-helper-in-identity.patch` | `b0357eda7b3ee4d8b5589f1d0b4fa248bf664d91` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -405,6 +406,34 @@ refusal at a time.
 
 The price, accepted by the owner on 2026-09-08: a direct `autosk` CLI call
 outside any session no longer creates a bound task.
+
+## The helper is part of the identity
+
+Patch `0029` puts the digest of the store helper binary into the runtime
+identity a task is admitted under (#13, criterion 5). The protocol revision
+already catches a changed CONTRACT; this catches changed bytes behind an
+unchanged one — the same helper, speaking the same protocol, built from
+different source. It is the only writer of trusted state, so admitting a task
+under one build and running it under another is precisely the substitution the
+rest of this identity exists to prevent.
+
+The digest is of the bytes on disk at the path the daemon would spawn, cached by
+the file's own signature rather than by the path: caching by path for the life of
+the process would report the bytes that were there at startup while the next
+spawn used the ones on disk — a digest describing something nobody is running.
+
+A pin with no helper digest is answered exactly like a pin with no graph.
+Predating the check and having the field removed are indistinguishable on a task
+that already carries a workflow, so a restart re-admits it and everything else
+refuses.
+
+A helper that cannot be read is a refusal, not a crash. The one question this
+decision answers is whether a task may run right now, and when the trusted
+writer cannot even be identified the answer is no — throwing would take down the
+caller instead of parking the task.
+
+The owner chose this shape on 2026-09-08, over recording the digest without
+acting on it: a mismatch parks the task until an explicit migration.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:
