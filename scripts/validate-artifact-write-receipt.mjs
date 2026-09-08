@@ -156,15 +156,22 @@ export function validateArtifactWriteReceiptDesign(files) {
   if (declaredRefusals.join(",") !== REFUSALS.join(",")) {
     errors.push(`${SCHEMA_PATH}: the refusal set must match the contract exactly`);
   }
-  const reportFields = Object.keys(
-    schema.properties?.reconciliation?.oneOf?.[1]?.properties?.report?.properties ?? {},
-  );
+  // Found by what the branch SAYS, not by where it sits: the reconciliation
+  // states are a set that has already grown once, and a positional lookup turns
+  // adding one into a silent failure of the checks below.
+  const branches = schema.properties?.reconciliation?.oneOf ?? [];
+  const states = branches.map((branch) => branch?.properties?.state?.const);
+  if (states.slice().sort().join(",") !== "agreed,diverged,unreconciled") {
+    errors.push(`${SCHEMA_PATH}: reconciliation states must be exactly unreconciled, agreed, diverged`);
+  }
+  const diverged = branches.find((branch) => branch?.properties?.state?.const === "diverged");
+  const reportFields = Object.keys(diverged?.properties?.report?.properties ?? {});
   if (reportFields.sort().join(",") !== [...RECONCILIATION_SOURCES].sort().join(",")) {
     errors.push(`${SCHEMA_PATH}: a divergence report must name all four sources`);
   }
   // Required, not optional: a report that lists only the odd source out cannot be
   // checked by a reader who does not already know the answer.
-  const requiredReport = schema.properties?.reconciliation?.oneOf?.[1]?.properties?.report?.required ?? [];
+  const requiredReport = diverged?.properties?.report?.required ?? [];
   if (requiredReport.slice().sort().join(",") !== [...RECONCILIATION_SOURCES].sort().join(",")) {
     errors.push(`${SCHEMA_PATH}: every source in a divergence report must be required`);
   }

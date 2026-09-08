@@ -50,7 +50,8 @@ apply in the listed order, each producing the tree beside it:
 | `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` |
 | `0027-serve-pinned-code.patch` | `72ed6e0ea07646666aaf81d6b7ee34f729b9715b` |
 | `0028-session-bound-create.patch` | `b83fa230dde4795ac082a75b41b6965cac577a2b` |
-| `0029-helper-in-identity.patch` | `b0357eda7b3ee4d8b5589f1d0b4fa248bf664d91` — the current `result_tree` |
+| `0029-helper-in-identity.patch` | `b0357eda7b3ee4d8b5589f1d0b4fa248bf664d91` |
+| `0030-artifact-write-adapter.patch` | `dc2e2c02a954579b8552848761edeb9800302d1b` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -434,6 +435,41 @@ caller instead of parking the task.
 
 The owner chose this shape on 2026-09-08, over recording the digest without
 acting on it: a mismatch parks the task until an explicit migration.
+
+## Writing an artifact, verified
+
+Patch `0030` adds the write a canonical artifact goes through (#22). A canonical
+artifact is an ordinary project file, not something under `.autosk/`, and the
+adapter reaches it the way everything else reaches trusted state: every
+component of the path is opened without following a link, so a swapped directory
+anywhere along it is refused instead of sending the write elsewhere while
+reporting the project-relative name.
+
+The write is conditional. `expected_previous` says what the destination must be
+before it happens, because a caller that cannot say what it is replacing is a
+caller that cannot notice it replaced something else. Then the bytes are
+published atomically and READ BACK: a platform sync agent or a formatter can
+rewrite a file moments after it is written, and the only way to say the bytes on
+disk are the intended ones is to look at them afterwards rather than to trust
+that the write returned without error.
+
+Three limits are named rather than implied. Nothing is created on the way — a
+missing parent directory is a refusal, because creating directories on the way to
+a write turns a mistyped destination into a new tree. The store is not reachable
+as an artifact: writing into `.autosk/` here would go around every rule the
+store's own operations enforce. And oversize is a refusal rather than a
+quarantine at this layer, because quarantine has to put the bytes somewhere and
+record where, and a receipt saying `quarantined` before that exists would
+describe a file nobody wrote.
+
+The receipt comes back `pending`, and that is not a placeholder either. Its
+phase is computed from its own evidence, and reconciling the four sources the
+contract names is a separate step this does not perform. The contract gained a
+third reconciliation state, `unreconciled`, for exactly this: the two-state shape
+it shipped with had no way to say "not compared yet", and would have forced a
+freshly written receipt to claim `agreed` — a comparison nobody had made.
+
+Two new ops make the protocol revision `5`.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:

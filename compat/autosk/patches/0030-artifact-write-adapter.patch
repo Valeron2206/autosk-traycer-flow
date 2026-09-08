@@ -1,0 +1,1298 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index 13be5cf..61caa5d 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -25,7 +25,7 @@ const maxRequestBytes = 64 * 1024 * 1024
+ // out only through a malformed reply, if at all. It is compared exactly: a
+ // different revision means a different contract, and guessing which half of it
+ // still holds is not a decision this side gets to make.
+-const protocolVersion = 4
++const protocolVersion = 5
+ 
+ type readyMessage struct {
+ 	OK       bool `json:"ok"`
+@@ -48,6 +48,17 @@ type requestMessage struct {
+ 	// distribution's files are arbitrary, and a JSON string cannot hold them —
+ 	// encoding/json substitutes U+FFFD for anything that is not valid UTF-8.
+ 	DataB64 string `json:"data_b64,omitempty"`
++	// Artifact writes (issue #22). `Path` is project-relative; `Expected` is what
++	// the destination must be BEFORE the write, which is what makes the write
++	// conditional rather than hopeful.
++	Path     string                         `json:"path,omitempty"`
++	Expected *storelock.ArtifactExpectation `json:"expected,omitempty"`
++	Mode     uint32                         `json:"mode,omitempty"`
++	// SizePolicy is the artifact write's own ceiling, separate from `MaxBytes`
++	// above: that one bounds a transcript window, this one is the policy a
++	// receipt records, and conflating them would make one caller's limit
++	// silently govern the other's.
++	SizePolicy int64 `json:"size_policy,omitempty"`
+ }
+ 
+ type responseMessage struct {
+@@ -64,7 +75,9 @@ type responseMessage struct {
+ 	Eof bool `json:"eof,omitempty"`
+ 	// DataB64 answers the ops whose payload is not text; see requestMessage.
+ 	DataB64 string `json:"data_b64,omitempty"`
+-	Error   string `json:"error,omitempty"`
++	// Artifact is what a verified write published, or what stands at a path now.
++	Artifact *storelock.ArtifactIdentity `json:"artifact,omitempty"`
++	Error    string                      `json:"error,omitempty"`
+ 	// Code names the refusal class when the helper could classify it. Absent means
+ 	// unclassified — never "fine" and never "some other class"; see storelock.Code.
+ 	Code string `json:"code,omitempty"`
+@@ -237,6 +250,30 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ 			return responseError(req.ID, err)
+ 		}
+ 		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
++	case "stat_artifact":
++		identity, exists, err := lock.StatArtifact(req.Path)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		resp := responseMessage{ID: req.ID, OK: true, Exists: exists}
++		if exists {
++			found := identity
++			resp.Artifact = &found
++		}
++		return resp
++	case "write_artifact":
++		if req.Expected == nil {
++			return responseError(req.ID, fmt.Errorf("write_artifact requires an expected previous state"))
++		}
++		data, err := base64.StdEncoding.DecodeString(req.DataB64)
++		if err != nil {
++			return responseError(req.ID, fmt.Errorf("decode artifact: %w", err))
++		}
++		published, err := lock.WriteArtifact(req.Path, data, *req.Expected, req.Mode, req.SizePolicy)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Exists: true, Artifact: &published}
+ 	case "read_distribution_blob":
+ 		result, err := lock.ReadDistributionBlob(req.Digest)
+ 		if err != nil {
+diff --git a/daemon/core/src/store/artifacts.ts b/daemon/core/src/store/artifacts.ts
+new file mode 100644
+index 0000000..4cedbc3
+--- /dev/null
++++ b/daemon/core/src/store/artifacts.ts
+@@ -0,0 +1,213 @@
++/**
++ * Verified artifact writes and the receipts they produce (issue #22).
++ *
++ * A canonical artifact is an ordinary project file. Writing one and then reading
++ * `git status` establishes that SOME bytes are there now; it does not establish
++ * that the intended ones landed. This module performs the write through the
++ * boundary adapter and returns a receipt describing what actually happened.
++ *
++ * The receipt's phase is COMPUTED from its own evidence, never asserted — the
++ * rule the contract exists to make impossible to break. A write whose read-back
++ * disagrees with the intent is `pending`, not `verified`, however the caller
++ * would like to describe it.
++ */
++
++import { createHash } from "node:crypto";
++
++import { withCreationLock, type ArtifactExpectation, type ArtifactIdentity } from "./creation.ts";
++import type { ProjectPaths } from "./paths.ts";
++
++/** The runtime identity a receipt cites (issues #10 and #13). */
++export interface ReceiptRuntimeIdentity {
++  workflow: string;
++  digest: string;
++  graph: string;
++  helper: string;
++}
++
++/** The size and mode policy, recorded in the receipt rather than left in the code. */
++export interface ArtifactWritePolicy {
++  max_bytes: number;
++  allowed_modes: number[];
++}
++
++/** What a caller asks for. `expected_previous` is what makes the write conditional. */
++export interface ArtifactWriteIntent {
++  project_identity: string;
++  epic_id: string;
++  artifact_class: string;
++  destination: string;
++  bytes: Buffer;
++  mode: number;
++  expected_previous: ArtifactExpectation;
++  operation_id: string;
++  planning_base_oid: string;
++  pathspec_digest: string;
++  runtime_identity: ReceiptRuntimeIdentity;
++  policy: ArtifactWritePolicy;
++  sequence: number;
++}
++
++/** One write, as it can be checked later by someone who was not there. */
++export interface ArtifactWriteReceipt {
++  schema_version: 1;
++  project_identity: string;
++  epic_id: string;
++  artifact_class: string;
++  destination: string;
++  expected_previous: { state: "absent" } | { state: "file"; sha256: string; mode: number };
++  intended_sha256: string;
++  intended_size: number;
++  observed_sha256?: string;
++  observed_size?: number;
++  observed_mode?: number;
++  operation_id: string;
++  planning_base_oid: string;
++  pathspec_digest: string;
++  runtime_identity: ReceiptRuntimeIdentity;
++  policy: ArtifactWritePolicy;
++  phase: "pending" | "verified" | "quarantined";
++  quarantine: { state: "none" };
++  reconciliation: { state: "unreconciled" } | { state: "agreed" };
++  recorded_at: string;
++  sequence: number;
++}
++
++/** Refusals a caller may branch on, from section 8 of the contract. */
++export type ArtifactWriteRefusal =
++  | "write_destination_invalid"
++  | "write_previous_mismatch"
++  | "write_not_regular"
++  | "write_too_large"
++  | "write_readback_mismatch"
++  | "write_mode_mismatch"
++  | "write_helper_unavailable";
++
++export class ArtifactWriteError extends Error {
++  constructor(
++    readonly refusal: ArtifactWriteRefusal,
++    message: string,
++  ) {
++    super(message);
++    this.name = "ArtifactWriteError";
++  }
++}
++
++/**
++ * The phase this receipt's own evidence supports.
++ *
++ * Mirrors the design-time computation deliberately: a receipt written by the
++ * daemon and a receipt checked by the validator must agree about what counts as
++ * verified, and two implementations of one rule are how they stop agreeing.
++ */
++export function receiptPhase(receipt: ArtifactWriteReceipt): "pending" | "verified" | "quarantined" {
++  if (receipt.quarantine.state !== "none") return "quarantined";
++  if (receipt.observed_sha256 === undefined || receipt.observed_size === undefined) return "pending";
++  if (receipt.observed_sha256 !== receipt.intended_sha256) return "pending";
++  if (receipt.observed_size !== receipt.intended_size) return "pending";
++  if (receipt.reconciliation.state !== "agreed") return "pending";
++  return "verified";
++}
++
++/**
++ * Publishes an artifact and returns its receipt.
++ *
++ * The receipt comes back `pending`, and that is not a placeholder. Reconciling
++ * the four sources the contract names is a separate step this does not perform,
++ * and a receipt that said `verified` without it would be claiming a comparison
++ * nobody made.
++ */
++export async function writeVerifiedArtifact(
++  paths: ProjectPaths,
++  intent: ArtifactWriteIntent,
++  now: () => string,
++): Promise<ArtifactWriteReceipt> {
++  const intended = createHash("sha256").update(intent.bytes).digest("hex");
++  // Checked before the write rather than reported after it: a mode the policy
++  // does not allow is a caller error, and publishing first would leave a file
++  // the policy says should not exist.
++  if (!intent.policy.allowed_modes.includes(intent.mode)) {
++    throw new ArtifactWriteError(
++      "write_mode_mismatch",
++      `mode ${intent.mode.toString(8)} is not in the pinned policy`,
++    );
++  }
++  // Oversize is a REFUSAL here, not a quarantine. Quarantine has to put the
++  // bytes somewhere and record where; until that exists, returning a receipt
++  // that says `quarantined` would describe a file nobody wrote.
++  if (intent.bytes.byteLength > intent.policy.max_bytes) {
++    throw new ArtifactWriteError(
++      "write_too_large",
++      `${intent.destination} is ${intent.bytes.byteLength} bytes, over the pinned ${intent.policy.max_bytes}`,
++    );
++  }
++
++  let published: ArtifactIdentity;
++  try {
++    published = await withCreationLock(paths, (io) =>
++      io.writeArtifact(intent.destination, intent.bytes, intent.expected_previous, intent.mode, intent.policy.max_bytes),
++    );
++  } catch (error) {
++    throw new ArtifactWriteError(refusalFor(error), error instanceof Error ? error.message : String(error));
++  }
++
++  const receipt: ArtifactWriteReceipt = {
++    schema_version: 1,
++    project_identity: intent.project_identity,
++    epic_id: intent.epic_id,
++    artifact_class: intent.artifact_class,
++    destination: intent.destination,
++    expected_previous: intent.expected_previous.absent
++      ? { state: "absent" }
++      : { state: "file", sha256: intent.expected_previous.sha256!, mode: intent.expected_previous.mode! },
++    intended_sha256: intended,
++    intended_size: intent.bytes.byteLength,
++    observed_sha256: published.sha256,
++    observed_size: published.size,
++    observed_mode: published.mode,
++    operation_id: intent.operation_id,
++    planning_base_oid: intent.planning_base_oid,
++    pathspec_digest: intent.pathspec_digest,
++    runtime_identity: intent.runtime_identity,
++    policy: intent.policy,
++    // Overwritten below. Assigning a placeholder and then computing is what keeps
++    // the field from ever being set by hand.
++    phase: "pending",
++    quarantine: { state: "none" },
++    reconciliation: { state: "unreconciled" },
++    recorded_at: now(),
++    sequence: intent.sequence,
++  };
++  receipt.phase = receiptPhase(receipt);
++  return receipt;
++}
++
++/**
++ * The refusal class for a helper error.
++ *
++ * Read from the classified code the helper sends, not from the message: a
++ * reworded message is not supposed to be a behaviour change, and this is the
++ * third place in this repository where reading one would have made it one.
++ */
++function refusalFor(error: unknown): ArtifactWriteRefusal {
++  const code = (error as { code?: unknown } | null)?.code;
++  switch (code) {
++    case "destination_invalid":
++      return "write_destination_invalid";
++    case "previous_mismatch":
++      return "write_previous_mismatch";
++    case "not_regular":
++    case "not_dir":
++      return "write_not_regular";
++    case "too_large":
++      return "write_too_large";
++    case "readback_mismatch":
++      return "write_readback_mismatch";
++    case "mode_mismatch":
++      return "write_mode_mismatch";
++    default:
++      // Unclassified means the boundary could not be used as expected, which is
++      // not the same as any of the classes above and must not be rounded into one.
++      return "write_helper_unavailable";
++  }
++}
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index bccc851..4522069 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -25,7 +25,7 @@ const INDEX_VERSION = 1;
+  * this side can do honestly. Keep in step with `protocolVersion` in
+  * `cmd/autosk-store-lock/main.go`.
+  */
+-const HELPER_PROTOCOL_VERSION = 4;
++const HELPER_PROTOCOL_VERSION = 5;
+ const LOCK_TIMEOUT_MS = 30_000;
+ const READY_TIMEOUT_MS = 10_000;
+ const REQUEST_TIMEOUT_MS = 30_000;
+@@ -113,12 +113,17 @@ interface HelperRequest {
+     | "read_session_meta" | "write_session_meta" | "list_session_ids"
+     | "read_session_transcript" | "write_session_transcript" | "append_session_transcript"
+     | "read_distribution_blob" | "write_distribution_blob" | "delete_distribution_blob"
+-    | "list_distribution_blobs";
++    | "list_distribution_blobs"
++    | "stat_artifact" | "write_artifact";
+   task_id?: string;
+   session_id?: string;
+   offset?: number;
+   max_bytes?: number;
+   data_b64?: string;
++  path?: string;
++  expected?: ArtifactExpectation;
++  mode?: number;
++  size_policy?: number;
+   digest?: string;
+   expected_digest?: string | null;
+   data?: string;
+@@ -133,6 +138,7 @@ interface HelperResponse {
+   sig?: unknown;
+   eof?: unknown;
+   data_b64?: unknown;
++  artifact?: unknown;
+   error?: unknown;
+   code?: unknown;
+ }
+@@ -169,6 +175,26 @@ export interface CreationLockIO {
+   ): Promise<{ data: string; sig: string; eof: boolean } | null>;
+   writeSessionTranscript(sessionId: string, data: string): Promise<string>;
+   appendSessionTranscript(sessionId: string, data: string): Promise<string>;
++  /**
++   * What stands at a project-relative path now, or `null` when nothing does
++   * (issue #22). Every component is opened without following a link, so a
++   * swapped directory is refused rather than answered about.
++   */
++  statArtifact(path: string): Promise<ArtifactIdentity | null>;
++  /**
++   * Publishes an artifact and returns what the read-back found.
++   *
++   * `expected` is what the destination must be BEFORE the write. A caller that
++   * cannot say what it is replacing is a caller that cannot notice it replaced
++   * something else.
++   */
++  writeArtifact(
++    path: string,
++    data: Buffer,
++    expected: ArtifactExpectation,
++    mode: number,
++    sizePolicy: number,
++  ): Promise<ArtifactIdentity>;
+   /**
+    * One file of an extension distribution, held by the digest of its own bytes
+    * (issue #10, criterion 3). These are arbitrary bytes, not documents: a
+@@ -181,6 +207,20 @@ export interface CreationLockIO {
+   listDistributionBlobs(): Promise<string[]>;
+ }
+ 
++/** What a destination must be before a write (issue #22). */
++export interface ArtifactExpectation {
++  absent: boolean;
++  sha256?: string;
++  mode?: number;
++}
++
++/** What a destination is, or what a write published. */
++export interface ArtifactIdentity {
++  sha256: string;
++  size: number;
++  mode: number;
++}
++
+ export function creationKeyHash(key: string): string {
+   return createHash("sha256").update(key, "utf8").digest("hex");
+ }
+@@ -785,6 +825,33 @@ class HelperClient implements CreationLockIO {
+     };
+   }
+ 
++  async statArtifact(path: string): Promise<ArtifactIdentity | null> {
++    const response = await this.request({ op: "stat_artifact", path });
++    if (typeof response.exists !== "boolean") {
++      throw new Error("autosk-store-lock returned invalid artifact existence flag");
++    }
++    if (!response.exists) return null;
++    return artifactIdentity(response.artifact, "stat_artifact");
++  }
++
++  async writeArtifact(
++    path: string,
++    data: Buffer,
++    expected: ArtifactExpectation,
++    mode: number,
++    sizePolicy: number,
++  ): Promise<ArtifactIdentity> {
++    const response = await this.request({
++      op: "write_artifact",
++      path,
++      data_b64: data.toString("base64"),
++      expected,
++      mode,
++      size_policy: sizePolicy,
++    });
++    return artifactIdentity(response.artifact, "write_artifact");
++  }
++
+   async readDistributionBlob(digest: string): Promise<Buffer | null> {
+     const response = await this.request({ op: "read_distribution_blob", digest });
+     if (typeof response.exists !== "boolean") {
+@@ -915,6 +982,21 @@ class HelperClient implements CreationLockIO {
+  * as `fs.stat` derives it (seconds scaled, nanoseconds divided, in that order),
+  * because a different rounding is a different string.
+  */
++function artifactIdentity(raw: unknown, op: string): ArtifactIdentity {
++  if (!isPlainRecord(raw)) throw new Error(`autosk-store-lock ${op} returned no artifact identity`);
++  const { sha256, size, mode } = raw;
++  if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(sha256)) {
++    throw new Error(`autosk-store-lock ${op} returned an invalid artifact digest`);
++  }
++  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
++    throw new Error(`autosk-store-lock ${op} returned an invalid artifact size`);
++  }
++  if (typeof mode !== "number" || !Number.isSafeInteger(mode) || mode < 0 || mode > 0o7777) {
++    throw new Error(`autosk-store-lock ${op} returned an invalid artifact mode`);
++  }
++  return { sha256, size, mode };
++}
++
+ function helperFileSig(raw: unknown, op: string): string {
+   if (!isPlainRecord(raw)) throw new Error(`autosk-store-lock ${op} returned no file signature`);
+   const num = (field: string): number => {
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index 7241ab9..a53e669 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -25,6 +25,8 @@ export {
+   serializeCreationIndex,
+   type CreationIndexRecord,
+   type CreationReservationRecord,
++  type ArtifactExpectation,
++  type ArtifactIdentity,
+   type CreationLockIO,
+   type TaskCreationErrorCode,
+   type TaskCreationErrorDetails,
+@@ -63,3 +65,13 @@ export {
+   applyMetadataPatch,
+   applyMetadataUnset,
+ } from "./metadata.ts";
++export {
++  ArtifactWriteError,
++  receiptPhase,
++  writeVerifiedArtifact,
++  type ArtifactWriteIntent,
++  type ArtifactWritePolicy,
++  type ArtifactWriteReceipt,
++  type ArtifactWriteRefusal,
++  type ReceiptRuntimeIdentity,
++} from "./artifacts.ts";
+diff --git a/daemon/core/test/store.artifacts.test.ts b/daemon/core/test/store.artifacts.test.ts
+new file mode 100644
+index 0000000..2a40a26
+--- /dev/null
++++ b/daemon/core/test/store.artifacts.test.ts
+@@ -0,0 +1,207 @@
++/**
++ * Verified artifact writes (issue #22).
++ *
++ * The receipt is the point: a write that returns without error says only that
++ * some bytes are there now. These tests are about the receipt describing what
++ * actually happened, and about its phase being earned rather than asserted.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { createHash } from "node:crypto";
++import { existsSync, readFileSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
++import { join } from "node:path";
++
++import { ArtifactWriteError, receiptPhase, writeVerifiedArtifact, type ArtifactWriteIntent } from "../src/index.ts";
++import { withCreationLock } from "../src/store/creation.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
++import { Store } from "../src/index.ts";
++import { tempDir } from "./helpers.ts";
++
++const sha = (v: string | Buffer) => createHash("sha256").update(v).digest("hex");
++const NOW = () => "2026-09-08T12:00:00.000Z";
++
++describe("writing an artifact through the boundary", () => {
++  const cleanups: (() => void)[] = [];
++  const stores: Store[] = [];
++  afterEach(async () => {
++    for (const s of stores.splice(0)) await s.close();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  async function project(): Promise<{ paths: ProjectPaths; root: string }> {
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const store = new Store(dir.path, { watch: false });
++    stores.push(store);
++    await store.open();
++    return { paths: new ProjectPaths(store.root), root: store.root };
++  }
++
++  function intent(overrides: Partial<ArtifactWriteIntent> = {}): ArtifactWriteIntent {
++    const bytes = Buffer.from("# plan\n", "utf8");
++    return {
++      project_identity: `sha256:${"0".repeat(64)}`,
++      epic_id: "epic-1",
++      artifact_class: "tech_plan",
++      destination: "03-technical-plan.md",
++      bytes,
++      mode: 0o644,
++      expected_previous: { absent: true },
++      operation_id: "op-1",
++      planning_base_oid: "a".repeat(40),
++      pathspec_digest: "b".repeat(64),
++      runtime_identity: { workflow: "wf", digest: "c".repeat(64), graph: "d".repeat(64), helper: "e".repeat(64) },
++      policy: { max_bytes: 1 << 20, allowed_modes: [0o644] },
++      sequence: 1,
++      ...overrides,
++    };
++  }
++
++  test("the bytes land and the receipt describes them", async () => {
++    const { paths, root } = await project();
++    const spec = intent();
++    const receipt = await writeVerifiedArtifact(paths, spec, NOW);
++
++    expect(readFileSync(join(root, spec.destination), "utf8")).toBe(spec.bytes.toString("utf8"));
++    expect(receipt.observed_sha256).toBe(sha(spec.bytes));
++    expect(receipt.observed_size).toBe(spec.bytes.byteLength);
++    expect(receipt.observed_mode).toBe(0o644);
++    expect(receipt.intended_sha256).toBe(sha(spec.bytes));
++  });
++
++  test("a fresh receipt is pending, because nothing has been reconciled", async () => {
++    // Not a placeholder. Reconciling the four sources is a separate step, and a
++    // receipt saying `verified` without it would claim a comparison nobody made.
++    const { paths } = await project();
++    const receipt = await writeVerifiedArtifact(paths, intent(), NOW);
++    expect(receipt.reconciliation).toEqual({ state: "unreconciled" });
++    expect(receipt.phase).toBe("pending");
++  });
++
++  test("the phase is computed, so it cannot be talked into being verified", async () => {
++    const { paths } = await project();
++    const receipt = await writeVerifiedArtifact(paths, intent(), NOW);
++    // Everything agrees except the reconciliation, which is what holds it back.
++    expect(receiptPhase({ ...receipt, reconciliation: { state: "agreed" } })).toBe("verified");
++    // And a read-back that disagrees is pending however the record is dressed up.
++    expect(
++      receiptPhase({ ...receipt, reconciliation: { state: "agreed" }, observed_sha256: "9".repeat(64) }),
++    ).toBe("pending");
++    expect(receiptPhase({ ...receipt, reconciliation: { state: "agreed" }, observed_size: 1 })).toBe("pending");
++  });
++
++  test("a write that is not what the caller expected to replace is refused", async () => {
++    const { paths, root } = await project();
++    await writeVerifiedArtifact(paths, intent(), NOW);
++
++    const wrong = writeVerifiedArtifact(
++      paths,
++      intent({ bytes: Buffer.from("changed\n"), expected_previous: { absent: true }, operation_id: "op-2" }),
++      NOW,
++    );
++    await expect(wrong).rejects.toThrow(ArtifactWriteError);
++    await wrong.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_previous_mismatch"));
++    expect(readFileSync(join(root, "03-technical-plan.md"), "utf8")).toBe("# plan\n");
++  });
++
++  test("a known previous version is replaced, and the receipt says which one", async () => {
++    const { paths } = await project();
++    const first = intent();
++    await writeVerifiedArtifact(paths, first, NOW);
++    const second = intent({
++      bytes: Buffer.from("# plan v2\n"),
++      expected_previous: { absent: false, sha256: sha(first.bytes), mode: 0o644 },
++      operation_id: "op-2",
++      sequence: 2,
++    });
++    const receipt = await writeVerifiedArtifact(paths, second, NOW);
++    expect(receipt.expected_previous).toEqual({ state: "file", sha256: sha(first.bytes), mode: 0o644 });
++    expect(receipt.observed_sha256).toBe(sha(second.bytes));
++  });
++
++  test("a mode outside the pinned policy is refused before anything is written", async () => {
++    const { paths, root } = await project();
++    const bad = writeVerifiedArtifact(paths, intent({ mode: 0o600 }), NOW);
++    await expect(bad).rejects.toThrow(ArtifactWriteError);
++    await bad.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_mode_mismatch"));
++    expect(existsSync(join(root, "03-technical-plan.md"))).toBe(false);
++  });
++
++  test("oversize is a refusal here, and does not pretend to be a quarantine", async () => {
++    // Quarantine has to put the bytes somewhere and record where. Until that
++    // exists, a receipt saying `quarantined` would describe a file nobody wrote.
++    const { paths, root } = await project();
++    const big = writeVerifiedArtifact(
++      paths,
++      intent({ bytes: Buffer.alloc(11), policy: { max_bytes: 10, allowed_modes: [0o644] } }),
++      NOW,
++    );
++    await expect(big).rejects.toThrow(ArtifactWriteError);
++    await big.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_too_large"));
++    expect(existsSync(join(root, "03-technical-plan.md"))).toBe(false);
++  });
++
++  test("the size policy is checked before the boundary is reached", async () => {
++    // The helper enforces the same limit, so this could look like a duplicate.
++    // It is not: without it the payload is base64-encoded and sent, and a large
++    // enough artifact would break the connection on the line limit instead of
++    // being refused. Observable by making the boundary unusable — the refusal
++    // must still be about the size.
++    const { paths } = await project();
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = join(tempDir().path, "not-installed");
++    try {
++      const big = writeVerifiedArtifact(
++        paths,
++        intent({ bytes: Buffer.alloc(11), policy: { max_bytes: 10, allowed_modes: [0o644] } }),
++        NOW,
++      );
++      await big.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_too_large"));
++      await expect(big).rejects.toThrow(ArtifactWriteError);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  });
++
++  test("a destination inside the store is refused", async () => {
++    const { paths } = await project();
++    const inside = writeVerifiedArtifact(paths, intent({ destination: ".autosk/note.md" }), NOW);
++    await inside.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_destination_invalid"));
++    await expect(inside).rejects.toThrow(ArtifactWriteError);
++  });
++
++  test("a symlinked component sends the write nowhere", async () => {
++    const { paths, root } = await project();
++    const outside = tempDir();
++    cleanups.push(outside.cleanup);
++    symlinkSync(outside.path, join(root, "docs"));
++    const escaping = writeVerifiedArtifact(paths, intent({ destination: "docs/plan.md" }), NOW);
++    await escaping.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_destination_invalid"));
++    await expect(escaping).rejects.toThrow(ArtifactWriteError);
++    expect(existsSync(join(outside.path, "plan.md"))).toBe(false);
++  });
++
++  test("a missing parent directory is refused rather than created", async () => {
++    const { paths, root } = await project();
++    mkdirSync(join(root, "docs"));
++    const nested = writeVerifiedArtifact(paths, intent({ destination: "docs/generated/plan.md" }), NOW);
++    await nested.catch((e: ArtifactWriteError) => expect(e.refusal).toBe("write_destination_invalid"));
++    await expect(nested).rejects.toThrow(ArtifactWriteError);
++    expect(existsSync(join(root, "docs", "generated"))).toBe(false);
++  });
++
++  test("stat answers about the destination without following a link", async () => {
++    const { paths, root } = await project();
++    expect(await withCreationLock(paths, (io) => io.statArtifact("a.md"))).toBeNull();
++    writeFileSync(join(root, "a.md"), "one");
++    const found = await withCreationLock(paths, (io) => io.statArtifact("a.md"));
++    expect(found?.sha256).toBe(sha("one"));
++
++    const outside = tempDir();
++    cleanups.push(outside.cleanup);
++    writeFileSync(join(outside.path, "target.md"), "theirs");
++    symlinkSync(join(outside.path, "target.md"), join(root, "linked.md"));
++    await expect(withCreationLock(paths, (io) => io.statArtifact("linked.md"))).rejects.toThrow(/symbolic link/);
++  });
++});
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+index f401b7d..e4282c8 100644
+--- a/daemon/core/test/store.singlewriter.test.ts
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -110,6 +110,8 @@ describe("what the boundary adapter covers", () => {
+       "read_session_meta",
+       "read_session_transcript",
+       "read_task",
++      "stat_artifact",
++      "write_artifact",
+       "write_comments",
+       "write_creation_index",
+       "write_distribution_blob",
+diff --git a/internal/storelock/artifact_test.go b/internal/storelock/artifact_test.go
+new file mode 100644
+index 0000000..300f65f
+--- /dev/null
++++ b/internal/storelock/artifact_test.go
+@@ -0,0 +1,287 @@
++package storelock
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func withArtifactLock(t *testing.T, root string) *Lock {
++	t.Helper()
++	lock, err := Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if closeErr := lock.Close(); closeErr != nil {
++			t.Fatal(closeErr)
++		}
++	})
++	return lock
++}
++
++func hashOf(data string) string {
++	sum := sha256.Sum256([]byte(data))
++	return hex.EncodeToString(sum[:])
++}
++
++const artifactMax = 1 << 20
++
++func TestArtifactWritePublishesAndReadsBack(t *testing.T) {
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	body := "# plan\n"
++	got, err := lock.WriteArtifact("03-technical-plan.md", []byte(body),
++		ArtifactExpectation{Absent: true}, 0o644, artifactMax)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got.SHA256 != hashOf(body) || got.Size != int64(len(body)) || got.Mode != 0o644 {
++		t.Fatalf("unexpected identity: %+v", got)
++	}
++	onDisk, err := os.ReadFile(filepath.Join(root, "03-technical-plan.md"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(onDisk) != body {
++		t.Fatalf("on disk %q, want %q", onDisk, body)
++	}
++}
++
++func TestArtifactWriteRefusesAnUnexpectedPrevious(t *testing.T) {
++	// A caller that cannot say what it is replacing is a caller that cannot
++	// notice it replaced something else.
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("a.md", []byte("one"), ArtifactExpectation{Absent: true}, 0o644, artifactMax); err != nil {
++		t.Fatal(err)
++	}
++	for _, tc := range []struct {
++		name     string
++		expected ArtifactExpectation
++	}{
++		{"absent when present", ArtifactExpectation{Absent: true}},
++		{"wrong digest", ArtifactExpectation{SHA256: hashOf("other"), Mode: 0o644}},
++		{"wrong mode", ArtifactExpectation{SHA256: hashOf("one"), Mode: 0o600}},
++	} {
++		if _, err := lock.WriteArtifact("a.md", []byte("two"), tc.expected, 0o644, artifactMax); !errors.Is(err, ErrPreviousMismatch) {
++			t.Fatalf("%s: expected ErrPreviousMismatch, got %v", tc.name, err)
++		}
++	}
++	// And the refusal left the file alone.
++	onDisk, err := os.ReadFile(filepath.Join(root, "a.md"))
++	if err != nil || string(onDisk) != "one" {
++		t.Fatalf("a refused write changed the file: %q %v", onDisk, err)
++	}
++}
++
++func TestArtifactWriteRefusesAnAbsentPreviousThatIsExpected(t *testing.T) {
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("a.md", []byte("one"),
++		ArtifactExpectation{SHA256: hashOf("gone"), Mode: 0o644}, 0o644, artifactMax); !errors.Is(err, ErrPreviousMismatch) {
++		t.Fatalf("expected ErrPreviousMismatch, got %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
++		t.Fatalf("a refused write created the file: %v", err)
++	}
++}
++
++func TestArtifactWriteReplacesAKnownPrevious(t *testing.T) {
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("a.md", []byte("one"), ArtifactExpectation{Absent: true}, 0o644, artifactMax); err != nil {
++		t.Fatal(err)
++	}
++	got, err := lock.WriteArtifact("a.md", []byte("two"),
++		ArtifactExpectation{SHA256: hashOf("one"), Mode: 0o644}, 0o644, artifactMax)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got.SHA256 != hashOf("two") {
++		t.Fatalf("identity %+v does not describe the new bytes", got)
++	}
++}
++
++func TestArtifactWriteRefusesPathsItMayNotReach(t *testing.T) {
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	for _, rel := range []string{
++		"", "/etc/passwd", "../escape.md", "docs/../../escape.md", "./a.md", "a//b.md",
++		// The store is not an artifact: writing into it here would go around every
++		// rule the store's own operations enforce. `.autosk` exists — the lock
++		// created it — so this is refused for being the store, not for being absent.
++		".autosk/note.md",
++	} {
++		if _, err := lock.WriteArtifact(rel, []byte("x"), ArtifactExpectation{Absent: true}, 0o644, artifactMax); !errors.Is(err, ErrDestinationInvalid) {
++			t.Fatalf("%q: expected ErrDestinationInvalid, got %v", rel, err)
++		}
++	}
++}
++
++func TestArtifactWriteRefusesAMissingParent(t *testing.T) {
++	// Nothing is created on the way. A mistyped destination must not become a new
++	// tree, and whether a directory should exist is a decision this cannot make.
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("docs/generated/report.md", []byte("x"),
++		ArtifactExpectation{Absent: true}, 0o644, artifactMax); !errors.Is(err, ErrDestinationInvalid) {
++		t.Fatalf("expected ErrDestinationInvalid, got %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "docs")); !os.IsNotExist(err) {
++		t.Fatal("a refused write created a directory")
++	}
++}
++
++func TestArtifactWriteRefusesASymlinkedComponent(t *testing.T) {
++	// The whole reason this goes through the lock: a swapped directory anywhere
++	// along the path is refused instead of sending the write elsewhere while
++	// reporting the project-relative name.
++	root := t.TempDir()
++	outside := t.TempDir()
++	if err := os.Symlink(outside, filepath.Join(root, "docs")); err != nil {
++		t.Fatal(err)
++	}
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("docs/plan.md", []byte("x"),
++		ArtifactExpectation{Absent: true}, 0o644, artifactMax); !errors.Is(err, ErrDestinationInvalid) {
++		t.Fatalf("expected ErrDestinationInvalid, got %v", err)
++	}
++	entries, err := os.ReadDir(outside)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(entries) != 0 {
++		t.Fatalf("a write escaped through the symlink: %v", entries)
++	}
++}
++
++func TestArtifactWriteRefusesASymlinkedDestination(t *testing.T) {
++	root := t.TempDir()
++	outside := filepath.Join(t.TempDir(), "target.md")
++	if err := os.WriteFile(outside, []byte("theirs"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(root, "a.md")); err != nil {
++		t.Fatal(err)
++	}
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("a.md", []byte("ours"),
++		ArtifactExpectation{Absent: true}, 0o644, artifactMax); !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("expected ErrNotRegular, got %v", err)
++	}
++	body, err := os.ReadFile(outside)
++	if err != nil || string(body) != "theirs" {
++		t.Fatalf("the link target was written through: %q %v", body, err)
++	}
++}
++
++func TestArtifactWriteRefusesOversize(t *testing.T) {
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	if _, err := lock.WriteArtifact("a.md", make([]byte, 11),
++		ArtifactExpectation{Absent: true}, 0o644, 10); !errors.Is(err, ErrTooLarge) {
++		t.Fatalf("expected ErrTooLarge, got %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
++		t.Fatal("an oversize write left a file behind")
++	}
++}
++
++func TestStatArtifactReportsWhatIsThere(t *testing.T) {
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++	if _, _, err := lock.StatArtifact("a.md"); err != nil {
++		t.Fatal(err)
++	}
++	if _, exists, _ := lock.StatArtifact("a.md"); exists {
++		t.Fatal("reported a file that is not there")
++	}
++	if _, err := lock.WriteArtifact("a.md", []byte("one"), ArtifactExpectation{Absent: true}, 0o644, artifactMax); err != nil {
++		t.Fatal(err)
++	}
++	got, exists, err := lock.StatArtifact("a.md")
++	if err != nil || !exists {
++		t.Fatalf("stat after write: %v %v", got, err)
++	}
++	if got.SHA256 != hashOf("one") || got.Mode != 0o644 {
++		t.Fatalf("unexpected identity: %+v", got)
++	}
++}
++
++func TestArtifactCodesAreDistinct(t *testing.T) {
++	// A caller branches on these, so two refusals that mean different things must
++	// not answer with the same name.
++	seen := map[string]error{}
++	for _, err := range []error{ErrDestinationInvalid, ErrPreviousMismatch, ErrReadbackMismatch, ErrModeMismatch} {
++		code := Code(err)
++		if code == "" {
++			t.Fatalf("%v has no code", err)
++		}
++		if other, dup := seen[code]; dup {
++			t.Fatalf("%v and %v share the code %q", err, other, code)
++		}
++		seen[code] = err
++	}
++}
++
++func TestArtifactPublishedComparisonRejectsWhatItShould(t *testing.T) {
++	// The condition this guards is a sync agent or a formatter rewriting the file
++	// moments after the publish. That is real and is not something a test can
++	// stage by writing a file, so the comparison is exercised directly rather
++	// than left as a guard nobody has ever seen run.
++	data := []byte("intended")
++	good := ArtifactIdentity{SHA256: hashOf("intended"), Size: int64(len(data)), Mode: 0o644}
++	if err := verifyPublished("a.md", good, data, 0o644); err != nil {
++		t.Fatalf("the matching case was rejected: %v", err)
++	}
++	rewritten := ArtifactIdentity{SHA256: hashOf("reformatted"), Size: int64(len(data)), Mode: 0o644}
++	if err := verifyPublished("a.md", rewritten, data, 0o644); !errors.Is(err, ErrReadbackMismatch) {
++		t.Fatalf("expected ErrReadbackMismatch, got %v", err)
++	}
++	// A right digest with a wrong length cannot happen on one file, so this
++	// catches a read-back that recorded one of the two and guessed the other.
++	truncated := ArtifactIdentity{SHA256: hashOf("intended"), Size: 1, Mode: 0o644}
++	if err := verifyPublished("a.md", truncated, data, 0o644); !errors.Is(err, ErrReadbackMismatch) {
++		t.Fatalf("expected ErrReadbackMismatch, got %v", err)
++	}
++	chmodded := ArtifactIdentity{SHA256: hashOf("intended"), Size: int64(len(data)), Mode: 0o755}
++	if err := verifyPublished("a.md", chmodded, data, 0o644); !errors.Is(err, ErrModeMismatch) {
++		t.Fatalf("expected ErrModeMismatch, got %v", err)
++	}
++}
++
++func TestArtifactWriteRefusesADestinationThatIsNotAPlainFile(t *testing.T) {
++	// Not a symlink — those are refused at `open` — but the other shapes a name
++	// can have. A directory or a FIFO standing where an artifact should be is not
++	// a file to replace, and a hardlinked file publishes into someone else's name.
++	root := t.TempDir()
++	lock := withArtifactLock(t, root)
++
++	if err := os.Mkdir(filepath.Join(root, "dir.md"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.WriteArtifact("dir.md", []byte("x"),
++		ArtifactExpectation{Absent: true}, 0o644, artifactMax); !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("directory: expected ErrNotRegular, got %v", err)
++	}
++
++	if err := os.WriteFile(filepath.Join(root, "linked.md"), []byte("shared"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Link(filepath.Join(root, "linked.md"), filepath.Join(root, "alias.md")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.WriteArtifact("linked.md", []byte("x"),
++		ArtifactExpectation{SHA256: hashOf("shared"), Mode: 0o644}, 0o644, artifactMax); !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("hard link: expected ErrNotRegular, got %v", err)
++	}
++	body, err := os.ReadFile(filepath.Join(root, "alias.md"))
++	if err != nil || string(body) != "shared" {
++		t.Fatalf("the other name was written through: %q %v", body, err)
++	}
++}
+diff --git a/internal/storelock/artifact_unix.go b/internal/storelock/artifact_unix.go
+new file mode 100644
+index 0000000..7275b03
+--- /dev/null
++++ b/internal/storelock/artifact_unix.go
+@@ -0,0 +1,291 @@
++//go:build darwin || linux
++
++package storelock
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"strings"
++
++	"golang.org/x/sys/unix"
++)
++
++// Verified artifact writes (issue #22).
++//
++// A canonical artifact is an ordinary project file — `03-technical-plan.md`, not
++// something under `.autosk/`. Writing one and then reading `git status`
++// establishes that SOME bytes are there now; it does not establish that the
++// intended ones landed. This is the write that can say so: it validates what the
++// destination was, publishes atomically, and reads back what it published.
++//
++// It goes through this lock rather than around it for the reason the whole
++// boundary exists: every component of the path is opened without following a
++// link, so a swapped directory anywhere along it is refused instead of sending
++// the write somewhere else while reporting success.
++
++var (
++	// ErrDestinationInvalid: the path is not a project-relative POSIX path, names
++	// a component this writer may not traverse, or its parent does not exist.
++	ErrDestinationInvalid = errors.New("artifact destination is not writable here")
++	// ErrPreviousMismatch: the destination is not what the caller said it was.
++	ErrPreviousMismatch = errors.New("artifact destination is not in the expected previous state")
++	// ErrReadbackMismatch: what landed is not what was intended.
++	ErrReadbackMismatch = errors.New("artifact read-back does not match the intended bytes")
++	// ErrModeMismatch: the mode after the publish is not the one asked for.
++	ErrModeMismatch = errors.New("artifact mode after the write is not the requested one")
++)
++
++// ArtifactExpectation is the destination's identity BEFORE the write. It is what
++// makes a write conditional rather than hopeful: a caller that cannot say what it
++// is replacing is a caller that cannot notice it replaced something else.
++type ArtifactExpectation struct {
++	// Absent says the destination must not exist. Otherwise SHA256 and Mode must
++	// match what is there.
++	Absent bool   `json:"absent"`
++	SHA256 string `json:"sha256,omitempty"`
++	Mode   uint32 `json:"mode,omitempty"`
++}
++
++// ArtifactIdentity is what a destination is, or what a write produced.
++type ArtifactIdentity struct {
++	SHA256 string `json:"sha256"`
++	Size   int64  `json:"size"`
++	Mode   uint32 `json:"mode"`
++}
++
++// StatArtifact reports what stands at `relPath` now, without following a link at
++// any component. `false` means nothing is there.
++func (l *Lock) StatArtifact(relPath string) (_ ArtifactIdentity, _ bool, err error) {
++	if err := l.verifyLockPath(); err != nil {
++		return ArtifactIdentity{}, false, err
++	}
++	parentFD, name, err := l.openArtifactParent(relPath)
++	if err != nil {
++		return ArtifactIdentity{}, false, err
++	}
++	defer func() { err = errors.Join(err, closeFD(parentFD)) }()
++	return readArtifactIdentity(parentFD, name)
++}
++
++// WriteArtifact publishes `data` at `relPath` and returns what it read back.
++//
++// The read-back is not belt and braces. A platform sync agent or a formatter can
++// rewrite a file moments after it is written, and the only way to say the bytes
++// on disk are the intended ones is to look at them after the publish rather than
++// to trust that the write returned without error.
++func (l *Lock) WriteArtifact(
++	relPath string,
++	data []byte,
++	expected ArtifactExpectation,
++	mode uint32,
++	maxBytes int64,
++) (_ ArtifactIdentity, err error) {
++	if err := l.verifyLockPath(); err != nil {
++		return ArtifactIdentity{}, err
++	}
++	if maxBytes <= 0 {
++		return ArtifactIdentity{}, fmt.Errorf("artifact size policy must be positive: %w", ErrDestinationInvalid)
++	}
++	if int64(len(data)) > maxBytes {
++		return ArtifactIdentity{}, fmt.Errorf("artifact exceeds %d bytes: %w", maxBytes, ErrTooLarge)
++	}
++	parentFD, name, err := l.openArtifactParent(relPath)
++	if err != nil {
++		return ArtifactIdentity{}, err
++	}
++	defer func() { err = errors.Join(err, closeFD(parentFD)) }()
++
++	current, exists, err := readArtifactIdentity(parentFD, name)
++	if err != nil {
++		return ArtifactIdentity{}, err
++	}
++	if err := matchesExpectation(relPath, current, exists, expected); err != nil {
++		return ArtifactIdentity{}, err
++	}
++
++	if err := atomicWriteAt(parentFD, name, data, mode); err != nil {
++		return ArtifactIdentity{}, err
++	}
++	// Read back through the same no-follow path the write used, so the check is
++	// about the file that was published rather than about whatever the name
++	// resolves to now.
++	published, stillThere, err := readArtifactIdentity(parentFD, name)
++	if err != nil {
++		return ArtifactIdentity{}, err
++	}
++	if !stillThere {
++		return ArtifactIdentity{}, fmt.Errorf("%s disappeared after the write: %w", relPath, ErrReadbackMismatch)
++	}
++	if err := verifyPublished(relPath, published, data, mode); err != nil {
++		return ArtifactIdentity{}, err
++	}
++	if err := l.verifyLockPath(); err != nil {
++		return ArtifactIdentity{}, err
++	}
++	return published, nil
++}
++
++// verifyPublished compares what the read-back found with what was asked for.
++//
++// Separate from the write so it can be exercised directly: the condition it
++// exists for — a sync agent or a formatter rewriting the file moments after the
++// publish — is real, and is not something a test can stage by writing a file.
++// A check that could only ever be reached by that scenario would otherwise be a
++// guard nobody has ever seen run.
++func verifyPublished(relPath string, published ArtifactIdentity, data []byte, mode uint32) error {
++	intended := hex.EncodeToString(sha256Sum(data))
++	if published.SHA256 != intended || published.Size != int64(len(data)) {
++		return fmt.Errorf(
++			"%s is %s (%d bytes) after writing %s (%d bytes): %w",
++			relPath, published.SHA256, published.Size, intended, len(data), ErrReadbackMismatch,
++		)
++	}
++	if published.Mode != mode {
++		return fmt.Errorf(
++			"%s has mode %o after asking for %o: %w", relPath, published.Mode, mode, ErrModeMismatch,
++		)
++	}
++	return nil
++}
++
++func matchesExpectation(relPath string, current ArtifactIdentity, exists bool, expected ArtifactExpectation) error {
++	if expected.Absent {
++		if exists {
++			return fmt.Errorf("%s exists but was expected to be absent: %w", relPath, ErrPreviousMismatch)
++		}
++		return nil
++	}
++	if !exists {
++		return fmt.Errorf("%s is absent but a previous version was expected: %w", relPath, ErrPreviousMismatch)
++	}
++	if current.SHA256 != expected.SHA256 {
++		return fmt.Errorf(
++			"%s is %s, expected %s: %w", relPath, current.SHA256, expected.SHA256, ErrPreviousMismatch,
++		)
++	}
++	if current.Mode != expected.Mode {
++		return fmt.Errorf(
++			"%s has mode %o, expected %o: %w", relPath, current.Mode, expected.Mode, ErrPreviousMismatch,
++		)
++	}
++	return nil
++}
++
++// readArtifactIdentity opens `name` under `parentFD` without following a link,
++// and hashes it. A symlink standing at the name is a refusal rather than a
++// dereference: publishing through one would write outside the project while
++// reporting the project-relative path.
++func readArtifactIdentity(parentFD int, name string) (ArtifactIdentity, bool, error) {
++	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
++	if errors.Is(err, unix.ENOENT) {
++		return ArtifactIdentity{}, false, nil
++	}
++	if errors.Is(err, unix.ELOOP) {
++		return ArtifactIdentity{}, false, fmt.Errorf("%s is a symbolic link: %w", name, ErrNotRegular)
++	}
++	if err != nil {
++		return ArtifactIdentity{}, false, err
++	}
++	defer func() { _ = unix.Close(fd) }()
++	if err := requireRegularSingleLink(fd, name); err != nil {
++		return ArtifactIdentity{}, false, err
++	}
++	st, err := statFD(fd, name)
++	if err != nil {
++		return ArtifactIdentity{}, false, err
++	}
++	data, err := readAllFD(fd, st.Size)
++	if err != nil {
++		return ArtifactIdentity{}, false, err
++	}
++	return ArtifactIdentity{
++		SHA256: hex.EncodeToString(sha256Sum(data)),
++		Size:   st.Size,
++		Mode:   uint32(st.Mode & 0o7777),
++	}, true, nil
++}
++
++// openArtifactParent walks `relPath`'s directories from the project root, opening
++// every component with O_NOFOLLOW, and returns the parent descriptor plus the
++// leaf name. The caller closes the descriptor.
++//
++// Nothing is created. A missing parent directory is a refusal, and that is a
++// stated limit rather than an oversight: creating directories on the way to a
++// write turns a mistyped destination into a new tree, and the caller writing an
++// artifact into a directory that does not exist yet has a decision to make that
++// this operation cannot make for it.
++func (l *Lock) openArtifactParent(relPath string) (int, string, error) {
++	components, err := artifactComponents(relPath)
++	if err != nil {
++		return -1, "", err
++	}
++	fd, err := unix.Dup(l.rootFD)
++	if err != nil {
++		return -1, "", fmt.Errorf("dup project root: %w", err)
++	}
++	for _, dir := range components[:len(components)-1] {
++		next, openErr := unix.Openat(fd, dir, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
++		closeErr := closeFD(fd)
++		if openErr != nil || closeErr != nil {
++			if errors.Is(openErr, unix.ELOOP) || errors.Is(openErr, unix.ENOTDIR) {
++				return -1, "", errors.Join(fmt.Errorf("%s: %s is not a directory: %w", relPath, dir, ErrDestinationInvalid), closeErr)
++			}
++			if errors.Is(openErr, unix.ENOENT) {
++				return -1, "", errors.Join(fmt.Errorf("%s: %s does not exist: %w", relPath, dir, ErrDestinationInvalid), closeErr)
++			}
++			return -1, "", errors.Join(openErr, closeErr)
++		}
++		fd = next
++	}
++	return fd, components[len(components)-1], nil
++}
++
++func artifactComponents(relPath string) ([]string, error) {
++	if relPath == "" || strings.HasPrefix(relPath, "/") {
++		return nil, fmt.Errorf("%q is not project-relative: %w", relPath, ErrDestinationInvalid)
++	}
++	if strings.ContainsRune(relPath, 0) {
++		return nil, fmt.Errorf("artifact path contains a NUL byte: %w", ErrDestinationInvalid)
++	}
++	components := strings.Split(relPath, "/")
++	for _, part := range components {
++		if err := validateChildName(part); err != nil {
++			return nil, fmt.Errorf("%q: %w", relPath, ErrDestinationInvalid)
++		}
++	}
++	// The store is not an artifact. Writing into it through this operation would
++	// go around every rule the store's own operations enforce, and it is the one
++	// directory a caller has no reason to reach this way.
++	if components[0] == autoskDirName {
++		return nil, fmt.Errorf("%q is inside the store: %w", relPath, ErrDestinationInvalid)
++	}
++	return components, nil
++}
++
++func sha256Sum(data []byte) []byte {
++	sum := sha256.Sum256(data)
++	return sum[:]
++}
++
++// readAllFD reads a whole open file. Sized from the stat that preceded it, and
++// re-read to the end regardless: the size is a hint, and a file that grew between
++// the two would otherwise be hashed short.
++func readAllFD(fd int, size int64) ([]byte, error) {
++	buf := bytes.NewBuffer(make([]byte, 0, size))
++	chunk := make([]byte, 64*1024)
++	for {
++		n, err := unix.Read(fd, chunk)
++		if n > 0 {
++			buf.Write(chunk[:n])
++		}
++		if err != nil {
++			return nil, err
++		}
++		if n == 0 {
++			return buf.Bytes(), nil
++		}
++	}
++}
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index 2f01b11..241f8c6 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -109,6 +109,14 @@ func Code(err error) string {
+ 		return "not_utf8"
+ 	case errors.Is(err, ErrPathChanged):
+ 		return "path_changed"
++	case errors.Is(err, ErrDestinationInvalid):
++		return "destination_invalid"
++	case errors.Is(err, ErrPreviousMismatch):
++		return "previous_mismatch"
++	case errors.Is(err, ErrReadbackMismatch):
++		return "readback_mismatch"
++	case errors.Is(err, ErrModeMismatch):
++		return "mode_mismatch"
+ 	default:
+ 		return ""
+ 	}

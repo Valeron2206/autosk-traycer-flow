@@ -102,8 +102,12 @@ test("a divergence is never verified, however good the bytes look", () => {
 
 test("a divergence report must name all four sources, including the ones that agreed", () => {
   // A report listing only the odd source out cannot be checked by a reader who
-  // does not already know the answer.
-  const report = schema.properties.reconciliation.oneOf[1].properties.report;
+  // does not already know the answer. Found by what the branch says, not by
+  // where it sits: this set has already grown once.
+  const diverged = schema.properties.reconciliation.oneOf.find(
+    (branch) => branch.properties.state.const === "diverged",
+  );
+  const report = diverged.properties.report;
   assert.deepEqual(Object.keys(report.properties).sort(), [...RECONCILIATION_SOURCES].sort());
   assert.deepEqual(report.required.slice().sort(), [...RECONCILIATION_SOURCES].sort());
   assert.equal(report.additionalProperties, false);
@@ -193,4 +197,19 @@ test("the design digest changes when any shipped file changes", () => {
   const before = receiptDesignDigest(files);
   const after = receiptDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
+});
+
+test("a receipt that has not been reconciled says so, and is not verified", () => {
+  // The two-state shape this contract shipped with had no way to say "not
+  // compared yet", which would have forced a freshly written receipt to claim
+  // `agreed` — a comparison nobody had made.
+  const states = schema.properties.reconciliation.oneOf.map((branch) => branch.properties.state.const);
+  assert.deepEqual(states.slice().sort(), ["agreed", "diverged", "unreconciled"]);
+
+  const fresh = mutated((value) => {
+    value.reconciliation = { state: "unreconciled" };
+    value.phase = "pending";
+  });
+  assert.equal(computePhase(fresh), "pending");
+  assert.deepEqual(validateReceipt(fresh, schema), []);
 });
