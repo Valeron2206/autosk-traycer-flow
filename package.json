@@ -26,6 +26,7 @@
     "validate:artifact-write-receipt": "node scripts/validate-artifact-write-receipt.mjs",
     "validate:external-source-snapshot": "node scripts/validate-external-source-snapshot.mjs",
     "validate:evidence-manifest": "node scripts/validate-evidence-manifest.mjs",
+    "validate:governance-bundle": "node scripts/validate-governance-bundle.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {

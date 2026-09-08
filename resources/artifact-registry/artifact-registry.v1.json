@@ -201,6 +201,7 @@
         "docs/contracts/external-source-snapshot.md",
         "docs/contracts/finding-registry.md",
         "docs/contracts/gate-store-projection.md",
+        "docs/contracts/governance-bundle.md",
         "docs/contracts/model-result.md",
         "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
@@ -228,6 +229,7 @@
         "fault_matrix",
         "finding_registry",
         "gate_projection",
+        "governance_bundle",
         "instruction_lock",
         "model_result",
         "planning_ref_contract",
@@ -625,6 +627,32 @@
       "human_approval": "required"
     },
     {
+      "class": "governance_bundle",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/governance/**"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "instruction_lock"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "governance_update",
       "category": "governance_defining",
       "author_roles": [
@@ -914,5 +942,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "c05b30c6b48988821139da450862bc11f9d63b9e1961c2e2b88c536d7d8fe6d7"
+  "registry_digest": "50753b43fabcf915e3b6841daaf70082dbff06fafe01b26d9553fdb2c9a29631"
 }
