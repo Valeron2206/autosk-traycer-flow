@@ -65,6 +65,12 @@ A human acceptance record — or a pinned auto-policy, which is held to the same
 
 Acceptance is of an *identity*, not of a plan to produce one. If the staging tree changes afterwards, the acceptance no longer applies to what would be pushed, and the CAS is refused.
 
+The question reaches the operator through the decision queue of issue #35, and the two contracts meet at one point: the packet binds the exact staging identity as its candidate, so an answer that arrives after the tree moved is refused by the queue as an answer to a different question rather than applied to something nobody looked at. Every load-bearing field is inside that identity, which makes "the approval is stale" and "something it was about has changed" the same statement.
+
+The packet offers two options with their consequences. "Approve?" with one button is not a decision, and a refusal is a recorded outcome rather than the absence of an approval — a declined Epic is a state, not a silence.
+
+A pinned auto-policy names the identity it was pinned to and the debt it tolerates. One that accepted an identity it never saw is not a policy, it is a default; debt outside what it names is not something it agreed to.
+
 ## 6. The final CAS, and what follows it
 
 One compare-and-swap, expected-old being the recorded base. If the target has moved, the operation goes to `human` and the ref is not touched: a foreign movement means someone else acted on that branch, and overwriting it is the one outcome that cannot be undone by retrying.
