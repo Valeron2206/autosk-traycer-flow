@@ -67,6 +67,9 @@ jobs:
       - name: Validate clean-room fault matrix design contract
         run: npm run validate:clean-room
 
+      - name: Validate supported platform matrix design contract
+        run: npm run validate:platform-support
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
