@@ -106,6 +106,9 @@ jobs:
       - name: Validate verification document contract
         run: npm run validate:verify-doc
 
+      - name: Validate work-type gates contract
+        run: npm run validate:work-type-gates
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

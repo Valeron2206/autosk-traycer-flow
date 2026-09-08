@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Verification batch contract (issue #24)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "batch_id",
+    "purpose",
+    "work_type",
+    "candidate",
+    "owner",
+    "target",
+    "preconditions",
+    "io_contract",
+    "matrix",
+    "recovery",
+    "evidence",
+    "repository_verification",
+    "acceptance_rule"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "batch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 10
+    },
+    "work_type": {
+      "enum": [
+        "feature",
+        "bug-fix",
+        "refactoring",
+        "perf"
+      ]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_identity",
+        "epic_id",
+        "ticket_id",
+        "base_commit",
+        "base_tree",
+        "candidate_tree",
+        "pathspec_digest",
+        "anchor_version",
+        "runtime",
+        "protocol",
+        "instructions"
+      ],
+      "properties": {
+        "project_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "epic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ticket_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "base_tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "candidate_tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "pathspec_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "anchor_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "runtime": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "protocol": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "instructions": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "author",
+        "lifecycle",
+        "location",
+        "retained_by"
+      ],
+      "properties": {
+        "author": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lifecycle": {
+          "enum": [
+            "ephemeral",
+            "committed"
+          ]
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retained_by": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "components",
+        "tests",
+        "invariant"
+      ],
+      "properties": {
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "tests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "invariant": {
+          "type": "string",
+          "minLength": 10
+        }
+      }
+    },
+    "preconditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolchain_digest",
+        "clean_state"
+      ],
+      "properties": {
+        "toolchain_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "fixtures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "clean_state": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "io_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputs",
+        "outputs",
+        "result_semantics"
+      ],
+      "properties": {
+        "inputs": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outputs": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result_semantics": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "matrix": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mutation_id",
+          "target_anchor",
+          "semantic_change",
+          "application_proof",
+          "expected_killer",
+          "expected_red",
+          "green_controls"
+        ],
+        "properties": {
+          "mutation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_anchor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "semantic_change": {
+            "type": "string",
+            "minLength": 1
+          },
+          "application_proof": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_killer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_red": {
+            "type": "string",
+            "minLength": 1
+          },
+          "green_controls": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "outcome": {
+            "enum": [
+              "product_detected",
+              "product_not_detected",
+              "green_control_failed",
+              "mutation_not_applied",
+              "tool_setup_failed",
+              "tool_execution_failed",
+              "restore_failed",
+              "evidence_invalid",
+              "timeout",
+              "indeterminate"
+            ]
+          }
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "restore_procedure",
+        "interruption_boundaries",
+        "idempotent",
+        "post_restore_identity"
+      ],
+      "properties": {
+        "restore_procedure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interruption_boundaries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "idempotent": {
+          "type": "boolean"
+        },
+        "post_restore_identity": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_location",
+        "harness_digest",
+        "mutation_set_digest",
+        "config_digest",
+        "retention"
+      ],
+      "properties": {
+        "report_location": {
+          "type": "string",
+          "minLength": 1
+        },
+        "harness_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mutation_set_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "retention": {
+          "enum": [
+            "durable",
+            "transient",
+            "expirable"
+          ]
+        }
+      }
+    },
+    "repository_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targeted",
+        "full_suite",
+        "clean_state_check"
+      ],
+      "properties": {
+        "targeted": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "full_suite": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clean_state_check": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "acceptance_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pass_when",
+        "blocking_outcomes"
+      ],
+      "properties": {
+        "pass_when": {
+          "type": "string",
+          "minLength": 10
+        },
+        "blocking_outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "product_detected",
+              "product_not_detected",
+              "green_control_failed",
+              "mutation_not_applied",
+              "tool_setup_failed",
+              "tool_execution_failed",
+              "restore_failed",
+              "evidence_invalid",
+              "timeout",
+              "indeterminate"
+            ]
+          }
+        }
+      }
+    },
+    "self_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "known_killed_mutation",
+        "observed"
+      ],
+      "properties": {
+        "known_killed_mutation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed": {
+          "enum": [
+            "killed",
+            "survived"
+          ]
+        }
+      }
+    },
+    "batch_outcome": {
+      "enum": [
+        "product_detected",
+        "product_not_detected",
+        "green_control_failed",
+        "mutation_not_applied",
+        "tool_setup_failed",
+        "tool_execution_failed",
+        "restore_failed",
+        "evidence_invalid",
+        "timeout",
+        "indeterminate"
+      ]
+    }
+  }
+}
