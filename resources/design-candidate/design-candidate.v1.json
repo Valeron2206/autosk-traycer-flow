@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "f68a95728457a2002319937bb3a2e86bd5fec7fcb7e0d40f7ea4948ac0eb8572"
+      "sha256": "0a5b43f7428316a8addc8ffe28d069a2a815681ef03b66044308cefb3ece175c"
     },
     {
       "path": "README.md",
@@ -141,6 +141,10 @@
     {
       "path": "docs/contracts/verify-doc.md",
       "sha256": "7c125d0534a47e10cf993d2821e693168cc24db7650e7e511978b00f5321954e"
+    },
+    {
+      "path": "docs/contracts/walkthrough.md",
+      "sha256": "86fe325b2658b34ce01e193917d400713592c51c2e33f55c99d15de02d0fdce9"
     },
     {
       "path": "docs/contracts/work-type-gates.md",
@@ -353,9 +357,13 @@
     {
       "path": "resources/verify-doc/feature-map.schema.json",
       "sha256": "04ae885ba139010abb542fc5bdc60a2c6a0d721ef579bfe83f0b78b6ee1a1890"
+    },
+    {
+      "path": "resources/walkthrough/walkthrough.schema.json",
+      "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "582de469e187fc1ca0b15de98da13cff835ed5ec6a44109b735aecc2df4fe37e",
+  "candidate_digest": "045b512100d0d417ec2b64a58c3303095639ae1622def4ce3aeab1e17355d4c4",
   "dispositions": [
     {
       "issue": 3,
