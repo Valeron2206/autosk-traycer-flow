@@ -20,7 +20,8 @@
     "validate:approved-delta": "node scripts/validate-approved-delta.mjs",
     "validate:epic-staging": "node scripts/validate-epic-staging.mjs",
     "validate:gate-projection": "node scripts/validate-gate-store-projection.mjs",
-    "validate:clean-room": "node scripts/validate-clean-room-e2e.mjs"
+    "validate:clean-room": "node scripts/validate-clean-room-e2e.mjs",
+    "validate:platform-support": "node scripts/validate-platform-support.mjs"
   },
   "engines": {
     "node": ">=24"

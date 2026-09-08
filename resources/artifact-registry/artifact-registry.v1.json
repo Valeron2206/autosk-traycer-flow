@@ -173,6 +173,7 @@
         "docs/contracts/finding-registry.md",
         "docs/contracts/gate-store-projection.md",
         "docs/contracts/model-result.md",
+        "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
         "docs/contracts/tickets-manifest.md"
       ],
@@ -196,6 +197,7 @@
         "instruction_lock",
         "model_result",
         "planning_ref_contract",
+        "platform_matrix",
         "tech_plan",
         "tickets"
       ],
@@ -628,6 +630,35 @@
       "validator": "scripts/validate-planning-ref-design.mjs"
     },
     {
+      "class": "platform_matrix",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner",
+        "reviewer"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [],
+      "paths": [
+        "resources/platform-support/platform-support.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "schema_version"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/platform-support/platform-support.schema.json",
+      "validator": "scripts/validate-platform-support.mjs",
+      "impacts": [
+        "fault_matrix"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "runtime_evidence",
       "category": "runtime_evidence",
       "author_roles": [
@@ -740,5 +771,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "6d9ff03aaac3d3b6ff89dd5970a1e934f90d948d2945b346d4201843ce1f9cf8"
+  "registry_digest": "191473bfd8f3ffc4852ac1ee70b42f291c717536658864a248c4a10e41bf90db"
 }

@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/platform-support.v1.json",
+  "title": "Supported platform matrix v1",
+  "description": "Which platforms and filesystems the boundary adapter's guarantees hold on, and on what evidence. Closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "guarantees",
+    "rows",
+    "install"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "guarantees": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "no_follow_per_component",
+          "type_check",
+          "owner_check",
+          "mode_check",
+          "device_check",
+          "no_replace_rename"
+        ]
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "os",
+          "arch",
+          "filesystems",
+          "syscall_family",
+          "guarantees",
+          "evidence",
+          "level"
+        ],
+        "properties": {
+          "os": {
+            "enum": [
+              "darwin",
+              "linux"
+            ]
+          },
+          "arch": {
+            "enum": [
+              "arm64",
+              "x64"
+            ]
+          },
+          "filesystems": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "apfs",
+                "hfs+",
+                "ext4",
+                "btrfs",
+                "xfs",
+                "zfs",
+                "overlayfs",
+                "nfs",
+                "smb",
+                "exfat"
+              ]
+            }
+          },
+          "syscall_family": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "openat2",
+                "at_plus_o_nofollow",
+                "rename_noreplace",
+                "renameatx_np",
+                "flock"
+              ]
+            }
+          },
+          "guarantees": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "no_follow_per_component",
+                "type_check",
+                "owner_check",
+                "mode_check",
+                "device_check",
+                "no_replace_rename"
+              ]
+            }
+          },
+          "missing_guarantees": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "no_follow_per_component",
+                "type_check",
+                "owner_check",
+                "mode_check",
+                "device_check",
+                "no_replace_rename"
+              ]
+            }
+          },
+          "evidence": {
+            "enum": [
+              "ci",
+              "manual_smoke",
+              "not_verified"
+            ]
+          },
+          "level": {
+            "enum": [
+              "supported",
+              "best_effort",
+              "unsupported"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      }
+    },
+    "install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binaries",
+        "setuid_allowed",
+        "setgid_allowed",
+        "world_writable_install_allowed",
+        "digest_bound_to_runtime_identity"
+      ],
+      "properties": {
+        "binaries": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "setuid_allowed": {
+          "const": false
+        },
+        "setgid_allowed": {
+          "const": false
+        },
+        "world_writable_install_allowed": {
+          "const": false
+        },
+        "digest_bound_to_runtime_identity": {
+          "const": true
+        }
+      }
+    }
+  }
+}

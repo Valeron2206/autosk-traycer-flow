@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "guarantees": [
+    "no_follow_per_component",
+    "type_check",
+    "owner_check",
+    "mode_check",
+    "device_check",
+    "no_replace_rename"
+  ],
+  "rows": [
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "filesystems": [
+        "apfs"
+      ],
+      "syscall_family": [
+        "at_plus_o_nofollow",
+        "renameatx_np",
+        "flock"
+      ],
+      "guarantees": [
+        "no_follow_per_component",
+        "type_check",
+        "owner_check",
+        "mode_check",
+        "device_check",
+        "no_replace_rename"
+      ],
+      "evidence": "ci",
+      "level": "supported",
+      "note": "APFS is case-insensitive by default; the adapter never compares path bytes to decide identity"
+    },
+    {
+      "os": "linux",
+      "arch": "x64",
+      "filesystems": [
+        "ext4",
+        "btrfs",
+        "xfs"
+      ],
+      "syscall_family": [
+        "at_plus_o_nofollow",
+        "rename_noreplace",
+        "flock"
+      ],
+      "guarantees": [
+        "no_follow_per_component",
+        "type_check",
+        "owner_check",
+        "mode_check",
+        "device_check",
+        "no_replace_rename"
+      ],
+      "evidence": "ci",
+      "level": "supported"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "filesystems": [
+        "ext4"
+      ],
+      "syscall_family": [
+        "at_plus_o_nofollow",
+        "rename_noreplace",
+        "flock"
+      ],
+      "guarantees": [
+        "no_follow_per_component",
+        "type_check",
+        "owner_check",
+        "mode_check",
+        "device_check",
+        "no_replace_rename"
+      ],
+      "evidence": "manual_smoke",
+      "level": "best_effort",
+      "note": "guarantees hold; verification is periodic, so a regression is found late"
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "filesystems": [
+        "exfat"
+      ],
+      "syscall_family": [
+        "at_plus_o_nofollow"
+      ],
+      "guarantees": [
+        "device_check",
+        "no_follow_per_component",
+        "type_check"
+      ],
+      "missing_guarantees": [
+        "mode_check",
+        "no_replace_rename",
+        "owner_check"
+      ],
+      "evidence": "manual_smoke",
+      "level": "unsupported",
+      "note": "exFAT carries no ownership or mode, so those checks have nothing to read"
+    },
+    {
+      "os": "linux",
+      "arch": "x64",
+      "filesystems": [
+        "nfs",
+        "smb"
+      ],
+      "syscall_family": [
+        "at_plus_o_nofollow"
+      ],
+      "guarantees": [
+        "no_follow_per_component",
+        "type_check",
+        "owner_check",
+        "mode_check"
+      ],
+      "missing_guarantees": [
+        "device_check",
+        "no_replace_rename"
+      ],
+      "evidence": "manual_smoke",
+      "level": "unsupported",
+      "note": "flock semantics and rename atomicity are not the local ones, and the project lock depends on both"
+    },
+    {
+      "os": "linux",
+      "arch": "x64",
+      "filesystems": [
+        "overlayfs"
+      ],
+      "syscall_family": [
+        "at_plus_o_nofollow",
+        "rename_noreplace"
+      ],
+      "guarantees": [
+        "no_follow_per_component",
+        "type_check",
+        "owner_check",
+        "mode_check"
+      ],
+      "missing_guarantees": [
+        "device_check",
+        "no_replace_rename"
+      ],
+      "evidence": "manual_smoke",
+      "level": "unsupported",
+      "note": "a rename may not be atomic across layers"
+    }
+  ],
+  "install": {
+    "binaries": [
+      "bin/autosk",
+      "bin/autoskd",
+      "bin/autosk-store-lock"
+    ],
+    "setuid_allowed": false,
+    "setgid_allowed": false,
+    "world_writable_install_allowed": false,
+    "digest_bound_to_runtime_identity": true
+  }
+}
