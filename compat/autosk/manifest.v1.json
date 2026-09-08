@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "ce701bc37238891593a4c8bee68d3b3ba41c94de",
+  "result_tree": "138f78609e0b2cb812bf658a507021fa9a2a1c1c",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -78,6 +78,10 @@
     {
       "file": "patches/0018-boundary-coverage.patch",
       "sha256": "327973e35dea3942cee386a78a8d53d1231c72246167e69ac7afff57c99c7305"
+    },
+    {
+      "file": "patches/0019-trusted-write-races.patch",
+      "sha256": "b130dee4a42883f4f3a314f6200aace8712f162bd32d2387908f68a4b251b179"
     }
   ],
   "license": {
