@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "ticket_id": "T04",
+  "planning_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "predecessors": [
+    {
+      "ticket_id": "T01",
+      "commit_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "delta_digest": "8b53639f152c8fc6ef30802fde462ba0be9cf085f7580dc69efd72e002abbb35",
+      "pass_receipt": "receipts/T01.json"
+    },
+    {
+      "ticket_id": "T02",
+      "commit_oid": "cccccccccccccccccccccccccccccccccccccccc",
+      "delta_digest": "e788103ee15318fcd2af9b73b4ebbb33a903b020de7b307d71f5fed0f433e548",
+      "pass_receipt": "receipts/T02.json"
+    },
+    {
+      "ticket_id": "T03",
+      "commit_oid": "dddddddddddddddddddddddddddddddddddddddd",
+      "delta_digest": "f451a61749c611ba0fa0e16c61831db44f38c611dff25879cf271a24c81a88b6",
+      "pass_receipt": "receipts/T03.json"
+    }
+  ],
+  "composition_order": [
+    "T01",
+    "T02",
+    "T03"
+  ],
+  "composition_commit_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "tree_oid": "ffffffffffffffffffffffffffffffffffffffff",
+  "digest": "6d8f59586c5236d8c81e56dd6def2596c387175b2922f8ecaeaa4e7422cc0d39"
+}

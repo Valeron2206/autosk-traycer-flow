@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/execution-base.v1.json",
+  "title": "Ticket execution base v1",
+  "description": "The exact tree a Ticket's worktree is built from. Closed: unknown fields and unknown versions fail.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ticket_id",
+    "planning_head",
+    "predecessors",
+    "composition_order",
+    "tree_oid",
+    "digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ticket_id": {
+      "type": "string",
+      "pattern": "^T[0-9]{2,4}$"
+    },
+    "planning_head": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "predecessors": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ticket_id",
+          "commit_oid",
+          "delta_digest",
+          "pass_receipt"
+        ],
+        "properties": {
+          "ticket_id": {
+            "type": "string",
+            "pattern": "^T[0-9]{2,4}$"
+          },
+          "commit_oid": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+          },
+          "delta_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "pass_receipt": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "composition_order": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "string",
+        "pattern": "^T[0-9]{2,4}$"
+      }
+    },
+    "composition_commit_oid": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "tree_oid": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

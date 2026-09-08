@@ -52,6 +52,9 @@ jobs:
       - name: Validate structured model result design contract
         run: npm run validate:model-result
 
+      - name: Validate Ticket execution base design contract
+        run: npm run validate:execution-base
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
