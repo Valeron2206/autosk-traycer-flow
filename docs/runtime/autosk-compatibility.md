@@ -40,7 +40,8 @@ apply in the listed order, each producing the tree beside it:
 | `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` |
 | `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
-| `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` — the current `result_tree` |
+| `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
+| `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -189,6 +190,44 @@ single-writer would be wrong:
 
 Neither statement is a plan to leave any of this alone; they are the honest
 starting point for the slices that close it.
+
+### How long the helper lives, and what happens when it dies
+
+Until patch `0020` the helper was a process per call: `withCreationLock` spawned
+`autosk-store-lock`, took the project lock, ran one callback and shut it down.
+Measured over 20 calls that is 8.9 ms each, nearly all of it spawn and lock
+acquisition. ADR-028 replaces it with one long-lived helper per **open** project,
+holding the project lock for as long as the daemon holds the project open, and
+`withCreationLock` becomes a use of that connection rather than a process
+lifetime. The name is unchanged because the guarantee is unchanged: the callback
+still runs while this process holds the project's cross-process lock, and no
+other caller in this process interleaves with it.
+
+The price is stated in ADR-028 and is real: a second daemon cannot open a project
+the first one holds. Today that is not a new exclusion in practice — single
+instance is already enforced at the socket — and nothing outside `daemon/core`
+opens a project store: the Go CLI reaches the store only over RPC.
+
+What a per-call process gave away for free was recovery. A connection that
+outlives the call also carries its damage forward, so three failure modes needed
+explicit answers rather than an implicit fresh start:
+
+| The connection | What happens | Why |
+| --- | --- | --- |
+| answered with a **refusal** | kept | A refusal is a well-formed answer; the stream is still in step, and retiring on it would pay a spawn and a lock handoff for every "no". |
+| **lost sync** (an unmatched or unparseable answer) | retired, and no further request is written to it — including from inside the same callback | Once answers cannot be matched to requests, a write issued over that stream lands somewhere we cannot verify. Rejecting it is the only safe outcome; ADR-028 requires that a trusted write be refused, never routed around the adapter. |
+| **died** between calls | replaced before the next call, not after it fails | The caller did nothing wrong; a process the OS took away should cost a reconnect, not a failed operation. |
+
+The daemon releases the connection when the store closes (`Store.close` →
+`releaseCreationLock`), which is what returns the project lock. A helper that
+ignores stdin close is killed and reaped there, and the failure is reported
+rather than swallowed.
+
+Release waits for work already queued. An operation that is running must not
+have its helper taken away mid-write, and one still waiting its turn has not
+opened a connection yet — closing before it does would leave the helper it goes
+on to open holding the project lock with nothing pointing at it. Neither hazard
+existed while a call owned its own process; both are created by sharing one.
 
 ### Refusal classes
 
