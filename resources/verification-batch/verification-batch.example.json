@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "batch_id": "batch-guard-removal-1",
+  "purpose": "prove the transcript boundary guards are load-bearing rather than decorative",
+  "work_type": "feature",
+  "candidate": {
+    "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "epic_id": "epic-2026-09-a",
+    "ticket_id": "ask-4f21aa",
+    "base_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "candidate_tree": "cccccccccccccccccccccccccccccccccccccccc",
+    "pathspec_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "anchor_version": 3,
+    "runtime": "2222222222222222222222222222222222222222222222222222222222222222",
+    "protocol": "3333333333333333333333333333333333333333333333333333333333333333",
+    "instructions": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "owner": {
+    "author": "implementer",
+    "lifecycle": "ephemeral",
+    "location": ".autosk-evidence/epic-2026-09-a/ask-4f21aa/batch/",
+    "retained_by": "the cleanup sweep after a verified restore"
+  },
+  "target": {
+    "components": [
+      "internal/storelock/lock_unix.go"
+    ],
+    "tests": [
+      "internal/storelock/transcript_test.go"
+    ],
+    "invariant": "a chunk never ends inside a multi-byte character"
+  },
+  "preconditions": {
+    "toolchain_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "clean_state": "git status --porcelain is empty"
+  },
+  "io_contract": {
+    "inputs": "one mutation id per run",
+    "outputs": "the go test report as JSON",
+    "result_semantics": "exit 0 means the suite passed, which for a mutated tree is a survived mutation"
+  },
+  "matrix": [
+    {
+      "mutation_id": "trim-removed",
+      "target_anchor": "chunkForWire",
+      "semantic_change": "return the raw window without trimming to a rune boundary",
+      "application_proof": "the mutated file digest differs and the mutated line is quoted in the report",
+      "expected_killer": "TestTranscriptChunkStopsOnACharacterBoundary",
+      "expected_red": "chunk is not valid UTF-8",
+      "green_controls": [
+        "the unmutated suite passes"
+      ],
+      "outcome": "product_detected"
+    }
+  ],
+  "recovery": {
+    "restore_procedure": "git checkout -- internal/storelock/lock_unix.go",
+    "interruption_boundaries": [
+      "before the mutation is written",
+      "after the suite runs"
+    ],
+    "idempotent": true,
+    "post_restore_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "evidence": {
+    "report_location": ".autosk-evidence/epic-2026-09-a/ask-4f21aa/batch/report.json",
+    "harness_digest": "6666666666666666666666666666666666666666666666666666666666666666",
+    "mutation_set_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+    "config_digest": "8888888888888888888888888888888888888888888888888888888888888888",
+    "retention": "durable"
+  },
+  "repository_verification": {
+    "targeted": [
+      "go test ./internal/storelock/ -run Transcript"
+    ],
+    "full_suite": "npm test",
+    "clean_state_check": "git status --porcelain is empty"
+  },
+  "acceptance_rule": {
+    "pass_when": "every mutation in the matrix is product_detected and every green control passed",
+    "blocking_outcomes": [
+      "green_control_failed",
+      "mutation_not_applied",
+      "tool_setup_failed",
+      "tool_execution_failed",
+      "restore_failed",
+      "evidence_invalid",
+      "timeout",
+      "indeterminate"
+    ]
+  },
+  "self_test": {
+    "known_killed_mutation": "trim-removed",
+    "observed": "killed"
+  },
+  "batch_outcome": "product_detected"
+}
