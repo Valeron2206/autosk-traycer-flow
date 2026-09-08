@@ -299,6 +299,7 @@
         "docs/contracts/provider-preflight.md",
         "docs/contracts/reflect-cost-watch.md",
         "docs/contracts/requirement-revision.md",
+        "docs/contracts/sdk-write-api.md",
         "docs/contracts/stage-carriers.md",
         "docs/contracts/static-analysis.md",
         "docs/contracts/tickets-manifest.md",
@@ -345,6 +346,7 @@
         "provider_preflight",
         "reflect_pass",
         "revision_record",
+        "sdk_write_operation",
         "stage_carriers",
         "static_analysis_policy",
         "static_analysis_result",
@@ -1228,6 +1230,34 @@
       "human_approval": "not_required"
     },
     {
+      "class": "sdk_write_operation",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [
+        "creation_grant"
+      ],
+      "paths": [
+        ".autosk-evidence/**/sdk-writes/**"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the record proves what an installed extension wrote and under which capability; it is not itself panel-reviewed"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "stage_carriers",
       "category": "governance_defining",
       "author_roles": [
@@ -1451,5 +1481,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "b2d4da36cd348dc9802c9dd5555e68e48e6b0e174aa286af81c3dde16b4dd7c7"
+  "registry_digest": "16b52deb963acb3d5f4885fe64841d2543fab4f28c42e87d3d1fb06ad2cfc2d6"
 }

@@ -133,6 +133,9 @@ jobs:
       - name: Validate static analysis gate contract
         run: npm run validate:static-analysis
 
+      - name: Validate SDK write API contract
+        run: npm run validate:sdk-write-api
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

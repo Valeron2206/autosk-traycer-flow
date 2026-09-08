@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "token_id": "cap-store-lock-0007",
+  "holder": {
+    "kind": "installed_extension",
+    "identity": "autosk-flow@1.4.0",
+    "session_id": "s-runner-7"
+  },
+  "project_identity": "244210e48437b6556980a70249a99369934a352429034cef9d7bd253b3bf2c01",
+  "task_id": "T-102",
+  "operation_id": "op-0007",
+  "fields": [
+    "metadata.review_state",
+    "metadata.evidence_ref",
+    "blockers"
+  ],
+  "verbs": [
+    "update_metadata",
+    "add_blocker",
+    "remove_blocker"
+  ],
+  "expires_at_ms": 4102444800000,
+  "state": "active"
+}

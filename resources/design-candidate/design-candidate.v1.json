@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "2c8105b75bc720a0b8939f89d3b9d348b8e55ef7772a0dc182355daab504a378"
+      "sha256": "1c6a7244a8010255f593db9525a4c686e7782a1c9762e2a7eb6693b96ce8d504"
     },
     {
       "path": "README.md",
@@ -129,6 +129,10 @@
     {
       "path": "docs/contracts/requirement-revision.md",
       "sha256": "75dd15b3fd339c26868404bfc0a1e1a5012a256ca6836dc0e50b3e3435bede37"
+    },
+    {
+      "path": "docs/contracts/sdk-write-api.md",
+      "sha256": "d2f7e054fcb4abb6130bafe1dbd4c63c5eecbe00e28636722683d226bc521293"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -335,6 +339,14 @@
       "sha256": "6ee02cfc442d452c98251103ec7e7423a26658d81b9745df9ef9b8119dce6d6a"
     },
     {
+      "path": "resources/sdk-write-api/capability-token.schema.json",
+      "sha256": "7a73455bd8f9a01022a7042e894e8352e4e960bdd1f7f600b9fda85bc5a84357"
+    },
+    {
+      "path": "resources/sdk-write-api/write-operation.schema.json",
+      "sha256": "267748418af079c4e765dd234719fdd558d61f82545d1049a8083f7a2776f435"
+    },
+    {
       "path": "resources/stage-carriers/stage-carriers.schema.json",
       "sha256": "9a4431efd2235c3ce06c8d43e34dacdccaa258f931b4a0bf6a5d3712eaf4cb33"
     },
@@ -375,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "45af04e144c90a7c6a8200c74e0920322dab60689329576b0066a4e4230f5a84",
+  "candidate_digest": "bb78a344d50a288305acc397fcc98886c38f3a0ad9fc7a91af3bfdfde5728220",
   "dispositions": [
     {
       "issue": 3,
