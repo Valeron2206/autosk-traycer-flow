@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "89f438d81b379044c1c7539c18d1b0f0fd3ffbfd098101889789eb19cb5edc8b"
+      "sha256": "f68a95728457a2002319937bb3a2e86bd5fec7fcb7e0d40f7ea4948ac0eb8572"
     },
     {
       "path": "README.md",
@@ -53,6 +53,10 @@
     {
       "path": "docs/contracts/creation-grant.md",
       "sha256": "b8e802e965dca968a3eaee06d3dbd0c6b0a66fdb9863c3db34d7447c6449b148"
+    },
+    {
+      "path": "docs/contracts/debate.md",
+      "sha256": "24bd5abf331c75f9f4f305ee68e85229b3fd63242fc5ec1f1c41f5f8ed80fbb5"
     },
     {
       "path": "docs/contracts/delivery-profile.md",
@@ -173,6 +177,10 @@
     {
       "path": "resources/creation-grant/creation-grant.schema.json",
       "sha256": "c5748bd0a618db1f22d97b13e709a759060d23cbf04f0c4e09a78b2b30cd4517"
+    },
+    {
+      "path": "resources/debate/debate-manifest.schema.json",
+      "sha256": "7085053dccfd8c34b6dd099b02614956ffeda9b1de090641756e98234d754a49"
     },
     {
       "path": "resources/delivery-profile/delivery-profile.schema.json",
@@ -347,7 +355,7 @@
       "sha256": "04ae885ba139010abb542fc5bdc60a2c6a0d721ef579bfe83f0b78b6ee1a1890"
     }
   ],
-  "candidate_digest": "bc471a76a708ddc129fc5f15ad5c009578184c4e58277d9f6a31cdc6f9794b8e",
+  "candidate_digest": "582de469e187fc1ca0b15de98da13cff835ed5ec6a44109b735aecc2df4fe37e",
   "dispositions": [
     {
       "issue": 3,

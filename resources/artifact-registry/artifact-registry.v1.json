@@ -252,6 +252,7 @@
         "docs/contracts/clean-room-e2e.md",
         "docs/contracts/clearance-manifest.md",
         "docs/contracts/creation-grant.md",
+        "docs/contracts/debate.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/doctor-report.md",
         "docs/contracts/epic-planning-ref.md",
@@ -291,6 +292,7 @@
         "clearance_manifest",
         "cost_watch_registry",
         "creation_grant",
+        "debate_manifest",
         "delivery_profile",
         "design_candidate",
         "doctor_report",
@@ -412,6 +414,38 @@
       "model_execution_allowed": false,
       "retention": "epic_scoped",
       "human_approval": "not_required"
+    },
+    {
+      "class": "debate_manifest",
+      "category": "governance_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "human_decision",
+        "clearance_manifest"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/debates/*/debate-manifest.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the manifest records positions and a recommendation; the decision it leads to takes its own lifecycle"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "adr",
+        "decision_log"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     },
     {
       "class": "decision_log",
@@ -1328,5 +1362,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "abdbe0cdd37d07b53201ad6094052116b4d526ba5604942daed7e8a7f96a0660"
+  "registry_digest": "8e497130238a88aa6be56399cefa2afcc2ecb4225530e7e490825f54ab4686a2"
 }
