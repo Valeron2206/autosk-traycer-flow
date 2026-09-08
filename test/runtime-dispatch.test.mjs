@@ -251,6 +251,29 @@ test("a transport that re-encodes the cleared body is caught at the boundary", a
   assert.equal(sent, false);
 });
 
+test("provider diagnostics are held to the contract the request was held to", async () => {
+  const home = "/Users/somebody";
+  const noisy = async () => ({
+    code: 1,
+    stdout: "",
+    stderr: `failed while reading ${home}/config: token AKIA${"Z".repeat(16)} rejected\n`,
+  });
+  const record = await dispatchCarrier(noisy, options({ home }));
+  // "The provider said it, not us" does not make a leaked credential less
+  // leaked.
+  assert.equal(record.diagnostics.withheld, true);
+  assert.equal(record.diagnostics.scan, "findings");
+  assert.ok(!record.stderr.includes("AKIA"), record.stderr);
+  assert.ok(!record.stderr.includes(home), record.stderr);
+
+  // A diagnostic worth keeping is kept, with the home path redacted.
+  const ordinary = async () => ({ code: 1, stdout: "", stderr: `no such file: ${home}/missing.md\n` });
+  const kept = await dispatchCarrier(ordinary, options({ home }));
+  assert.equal(kept.diagnostics.withheld, false);
+  assert.ok(kept.stderr.includes("<home>/missing.md"), kept.stderr);
+  assert.ok(kept.diagnostics.redactions.some((entry) => entry.reason === "absolute_home_path"));
+});
+
 test("a dispatch with no scanner, or an unreviewed one, does not leave the machine", async () => {
   let sent = false;
   const watcher = async () => {

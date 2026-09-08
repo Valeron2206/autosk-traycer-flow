@@ -19,7 +19,8 @@ import { createHash } from 'node:crypto';
 
 import { demand, immutable } from '../runtime/contracts.mjs';
 
-import { assertSendMatches, clearForDispatch } from './clearance.mjs';
+import { assertSendMatches, classifyScan, clearForDispatch, redact } from './clearance.mjs';
+import { boundDiagnostics } from './provider-preflight.mjs';
 import { compileCarrier, verifyEcho } from './stage-carrier.mjs';
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -131,6 +132,9 @@ export async function dispatchCarrier(send, {
   envelope = payloadFor,
   timeouts = { wall_clock_ms: 30_000 },
 }) {
+  // One scanner for both directions: the bytes going out and the diagnostics
+  // coming back are held to the same rules, and two resolutions could drift.
+  const secretScan = scanner ?? secretScanner();
   const compiled = compileCarrier(registry, {
     role: dispatch.role,
     stage: dispatch.stage,
@@ -142,7 +146,7 @@ export async function dispatchCarrier(send, {
   const cleared = clearForDispatch({
     body: compiled.body,
     dispatch,
-    scanner: scanner ?? secretScanner(),
+    scanner: secretScan,
     personalDataReview,
     attachments,
     home,
@@ -162,6 +166,14 @@ export async function dispatchCarrier(send, {
     { detail: overBudget[0]?.detail });
 
   const result = await send(measured.payload, { timeoutMs: timeouts.wall_clock_ms });
+  // What came back is held to the contract the outgoing bytes were held to. A
+  // provider that quotes a credential in its error message would otherwise put
+  // it in the record that the outgoing scan was there to keep it out of.
+  const diagnostics = sanitizeDiagnostics(result.stderr, {
+    home,
+    replacements: dispatch.replacements,
+    scanner: secretScan,
+  });
   return Object.freeze({
     dispatch_id: dispatch.dispatch_id,
     attempt: dispatch.attempt,
@@ -172,7 +184,31 @@ export async function dispatchCarrier(send, {
     clearance: cleared.manifest,
     exit_code: result.code,
     stdout: result.stdout ?? '',
-    stderr: (result.stderr ?? '').slice(0, 400),
+    stderr: diagnostics.text,
+    diagnostics: diagnostics.record,
+  });
+}
+
+/**
+ * Provider diagnostics, held to the same sanitization contract as the request.
+ *
+ * Redacted first, then scanned, and a finding that survives is replaced rather
+ * than recorded: the diagnostic is worth keeping and its bytes are not, and
+ * "the provider said it, not us" does not make a leaked credential less leaked.
+ */
+export function sanitizeDiagnostics(text, { home, replacements = [], scanner }) {
+  const { body, redactions } = redact(typeof text === 'string' ? text : '', { home, replacements });
+  const bounded = boundDiagnostics(body, { home });
+  const scan = classifyScan(scanner.scan(bounded));
+  if (scan === 'clean') {
+    return Object.freeze({
+      text: bounded,
+      record: Object.freeze({ scan, redactions: immutable(redactions), withheld: false }),
+    });
+  }
+  return Object.freeze({
+    text: '<withheld: provider diagnostics carried a finding>',
+    record: Object.freeze({ scan, redactions: immutable(redactions), withheld: true }),
   });
 }
 
