@@ -1,0 +1,276 @@
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7..6fe43fe92a3fba5a92e9fcc1861c0782df5b3190 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -6,7 +6,7 @@
+  */
+ 
+ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+-import { existsSync } from "node:fs";
++import { existsSync, readFileSync } from "node:fs";
+ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+ import { dirname, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
+ 
+ import {
+   CapturingLogger,
++  parseCreationIndexText,
+   parseTask,
+   serializeCreationIndex,
+   serializeTask,
+@@ -328,7 +329,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+     expect(await store.listTaskViews()).toHaveLength(1);
+   });
+ 
+-  test("restart rebuilds from reservation index and retries return the same task", async () => {
++  test("a reopened store rebuilds from the reservation index and retries return the same task", async () => {
+     const first = await store.createTaskWithCreationBinding(creationInput());
+     await store.close();
+ 
+@@ -510,7 +511,10 @@ describe("Store.createTaskWithCreationBinding", () => {
+     expect(await store.listTaskViews()).toEqual([]);
+   });
+ 
+-  test("legacy create and legacy task files stay marker-free", async () => {
++  test("an unkeyed create writes a marker-free task file", async () => {
++    // Renamed: it used to say "legacy task files", but the only file it looks at is
++    // the one it just wrote. Reading a task file that predates markers is the next
++    // test, which plants the bytes rather than producing them.
+     const legacy = await store.createTask({ title: "legacy" });
+     expect(legacy.creation_key).toBeUndefined();
+     expect(legacy.creation_binding_hash).toBeUndefined();
+@@ -520,6 +524,37 @@ describe("Store.createTaskWithCreationBinding", () => {
+     expect(parseTask(bytes).creation_key).toBeUndefined();
+   });
+ 
++  test("a task file written before markers existed is read, listed and updatable", async () => {
++    // The other half of "legacy task/database files": bytes this process did not
++    // write, in the pre-marker shape, next to a keyed task and a creation index that
++    // has never heard of them.
++    const keyed = await store.createTaskWithCreationBinding(creationInput());
++    const id = "ask-777777";
++    await mkdir(dirname(store.paths.taskJson(id)), { recursive: true });
++    await writeFile(
++      store.paths.taskJson(id),
++      JSON.stringify({
++        id, title: "written by an older daemon", description: "", status: "new",
++        workflow: null, step: null, blocked_by: [], metadata: {},
++        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
++      }, null, 2) + "\n",
++    );
++
++    const view = await store.taskView(id);
++    expect(view.title).toBe("written by an older daemon");
++    expect(view.creation_key).toBeUndefined();
++    expect((await store.listTaskViews()).map((t) => t.id).sort()).toEqual([keyed.task.id, id].sort());
++
++    // It is an ordinary task: editable, and no reservation claims it.
++    const renamed = await store.updateTask(id, { title: "renamed" });
++    expect(renamed.title).toBe("renamed");
++    expect(renamed.creation_key).toBeUndefined();
++    // And the keyed task beside it is unaffected — a marker-free neighbour is not an orphan.
++    const retry = await store.createTaskWithCreationBinding(creationInput());
++    expectSuccess(retry, "existing_same_binding");
++    expect(retry.task.id).toBe(keyed.task.id);
++  });
++
+   test("invalid inputs are rejected before any reservation is written", async () => {
+     await expectCreationError(
+       store.createTaskWithCreationBinding(creationInput({ creation_key: "" })),
+@@ -536,6 +571,15 @@ describe("Store.createTaskWithCreationBinding", () => {
+       "creation_input_invalid",
+       "invalid_creation_key",
+     );
++    // Hex of the wrong length. Without these the length rule is never separated from
++    // the hex rule: `not-sha` fails on both at once, so either alone would pass it.
++    for (const hash of ["b".repeat(63), "b".repeat(65)]) {
++      await expectCreationError(
++        store.createTaskWithCreationBinding(creationInput({ creation_binding_hash: hash })),
++        "creation_input_invalid",
++        "invalid_creation_binding_hash",
++      );
++    }
+     expect(existsSync(store.paths.creationIndexJson)).toBe(false);
+   });
+ 
+@@ -582,6 +626,118 @@ describe("Store.createTaskWithCreationBinding", () => {
+     }
+   });
+ 
++  /** A helper that does the real file work, then dies right after one chosen reply.
++   * The existing death test kills before anything is written; these kill AFTER, which
++   * is the half of "fault injection до/после persistence" that was missing. Dying by
++   * op rather than by reply number keeps it independent of how many reads precede.
++   */
++  async function faultingHelper(afterOp: string): Promise<string> {
++    const helper = join(dir.path, `fault-after-${afterOp}`);
++    await writeFile(
++      helper,
++      [
++        `#!${process.execPath}`,
++        'import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";',
++        'import { dirname, join } from "node:path";',
++        'const root = process.env.FAULT_ROOT;',
++        'const dieAfter = process.env.FAULT_AFTER_OP;',
++        'const indexJson = join(root, ".autosk", "creation", "v1", "index.json");',
++        'const tasksDir = join(root, ".autosk", "tasks");',
++        'const taskJson = (id) => join(tasksDir, id, "task.json");',
++        'const put = (file, data) => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, data); };',
++        'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid }) + "\\n");',
++        'let buffer = "";',
++        'process.stdin.on("data", (chunk) => {',
++        '  buffer += chunk;',
++        '  for (let at = buffer.indexOf("\\n"); at >= 0; at = buffer.indexOf("\\n")) {',
++        '    const line = buffer.slice(0, at); buffer = buffer.slice(at + 1);',
++        '    if (line.trim() === "") continue;',
++        '    const req = JSON.parse(line);',
++        '    let res = { ok: false, error: `unsupported op ${req.op}` };',
++        '    if (req.op === "read_creation_index") {',
++        '      res = existsSync(indexJson) ? { ok: true, exists: true, data: readFileSync(indexJson, "utf8") } : { ok: true, exists: false };',
++        '    } else if (req.op === "write_creation_index") { put(indexJson, req.data); res = { ok: true }; }',
++        '    else if (req.op === "list_task_ids") { res = { ok: true, ids: existsSync(tasksDir) ? readdirSync(tasksDir) : [] }; }',
++        '    else if (req.op === "read_task") {',
++        '      const file = taskJson(req.task_id);',
++        '      res = existsSync(file) ? { ok: true, exists: true, data: readFileSync(file, "utf8") } : { ok: true, exists: false };',
++        '    } else if (req.op === "write_task") { put(taskJson(req.task_id), req.data); res = { ok: true }; }',
++        '    process.stdout.write(JSON.stringify({ id: req.id, ...res }) + "\\n");',
++        '    if (req.op === dieAfter) process.exit(9);',
++        '  }',
++        '});',
++        '',
++      ].join("\n"),
++    );
++    await chmod(helper, 0o755);
++    return helper;
++  }
++
++  async function underFault<T>(afterOp: string, run: () => Promise<T>): Promise<void> {
++    const helper = await faultingHelper(afterOp);
++    const previousBin = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = helper;
++    process.env.FAULT_ROOT = dir.path;
++    process.env.FAULT_AFTER_OP = afterOp;
++    try {
++      // `rejectedWithin` RETURNS a marker error when the promise resolves instead of
++      // throwing, so discarding it would leave this helper asserting nothing at all.
++      const err = await rejectedWithin(run(), REJECTION_GUARD_MS);
++      expect(err.message).not.toBe("promise resolved");
++    } finally {
++      if (previousBin === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previousBin;
++      delete process.env.FAULT_ROOT;
++      delete process.env.FAULT_AFTER_OP;
++    }
++  }
++
++  test("a crash after the reservation is written, before the task, converges on the reserved id", async () => {
++    await underFault("write_creation_index", () => store.createTaskWithCreationBinding(creationInput()));
++
++    // The state a real crash leaves: the reservation is on disk as `pending` and the
++    // task it names does not exist yet.
++    const afterCrash = parseCreationIndexText(readFileSync(store.paths.creationIndexJson, "utf8"));
++    const reserved = Object.values(afterCrash.reservations)[0]!;
++    expect(reserved.state).toBe("pending");
++    expect(existsSync(store.paths.taskJson(reserved.task_id))).toBe(false);
++
++    const retry = await store.createTaskWithCreationBinding(creationInput());
++    expectSuccess(retry, "created");
++    expect(retry.task.id).toBe(reserved.task_id); // not a second id
++    expect(await store.listTaskViews()).toHaveLength(1);
++  });
++
++  test("a crash after the task is written, before the reservation is sealed, does not duplicate it", async () => {
++    await underFault("write_task", () => store.createTaskWithCreationBinding(creationInput()));
++
++    const afterCrash = parseCreationIndexText(readFileSync(store.paths.creationIndexJson, "utf8"));
++    const reserved = Object.values(afterCrash.reservations)[0]!;
++    expect(reserved.state).toBe("pending"); // the seal never happened
++    expect(existsSync(store.paths.taskJson(reserved.task_id))).toBe(true);
++
++    const retry = await store.createTaskWithCreationBinding(creationInput());
++    expectSuccess(retry, "existing_same_binding");
++    expect(retry.task.id).toBe(reserved.task_id);
++    expect(await store.listTaskViews()).toHaveLength(1);
++  });
++
++  test("metadata written after a bound create does not disturb the creation identity", async () => {
++    // Title and description are covered; `metadata` is the other human-editable
++    // surface and nothing exercised it against a keyed task.
++    const first = await store.createTaskWithCreationBinding(creationInput());
++    await store.mergeMetadata(first.task.id, { note: "human", "nested.leaf": 1 });
++
++    const retry = await store.createTaskWithCreationBinding(creationInput());
++    expectSuccess(retry, "existing_same_binding");
++    expect(retry.task.id).toBe(first.task.id);
++    expect(retry.task.creation_key).toBe(first.task.creation_key);
++    expect(retry.task.creation_binding_hash).toBe(first.task.creation_binding_hash);
++    const view = await store.taskView(first.task.id);
++    expect(view.metadata).toEqual({ note: "human", nested: { leaf: 1 } });
++    expect(await store.listTaskViews()).toHaveLength(1);
++  });
++
+   test("lock helper IPC preserves UTF-8 split across stdout chunks", async () => {
+     const fakeHelper = join(dir.path, "fake-split-store-lock");
+     const r = reservation(store, { task_id: "ask-111111" });
+@@ -734,6 +890,60 @@ describe("Store.createTaskWithCreationBinding", () => {
+     expect(view.metadata).toEqual({});
+   });
+ 
++  test("a caller retrying after the daemon process exited gets the same task", async () => {
++    // The mandatory scenario is a RESTART, and the existing coverage was a second
++    // `Store` object over the same directory inside one process — a different claim.
++    // Here the first process is fully gone before the second starts, so what carries
++    // the identity across is the reservation index on disk and nothing in memory.
++    const childHome = tempDir();
++    try {
++      const code = `
++        import { Store } from ${JSON.stringify(fileURLToPath(new URL("../src/index.ts", import.meta.url)))};
++        const [root, key, hash, title] = process.argv.slice(1);
++        const store = new Store(root, { watch: false });
++        await store.open();
++        try {
++          const result = await store.createTaskWithCreationBinding({
++            title, description: "", blocked_by: [], creation_key: key, creation_binding_hash: hash,
++          });
++          process.stdout.write(JSON.stringify(result) + "\\n");
++        } finally {
++          await store.close();
++        }
++      `;
++      const run = async (title: string, homeSuffix: string) => {
++        const proc = Bun.spawn([process.execPath, "--eval", code, dir.path, KEY, HASH, title], {
++          stdout: "pipe",
++          stderr: "pipe",
++          env: {
++            ...process.env,
++            AUTOSK_NO_AUTO_INSTALL: "1",
++            AUTOSK_STORE_LOCK_BIN: helperBin,
++            HOME: join(childHome.path, homeSuffix),
++          },
++        });
++        const [code_, stdout, stderr] = await Promise.all([
++          proc.exited,
++          new Response(proc.stdout).text(),
++          new Response(proc.stderr).text(),
++        ]);
++        expect(code_, stderr).toBe(0);
++        return JSON.parse(stdout) as TaskCreationResult;
++      };
++
++      const first = await run("child", "home-a"); // this process then exits
++      const second = await run("renamed by the retry", "home-b"); // a genuinely new one
++
++      expectSuccess(first, "created");
++      expectSuccess(second, "existing_same_binding");
++      expect(second.task.id).toBe(first.task.id);
++      expect(second.task.title).toBe("child"); // the retry did not rewrite the record
++      expect(await store.listTaskViews()).toHaveLength(1);
++    } finally {
++      childHome.cleanup();
++    }
++  });
++
+   test("separate Bun processes with the same key elect one durable child", async () => {
+     const childHome = tempDir();
+     try {

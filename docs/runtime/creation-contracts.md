@@ -116,6 +116,29 @@ they are not evidence of daemon durability, process isolation, or full fan-out.
 | Preflight refuses absent capability | `requireDaemonCapabilities` decides admission from `meta.capabilities`, which the daemon derives from its live handler table | Wiring it into the extension entry point, which does not exist yet |
 | Upstream distribution and platform qualification | Not included in this PR | CI on the fully wired source |
 
+## The eleven mandatory scenarios
+
+Issue #11 names eleven scenarios that must be tested. Where each is exercised, and
+what is deliberately still open:
+
+| Scenario | Where |
+| --- | --- |
+| 2/10/100 concurrent creates | `store.creation.test.ts` in-process at 2, 10 and 100; ten separate Bun processes; the Go suite races 96 real processes for the lock file |
+| fault injection before and after persistence | before: a helper that dies inside the critical section before any write. After: a helper that performs the real writes and then dies immediately after the reservation is persisted, and again after the task file is written. Both leave the on-disk state a real crash leaves, and the retry converges on the reserved id |
+| rename/description/metadata mutation after create | title and description; `metadata` merged onto a keyed task, with the markers asserted intact afterwards |
+| delete/recreate | the task file removed under an active reservation retires the key rather than allocating another id |
+| malformed/oversized key | empty key, and one byte over `MAX_CREATION_KEY_BYTES` |
+| malformed hash | non-hex, hex of the wrong length (63 and 65), absent, and a hash with no key |
+| cross-project same key | two roots, same key, independent ids |
+| import/reconcile attempt | a forged marker with no reservation is refused and its bytes are not stripped |
+| legacy task/database files | an unkeyed create writes marker-free bytes; separately, a task file in the pre-marker shape that this process did not write is read, listed, updated, and does not disturb the keyed task beside it |
+| corrupted duplicate index state | corrupt index and duplicate markers both fail closed |
+| daemon restart between create and caller retry | two separate processes: the first creates and exits, the second retries the same key and gets the same task. The reservation index on disk is the only thing that carries the identity across |
+
+The last row was previously satisfied by a second `Store` object inside one
+process. That is a different claim, and the test that made it has been renamed to
+say what it does.
+
 ## Daemon capability preflight
 
 `autosk-flow` cannot run its child fan-out on a daemon without write-once creation
