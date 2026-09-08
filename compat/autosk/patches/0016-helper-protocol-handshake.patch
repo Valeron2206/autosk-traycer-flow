@@ -1,0 +1,250 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index f799a1b1fea3d5b2b618ed06d2e88a7c37778f7d..95f61a32991b50bc6dd21719bf1a46b75698d6ff 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -15,9 +15,21 @@ import (
+ 
+ const maxRequestBytes = 64 * 1024 * 1024
+ 
++// protocolVersion identifies the exact stdio contract this helper speaks.
++//
++// The helper is the only writer of trusted state under the project lock, and the
++// readiness line is the single place its identity can be established before any
++// operation runs. Without this the daemon accepts whatever process answers
++// ok:true — an older build, a newer one, or something else entirely — and finds
++// out only through a malformed reply, if at all. It is compared exactly: a
++// different revision means a different contract, and guessing which half of it
++// still holds is not a decision this side gets to make.
++const protocolVersion = 1
++
+ type readyMessage struct {
+-	OK  bool `json:"ok"`
+-	PID int  `json:"pid"`
++	OK       bool `json:"ok"`
++	PID      int  `json:"pid"`
++	Protocol int  `json:"protocol"`
+ }
+ 
+ type requestMessage struct {
+@@ -78,7 +90,7 @@ func main() {
+ 	}()
+ 
+ 	writer := bufio.NewWriter(os.Stdout)
+-	if err := writeJSONLine(writer, readyMessage{OK: true, PID: os.Getpid()}); err != nil {
++	if err := writeJSONLine(writer, readyMessage{OK: true, PID: os.Getpid(), Protocol: protocolVersion}); err != nil {
+ 		fmt.Fprintf(os.Stderr, "write ready message: %v\n", err)
+ 		exitCode = 1
+ 		return
+diff --git a/cmd/autosk-store-lock/main_test.go b/cmd/autosk-store-lock/main_test.go
+index 602acfd51aab7842e6c4e3c4839cdba583c0fbaf..3269450a9fa367fc9fbe66e088ad52b16d3292c0 100644
+--- a/cmd/autosk-store-lock/main_test.go
++++ b/cmd/autosk-store-lock/main_test.go
+@@ -88,7 +88,7 @@ func TestCommandHoldsLockUntilProcessDies(t *testing.T) {
+ 	if err := json.Unmarshal([]byte(line), &readyMsg); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if !readyMsg.OK || readyMsg.PID <= 0 {
++	if !readyMsg.OK || readyMsg.PID <= 0 || readyMsg.Protocol != protocolVersion {
+ 		t.Fatalf("unexpected ready message: %+v", readyMsg)
+ 	}
+ 
+@@ -165,7 +165,7 @@ func TestCommandExecutesBoundIO(t *testing.T) {
+ 	if err := json.Unmarshal([]byte(line), &readyMsg); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if !readyMsg.OK || readyMsg.PID <= 0 {
++	if !readyMsg.OK || readyMsg.PID <= 0 || readyMsg.Protocol != protocolVersion {
+ 		t.Fatalf("unexpected ready message: %+v", readyMsg)
+ 	}
+ 
+@@ -247,7 +247,7 @@ func TestCommandExecutesRuntimeIO(t *testing.T) {
+ 	if err := json.Unmarshal([]byte(line), &readyMsg); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if !readyMsg.OK || readyMsg.PID <= 0 {
++	if !readyMsg.OK || readyMsg.PID <= 0 || readyMsg.Protocol != protocolVersion {
+ 		t.Fatalf("unexpected ready message: %+v", readyMsg)
+ 	}
+ 
+@@ -365,7 +365,7 @@ func TestCommandAcceptsEscapedRuntimePayloadAboveOldRequestLimit(t *testing.T) {
+ 	if err := json.Unmarshal([]byte(line), &readyMsg); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if !readyMsg.OK || readyMsg.PID <= 0 {
++	if !readyMsg.OK || readyMsg.PID <= 0 || readyMsg.Protocol != protocolVersion {
+ 		t.Fatalf("unexpected ready message: %+v", readyMsg)
+ 	}
+ 
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 258b1071da78c51e6b523322536a053540d59432..ca002ee09cce878bd212ad9a3343874f8737fd66 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -14,6 +14,17 @@ import {
+ } from "./records.ts";
+ 
+ const INDEX_VERSION = 1;
++/**
++ * The exact `autosk-store-lock` stdio contract this daemon speaks.
++ *
++ * The helper is the sole writer of trusted state under the project lock, and the
++ * readiness line is the only point at which it can be identified before it writes
++ * anything. Compared exactly, not as a minimum: a different revision is a
++ * different contract, and deciding which half of it still holds is not something
++ * this side can do honestly. Keep in step with `protocolVersion` in
++ * `cmd/autosk-store-lock/main.go`.
++ */
++const HELPER_PROTOCOL_VERSION = 1;
+ const LOCK_TIMEOUT_MS = 30_000;
+ const READY_TIMEOUT_MS = 10_000;
+ const REQUEST_TIMEOUT_MS = 30_000;
+@@ -599,8 +610,13 @@ async function waitForReady(reader: LineReader): Promise<void> {
+       : new Error(`autosk-store-lock readiness failed after ${Date.now() - started}ms`);
+   });
+   try {
+-    const ready = JSON.parse(line) as { ok?: unknown };
++    const ready = JSON.parse(line) as { ok?: unknown; protocol?: unknown };
+     if (ready.ok !== true) throw new Error("ready message did not contain ok:true");
++    if (ready.protocol !== HELPER_PROTOCOL_VERSION) {
++      throw new Error(
++        `helper speaks protocol ${JSON.stringify(ready.protocol)}, this daemon speaks ${HELPER_PROTOCOL_VERSION}`,
++      );
++    }
+   } catch (e) {
+     throw new Error(`autosk-store-lock readiness failed: ${e instanceof Error ? e.message : String(e)}`);
+   }
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index 6fe43fe92a3fba5a92e9fcc1861c0782df5b3190..57798e281dd41454e630eafead11c6cc2f4a36f1 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -603,7 +603,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+       fakeHelper,
+       [
+         "#!/bin/sh",
+-        "printf '%s\\n' '{\"ok\":true,\"pid\":123}'",
++        "printf '%s\\n' '{\"ok\":true,\"pid\":123,\"protocol\":1}'",
+         "IFS= read -r first",
+         "printf '%s\\n' '{\"id\":1,\"ok\":true,\"exists\":false}'",
+         "IFS= read -r second",
+@@ -645,7 +645,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         'const tasksDir = join(root, ".autosk", "tasks");',
+         'const taskJson = (id) => join(tasksDir, id, "task.json");',
+         'const put = (file, data) => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, data); };',
+-        'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid }) + "\\n");',
++        'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 1 }) + "\\n");',
+         'let buffer = "";',
+         'process.stdin.on("data", (chunk) => {',
+         '  buffer += chunk;',
+@@ -738,6 +738,95 @@ describe("Store.createTaskWithCreationBinding", () => {
+     expect(await store.listTaskViews()).toHaveLength(1);
+   });
+ 
++  test("a helper that does not announce the protocol is refused before any operation", async () => {
++    // The helper is the only writer of trusted state under the lock, and the
++    // readiness line was the one place its identity could have been established.
++    // Accepting any process that says ok:true means accepting an older build, a
++    // newer one, or something else entirely — silently.
++    const fakeHelper = join(dir.path, "unversioned-store-lock");
++    await writeFile(
++      fakeHelper,
++      ["#!/bin/sh", "printf '%s\\n' '{\"ok\":true,\"pid\":123}'", "exit 0", ""].join("\n"),
++    );
++    await chmod(fakeHelper, 0o755);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
++      expect(err.message).toMatch(/protocol/i);
++      expect(existsSync(store.paths.creationIndexJson)).toBe(false);
++      expect(await store.listTaskViews()).toEqual([]);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  });
++
++  test("a helper announcing another protocol revision is refused", async () => {
++    const fakeHelper = join(dir.path, "future-store-lock");
++    await writeFile(
++      fakeHelper,
++      ["#!/bin/sh", "printf '%s\\n' '{\"ok\":true,\"pid\":123,\"protocol\":99}'", "exit 0", ""].join("\n"),
++    );
++    await chmod(fakeHelper, 0o755);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
++      expect(err.message).toMatch(/protocol 99|protocol/i);
++      expect(existsSync(store.paths.creationIndexJson)).toBe(false);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  });
++
++  test("a refused handshake releases the lock the helper already took", async () => {
++    // The reasoning this check rests on is that the helper acquires the flock
++    // BEFORE it prints readiness, so a refusal abandons a process holding the
++    // project lock. The two fakes above never take it, so they cannot show that
++    // the refusal is safe. This one wraps the REAL helper and rewrites only its
++    // readiness line: the lock is genuinely held, then refused. If it were not
++    // released, the create below would block until the 30s lock timeout.
++    const wrapper = join(dir.path, "wrong-protocol-wrapper");
++    await writeFile(
++      wrapper,
++      [
++        "#!/bin/sh",
++        '"$AUTOSK_TEST_REAL_HELPER" "$@" | {',
++        "  IFS= read -r _ignored",
++        `  printf '%s\\n' '{"ok":true,"pid":1,"protocol":99}'`,
++        "  cat",
++        "}",
++        "",
++      ].join("\n"),
++    );
++    await chmod(wrapper, 0o755);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = wrapper;
++    process.env.AUTOSK_TEST_REAL_HELPER = helperBin;
++    try {
++      const err = await rejectedWithin(store.createTaskWithCreationBinding(creationInput()), REJECTION_GUARD_MS);
++      expect(err.message).toMatch(/protocol/i);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++      delete process.env.AUTOSK_TEST_REAL_HELPER;
++    }
++
++    const after = await store.createTaskWithCreationBinding(creationInput());
++    expectSuccess(after, "created");
++  }, 20000);
++
++  test("the real helper announces the protocol this daemon speaks", async () => {
++    // The other direction: the check must not be satisfiable only by fakes.
++    const created = await store.createTaskWithCreationBinding(creationInput());
++    expectSuccess(created, "created");
++  });
++
+   test("lock helper IPC preserves UTF-8 split across stdout chunks", async () => {
+     const fakeHelper = join(dir.path, "fake-split-store-lock");
+     const r = reservation(store, { task_id: "ask-111111" });
+@@ -758,7 +847,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         "  process.stdout.write(Buffer.from(bytes.slice(0, split)));",
+         "  setTimeout(() => process.stdout.write(Buffer.from(bytes.slice(split))), 1);",
+         "}",
+-        "splitWrite(JSON.stringify({ ok: true, pid: 123, note: \"д\" }));",
++        "splitWrite(JSON.stringify({ ok: true, pid: 123, protocol: 1, note: \"д\" }));",
+         "let buffer = \"\";",
+         "process.stdin.on(\"data\", (chunk) => {",
+         "  buffer += chunk.toString(\"utf8\");",
+@@ -807,7 +896,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+       'process.on("SIGTERM", () => {});',
+       'process.stdin.resume();',
+       'setInterval(() => {}, 1000);',
+-      'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid }) + "\\n");',
++      'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 1 }) + "\\n");',
+       '',
+     ].join("\n"));
+     await chmod(fakeHelper, 0o755);
