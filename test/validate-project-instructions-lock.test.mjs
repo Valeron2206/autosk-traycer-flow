@@ -258,6 +258,19 @@ test("the contract names the schema it is validated against", () => {
   }
 });
 
+test("the schema's own path pattern is no weaker than the validator's check", () => {
+  // A third party validating only against the schema must reach the same verdict
+  // as this validator. A pattern that accepted `a/./b` while the code rejected it
+  // would make the schema a weaker second opinion.
+  const pattern = new RegExp(schema.properties.admitted.items.properties.path.pattern, "u");
+  for (const accepted of ["AGENTS.md", "daemon/AGENTS.md", "a/...b/CLAUDE.md"]) {
+    assert.ok(pattern.test(accepted), `${accepted} should be accepted`);
+  }
+  for (const refused of ["/etc/AGENTS.md", "../AGENTS.md", "a/../b/AGENTS.md", "a/./b", "a//b", "..", "."]) {
+    assert.ok(!pattern.test(refused), `${refused} should be refused by the schema, not only by the code`);
+  }
+});
+
 test("an executable instruction file is admitted, with its mode recorded", () => {
   // The contract admits any regular blob. The executable bit changes nothing
   // about the bytes, so rejecting on it would be a rule the prose does not have.
