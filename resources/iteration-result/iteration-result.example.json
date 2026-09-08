@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "iteration_id": "iter-001",
+  "iteration_number": 1,
+  "kind": "product",
+  "hypothesis": "the chunk boundary guard is not exercised by any existing test",
+  "action": "removed the guard and ran the storelock suite",
+  "changed": {
+    "paths": [
+      "internal/storelock/lock_unix.go"
+    ],
+    "tree_before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tree_after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "verification": {
+    "batch_outcome": "product_detected",
+    "evidence_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "outcome": "advanced",
+  "remaining_blockers": [],
+  "next_action": "restore the guard and record the batch",
+  "progress_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "consumption": {
+    "provider_calls": 1,
+    "wall_clock_ms": 42000
+  },
+  "budgets": {
+    "product_iterations_max": 5,
+    "tool_retries_max": 3,
+    "pinned_before_dispatch": true
+  },
+  "identities": {
+    "anchor_version": 3,
+    "runtime": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "candidate_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "harness_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "mutation_set_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}
