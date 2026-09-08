@@ -172,6 +172,7 @@ test("the preflight has a shelf life, and an expired one is not a preflight", as
 });
 
 test("the fake provider offers every behaviour the runner classifies", () => {
+  // The preflight's own set, plus the echo modes the send path needs.
   assert.deepEqual([...MODES], [
     "ok",
     "drop_effort",
@@ -181,6 +182,9 @@ test("the fake provider offers every behaviour the runner classifies", () => {
     "model_unsupported",
     "result_with_nonzero_exit",
     "hang",
+    "echo",
+    "echo_foreign",
+    "echo_partial",
   ]);
 });
 
