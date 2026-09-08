@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "generated_at": "2026-09-08T12:00:00.000Z",
+  "epics": [
+    {
+      "epic_id": "epic-2026-09-a",
+      "stage": "panel",
+      "tickets": {
+        "total": 12,
+        "done": 9,
+        "blocked": 1
+      },
+      "panel": {
+        "seats": 4,
+        "attempts": 5,
+        "unavailable_routes": [
+          "cursor/cursor-grok-4.6"
+        ]
+      }
+    }
+  ],
+  "pending_decisions": [
+    "decision-4f21"
+  ],
+  "open_findings": 2,
+  "debt": [
+    "ticket ask-91: retry budget raised, revisit after the release"
+  ],
+  "waivers": [],
+  "operations": [
+    {
+      "operation_id": "op-7731",
+      "phase": "awaiting_decision"
+    }
+  ],
+  "budgets": {
+    "provider_calls_remaining": 118,
+    "wall_clock_ms_remaining": 5400000
+  },
+  "identities": {
+    "planning": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "staging": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "target": "cccccccccccccccccccccccccccccccccccccccc"
+  },
+  "next_safe_action": "answer decision-4f21, then resume feature-dev at panel"
+}

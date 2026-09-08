@@ -31,6 +31,7 @@
     "validate:stage-carriers": "node scripts/validate-stage-carriers.mjs",
     "validate:provider-preflight": "node scripts/validate-provider-preflight.mjs",
     "validate:doctor-report": "node scripts/validate-doctor-report.mjs",
+    "validate:human-decision": "node scripts/validate-human-decision.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {
