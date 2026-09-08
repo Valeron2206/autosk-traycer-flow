@@ -38,7 +38,8 @@ apply in the listed order, each producing the tree beside it:
 | `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
 | `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` |
 | `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` |
-| `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` — the current `result_tree` |
+| `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
+| `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -135,6 +136,48 @@ This is fail-closed in both directions, and deliberately so: an installation who
 guessing. The two constants are `protocolVersion` in
 `cmd/autosk-store-lock/main.go` and `HELPER_PROTOCOL_VERSION` in
 `daemon/core/src/store/creation.ts`; both are shipped by the same release.
+
+### What the boundary adapter covers, and what it does not
+
+Issue #13 forbids a safe adapter for one subsystem and plain `fs.writeFile/rm` for
+other trusted state. Two readings of that were on the table for this codebase, and
+they are not the same defect:
+
+**Two writers on one file.** `task.json` is written by the helper under the project
+lock during a bound creation, and by `TaskStore.writeTask` through plain `node:fs`
+for every ordinary edit. This looks like a lost-update hazard and is not one today:
+the creation index withholds a task from the ordinary path for exactly the window
+in which the locked path may write it. Two independent attempts to construct the
+race — walking `pending`, `active` and `deleted` reservations, the recovery branch,
+cross-process writers, and the gap between the helper's read and its write — found
+none. The exclusion is load-bearing and narrow: it protects the creation window,
+not the general property, and nothing enforces that a future writer respects it.
+
+**One writer, but not through the adapter.** This is the real gap. `comments.jsonl`,
+the session meta and transcript, and the project registry each have a single writer,
+and that writer is plain `node:fs`. They get none of the adapter's guarantees: no
+`O_NOFOLLOW` on each traversed component, no owner check, no mode check, no device
+check. (Compare-and-swap is *not* one of the things they miss — the helper offers it
+on one operation only, `write_runtime_index`; `write_task` and
+`write_creation_index` have none either.) The helper has no operation for any of
+them — its nine ops cover the creation index, task records and the runtime store,
+and nothing else — so closing this needs new operations, not a change of call site.
+
+Two members of that list need naming separately, because calling them
+single-writer would be wrong:
+
+- `~/.autosk/settings.json` has **two** writers — first-run bootstrap and the
+  extension add/remove path — and they are not serialised against each other.
+  Bootstrap decides to write from an `existsSync` check taken *before* a network
+  `npm install`, so an add landing in that window is overwritten by the default
+  list. That is a genuine time-of-check/time-of-use bug, separate from the adapter
+  question, and it is recorded here rather than folded into it.
+- The RPC token is written with a truncating `openSync(path, "w")`, not even the
+  temp-and-rename `atomicWrite` the others use, so a concurrent reader can observe
+  an empty token.
+
+Neither statement is a plan to leave any of this alone; they are the honest
+starting point for the slices that close it.
 
 ### Refusal classes
 

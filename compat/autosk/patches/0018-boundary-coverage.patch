@@ -1,0 +1,127 @@
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c30bd02a44b733e5887d95b7e3ca1430600a531
+--- /dev/null
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -0,0 +1,121 @@
++/**
++ * Which trusted state the filesystem boundary adapter actually covers (issue #13).
++ *
++ * #13 says: "Нельзя иметь безопасный adapter для одной подсистемы и обычный
++ * `fs.writeFile/rm` для другой trusted state." These tests establish, against the
++ * code rather than against prose, exactly where the line falls today — because the
++ * two candidate readings of that gap are not the same defect and do not have the
++ * same fix.
++ */
++
++import { afterEach, beforeEach, describe, expect, test } from "bun:test";
++import { readFileSync } from "node:fs";
++import { mkdir, writeFile } from "node:fs/promises";
++import { dirname } from "node:path";
++
++import { Store, creationKeyHash } from "../src/index.ts";
++import { tempDir } from "./helpers.ts";
++
++const KEY = "flow:coverage";
++const HASH = "b".repeat(64);
++
++describe("what the boundary adapter covers", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let store: Store;
++
++  beforeEach(async () => {
++    dir = tempDir();
++    store = new Store(dir.path, { watch: false });
++    await store.open();
++  });
++  afterEach(async () => {
++    await store.close();
++    dir.cleanup();
++  });
++
++  test("a task whose marker has no matching reservation is withheld from the ordinary path", async () => {
++    // NOT the `pending` case — that one is already pinned by
++    // `store.creation.test.ts` ("pending task stays out of views until retry
++    // activates the same id"). The first version of this test claimed to pin it and
++    // did not: it plants a reservation on a task created WITHOUT creation markers,
++    // so admission refuses at the marker check long before it looks at the state.
++    // Mutating away the state guard left it green, which is how that was found.
++    //
++    // The branch it does pin is worth having: a marker/reservation disagreement is
++    // refused, and nothing else in the suite covers it.
++    const markerless = await store.createTask({ title: "before" });
++    const keyHash = creationKeyHash(KEY);
++    await mkdir(dirname(store.paths.creationIndexJson), { recursive: true });
++    await writeFile(
++      store.paths.creationIndexJson,
++      JSON.stringify({
++        schema_version: 1,
++        reservations: {
++          [keyHash]: {
++            key_hash: keyHash, creation_key: KEY, creation_binding_hash: HASH,
++            task_id: markerless.id, state: "active",
++            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", deleted_at: null,
++          },
++        },
++      }, null, 2) + "\n",
++    );
++
++    await expect(store.updateTask(markerless.id, { title: "edited outside the lock" })).rejects.toThrow(
++      /task not found/,
++    );
++    expect((await store.listTaskViews()).map((t) => t.id)).not.toContain(markerless.id);
++  });
++
++  test("a properly keyed task is withheld while its reservation is not active", async () => {
++    // The exclusion the two-writer argument actually rests on, pinned against a task
++    // that carries real markers, so the state guard is what refuses rather than the
++    // marker check standing in for it.
++    const created = await store.createTaskWithCreationBinding({
++      title: "keyed", description: "", blocked_by: [],
++      creation_key: KEY, creation_binding_hash: HASH,
++    });
++    const index = JSON.parse(readFileSync(store.paths.creationIndexJson, "utf8")) as {
++      reservations: Record<string, { state: string }>;
++    };
++    for (const reservation of Object.values(index.reservations)) reservation.state = "pending";
++    await writeFile(store.paths.creationIndexJson, JSON.stringify(index, null, 2) + "\n");
++
++    await expect(store.updateTask(created.task.id, { title: "edited outside the lock" })).rejects.toThrow(
++      /task not found/,
++    );
++    expect((await store.listTaskViews()).map((t) => t.id)).not.toContain(created.task.id);
++  });
++
++  test("the helper can only write three kinds of file, and comments and sessions are not among them", () => {
++    // The gap #13 names is not a race for these: they have ONE writer. It is that
++    // the one writer is plain `node:fs`, so they get none of the adapter's
++    // guarantees — no no-follow, no owner or mode check, no device check.
++    const helper = readFileSync(new URL("../../../cmd/autosk-store-lock/main.go", import.meta.url), "utf8");
++    // Scoped to the request switch: a lowercase string case elsewhere in the file
++    // is not an operation, and counting one would make this assertion drift.
++    const dispatch = helper.slice(helper.indexOf("switch req.Op"), helper.indexOf("func responseError"));
++    const ops = [...dispatch.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
++    expect(ops.sort()).toEqual([
++      "list_task_ids",
++      "read_creation_index",
++      "read_runtime_blob",
++      "read_runtime_index",
++      "read_task",
++      "write_creation_index",
++      "write_runtime_blob",
++      "write_runtime_index",
++      "write_task",
++    ]);
++
++    const taskStore = readFileSync(new URL("../src/store/taskStore.ts", import.meta.url), "utf8");
++    const sessionStore = readFileSync(new URL("../src/store/sessionStore.ts", import.meta.url), "utf8");
++    for (const [name, source] of [["taskStore", taskStore], ["sessionStore", sessionStore]] as const) {
++      expect(source, name).toContain("atomicWrite");
++      expect(source, name).not.toContain("withCreationLock");
++    }
++    // comments.jsonl and the session meta/transcript have no helper op at all, so
++    // routing them through the adapter needs new ops, not a call-site change.
++    expect(ops).not.toContain("write_comments");
++    expect(ops).not.toContain("write_session_meta");
++  });
++});
