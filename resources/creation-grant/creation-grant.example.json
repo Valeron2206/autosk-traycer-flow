@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "binding": {
+    "schema_version": 1,
+    "grant_id": "grant-0f3a91",
+    "project_sha256": "a31928515822ddc768d58d764ba4562cf31ebb6777f38cfc0ee449e767d59ba1",
+    "parent_task_id": "ask-a1b2c3",
+    "session_id": "0190a1b2-c3d4-7e5f-8a9b-0000000000d1",
+    "workflow": "feature-dev",
+    "step": "plan",
+    "step_visit": 1,
+    "operation_id": "op-fanout-7c21",
+    "context_digest": "169b55199289e8735307a56c0634776c0611ced3cfdac0456cb897f082bc8fc8",
+    "expires_at_ms": 4102444800000
+  },
+  "slots": [
+    {
+      "slot_id": "child-a",
+      "creation_key": "flow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "creation_binding_hash": "3d34fcf1e745dc4e733d989f68dd9fda12c3b447565b5550ff5a996f8ecb713b",
+      "workflow": "feature-dev",
+      "title": "first child"
+    },
+    {
+      "slot_id": "child-b",
+      "creation_key": "flow:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "creation_binding_hash": "dc02d54a887a470d836cb33c104824eb7eb6fec3392eb6522266720e06e04f53",
+      "workflow": "feature-dev",
+      "title": "second child"
+    }
+  ],
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "2d1b7b60222ca7f4ec1cc88ab20b4fbd",
+    "value": "6c399a8c73e03f0ee6f69c966933af1899b6db831647ca39befc4331454a375a2815b6962188d55cc2915a8a14ecf8a0d9d239f90fcb3b99baa73aad53077d03"
+  }
+}

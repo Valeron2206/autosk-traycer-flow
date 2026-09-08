@@ -21,7 +21,8 @@
     "validate:epic-staging": "node scripts/validate-epic-staging.mjs",
     "validate:gate-projection": "node scripts/validate-gate-store-projection.mjs",
     "validate:clean-room": "node scripts/validate-clean-room-e2e.mjs",
-    "validate:platform-support": "node scripts/validate-platform-support.mjs"
+    "validate:platform-support": "node scripts/validate-platform-support.mjs",
+    "validate:creation-grant": "node scripts/validate-creation-grant.mjs"
   },
   "engines": {
     "node": ">=24"
