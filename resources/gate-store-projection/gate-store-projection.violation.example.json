@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "projection_version": "autosk-flow/gate-store-projection/v1",
+  "project_binding": "90912bebfce4d26ba9449a2a2f1bc9060b96f5e5510c235de795815c0a30c16e",
+  "seat": "opus",
+  "run_id": "run-0007",
+  "projected_fields": [
+    "project_binding",
+    "parent_child_relation",
+    "run",
+    "round",
+    "attempt",
+    "seat",
+    "role",
+    "artifact_identity",
+    "candidate_identity",
+    "base_hashes",
+    "anchor_version",
+    "protocol_lock",
+    "runtime_lock",
+    "instruction_lock",
+    "creation_binding",
+    "provider_session_binding",
+    "reviewer_routing",
+    "author_family",
+    "fixer_family",
+    "expected_blocker",
+    "allowed_transitions",
+    "result_schema",
+    "accepted_findings"
+  ],
+  "concurrent_fields": [
+    "status",
+    "step",
+    "timestamps",
+    "session_append_progress",
+    "sibling_result",
+    "sibling_terminal_status",
+    "heartbeat"
+  ],
+  "projection_digest_before": "1b250ea199bec73d392caad39d1167d6edc43c81f20edead86eea52c52b94fc1",
+  "projection_digest_after": "1b250ea199bec73d392caad39d1167d6edc43c81f20edead86eea52c52b94fc1",
+  "comments_frozen_prefix_digest_before": "ffb304816a1090313e833215c08dae3d209cfad1ffd1f674f0909a2ae99e1394",
+  "comments_frozen_prefix_digest_after": "ffb304816a1090313e833215c08dae3d209cfad1ffd1f674f0909a2ae99e1394",
+  "journal": [
+    {
+      "actor": "daemon",
+      "operation_id": "op-sibling-finish",
+      "permitted_fields": [
+        "status",
+        "step",
+        "timestamps"
+      ],
+      "changed_fields": [
+        "status",
+        "timestamps"
+      ],
+      "before_digest": "7dc96f776c8423e57a2785489a3f9c43fb6e756876d6ad9a9cac4aa4e72ec193",
+      "after_digest": "f55ff16f66f43360266b95db6f8fec01d76031054306ae4a4b380598f6cfd114",
+      "sequence": 1,
+      "timestamp": "2026-09-08T06:00:00Z",
+      "project_binding": "90912bebfce4d26ba9449a2a2f1bc9060b96f5e5510c235de795815c0a30c16e"
+    },
+    {
+      "actor": "daemon",
+      "operation_id": "op-host-verdict",
+      "permitted_fields": [
+        "sibling_result"
+      ],
+      "changed_fields": [
+        "sibling_result"
+      ],
+      "before_digest": "4814d92093ac8a0f4a2163ab87dee509ba306a58f5888be0edcb2fcd0712028b",
+      "after_digest": "2c3a4249d77070058649dbd822dcaf7957586fce428cfb2ca88b94741eda8b07",
+      "sequence": 2,
+      "timestamp": "2026-09-08T06:01:00Z",
+      "project_binding": "90912bebfce4d26ba9449a2a2f1bc9060b96f5e5510c235de795815c0a30c16e"
+    },
+    {
+      "actor": "driver",
+      "operation_id": "op-unclaimed",
+      "permitted_fields": [
+        "heartbeat"
+      ],
+      "changed_fields": [
+        "heartbeat"
+      ],
+      "before_digest": "76a8277347f52530e1cf979175a178980b3a180d176165c985d85f7e142f1eed",
+      "after_digest": "f46dd28a5499d8efef0b8fb8ee1ec1c5a5e407c9381741d576ba8deb4f59ec3f",
+      "sequence": 3,
+      "timestamp": "2026-09-08T06:02:00Z",
+      "project_binding": "90912bebfce4d26ba9449a2a2f1bc9060b96f5e5510c235de795815c0a30c16e"
+    }
+  ],
+  "verdict": "blocking_non_verdict"
+}

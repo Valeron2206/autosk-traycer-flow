@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/gate-store-projection.v1.json",
+  "title": "Gate store projection v1",
+  "description": "What may not change during a gate run, what may, and how the difference is proven. Closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "projection_version",
+    "project_binding",
+    "seat",
+    "run_id",
+    "projected_fields",
+    "concurrent_fields",
+    "projection_digest_before",
+    "projection_digest_after",
+    "comments_frozen_prefix_digest_before",
+    "comments_frozen_prefix_digest_after",
+    "journal"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "projection_version": {
+      "const": "autosk-flow/gate-store-projection/v1"
+    },
+    "project_binding": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "seat": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projected_fields": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "project_binding",
+          "parent_child_relation",
+          "run",
+          "round",
+          "attempt",
+          "seat",
+          "role",
+          "artifact_identity",
+          "candidate_identity",
+          "base_hashes",
+          "anchor_version",
+          "protocol_lock",
+          "runtime_lock",
+          "instruction_lock",
+          "creation_binding",
+          "provider_session_binding",
+          "reviewer_routing",
+          "author_family",
+          "fixer_family",
+          "expected_blocker",
+          "allowed_transitions",
+          "result_schema",
+          "accepted_findings"
+        ]
+      }
+    },
+    "concurrent_fields": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "status",
+          "step",
+          "timestamps",
+          "worker_lease",
+          "worker_activity",
+          "engine_counters",
+          "session_append_progress",
+          "sibling_result",
+          "sibling_terminal_status",
+          "retry_fields",
+          "heartbeat"
+        ]
+      }
+    },
+    "projection_digest_before": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "projection_digest_after": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "comments_frozen_prefix_digest_before": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "comments_frozen_prefix_digest_after": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "journal": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor",
+          "operation_id",
+          "permitted_fields",
+          "changed_fields",
+          "before_digest",
+          "after_digest",
+          "sequence",
+          "project_binding"
+        ],
+        "properties": {
+          "actor": {
+            "enum": [
+              "daemon",
+              "driver",
+              "user",
+              "model",
+              "tool"
+            ]
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "permitted_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "changed_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "before_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "after_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "project_binding": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "verdict": {
+      "enum": [
+        "accepted",
+        "blocking_non_verdict"
+      ]
+    }
+  }
+}
