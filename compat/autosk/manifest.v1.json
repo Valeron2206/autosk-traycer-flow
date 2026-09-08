@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "5a16304e20883870375cefc7816b4875c581d354",
+  "result_tree": "3eb7758f59b9793f5162b0a79a5803c33e2b4a8f",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -54,6 +54,10 @@
     {
       "file": "patches/0012-reload-and-missing-version.patch",
       "sha256": "aca08d427669b4269c0476b35be34cd175d15426759a995e0279dc6d93ff1612"
+    },
+    {
+      "file": "patches/0013-daemon-capability-report.patch",
+      "sha256": "e768146ea5ac9bc9ebc79d2f2dfa95eafd14c7ea4fca72ba4ab80fd24851209b"
     }
   ],
   "license": {

@@ -1,0 +1,225 @@
+diff --git a/daemon/core/src/rpc/capabilities.ts b/daemon/core/src/rpc/capabilities.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..de57f7f9c4f8fc0542c5e957ed9b21b3bee298eb
+--- /dev/null
++++ b/daemon/core/src/rpc/capabilities.ts
+@@ -0,0 +1,52 @@
++/**
++ * What this daemon build guarantees, and how a client can tell (issue #11).
++ *
++ * A client — `autosk-flow` in particular — cannot run its child fan-out on a
++ * daemon that lacks write-once creation identity: it would silently fall back to
++ * matching children by editable title, which is exactly the duplicate/orphan
++ * hazard the primitive exists to remove. So it must be able to ask, before it
++ * starts, whether this daemon has the guarantee.
++ *
++ * A hand-written "yes" would be worthless. A build that lost the implementation
++ * would keep answering yes, and the preflight would pass on the very daemon it
++ * exists to reject. So a capability is declared here together with the exact
++ * methods that implement it, and {@link capabilitiesOf} reports only those whose
++ * methods are ALL present in the live handler table. Deleting the handler deletes
++ * the capability; there is no second place to remember to update.
++ *
++ * This says nothing about guarantees that no method carries. Runtime identity
++ * admission (issue #10) is enforced inside `enroll`/`resume`/`dispatch`, whose
++ * methods exist in an unpatched daemon too, so declaring it here would be a claim
++ * this mechanism cannot check. It is deliberately absent.
++ */
++import type { DaemonCapability, RpcMethod } from "@autosk/sdk";
++
++/** A capability declaration: the guarantee, its contract revision, its methods. */
++interface Declaration {
++  name: string;
++  version: number;
++  methods: readonly RpcMethod[];
++}
++
++/**
++ * `task.creation-binding` v1: `creation_key` + `creation_binding_hash` are
++ * written once, under the cross-process project lock, by the process holding it;
++ * an exact retry returns the same task, a different binding is a conflict, and
++ * neither field can be edited afterwards.
++ */
++const DECLARED: readonly Declaration[] = [
++  { name: "task.creation-binding", version: 1, methods: ["task.create_bound"] },
++];
++
++/**
++ * The capabilities a daemon with `registered` methods actually has.
++ *
++ * Reported in a stable order (by name), with `methods` in the declared order, so
++ * two builds with the same capabilities answer byte-identically.
++ */
++export function capabilitiesOf(registered: readonly RpcMethod[]): DaemonCapability[] {
++  const present = new Set<string>(registered);
++  return DECLARED.filter((d) => d.methods.every((m) => present.has(m)))
++    .map((d) => ({ name: d.name, version: d.version, methods: [...d.methods] }))
++    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
++}
+diff --git a/daemon/core/src/rpc/daemon.ts b/daemon/core/src/rpc/daemon.ts
+index 29db1e928aed9cee25cebaa90f2f4f29a8aaa401..67f62fb6127fa57ebb2482a536dfe8f5d7aad61e 100644
+--- a/daemon/core/src/rpc/daemon.ts
++++ b/daemon/core/src/rpc/daemon.ts
+@@ -43,6 +43,7 @@ import type { Store } from "../store/store.ts";
+ import { Connection, SessionSubscription } from "./connection.ts";
+ import { RpcError } from "./errors.ts";
+ import { commit, VERSION } from "../version.ts";
++import { capabilitiesOf } from "./capabilities.ts";
+ 
+ /**
+  * The method dispatch table, typed as a mapped type over {@link RpcMethod}: the
+@@ -404,6 +405,9 @@ export class Daemon {
+     return {
+       // ---- meta ----------------------------------------------------------
+       "meta.version": async () => ({ version: VERSION, commit: commit() }),
++      // Derived from the live handler table, so this cannot outlive the methods
++      // that implement it (issue #11).
++      "meta.capabilities": async () => ({ capabilities: capabilitiesOf(this.registeredMethods()) }),
+       "meta.auth": async (params, conn) => {
+         if (!conn.isTcp) return { ok: true }; // UDS is exempt
+         const token = asObj(params).token;
+diff --git a/daemon/core/src/rpc/index.ts b/daemon/core/src/rpc/index.ts
+index 12307048a29a9643b6f0975926729ecc44a60c73..9a01decfbd09e0acbfd24d12fed511813a957749 100644
+--- a/daemon/core/src/rpc/index.ts
++++ b/daemon/core/src/rpc/index.ts
+@@ -7,6 +7,7 @@ export { Daemon, type DaemonOptions } from "./daemon.ts";
+ export { RpcServer, type ServeOptions } from "./server.ts";
+ export { Connection, SessionSubscription, type DispatchFn, type ConnectionDeps } from "./connection.ts";
+ export { RpcError, toRpcError } from "./errors.ts";
++export { capabilitiesOf } from "./capabilities.ts";
+ export {
+   startDaemon,
+   type StartDaemonOptions,
+diff --git a/daemon/core/test/rpc.capabilities.test.ts b/daemon/core/test/rpc.capabilities.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..970c8e7cfcf458c5c46da46ad5e80708935894d9
+--- /dev/null
++++ b/daemon/core/test/rpc.capabilities.test.ts
+@@ -0,0 +1,63 @@
++/**
++ * `meta.capabilities` (issue #11): what a client can rely on before it starts.
++ *
++ * The point of these tests is not that the daemon answers — it is that the answer
++ * is derived from the methods that implement the guarantee, so a build without
++ * the implementation cannot keep claiming it.
++ */
++
++import { afterEach, beforeEach, describe, expect, test } from "bun:test";
++
++import { RPC_METHODS, type CapabilityInfo, type RpcMethod } from "@autosk/sdk";
++
++import { capabilitiesOf } from "../src/index.ts";
++import { startTestDaemon, type RpcClient, type TestDaemon } from "./rpcHarness.ts";
++
++describe("meta.capabilities", () => {
++  test("declares the creation-binding guarantee with the method that implements it", () => {
++    expect(capabilitiesOf(RPC_METHODS)).toEqual([
++      { name: "task.creation-binding", version: 1, methods: ["task.create_bound"] },
++    ]);
++  });
++
++  test("a build without the method does not report the capability", () => {
++    // The whole mechanism. A hand-written "yes" would still say yes here, and a
++    // client's preflight would pass on the daemon it exists to reject.
++    const without = RPC_METHODS.filter((m) => m !== "task.create_bound");
++    expect(capabilitiesOf(without)).toEqual([]);
++  });
++
++  test("unrelated methods disappearing does not remove the capability", () => {
++    // The other direction: the derivation must be keyed to THIS capability's
++    // methods, not to the size or shape of the table.
++    const trimmed = RPC_METHODS.filter((m) => m.startsWith("meta.") || m === "task.create_bound");
++    expect(capabilitiesOf(trimmed).map((c) => c.name)).toEqual(["task.creation-binding"]);
++  });
++
++  test("an empty method table has no capabilities", () => {
++    expect(capabilitiesOf([] as RpcMethod[])).toEqual([]);
++  });
++
++  describe("over the live daemon", () => {
++    let td: TestDaemon;
++    let client: RpcClient;
++
++    beforeEach(async () => {
++      td = await startTestDaemon();
++      client = await td.client();
++    });
++    afterEach(async () => {
++      await td?.cleanup();
++    });
++
++    test("reports exactly what the running handler table supports", async () => {
++      const info = (await client.call("meta.capabilities", null)) as CapabilityInfo;
++      // Compared against the derivation over the daemon's OWN registered methods,
++      // so this fails if the handler is ever wired to a constant instead.
++      expect(info).toEqual({ capabilities: capabilitiesOf(td.runtime.daemon.registeredMethods()) });
++      expect(info.capabilities).toEqual([
++        { name: "task.creation-binding", version: 1, methods: ["task.create_bound"] },
++      ]);
++    });
++  });
++});
+diff --git a/daemon/sdk/src/proto.ts b/daemon/sdk/src/proto.ts
+index dd88597d376a2883c8743ae64649db1dcab94519..36e9f11d8ab70d2cafa12e6c1aa53e57bbcaa836 100644
+--- a/daemon/sdk/src/proto.ts
++++ b/daemon/sdk/src/proto.ts
+@@ -117,6 +117,31 @@ export interface VersionInfo {
+   commit: string;
+ }
+ 
++/**
++ * One guarantee this daemon build offers, and the exact methods that implement
++ * it (issue #11).
++ *
++ * `methods` is not documentation: the daemon derives the reported list from its
++ * live handler table, so a capability whose methods are not registered is not
++ * reported at all. A build that lost the implementation cannot keep claiming the
++ * guarantee, which is the only way a client's preflight can mean anything.
++ *
++ * `version` is the contract revision, incremented when the guarantee changes in
++ * a way a client must notice. A client therefore pins the exact revision it was
++ * written against and refuses to start on any other — a minimum would accept the
++ * later revision the increment exists to warn about.
++ */
++export interface DaemonCapability {
++  name: string;
++  version: number;
++  methods: RpcMethod[];
++}
++
++/** What `meta.capabilities` returns: the capabilities this build actually has. */
++export interface CapabilityInfo {
++  capabilities: DaemonCapability[];
++}
++
+ export interface AuthParams {
+   token: string;
+ }
+@@ -404,6 +429,7 @@ export interface SessionEndParams extends ProjectSelector {
+ export interface RpcMethodMap {
+   // meta
+   "meta.version": { params: null; result: VersionInfo };
++  "meta.capabilities": { params: null; result: CapabilityInfo };
+   "meta.auth": { params: AuthParams; result: OkResult };
+   "meta.healthz": { params: null; result: Health };
+   "meta.shutdown": { params: null; result: OkResult };
+@@ -483,6 +509,7 @@ export type ResultOf<M extends RpcMethod> = RpcMethodMap[M]["result"];
+  */
+ export const RPC_METHODS = [
+   "meta.version",
++  "meta.capabilities",
+   "meta.auth",
+   "meta.healthz",
+   "meta.shutdown",
+diff --git a/daemon/sdk/test/proto.test.ts b/daemon/sdk/test/proto.test.ts
+index 50a46855d75f44823a27a17e73eaaedaef1d7b7b..568908d259a897dd042c1385fdbed0909cc742a8 100644
+--- a/daemon/sdk/test/proto.test.ts
++++ b/daemon/sdk/test/proto.test.ts
+@@ -19,6 +19,7 @@ import {
+ const PLAN_SECTION_4_METHODS = [
+   // meta
+   "meta.version",
++  "meta.capabilities",
+   "meta.auth",
+   "meta.healthz",
+   "meta.shutdown",

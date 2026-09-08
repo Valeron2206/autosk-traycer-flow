@@ -113,7 +113,60 @@ they are not evidence of daemon durability, process isolation, or full fan-out.
 | Atomic concurrent task creation and recovery | Not provided by this compiler | Publish and qualify existing Store/native patches |
 | Write-once daemon markers and legacy compatibility | Not provided by this compiler | Real Store tests and supported upstream pin |
 | TaskView, SDK, CLI typed outcomes | Grant consumer validates SDK outcomes | Supervisor wiring and operator RPC/CLI |
-| Preflight refuses absent capability | Consumer fails when capability is missing | Production admission/doctor integration |
+| Preflight refuses absent capability | `requireDaemonCapabilities` decides admission from `meta.capabilities`, which the daemon derives from its live handler table | Wiring it into the extension entry point, which does not exist yet |
 | Upstream distribution and platform qualification | Not included in this PR | CI on the fully wired source |
+
+## Daemon capability preflight
+
+`autosk-flow` cannot run its child fan-out on a daemon without write-once creation
+identity: it would have to find a partially-created child by its editable title,
+which is the duplicate/orphan hazard #11 exists to remove. So it asks first.
+
+The daemon answers over `meta.capabilities`, and the answer is **derived from its
+live handler table**: a capability is declared beside the exact methods that
+implement it, and only those whose methods are all registered are reported. A
+build that lost the implementation cannot keep claiming the guarantee — which is
+the only reason asking is worth anything. A hand-written "yes" would pass on the
+very daemon the preflight exists to reject.
+
+`requireDaemonCapabilities` decides admission from that report. Every rejection
+stops the flow rather than downgrading it, because an unreadable report says
+nothing about the daemon and nothing is not evidence:
+
+| Observation | Outcome |
+| --- | --- |
+| required capability absent | `daemon_capability_missing` |
+| present at another revision | `daemon_capability_version_mismatch` |
+| present but implemented by different methods | `daemon_capability_method_mismatch` |
+| duplicated, oversized, naming no method, naming one twice, or two capabilities sharing a method | `daemon_capability_invalid` |
+| not a closed record — wrong shape, extra or missing field, getter, proxy | `invalid_record` |
+| a method name that is not canonical text | `invalid_identity` |
+
+The last two come from the shared record and identity primitives rather than from
+this module; they are listed because a caller sees them and they are refusals like
+any other, not because this module raises them.
+
+The revision is compared **exactly**, not as a minimum. It is incremented when the
+guarantee changes in a way a client must notice, so accepting a later one would
+accept the change the increment exists to warn about.
+
+Only guarantees a method carries are declared. Runtime identity admission (#10) is
+enforced inside `enroll`/`resume`/`dispatch`, whose methods exist in an unpatched
+daemon too, so declaring it through this mechanism would be a claim the mechanism
+cannot check. It is deliberately absent rather than reported optimistically.
+
+The required set pins the **methods** too, not only the name and revision. Refusing
+an empty method list because it could not have been derived, and then never looking
+at the one non-empty list the daemon hands over, would let a renamed method through
+the check written to notice it.
+
+What remains: the required set and the daemon's declaration live in two
+repositories. A test rebuilds `capabilities.ts` from the shipped patch series —
+which the manifest pins by SHA-256 — and compares the declaration in that source.
+Reading the patch text instead would not work: patches are append-only, so the
+lines that introduced the declaration keep matching for ever, and a rename, bump,
+reformat or deletion in a *later* patch would pass unnoticed. Calling the preflight
+at extension startup is still pending — the extension entry point does not exist
+yet.
 
 Do not close #11, #38, #36 or any other roadmap issue from this prerequisite alone.
