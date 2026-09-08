@@ -24,7 +24,7 @@
     },
     {
       "path": "docs/contracts/approved-delta.md",
-      "sha256": "adbcf0361ea38daaf07cc8dc68a55b8909509c189b7a25f6f5812008550f82dd"
+      "sha256": "7fea85f4f86657287d7e9d7cbea7ee882127aabf454bcec79c1012d8c67741bf"
     },
     {
       "path": "docs/contracts/artifact-registry.md",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "1de8a1a988348c018fbb3edcf17711441cf1c3dbbb311c7c1ab123c06550c42b",
+  "candidate_digest": "95f7e32b35fe71b2c86ec79a9927acff5837af0921c92198c12c9737c4cf76c7",
   "dispositions": [
     {
       "issue": 3,

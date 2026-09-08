@@ -225,6 +225,42 @@ test("an approved entry that is not present, and an unapproved one that is", () 
   assert.ok(extra.some((error) => error.reason === "scope_violation"));
 });
 
+test("an approved deletion is proven by absence, not by presence", () => {
+  // Requiring the path to be present would make an approved deletion
+  // impossible to integrate: the guard could never be satisfied.
+  const deletion = delta({
+    entries: [entry({ status: "D", new_blob: undefined, new_mode: undefined })],
+  });
+  assert.deepEqual(
+    integrationProof(deletion, result({ applied_entries: [], removed_paths: ["src/store/creation.ts"] })),
+    [],
+  );
+  const stillThere = integrationProof(deletion, result({ removed_paths: [] }));
+  assert.ok(stillThere.some((error) => /approved deletion is still present/u.test(error.detail)));
+});
+
+test("a rename that leaves the old path in place is two files where there was one", () => {
+  const renamed = delta({
+    entries: [entry({ path: "src/store/moved.ts", from_path: "src/store/creation.ts", status: "R" })],
+  });
+  const applied = { path: "src/store/moved.ts", new_blob: oid("2"), new_mode: "100644" };
+  assert.deepEqual(
+    integrationProof(renamed, result({ applied_entries: [applied], removed_paths: ["src/store/creation.ts"] })),
+    [],
+  );
+  const copied = integrationProof(renamed, result({ applied_entries: [applied], removed_paths: [] }));
+  assert.ok(copied.some((error) => /the rename left it in place/u.test(error.detail)));
+});
+
+test("a removal nobody approved is a scope violation, not an absence", () => {
+  // A check that only inspects the paths still there cannot see a removal at
+  // all, which is what makes this worth stating separately.
+  const errors = integrationProof(delta(), result({ removed_paths: ["src/store/other.ts"] }));
+  assert.ok(errors.some((error) => /removed and not approved/u.test(error.detail)), JSON.stringify(errors));
+  // Outside the Ticket's scope it is not this delta's business.
+  assert.deepEqual(integrationProof(delta(), result({ removed_paths: ["docs/readme.md"] })), []);
+});
+
 test("a result not bound to this operation and base is refused", () => {
   const errors = integrationProof(delta(), result({ operation_id: "op-2" }));
   assert.ok(errors.some((error) => /not bound to this operation/u.test(error.detail)));
