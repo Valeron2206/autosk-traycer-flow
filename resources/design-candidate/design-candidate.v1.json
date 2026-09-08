@@ -80,7 +80,7 @@
     },
     {
       "path": "docs/contracts/execution-base.md",
-      "sha256": "33d208850802ab6811306617c49c2a329cf65e7ef129afaec93183b576f321e6"
+      "sha256": "510032c4357b7517755e6f059b78c81312f2a7b805406bab99a75a760f42447f"
     },
     {
       "path": "docs/contracts/external-source-snapshot.md",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "ce1c187f12ca428fc2602364dbdff2e033e69bc0438dc8fce872038aa170976e",
+  "candidate_digest": "33e9d25c976d323fcec6f1552863c56d25ef75d84eb73b398adc4792d78b2c8c",
   "dispositions": [
     {
       "issue": 3,
