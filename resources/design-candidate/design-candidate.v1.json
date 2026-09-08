@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "1a28a73e16c0f66a2602e48e4b3ad78d6d881c7b268b751d6f6bfb7bf2e3085c"
+      "sha256": "deccef3dd8969bdb4af181d6568991f556689ddfb305dcb195173579f8dab7de"
     },
     {
       "path": "README.md",
@@ -29,6 +29,10 @@
     {
       "path": "docs/contracts/artifact-registry.md",
       "sha256": "9cc9d0b79db6c01e4ff9969de0eb7827bb1820ae165d8e5d7339b4bfc0b7ffca"
+    },
+    {
+      "path": "docs/contracts/artifact-write-receipt.md",
+      "sha256": "1b403dcfa897a7b2e40f91f053bb62c050fc8c5b15525b3dc0bff824cfaefa1d"
     },
     {
       "path": "docs/contracts/clean-room-e2e.md",
@@ -85,6 +89,10 @@
     {
       "path": "resources/artifact-registry/artifact-registry.schema.json",
       "sha256": "396b9d2a34cc85a2e3eeb038549c9e11b02bf8c5b9fcae9912c279a6edf8a8cf"
+    },
+    {
+      "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
+      "sha256": "9d2a92cd93fa37dd7fccf3d015b7a48412034f191e17ccf901bfaf0a49d4f611"
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.schema.json",
@@ -203,7 +211,7 @@
       "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
     }
   ],
-  "candidate_digest": "ba5e29ad2afbaeb44c172b7c054372d10893652f720101b30d16103e386892fa",
+  "candidate_digest": "aef7821a79294dec7de1ef2bd8db2e8b1c99c0ad919c33bc3f08e5eab228346e",
   "dispositions": [
     {
       "issue": 3,
