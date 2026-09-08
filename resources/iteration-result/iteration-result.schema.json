@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Iteration result (issue #32)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "iteration_id",
+    "iteration_number",
+    "kind",
+    "hypothesis",
+    "action",
+    "changed",
+    "verification",
+    "outcome",
+    "remaining_blockers",
+    "progress_digest",
+    "consumption",
+    "identities",
+    "budgets"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "iteration_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "iteration_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "enum": [
+        "product",
+        "tool_retry"
+      ]
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 10
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paths",
+        "tree_before",
+        "tree_after"
+      ],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "tree_before": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "tree_after": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batch_outcome"
+      ],
+      "properties": {
+        "batch_outcome": {
+          "enum": [
+            "product_detected",
+            "product_not_detected",
+            "green_control_failed",
+            "mutation_not_applied",
+            "tool_setup_failed",
+            "tool_execution_failed",
+            "restore_failed",
+            "evidence_invalid",
+            "timeout",
+            "indeterminate"
+          ]
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "outcome": {
+      "enum": [
+        "advanced",
+        "no_progress",
+        "escalated"
+      ]
+    },
+    "escalation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trigger",
+        "detail"
+      ],
+      "properties": {
+        "trigger": {
+          "enum": [
+            "repeated_failure",
+            "decision_beyond_scope",
+            "premise_invalidated",
+            "permission_gap"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 10
+        }
+      }
+    },
+    "remaining_blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "next_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "progress_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "consumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_calls",
+        "wall_clock_ms"
+      ],
+      "properties": {
+        "provider_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_clock_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_iterations_max",
+        "tool_retries_max",
+        "pinned_before_dispatch"
+      ],
+      "properties": {
+        "product_iterations_max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tool_retries_max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pinned_before_dispatch": {
+          "const": true
+        }
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor_version",
+        "runtime",
+        "candidate_tree",
+        "harness_digest",
+        "mutation_set_digest"
+      ],
+      "properties": {
+        "anchor_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "runtime": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "candidate_tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "harness_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mutation_set_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

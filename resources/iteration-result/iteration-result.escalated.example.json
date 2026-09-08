@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "iteration_id": "iter-004",
+  "iteration_number": 4,
+  "kind": "tool_retry",
+  "hypothesis": "the same command failed a fourth time with the identical error",
+  "action": "re-ran the harness with no change",
+  "changed": {
+    "paths": [],
+    "tree_before": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tree_after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "verification": {
+    "batch_outcome": "tool_execution_failed"
+  },
+  "outcome": "escalated",
+  "remaining_blockers": [
+    "the harness cannot start on this runner"
+  ],
+  "next_action": "restore the guard and record the batch",
+  "progress_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "consumption": {
+    "provider_calls": 1,
+    "wall_clock_ms": 42000
+  },
+  "budgets": {
+    "product_iterations_max": 5,
+    "tool_retries_max": 3,
+    "pinned_before_dispatch": true
+  },
+  "identities": {
+    "anchor_version": 3,
+    "runtime": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "candidate_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "harness_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "mutation_set_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "escalation": {
+    "trigger": "repeated_failure",
+    "detail": "the harness has failed with the same setup error four times and no new diagnosis was produced"
+  }
+}

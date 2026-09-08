@@ -215,6 +215,7 @@
         "docs/contracts/approved-delta.md",
         "docs/contracts/artifact-registry.md",
         "docs/contracts/artifact-write-receipt.md",
+        "docs/contracts/bounded-loop.md",
         "docs/contracts/clean-room-e2e.md",
         "docs/contracts/clearance-manifest.md",
         "docs/contracts/creation-grant.md",
@@ -800,6 +801,34 @@
       "validator": "scripts/validate-project-instructions-lock.mjs"
     },
     {
+      "class": "iteration_result",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [
+        "verification_batch"
+      ],
+      "paths": [
+        ".autosk-evidence/**/iterations/**"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "reviewed with the ticket that produced it; an escalated iteration is read by whoever owns the trigger"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "migration_plan",
       "category": "behavior_defining",
       "author_roles": [
@@ -1135,5 +1164,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "68c74ea91dc4c504d6abe4b7b6c7e2bdba2d180b5c4ddc1d4c6f5e45ff1cf961"
+  "registry_digest": "c24828361b575f142bd704716d685608ab6009ddf3896f7daf6035cde77f81b0"
 }

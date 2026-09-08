@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "bb86d0e017422e75bb2c46bf83e657a0229f637ca927acc00be54e6bee1a759c"
+      "sha256": "0f7c62c32df12c092a29f3351f63f29ca00bbcdd209c80deae05680a4eeaf88a"
     },
     {
       "path": "README.md",
@@ -33,6 +33,10 @@
     {
       "path": "docs/contracts/artifact-write-receipt.md",
       "sha256": "f34a2aa9b217ccf1c757108054898f265dd951be792c690f6584593320aff834"
+    },
+    {
+      "path": "docs/contracts/bounded-loop.md",
+      "sha256": "b2e2391467782359321f457cb9d7548d2909573e5d4229b7e9adafa5af72038d"
     },
     {
       "path": "docs/contracts/clean-room-e2e.md",
@@ -195,6 +199,10 @@
       "sha256": "a2e1d41ca04e75566e0680570bcec92b34116819f4efb9307f456687eee5b489"
     },
     {
+      "path": "resources/iteration-result/iteration-result.schema.json",
+      "sha256": "bd97401d83f4255df914913e0f3bbebade25ac9e1752c074af61fcd6fbcf2c4a"
+    },
+    {
       "path": "resources/model-result/model-result.schema.json",
       "sha256": "de7b36c0874f3f627b881e6afeecb61ecdaa949bd3b4786a5859e5b6852f9788"
     },
@@ -299,7 +307,7 @@
       "sha256": "04ae885ba139010abb542fc5bdc60a2c6a0d721ef579bfe83f0b78b6ee1a1890"
     }
   ],
-  "candidate_digest": "0e9dd93bbd71a42e97655a1990eb16733abed18eb343916ecdf5b5b7cb043d44",
+  "candidate_digest": "663fd7b9b5639cd2054733c976037a849356f67602b477e8596f2d73d09b013a",
   "dispositions": [
     {
       "issue": 3,
