@@ -69,6 +69,10 @@ One compare-and-swap, expected-old being the recorded base. If the target has mo
 
 After the swap: the target OID and tree are read back, containment of the recorded result is checked, and the reflog entry is confirmed. A CAS that reported success is not evidence that the ref holds what was intended.
 
+The compare-and-swap is git's own. `update-ref <ref> <new> <old>` fails if the ref does not hold `<old>` at write time; reading the ref and then writing it leaves exactly the window this contract exists to close, and passes every test that does not race. The driver therefore never reads to decide whether to write — it writes with the expected old value and reports what happened. The same holds for creating the staging ref (an old value of the empty string means *must not exist*) and for deleting it (an expected OID, so cleanup cannot destroy a staging ref that moved after the aggregate passed).
+
+The reflog check is a delta, not a total. A long-lived branch has a long reflog and that says nothing about this operation; what the invariant asks is whether the ref moved once during the window, which is the depth now minus the depth before.
+
 ## 7. Recovery
 
 A crash after aggregate PASS and before the CAS resumes **without another model run**. Everything needed is recorded: the staging identity, the aggregate record, the acceptance. Re-running a model at that point would produce different bytes and quietly discard an approval that was about the old ones.
