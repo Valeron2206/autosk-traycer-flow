@@ -142,6 +142,13 @@ jobs:
       - name: Run the doctor
         run: npm run doctor -- --json > /dev/null || true
 
+      # Every changed path must be governed by a registry class. A path nobody
+      # registered does not get the cheapest lifecycle by default; it parks, and
+      # the remedy is one registry entry.
+      - name: Classify the changeset
+        if: github.event_name == 'pull_request'
+        run: npm run classify:changeset -- "${{ github.event.pull_request.base.sha }}"
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

@@ -32,6 +32,7 @@
     "validate:provider-preflight": "node scripts/validate-provider-preflight.mjs",
     "validate:doctor-report": "node scripts/validate-doctor-report.mjs",
     "doctor": "node scripts/autosk-flow-doctor.mjs",
+    "classify:changeset": "node scripts/classify-changeset.mjs",
     "validate:human-decision": "node scripts/validate-human-decision.mjs",
     "validate:verify-doc": "node scripts/validate-verify-doc.mjs",
     "validate:work-type-gates": "node scripts/validate-work-type-gates.mjs",
