@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "registry_version": 1,
+  "routes": [
+    {
+      "schema_version": 1,
+      "registry_version": 1,
+      "route_id": "anthropic/claude-opus-5",
+      "provider": "anthropic",
+      "harness": "oh-my-pi",
+      "executable_version": "1.4.0",
+      "model_id": "claude-opus-5",
+      "requested_effort": "max",
+      "effective_effort": "max",
+      "effort_confirmation": "observed",
+      "auth": "live",
+      "smoke": {
+        "state": "passed",
+        "contains_project_data": false
+      },
+      "permission_modes": [
+        "read_only",
+        "supervised",
+        "full_access"
+      ],
+      "session_resume": {
+        "mechanism": "token",
+        "format": "omp/session/v1"
+      },
+      "limits": {
+        "max_prompt_bytes": 1048576,
+        "max_output_bytes": 262144
+      },
+      "timeouts": {
+        "idle_ms": 120000,
+        "wall_clock_ms": 1800000
+      },
+      "process_tree_termination": "group_kill",
+      "warning_detection": "structured",
+      "failure_domain": "anthropic",
+      "retry_budget": 2,
+      "checked_at": "2026-09-08T11:00:00.000Z",
+      "expires_at": "2026-09-09T11:00:00.000Z",
+      "privacy": {
+        "telemetry": "none"
+      },
+      "residual_risks": []
+    },
+    {
+      "schema_version": 1,
+      "registry_version": 1,
+      "route_id": "openai-codex/gpt-6-astra",
+      "provider": "openai-codex",
+      "harness": "oh-my-pi",
+      "executable_version": "1.4.0",
+      "model_id": "gpt-6-astra",
+      "requested_effort": "high",
+      "effective_effort": "high",
+      "effort_confirmation": "observed",
+      "auth": "live",
+      "smoke": {
+        "state": "passed",
+        "contains_project_data": false
+      },
+      "permission_modes": [
+        "read_only",
+        "supervised",
+        "full_access"
+      ],
+      "session_resume": {
+        "mechanism": "token",
+        "format": "omp/session/v1"
+      },
+      "limits": {
+        "max_prompt_bytes": 1048576,
+        "max_output_bytes": 262144
+      },
+      "timeouts": {
+        "idle_ms": 120000,
+        "wall_clock_ms": 1800000
+      },
+      "process_tree_termination": "group_kill",
+      "warning_detection": "structured",
+      "failure_domain": "openai-codex",
+      "retry_budget": 2,
+      "checked_at": "2026-09-08T11:00:00.000Z",
+      "expires_at": "2026-09-09T11:00:00.000Z",
+      "privacy": {
+        "telemetry": "none"
+      },
+      "residual_risks": []
+    },
+    {
+      "schema_version": 1,
+      "registry_version": 1,
+      "route_id": "cursor/cursor-grok-4.6",
+      "provider": "cursor",
+      "harness": "oh-my-pi",
+      "executable_version": "1.4.0",
+      "model_id": "cursor-grok-4.6",
+      "requested_effort": "xhigh",
+      "effective_effort": "xhigh",
+      "effort_confirmation": "reported",
+      "auth": "live",
+      "smoke": {
+        "state": "passed",
+        "contains_project_data": false
+      },
+      "permission_modes": [
+        "read_only",
+        "supervised",
+        "full_access"
+      ],
+      "session_resume": {
+        "mechanism": "token",
+        "format": "omp/session/v1"
+      },
+      "limits": {
+        "max_prompt_bytes": 1048576,
+        "max_output_bytes": 262144
+      },
+      "timeouts": {
+        "idle_ms": 120000,
+        "wall_clock_ms": 1800000
+      },
+      "process_tree_termination": "group_kill",
+      "warning_detection": "structured",
+      "failure_domain": "cursor",
+      "retry_budget": 2,
+      "checked_at": "2026-09-08T11:00:00.000Z",
+      "expires_at": "2026-09-09T11:00:00.000Z",
+      "privacy": {
+        "telemetry": "none"
+      },
+      "residual_risks": [
+        {
+          "risk": "effective effort is reported, not observed",
+          "reason": "the harness echoes the requested effort without a separate confirmation channel"
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "registry_version": 1,
+      "route_id": "meta/muse-spark-1.3-contributor",
+      "provider": "meta",
+      "harness": "oh-my-pi",
+      "executable_version": "1.4.0",
+      "model_id": "muse-spark-1.3-contributor",
+      "requested_effort": "max",
+      "effective_effort": "max",
+      "effort_confirmation": "observed",
+      "auth": "live",
+      "smoke": {
+        "state": "passed",
+        "contains_project_data": false
+      },
+      "permission_modes": [
+        "read_only",
+        "supervised",
+        "full_access"
+      ],
+      "session_resume": {
+        "mechanism": "token",
+        "format": "omp/session/v1"
+      },
+      "limits": {
+        "max_prompt_bytes": 1048576,
+        "max_output_bytes": 262144
+      },
+      "timeouts": {
+        "idle_ms": 120000,
+        "wall_clock_ms": 1800000
+      },
+      "process_tree_termination": "group_kill",
+      "warning_detection": "structured",
+      "failure_domain": "meta",
+      "retry_budget": 2,
+      "checked_at": "2026-09-08T11:00:00.000Z",
+      "expires_at": "2026-09-09T11:00:00.000Z",
+      "privacy": {
+        "telemetry": "none"
+      },
+      "residual_risks": []
+    }
+  ]
+}

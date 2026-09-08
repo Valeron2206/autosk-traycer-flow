@@ -230,6 +230,7 @@
         "docs/contracts/model-result.md",
         "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
+        "docs/contracts/provider-preflight.md",
         "docs/contracts/stage-carriers.md",
         "docs/contracts/tickets-manifest.md"
       ],
@@ -261,6 +262,7 @@
         "model_result",
         "planning_ref_contract",
         "platform_matrix",
+        "provider_preflight",
         "stage_carriers",
         "tech_plan",
         "tickets"
@@ -858,6 +860,32 @@
       "human_approval": "required"
     },
     {
+      "class": "provider_preflight",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "driver"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/preflight/**"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "instruction_lock"
+      ],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "epic_scoped",
+      "human_approval": "not_required"
+    },
+    {
       "class": "runtime_evidence",
       "category": "runtime_evidence",
       "author_roles": [
@@ -996,5 +1024,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "754d23719d0b32870e53cdabdf9ae37fb8dc2fee1b3c06f82da488373a545abf"
+  "registry_digest": "c940bcbf17293864bd50e94bed51f7e51309441a3bf27fec7885c4b77dda99a1"
 }

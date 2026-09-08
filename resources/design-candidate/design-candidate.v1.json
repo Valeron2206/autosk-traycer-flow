@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "4a7b6db066c36d17cb730aae08c55ebe397916dd944ad1091912717c573b1c11"
+      "sha256": "5d5fc7e93d2b6e31e8723634aa714d9db1f53ecc065458e163fcc99fb7f055ee"
     },
     {
       "path": "README.md",
@@ -93,6 +93,10 @@
     {
       "path": "docs/contracts/project-instructions-lock.md",
       "sha256": "c901da370e5109d452599b9cb8e2c78f040844f4ad3f36805c123b245d85b4bc"
+    },
+    {
+      "path": "docs/contracts/provider-preflight.md",
+      "sha256": "f3354771c534ef34f77af67187d87c76728e3d4293e3b1ae7d47a37255d686de"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -235,6 +239,10 @@
       "sha256": "338f415d189315a723aee17573e6ed4d0fc93423a3ddb536fb3eebe6bb813ba2"
     },
     {
+      "path": "resources/provider-preflight/provider-preflight.schema.json",
+      "sha256": "c6d1354c9c7d6cf6448893682696961ff8c7425a34c03046b539ffb9efc97aff"
+    },
+    {
       "path": "resources/stage-carriers/stage-carriers.schema.json",
       "sha256": "9a4431efd2235c3ce06c8d43e34dacdccaa258f931b4a0bf6a5d3712eaf4cb33"
     },
@@ -255,7 +263,7 @@
       "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
     }
   ],
-  "candidate_digest": "9309d2cd3391b60cede4e42424d4c9c0f4df05caa11bb2a4b069eeeba6f1ef46",
+  "candidate_digest": "6348a6eb805847a6ec9487bc1a68db6c2be659f51e4ee5e74af821842733b0f3",
   "dispositions": [
     {
       "issue": 3,

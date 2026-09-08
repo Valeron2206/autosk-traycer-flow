@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Provider route preflight attestation (issue #26)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "registry_version",
+    "route_id",
+    "provider",
+    "harness",
+    "executable_version",
+    "model_id",
+    "requested_effort",
+    "effective_effort",
+    "effort_confirmation",
+    "auth",
+    "smoke",
+    "permission_modes",
+    "session_resume",
+    "limits",
+    "timeouts",
+    "process_tree_termination",
+    "warning_detection",
+    "failure_domain",
+    "checked_at",
+    "expires_at",
+    "privacy",
+    "residual_risks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "registry_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "route_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+/[a-z0-9.-]+$"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "harness": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executable_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_effort": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effective_effort": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "effort_confirmation": {
+      "enum": [
+        "observed",
+        "reported",
+        "unconfirmable"
+      ]
+    },
+    "auth": {
+      "enum": [
+        "live",
+        "expired",
+        "unknown"
+      ]
+    },
+    "smoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "contains_project_data"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "passed",
+            "failed",
+            "not_run"
+          ]
+        },
+        "contains_project_data": {
+          "const": false
+        }
+      }
+    },
+    "permission_modes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "read_only",
+          "supervised",
+          "full_access"
+        ]
+      }
+    },
+    "session_resume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "format"
+      ],
+      "properties": {
+        "mechanism": {
+          "enum": [
+            "none",
+            "token",
+            "transcript_replay"
+          ]
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_prompt_bytes",
+        "max_output_bytes"
+      ],
+      "properties": {
+        "max_prompt_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idle_ms",
+        "wall_clock_ms"
+      ],
+      "properties": {
+        "idle_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wall_clock_ms": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "process_tree_termination": {
+      "enum": [
+        "group_kill",
+        "single_process",
+        "unknown"
+      ]
+    },
+    "warning_detection": {
+      "enum": [
+        "structured",
+        "stderr_scan",
+        "none"
+      ]
+    },
+    "failure_domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retry_budget": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "checked_at": {
+      "type": "string",
+      "minLength": 20
+    },
+    "expires_at": {
+      "type": "string",
+      "minLength": 20
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "telemetry"
+      ],
+      "properties": {
+        "telemetry": {
+          "enum": [
+            "none",
+            "aggregate",
+            "full"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "residual_risks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "risk",
+          "reason"
+        ],
+        "properties": {
+          "risk": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accepted_by": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "policy_admits_unconfirmed_effort": {
+      "type": "boolean"
+    }
+  }
+}

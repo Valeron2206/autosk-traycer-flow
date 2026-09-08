@@ -94,6 +94,9 @@ jobs:
       - name: Validate stage carrier matrix
         run: npm run validate:stage-carriers
 
+      - name: Validate provider preflight contract
+        run: npm run validate:provider-preflight
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
