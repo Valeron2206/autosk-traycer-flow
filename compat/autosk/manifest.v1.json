@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "033d7a28fbbeaac4c5ea7e38995c5dded35f9322",
+  "result_tree": "60b5ac3e55a7d110333417d09f1b6f740ac6c23d",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -94,6 +94,10 @@
     {
       "file": "patches/0022-session-meta-through-adapter.patch",
       "sha256": "f0ab7b997890f43068bc0a73813fc671d29104ef1044dde8233714b71b8a55b5"
+    },
+    {
+      "file": "patches/0023-grant-signature.patch",
+      "sha256": "97aea8646819ff67fd9e1577100b6b0aaec113452b4b89f2656f40fa9f70fd58"
     }
   ],
   "license": {

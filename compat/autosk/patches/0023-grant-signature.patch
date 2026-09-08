@@ -1,0 +1,521 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index 73b0bc8725e90eb4ba3409957e348d1d20e7bd0e..cae7fa27450901d9a82a3000ce34fe7d950a795d 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -30,6 +30,7 @@ import {
+   type TranscriptMessage,
+   type WorkflowDefinition,
+ } from "@autosk/sdk";
++import { GrantSigner } from "./grantSignature.ts";
+ 
+ import { systemClock, type Clock } from "../store/clock.ts";
+ import { consoleLogger, type Logger } from "../store/logger.ts";
+@@ -76,6 +77,14 @@ export type EnrollTarget = { workflow: string; step?: string };
+ export class Engine implements SessionHost {
+   readonly clock: Clock;
+   readonly logger: Logger;
++  /**
++   * This daemon run's grant signer (issue #11, ADR-040).
++   *
++   * One keypair per daemon process, created here and never exported: a grant
++   * does not survive a restart, which is correct — the session it was issued
++   * to does not either.
++   */
++  readonly grantSigner = new GrantSigner();
+   private readonly workers: number;
+ 
+   private readonly projects = new Map<string, EngineProject>();
+diff --git a/daemon/core/src/engine/grantSignature.ts b/daemon/core/src/engine/grantSignature.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f0cee38c6110270a137c46984751a0260c403a7c
+--- /dev/null
++++ b/daemon/core/src/engine/grantSignature.ts
+@@ -0,0 +1,124 @@
++/**
++ * Signing and verification for scoped creation grants (issue #11, ADR-040).
++ *
++ * The daemon already validated every field of a grant. It could not tell who
++ * produced one: a caller inside the session knows the project, the parent task,
++ * the session, the workflow, the step, the visit and the operation, because
++ * those describe the session it is running in. A hand-written grant with
++ * correct values passed every check there was.
++ *
++ * So the host signs, and the signature is over what the daemon PARSED rather
++ * than over the bytes it was handed — signing one thing and presenting another
++ * is the shape this is meant to close.
++ *
++ * The private key is generated once per daemon process and never leaves it: not
++ * to the project, not to an environment variable, not to a child. A model
++ * process that could read it could mint grants, so it does not cross that
++ * boundary — the same reason the mutation tools are absent rather than
++ * forbidden.
++ */
++
++import { createHash, generateKeyPairSync, sign as signBytes, verify as verifyBytes } from "node:crypto";
++import type { KeyObject } from "node:crypto";
++
++import type { TaskCreationGrantBinding, TaskCreationSlot } from "@autosk/sdk";
++
++const BINDING_FIELDS = [
++  "schema_version",
++  "grant_id",
++  "project_sha256",
++  "parent_task_id",
++  "session_id",
++  "workflow",
++  "step",
++  "step_visit",
++  "operation_id",
++  "context_digest",
++  "expires_at_ms",
++] as const;
++
++/**
++ * The bytes signed: the binding AND every slot, in full.
++ *
++ * Signing the binding alone would leave the slot list malleable, and the slot
++ * list is what the grant permits — an appended slot would create a child the
++ * host never authorised while presenting a signature that verifies. The slot's
++ * whole input is covered, not only its keys, so a retitled child is a different
++ * grant too.
++ */
++/** A single space. Named because a literal here was silently corrupted once. */
++const SLOT_FIELD_SEPARATOR = String.fromCharCode(32);
++
++export function grantSignedMessage(
++  binding: TaskCreationGrantBinding,
++  slots: readonly TaskCreationSlot[],
++): Buffer {
++  const head = BINDING_FIELDS.map((field) => `${field}=${String(binding[field])}`).join("\n");
++  const body = slots
++    .map((slot) =>
++      [
++        slot.slot_id,
++        slot.input.creation_key,
++        slot.input.creation_binding_hash,
++        slot.input.title,
++        slot.input.description,
++        slot.input.blocked_by.join(","),
++      ].join(SLOT_FIELD_SEPARATOR),
++    )
++    .join("\n");
++  return Buffer.from(`autosk-scoped-task-creation/v1\n${head}\n--\n${body}\n`, "utf8");
++}
++
++/** A daemon-run keypair. The private half is reachable only through `sign`. */
++export class GrantSigner {
++  readonly keyId: string;
++  #privateKey: KeyObject;
++  #publicKey: KeyObject;
++
++  constructor() {
++    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
++    this.#privateKey = privateKey;
++    this.#publicKey = publicKey;
++    this.keyId = createHash("sha256")
++      .update(publicKey.export({ type: "spki", format: "der" }))
++      .digest("hex")
++      .slice(0, 32);
++  }
++
++  /** Signs a compiled grant. Only the host calls this. */
++  sign(binding: TaskCreationGrantBinding, slots: readonly TaskCreationSlot[]): string {
++    return signBytes(null, grantSignedMessage(binding, slots), this.#privateKey).toString("hex");
++  }
++
++  /** Verifies a grant against this run's key. A malformed signature is false, not a throw. */
++  verify(
++    binding: TaskCreationGrantBinding,
++    slots: readonly TaskCreationSlot[],
++    signature: unknown,
++  ): boolean {
++    // No separate shape check: a non-string throws in `Buffer.from`, a non-hex
++    // string decodes to the wrong bytes, and a wrong-length buffer simply fails
++    // to verify. All three arrive here as "not verified", so a shape guard would
++    // be a line that can never change the answer.
++    try {
++      return verifyBytes(
++        null,
++        grantSignedMessage(binding, slots),
++        this.#publicKey,
++        Buffer.from(signature as string, "hex"),
++      );
++    } catch {
++      // A key or encoding error is a failed verification, never an accepted one.
++      return false;
++    }
++  }
++
++  /**
++   * The verifying half, for anything that needs to check without being able to
++   * sign. Exported deliberately: publishing it is safe, and the asymmetry is the
++   * point — the daemon can prove authorship to a party that cannot forge it.
++   */
++  publicKeyPem(): string {
++    return this.#publicKey.export({ type: "spki", format: "pem" }).toString();
++  }
++}
+diff --git a/daemon/core/src/engine/scopedCreation.ts b/daemon/core/src/engine/scopedCreation.ts
+index 10cc09dd653ae287518766d87129cb93741758a1..4c22d2f2c596e4f6b72cfee1c7d358f342206d2a 100644
+--- a/daemon/core/src/engine/scopedCreation.ts
++++ b/daemon/core/src/engine/scopedCreation.ts
+@@ -15,12 +15,18 @@
+  *  - It does NOT verify `project_sha256`, `operation_id` or `context_digest`.
+  *    Those are the host's own canonicalisation and the daemon cannot recompute
+  *    them; they are carried through unchanged and checked against nothing.
+- *  - It does NOT establish that the grant was ADMITTED. There is no signature, and
+- *    every field checked here is something the caller already knows about itself,
+- *    including the visit count, which is ordinary editable task metadata. So this
+- *    narrows what a given grant can do; it is not yet proof that the host issued
+- *    one. The unforgeable half is unbuilt, and saying otherwise would be the kind
+- *    of confident sentence this codebase keeps having to retract.
++ *  - It DOES establish that the host issued the grant, since ADR-040: the binding
++ *    and every slot are signed with a key that exists only in daemon memory, and
++ *    the signature is checked before any field is. That check is what the field
++ *    checks below could never be — every one of them is something the caller
++ *    already knows about itself, including the visit count, which is ordinary
++ *    editable task metadata. Field checks narrow what a grant can do; the
++ *    signature is what says the host issued one at all.
++ *  - What remains unbuilt is the host-side path that COMPILES a grant. Nothing in
++ *    the daemon calls `GrantSigner.sign` yet, because the extension entry point
++ *    that would ask for a grant does not exist. So the capability is unforgeable
++ *    and currently unreachable, which is the honest state — not a signature that
++ *    exists and is skipped.
+  *
+  * The one binding a caller cannot choose is the session id: a later entry of the
+  * same step is a new session, so a grant cannot be replayed into it.
+@@ -72,6 +78,14 @@ export interface ScopedCreationSession {
+   stepVisit: number;
+   /** Whether the session is still running; a settled one issues nothing. */
+   isLive(): boolean;
++  /**
++   * Whether the host signed this grant (issue #11, ADR-040).
++   *
++   * The session carries the verifier rather than the key, so the SDK surface
++   * never holds anything that could produce a signature — only something that
++   * can check one.
++   */
++  verifyGrant(binding: TaskCreationGrantBinding, slots: readonly TaskCreationSlot[], signature: unknown): boolean;
+   create(input: Required<TaskCreationSlot["input"]>): Promise<TaskCreationResult>;
+   now(): number;
+ }
+@@ -138,13 +152,18 @@ function taskId(value: unknown, label: string): string {
+ }
+ 
+ /** Validates the grant's shape and returns its binding half plus its slots. */
+-function readGrant(grant: unknown): { binding: TaskCreationGrantBinding; slots: TaskCreationSlot[] } {
+-  const record = closed(grant, [...BINDING_FIELDS, "slots"], "grant");
++function readGrant(grant: unknown): {
++  binding: TaskCreationGrantBinding;
++  slots: TaskCreationSlot[];
++  signature: unknown;
++} {
++  const record = closed(grant, [...BINDING_FIELDS, "slots", "signature"], "grant");
+   // Read once, then validate the read. Validating `record.x` and later storing
+   // `record.x` is two reads of someone else's object, and the second is the one
+   // that counts.
+   const stepVisit = record.step_visit;
+   const expiresAt = record.expires_at_ms;
++  const signature = record.signature;
+   if (record.schema_version !== 1) refuse("unsupported grant version");
+   if (!Number.isSafeInteger(stepVisit) || (stepVisit as number) < 1) refuse("step_visit is invalid");
+   if (!Number.isSafeInteger(expiresAt)) refuse("expires_at_ms is invalid");
+@@ -203,7 +222,7 @@ function readGrant(grant: unknown): { binding: TaskCreationGrantBinding; slots:
+       },
+     } satisfies TaskCreationSlot;
+   });
+-  return { binding, slots };
++  return { binding, slots, signature };
+ }
+ 
+ /**
+@@ -222,7 +241,13 @@ function readClock(session: ScopedCreationSession): number {
+ 
+ export function mintScopedCreation(session: ScopedCreationSession, grant: TaskCreationGrant): ScopedCreationAPI {
+   if (!session.isLive()) refuse("the session has already ended");
+-  const { binding, slots } = readGrant(grant);
++  const { binding, slots, signature } = readGrant(grant);
++  // Before any field check, because every field below is one the caller knows
++  // about its own session: they cannot tell a compiled grant from a written one.
++  // Verification is over the PARSED binding and slots, so a grant cannot be
++  // signed in one shape and presented in another.
++  if (signature === undefined) refuse("it is not signed");
++  if (!session.verifyGrant(binding, slots, signature)) refuse("its signature does not verify");
+   if (binding.session_id !== session.sessionId) refuse("it names another session");
+   if (binding.parent_task_id !== session.taskId) refuse("it names another task");
+   if (binding.workflow !== session.workflow) refuse("it names another workflow");
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 733409a572d525d04763d81469abeae9be72288d..b93e4975d350307fa5cf62af2d5b895ec5486d24 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -657,6 +657,10 @@ export class SessionRuntime {
+         step: this.step,
+         stepVisit: visits[this.step] ?? 0,
+         isLive: () => !this.settled,
++        // The verifier, not the key: the SDK is handed something that can check a
++        // signature and nothing that could produce one.
++        verifyGrant: (binding, slots, signature) =>
++          this.host.grantSigner.verify(binding, slots, signature),
+         create: (input) => this.project.store.createTaskWithCreationBinding(input),
+         now: () => Date.parse(this.host.clock()),
+       },
+diff --git a/daemon/core/src/engine/types.ts b/daemon/core/src/engine/types.ts
+index bc7a4c2927e26e1ca5cd74ebfbe83b7822d6f6e4..01ffc9b5e52a8741c96128ecd887029226242efc 100644
+--- a/daemon/core/src/engine/types.ts
++++ b/daemon/core/src/engine/types.ts
+@@ -7,6 +7,7 @@
+  * {@link SessionHost} interface), kept in their own module so `engine.ts` and
+  * `session.ts` can import them without a cycle.
+  */
++import type { GrantSigner } from "./grantSignature.ts";
+ 
+ import {
+   ErrorCodes,
+@@ -67,6 +68,14 @@ export type EngineListener = (event: EngineEvent) => void;
+ export interface SessionHost {
+   readonly clock: Clock;
+   readonly logger: Logger;
++  /**
++   * This daemon run's grant signer (issue #11, ADR-040).
++   *
++   * It lives on the host rather than in the session so the key exists once per
++   * daemon process and is reachable only through the host — a session hands the
++   * SDK a verifier, never anything that could produce a signature.
++   */
++  readonly grantSigner: GrantSigner;
+   /** Parks a task to `human` with `error` (status flip + an `autosk` comment + notify). */
+   park(project: EngineProject, taskId: string, error: string): Promise<void>;
+   /**
+diff --git a/daemon/core/test/engine.scopedCreation.test.ts b/daemon/core/test/engine.scopedCreation.test.ts
+index 26a28398401045a3fce0592adb0eacdaef39db7e..1154d8a660f1353d6e4bc6023d3d3a380b9c446b 100644
+--- a/daemon/core/test/engine.scopedCreation.test.ts
++++ b/daemon/core/test/engine.scopedCreation.test.ts
+@@ -9,6 +9,7 @@
+ 
+ import { afterEach, describe, expect, test } from "bun:test";
+ import type { AgentDefinition, ScopedCreationAPI, TaskCreationGrant, TaskCreationResult } from "@autosk/sdk";
++import { GrantSigner } from "../src/engine/grantSignature.ts";
+ 
+ import { mintScopedCreation, type ScopedCreationSession } from "../src/index.ts";
+ import { gate, makeEngine, makeProject, oneStep, type TestProject } from "./engineHarness.ts";
+@@ -35,14 +36,32 @@ function slot(overrides: Record<string, unknown> = {}) {
+   };
+ }
+ 
+-function grantFor(overrides: Record<string, unknown> = {}): TaskCreationGrant {
+-  return {
++/** One signer for the whole file, standing in for a daemon run. */
++const signer = new GrantSigner();
++
++/**
++ * A grant the host signed.
++ *
++ * Every test below used to build an unsigned one, and every one of them passed —
++ * which is the defect ADR-040 closes, not an inconvenience of the test setup.
++ * `signed: false` keeps that old shape available, for the cases that show it is
++ * now refused.
++ */
++function grantFor(overrides: Record<string, unknown> = {}, { signed = true } = {}): TaskCreationGrant {
++  const grant = {
+     schema_version: 1, grant_id: "grant-1", project_sha256: DIGEST,
+     parent_task_id: "ask-111111", session_id: "session-1", workflow: "wf", step: "run",
+     step_visit: 1, operation_id: "op-1", context_digest: DIGEST,
+     expires_at_ms: 10_000, slots: [slot()],
+     ...overrides,
+-  } as TaskCreationGrant;
++  } as Record<string, unknown>;
++  if (!signed) return grant as unknown as TaskCreationGrant;
++  const { slots, ...binding } = grant;
++  grant.signature = signer.sign(
++    binding as unknown as Parameters<GrantSigner["sign"]>[0],
++    slots as Parameters<GrantSigner["sign"]>[1],
++  );
++  return grant as unknown as TaskCreationGrant;
+ }
+ 
+ function sessionFor(overrides: Partial<ScopedCreationSession> = {}): ScopedCreationSession & { calls: unknown[] } {
+@@ -51,6 +70,7 @@ function sessionFor(overrides: Partial<ScopedCreationSession> = {}): ScopedCreat
+     calls,
+     sessionId: "session-1", taskId: "ask-111111", workflow: "wf", step: "run", stepVisit: 1,
+     isLive: () => true,
++    verifyGrant: (binding, slots, signature) => signer.verify(binding, slots, signature),
+     now: () => 0,
+     create: async (input) => { calls.push(input); return created; },
+     ...overrides,
+@@ -229,6 +249,94 @@ describe("mintScopedCreation", () => {
+   });
+ });
+ 
++describe("the grant signature", () => {
++  test("an unsigned grant is refused before any field is checked", () => {
++    // Every field is correct. That was the whole problem: correctness of fields
++    // is something the caller can achieve, and authorship is not.
++    refuses(() => mintScopedCreation(sessionFor(), grantFor({}, { signed: false })), /fields do not match/);
++  });
++
++  test("an explicitly undefined signature is refused as unsigned", () => {
++    // The shape check above catches a missing key; this catches the key present
++    // and empty, which is the same claim made differently.
++    refuses(
++      () => mintScopedCreation(sessionFor(), { ...grantFor(), signature: undefined } as TaskCreationGrant),
++      /it is not signed/,
++    );
++  });
++
++  test("a signature from another daemon run does not verify", () => {
++    const other = new GrantSigner();
++    const grant = grantFor() as unknown as Record<string, unknown>;
++    const { slots, signature: _drop, ...binding } = grant;
++    grant.signature = other.sign(
++      binding as unknown as Parameters<GrantSigner["sign"]>[0],
++      slots as Parameters<GrantSigner["sign"]>[1],
++    );
++    refuses(() => mintScopedCreation(sessionFor(), grant as unknown as TaskCreationGrant), /does not verify/);
++  });
++
++  test("appending a slot after signing is refused", () => {
++    // Why the slots are signed and not only the binding: the slot list is what
++    // the grant permits, so an appended slot would create a child nobody admitted.
++    const grant = grantFor() as unknown as Record<string, unknown>;
++    (grant.slots as unknown[]).push({
++      slot_id: "extra",
++      input: {
++        title: "smuggled", description: "", blocked_by: [],
++        creation_key: "flow:extra", creation_binding_hash: "d".repeat(64),
++      },
++    });
++    refuses(() => mintScopedCreation(sessionFor(), grant as unknown as TaskCreationGrant), /does not verify/);
++  });
++
++  test("retitling a slot after signing is refused", () => {
++    // The whole input is covered, not only the keys: a retitled child is a
++    // different child to the human who reads the queue.
++    const grant = grantFor() as unknown as Record<string, unknown>;
++    ((grant.slots as Record<string, unknown>[])[0]!.input as Record<string, unknown>).title = "something else";
++    refuses(() => mintScopedCreation(sessionFor(), grant as unknown as TaskCreationGrant), /does not verify/);
++  });
++
++  test("changing a binding field after signing is refused", () => {
++    // Each replacement stays VALID for its field, so the signature check is what
++    // fires rather than a format check standing in for it — otherwise this test
++    // would pass while proving nothing about the signature.
++    const replacements: Record<string, unknown> = {
++      grant_id: "grant-2",
++      operation_id: "op-2",
++      context_digest: "b".repeat(64),
++      expires_at_ms: 20_000,
++    };
++    for (const [field, value] of Object.entries(replacements)) {
++      const grant = grantFor() as unknown as Record<string, unknown>;
++      grant[field] = value;
++      refuses(() => mintScopedCreation(sessionFor(), grant as unknown as TaskCreationGrant), /does not verify/);
++    }
++  });
++
++  test("a malformed signature is a failed verification, not a thrown error", () => {
++    const signer = new GrantSigner();
++    const grant = grantFor() as unknown as Record<string, unknown>;
++    const { slots, signature: _drop, ...binding } = grant;
++    const b = binding as unknown as Parameters<GrantSigner["sign"]>[0];
++    const sl = slots as Parameters<GrantSigner["sign"]>[1];
++    for (const bad of ["", "zz", "0".repeat(127), "0".repeat(130), 42, null, {}]) {
++      expect(signer.verify(b, sl, bad)).toBe(false);
++    }
++  });
++
++  test("the signer exposes a verifying key and no way to reach the signing one", () => {
++    // Publishing the public half is safe, and the asymmetry is the point: the
++    // daemon can prove authorship to a party that cannot forge it.
++    const signer = new GrantSigner();
++    expect(signer.publicKeyPem()).toContain("BEGIN PUBLIC KEY");
++    expect(signer.publicKeyPem()).not.toContain("PRIVATE KEY");
++    expect(JSON.stringify(signer)).not.toContain("PRIVATE");
++    expect(Object.keys(signer)).toEqual(["keyId"]);
++  });
++});
++
+ describe("ctx.scopedCreation over a live session", () => {
+   const cleanups: (() => void)[] = [];
+   const engines: { stop(): void }[] = [];
+@@ -241,22 +349,18 @@ describe("ctx.scopedCreation over a live session", () => {
+     return p;
+   }
+ 
+-  test("an agent creates the admitted child and cannot replay the grant on the next visit", async () => {
+-    let issued: ScopedCreationAPI | null = null;
+-    let firstError: string | null = null;
+-    let secondError: string | null = null;
+-    const seen: TaskCreationResult[] = [];
+-    const g = gate();
+-
+-    let entries = 0;
++  test("an agent cannot compile its own grant, however correct its fields are", async () => {
++    // Every field below is one the agent genuinely knows: its own task, its own
++    // session, the workflow and step it is running. Before ADR-040 that was
++    // enough, and this test used to watch the child get created. Now the grant is
++    // refused before any of those fields is looked at, because the agent has no
++    // way to sign one — the key exists only in daemon memory.
++    let error: string | null = null;
+     const agent: AgentDefinition = {
+       onRun: async (ctx) => {
+-        const visit = ++entries; // which entry of `do` this run is
+-
+         const grant: TaskCreationGrant = {
+           schema_version: 1, grant_id: "grant-1", project_sha256: DIGEST,
+           parent_task_id: ctx.tasks.currentId, session_id: ctx.session.id, workflow: "fan-wf", step: "do",
+-          // Always claims visit 1 — on the second entry that is a replay.
+           step_visit: 1, operation_id: "op-1", context_digest: DIGEST,
+           expires_at_ms: Date.now() + 60_000,
+           slots: [{
+@@ -265,22 +369,13 @@ describe("ctx.scopedCreation over a live session", () => {
+               creation_key: "flow:seat", creation_binding_hash: "c".repeat(64),
+             },
+           }],
+-        };
++        } as unknown as TaskCreationGrant;
+         try {
+-          issued = await ctx.scopedCreation(grant);
+-          seen.push(await issued.create("seat"));
+-          // Retrying the same slot is idempotent, not a second child.
+-          seen.push(await issued.create("seat"));
++          await ctx.scopedCreation(grant);
+         } catch (e) {
+-          if (visit === 1) firstError = String(e);
+-          else secondError = String(e);
+-        }
+-        if (visit === 1) {
+-          await ctx.transit({ step: "do" }); // re-enter, so the next visit is 2
+-        } else {
+-          await g.wait;
+-          await ctx.transit({ status: "done" });
++          error = String(e);
+         }
++        await ctx.transit({ status: "done" });
+       },
+     };
+ 
+@@ -291,21 +386,12 @@ describe("ctx.scopedCreation over a live session", () => {
+ 
+     const task = await p.store.createTask({ title: "fan out" });
+     await engine.enroll(p.root, task.id, { workflow: "fan-wf" });
+-    await waitFor(async () => secondError !== null);
+-    g.open();
+     await waitForComplete(p.store, task.id, "done", 10000);
+ 
+-    expect(firstError).toBeNull();
+-    expect(seen).toHaveLength(2);
+-    expect(seen[0]!.outcome).toBe("created");
+-    expect(seen[1]!.outcome).toBe("existing_same_binding");
+-    expect(seen[1]!.task.id).toBe(seen[0]!.task.id);
+-    // The visit count comes from the task record, so asserting "visit 1" again does
+-    // not make it visit 1.
+-    expect(secondError).toMatch(/minted for visit 1 of do, this is visit 2/);
++    expect(error).toMatch(/creation grant refused/);
++    // No child: the refusal happens before anything is created, not after.
+     const children = (await p.store.listTaskViews()).filter((t) => t.id !== task.id);
+-    expect(children).toHaveLength(1);
+-    expect(children[0]!.title).toBe("candidate");
++    expect(children).toHaveLength(0);
+   }, 20000);
+ 
+   test("an interactive session has no task to parent a child to", async () => {

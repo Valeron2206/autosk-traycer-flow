@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "033d7a28fbbeaac4c5ea7e38995c5dded35f9322");
+  assert.equal(manifest.result_tree, "60b5ac3e55a7d110333417d09f1b6f740ac6c23d");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -151,6 +151,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0020-longlived-helper.patch",
       "patches/0021-comments-through-adapter.patch",
       "patches/0022-session-meta-through-adapter.patch",
+      "patches/0023-grant-signature.patch",
     ],
   );
 });

@@ -43,7 +43,8 @@ apply in the listed order, each producing the tree beside it:
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
 | `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
 | `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` |
-| `0022-session-meta-through-adapter.patch` | `033d7a28fbbeaac4c5ea7e38995c5dded35f9322` — the current `result_tree` |
+| `0022-session-meta-through-adapter.patch` | `033d7a28fbbeaac4c5ea7e38995c5dded35f9322` |
+| `0023-grant-signature.patch` | `60b5ac3e55a7d110333417d09f1b6f740ac6c23d` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -299,6 +300,35 @@ have its helper taken away mid-write, and one still waiting its turn has not
 opened a connection yet — closing before it does would leave the helper it goes
 on to open holding the project lock with nothing pointing at it. Neither hazard
 existed while a call owned its own process; both are created by sharing one.
+
+### The grant a caller cannot write
+
+`ctx.scopedCreation(grant)` validated every field of the grant it was handed —
+and every one of those fields is something the caller knows about its own
+session: the project, the parent task, the session id, the workflow, the step,
+the visit, the operation. A hand-written grant with correct values passed every
+check there was. What the daemon could not tell was *who produced it*, which is
+the question the capability turns on.
+
+Since patch `0023` the host signs, and `mintScopedCreation` verifies before it
+looks at any field. Ed25519, one keypair per daemon run, private half in daemon
+memory only — never written to the project, never in an environment variable,
+never passed to a child. A model process that could read the key could mint
+grants, so it does not cross that boundary; the same reason the mutation tools
+are absent rather than forbidden.
+
+The signature covers the binding **and every slot in full**, including titles and
+blockers. The slot list is what a grant permits, so an appended slot would create
+a child the host never authorised while presenting a signature that verifies over
+the binding; and a retitled child is a different child to the human reading the
+queue. Verification runs over what the daemon *parsed*, not over the bytes it was
+handed, so a grant cannot be signed in one shape and presented in another.
+
+What is still missing is named rather than implied: nothing calls
+`GrantSigner.sign` yet, because the extension entry point that would ask for a
+grant does not exist. The capability is unforgeable and currently unreachable —
+which is the honest state, and not the same as a signature that exists and is
+skipped.
 
 ### Refusal classes
 
