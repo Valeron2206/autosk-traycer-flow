@@ -1,5 +1,5 @@
 diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
-index ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7..5d07325dd57881a2f7e6d1f5e0eb08fce749b0b8 100644
+index ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7..6fe43fe92a3fba5a92e9fcc1861c0782df5b3190 100644
 --- a/daemon/core/test/store.creation.test.ts
 +++ b/daemon/core/test/store.creation.test.ts
 @@ -6,7 +6,7 @@
@@ -78,7 +78,23 @@ index ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7..5d07325dd57881a2f7e6d1f5e0eb08fc
    test("invalid inputs are rejected before any reservation is written", async () => {
      await expectCreationError(
        store.createTaskWithCreationBinding(creationInput({ creation_key: "" })),
-@@ -582,6 +617,115 @@ describe("Store.createTaskWithCreationBinding", () => {
+@@ -536,6 +571,15 @@ describe("Store.createTaskWithCreationBinding", () => {
+       "creation_input_invalid",
+       "invalid_creation_key",
+     );
++    // Hex of the wrong length. Without these the length rule is never separated from
++    // the hex rule: `not-sha` fails on both at once, so either alone would pass it.
++    for (const hash of ["b".repeat(63), "b".repeat(65)]) {
++      await expectCreationError(
++        store.createTaskWithCreationBinding(creationInput({ creation_binding_hash: hash })),
++        "creation_input_invalid",
++        "invalid_creation_binding_hash",
++      );
++    }
+     expect(existsSync(store.paths.creationIndexJson)).toBe(false);
+   });
+ 
+@@ -582,6 +626,118 @@ describe("Store.createTaskWithCreationBinding", () => {
      }
    });
  
@@ -136,7 +152,10 @@ index ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7..5d07325dd57881a2f7e6d1f5e0eb08fc
 +    process.env.FAULT_ROOT = dir.path;
 +    process.env.FAULT_AFTER_OP = afterOp;
 +    try {
-+      await rejectedWithin(run(), REJECTION_GUARD_MS);
++      // `rejectedWithin` RETURNS a marker error when the promise resolves instead of
++      // throwing, so discarding it would leave this helper asserting nothing at all.
++      const err = await rejectedWithin(run(), REJECTION_GUARD_MS);
++      expect(err.message).not.toBe("promise resolved");
 +    } finally {
 +      if (previousBin === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
 +      else process.env.AUTOSK_STORE_LOCK_BIN = previousBin;
@@ -194,7 +213,7 @@ index ec7a23cc81032587a6c6b271badfa4ca8cc2b5c7..5d07325dd57881a2f7e6d1f5e0eb08fc
    test("lock helper IPC preserves UTF-8 split across stdout chunks", async () => {
      const fakeHelper = join(dir.path, "fake-split-store-lock");
      const r = reservation(store, { task_id: "ask-111111" });
-@@ -734,6 +878,60 @@ describe("Store.createTaskWithCreationBinding", () => {
+@@ -734,6 +890,60 @@ describe("Store.createTaskWithCreationBinding", () => {
      expect(view.metadata).toEqual({});
    });
  

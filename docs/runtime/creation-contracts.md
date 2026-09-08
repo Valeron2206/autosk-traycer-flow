@@ -128,7 +128,7 @@ what is deliberately still open:
 | rename/description/metadata mutation after create | title and description; `metadata` merged onto a keyed task, with the markers asserted intact afterwards |
 | delete/recreate | the task file removed under an active reservation retires the key rather than allocating another id |
 | malformed/oversized key | empty key, and one byte over `MAX_CREATION_KEY_BYTES` |
-| malformed hash | non-hex, wrong length, absent, and a hash with no key |
+| malformed hash | non-hex, hex of the wrong length (63 and 65), absent, and a hash with no key |
 | cross-project same key | two roots, same key, independent ids |
 | import/reconcile attempt | a forged marker with no reservation is refused and its bytes are not stripped |
 | legacy task/database files | an unkeyed create writes marker-free bytes; separately, a task file in the pre-marker shape that this process did not write is read, listed, updated, and does not disturb the keyed task beside it |
