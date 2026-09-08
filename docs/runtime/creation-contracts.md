@@ -137,7 +137,14 @@ nothing about the daemon and nothing is not evidence:
 | --- | --- |
 | required capability absent | `daemon_capability_missing` |
 | present at another revision | `daemon_capability_version_mismatch` |
-| report malformed, duplicated, oversized, proxied, or a capability naming no method | `daemon_capability_invalid` |
+| present but implemented by different methods | `daemon_capability_method_mismatch` |
+| duplicated, oversized, naming no method, naming one twice, or two capabilities sharing a method | `daemon_capability_invalid` |
+| not a closed record — wrong shape, extra or missing field, getter, proxy | `invalid_record` |
+| a method name that is not canonical text | `invalid_identity` |
+
+The last two come from the shared record and identity primitives rather than from
+this module; they are listed because a caller sees them and they are refusals like
+any other, not because this module raises them.
 
 The revision is compared **exactly**, not as a minimum. It is incremented when the
 guarantee changes in a way a client must notice, so accepting a later one would
@@ -148,10 +155,18 @@ enforced inside `enroll`/`resume`/`dispatch`, whose methods exist in an unpatche
 daemon too, so declaring it through this mechanism would be a claim the mechanism
 cannot check. It is deliberately absent rather than reported optimistically.
 
+The required set pins the **methods** too, not only the name and revision. Refusing
+an empty method list because it could not have been derived, and then never looking
+at the one non-empty list the daemon hands over, would let a renamed method through
+the check written to notice it.
+
 What remains: the required set and the daemon's declaration live in two
-repositories. A test compares this flow's required set against the shipped patch
-bytes, which the manifest pins by SHA-256, so a revision bump on the daemon side
-fails there instead of on a user's machine. Calling the preflight at extension
-startup is still pending — the extension entry point does not exist yet.
+repositories. A test rebuilds `capabilities.ts` from the shipped patch series —
+which the manifest pins by SHA-256 — and compares the declaration in that source.
+Reading the patch text instead would not work: patches are append-only, so the
+lines that introduced the declaration keep matching for ever, and a rename, bump,
+reformat or deletion in a *later* patch would pass unnoticed. Calling the preflight
+at extension startup is still pending — the extension entry point does not exist
+yet.
 
 Do not close #11, #38, #36 or any other roadmap issue from this prerequisite alone.

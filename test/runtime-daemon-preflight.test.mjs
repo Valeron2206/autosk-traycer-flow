@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireDaemonCapabilities, REQUIRED_DAEMON_CAPABILITIES } from '../src/host/daemon-preflight.mjs';
 import { loadAutoskManifest } from '../scripts/prepare-autosk.mjs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const report = (overrides = {}) => ({
   capabilities: [{ name: 'task.creation-binding', version: 1, methods: ['task.create_bound'], ...overrides }],
@@ -23,8 +27,25 @@ test('a daemon with the required capability is admitted and the report is pinned
 });
 
 test('the required set is exactly what #11 delivers, at the revision this flow was written for', () => {
-  assert.deepEqual([...REQUIRED_DAEMON_CAPABILITIES], [{ name: 'task.creation-binding', version: 1 }]);
+  assert.deepEqual([...REQUIRED_DAEMON_CAPABILITIES],
+    [{ name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] }]);
   assert.ok(Object.isFrozen(REQUIRED_DAEMON_CAPABILITIES));
+});
+
+test('a required capability implemented by a different method is refused', () => {
+  // Refusing an EMPTY method list because it could not have been derived, and then
+  // never looking at the one non-empty list we are handed, would let a renamed
+  // method through the very check written to notice it.
+  refuses(report({ methods: ['task.create_unbound'] }), 'daemon_capability_method_mismatch');
+  refuses(report({ methods: ['task.create_bound', 'task.create_extra'] }), 'daemon_capability_method_mismatch');
+});
+
+test('a capability naming the same method twice, or sharing one, is refused', () => {
+  refuses(report({ methods: ['task.create_bound', 'task.create_bound'] }), 'daemon_capability_invalid');
+  refuses({ capabilities: [
+    { name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] },
+    { name: 'other.thing', version: 1, methods: ['task.create_bound'] },
+  ] }, 'daemon_capability_invalid');
 });
 
 test('a daemon without the capability does not start the flow', () => {
@@ -98,27 +119,52 @@ test('a proxy report is refused', () => {
   refuses({ capabilities: new Proxy(report().capabilities, {}) }, 'daemon_capability_invalid');
 });
 
-test('what this flow requires is what the shipped daemon patches declare', () => {
-  // The required set and the daemon's declaration live in two repositories, so
-  // without this they are two constants kept equal by hand. The patch bytes are
-  // pinned by SHA-256 in the manifest, so comparing against them compares against
-  // exactly what gets built — a version bump or rename on the daemon side fails
-  // here instead of at runtime on a user's machine.
-  const { manifest, patches } = loadAutoskManifest();
-  assert.ok(patches.length === manifest.patches.length && patches.length > 0);
-  const series = patches.map((patch) => patch.content.toString('utf8')).join('\n');
-  for (const want of REQUIRED_DAEMON_CAPABILITIES) {
-    const declarations = [...series.matchAll(
-      new RegExp(`\\{ name: "${want.name.replace(/[.]/gu, '\\.')}", version: (\\d+), methods: \\[([^\\]]*)\\] \\}`, 'gu'),
-    )];
-    // The literal appears in the daemon source and in the daemon's own tests, so the
-    // check is not "exactly once" but "every occurrence agrees with what this flow
-    // requires" — a bump on the daemon side leaves at least one that does not.
-    assert.ok(declarations.length >= 1, `${want.name} is not declared anywhere in the series`);
-    for (const [, version, methods] of declarations) {
-      assert.equal(Number(version), want.version,
-        `${want.name} is declared at a different revision than this flow requires`);
-      assert.ok(methods.trim().length > 0, `${want.name} is declared without methods`);
+/** Rebuilds one file as the shipped patch series actually leaves it.
+ * Regexing the patch text would not do: patches are append-only by policy, so
+ * patch 0013's lines stay in the series for ever and keep matching even after a
+ * later patch renames, edits or deletes the declaration. Applying the series is
+ * the only way to read what a built daemon would contain, and it needs no network
+ * because this file is created by the series itself.
+ */
+function shippedFile(relativePath) {
+  const { patches } = loadAutoskManifest();
+  const dir = mkdtempSync(join(tmpdir(), 'autosk-declared-'));
+  try {
+    for (const patch of patches) {
+      if (!patch.content.toString('utf8').includes(relativePath)) continue;
+      execFileSync('git', ['apply', `--include=${relativePath}`, '-p1', '-'],
+        { cwd: dir, input: patch.content, stdio: ['pipe', 'pipe', 'pipe'] });
     }
+    const file = join(dir, relativePath);
+    return existsSync(file) ? readFileSync(file, 'utf8') : null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test('what this flow requires is what the shipped daemon source declares', () => {
+  // The required set and the daemon's declaration live in two repositories. This
+  // compares against the source the pinned series actually produces, so a rename,
+  // a revision bump, a reformat or an outright deletion in ANY patch fails here
+  // rather than at runtime on a user's machine.
+  const source = shippedFile('daemon/core/src/rpc/capabilities.ts');
+  assert.ok(source, 'the daemon capability module is not present in the shipped series');
+  const declared = [...source.matchAll(
+    /\{ name: "([^"]+)", version: (\d+), methods: \[([^\]]*)\] \}/gu,
+  )].map(([, name, version, methods]) => ({
+    name,
+    version: Number(version),
+    methods: methods.split(',').map((m) => m.trim().replace(/^"|"$/gu, '')).filter((m) => m.length > 0),
+  }));
+  for (const want of REQUIRED_DAEMON_CAPABILITIES) {
+    const have = declared.filter((entry) => entry.name === want.name);
+    assert.equal(have.length, 1, `expected exactly one declaration of ${want.name} in the shipped source`);
+    assert.deepEqual(have[0], { name: want.name, version: want.version, methods: [...want.methods] },
+      `${want.name} is declared differently than this flow requires`);
+  }
+  // A capability the daemon gained and this flow has never seen is not a failure —
+  // the flow requires a subset — but two capabilities must never share a method,
+  // which `requireDaemonCapabilities` refuses at runtime too.
+  const claimed = declared.flatMap((entry) => entry.methods);
+  assert.equal(new Set(claimed).size, claimed.length, 'two declared capabilities share a method');
 });

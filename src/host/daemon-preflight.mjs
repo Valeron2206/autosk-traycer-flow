@@ -13,7 +13,7 @@ import { types } from 'node:util';
  * partially-created child by its editable title — the duplicate/orphan hazard #11 exists to remove.
  */
 export const REQUIRED_DAEMON_CAPABILITIES = immutable([
-  { name: 'task.creation-binding', version: 1 },
+  { name: 'task.creation-binding', version: 1, methods: ['task.create_bound'] },
 ]);
 
 const MAX_CAPABILITIES = 64;
@@ -32,6 +32,7 @@ export function requireDaemonCapabilities(report, required = REQUIRED_DAEMON_CAP
     && list.length <= MAX_CAPABILITIES && Reflect.ownKeys(list).length === list.length + 1,
   'daemon_capability_invalid', 'Invalid bounded capability list');
   const observed = new Map();
+  const claimed = new Set();
   for (let i = 0; i < list.length; i += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(list, String(i));
     demand(descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value'),
@@ -49,18 +50,35 @@ export function requireDaemonCapabilities(report, required = REQUIRED_DAEMON_CAP
       && entry.methods.every((method) => typeof method === 'string' && method.length > 0 && method.length <= 128),
     'daemon_capability_invalid', 'A capability must name the methods that implement it',
     { field: `/capabilities/${i}/methods` });
+    demand(new Set(entry.methods).size === entry.methods.length, 'daemon_capability_invalid',
+      'A capability names the same method twice', { field: `/capabilities/${i}/methods` });
     demand(!observed.has(entry.name), 'daemon_capability_invalid',
       'The same capability is reported twice', { field: `/capabilities/${i}/name` });
+    for (const method of entry.methods) {
+      // A method implements one guarantee. Two capabilities claiming the same one
+      // could not have come from a handler table, where the mapping is declared once.
+      demand(!claimed.has(method), 'daemon_capability_invalid',
+        'Two capabilities claim the same method', { field: `/capabilities/${i}/methods` });
+      claimed.add(method);
+    }
     observed.set(entry.name, entry);
   }
   const missing = [];
   const wrongVersion = [];
+  const wrongMethods = [];
   for (const want of required) {
     const have = observed.get(want.name);
     if (!have) { missing.push(want.name); continue; }
     // Exact, not a minimum: the revision is incremented precisely when a client
     // must notice, so accepting a later one accepts the change it warns about.
     if (have.version !== want.version) wrongVersion.push(`${want.name} is v${have.version}, this flow is written for v${want.version}`);
+    // The methods are pinned too. Refusing an EMPTY list because it could not have
+    // been derived, and then not looking at the one non-empty list we are handed,
+    // would leave a renamed method admitted by the very check meant to notice.
+    else if (have.methods.length !== want.methods.length
+      || want.methods.some((method, at) => have.methods[at] !== method)) {
+      wrongMethods.push(`${want.name} v${want.version} is implemented by [${have.methods.join(', ')}], this flow is written for [${want.methods.join(', ')}]`);
+    }
   }
   demand(missing.length === 0, 'daemon_capability_missing',
     'This daemon does not have a capability autosk-flow cannot run without',
@@ -68,5 +86,8 @@ export function requireDaemonCapabilities(report, required = REQUIRED_DAEMON_CAP
   demand(wrongVersion.length === 0, 'daemon_capability_version_mismatch',
     'This daemon offers a different revision of a required capability',
     { mismatched: wrongVersion.sort(compareCodePoints) });
+  demand(wrongMethods.length === 0, 'daemon_capability_method_mismatch',
+    'A required capability is implemented by different methods than this flow expects',
+    { mismatched: wrongMethods.sort(compareCodePoints) });
   return immutable({ schema_version: 1, capabilities: [...observed.values()] });
 }
