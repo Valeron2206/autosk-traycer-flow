@@ -1,0 +1,889 @@
+diff --git a/daemon/core/src/engine/index.ts b/daemon/core/src/engine/index.ts
+index 1e239071dda6f302cdb42bc2ebfdb892d017986b..9550fa6d059a24721320793594a16f8d08eec0f3 100644
+--- a/daemon/core/src/engine/index.ts
++++ b/daemon/core/src/engine/index.ts
+@@ -15,6 +15,7 @@ export {
+   type EnrollTarget,
+ } from "./engine.ts";
+ export { SessionRuntime, type SessionRuntimeInit } from "./session.ts";
++export { mintScopedCreation, type ScopedCreationSession } from "./scopedCreation.ts";
+ export { TranscriptWriter } from "./transcript.ts";
+ export { execOneShot, spawnChild } from "./child.ts";
+ export {
+diff --git a/daemon/core/src/engine/scopedCreation.ts b/daemon/core/src/engine/scopedCreation.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..10cc09dd653ae287518766d87129cb93741758a1
+--- /dev/null
++++ b/daemon/core/src/engine/scopedCreation.ts
+@@ -0,0 +1,248 @@
++/**
++ * Issuing a scoped creation capability to a running session (issue #11).
++ *
++ * Child fan-out needs a write path that is not the CLI and not the whole task
++ * API: an agent that can create arbitrary tasks can create a child the host never
++ * admitted, and then the write-once creation identity protects nothing. So the
++ * host compiles a grant — which slots, with which creation identity — and the
++ * daemon issues a capability that can create exactly those and nothing else.
++ *
++ * What this verifies, and what it does not, matters more than the mechanism:
++ *
++ *  - It verifies the halves it can observe. The grant must name THIS session, its
++ *    task, its workflow and its step, must agree with the step's recorded visit
++ *    count, and must not have expired — re-checked on every create.
++ *  - It does NOT verify `project_sha256`, `operation_id` or `context_digest`.
++ *    Those are the host's own canonicalisation and the daemon cannot recompute
++ *    them; they are carried through unchanged and checked against nothing.
++ *  - It does NOT establish that the grant was ADMITTED. There is no signature, and
++ *    every field checked here is something the caller already knows about itself,
++ *    including the visit count, which is ordinary editable task metadata. So this
++ *    narrows what a given grant can do; it is not yet proof that the host issued
++ *    one. The unforgeable half is unbuilt, and saying otherwise would be the kind
++ *    of confident sentence this codebase keeps having to retract.
++ *
++ * The one binding a caller cannot choose is the session id: a later entry of the
++ * same step is a new session, so a grant cannot be replayed into it.
++ *
++ * `create` passes the slot's exact recorded input to the store, so the creation
++ * key and binding hash come from the grant rather than from whoever calls it.
++ */
++import type {
++  ScopedCreationAPI,
++  TaskCreationGrant,
++  TaskCreationGrantBinding,
++  TaskCreationResult,
++  TaskCreationSlot,
++} from "@autosk/sdk";
++
++import { types } from "node:util";
++
++import { EngineError } from "./types.ts";
++
++const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
++const TASK_ID = /^ask-[a-f0-9]{6}$/u;
++const SHA256 = /^[0-9a-f]{64}$/u;
++const MAX_SLOTS = 64;
++const MAX_BLOCKERS = 256;
++const MAX_TITLE_BYTES = 8192;
++const MAX_DESCRIPTION_BYTES = 65_536;
++
++const BINDING_FIELDS = [
++  "schema_version",
++  "grant_id",
++  "project_sha256",
++  "parent_task_id",
++  "session_id",
++  "workflow",
++  "step",
++  "step_visit",
++  "operation_id",
++  "context_digest",
++  "expires_at_ms",
++] as const;
++
++/** What the session must tell us to decide whether a grant is for it. */
++export interface ScopedCreationSession {
++  sessionId: string;
++  taskId: string;
++  workflow: string;
++  step: string;
++  /** Entries recorded for `step` — the grant is bound to one visit of it. */
++  stepVisit: number;
++  /** Whether the session is still running; a settled one issues nothing. */
++  isLive(): boolean;
++  create(input: Required<TaskCreationSlot["input"]>): Promise<TaskCreationResult>;
++  now(): number;
++}
++
++function refuse(message: string): never {
++  throw EngineError.invalidParams(`creation grant refused: ${message}`);
++}
++
++function plainRecord(value: unknown, label: string): Record<string, unknown> {
++  // A proxy traps the very reflection the checks below rely on, so it can answer
++  // one value to validation and another to the read that stores the result. It is
++  // refused as a shape, not inspected — there is nothing here to inspect honestly.
++  if (types.isProxy(value)) refuse(`${label} is a proxy`);
++  if (typeof value !== "object" || value === null || Array.isArray(value)) refuse(`${label} is not a record`);
++  const proto = Object.getPrototypeOf(value);
++  if (proto !== Object.prototype && proto !== null) refuse(`${label} has a non-plain prototype`);
++  for (const key of Reflect.ownKeys(value)) {
++    if (typeof key !== "string") refuse(`${label} has a symbol key`);
++    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
++    if (!descriptor.enumerable || !Object.hasOwn(descriptor, "value")) {
++      refuse(`${label} has an accessor or hidden field`);
++    }
++  }
++  return value as Record<string, unknown>;
++}
++
++function closed(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
++  const record = plainRecord(value, label);
++  const actual = Object.keys(record).sort();
++  const expected = [...keys].sort();
++  if (actual.length !== expected.length || actual.some((key, at) => key !== expected[at])) {
++    refuse(`${label} fields do not match the closed contract`);
++  }
++  return record;
++}
++
++function boundedArray(value: unknown, min: number, max: number, label: string): unknown[] {
++  if (types.isProxy(value)) refuse(`${label} is a proxy`);
++  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) refuse(`${label} is not an array`);
++  if (value.length < min || value.length > max) refuse(`${label} length is out of range`);
++  if (Reflect.ownKeys(value).length !== value.length + 1) refuse(`${label} has extra properties`);
++  for (let at = 0; at < value.length; at += 1) {
++    const descriptor = Object.getOwnPropertyDescriptor(value, String(at));
++    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, "value")) {
++      refuse(`${label} has an accessor or a hole`);
++    }
++  }
++  return value as unknown[];
++}
++
++function identifier(value: unknown, label: string): string {
++  if (typeof value !== "string" || !IDENTIFIER.test(value)) refuse(`${label} is not a bounded identifier`);
++  return value;
++}
++
++function digest(value: unknown, label: string): string {
++  if (typeof value !== "string" || !SHA256.test(value)) refuse(`${label} is not a lowercase sha256`);
++  return value;
++}
++
++function taskId(value: unknown, label: string): string {
++  if (typeof value !== "string" || !TASK_ID.test(value)) refuse(`${label} is not a task id`);
++  return value;
++}
++
++/** Validates the grant's shape and returns its binding half plus its slots. */
++function readGrant(grant: unknown): { binding: TaskCreationGrantBinding; slots: TaskCreationSlot[] } {
++  const record = closed(grant, [...BINDING_FIELDS, "slots"], "grant");
++  // Read once, then validate the read. Validating `record.x` and later storing
++  // `record.x` is two reads of someone else's object, and the second is the one
++  // that counts.
++  const stepVisit = record.step_visit;
++  const expiresAt = record.expires_at_ms;
++  if (record.schema_version !== 1) refuse("unsupported grant version");
++  if (!Number.isSafeInteger(stepVisit) || (stepVisit as number) < 1) refuse("step_visit is invalid");
++  if (!Number.isSafeInteger(expiresAt)) refuse("expires_at_ms is invalid");
++  const binding: TaskCreationGrantBinding = {
++    schema_version: 1,
++    grant_id: identifier(record.grant_id, "grant_id"),
++    project_sha256: digest(record.project_sha256, "project_sha256"),
++    parent_task_id: taskId(record.parent_task_id, "parent_task_id"),
++    session_id: identifier(record.session_id, "session_id"),
++    workflow: identifier(record.workflow, "workflow"),
++    step: identifier(record.step, "step"),
++    step_visit: stepVisit as number,
++    operation_id: identifier(record.operation_id, "operation_id"),
++    context_digest: digest(record.context_digest, "context_digest"),
++    expires_at_ms: expiresAt as number,
++  };
++
++  const rawSlots = boundedArray(record.slots, 1, MAX_SLOTS, "slots");
++  const slotIds = new Set<string>();
++  const keys = new Set<string>();
++  const slots = rawSlots.map((raw, at) => {
++    const slot = closed(raw, ["slot_id", "input"], `slots/${at}`);
++    const slotId = identifier(slot.slot_id, `slots/${at}/slot_id`);
++    const input = closed(slot.input, ["title", "description", "blocked_by", "creation_key", "creation_binding_hash"], `slots/${at}/input`);
++    const title = input.title;
++    const description = input.description;
++    const creationKey = input.creation_key;
++    if (typeof title !== "string" || title.trim().length === 0 || Buffer.byteLength(title) > MAX_TITLE_BYTES) {
++      refuse(`slots/${at}/input/title is invalid`);
++    }
++    if (typeof description !== "string" || Buffer.byteLength(description) > MAX_DESCRIPTION_BYTES) {
++      refuse(`slots/${at}/input/description is invalid`);
++    }
++    const blockedBy = boundedArray(input.blocked_by, 0, MAX_BLOCKERS, `slots/${at}/input/blocked_by`)
++      .map((id, atBlocker) => taskId(id, `slots/${at}/input/blocked_by/${atBlocker}`));
++    if (new Set(blockedBy).size !== blockedBy.length) refuse(`slots/${at}/input/blocked_by repeats a task`);
++    if (blockedBy.includes(binding.parent_task_id)) refuse(`slots/${at} blocks on its own parent`);
++    if (typeof creationKey !== "string" || creationKey.length === 0) {
++      refuse(`slots/${at}/input/creation_key is empty`);
++    }
++    const bindingHash = digest(input.creation_binding_hash, `slots/${at}/input/creation_binding_hash`);
++    if (slotIds.has(slotId)) refuse(`slots/${at}/slot_id is repeated`);
++    // Two slots on one key would make the second create resolve to the first
++    // child, so a grant that contains both is a compile error, not a retry.
++    if (keys.has(creationKey)) refuse(`slots/${at}/input/creation_key is repeated`);
++    slotIds.add(slotId);
++    keys.add(creationKey);
++    return {
++      slot_id: slotId,
++      input: {
++        title,
++        description,
++        blocked_by: blockedBy,
++        creation_key: creationKey,
++        creation_binding_hash: bindingHash,
++      },
++    } satisfies TaskCreationSlot;
++  });
++  return { binding, slots };
++}
++
++/**
++ * Issues the capability for `grant`, or refuses.
++ *
++ * The expiry is re-checked on every `create`, not only here: a grant that expires
++ * while the agent is working must stop admitting children, and a capability that
++ * checked only at mint time would keep creating them for as long as it was held.
++ */
++/** The current time, or a refusal — an unreadable clock must not disable expiry. */
++function readClock(session: ScopedCreationSession): number {
++  const now = session.now();
++  if (!Number.isFinite(now)) refuse("the clock is unreadable, so expiry cannot be checked");
++  return now;
++}
++
++export function mintScopedCreation(session: ScopedCreationSession, grant: TaskCreationGrant): ScopedCreationAPI {
++  if (!session.isLive()) refuse("the session has already ended");
++  const { binding, slots } = readGrant(grant);
++  if (binding.session_id !== session.sessionId) refuse("it names another session");
++  if (binding.parent_task_id !== session.taskId) refuse("it names another task");
++  if (binding.workflow !== session.workflow) refuse("it names another workflow");
++  if (binding.step !== session.step) refuse("it names another step");
++  if (binding.step_visit !== session.stepVisit) {
++    refuse(`it was minted for visit ${binding.step_visit} of ${session.step}, this is visit ${session.stepVisit}`);
++  }
++  if (binding.expires_at_ms <= readClock(session)) refuse("it has expired");
++
++  const bySlot = new Map(slots.map((slot) => [slot.slot_id, slot]));
++  return Object.freeze({
++    capabilities: Object.freeze({ protocol: "autosk-scoped-task-creation/v1" as const }),
++    binding: Object.freeze(binding),
++    slot_ids: Object.freeze(slots.map((slot) => slot.slot_id)) as unknown as string[],
++    async create(slotId: string): Promise<TaskCreationResult> {
++      if (!session.isLive()) refuse("the session has already ended");
++      if (binding.expires_at_ms <= readClock(session)) refuse("it has expired");
++      const slot = bySlot.get(slotId);
++      if (!slot) refuse(`slot ${slotId} is not in this grant`);
++      return session.create(slot.input);
++    },
++  });
++}
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 64ad70ec6a33437b55863dec7cf068576550f099..733409a572d525d04763d81469abeae9be72288d 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -39,7 +39,9 @@ import type {
+   AgentRunContext,
+   ExecOptions,
+   RuntimeIdentityPin,
++  ScopedCreationAPI,
+   SessionActivity,
++  TaskCreationGrant,
+   SessionKind,
+   SessionMeta,
+   SpawnOptions,
+@@ -58,6 +60,8 @@ import { TranscriptWriter } from "./transcript.ts";
+ import { execOneShot, spawnChild } from "./child.ts";
+ import { directStoreBackend, startMcpHttpServer, type McpHttpServer } from "../mcp/index.ts";
+ import { runtimeIdentityDecision } from "./runtimeIdentity.ts";
++import { mintScopedCreation } from "./scopedCreation.ts";
++import { getStepVisits } from "../store/metadata.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+ import { ENGINE_COMMENT_AUTHOR, errMsg, type EngineProject, type SessionHost } from "./types.ts";
+ 
+@@ -635,6 +639,31 @@ export class SessionRuntime {
+     };
+   }
+ 
++  /**
++   * `ctx.scopedCreation` (issue #11): issues the capability for one compiled grant.
++   *
++   * The step visit comes from the task's own record rather than from anything the
++   * agent supplies, so a grant cannot be replayed onto a later visit of the step by
++   * asserting the number it was minted with.
++   */
++  private async scopedCreation(grant: TaskCreationGrant): Promise<ScopedCreationAPI> {
++    const view = await this.project.store.taskView(this.taskId);
++    const visits = getStepVisits(view.metadata);
++    return mintScopedCreation(
++      {
++        sessionId: this.id,
++        taskId: this.taskId,
++        workflow: this.workflowName,
++        step: this.step,
++        stepVisit: visits[this.step] ?? 0,
++        isLive: () => !this.settled,
++        create: (input) => this.project.store.createTaskWithCreationBinding(input),
++        now: () => Date.parse(this.host.clock()),
++      },
++      grant,
++    );
++  }
++
+   /** Closes one tracked MCP server (idempotent: a second close is a no-op). */
+   private async closeMcpServer(server: McpHttpServer): Promise<void> {
+     const idx = this.mcpServers.indexOf(server);
+@@ -700,6 +729,9 @@ export class SessionRuntime {
+       return {
+         ...base,
+         mode: "interactive",
++        // No task to parent a child to, so there is nothing a grant could bind to.
++        scopedCreation: () =>
++          Promise.reject(new Error("scopedCreation is not available in an interactive session")),
+         tasks: buildInteractiveTasksApi(),
+         workflows: buildInteractiveWorkflowsApi(this.project.registry, this.agentName),
+         comment: () => Promise.reject(new Error("no task in an interactive session")),
+@@ -709,6 +741,7 @@ export class SessionRuntime {
+     return {
+       ...base,
+       mode: "task",
++      scopedCreation: (grant) => this.scopedCreation(grant),
+       tasks: buildTasksApi(store, this.taskId),
+       workflows: buildWorkflowsApi(this.project.registry, this.wf!, this.step),
+       comment: (text) => store.addComment(this.taskId, { author: this.agentName, text }).then(() => {}),
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 957532e523cb80887349bdffd4c0c24d9a1df145..575f6eb7ed9cafbb754b38ed3b163c67b4f734d6 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -38,9 +38,13 @@ export function isEmptyMetadata(meta: Record<string, unknown> | undefined | null
+ export function getStepVisits(meta: Record<string, unknown> | undefined | null): Record<string, number> {
+   const out: Record<string, number> = {};
+   if (meta == null) return out;
++  // `hasOwn`, not `in`: a polluted prototype must not become a visit count, and a
++  // bag that inherits one is a bag with no visits of its own.
++  if (!Object.hasOwn(meta, STEP_VISITS_KEY)) return out;
+   const raw = meta[STEP_VISITS_KEY];
+   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return out;
+-  for (const [step, value] of Object.entries(raw as Record<string, unknown>)) {
++  for (const step of Object.keys(raw as Record<string, unknown>)) {
++    const value = (raw as Record<string, unknown>)[step];
+     if (typeof value === "number" && Number.isFinite(value)) out[step] = value;
+   }
+   return out;
+@@ -89,17 +93,37 @@ export function applyMetadataUnset(meta: Record<string, unknown>, keys: string[]
+ /**
+  * Refuses an edit that would reach the engine-owned runtime identity pin.
+  *
+- * `step_visits` is deliberately human-editable — the worst outcome of corrupting
+- * it is a miscounted cap. The runtime pin is a control: an edit through this
+- * surface would corrupt or clear the record of the code a task was admitted under.
+- * Both edit RPCs therefore refuse the path instead of silently applying it.
++ * `step_visits` stays human-editable, but the cost of corrupting it is no longer
++ * only a miscounted cap: it is also the visit count a scoped creation grant is
++ * checked against (issue #11), so a caller that can write it can satisfy the check
++ * its own grant asserts. That is knowingly accepted — the grant carries no
++ * signature either, so locking the counter would harden one half of a guarantee
++ * whose other half does not exist, and would take away a counter the operator is
++ * meant to be able to reset. `scopedCreation.ts` says the same thing from the
++ * other side.
++ *
++ * The runtime pin is different: it is a control, and an edit through this surface
++ * would corrupt or clear the record of the code a task was admitted under. Both
++ * edit RPCs therefore refuse that path instead of silently applying it.
+  */
+ function requireEditableMetadataPath(path: string): void {
+-  if (splitPath(path)[0] === RUNTIME_IDENTITY_KEY) {
++  const segments = splitPath(path);
++  if (segments[0] === RUNTIME_IDENTITY_KEY) {
+     throw new ReservedMetadataKeyError(
+       `${RUNTIME_IDENTITY_KEY} is engine-owned and cannot be edited through metadata`,
+     );
+   }
++  // A dot-path walks objects into existence, so a segment that names the prototype
++  // chain writes outside the bag entirely: `__proto__.step_visits` lands on
++  // Object.prototype and every OTHER task then reads a visit map it never had.
++  // The bag is per-task data; a path that leaves it is refused, not sanitised.
++  for (const segment of segments) {
++    if (segment === "__proto__" || segment === "constructor" || segment === "prototype") {
++      throw new ReservedMetadataKeyError(
++        `metadata path may not traverse the prototype chain: ${segment}`,
++      );
++    }
++  }
+ }
+ 
+ /**
+diff --git a/daemon/core/test/engine.scopedCreation.test.ts b/daemon/core/test/engine.scopedCreation.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..26a28398401045a3fce0592adb0eacdaef39db7e
+--- /dev/null
++++ b/daemon/core/test/engine.scopedCreation.test.ts
+@@ -0,0 +1,333 @@
++/**
++ * Scoped child creation (issue #11): the typed write path that replaces the CLI.
++ *
++ * The capability is the whole point of these tests: an agent holding it must be
++ * able to create the children the host admitted and nothing else, and a grant that
++ * does not belong to this session, this step or this visit must be refused rather
++ * than downgraded.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import type { AgentDefinition, ScopedCreationAPI, TaskCreationGrant, TaskCreationResult } from "@autosk/sdk";
++
++import { mintScopedCreation, type ScopedCreationSession } from "../src/index.ts";
++import { gate, makeEngine, makeProject, oneStep, type TestProject } from "./engineHarness.ts";
++import { waitFor, waitForComplete } from "./helpers.ts";
++
++const DIGEST = "a".repeat(64);
++const created: TaskCreationResult = {
++  outcome: "created",
++  task: {
++    id: "ask-abc123", status: "new", workflow: null, step: null,
++    title: "child", description: "", blocked_by: [],
++    creation_key: "flow:key-1", creation_binding_hash: "b".repeat(64),
++  },
++};
++
++function slot(overrides: Record<string, unknown> = {}) {
++  return {
++    slot_id: "panel-seat",
++    input: {
++      title: "child", description: "", blocked_by: [],
++      creation_key: "flow:key-1", creation_binding_hash: "b".repeat(64),
++      ...overrides,
++    },
++  };
++}
++
++function grantFor(overrides: Record<string, unknown> = {}): TaskCreationGrant {
++  return {
++    schema_version: 1, grant_id: "grant-1", project_sha256: DIGEST,
++    parent_task_id: "ask-111111", session_id: "session-1", workflow: "wf", step: "run",
++    step_visit: 1, operation_id: "op-1", context_digest: DIGEST,
++    expires_at_ms: 10_000, slots: [slot()],
++    ...overrides,
++  } as TaskCreationGrant;
++}
++
++function sessionFor(overrides: Partial<ScopedCreationSession> = {}): ScopedCreationSession & { calls: unknown[] } {
++  const calls: unknown[] = [];
++  return {
++    calls,
++    sessionId: "session-1", taskId: "ask-111111", workflow: "wf", step: "run", stepVisit: 1,
++    isLive: () => true,
++    now: () => 0,
++    create: async (input) => { calls.push(input); return created; },
++    ...overrides,
++  } as ScopedCreationSession & { calls: unknown[] };
++}
++
++const refuses = (fn: () => unknown, match: RegExp) => expect(fn).toThrow(match);
++
++describe("mintScopedCreation", () => {
++  test("issues a capability whose create passes the grant's exact recorded input", async () => {
++    const session = sessionFor();
++    const api = mintScopedCreation(session, grantFor());
++    expect(api.capabilities.protocol).toBe("autosk-scoped-task-creation/v1");
++    expect(api.slot_ids).toEqual(["panel-seat"]);
++    expect(api.binding.grant_id).toBe("grant-1");
++    expect((api.binding as unknown as Record<string, unknown>).slots).toBeUndefined();
++
++    await expect(api.create("panel-seat")).resolves.toEqual(created);
++    // The creation identity came from the grant, not from the caller.
++    expect(session.calls).toEqual([slot().input]);
++  });
++
++  test("a slot the grant does not name cannot be created", async () => {
++    const api = mintScopedCreation(sessionFor(), grantFor());
++    await expect(api.create("another-seat")).rejects.toThrow(/slot another-seat is not in this grant/);
++  });
++
++  test("a grant for another session, task, workflow or step is refused", () => {
++    for (const [field, value, why] of [
++      ["session_id", "session-2", /another session/],
++      ["parent_task_id", "ask-222222", /another task/],
++      ["workflow", "other", /another workflow/],
++      ["step", "other", /another step/],
++    ] as const) {
++      refuses(() => mintScopedCreation(sessionFor(), grantFor({ [field]: value })), why);
++    }
++  });
++
++  test("a grant minted for another visit of the same step is refused", () => {
++    // Replaying one grant across visits is exactly how a fan-out duplicates.
++    refuses(
++      () => mintScopedCreation(sessionFor({ stepVisit: 2 }), grantFor({ step_visit: 1 })),
++      /minted for visit 1 of run, this is visit 2/,
++    );
++  });
++
++  test("expiry is refused at mint and re-checked on every create", async () => {
++    refuses(() => mintScopedCreation(sessionFor({ now: () => 10_000 }), grantFor()), /has expired/);
++
++    // Minted while valid, then time passes: a capability that only checked at mint
++    // would keep admitting children for as long as it was held.
++    let clock = 0;
++    const api = mintScopedCreation(sessionFor({ now: () => clock }), grantFor());
++    await expect(api.create("panel-seat")).resolves.toEqual(created);
++    clock = 10_001;
++    await expect(api.create("panel-seat")).rejects.toThrow(/has expired/);
++  });
++
++  test("an unreadable clock refuses instead of disabling expiry", () => {
++    // `expires_at_ms <= NaN` is false, so a clock that does not parse would make
++    // every grant immortal — a check that fails open is worse than none.
++    refuses(() => mintScopedCreation(sessionFor({ now: () => Number.NaN }), grantFor()), /clock/i);
++    let clock = 0;
++    const api = mintScopedCreation(sessionFor({ now: () => clock }), grantFor());
++    clock = Number.NaN;
++    expect(api.create("panel-seat")).rejects.toThrow(/clock/i);
++  });
++
++  test("a settled session issues nothing, and an already-issued capability stops working", async () => {
++    let live = true;
++    refuses(() => mintScopedCreation(sessionFor({ isLive: () => false }), grantFor()), /already ended/);
++
++    const api = mintScopedCreation(sessionFor({ isLive: () => live }), grantFor());
++    live = false;
++    await expect(api.create("panel-seat")).rejects.toThrow(/already ended/);
++  });
++
++  test("the issued capability is frozen and its slot list cannot be extended", () => {
++    const api = mintScopedCreation(sessionFor(), grantFor());
++    expect(Object.isFrozen(api)).toBe(true);
++    expect(Object.isFrozen(api.binding)).toBe(true);
++    expect(() => {
++      (api.slot_ids as string[]).push("smuggled");
++    }).toThrow();
++  });
++
++  test("a value that changes between validation and use cannot be smuggled through", () => {
++    // Every field read twice is a TOCTOU: a proxy (or a getter behind one) can pass
++    // validation with one value and be stored with another. The refusal has to be
++    // the proxy itself, because a proxy traps the very reflection that would
++    // otherwise expose an accessor.
++    let reads = 0;
++    const shifty = new Proxy(slot().input, {
++      get(target, key, receiver) {
++        if (key === "creation_key") {
++          reads += 1;
++          return reads <= 4 ? "flow:key-1" : "flow:smuggled";
++        }
++        return Reflect.get(target, key, receiver);
++      },
++    });
++    const session = sessionFor();
++    expect(() =>
++      mintScopedCreation(session, grantFor({ slots: [{ slot_id: "seat", input: shifty }] })),
++    ).toThrow(/proxy/i);
++
++    // The same for the numbers the binding is built from.
++    let numberReads = 0;
++    const shiftyGrant = new Proxy(grantFor(), {
++      get(target, key, receiver) {
++        if (key === "expires_at_ms") return numberReads++ < 1 ? 10_000 : Number.MAX_SAFE_INTEGER;
++        return Reflect.get(target, key, receiver);
++      },
++    });
++    expect(() => mintScopedCreation(sessionFor(), shiftyGrant)).toThrow(/proxy/i);
++    expect(session.calls).toEqual([]);
++  });
++
++  test("a malformed grant is refused field by field", () => {
++    const cases: [string, TaskCreationGrant, RegExp][] = [
++      ["version", grantFor({ schema_version: 2 }), /unsupported grant version/],
++      ["extra field", { ...grantFor(), extra: 1 } as TaskCreationGrant, /closed contract/],
++      ["missing field", (() => { const g = grantFor(); delete (g as unknown as Record<string, unknown>).operation_id; return g; })(), /closed contract/],
++      ["bad digest", grantFor({ project_sha256: "nope" }), /project_sha256 is not a lowercase sha256/],
++      ["bad parent", grantFor({ parent_task_id: "task-1" }), /parent_task_id is not a task id/],
++      ["zero visit", grantFor({ step_visit: 0 }), /step_visit is invalid/],
++      ["fractional visit", grantFor({ step_visit: 1.5 }), /step_visit is invalid/],
++      ["no slots", grantFor({ slots: [] }), /slots length is out of range/],
++      ["too many slots", grantFor({ slots: Array.from({ length: 65 }, (_, i) => slot({ creation_key: `flow:k${i}` })) }), /slots length is out of range/],
++      ["duplicate slot id", grantFor({ slots: [slot(), slot({ creation_key: "flow:key-2" })] }), /slot_id is repeated/],
++      ["duplicate creation key", grantFor({ slots: [slot(), { ...slot(), slot_id: "other" }] }), /creation_key is repeated/],
++      ["blank title", grantFor({ slots: [slot({ title: "   " })] }), /title is invalid/],
++      ["oversized title", grantFor({ slots: [slot({ title: "x".repeat(8193) })] }), /title is invalid/],
++      ["blocks on parent", grantFor({ slots: [slot({ blocked_by: ["ask-111111"] })] }), /blocks on its own parent/],
++      ["repeated blocker", grantFor({ slots: [slot({ blocked_by: ["ask-222222", "ask-222222"] })] }), /repeats a task/],
++      ["empty creation key", grantFor({ slots: [slot({ creation_key: "" })] }), /creation_key is empty/],
++      ["bad binding hash", grantFor({ slots: [slot({ creation_binding_hash: "nope" })] }), /creation_binding_hash is not a lowercase sha256/],
++    ];
++    for (const [label, bad, why] of cases) {
++      try {
++        mintScopedCreation(sessionFor(), bad);
++        throw new Error(`expected a refusal for ${label}`);
++      } catch (e) {
++        expect((e as Error).message, label).toMatch(why);
++      }
++    }
++  });
++
++  test("prototype, accessor and hole tricks are refused", () => {
++    const withProto = Object.assign(Object.create({ inherited: 1 }), grantFor());
++    refuses(() => mintScopedCreation(sessionFor(), withProto as TaskCreationGrant), /non-plain prototype/);
++
++    const withSymbol = grantFor() as unknown as Record<string | symbol, unknown>;
++    withSymbol[Symbol("hidden")] = 1;
++    refuses(() => mintScopedCreation(sessionFor(), withSymbol as unknown as TaskCreationGrant), /symbol key/);
++
++    const withAccessor = grantFor();
++    Object.defineProperty(withAccessor, "grant_id", { enumerable: true, get: () => "grant-1" });
++    refuses(() => mintScopedCreation(sessionFor(), withAccessor), /accessor or hidden field/);
++
++    // A sparse array has no own key for the hole, so the count check catches it
++    // before the descriptor check does; that is the refusal, just an earlier one.
++    const holes: unknown[] = [];
++    holes.length = 1;
++    refuses(() => mintScopedCreation(sessionFor(), grantFor({ slots: holes })), /extra properties/);
++
++    // An accessor at a real index passes the count check and must still be refused.
++    const accessor: unknown[] = [];
++    Object.defineProperty(accessor, "0", { enumerable: true, configurable: true, get: () => slot() });
++    Object.defineProperty(accessor, "length", { value: 1, writable: true });
++    refuses(() => mintScopedCreation(sessionFor(), grantFor({ slots: accessor })), /accessor or a hole/);
++
++    const extraProp = [slot()] as unknown[] & Record<string, unknown>;
++    extraProp.smuggled = 1;
++    refuses(() => mintScopedCreation(sessionFor(), grantFor({ slots: extraProp })), /extra properties/);
++  });
++});
++
++describe("ctx.scopedCreation over a live session", () => {
++  const cleanups: (() => void)[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const c of cleanups.splice(0)) c();
++  });
++  function track(p: TestProject): TestProject {
++    cleanups.push(p.cleanup);
++    return p;
++  }
++
++  test("an agent creates the admitted child and cannot replay the grant on the next visit", async () => {
++    let issued: ScopedCreationAPI | null = null;
++    let firstError: string | null = null;
++    let secondError: string | null = null;
++    const seen: TaskCreationResult[] = [];
++    const g = gate();
++
++    let entries = 0;
++    const agent: AgentDefinition = {
++      onRun: async (ctx) => {
++        const visit = ++entries; // which entry of `do` this run is
++
++        const grant: TaskCreationGrant = {
++          schema_version: 1, grant_id: "grant-1", project_sha256: DIGEST,
++          parent_task_id: ctx.tasks.currentId, session_id: ctx.session.id, workflow: "fan-wf", step: "do",
++          // Always claims visit 1 — on the second entry that is a replay.
++          step_visit: 1, operation_id: "op-1", context_digest: DIGEST,
++          expires_at_ms: Date.now() + 60_000,
++          slots: [{
++            slot_id: "seat", input: {
++              title: "candidate", description: "", blocked_by: [],
++              creation_key: "flow:seat", creation_binding_hash: "c".repeat(64),
++            },
++          }],
++        };
++        try {
++          issued = await ctx.scopedCreation(grant);
++          seen.push(await issued.create("seat"));
++          // Retrying the same slot is idempotent, not a second child.
++          seen.push(await issued.create("seat"));
++        } catch (e) {
++          if (visit === 1) firstError = String(e);
++          else secondError = String(e);
++        }
++        if (visit === 1) {
++          await ctx.transit({ step: "do" }); // re-enter, so the next visit is 2
++        } else {
++          await g.wait;
++          await ctx.transit({ status: "done" });
++        }
++      },
++    };
++
++    const p = track(await makeProject({ workflows: [oneStep("fan-wf", agent)] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "fan out" });
++    await engine.enroll(p.root, task.id, { workflow: "fan-wf" });
++    await waitFor(async () => secondError !== null);
++    g.open();
++    await waitForComplete(p.store, task.id, "done", 10000);
++
++    expect(firstError).toBeNull();
++    expect(seen).toHaveLength(2);
++    expect(seen[0]!.outcome).toBe("created");
++    expect(seen[1]!.outcome).toBe("existing_same_binding");
++    expect(seen[1]!.task.id).toBe(seen[0]!.task.id);
++    // The visit count comes from the task record, so asserting "visit 1" again does
++    // not make it visit 1.
++    expect(secondError).toMatch(/minted for visit 1 of do, this is visit 2/);
++    const children = (await p.store.listTaskViews()).filter((t) => t.id !== task.id);
++    expect(children).toHaveLength(1);
++    expect(children[0]!.title).toBe("candidate");
++  }, 20000);
++
++  test("an interactive session has no task to parent a child to", async () => {
++    let error: string | null = null;
++    const agent: AgentDefinition = {
++      onRun: async (ctx) => {
++        try {
++          await ctx.scopedCreation({} as TaskCreationGrant);
++        } catch (e) {
++          error = String(e);
++        }
++      },
++    };
++    const p = track(await makeProject({ workflows: [] }));
++    p.registry.addAgent("test", { name: "chat", description: "Chat agent", agent });
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const meta = await engine.createInteractiveSession(p.root, "chat");
++    await waitFor(async () => error !== null, 10000);
++    expect(error).toMatch(/not available in an interactive session/);
++    expect(meta.kind).toBe("interactive");
++  }, 15000);
++});
+diff --git a/daemon/core/test/metadata.test.ts b/daemon/core/test/metadata.test.ts
+index a6f8617435f8f8fd3489fd19bfefecd95824f860..18b27ae8b541ec3c4edede21eea29122aba4a704 100644
+--- a/daemon/core/test/metadata.test.ts
++++ b/daemon/core/test/metadata.test.ts
+@@ -132,3 +132,33 @@ describe("applyMetadataUnset — dot-path delete + prune", () => {
+     expect(meta).toEqual({ a: 1 });
+   });
+ });
++
++describe("metadata dot-paths cannot reach the prototype chain", () => {
++  test("a `__proto__` segment does not pollute every other task", () => {
++    // `applyMetadataPatch` walks a dot-path creating objects as it goes. Without a
++    // guard, `__proto__.step_visits` writes onto Object.prototype, and every task in
++    // the daemon then reads a step_visits map it never had — including one whose
++    // count a scoped creation grant is checked against.
++    const attacker: Record<string, unknown> = {};
++    expect(() => applyMetadataPatch(attacker, { "__proto__.step_visits": { do: 99 } })).toThrow(
++      /engine-owned|reserved|prototype/i,
++    );
++    expect((Object.prototype as Record<string, unknown>).step_visits).toBeUndefined();
++    expect(getStepVisits({})).toEqual({});
++  });
++
++  test("`constructor` and `prototype` segments are refused too", () => {
++    for (const path of ["constructor.x", "a.constructor.x", "prototype.x", "a.prototype.x", "a.__proto__.x"]) {
++      expect(() => applyMetadataPatch({}, { [path]: 1 }), path).toThrow(/prototype/i);
++      expect(() => applyMetadataUnset({}, [path]), path).toThrow(/prototype/i);
++    }
++  });
++
++  test("step visits are read from the bag's own keys, not from anything inherited", () => {
++    const inherited = Object.create({ step_visits: { do: 7 } }) as Record<string, unknown>;
++    expect(getStepVisits(inherited)).toEqual({});
++    const own = { step_visits: Object.create({ ghost: 3 }) as Record<string, unknown> };
++    (own.step_visits as Record<string, unknown>).real = 1;
++    expect(getStepVisits(own)).toEqual({ real: 1 });
++  });
++});
+diff --git a/daemon/sdk/src/agent.ts b/daemon/sdk/src/agent.ts
+index 100194ea74e28099e39406bbf1354ada8c17c9a0..bee35ca69c3dfad2f78e9b8cff4887817f954eef 100644
+--- a/daemon/sdk/src/agent.ts
++++ b/daemon/sdk/src/agent.ts
+@@ -8,7 +8,15 @@
+  * ship as the `@autosk/pi-agent` extension on top of `ctx.spawn` + `ctx.transit`.
+  */
+ 
+-import type { Comment, SessionActivity, TaskFilter, TaskView, WorkflowInfo } from "./types.ts";
++import type {
++  Comment,
++  ScopedCreationAPI,
++  SessionActivity,
++  TaskCreationGrant,
++  TaskFilter,
++  TaskView,
++  WorkflowInfo,
++} from "./types.ts";
+ import type { StepTarget } from "./workflow.ts";
+ import type { TranscriptMessage } from "./transcript.ts";
+ 
+@@ -182,4 +190,29 @@ export interface AgentRunContext {
+    * steps); the returned `close()` is an explicit early-release.
+    */
+   newMCPServer(): Promise<{ url: string; port: number; token: string; close(): Promise<void> }>;
++
++  /**
++   * Issues a scoped creation capability for ONE compiled grant (issue #11).
++   *
++   * This is the typed write path that replaces shelling out to the CLI for child
++   * fan-out: the returned object creates only the slots the grant names, with the
++   * creation identity the grant carries, and nothing else.
++   *
++   * **What this is not, yet.** Nothing here distinguishes a grant the host
++   * compiled from one the caller wrote: no signature, and the daemon cannot
++   * recompute the host's digests. Every field it checks is something the caller
++   * already knows about itself. So this narrows what a *given* grant can do; it
++   * does not establish that the grant was admitted. That half needs an
++   * unforgeable token and is not built.
++   *
++   * What it does enforce: the grant must name THIS session, its task, workflow and
++   * step, must agree with the step's recorded visit count, and must not have
++   * expired — re-checked on every create, not only when issued. A settled session
++   * issues nothing and invalidates what it already issued. The session id is the
++   * binding a caller cannot choose: a later entry of the same step is a new
++   * session, so a grant cannot be replayed into it.
++   *
++   * Task mode only; an interactive session has no task to parent a child to.
++   */
++  scopedCreation(grant: TaskCreationGrant): Promise<ScopedCreationAPI>;
+ }
+diff --git a/daemon/sdk/src/types.ts b/daemon/sdk/src/types.ts
+index e659aaf7e052beff3b01f7d1b1132dbf4316c42e..75264ebfff009be38ea9c517018e4520fb58967c 100644
+--- a/daemon/sdk/src/types.ts
++++ b/daemon/sdk/src/types.ts
+@@ -79,6 +79,55 @@ export interface TaskCreationResult {
+   task: TaskCreationTask;
+ }
+ 
++/** One child a grant permits: a logical slot and the exact record to create. */
++export interface TaskCreationSlot {
++  slot_id: string;
++  input: Required<TaskCreationInput>;
++}
++
++/**
++ * What a compiled creation grant binds itself to, minus the slots (issue #11).
++ *
++ * The daemon verifies the halves it can observe — `session_id`, `parent_task_id`,
++ * `workflow`, `step`, `step_visit`, `expires_at_ms` — against the running session.
++ * `project_sha256`, `operation_id` and `context_digest` are the host's own
++ * canonicalisation, which the daemon cannot recompute; they are carried through
++ * unchanged and never checked against anything. That is a narrower claim than
++ * "verified", and deliberately so.
++ */
++export interface TaskCreationGrantBinding {
++  schema_version: 1;
++  grant_id: string;
++  project_sha256: string;
++  parent_task_id: string;
++  session_id: string;
++  workflow: string;
++  step: string;
++  step_visit: number;
++  operation_id: string;
++  context_digest: string;
++  expires_at_ms: number;
++}
++
++/** A compiled grant: its binding plus the slots it permits. */
++export interface TaskCreationGrant extends TaskCreationGrantBinding {
++  slots: TaskCreationSlot[];
++}
++
++/**
++ * A single-purpose creation capability, issued to one running session for one
++ * admitted grant (issue #11). It can create the children the grant names and
++ * nothing else: the `creation_key` and `creation_binding_hash` come from the
++ * grant, never from the caller, so holding it does not let an agent invent a
++ * child identity.
++ */
++export interface ScopedCreationAPI {
++  readonly capabilities: { protocol: "autosk-scoped-task-creation/v1" };
++  readonly binding: TaskCreationGrantBinding;
++  readonly slot_ids: string[];
++  create(slotId: string): Promise<TaskCreationResult>;
++}
++
+ /**
+  * One comment on a task (plan §3.1). Comments are a flat list, editable and
+  * deletable (not strictly append-only); the daemon is the sole writer in the

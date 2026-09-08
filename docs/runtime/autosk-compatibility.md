@@ -35,9 +35,13 @@ apply in the listed order, each producing the tree beside it:
 | `0011-concurrent-epics.patch` | `eda6fbcb67759d349777827e4ecb2b29c90e9937` |
 | `0012-reload-and-missing-version.patch` | `5a16304e20883870375cefc7816b4875c581d354` |
 | `0013-daemon-capability-report.patch` | `3eb7758f59b9793f5162b0a79a5803c33e2b4a8f` |
-| `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` — the current `result_tree` |
+| `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
+| `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` — the current `result_tree` |
 
-Earlier patches are never edited in place; a new change is a new numbered patch.
+A patch that has reached `main` is never edited in place; a new change is a new
+numbered patch. The tip patch of an open PR is still being written and may be
+regenerated, provided its SHA-256, the `result_tree`, this table and the pinned
+expectation in `test/prepare-autosk.test.mjs` move together.
 The license is retained in the source and each development bundle.
 
 ## Prepare and build
