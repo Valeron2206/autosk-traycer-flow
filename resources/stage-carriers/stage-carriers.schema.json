@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Stage carrier matrix (issue #19)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "registry_version",
+    "bundle_digest",
+    "governance_files",
+    "carriers",
+    "budget"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "registry_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "bundle_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "governance_files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "status"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "active",
+              "inactive_in_v1"
+            ]
+          },
+          "decided_by": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "carriers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "required",
+          "anchors",
+          "forbidden"
+        ],
+        "properties": {
+          "required": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "anchors": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "forbidden": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_bytes",
+        "order"
+      ],
+      "properties": {
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "order": {
+          "const": "declared"
+        }
+      }
+    }
+  }
+}

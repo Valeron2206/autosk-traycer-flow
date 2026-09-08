@@ -230,6 +230,7 @@
         "docs/contracts/model-result.md",
         "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
+        "docs/contracts/stage-carriers.md",
         "docs/contracts/tickets-manifest.md"
       ],
       "review": {
@@ -260,6 +261,7 @@
         "model_result",
         "planning_ref_contract",
         "platform_matrix",
+        "stage_carriers",
         "tech_plan",
         "tickets"
       ],
@@ -881,6 +883,32 @@
       "human_approval": "not_required"
     },
     {
+      "class": "stage_carriers",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/stage-carriers/stage-carriers.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "instruction_lock"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "tech_plan",
       "category": "behavior_defining",
       "author_roles": [
@@ -968,5 +996,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "cc701b70ff8f0f6ef73a65b49db585854a40935409fb404cc52428757895e36c"
+  "registry_digest": "754d23719d0b32870e53cdabdf9ae37fb8dc2fee1b3c06f82da488373a545abf"
 }

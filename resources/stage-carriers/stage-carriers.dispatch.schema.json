@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dispatch attribution set (issue #19)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dispatch_id",
+    "round",
+    "attempt",
+    "carrier_key",
+    "bundle_digest",
+    "attributions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "dispatch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "carrier_key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "bundle_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "attributions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "logical_id",
+          "source_sha256",
+          "bundle_digest",
+          "project_identity",
+          "epic_id",
+          "task_id",
+          "role",
+          "stage",
+          "dispatch_id",
+          "round",
+          "attempt",
+          "serialization_version"
+        ],
+        "properties": {
+          "logical_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "section_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bundle_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "project_identity": {
+            "type": "string",
+            "minLength": 1
+          },
+          "epic_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dispatch_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "serialization_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}
