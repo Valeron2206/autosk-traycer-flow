@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/design-candidate.v1.json",
+  "title": "Design candidate and panel attestation v1",
+  "description": "One frozen design candidate, its dispositions, and the attestation that may only become PASS on four real verdicts. Closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "files",
+    "candidate_digest",
+    "dispositions",
+    "required_panel",
+    "attestation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*//)(?!.*(^|/)\\.{1,2}(/|$)).+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "candidate_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issue",
+          "disposition",
+          "where"
+        ],
+        "properties": {
+          "issue": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "disposition": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "deferred_after_v1"
+            ]
+          },
+          "where": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "follow_up": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "required_panel": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seat",
+          "route",
+          "effort"
+        ],
+        "properties": {
+          "seat": {
+            "enum": [
+              "opus",
+              "astra",
+              "grok",
+              "muse"
+            ]
+          },
+          "route": {
+            "enum": [
+              "anthropic/claude-opus-5",
+              "openai-codex/gpt-6-astra",
+              "cursor/cursor-grok-4.6",
+              "meta/muse-spark-1.3-contributor"
+            ]
+          },
+          "effort": {
+            "enum": [
+              "max",
+              "high",
+              "xhigh"
+            ]
+          }
+        }
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "verdicts"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "pending_final_panel",
+            "pass",
+            "blocked"
+          ]
+        },
+        "verdicts": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "seat",
+              "route",
+              "effort",
+              "candidate_digest",
+              "verdict",
+              "session_id",
+              "recorded_at"
+            ],
+            "properties": {
+              "seat": {
+                "enum": [
+                  "opus",
+                  "astra",
+                  "grok",
+                  "muse"
+                ]
+              },
+              "route": {
+                "enum": [
+                  "anthropic/claude-opus-5",
+                  "openai-codex/gpt-6-astra",
+                  "cursor/cursor-grok-4.6",
+                  "meta/muse-spark-1.3-contributor"
+                ]
+              },
+              "effort": {
+                "enum": [
+                  "max",
+                  "high",
+                  "xhigh"
+                ]
+              },
+              "candidate_digest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "verdict": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "non_verdict"
+                ]
+              },
+              "session_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "recorded_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "findings_registry": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "blocked_reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

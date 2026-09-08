@@ -191,6 +191,7 @@
         "artifact_registry",
         "creation_grant",
         "delivery_profile",
+        "design_candidate",
         "epic_staging",
         "execution_base",
         "fault_matrix",
@@ -328,6 +329,35 @@
       "human_approval": "required",
       "schema": "resources/delivery-profile/delivery-profile.schema.json",
       "validator": "scripts/validate-delivery-profile.mjs"
+    },
+    {
+      "class": "design_candidate",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [],
+      "paths": [
+        "resources/design-candidate/design-candidate.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "candidate_id",
+        "candidate_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/design-candidate/design-candidate.schema.json",
+      "validator": "scripts/validate-design-candidate.mjs",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     },
     {
       "class": "epic_staging",
@@ -803,5 +833,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "16107d006e2124ffd42d9d95d07a412ec0950cfc8902bab7b1076480f2a16643"
+  "registry_digest": "3965847d811df857bb3eab904ed1d28e0078a3d244b0032bda40ba9522ce2cde"
 }
