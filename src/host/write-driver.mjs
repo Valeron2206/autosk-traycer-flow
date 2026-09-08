@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 
 import { demand, immutable } from '../runtime/contracts.mjs';
 
-import { quarantineDecision, reconcile } from './write-reconciliation.mjs';
+import { applyDisposition, quarantineDecision, reconcile } from './write-reconciliation.mjs';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -185,5 +185,67 @@ export function resumeFromReceipts(receipts, { runId }) {
     total: mine.length,
     unfinished: immutable(unfinished.map((receipt) => Object.freeze({ path: receipt.path, phase: receipt.phase }))),
     next: unfinished.length === 0 ? 'complete' : `resume ${unfinished[0].phase}`,
+  });
+}
+
+/**
+ * Carrying out a disposition on a held artifact.
+ *
+ * The disposition is a person's; this performs it and records what it did. The
+ * four are not symmetric, and the asymmetry is the point:
+ *
+ * - `inspect` moves nothing. Looking at something is not deciding about it;
+ * - `transform` publishes different bytes, so it names them and they are
+ *   verified like any other write;
+ * - `reject` leaves the held bytes where they are. Deleting them would destroy
+ *   the only copy of something a person just looked at and declined;
+ * - `restore` publishes the held bytes unchanged, and is the only disposition
+ *   that can put an artifact where the quarantine stopped it.
+ */
+export async function carryOutDisposition(fs, {
+  receipt,
+  disposition,
+  by,
+  transformedBytes,
+  artifactRoot,
+  operationId,
+}) {
+  demand(receipt.phase === 'quarantined', 'write_destination_invalid',
+    'Only a quarantined receipt takes a disposition', { phase: receipt.phase });
+  const disposed = applyDisposition(receipt.quarantine, disposition, { by });
+
+  if (disposition === 'inspect' || disposition === 'reject') {
+    return Object.freeze({
+      ...receipt,
+      quarantine: disposed,
+      // Nothing moved. A rejected artifact keeps its bytes: deleting them would
+      // destroy the only copy of what a person just declined.
+      published: false,
+      held_bytes_retained: true,
+    });
+  }
+
+  demand(disposition !== 'transform' || Buffer.isBuffer(transformedBytes) || typeof transformedBytes === 'string',
+    'write_destination_invalid', 'A transform names the bytes it publishes', {});
+  const bytes = disposition === 'transform'
+    ? Buffer.from(transformedBytes)
+    : await fs.readFile(disposed.path);
+
+  // Published through the same verified write as anything else: a disposition
+  // is a decision about what to publish, not a way around how publishing works.
+  const written = await verifiedWrite(fs, {
+    destination: receipt.path,
+    bytes,
+    artifactRoot,
+    klass: receipt.class,
+    operationId: operationId ?? receipt.operation_id,
+    quarantinePath: disposed.path,
+    policy: { max_bytes: Number.MAX_SAFE_INTEGER },
+  });
+  return Object.freeze({
+    ...written,
+    quarantine: disposed,
+    from_disposition: disposition,
+    held_bytes_retained: true,
   });
 }

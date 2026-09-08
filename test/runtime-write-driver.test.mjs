@@ -16,6 +16,7 @@ import test from "node:test";
 
 import { isVerified } from "../src/host/write-reconciliation.mjs";
 import {
+  carryOutDisposition,
   completeReceipt,
   observeDestination,
   resolveDestination,
@@ -287,4 +288,109 @@ test("receipts are durable enough to tell a resume which half happened", async (
   );
   assert.deepEqual([...settled.unfinished], []);
   assert.equal(settled.next, "complete");
+});
+
+test("a disposition is carried out, and the four are not symmetric", async (t) => {
+  const { root, artifactRoot, quarantinePath } = await workspace(t);
+  const destination = path.join(artifactRoot, "held.json");
+  const held = async () => verifiedWrite(fs, {
+    destination,
+    bytes: Buffer.from("x".repeat(64)),
+    artifactRoot,
+    policy: { max_bytes: 16 },
+    klass: "evidence",
+    operationId: "op-1",
+    quarantinePath,
+  });
+
+  // Looking at something is not deciding about it.
+  const inspected = await carryOutDisposition(fs, { receipt: await held(), disposition: "inspect", by: "owner" });
+  assert.equal(inspected.published, false);
+  assert.equal(inspected.quarantine.disposed_by, "owner");
+  await assert.rejects(() => readFile(destination));
+
+  // A rejected artifact keeps its bytes: deleting them would destroy the only
+  // copy of what a person just declined.
+  const rejected = await carryOutDisposition(fs, { receipt: await held(), disposition: "reject", by: "owner" });
+  assert.equal(rejected.published, false);
+  assert.equal(rejected.held_bytes_retained, true);
+  assert.equal((await readFile(quarantinePath)).length, 64);
+
+  // Restore publishes the held bytes unchanged, through the same verified
+  // write as anything else.
+  const restored = await carryOutDisposition(fs, {
+    receipt: await held(),
+    disposition: "restore",
+    by: "owner",
+    artifactRoot,
+  });
+  assert.equal(restored.phase, "written");
+  assert.equal(restored.published, true);
+  assert.equal((await readFile(destination)).length, 64);
+  assert.equal(restored.from_disposition, "restore");
+  assert.ok(root);
+});
+
+test("a transform names the bytes it publishes, and they are verified like any others", async (t) => {
+  const { artifactRoot, quarantinePath } = await workspace(t);
+  const destination = path.join(artifactRoot, "held.json");
+  const receipt = await verifiedWrite(fs, {
+    destination,
+    bytes: Buffer.from("y".repeat(64)),
+    artifactRoot,
+    policy: { max_bytes: 16 },
+    klass: "evidence",
+    operationId: "op-1",
+    quarantinePath,
+  });
+  await assert.rejects(
+    () => carryOutDisposition(fs, { receipt, disposition: "transform", by: "owner", artifactRoot }),
+    code("write_destination_invalid"),
+  );
+  const transformed = await carryOutDisposition(fs, {
+    receipt,
+    disposition: "transform",
+    by: "owner",
+    transformedBytes: "redacted\n",
+    artifactRoot,
+  });
+  assert.equal(transformed.phase, "written");
+  assert.equal(await readFile(destination, "utf8"), "redacted\n");
+  // The held bytes are still there: the transform published different ones, it
+  // did not replace what was quarantined.
+  assert.equal((await readFile(quarantinePath)).length, 64);
+});
+
+test("a receipt that was never quarantined takes no disposition", async (t) => {
+  const { root, artifactRoot } = await workspace(t);
+  const written = await verifiedWrite(fs, {
+    destination: path.join(artifactRoot, "ok.md"),
+    bytes: Buffer.from("a\n"),
+    artifactRoot,
+    klass: "brief",
+    operationId: "op-1",
+    quarantinePath: path.join(root, "quarantine", "held.md"),
+  });
+  await assert.rejects(
+    () => carryOutDisposition(fs, { receipt: written, disposition: "restore", by: "owner", artifactRoot }),
+    code("write_destination_invalid"),
+  );
+  // And `pending` is not a disposition somebody made.
+  const quarantined = await verifiedWrite(fs, {
+    destination: path.join(artifactRoot, "big.json"),
+    bytes: Buffer.from("z".repeat(64)),
+    artifactRoot,
+    policy: { max_bytes: 16 },
+    klass: "evidence",
+    operationId: "op-1",
+    quarantinePath: path.join(root, "quarantine", "big.json"),
+  });
+  await assert.rejects(
+    () => carryOutDisposition(fs, { receipt: quarantined, disposition: "pending", by: "owner", artifactRoot }),
+    code("write_destination_invalid"),
+  );
+  await assert.rejects(
+    () => carryOutDisposition(fs, { receipt: quarantined, disposition: "restore", by: "", artifactRoot }),
+    code("write_destination_invalid"),
+  );
 });
