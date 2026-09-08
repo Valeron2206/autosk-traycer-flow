@@ -32,6 +32,37 @@
       "human_approval": "required"
     },
     {
+      "class": "approved_delta",
+      "category": "behavior_defining",
+      "author_roles": [
+        "reviewer"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [
+        "tickets"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/tickets/*/approved-delta.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "operation_id",
+        "delta_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/approved-delta/approved-delta.schema.json",
+      "validator": "scripts/validate-approved-delta.mjs",
+      "impacts": [
+        "execution_base"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "artifact_registry",
       "category": "governance_defining",
       "author_roles": [
@@ -132,6 +163,7 @@
       "model_family_policy": "cross_family_required",
       "requires": [],
       "paths": [
+        "docs/contracts/approved-delta.md",
         "docs/contracts/artifact-registry.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
@@ -150,6 +182,7 @@
       ],
       "carrier": "autosk-flow/stage-carrier/v1",
       "impacts": [
+        "approved_delta",
         "artifact_registry",
         "delivery_profile",
         "execution_base",
@@ -606,5 +639,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "0cbf2f087bbc31f1f28bc59e1096edfb3cac503b6c7668e9e574422f3c1d30b5"
+  "registry_digest": "379c1b8aada5fea7e661f9a019d11896fff3dfc83a25143dabc2ec7076a21ea3"
 }

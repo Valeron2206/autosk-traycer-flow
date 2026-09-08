@@ -16,7 +16,8 @@
     "validate:artifact-registry": "node scripts/validate-artifact-registry.mjs",
     "validate:finding-registry": "node scripts/validate-finding-registry.mjs",
     "validate:model-result": "node scripts/validate-model-result.mjs",
-    "validate:execution-base": "node scripts/validate-execution-base.mjs"
+    "validate:execution-base": "node scripts/validate-execution-base.mjs",
+    "validate:approved-delta": "node scripts/validate-approved-delta.mjs"
   },
   "engines": {
     "node": ">=24"

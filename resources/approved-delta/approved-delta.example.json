@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "operation_id": "op-7f3c1a",
+  "ticket_id": "T04",
+  "base_commit_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base_tree_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidate_tree_oid": "cccccccccccccccccccccccccccccccccccccccc",
+  "pathspec": [
+    "src/**",
+    "tests/**",
+    "vendor/**"
+  ],
+  "entries": [
+    {
+      "path": "src/adapter.ts",
+      "status": "M",
+      "old_blob": "1111111111111111111111111111111111111111",
+      "new_blob": "2222222222222222222222222222222222222222",
+      "old_mode": "100644",
+      "new_mode": "100644"
+    },
+    {
+      "path": "src/newapi.ts",
+      "status": "A",
+      "new_blob": "3333333333333333333333333333333333333333",
+      "new_mode": "100644"
+    },
+    {
+      "path": "src/legacy.ts",
+      "status": "D",
+      "old_blob": "4444444444444444444444444444444444444444",
+      "old_mode": "100644"
+    },
+    {
+      "path": "src/moved.ts",
+      "from_path": "src/old.ts",
+      "status": "R",
+      "old_blob": "5555555555555555555555555555555555555555",
+      "new_blob": "5555555555555555555555555555555555555555",
+      "old_mode": "100644",
+      "new_mode": "100644"
+    },
+    {
+      "path": "src/run.sh",
+      "status": "M",
+      "old_blob": "6666666666666666666666666666666666666666",
+      "new_blob": "6666666666666666666666666666666666666666",
+      "old_mode": "100644",
+      "new_mode": "100755"
+    },
+    {
+      "path": "src/link",
+      "status": "A",
+      "new_blob": "7777777777777777777777777777777777777777",
+      "new_mode": "120000"
+    },
+    {
+      "path": "vendor/dep",
+      "status": "M",
+      "old_blob": "8888888888888888888888888888888888888888",
+      "new_blob": "9999999999999999999999999999999999999999",
+      "old_mode": "160000",
+      "new_mode": "160000"
+    }
+  ],
+  "phase": "verified",
+  "result_commit_oid": "dddddddddddddddddddddddddddddddddddddddd",
+  "result_tree_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "delta_digest": "89804426c7b97e5eb7f4fef454ad1a3e95788c119659ddb62f4f7a32c7fd3750"
+}

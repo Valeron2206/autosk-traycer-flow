@@ -55,6 +55,9 @@ jobs:
       - name: Validate Ticket execution base design contract
         run: npm run validate:execution-base
 
+      - name: Validate approved delta integration design contract
+        run: npm run validate:approved-delta
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
