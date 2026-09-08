@@ -28,7 +28,7 @@ Three sources, in this order, and every recorded field names the one it came fro
 2. `remote_discovery` — read from the forge, so it has an observation time and an expiry;
 3. `human_decision` — a recorded decision, so it has a decision id and a scope.
 
-A field with no source is not defaulted. `unknown` is a value, and an Epic with an `unknown` field that its integration mode depends on parks with a decision packet rather than guessing.
+A field with no source is not defaulted. `unknown` is a value, and an Epic with an `unknown` field that its integration mode depends on parks with a decision packet rather than guessing. A field the profile names as binding whose section has no provenance is the same thing said differently, and the validator refuses it.
 
 Discovery is *evidence with a shelf life*. Branch protection read an hour ago may not hold now, so every `remote_discovery` field records `observed_at` and `expires_at`, and a profile whose relevant discovery has expired is re-resolved before the operation that depends on it — not trusted because it was true once.
 
@@ -68,6 +68,16 @@ Branch protection, required checks and rulesets are the forge's state, not ours,
 Silently switching `merge` to `squash`, or a pull-request profile to a local update, is not a repair — it is a different delivery with the same name. Both are refused.
 
 A required check appearing mid-run invalidates a staging result that never ran it. A required check disappearing does **not** retroactively validate a run that failed it.
+
+## 6a. The final integration, read through the profile
+
+The host either performs the movement or hands it to the path the project requires, and the difference is settled before the operation rather than discovered at it. Three facts are separate and all three are asked:
+
+- whether the mode is one the project allows;
+- whether direct push is permitted — "we did not see a protection rule" is not the same as "direct push is allowed";
+- whether the final push is the host's to make. A project can permit direct movement and still have somebody else perform it, and *allowed* and *ours to do* are different facts.
+
+A required merge queue owns the final movement whatever else the profile allows.
 
 ## 7. Fail-closed
 

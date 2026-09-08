@@ -125,6 +125,20 @@ test("an unresolved reason outside the closed set is refused", () => {
   );
 });
 
+test("a binding field whose section has no provenance is a field with no source", () => {
+  // Section 3: every recorded field names the source it came from, and that is
+  // the one thing the profile is not allowed to leave open.
+  // The schema requires provenance for the sections it names, so the case this
+  // rule catches is a profile that binds on a section which has none —
+  // `release`, here, whose exclusion a project could well make binding.
+  assertRejects(
+    mutated((profile) => {
+      profile.binding_fields.push("release/deploy_excluded");
+    }, true),
+    /release\/deploy_excluded is binding and its section has no provenance/u,
+  );
+});
+
 test("binding_fields cannot name a field the profile does not contain", () => {
   assertRejects(
     mutated((profile) => {

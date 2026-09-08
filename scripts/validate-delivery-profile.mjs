@@ -18,6 +18,12 @@ import { fileURLToPath } from "node:url";
 
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
+// The digest and its canonical form are the runtime module's rule; this script
+// applies it rather than keeping a second implementation that could drift.
+import { canonicalValue, profileDigest, valueAt } from "../src/host/delivery-profile.mjs";
+
+export { canonicalValue, profileDigest };
+
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_PATH = "docs/contracts/delivery-profile.md";
 export const SCHEMA_PATH = "resources/delivery-profile/delivery-profile.schema.json";
@@ -61,48 +67,6 @@ export function loadFiles() {
 
 function sha256(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
-}
-
-function valueAt(profile, pointer) {
-  return pointer.split("/").reduce((node, key) => (node === undefined ? undefined : node[key]), profile);
-}
-
-/**
- * The digest section 5 binds identity to.
- *
- * It covers exactly the fields the profile names as binding, so a rationale can
- * be reworded without invalidating a candidate that never depended on it, and a
- * required check cannot be added without invalidating one that did.
- */
-export function profileDigest(profile) {
-  const canonical = profile.binding_fields
-    .slice()
-    .sort()
-    .map((pointer) => `${pointer}=${canonicalValue(valueAt(profile, pointer))}`)
-    .join(";");
-  return sha256(canonical);
-}
-
-/**
- * Content, not the order it happened to be written in.
- *
- * Every array in this schema is a SET — allowed modes, required checks, a
- * decision's scope. Serialising them positionally would make a re-resolution
- * that returns the same permissions in a different order look like drift, and
- * drift invalidates approvals. Object keys are sorted for the same reason.
- */
-export function canonicalValue(value) {
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalValue).sort().join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalValue(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 /** True when `value` is written in the order {@link canonicalValue} would put it. */
@@ -174,6 +138,12 @@ export function validateProfile(profile, schema) {
       errors.push(`binding_fields names ${pointer}, which the profile does not contain`);
     } else if (isUnknown(value) && !unresolvedFields.has(pointer)) {
       errors.push(`${pointer} is unknown but not recorded in unresolved: it would be decided by default`);
+    }
+    // Section 3: every recorded field names the source it came from. A binding
+    // field whose section has no provenance is a field with no source, which is
+    // the one thing the profile is not allowed to leave open.
+    if (!profile.provenance[pointer.split("/")[0]]) {
+      errors.push(`${pointer} is binding and its section has no provenance`);
     }
   }
 
