@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/clean-room-fault-matrix.v1.json",
+  "title": "Clean-room fault matrix v1",
+  "description": "Every fault group and the four proofs it must produce. Closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "harness_contract",
+    "boundaries",
+    "gate_failing_outcomes",
+    "groups"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "harness_contract": {
+      "const": "autosk-flow/verification-batch/v1"
+    },
+    "boundaries": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "task_creation",
+          "session_lifecycle",
+          "filesystem_write",
+          "ref_movement",
+          "staging_integration",
+          "aggregate_verification",
+          "final_cas"
+        ]
+      }
+    },
+    "gate_failing_outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "mutation_not_applied",
+          "green_control_failed",
+          "restore_failed",
+          "timeout",
+          "indeterminate"
+        ]
+      }
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "boundary",
+          "description",
+          "fault",
+          "proofs",
+          "expected_gate_outcome"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F[0-9]{2,4}$"
+          },
+          "boundary": {
+            "enum": [
+              "task_creation",
+              "session_lifecycle",
+              "filesystem_write",
+              "ref_movement",
+              "staging_integration",
+              "aggregate_verification",
+              "final_cas"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fault": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proofs": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "locator"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "application_proof",
+                    "red_killer",
+                    "green_control",
+                    "restore_proof"
+                  ]
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 512
+                }
+              }
+            }
+          },
+          "expected_gate_outcome": {
+            "enum": [
+              "pass",
+              "mutation_not_applied",
+              "green_control_failed",
+              "restore_failed",
+              "timeout",
+              "indeterminate"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
