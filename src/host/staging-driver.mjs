@@ -58,7 +58,12 @@ export async function reflogDepth(git, ref) {
  */
 export async function createStaging(git, { epicId, base }) {
   const ref = stagingRef(epicId);
-  const result = await git(['update-ref', ref, base, '']);
+  // `--create-reflog` because git keeps reflogs only for refs under
+  // `refs/heads`, `refs/remotes`, `refs/notes` and HEAD. A staging ref with no
+  // reflog cannot answer the one question the post-CAS check asks it — whether
+  // the ref moved once — and asking the operator to set
+  // `core.logAllRefUpdates` would change how their whole repository behaves.
+  const result = await git(['update-ref', '--create-reflog', ref, base, '']);
   if (result.code === 0) return Object.freeze({ ref, oid: base, created: true });
   const held = await readRef(git, ref);
   if (held === base) {
@@ -129,7 +134,7 @@ export async function observeTarget(git, { ref, recorded = [], recordedResult, r
  * The result is a record for `applySwap`, which decides what it means.
  */
 export async function swapTarget(git, { ref, expectedOld, newOid }) {
-  const result = await git(['update-ref', ref, newOid, expectedOld]);
+  const result = await git(['update-ref', '--create-reflog', ref, newOid, expectedOld]);
   if (result.code === 0) {
     return Object.freeze({ swapped: true, expected_old_oid: expectedOld, new_oid: newOid });
   }

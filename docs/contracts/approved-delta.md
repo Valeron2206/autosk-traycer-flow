@@ -34,8 +34,8 @@ That list is not padding. Each element is a way two "identical" patches differ i
 
 Not "it applied cleanly" — that is a statement about the tool. Six statements about the result:
 
-1. every approved entry is present in full;
-2. inside the Ticket's scope, the operation introduced nothing else;
+1. every approved entry is present in full — except a deletion, which is proven by absence: requiring a deleted path to be present would make an approved deletion impossible to integrate, and a rename is proven by the new path being present *and* the old one gone;
+2. inside the Ticket's scope, the operation introduced nothing else — and removed nothing else. A removal is invisible to a check that inspects only the paths that are still there, so what the apply removed is reported rather than inferred;
 3. changes already present from other Tickets are preserved;
 4. conflict resolution produced no bytes that were not reviewed;
 5. the resulting commit and tree are bound to the operation ID and the exact staging base;
@@ -46,6 +46,16 @@ Point 4 is the one that decides whether this contract means anything. A conflict
 ## 5. Revalidation immediately before apply
 
 The delta is revalidated against the staging base *at the moment of apply*, not when it was approved. A staging base that moved between approval and apply is a different base, and a delta approved against the old one has not been approved against this one.
+
+## 5a. How the apply is performed
+
+The tree is assembled in a temporary index, from blobs that already exist in the repository. That is the mechanical form of point 4: `update-index --cacheinfo` refuses an object that is not there, so there is no path by which the integration could invent content. It also means the operator's worktree and index are untouched — an integration that requires a clean checkout is one that cannot run while somebody is working.
+
+The temporary index lives outside the project. An index file left inside it is untracked state that looks like somebody's work, and the next apply would refuse on the collision it created itself.
+
+What the apply reports is read back from the written tree and compared against the base tree, never echoed from the request: an apply that reports what it was asked to do proves nothing about what it did, and *introduced* means introduced by this apply rather than present in the base.
+
+The staging ref is advanced with `--create-reflog`. Git keeps reflogs only for refs under `refs/heads`, `refs/remotes`, `refs/notes` and HEAD, so a private staging ref has none by default — and the movement invariant asks the reflog a question it could not answer. Setting `core.logAllRefUpdates` instead would change how the operator's whole repository behaves.
 
 ## 6. What is refused rather than worked around
 

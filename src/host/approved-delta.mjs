@@ -203,8 +203,16 @@ export function integrationProof(delta, result) {
   const errors = [];
   const approved = new Map(delta.entries.map((entry) => [entry.path, entry]));
 
+  const removed = new Set(result.removed_paths ?? []);
+
   for (const [path, entry] of approved) {
     const applied = result.applied_entries.find((item) => item.path === path);
+    if (entry.status === 'D') {
+      // A deletion is proven by absence. Requiring the path to be present would
+      // make an approved deletion impossible to integrate.
+      if (applied) errors.push({ reason: 'containment_mismatch', detail: `${path}: approved deletion is still present` });
+      continue;
+    }
     if (!applied) {
       errors.push({ reason: 'containment_mismatch', detail: `${path}: approved and not present` });
       continue;
@@ -212,11 +220,25 @@ export function integrationProof(delta, result) {
     if (applied.new_blob !== entry.new_blob || applied.new_mode !== entry.new_mode) {
       errors.push({ reason: 'unreviewed_bytes', detail: `${path}: applied bytes are not the approved ones` });
     }
+    if (entry.status === 'R' && !removed.has(entry.from_path)) {
+      // Half of a rename is two files where there was one, and nobody approved
+      // the copy.
+      errors.push({ reason: 'containment_mismatch', detail: `${entry.from_path}: the rename left it in place` });
+    }
   }
   for (const applied of result.applied_entries) {
     if (!approved.has(applied.path) && withinPathspec(delta.pathspec, applied.path)) {
       // Inside the Ticket's scope, the operation introduced nothing else.
       errors.push({ reason: 'scope_violation', detail: `${applied.path}: introduced and not approved` });
+    }
+  }
+  for (const path of removed) {
+    // And it removed nothing else. A removal is invisible to a check that only
+    // inspects the paths that are still there.
+    const entry = approved.get(path);
+    const renamedAway = delta.entries.some((item) => item.status === 'R' && item.from_path === path);
+    if (!entry && !renamedAway && withinPathspec(delta.pathspec, path)) {
+      errors.push({ reason: 'scope_violation', detail: `${path}: removed and not approved` });
     }
   }
   for (const preserved of result.preserved_from_other_tickets ?? []) {
