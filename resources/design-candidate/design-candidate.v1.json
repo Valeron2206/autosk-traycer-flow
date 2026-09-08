@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "edfeda4eb0cd96535c6162394d0e9ca83ec531bab21548dc0e388736c4772169"
+      "sha256": "89f438d81b379044c1c7539c18d1b0f0fd3ffbfd098101889789eb19cb5edc8b"
     },
     {
       "path": "README.md",
@@ -93,6 +93,10 @@
     {
       "path": "docs/contracts/governance-bundle.md",
       "sha256": "9811731b1b4474ac21aae02654163cb4b561797cb8d4dcd90e47421664ffeb81"
+    },
+    {
+      "path": "docs/contracts/housekeeping.md",
+      "sha256": "4bbd5a97e0794cabe0bbf93fc7d3c6437f0734e9f2e26414216883e95598d8ac"
     },
     {
       "path": "docs/contracts/human-decision.md",
@@ -209,6 +213,10 @@
     {
       "path": "resources/governance-bundle/governance-bundle.schema.json",
       "sha256": "3c0d6b54fe5ef4d3be4a1bdfa6e3d362eb1226be01493704ad90ec5b204cac20"
+    },
+    {
+      "path": "resources/housekeeping/housekeeping-report.schema.json",
+      "sha256": "3a4ff92dcf793553c8894acd337e13a4f6f6ebaa2bb9fff0529ca6a195dda58f"
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
@@ -339,7 +347,7 @@
       "sha256": "04ae885ba139010abb542fc5bdc60a2c6a0d721ef579bfe83f0b78b6ee1a1890"
     }
   ],
-  "candidate_digest": "fdfaa0c91ddd93a7fcfec06fb09d94adec8fec5c48a35d4ccb52bd8f9cb0d05f",
+  "candidate_digest": "bc471a76a708ddc129fc5f15ad5c009578184c4e58277d9f6a31cdc6f9794b8e",
   "dispositions": [
     {
       "issue": 3,
