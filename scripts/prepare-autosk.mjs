@@ -46,7 +46,11 @@ export function loadAutoskManifest(manifestPath = DEFAULT_MANIFEST) {
   }
   closedRecord(manifest.license, ["file", "sha256"], "license");
   requireValue(manifest.license.file === "LICENSE" && SHA256.test(manifest.license.sha256), "invalid license declaration");
-  requireValue(Array.isArray(manifest.patches) && manifest.patches.length > 0 && manifest.patches.length <= 16, "expected bounded nonempty patch series");
+  // The cap keeps a malformed or runaway manifest bounded; it was never meant to
+  // cap the project at sixteen changes. It was chosen when the series had one
+  // patch, and the series is append-only by policy, so it grows with every
+  // delivery. Raised deliberately rather than worked around by squashing history.
+  requireValue(Array.isArray(manifest.patches) && manifest.patches.length > 0 && manifest.patches.length <= 64, "expected bounded nonempty patch series");
   const directory = path.dirname(path.resolve(manifestPath));
   const names = new Set();
   const patches = manifest.patches.map((patch) => {
