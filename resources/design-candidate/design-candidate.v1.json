@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "cd4a312891a722dba5be085943342cc129530152f4bace7d0792c8bc6791b963"
+      "sha256": "80ad28928cb9325c813439c660326dddda9fd462c0387a9047beed065521d98a"
     },
     {
       "path": "README.md",
@@ -57,6 +57,10 @@
     {
       "path": "docs/contracts/execution-base.md",
       "sha256": "33d208850802ab6811306617c49c2a329cf65e7ef129afaec93183b576f321e6"
+    },
+    {
+      "path": "docs/contracts/external-source-snapshot.md",
+      "sha256": "c8f93ca8140be2fb8847f9eb74c61d9beff8512dd6369c842411a6e69c697d37"
     },
     {
       "path": "docs/contracts/finding-registry.md",
@@ -117,6 +121,10 @@
     {
       "path": "resources/execution-base/execution-base.schema.json",
       "sha256": "bd6bde8802fe15fc1ec784b3a792ff4f50f69b653e5e49ff16b192e82503be16"
+    },
+    {
+      "path": "resources/external-source-snapshot/external-source-snapshot.schema.json",
+      "sha256": "16f9d52ddda136e21a6c5548e8c4efebdc7eb02025414d456ada42ad1f6ef1f8"
     },
     {
       "path": "resources/finding-registry/finding-registry.schema.json",
@@ -211,7 +219,7 @@
       "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
     }
   ],
-  "candidate_digest": "c29c1904bf450a9bbf68005d99501a11465d4f9654cada68704f98c6ebd360ac",
+  "candidate_digest": "150d40d693b7d2e1cb9c4e9c3cf9aeba2432038ab407d01da0c6514479e75274",
   "dispositions": [
     {
       "issue": 3,

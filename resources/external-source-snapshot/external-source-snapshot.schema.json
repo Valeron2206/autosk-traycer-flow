@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "External source snapshot (issue #21)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "locator",
+    "source_kind",
+    "media_type",
+    "source_size",
+    "source_mode",
+    "provenance",
+    "source_sha256",
+    "snapshot_path",
+    "snapshot_sha256",
+    "read_back_sha256",
+    "operation_id",
+    "receipt_sequence",
+    "clearance",
+    "epic_id",
+    "anchor_version",
+    "lifecycle"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "locator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_kind": {
+      "enum": [
+        "file",
+        "upload",
+        "api_export",
+        "generated_report",
+        "migration_input"
+      ]
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z]+/[a-zA-Z0-9.+-]+$"
+    },
+    "source_size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_mode": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4095
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_identity",
+        "arrival"
+      ],
+      "properties": {
+        "project_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arrival": {
+          "enum": [
+            "in_project",
+            "imported"
+          ]
+        },
+        "imported_from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "import_operation_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "snapshot_path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+    },
+    "snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "read_back_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "manifest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receipt_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "clearance": {
+      "enum": [
+        "cleared",
+        "redacted",
+        "restricted"
+      ]
+    },
+    "epic_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "anchor_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "lifecycle": {
+      "enum": [
+        "present",
+        "missing",
+        "deleted",
+        "superseded"
+      ]
+    },
+    "superseded_by": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

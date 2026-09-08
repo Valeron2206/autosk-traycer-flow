@@ -197,6 +197,7 @@
         "docs/contracts/epic-planning-ref.md",
         "docs/contracts/epic-staging.md",
         "docs/contracts/execution-base.md",
+        "docs/contracts/external-source-snapshot.md",
         "docs/contracts/finding-registry.md",
         "docs/contracts/gate-store-projection.md",
         "docs/contracts/model-result.md",
@@ -221,6 +222,7 @@
         "design_candidate",
         "epic_staging",
         "execution_base",
+        "external_source_snapshot",
         "fault_matrix",
         "finding_registry",
         "gate_projection",
@@ -463,6 +465,31 @@
         "README.md",
         "CONTRIBUTING.md",
         "docs/*.md"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
+      "class": "external_source_snapshot",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "driver"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/snapshots/**"
       ],
       "review": {
         "mode": "none"
@@ -860,5 +887,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "f335ecd888d1530800596d969830e901983a0cce1b257a1aaae23d8038cc9d7d"
+  "registry_digest": "a868fd8ddfb880335095ea54e6477a696fc1889a220d95baa0bb05dd47ddbcd5"
 }
