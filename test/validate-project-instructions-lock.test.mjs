@@ -200,6 +200,37 @@ test("the digest covers the rule that produced the admitted set, not only the se
   assert.notEqual(before, after);
 });
 
+test("applicability is part of identity: it decides who gets the bytes", () => {
+  // Two locks with the same files but different applicability compile DIFFERENT
+  // slices. Sharing a digest would let them tell a reviewer and an implementer
+  // different things under one identity.
+  const before = combinedDigest(example());
+  const after = combinedDigest(
+    mutated(
+      (lock) => {
+        lock.admitted[1].applicability.roles = ["reviewer"];
+      },
+      { reseal: false },
+    ),
+  );
+  assert.notEqual(before, after);
+});
+
+test("applicability order does not change identity", () => {
+  // The set is what matters, not how it was written down; otherwise a reordering
+  // would look like a different set of rules.
+  const before = combinedDigest(example());
+  const after = combinedDigest(
+    mutated(
+      (lock) => {
+        lock.admitted[0].applicability.roles = [...lock.admitted[0].applicability.roles].reverse();
+      },
+      { reseal: false },
+    ),
+  );
+  assert.equal(before, after);
+});
+
 test("an unrelated field does not move the digest", () => {
   const before = combinedDigest(example());
   const after = combinedDigest(

@@ -56,7 +56,11 @@ Nested scopes compose from root to leaf: a deeper file does not replace a shallo
 
 For every admitted file the lock records `path`, `blob_oid`, `mode`, `size_bytes`, `sha256` of the exact bytes, the governed directory, and its ordinal in precedence order. It records `source_commit_oid`, `source_tree_oid` and `object_format`.
 
-`combined_digest` is SHA-256 over the canonical serialisation of the admitted list — ordinal, path, mode, size, sha256 — plus the discovery-algorithm identifier and `supported_filenames`. Two locks with the same `combined_digest` gave every model the same rules; two with different digests did not, whatever their prose says.
+`combined_digest` is SHA-256 over the canonical serialisation of the admitted list — ordinal, path, mode, size, sha256 and **applicability** — plus the discovery-algorithm identifier and `supported_filenames`.
+
+Applicability belongs there because it decides *which invocation gets these bytes*. Two locks that differ only in applicability compile different slices, so leaving it out would let them share an identity while telling a reviewer and an implementer different things — the exact confusion §1 exists to remove. `blob_oid` is deliberately not in the digest: it is Git's name for bytes that `sha256` already identifies, and one name is enough.
+
+Two locks with the same `combined_digest` gave every model the same rules; two with different digests did not, whatever their prose says.
 
 `combined_digest` is a binding field of artifact identity, candidate identity and review identity. A verdict recorded under one digest does not transfer to another.
 

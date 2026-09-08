@@ -85,10 +85,27 @@ export function combinedDigest(lock) {
     lock.discovery_algorithm,
     lock.supported_filenames.join(","),
     ...lock.admitted.map((entry) =>
-      [entry.ordinal, entry.path, entry.mode, entry.size_bytes, entry.sha256].join(" "),
+      [
+        entry.ordinal,
+        entry.path,
+        entry.mode,
+        entry.size_bytes,
+        entry.sha256,
+        // Applicability decides which invocation gets these bytes, so two locks
+        // that differ only here compile DIFFERENT slices. Leaving it out would
+        // let them share an identity while telling a reviewer and an implementer
+        // different things — the exact confusion this lock exists to remove.
+        canonicalApplicability(entry.applicability),
+      ].join(" "),
     ),
   ].join("");
   return sha256(canonical);
+}
+
+function canonicalApplicability(applicability) {
+  return ["roles", "stages", "pathspec"]
+    .map((field) => `${field}=${[...applicability[field]].sort().join(",")}`)
+    .join(";");
 }
 
 /** The identity of this design as bytes, so a review verdict can be bound to it. */
