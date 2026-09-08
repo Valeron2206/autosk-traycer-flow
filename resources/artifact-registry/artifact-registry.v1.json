@@ -219,6 +219,7 @@
         "docs/contracts/clearance-manifest.md",
         "docs/contracts/creation-grant.md",
         "docs/contracts/delivery-profile.md",
+        "docs/contracts/doctor-report.md",
         "docs/contracts/epic-planning-ref.md",
         "docs/contracts/epic-staging.md",
         "docs/contracts/evidence-manifest.md",
@@ -250,6 +251,7 @@
         "creation_grant",
         "delivery_profile",
         "design_candidate",
+        "doctor_report",
         "epic_staging",
         "evidence_manifest",
         "execution_base",
@@ -421,6 +423,30 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
+    },
+    {
+      "class": "doctor_report",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "driver"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/doctor/**"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "epic_scoped",
+      "human_approval": "not_required"
     },
     {
       "class": "epic_staging",
@@ -1024,5 +1050,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "c940bcbf17293864bd50e94bed51f7e51309441a3bf27fec7885c4b77dda99a1"
+  "registry_digest": "1b0ac3e2eb5dc2c35a1095c2c90512185ed6dece73935bf5fe8992b5bf378982"
 }

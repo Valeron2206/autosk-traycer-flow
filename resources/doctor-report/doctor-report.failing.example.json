@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "status": "fail",
+  "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "runtime_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "generated_at": "2026-09-08T12:00:00.000Z",
+  "tool": {
+    "name": "autosk-flow-doctor",
+    "version": "1.0.0"
+  },
+  "checks": [
+    {
+      "id": "project_identity.canonical_root",
+      "category": "project_identity",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "governance.bundle_attested",
+      "category": "governance",
+      "status": "fail",
+      "evidence": {
+        "expected": "aaaaaaaaaaaaaaaa",
+        "observed": "bbbbbbbbbbbbbbbb"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      },
+      "remediation": "run `autosk-flow governance verify` and re-release the bundle before starting an Epic",
+      "park_reason": "governance_bundle_unattested"
+    },
+    {
+      "id": "providers.panel_routes_attested",
+      "category": "providers",
+      "status": "warn",
+      "evidence": {
+        "routes": 3,
+        "domains": 3
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      },
+      "remediation": "re-run preflight for the missing route"
+    }
+  ]
+}
