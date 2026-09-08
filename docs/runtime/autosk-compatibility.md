@@ -45,7 +45,8 @@ apply in the listed order, each producing the tree beside it:
 | `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` |
 | `0022-session-meta-through-adapter.patch` | `033d7a28fbbeaac4c5ea7e38995c5dded35f9322` |
 | `0023-grant-signature.patch` | `60b5ac3e55a7d110333417d09f1b6f740ac6c23d` |
-| `0024-transcript-through-adapter.patch` | `600db19b48ac4c9cbb6d332bbea7637281cc1a93` — the current `result_tree` |
+| `0024-transcript-through-adapter.patch` | `600db19b48ac4c9cbb6d332bbea7637281cc1a93` |
+| `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -257,6 +258,49 @@ for a reason that has nothing to do with what those tests are about.
 
 The project registry remains outside the adapter by ADR-028 — it lives in `$HOME`,
 not in the project — and `scan()` remains on plain `fs` for the reason above.
+
+## The bytes a project keeps
+
+Patch `0025` adds a fourth area to the store: `runtime/v1/dist/`, holding the
+exact files of an extension distribution keyed by the digest of each file's own
+bytes. It is separate from the runtime blobs beside it for two reasons that are
+properties of the data rather than of the code. A distribution contains
+arbitrary files — images, compiled artefacts, `.wasm` — so these bytes are not
+required to be text, and the runtime blobs are. And a source file is routinely
+larger than the runtime store's 8 MiB record, so the limit is its own.
+
+Because they are not text, they cross the wire base64-encoded in a distinct
+`data_b64` field. That is not decoration: every other payload on this wire is a
+document the daemon itself wrote, and a JSON string cannot hold anything else —
+`encoding/json` substitutes U+FFFD for bytes that are not valid UTF-8, which is
+the corruption patch `0024` had to close for the transcript. Four new ops make
+the protocol revision `4`.
+
+The name of a blob IS its digest, so a blob that does not hash to its own name is
+refused on read as well as on write. That is what makes the held bytes usable as
+evidence: a distribution can be put back together and shown to be the one a task
+was admitted under, rather than merely described.
+
+**Why a record was not enough.** The index already remembered what a digest
+*meant* — the canonical listing it was taken over. That does not let an Epic keep
+running. One globally installed extension has exactly one copy on disk, so
+updating it takes the old code away from every project at once, and a project
+pinned to the old digest is then pinned to something nobody has. The record now
+says plainly whether the project holds the files, and an absent flag means NOT
+held rather than unknown.
+
+Holding is all-or-nothing as a claim. A distribution missing one file is not that
+distribution, so a failure records `bytes_held: false` with the reason instead of
+a record that says held and is not — and a later open tries again, because the
+blobs are content-addressed and re-holding is idempotent.
+
+What is dropped is decided by reachability, not by counting. A blob is kept when
+some remaining record's listing names it, which is the same rule the reference
+set already uses for tasks and for the same reason: a stored count would be a
+second structure obliged to agree with the listings, and two structures obliged
+to agree eventually disagree. A listing this build cannot read keeps everything —
+"I cannot tell what this distribution contains" is not permission to delete its
+files.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:

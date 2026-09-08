@@ -1,0 +1,1485 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index f39b8d4..13be5cf 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -2,6 +2,7 @@ package main
+ 
+ import (
+ 	"bufio"
++	"encoding/base64"
+ 	"encoding/json"
+ 	"flag"
+ 	"fmt"
+@@ -24,7 +25,7 @@ const maxRequestBytes = 64 * 1024 * 1024
+ // out only through a malformed reply, if at all. It is compared exactly: a
+ // different revision means a different contract, and guessing which half of it
+ // still holds is not a decision this side gets to make.
+-const protocolVersion = 3
++const protocolVersion = 4
+ 
+ type readyMessage struct {
+ 	OK       bool `json:"ok"`
+@@ -42,6 +43,11 @@ type requestMessage struct {
+ 	Digest         string  `json:"digest,omitempty"`
+ 	ExpectedDigest *string `json:"expected_digest,omitempty"`
+ 	Data           string  `json:"data,omitempty"`
++	// DataB64 carries bytes that are not text. Every other payload on this wire
++	// is a document the daemon wrote and can therefore be a JSON string; a
++	// distribution's files are arbitrary, and a JSON string cannot hold them —
++	// encoding/json substitutes U+FFFD for anything that is not valid UTF-8.
++	DataB64 string `json:"data_b64,omitempty"`
+ }
+ 
+ type responseMessage struct {
+@@ -55,8 +61,10 @@ type responseMessage struct {
+ 	Sig *storelock.StatInfo `json:"sig,omitempty"`
+ 	// Eof says the chunk reached the end of the file, so a caller reading a
+ 	// transcript in pieces knows when to stop without a second stat.
+-	Eof   bool   `json:"eof,omitempty"`
+-	Error string `json:"error,omitempty"`
++	Eof bool `json:"eof,omitempty"`
++	// DataB64 answers the ops whose payload is not text; see requestMessage.
++	DataB64 string `json:"data_b64,omitempty"`
++	Error   string `json:"error,omitempty"`
+ 	// Code names the refusal class when the helper could classify it. Absent means
+ 	// unclassified — never "fine" and never "some other class"; see storelock.Code.
+ 	Code string `json:"code,omitempty"`
+@@ -229,6 +237,36 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ 			return responseError(req.ID, err)
+ 		}
+ 		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
++	case "read_distribution_blob":
++		result, err := lock.ReadDistributionBlob(req.Digest)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		resp := responseMessage{ID: req.ID, OK: true, Exists: result.Exists}
++		if result.Exists {
++			resp.DataB64 = base64.StdEncoding.EncodeToString(result.Data)
++		}
++		return resp
++	case "write_distribution_blob":
++		data, err := base64.StdEncoding.DecodeString(req.DataB64)
++		if err != nil {
++			return responseError(req.ID, fmt.Errorf("decode distribution blob: %w", err))
++		}
++		if err := lock.WriteDistributionBlob(req.Digest, data); err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true}
++	case "delete_distribution_blob":
++		if err := lock.DeleteDistributionBlob(req.Digest); err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true}
++	case "list_distribution_blobs":
++		digests, err := lock.ListDistributionBlobs()
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, IDs: digests}
+ 	case "read_runtime_blob":
+ 		result, err := lock.ReadRuntimeBlob(req.Digest)
+ 		if err != nil {
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index cae7fa2..6292d60 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -129,9 +129,10 @@ export class Engine implements SessionHost {
+ 
+   /**
+    * Remembers, in the project's runtime index, every distribution the registry was
+-   * built from (issue #10). A task's pin says which digest it needs; this says what
+-   * that digest consisted of, so a later reader can tell whether a candidate tree
+-   * is that distribution.
++   * built from, and holds their files (issue #10). A task's pin says which digest
++   * it needs; the record says what that digest consisted of, and the held bytes
++   * are what let an Epic keep running after the copy on disk is replaced — which
++   * for one globally installed extension happens to every project at once.
+    *
+    * Failing to record must not stop a project opening: the index is a record, not
+    * a precondition for running, and a project that cannot write it is still a
+@@ -139,15 +140,20 @@ export class Engine implements SessionHost {
+    * swallowed.
+    */
+   private async recordDistributions(project: EngineProject): Promise<void> {
+-    const byDigest = new Map<string, string>();
++    const byDigest = new Map<string, { entries: string; root: string }>();
+     for (const name of project.registry.workflowNames()) {
+       const admitted = project.registry.workflowAdmission(name);
+       if (!admitted || byDigest.has(admitted.distribution.digest)) continue;
+-      byDigest.set(admitted.distribution.digest, canonicalDistribution(admitted.distribution.entries));
++      byDigest.set(admitted.distribution.digest, {
++        entries: canonicalDistribution(admitted.distribution.entries),
++        // The resolved root the digest was taken over, so the store can hold the
++        // files as well as the listing (issue #10, criterion 3).
++        root: admitted.distribution.root,
++      });
+     }
+-    for (const [digest, entries] of byDigest) {
++    for (const [digest, { entries, root }] of byDigest) {
+       try {
+-        await project.store.recordDistribution(digest, entries);
++        await project.store.recordDistribution(digest, entries, root);
+       } catch (e) {
+         this.logger.error(`recording distribution ${digest}: ${errMsg(e)}`);
+       }
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 7919430..61bff33 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -24,7 +24,7 @@ const INDEX_VERSION = 1;
+  * this side can do honestly. Keep in step with `protocolVersion` in
+  * `cmd/autosk-store-lock/main.go`.
+  */
+-const HELPER_PROTOCOL_VERSION = 3;
++const HELPER_PROTOCOL_VERSION = 4;
+ const LOCK_TIMEOUT_MS = 30_000;
+ const READY_TIMEOUT_MS = 10_000;
+ const REQUEST_TIMEOUT_MS = 30_000;
+@@ -90,11 +90,14 @@ interface HelperRequest {
+     | "read_runtime_blob" | "write_runtime_blob" | "read_runtime_index" | "write_runtime_index"
+     | "read_comments" | "write_comments"
+     | "read_session_meta" | "write_session_meta" | "list_session_ids"
+-    | "read_session_transcript" | "write_session_transcript" | "append_session_transcript";
++    | "read_session_transcript" | "write_session_transcript" | "append_session_transcript"
++    | "read_distribution_blob" | "write_distribution_blob" | "delete_distribution_blob"
++    | "list_distribution_blobs";
+   task_id?: string;
+   session_id?: string;
+   offset?: number;
+   max_bytes?: number;
++  data_b64?: string;
+   digest?: string;
+   expected_digest?: string | null;
+   data?: string;
+@@ -108,6 +111,7 @@ interface HelperResponse {
+   ids?: unknown;
+   sig?: unknown;
+   eof?: unknown;
++  data_b64?: unknown;
+   error?: unknown;
+   code?: unknown;
+ }
+@@ -144,6 +148,16 @@ export interface CreationLockIO {
+   ): Promise<{ data: string; sig: string; eof: boolean } | null>;
+   writeSessionTranscript(sessionId: string, data: string): Promise<string>;
+   appendSessionTranscript(sessionId: string, data: string): Promise<string>;
++  /**
++   * One file of an extension distribution, held by the digest of its own bytes
++   * (issue #10, criterion 3). These are arbitrary bytes, not documents: a
++   * distribution contains images and compiled artefacts, so they cross the wire
++   * base64-encoded rather than as JSON strings.
++   */
++  readDistributionBlob(digest: string): Promise<Buffer | null>;
++  writeDistributionBlob(digest: string, data: Buffer): Promise<void>;
++  deleteDistributionBlob(digest: string): Promise<void>;
++  listDistributionBlobs(): Promise<string[]>;
+ }
+ 
+ export function creationKeyHash(key: string): string {
+@@ -713,6 +727,41 @@ class HelperClient implements CreationLockIO {
+     };
+   }
+ 
++  async readDistributionBlob(digest: string): Promise<Buffer | null> {
++    const response = await this.request({ op: "read_distribution_blob", digest });
++    if (typeof response.exists !== "boolean") {
++      throw new Error("autosk-store-lock returned invalid distribution blob existence flag");
++    }
++    if (!response.exists) return null;
++    if (typeof response.data_b64 !== "string") {
++      throw new Error("autosk-store-lock returned invalid distribution blob data");
++    }
++    return Buffer.from(response.data_b64, "base64");
++  }
++
++  async writeDistributionBlob(digest: string, data: Buffer): Promise<void> {
++    await this.request({
++      op: "write_distribution_blob",
++      digest,
++      data_b64: data.toString("base64"),
++    });
++  }
++
++  async deleteDistributionBlob(digest: string): Promise<void> {
++    await this.request({ op: "delete_distribution_blob", digest });
++  }
++
++  async listDistributionBlobs(): Promise<string[]> {
++    const response = await this.request({ op: "list_distribution_blobs" });
++    if (!Array.isArray(response.ids)) {
++      throw new Error("autosk-store-lock returned invalid distribution blob list");
++    }
++    for (const id of response.ids) {
++      if (typeof id !== "string") throw new Error("autosk-store-lock returned invalid distribution digest");
++    }
++    return response.ids;
++  }
++
+   async writeSessionTranscript(sessionId: string, data: string): Promise<string> {
+     const response = await this.request({ op: "write_session_transcript", session_id: sessionId, data });
+     return helperFileSig(response.sig, "write_session_transcript");
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+index e133173..cce2e18 100644
+--- a/daemon/core/src/store/distributions.ts
++++ b/daemon/core/src/store/distributions.ts
+@@ -35,6 +35,71 @@ export interface DistributionRecord {
+   entries: string;
+   /** When this project first recorded it, from the store's clock. */
+   recorded_at: string;
++  /**
++   * Whether this project holds the distribution's file bytes (issue #10,
++   * criterion 3).
++   *
++   * Optional in the shape because a record written before the store held bytes
++   * does not carry it, and an absent flag means NOT HELD rather than unknown:
++   * the bytes are either in the store or they are not, and a later open can
++   * check and hold them. Callers must not read an absent flag as "probably fine".
++   */
++  bytes_held?: boolean;
++  /**
++   * Why the bytes are not held, when they are not. Present only alongside
++   * `bytes_held: false`, because a distribution nobody could hold is a limit the
++   * operator has to be able to read rather than infer from a missing feature.
++   */
++  not_held_reason?: string;
++}
++
++/** One member of a canonical distribution listing. */
++export type CanonicalEntry =
++  | { kind: "file"; rawPath: Buffer; sha256: string }
++  | { kind: "link"; rawPath: Buffer; rawTarget: Buffer }
++  | { kind: "dir"; rawPath: Buffer };
++
++/**
++ * Reads back the listing `canonicalDistribution` produced.
++ *
++ * The listing is what makes held bytes usable: it names every file by the digest
++ * of its contents, so the store needs only the blobs to put the tree back
++ * together. A line this cannot parse is a refusal, not a skipped entry — a
++ * partial listing would reconstruct a partial distribution and call it the
++ * distribution.
++ */
++export function parseCanonicalDistribution(entries: string): CanonicalEntry[] {
++  if (entries === "") return [];
++  if (!entries.endsWith("\n")) {
++    throw new DistributionIndexError("canonical listing does not end with a newline");
++  }
++  return entries
++    .slice(0, -1)
++    .split("\n")
++    .map((line, i) => {
++      const at = `canonical listing line ${i + 1}`;
++      const [kind, first, second] = line.split(" ");
++      if (kind === "file" && first !== undefined && second !== undefined) {
++        if (!DIGEST_PATTERN.test(first)) throw new DistributionIndexError(`${at}: file digest is not a sha256`);
++        return { kind: "file", rawPath: decodePath(second, at), sha256: first } as const;
++      }
++      if (kind === "link" && first !== undefined && second !== undefined) {
++        return { kind: "link", rawPath: decodePath(second, at), rawTarget: Buffer.from(first, "base64") } as const;
++      }
++      if (kind === "dir" && first !== undefined && second === undefined) {
++        return { kind: "dir", rawPath: decodePath(first, at) } as const;
++      }
++      throw new DistributionIndexError(`${at}: unrecognised entry ${JSON.stringify(line)}`);
++    });
++}
++
++function decodePath(encoded: string, at: string): Buffer {
++  const raw = Buffer.from(encoded, "base64");
++  // `Buffer.from(_, "base64")` never throws; it stops at the first character it
++  // cannot use. Re-encoding is what tells a truncated path from a whole one.
++  if (raw.toString("base64") !== encoded) throw new DistributionIndexError(`${at}: path is not base64`);
++  if (raw.length === 0) throw new DistributionIndexError(`${at}: path is empty`);
++  return raw;
+ }
+ 
+ /**
+@@ -168,7 +233,9 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+     }
+     const item = entry as Record<string, unknown>;
+     const { digest, entries, recorded_at: recordedAt } = item;
+-    const extra = Object.keys(item).filter((k) => k !== "digest" && k !== "entries" && k !== "recorded_at");
++    const extra = Object.keys(item).filter(
++      (k) => k !== "digest" && k !== "entries" && k !== "recorded_at" && k !== "bytes_held" && k !== "not_held_reason",
++    );
+     if (extra.length > 0) {
+       throw new DistributionIndexError(`runtime index entry has unexpected keys: ${extra.sort().join(", ")}`);
+     }
+@@ -193,7 +260,24 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+     if (typeof recordedAt !== "string" || recordedAt.length === 0) {
+       throw new DistributionIndexError("runtime index entry has no recorded_at");
+     }
+-    return { digest, entries, recorded_at: recordedAt };
++    const held = item.bytes_held;
++    if (held !== undefined && typeof held !== "boolean") {
++      throw new DistributionIndexError("runtime index entry bytes_held is not a boolean");
++    }
++    const reason = item.not_held_reason;
++    if (reason !== undefined && (typeof reason !== "string" || reason.length === 0)) {
++      throw new DistributionIndexError("runtime index entry not_held_reason is not a non-empty string");
++    }
++    // A reason without a false flag would read as an explanation of a state the
++    // record does not claim, which is how a "held" distribution ends up carrying
++    // the note that says it is not.
++    if (reason !== undefined && held !== false) {
++      throw new DistributionIndexError(`runtime index entry ${digest} explains why bytes are not held but claims they are`);
++    }
++    const result: DistributionRecord = { digest, entries, recorded_at: recordedAt };
++    if (held !== undefined) result.bytes_held = held;
++    if (reason !== undefined) result.not_held_reason = reason;
++    return result;
+   });
+   const migrations = ((record.migrations ?? []) as unknown[]).map(parseReceipt);
+   const seenMigrations = new Set<string>();
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index a643174..8049e2c 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -19,7 +19,7 @@
+  *    funnelling into reconciliation.
+  */
+ 
+-import { mkdir } from "node:fs/promises";
++import { mkdir, readFile } from "node:fs/promises";
+ 
+ import {
+   newCommentId,
+@@ -56,8 +56,10 @@ import { createHash } from "node:crypto";
+ import { systemClock, type Clock } from "./clock.ts";
+ import {
+   migrationId,
++  parseCanonicalDistribution,
+   parseDistributionIndex,
+   serializeDistributionIndex,
++  type CanonicalEntry,
+   type DistributionRecord,
+   type MigrationReceipt,
+ } from "./distributions.ts";
+@@ -1199,11 +1201,22 @@ export class Store {
+    * taken over. Idempotent — recording the same digest twice is a no-op, and the
+    * first `recorded_at` is kept.
+    *
+-   * This stores what a digest MEANT, not the files it covered. Holding the bytes
+-   * so an old task can keep running on them is a separate obligation and is not
+-   * done here.
++   * It also HOLDS the files, when it can (issue #10, criterion 3). A record of
++   * what a digest meant does not let an Epic keep running after the distribution
++   * on disk is replaced — one globally installed extension has exactly one copy,
++   * and updating it takes the old code away from every project at once. So the
++   * bytes are copied into the project's own content-addressed store, and the
++   * record says plainly whether they are there.
++   *
++   * Holding is attempted again on a later open when it did not succeed: the blobs
++   * are content-addressed, so re-holding is idempotent, and a distribution that
++   * failed to be held once is not condemned to stay unheld forever.
++   *
++   * `root` is the resolved directory the digest was taken over. It is read with
++   * plain `fs` because it is not project state — it is somebody else's install
++   * tree — while every write of the copy goes through the adapter.
+    */
+-  async recordDistribution(digest: string, entries: string): Promise<void> {
++  async recordDistribution(digest: string, entries: string, root?: string): Promise<void> {
+     // Checked before the write, not only on read. The parser refuses a pair that
+     // does not hash together, so writing one unvalidated would leave an index that
+     // every later distribution operation — including the one that would fix it —
+@@ -1215,10 +1228,85 @@ export class Store {
+     await withCreationLock(this.paths, async (io) => {
+       const raw = await io.readRuntimeIndex();
+       const index = parseDistributionIndex(raw);
+-      if (index.distributions.some((d) => d.digest === digest)) return;
+-      const record: DistributionRecord = { digest, entries, recorded_at: this.clock() };
+-      index.distributions.push(record);
+-      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex(index));
++      const existing = index.distributions.find((d) => d.digest === digest);
++      // Already recorded AND already held: there is nothing this call can add.
++      if (existing?.bytes_held === true) return;
++      const held = root === undefined ? notHeld("no distribution root was given") : await this.holdDistribution(io, entries, root);
++      const record: DistributionRecord = {
++        digest,
++        entries,
++        recorded_at: existing?.recorded_at ?? this.clock(),
++        bytes_held: held.held,
++      };
++      if (!held.held) record.not_held_reason = held.reason;
++      const distributions = existing
++        ? index.distributions.map((d) => (d.digest === digest ? record : d))
++        : [...index.distributions, record];
++      await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex({ ...index, distributions }));
++    });
++  }
++
++  /**
++   * Copies every file of a distribution into the project's blob store.
++   *
++   * All or nothing, as a claim: a partially held distribution cannot be put back
++   * together, so a failure records `bytes_held: false` with the reason rather
++   * than a record that says held and is not. Blobs already written stay — they
++   * are content-addressed and may belong to another distribution too, and the
++   * sweep in `deleteDistribution` is what collects the ones nothing references.
++   */
++  private async holdDistribution(
++    io: CreationLockIO,
++    entries: string,
++    root: string,
++  ): Promise<{ held: true } | { held: false; reason: string }> {
++    let listing: CanonicalEntry[];
++    try {
++      listing = parseCanonicalDistribution(entries);
++    } catch (e) {
++      return notHeld(`listing cannot be read: ${errorMessage(e)}`);
++    }
++    for (const entry of listing) {
++      if (entry.kind !== "file") continue;
++      let bytes: Buffer;
++      try {
++        bytes = await readFile(joinRaw(root, entry.rawPath));
++      } catch (e) {
++        return notHeld(`${entry.rawPath.toString("utf8")} cannot be read: ${errorMessage(e)}`);
++      }
++      try {
++        await io.writeDistributionBlob(entry.sha256, bytes);
++      } catch (e) {
++        return notHeld(`${entry.rawPath.toString("utf8")} cannot be held: ${errorMessage(e)}`);
++      }
++    }
++    return { held: true };
++  }
++
++  /**
++   * Puts a held distribution back together, or returns `null` when this project
++   * does not hold it.
++   *
++   * Every file is checked against the digest the listing names, and a missing one
++   * is a refusal rather than a gap: a tree with a file missing is not the
++   * distribution, and returning it would let a caller run code that is not what
++   * the task was admitted under.
++   */
++  async readHeldDistribution(digest: string): Promise<Map<string, Buffer> | null> {
++    return withCreationLock(this.paths, async (io) => {
++      const index = parseDistributionIndex(await io.readRuntimeIndex());
++      const record = index.distributions.find((d) => d.digest === digest);
++      if (!record || record.bytes_held !== true) return null;
++      const files = new Map<string, Buffer>();
++      for (const entry of parseCanonicalDistribution(record.entries)) {
++        if (entry.kind !== "file") continue;
++        const bytes = await io.readDistributionBlob(entry.sha256);
++        if (bytes === null) {
++          throw new Error(`distribution ${digest} is recorded as held but ${entry.sha256} is missing`);
++        }
++        files.set(entry.rawPath.toString("utf8"), bytes);
++      }
++      return files;
+     });
+   }
+ 
+@@ -1264,9 +1352,49 @@ export class Store {
+       const kept = index.distributions.filter((d) => d.digest !== digest);
+       if (kept.length === index.distributions.length) return;
+       await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex({ ...index, distributions: kept }));
++      // The index is written FIRST, and the blobs are dropped after. An
++      // interruption between the two leaves bytes nothing references, which the
++      // next forget collects; the other order would leave a record that claims to
++      // hold files it no longer has.
++      await this.sweepDistributionBlobs(io, kept);
+     });
+   }
+ 
++  /**
++   * Drops held bytes no remaining record names.
++   *
++   * Reachability, not reference counting. A stored count would be a second source
++   * of truth obliged to agree with the listings, and this store already decided —
++   * for what is REFERENCED — that two structures obliged to agree eventually
++   * disagree. A blob is kept when some kept record names it, and only then.
++   *
++   * A listing that cannot be parsed keeps everything: "I cannot tell what this
++   * distribution contains" is not permission to delete its files.
++   */
++  private async sweepDistributionBlobs(io: CreationLockIO, kept: readonly DistributionRecord[]): Promise<void> {
++    const reachable = new Set<string>();
++    for (const record of kept) {
++      let listing: CanonicalEntry[];
++      try {
++        listing = parseCanonicalDistribution(record.entries);
++      } catch (e) {
++        // Not a reason to delete anything. The sweep is abandoned rather than run
++        // over an incomplete reachable set, because deleting a blob this listing
++        // would have named is exactly the file that cannot be recovered.
++        this.logger.warn(
++          `distribution ${record.digest}: listing cannot be read, keeping every held blob (${errorMessage(e)})`,
++        );
++        return;
++      }
++      for (const entry of listing) {
++        if (entry.kind === "file") reachable.add(entry.sha256);
++      }
++    }
++    for (const digest of await io.listDistributionBlobs()) {
++      if (!reachable.has(digest)) await io.deleteDistributionBlob(digest);
++    }
++  }
++
+   // -- migration (issue #10, criterion 5) ----------------------------------
+ 
+   /**
+@@ -1629,6 +1757,26 @@ function matchesFilter(v: TaskView, f: TaskFilter): boolean {
+ }
+ 
+ /** The conditional-write token for the runtime index: `null` when it is absent. */
++function notHeld(reason: string): { held: false; reason: string } {
++  return { held: false, reason };
++}
++
++function errorMessage(e: unknown): string {
++  return e instanceof Error ? e.message : String(e);
++}
++
++/**
++ * Joins a raw (byte) relative path onto a root.
++ *
++ * The listing keeps paths as bytes because a file name is bytes on both
++ * supported platforms, and decoding one to a string to join it would rename any
++ * file whose name is not valid UTF-8 — quietly reading a different file, or
++ * none.
++ */
++function joinRaw(root: string, rawPath: Buffer): Buffer {
++  return Buffer.concat([Buffer.from(root, "utf8"), Buffer.from("/", "utf8"), rawPath]);
++}
++
+ function expectedIndexDigest(raw: string | null): string | null {
+   return raw === null ? null : createHash("sha256").update(raw, "utf8").digest("hex");
+ }
+diff --git a/daemon/core/test/store.distbytes.test.ts b/daemon/core/test/store.distbytes.test.ts
+new file mode 100644
+index 0000000..bfe6330
+--- /dev/null
++++ b/daemon/core/test/store.distbytes.test.ts
+@@ -0,0 +1,256 @@
++/**
++ * Holding the bytes of an extension distribution (issue #10, criterion 3).
++ *
++ * The record of what a digest MEANT is not enough to keep an Epic running. One
++ * globally installed extension has exactly one copy on disk, so updating it
++ * takes the old code away from every project at once. These tests are about the
++ * project holding its own copy — and about the record never claiming to hold
++ * bytes it does not have.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { createHash } from "node:crypto";
++import { mkdir, symlink, writeFile } from "node:fs/promises";
++import { join } from "node:path";
++
++import { Store } from "../src/index.ts";
++import { withCreationLock } from "../src/store/creation.ts";
++import { canonicalDistribution, distributionIdentity } from "../src/extensions/identity.ts";
++import { parseCanonicalDistribution, parseDistributionIndex } from "../src/store/distributions.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
++import { tempDir } from "./helpers.ts";
++
++describe("holding distribution bytes", () => {
++  const cleanups: (() => void)[] = [];
++  const stores: Store[] = [];
++  afterEach(async () => {
++    for (const s of stores.splice(0)) await s.close();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  async function project(): Promise<{ store: Store; root: string }> {
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const store = new Store(dir.path, { watch: false });
++    stores.push(store);
++    await store.open();
++    return { store, root: dir.path };
++  }
++
++  /** A small but real distribution: nested directory, a link, and a binary file. */
++  async function distribution(files: Record<string, string | Uint8Array> = {}): Promise<{
++    root: string;
++    digest: string;
++    entries: string;
++  }> {
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const root = join(dir.path, "ext");
++    await mkdir(join(root, "lib"), { recursive: true });
++    await writeFile(join(root, "index.js"), "export default () => {};\n");
++    await writeFile(join(root, "lib", "helper.js"), "export const n = 1;\n");
++    await writeFile(join(root, "lib", "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]));
++    await symlink("helper.js", join(root, "lib", "alias.js"));
++    for (const [name, body] of Object.entries(files)) {
++      await writeFile(join(root, name), body);
++    }
++    const identity = distributionIdentity(root, join(root, "index.js"));
++    return { root: identity.root, digest: identity.digest, entries: canonicalDistribution(identity.entries) };
++  }
++
++  async function indexOf(root: string) {
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    return parseDistributionIndex(raw);
++  }
++
++  test("recording with a root holds every file, and the tree comes back", async () => {
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++
++    const record = (await indexOf(root)).distributions[0]!;
++    expect(record.bytes_held).toBe(true);
++    expect(record.not_held_reason).toBeUndefined();
++
++    const held = await store.readHeldDistribution(dist.digest);
++    expect(held).not.toBeNull();
++    // Every file of the listing, and its exact bytes — the binary one included,
++    // which is why these blobs are not required to be text.
++    const wanted = parseCanonicalDistribution(dist.entries).filter((e) => e.kind === "file");
++    expect([...held!.keys()].sort()).toEqual(wanted.map((e) => e.rawPath.toString("utf8")).sort());
++    expect([...held!.get("lib/logo.png")!]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
++  });
++
++  test("a record without a root says plainly that the bytes are not held", async () => {
++    // The failure mode this guards is a record that reads as "held" because the
++    // field is missing. Absent means NOT held, and the reason is written down.
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries);
++
++    const record = (await indexOf(root)).distributions[0]!;
++    expect(record.bytes_held).toBe(false);
++    expect(record.not_held_reason).toMatch(/no distribution root/);
++    expect(await store.readHeldDistribution(dist.digest)).toBeNull();
++  });
++
++  test("a later open holds what an earlier one could not", async () => {
++    // A distribution that failed to be held once must not stay unheld forever:
++    // the blobs are content-addressed, so re-holding is idempotent.
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries);
++    expect((await indexOf(root)).distributions[0]!.bytes_held).toBe(false);
++
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++    const record = (await indexOf(root)).distributions[0]!;
++    expect(record.bytes_held).toBe(true);
++    expect(record.not_held_reason).toBeUndefined();
++    expect(await store.readHeldDistribution(dist.digest)).not.toBeNull();
++  });
++
++  test("the recorded_at of the first record survives a later hold", async () => {
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries);
++    const first = (await indexOf(root)).distributions[0]!.recorded_at;
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++    expect((await indexOf(root)).distributions[0]!.recorded_at).toBe(first);
++  });
++
++  test("a distribution whose file is gone is recorded as not held, with the reason", async () => {
++    // Not a partial hold. A tree missing a file is not the distribution, so the
++    // honest record is "not held" plus what stopped it.
++    const { store, root } = await project();
++    const dist = await distribution();
++    const gone = tempDir();
++    cleanups.push(gone.cleanup);
++    await store.recordDistribution(dist.digest, dist.entries, join(gone.path, "not-here"));
++
++    const record = (await indexOf(root)).distributions[0]!;
++    expect(record.bytes_held).toBe(false);
++    expect(record.not_held_reason).toMatch(/cannot be read/);
++    expect(await store.readHeldDistribution(dist.digest)).toBeNull();
++  });
++
++  test("held bytes survive the distribution disappearing from disk", async () => {
++    // The whole point: the copy on disk is replaced or removed, and the project
++    // still has what its tasks were admitted under.
++    const { store } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++
++    await writeFile(join(dist.root, "index.js"), "export default () => { throw new Error('v2'); };\n");
++
++    const held = await store.readHeldDistribution(dist.digest);
++    expect(held!.get("index.js")!.toString("utf8")).toBe("export default () => {};\n");
++  });
++
++  test("forgetting a distribution drops the bytes nothing else names", async () => {
++    const { store, root } = await project();
++    const first = await distribution();
++    const second = await distribution({ "extra.js": "export const x = 2;\n" });
++    await store.recordDistribution(first.digest, first.entries, first.root);
++    await store.recordDistribution(second.digest, second.entries, second.root);
++
++    const before = await withCreationLock(new ProjectPaths(root), (io) => io.listDistributionBlobs());
++    await store.deleteDistribution(second.digest);
++    const after = await withCreationLock(new ProjectPaths(root), (io) => io.listDistributionBlobs());
++
++    expect(after.length).toBeLessThan(before.length);
++    // Shared files stay: the two distributions differ by one file, and the rest
++    // are the same bytes. Reference counting would have had to agree with the
++    // listings; reachability cannot disagree with them.
++    expect(await store.readHeldDistribution(first.digest)).not.toBeNull();
++    const remaining = parseCanonicalDistribution(first.entries)
++      .filter((e) => e.kind === "file")
++      .map((e) => e.sha256);
++    for (const digest of remaining) expect(after).toContain(digest);
++  });
++
++  test("a listing nobody can read keeps every held blob", async () => {
++    // "I cannot tell what this distribution contains" is not permission to delete
++    // its files. The sweep is abandoned rather than run over an incomplete
++    // reachable set, because the blob it would drop is the unrecoverable one.
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++    // A second record whose listing is not a canonical listing at all.
++    const opaque = "file abc index.ts\n";
++    const opaqueDigest = createHash("sha256").update(opaque, "utf8").digest("hex");
++    await store.recordDistribution(opaqueDigest, opaque);
++
++    const before = await withCreationLock(new ProjectPaths(root), (io) => io.listDistributionBlobs());
++    await store.deleteDistribution(opaqueDigest);
++    const after = await withCreationLock(new ProjectPaths(root), (io) => io.listDistributionBlobs());
++
++    expect(after.sort()).toEqual(before.sort());
++    expect(await store.readHeldDistribution(dist.digest)).not.toBeNull();
++  });
++
++  test("a held record missing a blob refuses instead of returning a partial tree", async () => {
++    // A tree with a file missing is not the distribution. Returning it would let
++    // a caller run code that is not what the task was admitted under, and the
++    // caller has no way to notice.
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++    const paths = new ProjectPaths(root);
++    const held = await withCreationLock(paths, (io) => io.listDistributionBlobs());
++    await withCreationLock(paths, (io) => io.deleteDistributionBlob(held[0]!));
++
++    await expect(store.readHeldDistribution(dist.digest)).rejects.toThrow(/recorded as held but .* is missing/);
++  });
++
++  test("a kept record this revision cannot read keeps every blob", async () => {
++    // The case the sweep's refusal exists for: a record whose listing was written
++    // in a form this build does not understand, while its bytes are held. Its
++    // files are unreachable to the sweep for the wrong reason, and deleting them
++    // is exactly what cannot be undone.
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++
++    const paths = new ProjectPaths(root);
++    const blobs = await withCreationLock(paths, (io) => io.listDistributionBlobs());
++    expect(blobs.length).toBeGreaterThan(0);
++
++    const opaque = "shape-from-another-revision\n";
++    const opaqueDigest = createHash("sha256").update(opaque, "utf8").digest("hex");
++    const doomed = "file-nobody-references\n";
++    const doomedDigest = createHash("sha256").update(doomed, "utf8").digest("hex");
++    await withCreationLock(paths, async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw);
++      const rewritten = {
++        ...index,
++        distributions: [
++          { digest: opaqueDigest, entries: opaque, recorded_at: "2026-01-01T00:00:00Z", bytes_held: true },
++          { digest: doomedDigest, entries: doomed, recorded_at: "2026-01-01T00:00:00Z", bytes_held: true },
++        ],
++      };
++      const expected = createHash("sha256").update(raw!, "utf8").digest("hex");
++      await io.writeRuntimeIndex(expected, JSON.stringify(rewritten));
++    });
++
++    await store.deleteDistribution(doomedDigest);
++
++    const after = await withCreationLock(paths, (io) => io.listDistributionBlobs());
++    expect(after.sort()).toEqual(blobs.sort());
++  });
++
++  test("a referenced distribution keeps its bytes when deletion is refused", async () => {
++    const { store, root } = await project();
++    const dist = await distribution();
++    await store.recordDistribution(dist.digest, dist.entries, dist.root);
++    const task = await store.createTask({ title: "pinned" });
++    await store.setPosition(
++      task.id,
++      { status: "work", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: dist.digest, graph: "0".repeat(64) } },
++    );
++
++    await expect(store.deleteDistribution(dist.digest)).rejects.toThrow(/still referenced/);
++    expect(await store.readHeldDistribution(dist.digest)).not.toBeNull();
++  });
++});
+diff --git a/daemon/core/test/store.distributions.test.ts b/daemon/core/test/store.distributions.test.ts
+index 60b2976..2c85701 100644
+--- a/daemon/core/test/store.distributions.test.ts
++++ b/daemon/core/test/store.distributions.test.ts
+@@ -165,3 +165,36 @@ describe("distribution reference accounting", () => {
+     expect(parseDistributionIndex(null).distributions).toEqual([]);
+   });
+ });
++
++describe("what a distribution record may claim", () => {
++  const index = (entry: Record<string, unknown>) =>
++    JSON.stringify({ version: 1, distributions: [entry], migrations: [] });
++
++  test("a reason why bytes are not held cannot sit on a record that claims they are", () => {
++    // Otherwise a held distribution carries the note explaining why it is not
++    // held, and whichever half a reader believes, the record has already lied.
++    const base = { digest: A, entries: ENTRIES_A, recorded_at: "2026-01-01T00:00:00Z" };
++    expect(() => parseDistributionIndex(index({ ...base, bytes_held: false, not_held_reason: "no root" }))).not.toThrow();
++    for (const held of [true, undefined]) {
++      const entry: Record<string, unknown> = { ...base, not_held_reason: "no root" };
++      if (held !== undefined) entry.bytes_held = held;
++      expect(() => parseDistributionIndex(index(entry))).toThrow(DistributionIndexError);
++    }
++  });
++
++  test("an absent bytes_held is not an unknown state", () => {
++    // A record written before the store held bytes parses, and reads as NOT held.
++    const parsed = parseDistributionIndex(
++      index({ digest: A, entries: ENTRIES_A, recorded_at: "2026-01-01T00:00:00Z" }),
++    );
++    expect(parsed.distributions[0]!.bytes_held).toBeUndefined();
++  });
++
++  test("bytes_held must be a boolean and a reason must be non-empty", () => {
++    const base = { digest: A, entries: ENTRIES_A, recorded_at: "2026-01-01T00:00:00Z" };
++    expect(() => parseDistributionIndex(index({ ...base, bytes_held: "yes" }))).toThrow(DistributionIndexError);
++    expect(() => parseDistributionIndex(index({ ...base, bytes_held: false, not_held_reason: "" }))).toThrow(
++      DistributionIndexError,
++    );
++  });
++});
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+index fd80f01..f401b7d 100644
+--- a/daemon/core/test/store.singlewriter.test.ts
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -98,10 +98,13 @@ describe("what the boundary adapter covers", () => {
+     const ops = [...dispatch.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
+     expect(ops.sort()).toEqual([
+       "append_session_transcript",
++      "delete_distribution_blob",
++      "list_distribution_blobs",
+       "list_session_ids",
+       "list_task_ids",
+       "read_comments",
+       "read_creation_index",
++      "read_distribution_blob",
+       "read_runtime_blob",
+       "read_runtime_index",
+       "read_session_meta",
+@@ -109,6 +112,7 @@ describe("what the boundary adapter covers", () => {
+       "read_task",
+       "write_comments",
+       "write_creation_index",
++      "write_distribution_blob",
+       "write_runtime_blob",
+       "write_runtime_index",
+       "write_session_meta",
+diff --git a/internal/storelock/distblob_test.go b/internal/storelock/distblob_test.go
+new file mode 100644
+index 0000000..54d575a
+--- /dev/null
++++ b/internal/storelock/distblob_test.go
+@@ -0,0 +1,267 @@
++package storelock
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func withDistLock(t *testing.T, root string) *Lock {
++	t.Helper()
++	lock, err := Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if closeErr := lock.Close(); closeErr != nil {
++			t.Fatal(closeErr)
++		}
++	})
++	return lock
++}
++
++func digestOf(data []byte) string {
++	sum := sha256.Sum256(data)
++	return hex.EncodeToString(sum[:])
++}
++
++func TestDistributionBlobHoldsArbitraryBytes(t *testing.T) {
++	// The whole point of a separate store: a distribution contains images and
++	// compiled artefacts, and the runtime blobs beside it require text.
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	data := []byte{0x00, 0xff, 0xfe, 0x01, 0x80, '\n', 0xd0}
++	digest := digestOf(data)
++	if err := lock.WriteDistributionBlob(digest, data); err != nil {
++		t.Fatal(err)
++	}
++	read, err := lock.ReadDistributionBlob(digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !read.Exists || !bytes.Equal(read.Data, data) {
++		t.Fatalf("blob did not survive the store: %v %q", read.Exists, read.Data)
++	}
++}
++
++func TestDistributionBlobRefusesAMisnamedWrite(t *testing.T) {
++	// The name IS the digest. A write under the wrong name would make the store
++	// unusable as evidence of what a distribution contained.
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	if err := lock.WriteDistributionBlob(digestOf([]byte("a")), []byte("b")); !errors.Is(err, ErrDigestMismatch) {
++		t.Fatalf("expected ErrDigestMismatch, got %v", err)
++	}
++	for _, bad := range []string{"", "zz", "AB" + digestOf([]byte("a"))[2:], digestOf([]byte("a"))[:63]} {
++		if err := lock.WriteDistributionBlob(bad, []byte("a")); err == nil {
++			t.Fatalf("accepted digest %q", bad)
++		}
++	}
++	// And the refusal leaves nothing behind. A blob written under a name it does
++	// not hash to would be unreadable forever after — every later read of that
++	// digest refuses it — so the refusal has to come BEFORE the write, not from
++	// the read-back afterwards.
++	assertNoBlobsHeld(t, root)
++}
++
++// assertNoBlobsHeld fails when the store holds any file at all, listed or not.
++func assertNoBlobsHeld(t *testing.T, root string) {
++	t.Helper()
++	dir := filepath.Join(root, ".autosk", "runtime", "v1", "dist")
++	entries, err := os.ReadDir(dir)
++	if errors.Is(err, os.ErrNotExist) {
++		return
++	}
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(entries) != 0 {
++		names := make([]string, 0, len(entries))
++		for _, e := range entries {
++			names = append(names, e.Name())
++		}
++		t.Fatalf("a refused write left files behind: %v", names)
++	}
++}
++
++func TestDistributionBlobRefusesCorruptionOnRead(t *testing.T) {
++	// Held bytes are evidence. A blob whose content no longer hashes to its name
++	// is not "slightly wrong" — it cannot be the file it claims to be, and
++	// answering with it would launder the tampering.
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	data := []byte("original")
++	digest := digestOf(data)
++	if err := lock.WriteDistributionBlob(digest, data); err != nil {
++		t.Fatal(err)
++	}
++	path := filepath.Join(root, ".autosk", "runtime", "v1", "dist", digest+".blob")
++	if err := os.WriteFile(path, []byte("tampered"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.ReadDistributionBlob(digest); !errors.Is(err, ErrDigestMismatch) {
++		t.Fatalf("expected ErrDigestMismatch, got %v", err)
++	}
++}
++
++func TestDistributionBlobRewriteOfTheSameBytesIsFine(t *testing.T) {
++	// Content-addressed: the same digest is the same bytes, so re-recording a
++	// distribution must not be an error.
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	data := []byte("shared file")
++	digest := digestOf(data)
++	for i := 0; i < 3; i++ {
++		if err := lock.WriteDistributionBlob(digest, data); err != nil {
++			t.Fatalf("write %d: %v", i, err)
++		}
++	}
++}
++
++func TestDistributionBlobAlreadyHeldIsNotRewritten(t *testing.T) {
++	// Re-recording a distribution happens on every project open, and every file
++	// in it is already held. Rewriting each one would copy and fsync the whole
++	// distribution to answer a question the name already answers.
++	//
++	// Observable, because "it is faster" is not a claim a test can check: with
++	// the directory made unwritable, a store that rewrites cannot create its temp
++	// file, and one that recognises the blob it already holds still succeeds.
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	data := []byte("already held")
++	digest := digestOf(data)
++	if err := lock.WriteDistributionBlob(digest, data); err != nil {
++		t.Fatal(err)
++	}
++	dir := filepath.Join(root, ".autosk", "runtime", "v1", "dist")
++	if err := os.Chmod(dir, 0o500); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if err := os.Chmod(dir, 0o700); err != nil {
++			t.Fatal(err)
++		}
++	})
++	if err := lock.WriteDistributionBlob(digest, data); err != nil {
++		t.Fatalf("a blob this store already holds was written again: %v", err)
++	}
++}
++
++func TestDistributionBlobAbsentReadsAsAbsent(t *testing.T) {
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	read, err := lock.ReadDistributionBlob(digestOf([]byte("never stored")))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if read.Exists {
++		t.Fatal("reported a blob that was never written")
++	}
++}
++
++func TestDistributionBlobRefusesOversize(t *testing.T) {
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	oversize := make([]byte, maxDistBlobBytes+1)
++	if err := lock.WriteDistributionBlob(digestOf(oversize), oversize); !errors.Is(err, ErrTooLarge) {
++		t.Fatalf("expected ErrTooLarge, got %v", err)
++	}
++	// Refused before the write, for the same reason: a blob this store cannot
++	// read back is worse than no blob.
++	assertNoBlobsHeld(t, root)
++}
++
++func TestDistributionBlobListingNamesOnlyWhatThisStoreWrote(t *testing.T) {
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	first := []byte("one")
++	second := []byte("two")
++	for _, data := range [][]byte{first, second} {
++		if err := lock.WriteDistributionBlob(digestOf(data), data); err != nil {
++			t.Fatal(err)
++		}
++	}
++	dir := filepath.Join(root, ".autosk", "runtime", "v1", "dist")
++	// A file this store never wrote. Reporting it as a digest would put a
++	// caller's deletion loop in charge of something nobody can account for.
++	if err := os.WriteFile(filepath.Join(dir, "not-a-digest.blob"), []byte("x"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	digests, err := lock.ListDistributionBlobs()
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := []string{digestOf(first), digestOf(second)}
++	if len(want) != len(digests) {
++		t.Fatalf("want %v, got %v", want, digests)
++	}
++	seen := map[string]bool{}
++	for _, d := range digests {
++		seen[d] = true
++	}
++	for _, d := range want {
++		if !seen[d] {
++			t.Fatalf("%s missing from %v", d, digests)
++		}
++	}
++}
++
++func TestDistributionBlobDeleteIsIdempotent(t *testing.T) {
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	data := []byte("droppable")
++	digest := digestOf(data)
++	if err := lock.WriteDistributionBlob(digest, data); err != nil {
++		t.Fatal(err)
++	}
++	for i := 0; i < 2; i++ {
++		if err := lock.DeleteDistributionBlob(digest); err != nil {
++			t.Fatalf("delete %d: %v", i, err)
++		}
++	}
++	read, err := lock.ReadDistributionBlob(digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if read.Exists {
++		t.Fatal("blob survived deletion")
++	}
++}
++
++func TestDistributionBlobStoreRefusesAHostileDirectory(t *testing.T) {
++	// The runtime area must be the project's own. A swapped directory is refused
++	// rather than written into, the same as everywhere else under this lock.
++	root := t.TempDir()
++	lock := withDistLock(t, root)
++	data := []byte("first")
++	if err := lock.WriteDistributionBlob(digestOf(data), data); err != nil {
++		t.Fatal(err)
++	}
++	dir := filepath.Join(root, ".autosk", "runtime", "v1", "dist")
++	outside := filepath.Join(t.TempDir(), "elsewhere")
++	if err := os.MkdirAll(outside, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.RemoveAll(dir); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, dir); err != nil {
++		t.Fatal(err)
++	}
++	next := []byte("second")
++	if err := lock.WriteDistributionBlob(digestOf(next), next); err == nil {
++		t.Fatal("wrote through a symlinked distribution directory")
++	}
++	entries, err := os.ReadDir(outside)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(entries) != 0 {
++		t.Fatalf("a write escaped into the symlink target: %v", entries)
++	}
++}
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index 9119d3c..2f01b11 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -26,6 +26,7 @@ const (
+ 	runtimeDirName      = "runtime"
+ 	versionDirName      = "v1"
+ 	blobsDirName        = "blobs"
++	distDirName         = "dist"
+ 	blobFileSuffix      = ".blob"
+ 	tasksDirName        = "tasks"
+ 	sessionsDirName     = "sessions"
+@@ -37,6 +38,7 @@ const (
+ 	sessionTxSuffix     = ".jsonl"
+ 	maxFileBytes        = 16 * 1024 * 1024
+ 	maxRuntimeFileBytes = 8 * 1024 * 1024
++	maxDistBlobBytes    = 16 * 1024 * 1024
+ 	maxTaskEntries      = 100000
+ 	maxSessionEntries   = 100000
+ 	lockOpenRetry       = 250 * time.Millisecond
+@@ -198,9 +200,11 @@ type runtimeHandles struct {
+ 	runtimeFD int
+ 	versionFD int
+ 	blobsFD   int
++	distFD    int
+ 	runtimeID fileIdentity
+ 	versionID fileIdentity
+ 	blobsID   fileIdentity
++	distID    fileIdentity
+ }
+ 
+ func Acquire(root string, timeout time.Duration) (_ *Lock, err error) {
+@@ -771,6 +775,236 @@ func (l *Lock) WriteRuntimeBlob(digest string, data []byte) (err error) {
+ 	return handles.verify()
+ }
+ 
++// Distribution blobs hold the exact bytes of one file of an extension
++// distribution, keyed by the digest of those bytes (issue #10, criterion 3).
++//
++// They are separate from the runtime blobs next door for two reasons that are
++// properties of the data, not of the code. A distribution contains arbitrary
++// files — images, compiled artefacts, `.wasm` — so these bytes are NOT required
++// to be text, and the runtime blobs are. And a source file is routinely larger
++// than the runtime store's 8 MiB record, so the limit is its own.
++//
++// The name IS the digest, so a blob that does not hash to its own name is
++// corruption and is refused on read as well as on write. That check is not
++// paranoia about the disk: it is what makes the held bytes usable as evidence
++// that a distribution is the one a task was admitted under.
++
++func (l *Lock) ReadDistributionBlob(digest string) (_ ReadResult, err error) {
++	if err := validateRuntimeDigest(digest); err != nil {
++		return ReadResult{}, err
++	}
++	handles, err := l.openRuntimeDistDir(false)
++	if errors.Is(err, unix.ENOENT) {
++		if verifyErr := l.verifyLockPath(); verifyErr != nil {
++			return ReadResult{}, verifyErr
++		}
++		return ReadResult{Exists: false}, nil
++	}
++	if err != nil {
++		return ReadResult{}, err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return ReadResult{}, err
++	}
++	name := runtimeBlobFileName(digest)
++	result, err := readDistFile(handles.distFD, name, l.rootID)
++	if err != nil {
++		return ReadResult{}, err
++	}
++	if !result.Exists {
++		if err := handles.verify(); err != nil {
++			return ReadResult{}, err
++		}
++		return result, nil
++	}
++	if err := verifyRuntimeDataDigest(name, digest, result.Data); err != nil {
++		return ReadResult{}, err
++	}
++	if err := handles.verify(); err != nil {
++		return ReadResult{}, err
++	}
++	return result, nil
++}
++
++func (l *Lock) WriteDistributionBlob(digest string, data []byte) (err error) {
++	if err := validateRuntimeDigest(digest); err != nil {
++		return err
++	}
++	if len(data) > maxDistBlobBytes {
++		return fmt.Errorf("distribution blob exceeds %d bytes: %w", maxDistBlobBytes, ErrTooLarge)
++	}
++	if actual := runtimeDataDigest(data); actual != digest {
++		return fmt.Errorf("distribution blob digest mismatch: expected %s actual %s: %w", digest, actual, ErrDigestMismatch)
++	}
++	handles, err := l.openRuntimeDistDir(true)
++	if err != nil {
++		return err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return err
++	}
++	name := runtimeBlobFileName(digest)
++	// Content-addressed, so a blob already held under this name IS this blob and
++	// there is nothing to write. That matters for cost rather than correctness —
++	// the rename below never replaces, so the racing path reaches the same answer
++	// — and the cost is real: re-recording a distribution happens on every project
++	// open, and without this every file in it would be copied and fsynced again to
++	// answer a question the name already answers.
++	existing, err := readDistFile(handles.distFD, name, l.rootID)
++	if err != nil {
++		return err
++	}
++	if existing.Exists {
++		if err := verifyRuntimeDataDigest(name, digest, existing.Data); err != nil {
++			return err
++		}
++		return handles.verify()
++	}
++	if err := atomicCreateAt(handles.distFD, name, data, 0o600); err != nil {
++		if errors.Is(err, unix.EEXIST) {
++			raced, readErr := readDistFile(handles.distFD, name, l.rootID)
++			if readErr != nil {
++				return errors.Join(fmt.Errorf("distribution blob appeared during write: %w", err), readErr)
++			}
++			if raced.Exists {
++				if digestErr := verifyRuntimeDataDigest(name, digest, raced.Data); digestErr != nil {
++					return digestErr
++				}
++				return handles.verify()
++			}
++		}
++		return err
++	}
++	written, err := readDistFile(handles.distFD, name, l.rootID)
++	if err != nil {
++		return err
++	}
++	if !written.Exists {
++		return fmt.Errorf("distribution blob %s was not written intact", digest)
++	}
++	if err := verifyRuntimeDataDigest(name, digest, written.Data); err != nil {
++		return err
++	}
++	return handles.verify()
++}
++
++// DeleteDistributionBlob removes one blob. Absent is success: the caller asked
++// for the blob to be gone, and it is.
++func (l *Lock) DeleteDistributionBlob(digest string) (err error) {
++	if err := validateRuntimeDigest(digest); err != nil {
++		return err
++	}
++	handles, err := l.openRuntimeDistDir(false)
++	if errors.Is(err, unix.ENOENT) {
++		return l.verifyLockPath()
++	}
++	if err != nil {
++		return err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return err
++	}
++	if err := unix.Unlinkat(handles.distFD, runtimeBlobFileName(digest), 0); err != nil && !errors.Is(err, unix.ENOENT) {
++		return err
++	}
++	if err := unix.Fsync(handles.distFD); err != nil {
++		return fmt.Errorf("fsync distribution blobs dir: %w", err)
++	}
++	return handles.verify()
++}
++
++// ListDistributionBlobs names the digests currently held, so a caller can drop
++// the ones nothing references any more.
++func (l *Lock) ListDistributionBlobs() (_ []string, err error) {
++	handles, err := l.openRuntimeDistDir(false)
++	if errors.Is(err, unix.ENOENT) {
++		if verifyErr := l.verifyLockPath(); verifyErr != nil {
++			return nil, verifyErr
++		}
++		return []string{}, nil
++	}
++	if err != nil {
++		return nil, err
++	}
++	defer func() {
++		err = errors.Join(err, handles.close())
++	}()
++	if err := handles.verify(); err != nil {
++		return nil, err
++	}
++	names, err := listDirNames(handles.distFD, distDirName, maxTaskEntries)
++	if err != nil {
++		return nil, err
++	}
++	digests := make([]string, 0, len(names))
++	for _, name := range names {
++		digest, ok := strings.CutSuffix(name, blobFileSuffix)
++		if !ok || validateRuntimeDigest(digest) != nil {
++			// A name this store never writes. Reporting it as a digest would put a
++			// caller's deletion loop in charge of a file nobody can account for.
++			continue
++		}
++		digests = append(digests, digest)
++	}
++	sort.Strings(digests)
++	if err := handles.verify(); err != nil {
++		return nil, err
++	}
++	return digests, nil
++}
++
++// listDirNames reads the entries of an already-open directory without taking
++// ownership of its descriptor: `os.File` closes what it wraps, and the caller's
++// handle has to outlive this call.
++func listDirNames(dirFD int, label string, max int) (_ []string, err error) {
++	dupFD, err := unix.Dup(dirFD)
++	if err != nil {
++		return nil, fmt.Errorf("dup %s fd: %w", label, err)
++	}
++	file := os.NewFile(uintptr(dupFD), label)
++	if file == nil {
++		return nil, errors.Join(errors.New("wrap "+label+" fd"), closeFD(dupFD))
++	}
++	defer func() {
++		err = errors.Join(err, file.Close())
++	}()
++	names := make([]string, 0)
++	for {
++		batch, readErr := file.Readdirnames(256)
++		for _, name := range batch {
++			if len(name) > 0 && name[0] == '.' {
++				continue
++			}
++			names = append(names, name)
++			if len(names) > max {
++				return nil, fmt.Errorf("%s exceeds %d entries", label, max)
++			}
++		}
++		if readErr == io.EOF {
++			break
++		}
++		if readErr != nil {
++			return nil, readErr
++		}
++	}
++	return names, nil
++}
++
++func readDistFile(parentFD int, name string, rootID fileIdentity) (ReadResult, error) {
++	// Deliberately not `readRuntimeFile`: a distribution's files are arbitrary
++	// bytes, and requiring text here would refuse to hold an ordinary package.
++	return readRegularFileLimit(parentFD, name, maxDistBlobBytes, rootID, true)
++}
++
+ func (l *Lock) ReadRuntimeIndex() (_ ReadResult, err error) {
+ 	handles, err := l.openRuntimeVersionDir(false)
+ 	if errors.Is(err, unix.ENOENT) {
+@@ -899,6 +1133,7 @@ func (l *Lock) openRuntimeVersionDir(create bool) (*runtimeHandles, error) {
+ 		runtimeFD: runtimeFD,
+ 		versionFD: versionFD,
+ 		blobsFD:   -1,
++		distFD:    -1,
+ 		runtimeID: runtimeID,
+ 		versionID: versionID,
+ 	}, nil
+@@ -919,6 +1154,21 @@ func (l *Lock) openRuntimeBlobsDir(create bool) (*runtimeHandles, error) {
+ 	return handles, nil
+ }
+ 
++func (l *Lock) openRuntimeDistDir(create bool) (*runtimeHandles, error) {
++	handles, err := l.openRuntimeVersionDir(create)
++	if err != nil {
++		return nil, err
++	}
++	distFD, distID, err := l.openRuntimeDirAt(handles.versionFD, distDirName, "distribution blobs dir", create)
++	if err != nil {
++		closeErr := handles.close()
++		return nil, errors.Join(err, closeErr)
++	}
++	handles.distFD = distFD
++	handles.distID = distID
++	return handles, nil
++}
++
+ func (l *Lock) openRuntimeDirAt(parentFD int, name string, label string, create bool) (int, fileIdentity, error) {
+ 	if create {
+ 		if err := unix.Mkdirat(parentFD, name, 0o700); err == nil {
+@@ -946,12 +1196,14 @@ func (h *runtimeHandles) close() error {
+ 		return nil
+ 	}
+ 	blobsFD := h.blobsFD
++	distFD := h.distFD
+ 	versionFD := h.versionFD
+ 	runtimeFD := h.runtimeFD
+ 	h.blobsFD = -1
++	h.distFD = -1
+ 	h.versionFD = -1
+ 	h.runtimeFD = -1
+-	return errors.Join(closeFD(blobsFD), closeFD(versionFD), closeFD(runtimeFD))
++	return errors.Join(closeFD(blobsFD), closeFD(distFD), closeFD(versionFD), closeFD(runtimeFD))
+ }
+ 
+ func (h *runtimeHandles) verify() error {
+@@ -981,6 +1233,14 @@ func (h *runtimeHandles) verify() error {
+ 			return err
+ 		}
+ 	}
++	if h.distFD >= 0 {
++		if err := verifyChildPath(h.versionFD, distDirName, h.distFD, h.distID, "distribution blobs dir"); err != nil {
++			return err
++		}
++		if _, err := requireRuntimeDir(h.distFD, "distribution blobs dir", h.lock.rootID); err != nil {
++			return err
++		}
++	}
+ 	return nil
+ }
+ 
