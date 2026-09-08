@@ -113,7 +113,45 @@ they are not evidence of daemon durability, process isolation, or full fan-out.
 | Atomic concurrent task creation and recovery | Not provided by this compiler | Publish and qualify existing Store/native patches |
 | Write-once daemon markers and legacy compatibility | Not provided by this compiler | Real Store tests and supported upstream pin |
 | TaskView, SDK, CLI typed outcomes | Grant consumer validates SDK outcomes | Supervisor wiring and operator RPC/CLI |
-| Preflight refuses absent capability | Consumer fails when capability is missing | Production admission/doctor integration |
+| Preflight refuses absent capability | `requireDaemonCapabilities` decides admission from `meta.capabilities`, which the daemon derives from its live handler table | Wiring it into the extension entry point, which does not exist yet |
 | Upstream distribution and platform qualification | Not included in this PR | CI on the fully wired source |
+
+## Daemon capability preflight
+
+`autosk-flow` cannot run its child fan-out on a daemon without write-once creation
+identity: it would have to find a partially-created child by its editable title,
+which is the duplicate/orphan hazard #11 exists to remove. So it asks first.
+
+The daemon answers over `meta.capabilities`, and the answer is **derived from its
+live handler table**: a capability is declared beside the exact methods that
+implement it, and only those whose methods are all registered are reported. A
+build that lost the implementation cannot keep claiming the guarantee — which is
+the only reason asking is worth anything. A hand-written "yes" would pass on the
+very daemon the preflight exists to reject.
+
+`requireDaemonCapabilities` decides admission from that report. Every rejection
+stops the flow rather than downgrading it, because an unreadable report says
+nothing about the daemon and nothing is not evidence:
+
+| Observation | Outcome |
+| --- | --- |
+| required capability absent | `daemon_capability_missing` |
+| present at another revision | `daemon_capability_version_mismatch` |
+| report malformed, duplicated, oversized, proxied, or a capability naming no method | `daemon_capability_invalid` |
+
+The revision is compared **exactly**, not as a minimum. It is incremented when the
+guarantee changes in a way a client must notice, so accepting a later one would
+accept the change the increment exists to warn about.
+
+Only guarantees a method carries are declared. Runtime identity admission (#10) is
+enforced inside `enroll`/`resume`/`dispatch`, whose methods exist in an unpatched
+daemon too, so declaring it through this mechanism would be a claim the mechanism
+cannot check. It is deliberately absent rather than reported optimistically.
+
+What remains: the required set and the daemon's declaration live in two
+repositories. A test compares this flow's required set against the shipped patch
+bytes, which the manifest pins by SHA-256, so a revision bump on the daemon side
+fails there instead of on a user's machine. Calling the preflight at extension
+startup is still pending — the extension entry point does not exist yet.
 
 Do not close #11, #38, #36 or any other roadmap issue from this prerequisite alone.
