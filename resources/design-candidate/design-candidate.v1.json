@@ -72,7 +72,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "135713a52104250e3d922475cc3718886c37fdef1ecd197de3d66a7f38ae855b"
+      "sha256": "82c34b6b38e95783486b8ad531fec977b9e1a0273438738034caf3d9f5c221e1"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "ca3c9b76dc3134db9aafdf8367edc02d86282c244c3296fb405b960a8e008a1c",
+  "candidate_digest": "1de8a1a988348c018fbb3edcf17711441cf1c3dbbb311c7c1ab123c06550c42b",
   "dispositions": [
     {
       "issue": 3,
