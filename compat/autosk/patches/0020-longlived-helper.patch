@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
-index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd257bd3e90 100644
+index 05691184e7ba7db278d247a25ca01000058745de..f874ada72edd6281ad25083a2844c0c5a99f038a 100644
 --- a/daemon/core/src/store/creation.ts
 +++ b/daemon/core/src/store/creation.ts
 @@ -209,10 +209,16 @@ export function serializeCreationIndex(index: CreationIndexRecord): string {
@@ -23,7 +23,7 @@ index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd2
    const child = spawn(
      resolveStoreLockBinary(),
      ["--root", paths.root, "--timeout-ms", String(LOCK_TIMEOUT_MS)],
-@@ -251,19 +257,135 @@ export async function withCreationLock<T>(
+@@ -251,19 +257,145 @@ export async function withCreationLock<T>(
    });
  
    const client = new HelperClient(child, reader);
@@ -36,10 +36,14 @@ index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd2
 -    primaryError = e;
 +    await shutdownHelper(child, exitPromise, stderrChunks);
 +    throw e;
-+  }
+   }
 +  return { child, client, exitPromise, stderrChunks };
 +}
-+
+ 
+-  const shutdownError = await shutdownHelper(child, exitPromise, stderrChunks);
+-  if (primaryError !== undefined) throw primaryError;
+-  if (shutdownError) throw shutdownError;
+-  return result as T;
 +/**
 + * The long-lived helper for one project (ADR-028).
 + *
@@ -96,8 +100,18 @@ index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd2
 +    await shutdownHelper(session.child, session.exitPromise, session.stderrChunks);
 +  }
 +
-+  /** Closes the connection, releasing the project lock. Never throws. */
++  /**
++   * Closes the connection, releasing the project lock. Never throws.
++   *
++   * Waits for work already queued first. A call that is running must not have
++   * its helper taken away mid-operation, and a call still waiting its turn has
++   * not opened a connection yet — closing before it does would leave the helper
++   * it goes on to open holding the project lock with nothing pointing at it.
++   * `releaseCreationLock` has already removed this helper from the map, so no
++   * new work can join the queue behind them.
++   */
 +  async close(): Promise<Error | null> {
++    await this.tail.catch(() => {});
 +    const session = this.session;
 +    this.session = null;
 +    if (session === null) return null;
@@ -106,13 +120,9 @@ index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd2
 +    } catch (e) {
 +      return e instanceof Error ? e : new Error(String(e));
 +    }
-   }
++  }
 +}
- 
--  const shutdownError = await shutdownHelper(child, exitPromise, stderrChunks);
--  if (primaryError !== undefined) throw primaryError;
--  if (shutdownError) throw shutdownError;
--  return result as T;
++
 +/** True while this connection can still be trusted to carry the next request. */
 +function usable(session: HelperSession): boolean {
 +  return (
@@ -167,7 +177,7 @@ index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd2
  }
  
  export function conflictError(
-@@ -417,6 +539,17 @@ function isTaskId(value: unknown): value is string {
+@@ -417,6 +549,17 @@ function isTaskId(value: unknown): value is string {
  class HelperClient implements CreationLockIO {
    private nextId = 1;
    private readonly queue: { tail: Promise<unknown> } = { tail: Promise.resolve() };
@@ -185,7 +195,7 @@ index 05691184e7ba7db278d247a25ca01000058745de..2b63f419ad4c6c5177cc54fcf1581fd2
  
    constructor(
      private readonly child: ChildProcessWithoutNullStreams,
-@@ -502,6 +635,18 @@ class HelperClient implements CreationLockIO {
+@@ -502,6 +645,18 @@ class HelperClient implements CreationLockIO {
    }
  
    private async requestNow(command: Omit<HelperRequest, "id">): Promise<HelperResponse> {
@@ -242,7 +252,7 @@ index 59664cab4ff5e0a30356c0fa17b46e7aaacddc94..e8c355214583852d73094d036f779a62
  
    // -- reconciliation ------------------------------------------------------
 diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
-index 16eddb31f17f0bb8f138d3eb18974d60c279fab4..7fe52896e3d8db53c10c3c3925bb81fbde5b9a40 100644
+index 16eddb31f17f0bb8f138d3eb18974d60c279fab4..aeb99b211dc93c7934968a6b247fc79b40211abf 100644
 --- a/daemon/core/test/store.creation.test.ts
 +++ b/daemon/core/test/store.creation.test.ts
 @@ -26,7 +26,7 @@ import {
@@ -346,7 +356,7 @@ index 16eddb31f17f0bb8f138d3eb18974d60c279fab4..7fe52896e3d8db53c10c3c3925bb81fb
        expect(error).toBeInstanceOf(Error);
        expect((error as Error).message).toContain("did not exit after stdin close");
        expect(isAlive()).toBe(false);
-@@ -934,6 +970,185 @@ describe("Store.createTaskWithCreationBinding", () => {
+@@ -934,6 +970,256 @@ describe("Store.createTaskWithCreationBinding", () => {
      }
    }, 15000);
  
@@ -489,6 +499,77 @@ index 16eddb31f17f0bb8f138d3eb18974d60c279fab4..7fe52896e3d8db53c10c3c3925bb81fb
 +      const spawned = readFileSync(log, "utf8").trim().split("\n");
 +      expect(spawned, `spawned pids: ${spawned.join(", ")}`).toHaveLength(2);
 +      expect(spawned[1]).not.toBe(spawned[0]);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
++  test("releasing the lock waits for an operation already in flight", async () => {
++    // Shutdown must not sever a trusted write that is already running. With a
++    // process per call this could not happen — the call owned its helper — so
++    // the long-lived connection is what puts an in-flight operation and a close
++    // on the same object.
++    const log = join(dir.path, "spawn.log");
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-inflight-store-lock"), [
++      `appendFileSync(${JSON.stringify(log)}, process.pid + "\\n");`,
++      "const answer = (req) => ({ id: req.id, ok: true, ids: [] });",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      let started = false;
++      let unblock: (() => void) | undefined;
++      const gate = new Promise<void>((resolve) => {
++        unblock = resolve;
++      });
++
++      let seen: string[] | undefined;
++      const inFlight = withCreationLock(store.paths, async (io) => {
++        started = true;
++        await gate;
++        seen = await io.listTaskIds();
++      });
++      await waitFor(() => started); // the session is open and fn is running
++
++      const released = releaseCreationLock(store.paths.root);
++      unblock!();
++
++      await inFlight; // must not reject: the helper was still ours when we asked
++      expect(seen).toEqual([]);
++      expect(await released).toBeNull();
++
++      const pid = Number(readFileSync(log, "utf8").trim());
++      await waitFor(() => !alive(pid));
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
++  test("a call queued when the lock is released does not orphan a helper", async () => {
++    // The queue runs on a microtask, so a close can land after `withCreationLock`
++    // returned its promise and before the connection is even opened. The helper
++    // that call goes on to open must still be reachable by a later release, or it
++    // holds the project lock with nothing left pointing at it.
++    const log = join(dir.path, "spawn.log");
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-queued-store-lock"), [
++      `appendFileSync(${JSON.stringify(log)}, process.pid + "\\n");`,
++      "const answer = (req) => ({ id: req.id, ok: true, ids: [] });",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      const queued = withCreationLock(store.paths, (io) => io.listTaskIds());
++      const released = releaseCreationLock(store.paths.root); // before it ever opened
++      expect(await queued).toEqual([]);
++      expect(await released).toBeNull();
++
++      expect(await releaseCreationLock(store.paths.root)).toBeNull();
++      const pids = readFileSync(log, "utf8").trim().split("\n").map(Number);
++      for (const pid of pids) await waitFor(() => !alive(pid));
 +    } finally {
 +      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
 +      else process.env.AUTOSK_STORE_LOCK_BIN = previous;

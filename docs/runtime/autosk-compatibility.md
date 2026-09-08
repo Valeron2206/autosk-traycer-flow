@@ -41,7 +41,7 @@ apply in the listed order, each producing the tree beside it:
 | `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
-| `0020-longlived-helper.patch` | `c4fe0ebd02bedc5fa6432a3be6ae755d1cd38295` — the current `result_tree` |
+| `0020-longlived-helper.patch` | `a5d61e280a66a38042d600a692e23a5518e05faa` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -222,6 +222,12 @@ The daemon releases the connection when the store closes (`Store.close` →
 `releaseCreationLock`), which is what returns the project lock. A helper that
 ignores stdin close is killed and reaped there, and the failure is reported
 rather than swallowed.
+
+Release waits for work already queued. An operation that is running must not
+have its helper taken away mid-write, and one still waiting its turn has not
+opened a connection yet — closing before it does would leave the helper it goes
+on to open holding the project lock with nothing pointing at it. Neither hazard
+existed while a call owned its own process; both are created by sharing one.
 
 ### Refusal classes
 
