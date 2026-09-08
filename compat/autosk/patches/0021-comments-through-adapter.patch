@@ -1,0 +1,743 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index dd243e77c28e0b4127ab6dd13d3416c087d1d819..690b014491ab1d34edb37e858c9896850b08edeb 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -47,7 +47,10 @@ type responseMessage struct {
+ 	Exists bool     `json:"exists"`
+ 	Data   string   `json:"data"`
+ 	IDs    []string `json:"ids"`
+-	Error  string   `json:"error,omitempty"`
++	// Sig identifies the file a read or write just touched, so the daemon can
++	// recognise the echo of its own write without re-statting by name.
++	Sig   *storelock.StatInfo `json:"sig,omitempty"`
++	Error string              `json:"error,omitempty"`
+ 	// Code names the refusal class when the helper could classify it. Absent means
+ 	// unclassified — never "fine" and never "some other class"; see storelock.Code.
+ 	Code string `json:"code,omitempty"`
+@@ -157,6 +160,23 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ 			return responseError(req.ID, err)
+ 		}
+ 		return responseMessage{ID: req.ID, OK: true}
++	case "read_comments":
++		result, err := lock.ReadComments(req.TaskID)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		resp := responseMessage{ID: req.ID, OK: true, Exists: result.Exists, Data: string(result.Data)}
++		if result.Exists {
++			sig := result.Stat
++			resp.Sig = &sig
++		}
++		return resp
++	case "write_comments":
++		sig, err := lock.WriteComments(req.TaskID, []byte(req.Data))
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
+ 	case "read_runtime_blob":
+ 		result, err := lock.ReadRuntimeBlob(req.Digest)
+ 		if err != nil {
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 977bc2359dc70b9d6e905ff3ac79af58582d5b59..134a937f7df991db4468dfd9a472f3c9a75f42a9 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -80,7 +80,8 @@ export interface CreationIndexRecord {
+ interface HelperRequest {
+   id: number;
+   op: "read_creation_index" | "write_creation_index" | "list_task_ids" | "read_task" | "write_task"
+-    | "read_runtime_blob" | "write_runtime_blob" | "read_runtime_index" | "write_runtime_index";
++    | "read_runtime_blob" | "write_runtime_blob" | "read_runtime_index" | "write_runtime_index"
++    | "read_comments" | "write_comments";
+   task_id?: string;
+   digest?: string;
+   expected_digest?: string | null;
+@@ -93,6 +94,7 @@ interface HelperResponse {
+   exists?: unknown;
+   data?: unknown;
+   ids?: unknown;
++  sig?: unknown;
+   error?: unknown;
+   code?: unknown;
+ }
+@@ -113,6 +115,8 @@ export interface CreationLockIO {
+   writeRuntimeBlob(digest: string, data: string): Promise<void>;
+   readRuntimeIndex(): Promise<string | null>;
+   writeRuntimeIndex(expectedDigest: string | null, data: string): Promise<void>;
++  readComments(taskId: string): Promise<{ data: string; sig: string } | null>;
++  writeComments(taskId: string, data: string): Promise<string>;
+ }
+ 
+ export function creationKeyHash(key: string): string {
+@@ -625,6 +629,23 @@ class HelperClient implements CreationLockIO {
+     await this.request({ op: "write_runtime_index", expected_digest: expectedDigest, data });
+   }
+ 
++  async readComments(taskId: string): Promise<{ data: string; sig: string } | null> {
++    const response = await this.request({ op: "read_comments", task_id: taskId });
++    if (typeof response.exists !== "boolean") {
++      throw new Error("autosk-store-lock returned invalid comment existence flag");
++    }
++    if (!response.exists) return null;
++    if (typeof response.data !== "string") {
++      throw new Error("autosk-store-lock returned invalid comment data");
++    }
++    return { data: response.data, sig: helperFileSig(response.sig, "read_comments") };
++  }
++
++  async writeComments(taskId: string, data: string): Promise<string> {
++    const response = await this.request({ op: "write_comments", task_id: taskId, data });
++    return helperFileSig(response.sig, "write_comments");
++  }
++
+   private async readRuntime(command: Omit<HelperRequest, "id">): Promise<string | null> {
+     const response = await this.request(command);
+     if (typeof response.exists !== "boolean") {
+@@ -686,6 +707,29 @@ class HelperClient implements CreationLockIO {
+   }
+ }
+ 
++/**
++ * Composes the helper's raw stat into the daemon's file signature.
++ *
++ * The format lives in `atomic.ts` and this must produce the same string for the
++ * same file, or every cache keyed by it misses forever — so the helper sends the
++ * raw fields and the arithmetic happens here, once. `mtimeMs` is derived exactly
++ * as `fs.stat` derives it (seconds scaled, nanoseconds divided, in that order),
++ * because a different rounding is a different string.
++ */
++function helperFileSig(raw: unknown, op: string): string {
++  if (!isPlainRecord(raw)) throw new Error(`autosk-store-lock ${op} returned no file signature`);
++  const num = (field: string): number => {
++    const value = raw[field];
++    if (typeof value !== "number" || !Number.isFinite(value)) {
++      throw new Error(`autosk-store-lock ${op} returned invalid ${field}`);
++    }
++    return value;
++  };
++  const mtimeMs = num("mtime_sec") * 1000 + num("mtime_nsec") / 1e6;
++  const ctimeMs = num("ctime_sec") * 1000 + num("ctime_nsec") / 1e6;
++  return `${mtimeMs}:${ctimeMs}:${num("size")}:${num("ino")}`;
++}
++
+ /**
+  * A refusal the helper reported, carrying its class when it had one (issue #13).
+  *
+diff --git a/daemon/core/src/store/taskStore.ts b/daemon/core/src/store/taskStore.ts
+index 122f48e53c76a56e9700bb98ac83c853bea57a2d..4f650d84ce96c952cb9a7a591d68d81127463f6a 100644
+--- a/daemon/core/src/store/taskStore.ts
++++ b/daemon/core/src/store/taskStore.ts
+@@ -14,6 +14,7 @@ import { readFile, readdir } from "node:fs/promises";
+ 
+ import type { Comment } from "@autosk/sdk";
+ import { atomicWrite, statSig } from "./atomic.ts";
++import { withCreationLock } from "./creation.ts";
+ import { ProjectPaths } from "./paths.ts";
+ import {
+   parseCommentsLenient,
+@@ -160,6 +161,11 @@ export class TaskStore {
+   private async refreshComments(
+     id: string,
+   ): Promise<{ sig: string; comments: Comment[]; skipped: number } | null> {
++    // The cheap stat stays the change DETECTOR: `listTaskViews` is O(N) of these
++    // and must remain so. It is not what the bytes are trusted on — a stat
++    // follows links and can be answered about a file outside the project, which
++    // is why an unchanged signature only ever short-circuits to bytes already
++    // read through the adapter, never to bytes read around it.
+     const probe = await statSig(this.paths.commentsJsonl(id));
+     if (!probe) {
+       this.commentCache.delete(id);
+@@ -167,9 +173,17 @@ export class TaskStore {
+     }
+     const cached = this.commentCache.get(id);
+     if (cached && cached.sig === probe.sig) return cached;
+-    const text = await readFile(this.paths.commentsJsonl(id), "utf8");
+-    const { comments, skipped } = parseCommentsLenient(text);
+-    const entry = { sig: probe.sig, comments, skipped };
++    const read = await withCreationLock(this.paths, (io) => io.readComments(id));
++    if (!read) {
++      // The adapter says there is no such file. The probe above disagreed, so it
++      // was removed in between; treat it as gone rather than trusting the stat.
++      this.commentCache.delete(id);
++      return null;
++    }
++    const { comments, skipped } = parseCommentsLenient(read.data);
++    // Cache under the signature the ADAPTER reported, taken from the descriptor
++    // it actually read. The probe's is about whatever the name resolved to.
++    const entry = { sig: read.sig, comments, skipped };
+     this.commentCache.set(id, entry);
+     return entry;
+   }
+@@ -197,9 +211,14 @@ export class TaskStore {
+     return { count: r.comments.length, skipped: r.skipped, sig: r.sig };
+   }
+ 
+-  /** Writes the whole comment list atomically and updates the cache. */
++  /**
++   * Writes the whole comment list through the boundary adapter and updates the
++   * cache with the signature the adapter reports for what it published.
++   */
+   async writeComments(id: string, comments: Comment[]): Promise<void> {
+-    const sig = await atomicWrite(this.paths.commentsJsonl(id), serializeComments(comments));
++    const sig = await withCreationLock(this.paths, (io) =>
++      io.writeComments(id, serializeComments(comments)),
++    );
+     this.commentCache.set(id, { sig, comments: comments.map((c) => ({ ...c })), skipped: 0 });
+   }
+ }
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+index 1c30bd02a44b733e5887d95b7e3ca1430600a531..d68613bc01f73174cd7dccc864dc88085ae9477f 100644
+--- a/daemon/core/test/store.singlewriter.test.ts
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -10,10 +10,10 @@
+ 
+ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+ import { readFileSync } from "node:fs";
+-import { mkdir, writeFile } from "node:fs/promises";
+-import { dirname } from "node:path";
++import { mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
++import { dirname, join } from "node:path";
+ 
+-import { Store, creationKeyHash } from "../src/index.ts";
++import { HelperRefusal, Store, creationKeyHash, fileSig } from "../src/index.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+ const KEY = "flow:coverage";
+@@ -86,10 +86,12 @@ describe("what the boundary adapter covers", () => {
+     expect((await store.listTaskViews()).map((t) => t.id)).not.toContain(created.task.id);
+   });
+ 
+-  test("the helper can only write three kinds of file, and comments and sessions are not among them", () => {
++  test("the adapter now covers comments; the session meta and transcript it still does not", () => {
+     // The gap #13 names is not a race for these: they have ONE writer. It is that
+     // the one writer is plain `node:fs`, so they get none of the adapter's
+     // guarantees — no no-follow, no owner or mode check, no device check.
++    // `comments.jsonl` is through; the session files are the remainder, and this
++    // says so in a form that fails when either half changes.
+     const helper = readFileSync(new URL("../../../cmd/autosk-store-lock/main.go", import.meta.url), "utf8");
+     // Scoped to the request switch: a lowercase string case elsewhere in the file
+     // is not an operation, and counting one would make this assertion drift.
+@@ -97,25 +99,115 @@ describe("what the boundary adapter covers", () => {
+     const ops = [...dispatch.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
+     expect(ops.sort()).toEqual([
+       "list_task_ids",
++      "read_comments",
+       "read_creation_index",
+       "read_runtime_blob",
+       "read_runtime_index",
+       "read_task",
++      "write_comments",
+       "write_creation_index",
+       "write_runtime_blob",
+       "write_runtime_index",
+       "write_task",
+     ]);
+ 
++    // Covered: every comment byte the daemon reads or writes goes through the
++    // adapter. The cheap stat that survives in `taskStore` is the change
++    // DETECTOR for the O(N) listing path, and it is never what bytes are trusted
++    // on — so this pins that no comment read or write is a plain-fs one.
+     const taskStore = readFileSync(new URL("../src/store/taskStore.ts", import.meta.url), "utf8");
++    expect(taskStore).toContain("io.readComments(id)");
++    expect(taskStore).toContain("io.writeComments(id");
++    expect(taskStore).not.toContain("commentsJsonl(id), serializeComments");
++    expect(taskStore).not.toMatch(/readFile\(this\.paths\.commentsJsonl/u);
++
++    // Not covered: `task.json` still has a second, plain-fs writer, and the
++    // session meta and transcript have no helper op at all — so routing them
++    // needs new ops, not a change of call site.
++    expect(taskStore).toContain("atomicWrite(this.paths.taskJson");
+     const sessionStore = readFileSync(new URL("../src/store/sessionStore.ts", import.meta.url), "utf8");
+-    for (const [name, source] of [["taskStore", taskStore], ["sessionStore", sessionStore]] as const) {
+-      expect(source, name).toContain("atomicWrite");
+-      expect(source, name).not.toContain("withCreationLock");
+-    }
+-    // comments.jsonl and the session meta/transcript have no helper op at all, so
+-    // routing them through the adapter needs new ops, not a call-site change.
+-    expect(ops).not.toContain("write_comments");
++    expect(sessionStore).toContain("atomicWrite");
++    expect(sessionStore).not.toContain("withCreationLock");
+     expect(ops).not.toContain("write_session_meta");
++    expect(ops).not.toContain("append_session_transcript");
++  });
++});
++
++describe("comments through the boundary adapter", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let store: Store;
++
++  beforeEach(async () => {
++    dir = tempDir();
++    store = new Store(dir.path, { watch: false });
++    await store.open();
++  });
++  afterEach(async () => {
++    await store.close();
++    dir.cleanup();
++  });
++
++  test("the signature the adapter reports is the one a stat would produce", async () => {
++    // The load-bearing compatibility claim of this slice. The helper sends raw
++    // stat fields and the daemon composes the signature; if that arithmetic
++    // differs from `fs.stat`'s by even a rounding step, every cache keyed by it
++    // misses forever and the comment file is re-read on every single view.
++    const task = await store.createTask({ title: "t" });
++    await store.addComment(task.id, { author: "a", text: "one" });
++
++    const path = store.paths.commentsJsonl(task.id);
++    const fromStat = fileSig(await stat(path));
++    // The cache was seeded by the write with the adapter's signature. A second
++    // read that finds them equal short-circuits; an unequal pair would re-read.
++    const before = await store.listComments(task.id);
++    expect(before).toHaveLength(1);
++
++    // Prove the equality directly rather than inferring it from a cache hit.
++    const cached = (store as unknown as {
++      tasks: { commentStats(id: string): Promise<{ sig: string | null }> };
++    }).tasks;
++    expect((await cached.commentStats(task.id)).sig).toBe(fromStat);
++  });
++
++  test("a symlinked comments.jsonl is refused, not followed", async () => {
++    const task = await store.createTask({ title: "t" });
++    await store.addComment(task.id, { author: "a", text: "one" });
++
++    const path = store.paths.commentsJsonl(task.id);
++    const outside = join(dir.path, "outside.jsonl");
++    await writeFile(outside, '{"id":"x","author":"a","text":"planted","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}\n');
++    await rm(path);
++    await symlink(outside, path);
++
++    // The stat follows the link and sees a different signature, so the cache
++    // cannot answer and the bytes are asked for — through the adapter, which
++    // refuses. The daemon must never serve comments read from outside the project.
++    const refusal = await store.listComments(task.id).then(
++      () => null,
++      (e: unknown) => e as Error,
++    );
++    expect(refusal).toBeInstanceOf(HelperRefusal);
++    expect((refusal as HelperRefusal).code).toBe("not_regular");
++  });
++
++  test("adding a comment to a symlinked file refuses rather than appending through it", async () => {
++    // The write cannot be reached with a link in place, and that is the safer
++    // order: `addComment` reads the existing list first, so the read guard fires
++    // before anything is published and no comment is appended to a file the
++    // daemon could not read. That the write itself replaces a link rather than
++    // following it is the adapter's own property, pinned in the Go tests.
++    const task = await store.createTask({ title: "t" });
++    const path = store.paths.commentsJsonl(task.id);
++    const outside = join(dir.path, "outside.jsonl");
++    await writeFile(outside, "untouched\n");
++    await symlink(outside, path);
++
++    const refusal = await store.addComment(task.id, { author: "a", text: "one" }).then(
++      () => null,
++      (e: unknown) => e as Error,
++    );
++    expect(refusal).toBeInstanceOf(HelperRefusal);
++    expect((refusal as HelperRefusal).op).toBe("read_comments");
++    expect(readFileSync(outside, "utf8")).toBe("untouched\n");
+   });
+ });
+diff --git a/internal/storelock/comments_test.go b/internal/storelock/comments_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..7c7406764a5624023c5738a4cf173e4785455cf9
+--- /dev/null
++++ b/internal/storelock/comments_test.go
+@@ -0,0 +1,246 @@
++package storelock
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"syscall"
++	"testing"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++func withCommentsLock(t *testing.T, root string) *Lock {
++	t.Helper()
++	lock, err := Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if closeErr := lock.Close(); closeErr != nil {
++			t.Fatal(closeErr)
++		}
++	})
++	return lock
++}
++
++func TestCommentsRoundTripAndReportedIdentity(t *testing.T) {
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	missing, err := lock.ReadComments("ask-111111")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if missing.Exists {
++		t.Fatal("a task with no comment file must read as absent, not as an error")
++	}
++
++	data := []byte("{\"id\":\"c1\"}\n")
++	sig, err := lock.WriteComments("ask-111111", data)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	// The identity the write reports must describe the file that is now on disk,
++	// not the temp file it was published from.
++	var st unix.Stat_t
++	if err := unix.Lstat(filepath.Join(root, ".autosk", "tasks", "ask-111111", "comments.jsonl"), &st); err != nil {
++		t.Fatal(err)
++	}
++	if want := statInfoFrom(st); sig != want {
++		t.Fatalf("write reported %+v, an independent lstat says %+v", sig, want)
++	}
++
++	read, err := lock.ReadComments("ask-111111")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !read.Exists || string(read.Data) != string(data) {
++		t.Fatalf("round trip returned exists=%v data=%q", read.Exists, read.Data)
++	}
++	// The read reports the identity of the descriptor it read, so a caller can
++	// cache by it without a second, separately answerable stat.
++	if read.Stat.Ino != sig.Ino || read.Stat.Size != sig.Size {
++		t.Fatalf("read reported ino %d size %d, write reported ino %d size %d",
++			read.Stat.Ino, read.Stat.Size, sig.Ino, sig.Size)
++	}
++}
++
++func TestCommentsReplaceKeepsNoTemporaryBehind(t *testing.T) {
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	if _, err := lock.WriteComments("ask-111111", []byte("first\n")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.WriteComments("ask-111111", []byte("second\n")); err != nil {
++		t.Fatal(err)
++	}
++
++	taskDir := filepath.Join(root, ".autosk", "tasks", "ask-111111")
++	entries, err := os.ReadDir(taskDir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, e := range entries {
++		if e.Name() != "comments.jsonl" {
++			t.Fatalf("replace left %q behind", e.Name())
++		}
++	}
++	data, err := os.ReadFile(filepath.Join(taskDir, "comments.jsonl"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(data) != "second\n" {
++		t.Fatalf("expected the second write to win, got %q", data)
++	}
++}
++
++func TestCommentsRejectSymlinkLeaf(t *testing.T) {
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	taskDir := filepath.Join(root, ".autosk", "tasks", "ask-111111")
++	if err := os.MkdirAll(taskDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	outside := filepath.Join(t.TempDir(), "elsewhere.jsonl")
++	if err := os.WriteFile(outside, []byte("stolen\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(taskDir, "comments.jsonl")); err != nil {
++		t.Fatal(err)
++	}
++
++	// A symlink at the leaf must reach the caller as a CLASS, not as prose: the
++	// daemon branches on the class, and `ELOOP` from O_NOFOLLOW carries none.
++	if _, err := lock.ReadComments("ask-111111"); err == nil {
++		t.Fatal("expected a symlinked comment file to be refused on read")
++	} else if !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("expected ErrNotRegular, got %v", err)
++	} else if Code(err) != "not_regular" {
++		t.Fatalf("expected refusal class not_regular, got %q", Code(err))
++	}
++
++	// The write must not follow it either: publishing through a link would write
++	// outside the project while reporting success. `renameat` replaces the link.
++	sig, err := lock.WriteComments("ask-111111", []byte("mine\n"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	stolen, err := os.ReadFile(outside)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(stolen) != "stolen\n" {
++		t.Fatalf("the write followed the symlink and clobbered %q", outside)
++	}
++	var st unix.Stat_t
++	if err := unix.Lstat(filepath.Join(taskDir, "comments.jsonl"), &st); err != nil {
++		t.Fatal(err)
++	}
++	if st.Mode&unix.S_IFMT != unix.S_IFREG {
++		t.Fatalf("after the write the name is still not a regular file (mode %o)", st.Mode)
++	}
++	if want := statInfoFrom(st); sig != want {
++		t.Fatalf("write reported %+v for the replacement, lstat says %+v", sig, want)
++	}
++	if again, err := lock.ReadComments("ask-111111"); err != nil {
++		t.Fatal(err)
++	} else if string(again.Data) != "mine\n" {
++		t.Fatalf("expected the replacement to be readable, got %q", again.Data)
++	}
++}
++
++func TestCommentsRejectFIFOWithoutBlocking(t *testing.T) {
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	taskDir := filepath.Join(root, ".autosk", "tasks", "ask-111111")
++	if err := os.MkdirAll(taskDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := syscall.Mkfifo(filepath.Join(taskDir, "comments.jsonl"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++
++	done := make(chan error, 1)
++	go func() {
++		_, readErr := lock.ReadComments("ask-111111")
++		done <- readErr
++	}()
++	select {
++	case readErr := <-done:
++		if readErr == nil || !errors.Is(readErr, ErrNotRegular) {
++			t.Fatalf("expected ErrNotRegular for a FIFO comment file, got %v", readErr)
++		}
++	case <-time.After(500 * time.Millisecond):
++		t.Fatal("ReadComments blocked on a FIFO comment file")
++	}
++}
++
++func TestCommentsRefuseWhenTheLockPathChanged(t *testing.T) {
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	autosk := filepath.Join(root, ".autosk")
++	moved := filepath.Join(root, ".autosk-moved")
++	if err := os.Rename(autosk, moved); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Mkdir(autosk, 0o755); err != nil {
++		t.Fatal(err)
++	}
++
++	if _, err := lock.ReadComments("ask-111111"); err == nil {
++		t.Fatal("expected a swapped .autosk to be refused on read")
++	} else if !errors.Is(err, ErrPathChanged) {
++		t.Fatalf("expected ErrPathChanged, got %v", err)
++	}
++	if _, err := lock.WriteComments("ask-111111", []byte("x\n")); err == nil {
++		t.Fatal("expected a swapped .autosk to be refused on write")
++	} else if !errors.Is(err, ErrPathChanged) {
++		t.Fatalf("expected ErrPathChanged, got %v", err)
++	}
++}
++
++func TestCommentsRejectInvalidTaskID(t *testing.T) {
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	for _, id := range []string{"..", "a/b", "", "ask-111111/../../etc"} {
++		if _, err := lock.ReadComments(id); err == nil {
++			t.Fatalf("ReadComments accepted task id %q", id)
++		}
++		if _, err := lock.WriteComments(id, []byte("x\n")); err == nil {
++			t.Fatalf("WriteComments accepted task id %q", id)
++		}
++	}
++}
++
++func TestWriteAndStatAtRefusesALinkStandingAtTheName(t *testing.T) {
++	// The stat after the rename re-opens by name. A concurrent replacement in
++	// that window cannot be staged deterministically, so this stages the state it
++	// would produce: a link already at the name when the stat runs.
++	dir := t.TempDir()
++	fd, err := openDirNoFollow(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() {
++		if closeErr := closeFD(fd); closeErr != nil {
++			t.Fatal(closeErr)
++		}
++	}()
++
++	if err := os.Symlink(filepath.Join(dir, "target"), filepath.Join(dir, "link.txt")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := statRegularAt(fd, "link.txt"); err == nil {
++		t.Fatal("expected the stat to refuse a symlink at the name")
++	} else if !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("expected ErrNotRegular, got %v", err)
++	}
++}
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index 666fb791a37aa3e0088dddffc275c014b1bc2808..5ba78891f82930a0193d53c424f1c5aec9934979 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -28,6 +28,7 @@ const (
+ 	blobFileSuffix      = ".blob"
+ 	tasksDirName        = "tasks"
+ 	taskFileName        = "task.json"
++	commentsFileName    = "comments.jsonl"
+ 	indexFileName       = "index.json"
+ 	lockFileName        = "store.lock"
+ 	maxFileBytes        = 16 * 1024 * 1024
+@@ -128,6 +129,38 @@ type fileIdentity struct {
+ type ReadResult struct {
+ 	Exists bool
+ 	Data   []byte
++	// Stat describes the file the bytes came from, taken from the SAME descriptor
++	// that was read. A caller that stats separately re-opens by name and can be
++	// answered about a different file; this cannot. Zero when Exists is false.
++	Stat StatInfo
++}
++
++// StatInfo is what a caller needs to tell "changed" from "unchanged" without
++// re-reading the bytes.
++//
++// The fields are raw on purpose. The daemon's signature format is defined in
++// `store/atomic.ts` and must match byte for byte, or its caches never hit;
++// composing the string here would make that one format with two definitions.
++type StatInfo struct {
++	MtimeSec  int64  `json:"mtime_sec"`
++	MtimeNsec int64  `json:"mtime_nsec"`
++	CtimeSec  int64  `json:"ctime_sec"`
++	CtimeNsec int64  `json:"ctime_nsec"`
++	Size      int64  `json:"size"`
++	Ino       uint64 `json:"ino"`
++}
++
++func statInfoFrom(st unix.Stat_t) StatInfo {
++	// Timespec fields are sized per platform (int32 on some 32-bit targets), so
++	// widen rather than assume the build target's shape.
++	return StatInfo{
++		MtimeSec:  int64(st.Mtim.Sec),
++		MtimeNsec: int64(st.Mtim.Nsec),
++		CtimeSec:  int64(st.Ctim.Sec),
++		CtimeNsec: int64(st.Ctim.Nsec),
++		Size:      int64(st.Size),
++		Ino:       uint64(st.Ino),
++	}
+ }
+ 
+ type runtimeHandles struct {
+@@ -351,6 +384,36 @@ func (l *Lock) WriteTask(taskID string, data []byte) error {
+ 	return errors.Join(writeErr, closeErr)
+ }
+ 
++// ReadComments reads a task's comment file. Absence is not an error: a task with
++// no comments has no file, and that is the same answer as an empty list.
++func (l *Lock) ReadComments(taskID string) (ReadResult, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return ReadResult{}, err
++	}
++	taskFD, exists, err := l.openTaskDir(taskID, false)
++	if err != nil || !exists {
++		return ReadResult{Exists: false}, err
++	}
++	result, readErr := readRegularFile(taskFD, commentsFileName)
++	closeErr := unix.Close(taskFD)
++	return result, errors.Join(readErr, closeErr)
++}
++
++// WriteComments replaces a task's comment file and reports the resulting file's
++// identity, which the daemon uses to recognise the echo of this very write.
++func (l *Lock) WriteComments(taskID string, data []byte) (StatInfo, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return StatInfo{}, err
++	}
++	taskFD, _, err := l.openTaskDir(taskID, true)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	info, writeErr := writeAndStatAt(taskFD, commentsFileName, data, 0o644)
++	closeErr := unix.Close(taskFD)
++	return info, errors.Join(writeErr, closeErr)
++}
++
+ func (l *Lock) ReadRuntimeBlob(digest string) (_ ReadResult, err error) {
+ 	if err := validateRuntimeDigest(digest); err != nil {
+ 		return ReadResult{}, err
+@@ -992,6 +1055,12 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+ 	if errors.Is(err, unix.ENOENT) {
+ 		return ReadResult{Exists: false}, nil
+ 	}
++	if errors.Is(err, unix.ELOOP) {
++		// O_NOFOLLOW reports a symlink at the leaf as ELOOP. That is the refusal the
++		// adversarial list calls "symlink leaf", and it reached the daemon as prose:
++		// a symlink is exactly "not a single-linked regular file", so it is that class.
++		return ReadResult{}, fmt.Errorf("%s is a symbolic link: %w", name, ErrNotRegular)
++	}
+ 	if err != nil {
+ 		return ReadResult{}, err
+ 	}
+@@ -1034,7 +1103,46 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+ 	if int64(len(data)) > maxBytes {
+ 		return ReadResult{}, fmt.Errorf("%s exceeds %d bytes: %w", name, maxBytes, ErrTooLarge)
+ 	}
+-	return ReadResult{Exists: true, Data: data}, nil
++	return ReadResult{Exists: true, Data: data, Stat: statInfoFrom(st)}, nil
++}
++
++// writeAndStatAt publishes `data` at `name` and stats what it published.
++//
++// The publish itself is safe against a link standing at the name: `renameat`
++// replaces the entry rather than following it, so a symlink there is overwritten
++// and its target is untouched. The stat, however, re-opens by name, and between
++// the rename and that open the entry could be replaced again. It therefore
++// refuses anything but a regular file reached without following a link: the
++// answer describes the file this call published, or it is a refusal — never
++// whatever a third party has since put at that name.
++func writeAndStatAt(parentFD int, name string, data []byte, mode uint32) (StatInfo, error) {
++	if err := atomicWriteAt(parentFD, name, data, mode); err != nil {
++		return StatInfo{}, err
++	}
++	return statRegularAt(parentFD, name)
++}
++
++// statRegularAt stats `name` under `parentFD`, refusing anything but a regular
++// file reached without following a link.
++func statRegularAt(parentFD int, name string) (StatInfo, error) {
++	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
++	if errors.Is(err, unix.ELOOP) {
++		return StatInfo{}, fmt.Errorf("%s is a symbolic link: %w", name, ErrNotRegular)
++	}
++	if err != nil {
++		return StatInfo{}, err
++	}
++	if err := requireRegularSingleLink(fd, name); err != nil {
++		return StatInfo{}, errors.Join(err, unix.Close(fd))
++	}
++	st, err := statFD(fd, name)
++	if err != nil {
++		return StatInfo{}, errors.Join(err, unix.Close(fd))
++	}
++	if err := unix.Close(fd); err != nil {
++		return StatInfo{}, err
++	}
++	return statInfoFrom(st), nil
+ }
+ 
+ func atomicCreateAt(parentFD int, name string, data []byte, mode uint32) (err error) {
