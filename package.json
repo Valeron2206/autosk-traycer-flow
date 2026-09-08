@@ -35,6 +35,7 @@
     "validate:verify-doc": "node scripts/validate-verify-doc.mjs",
     "validate:work-type-gates": "node scripts/validate-work-type-gates.mjs",
     "validate:bounded-loop": "node scripts/validate-bounded-loop.mjs",
+    "validate:requirement-revision": "node scripts/validate-requirement-revision.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {
