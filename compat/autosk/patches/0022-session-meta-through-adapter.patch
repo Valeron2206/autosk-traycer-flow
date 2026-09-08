@@ -1,0 +1,800 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index 690b014491ab1d34edb37e858c9896850b08edeb..10cd5ab2421ae7d332754e76c657a55c546a45fb 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -36,6 +36,7 @@ type requestMessage struct {
+ 	ID             int64   `json:"id"`
+ 	Op             string  `json:"op"`
+ 	TaskID         string  `json:"task_id,omitempty"`
++	SessionID      string  `json:"session_id,omitempty"`
+ 	Digest         string  `json:"digest,omitempty"`
+ 	ExpectedDigest *string `json:"expected_digest,omitempty"`
+ 	Data           string  `json:"data,omitempty"`
+@@ -177,6 +178,29 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ 			return responseError(req.ID, err)
+ 		}
+ 		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
++	case "read_session_meta":
++		result, err := lock.ReadSessionMeta(req.SessionID)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		resp := responseMessage{ID: req.ID, OK: true, Exists: result.Exists, Data: string(result.Data)}
++		if result.Exists {
++			sig := result.Stat
++			resp.Sig = &sig
++		}
++		return resp
++	case "write_session_meta":
++		sig, err := lock.WriteSessionMeta(req.SessionID, []byte(req.Data))
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
++	case "list_session_ids":
++		ids, err := lock.ListSessionIDs()
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, IDs: ids}
+ 	case "read_runtime_blob":
+ 		result, err := lock.ReadRuntimeBlob(req.Digest)
+ 		if err != nil {
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 134a937f7df991db4468dfd9a472f3c9a75f42a9..378471148de5f85f23d2f3c7f1615d151d6dbf4c 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -81,8 +81,10 @@ interface HelperRequest {
+   id: number;
+   op: "read_creation_index" | "write_creation_index" | "list_task_ids" | "read_task" | "write_task"
+     | "read_runtime_blob" | "write_runtime_blob" | "read_runtime_index" | "write_runtime_index"
+-    | "read_comments" | "write_comments";
++    | "read_comments" | "write_comments"
++    | "read_session_meta" | "write_session_meta" | "list_session_ids";
+   task_id?: string;
++  session_id?: string;
+   digest?: string;
+   expected_digest?: string | null;
+   data?: string;
+@@ -117,6 +119,9 @@ export interface CreationLockIO {
+   writeRuntimeIndex(expectedDigest: string | null, data: string): Promise<void>;
+   readComments(taskId: string): Promise<{ data: string; sig: string } | null>;
+   writeComments(taskId: string, data: string): Promise<string>;
++  readSessionMeta(sessionId: string): Promise<{ data: string; sig: string } | null>;
++  writeSessionMeta(sessionId: string, data: string): Promise<string>;
++  listSessionIds(): Promise<string[]>;
+ }
+ 
+ export function creationKeyHash(key: string): string {
+@@ -630,15 +635,7 @@ class HelperClient implements CreationLockIO {
+   }
+ 
+   async readComments(taskId: string): Promise<{ data: string; sig: string } | null> {
+-    const response = await this.request({ op: "read_comments", task_id: taskId });
+-    if (typeof response.exists !== "boolean") {
+-      throw new Error("autosk-store-lock returned invalid comment existence flag");
+-    }
+-    if (!response.exists) return null;
+-    if (typeof response.data !== "string") {
+-      throw new Error("autosk-store-lock returned invalid comment data");
+-    }
+-    return { data: response.data, sig: helperFileSig(response.sig, "read_comments") };
++    return this.readWithSig({ op: "read_comments", task_id: taskId }, "comment");
+   }
+ 
+   async writeComments(taskId: string, data: string): Promise<string> {
+@@ -646,6 +643,39 @@ class HelperClient implements CreationLockIO {
+     return helperFileSig(response.sig, "write_comments");
+   }
+ 
++  async readSessionMeta(sessionId: string): Promise<{ data: string; sig: string } | null> {
++    return this.readWithSig({ op: "read_session_meta", session_id: sessionId }, "session meta");
++  }
++
++  async writeSessionMeta(sessionId: string, data: string): Promise<string> {
++    const response = await this.request({ op: "write_session_meta", session_id: sessionId, data });
++    return helperFileSig(response.sig, "write_session_meta");
++  }
++
++  async listSessionIds(): Promise<string[]> {
++    const response = await this.request({ op: "list_session_ids" });
++    if (!Array.isArray(response.ids)) throw new Error("autosk-store-lock returned invalid session id list");
++    for (const id of response.ids) {
++      if (typeof id !== "string") throw new Error("autosk-store-lock returned invalid session id");
++    }
++    return response.ids;
++  }
++
++  private async readWithSig(
++    command: Omit<HelperRequest, "id">,
++    what: string,
++  ): Promise<{ data: string; sig: string } | null> {
++    const response = await this.request(command);
++    if (typeof response.exists !== "boolean") {
++      throw new Error(`autosk-store-lock returned invalid ${what} existence flag`);
++    }
++    if (!response.exists) return null;
++    if (typeof response.data !== "string") {
++      throw new Error(`autosk-store-lock returned invalid ${what} data`);
++    }
++    return { data: response.data, sig: helperFileSig(response.sig, command.op) };
++  }
++
+   private async readRuntime(command: Omit<HelperRequest, "id">): Promise<string | null> {
+     const response = await this.request(command);
+     if (typeof response.exists !== "boolean") {
+diff --git a/daemon/core/src/store/sessionStore.ts b/daemon/core/src/store/sessionStore.ts
+index b6c407c52439deb55fb888331dfb398784198522..54d2af00e4cc00834e1f3311479ca0d64968e4f9 100644
+--- a/daemon/core/src/store/sessionStore.ts
++++ b/daemon/core/src/store/sessionStore.ts
+@@ -22,6 +22,7 @@ import type {
+   TranscriptLine,
+ } from "@autosk/sdk";
+ import { appendLine, atomicWrite, fileSig, statSig } from "./atomic.ts";
++import { withCreationLock } from "./creation.ts";
+ import { KeyedMutex } from "./lock.ts";
+ import { consoleLogger, type Logger } from "./logger.ts";
+ import { ProjectPaths } from "./paths.ts";
+@@ -130,14 +131,19 @@ export class SessionStore {
+    * defensive parse on the human-editable files).
+    */
+   async getMeta(id: string): Promise<SessionMeta | null> {
++    // The cheap stat stays the change DETECTOR, not what the bytes are trusted
++    // on: it follows links and can be answered about a file outside the project,
++    // so an unchanged signature only ever short-circuits to bytes that were
++    // themselves read through the adapter.
+     const probe = await statSig(this.paths.sessionMeta(id));
+     if (!probe) return null;
+     const cached = this.metaCache.get(id);
+     if (cached && cached.sig === probe.sig) return cached.value;
+-    const text = await readFile(this.paths.sessionMeta(id), "utf8");
++    const read = await withCreationLock(this.paths, (io) => io.readSessionMeta(id));
++    if (!read) return null;
+     let meta: SessionMeta;
+     try {
+-      meta = parseSessionMeta(text);
++      meta = parseSessionMeta(read.data);
+     } catch (e) {
+       this.logger.warn(
+         `session ${id}: unparseable meta, treating as not found ` +
+@@ -145,7 +151,7 @@ export class SessionStore {
+       );
+       return null;
+     }
+-    this.metaCache.set(id, { sig: probe.sig, value: meta });
++    this.metaCache.set(id, { sig: read.sig, value: meta });
+     this.indexMeta(meta);
+     return meta;
+   }
+@@ -208,7 +214,9 @@ export class SessionStore {
+         cwd: input.cwd,
+       };
+       await atomicWrite(this.paths.sessionTranscript(input.id), serializeSessionHeader(header) + "\n");
+-      const sig = await atomicWrite(this.paths.sessionMeta(input.id), serializeSessionMeta(meta));
++      const sig = await withCreationLock(this.paths, (io) =>
++        io.writeSessionMeta(input.id, serializeSessionMeta(meta)),
++      );
+       this.metaCache.set(input.id, { sig, value: meta });
+       this.indexMeta(meta);
+       return meta;
+@@ -224,7 +232,9 @@ export class SessionStore {
+       const current = this.metaCache.get(id)?.value ?? (await this.getMeta(id));
+       if (!current) throw new Error(`session not found: ${id}`);
+       const next: SessionMeta = { ...current, ...patch };
+-      const sig = await atomicWrite(this.paths.sessionMeta(id), serializeSessionMeta(next));
++      const sig = await withCreationLock(this.paths, (io) =>
++        io.writeSessionMeta(id, serializeSessionMeta(next)),
++      );
+       this.metaCache.set(id, { sig, value: next });
+       this.indexMeta(next);
+       return next;
+@@ -252,7 +262,9 @@ export class SessionStore {
+       if (!current) throw new Error(`session not found: ${id}`);
+       if (current.status !== expect) return { meta: current, applied: false };
+       const next: SessionMeta = { ...current, ...patch };
+-      const sig = await atomicWrite(this.paths.sessionMeta(id), serializeSessionMeta(next));
++      const sig = await withCreationLock(this.paths, (io) =>
++        io.writeSessionMeta(id, serializeSessionMeta(next)),
++      );
+       this.metaCache.set(id, { sig, value: next });
+       this.indexMeta(next);
+       return { meta: next, applied: true };
+@@ -273,6 +285,13 @@ export class SessionStore {
+    * found. Malformed metas are skipped (logged by the caller).
+    */
+   async scan(): Promise<{ metas: SessionMeta[]; errors: { id: string; error: string }[] }> {
++    // NOT through the adapter, and the reason is a decision rather than an
++    // oversight. `scan` runs on `open()`, so routing it would make the helper a
++    // precondition of OPENING a project and would take the project lock for a
++    // project that only ever gets read — which is exactly what ADR-028 declined
++    // ("A project that never writes trusted state should not hold a lock").
++    // Routing it is a change to that decision, not a change of call site, and
++    // it is recorded as the remaining half rather than smuggled in here.
+     let entries: string[];
+     try {
+       entries = await readdir(this.paths.sessionsDir);
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+index 13ec1efce84cf28d4a0edab15bdd1d4720db8a74..66ad7e8baf87237114670885cd694361c3c085ed 100644
+--- a/daemon/core/test/store.singlewriter.test.ts
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -9,7 +9,7 @@
+  */
+ 
+ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+-import { readFileSync } from "node:fs";
++import { readFileSync, readdirSync } from "node:fs";
+ import { mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+ import { dirname, join } from "node:path";
+ 
+@@ -86,53 +86,184 @@ describe("what the boundary adapter covers", () => {
+     expect((await store.listTaskViews()).map((t) => t.id)).not.toContain(created.task.id);
+   });
+ 
+-  test("the adapter now covers comments; the session meta and transcript it still does not", () => {
++  test("the adapter covers comments and the session meta; the transcript and the open-path scan it does not", () => {
+     // The gap #13 names is not a race for these: they have ONE writer. It is that
+     // the one writer is plain `node:fs`, so they get none of the adapter's
+-    // guarantees — no no-follow, no owner or mode check, no device check.
+-    // `comments.jsonl` is through; the session files are the remainder, and this
+-    // says so in a form that fails when either half changes.
++    // guarantees — no no-follow, no type, owner, mode or device check. This says
++    // exactly where the line falls now, in a form that fails when either side moves.
+     const helper = readFileSync(new URL("../../../cmd/autosk-store-lock/main.go", import.meta.url), "utf8");
+     // Scoped to the request switch: a lowercase string case elsewhere in the file
+     // is not an operation, and counting one would make this assertion drift.
+     const dispatch = helper.slice(helper.indexOf("switch req.Op"), helper.indexOf("func responseError"));
+     const ops = [...dispatch.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
+     expect(ops.sort()).toEqual([
++      "list_session_ids",
+       "list_task_ids",
+       "read_comments",
+       "read_creation_index",
+       "read_runtime_blob",
+       "read_runtime_index",
++      "read_session_meta",
+       "read_task",
+       "write_comments",
+       "write_creation_index",
+       "write_runtime_blob",
+       "write_runtime_index",
++      "write_session_meta",
+       "write_task",
+     ]);
+ 
+-    // Covered: every comment byte the daemon reads or writes goes through the
+-    // adapter. The cheap stat that survives in `taskStore` is the change
+-    // DETECTOR for the O(N) listing path, and it is never what bytes are trusted
+-    // on — so this pins that no comment read or write is a plain-fs one.
++    // Covered: comment bytes, and the session meta on every per-session read and
++    // every write. The cheap stat that survives in both stores is the change
++    // DETECTOR for paths that must stay O(N), never what bytes are trusted on.
+     const taskStore = readFileSync(new URL("../src/store/taskStore.ts", import.meta.url), "utf8");
+     expect(taskStore).toContain("io.readComments(id)");
+     expect(taskStore).toContain("io.writeComments(id");
+-    expect(taskStore).not.toContain("commentsJsonl(id), serializeComments");
+     expect(taskStore).not.toMatch(/readFile\(this\.paths\.commentsJsonl/u);
+ 
+-    // Not covered: `task.json` still has a second, plain-fs writer, and the
+-    // session meta and transcript have no helper op at all — so routing them
+-    // needs new ops, not a change of call site.
+-    expect(taskStore).toContain("atomicWrite(this.paths.taskJson");
+     const sessionStore = readFileSync(new URL("../src/store/sessionStore.ts", import.meta.url), "utf8");
+-    expect(sessionStore).toContain("atomicWrite");
+-    expect(sessionStore).not.toContain("withCreationLock");
+-    expect(ops).not.toContain("write_session_meta");
++    expect(sessionStore).toContain("io.readSessionMeta(id)");
++    expect(sessionStore).toContain("io.writeSessionMeta(");
++    expect(sessionStore).not.toContain("atomicWrite(this.paths.sessionMeta");
++
++    // NOT covered, each for a stated reason rather than by omission:
++    // `task.json` still has a second, plain-fs writer; the transcript has no
++    // helper op at all; and `scan` deliberately stays on plain `fs` because it
++    // runs on `open()` and routing it would make the helper a precondition of
++    // opening a project — which ADR-028 declined.
++    expect(taskStore).toContain("atomicWrite(this.paths.taskJson");
++    expect(sessionStore).toContain("atomicWrite(this.paths.sessionTranscript");
++    expect(sessionStore).toContain("appendLine(this.paths.sessionTranscript");
++    expect(sessionStore).toMatch(/readdir\(this\.paths\.sessionsDir\)/u);
++    expect(ops).not.toContain("write_session_transcript");
+     expect(ops).not.toContain("append_session_transcript");
+   });
+ });
+ 
++describe("session meta through the boundary adapter", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let store: Store;
++
++  beforeEach(async () => {
++    dir = tempDir();
++    store = new Store(dir.path, { watch: false });
++    await store.open();
++  });
++  afterEach(async () => {
++    await store.close();
++    dir.cleanup();
++  });
++
++  const SESSION_ID = "0190a1b2-c3d4-7e5f-8a9b-0000000000d1";
++
++  async function aSession(): Promise<string> {
++    const task = await store.createTask({ title: "t" });
++    await store.setPosition(task.id, { status: "work", workflow: "feature-dev", step: "dev" }, { countVisit: "dev" });
++    await store.sessions.create({
++      id: SESSION_ID,
++      task_id: task.id,
++      workflow: "feature-dev",
++      step: "dev",
++      agent: "@autosk/pi-agent/dev",
++      cwd: dir.path,
++      timestamp: "2026-01-01T00:00:00Z",
++    });
++    return SESSION_ID;
++  }
++
++  test("the signature the adapter reports is the one a stat would produce", async () => {
++    // Same load-bearing claim as for comments: the helper sends raw stat fields
++    // and the daemon composes the signature. A different rounding is a different
++    // string, and every cache keyed by it would miss forever.
++    const id = await aSession();
++    expect(await store.sessions.getMeta(id)).not.toBeNull();
++    const fromStat = fileSig(await stat(store.paths.sessionMeta(id)));
++    const cache = (store.sessions as unknown as { metaCache: Map<string, { sig: string }> }).metaCache;
++    expect(cache.get(id)?.sig).toBe(fromStat);
++  });
++
++  test("a symlinked session meta is refused, not followed", async () => {
++    const id = await aSession();
++    const outside = join(dir.path, "outside.json");
++    await writeFile(outside, '{"id":"planted"}\n');
++    await rm(store.paths.sessionMeta(id));
++    await symlink(outside, store.paths.sessionMeta(id));
++
++    const refusal = await store.sessions.getMeta(id).then(
++      () => null,
++      (e: unknown) => e as Error,
++    );
++    expect(refusal).toBeInstanceOf(HelperRefusal);
++    expect((refusal as HelperRefusal).code).toBe("not_regular");
++  });
++
++  test("a symlinked sessions directory is refused on write, not followed out of the project", async () => {
++    // This is what routing the WRITE buys that replacing the file does not: a
++    // plain atomic write walks the path with the kernel following links, so a
++    // swapped `sessions/` sends the meta outside the project while reporting
++    // success. The adapter opens every component with O_NOFOLLOW and refuses.
++    const id = await aSession();
++    const outside = join(dir.path, "elsewhere");
++    await mkdir(outside, { recursive: true });
++    await rm(store.paths.sessionsDir, { recursive: true });
++    await symlink(outside, store.paths.sessionsDir);
++
++    const refusal = await store.sessions.patchMeta(id, { status: "running" }).then(
++      () => null,
++      (e: unknown) => e as Error,
++    );
++    expect(refusal).toBeInstanceOf(Error);
++    expect(readdirSync(outside), "the write escaped into the symlink target").toEqual([]);
++  });
++
++  test("a hostile sessions directory refuses the session, and the transcript is what still escapes", async () => {
++    // Honest boundary of a split adapter. Before this slice both the transcript
++    // header AND the meta landed in the symlink target and `create` SUCCEEDED —
++    // the daemon would run a session whose state lives outside the project. Now
++    // the meta write refuses and no session is registered. One file still lands
++    // there first, because the transcript has not moved through the adapter yet;
++    // that is #13 criterion 4 ("failures leave no partial trusted state") and it
++    // closes with the transcript slice, not with a claim here.
++    const task = await store.createTask({ title: "t" });
++    await store.setPosition(task.id, { status: "work", workflow: "feature-dev", step: "dev" }, { countVisit: "dev" });
++    const outside = join(dir.path, "elsewhere");
++    await mkdir(outside, { recursive: true });
++    await rm(store.paths.sessionsDir, { recursive: true, force: true });
++    await symlink(outside, store.paths.sessionsDir);
++
++    const refusal = await store.sessions.create({
++      id: SESSION_ID,
++      task_id: task.id,
++      workflow: "feature-dev",
++      step: "dev",
++      agent: "@autosk/pi-agent/dev",
++      cwd: dir.path,
++      timestamp: "2026-01-01T00:00:00Z",
++    }).then(() => null, (e: unknown) => e as Error);
++
++    expect(refusal).toBeInstanceOf(Error);
++    expect(refusal!.message).toMatch(/write_session_meta/);
++    expect(store.sessions.sessionsForTask(task.id)).toEqual([]);
++    // Exactly one file escaped, and it is the transcript. If this ever becomes
++    // two, the meta escaped too and the refusal above stopped working.
++    expect(readdirSync(outside)).toEqual([`${SESSION_ID}.jsonl`]);
++  });
++
++  test("a meta write publishes over a symlink instead of through it", async () => {
++    const id = await aSession();
++    const outside = join(dir.path, "outside.json");
++    await writeFile(outside, "untouched\n");
++    await rm(store.paths.sessionMeta(id));
++    await symlink(outside, store.paths.sessionMeta(id));
++
++    await store.sessions.patchMeta(id, { status: "running" });
++
++    expect(readFileSync(outside, "utf8")).toBe("untouched\n");
++    expect((await stat(store.paths.sessionMeta(id))).isFile()).toBe(true);
++    expect((await store.sessions.getMeta(id))?.status).toBe("running");
++  });
++});
++
+ describe("comments through the boundary adapter", () => {
+   let dir: ReturnType<typeof tempDir>;
+   let store: Store;
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index 9dd6d902727c5f3de7595642e9e9bc18fc11ddc5..2b6ca5ade7878bda1bd9474e569bc9f3b320c8c7 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -13,6 +13,7 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
++	"strings"
+ 	"time"
+ 	"unicode/utf8"
+ 
+@@ -27,13 +28,16 @@ const (
+ 	blobsDirName        = "blobs"
+ 	blobFileSuffix      = ".blob"
+ 	tasksDirName        = "tasks"
++	sessionsDirName     = "sessions"
+ 	taskFileName        = "task.json"
+ 	commentsFileName    = "comments.jsonl"
+ 	indexFileName       = "index.json"
+ 	lockFileName        = "store.lock"
++	sessionMetaSuffix   = ".json"
+ 	maxFileBytes        = 16 * 1024 * 1024
+ 	maxRuntimeFileBytes = 8 * 1024 * 1024
+ 	maxTaskEntries      = 100000
++	maxSessionEntries   = 100000
+ 	lockOpenRetry       = 250 * time.Millisecond
+ )
+ 
+@@ -446,6 +450,138 @@ func (l *Lock) WriteComments(taskID string, data []byte) (StatInfo, error) {
+ 	return info, errors.Join(writeErr, closeErr)
+ }
+ 
++// ReadSessionMeta reads one session's meta record. Absence is not an error.
++func (l *Lock) ReadSessionMeta(sessionID string) (ReadResult, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return ReadResult{}, err
++	}
++	name, err := sessionMetaName(sessionID)
++	if err != nil {
++		return ReadResult{}, err
++	}
++	sessionsFD, exists, err := l.openSessionsDir(false)
++	if err != nil || !exists {
++		return ReadResult{Exists: false}, err
++	}
++	result, readErr := readRegularFile(sessionsFD, name)
++	closeErr := unix.Close(sessionsFD)
++	return result, errors.Join(readErr, closeErr)
++}
++
++// WriteSessionMeta replaces one session's meta record and reports the resulting
++// file's identity, which the daemon uses to recognise the echo of its own write.
++func (l *Lock) WriteSessionMeta(sessionID string, data []byte) (StatInfo, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return StatInfo{}, err
++	}
++	name, err := sessionMetaName(sessionID)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	// Refuse to publish what this helper would then refuse to read back.
++	if int64(len(data)) > maxFileBytes {
++		return StatInfo{}, fmt.Errorf("%s exceeds %d bytes: %w", name, int64(maxFileBytes), ErrTooLarge)
++	}
++	sessionsFD, _, err := l.openSessionsDir(true)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	info, writeErr := writeAndStatAt(sessionsFD, name, data, publicFileMode(0o644))
++	closeErr := unix.Close(sessionsFD)
++	return info, errors.Join(writeErr, closeErr)
++}
++
++// ListSessionIDs names every session that has a meta record.
++//
++// A session is identified by its meta file, exactly as a task is identified by
++// its `task.json`: a stray transcript with no meta is not a session, and naming
++// it would invent one.
++func (l *Lock) ListSessionIDs() ([]string, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return nil, err
++	}
++	sessionsFD, exists, err := l.openSessionsDir(false)
++	if err != nil {
++		return nil, err
++	}
++	if !exists {
++		return []string{}, nil
++	}
++	file := os.NewFile(uintptr(sessionsFD), sessionsDirName)
++	if file == nil {
++		if closeErr := unix.Close(sessionsFD); closeErr != nil {
++			return nil, closeErr
++		}
++		return nil, errors.New("wrap sessions fd")
++	}
++	ids := make([]string, 0)
++	for {
++		names, readErr := file.Readdirnames(256)
++		for _, name := range names {
++			// Skip dotfiles the way the task listing does: an entry the daemon did
++			// not create is not a session, and naming one would invent it.
++			if len(name) > 0 && name[0] == '.' {
++				continue
++			}
++			id, ok := strings.CutSuffix(name, sessionMetaSuffix)
++			if !ok || id == "" {
++				continue
++			}
++			if err := validateChildName(id); err != nil {
++				continue
++			}
++			ids = append(ids, id)
++			if len(ids) > maxSessionEntries {
++				closeErr := file.Close()
++				return nil, errors.Join(fmt.Errorf("session directory exceeds %d entries", maxSessionEntries), closeErr)
++			}
++		}
++		if readErr == io.EOF {
++			break
++		}
++		if readErr != nil {
++			closeErr := file.Close()
++			return nil, errors.Join(readErr, closeErr)
++		}
++	}
++	if err := file.Close(); err != nil {
++		return nil, err
++	}
++	sort.Strings(ids)
++	return ids, nil
++}
++
++func sessionMetaName(sessionID string) (string, error) {
++	if err := validateChildName(sessionID); err != nil {
++		return "", fmt.Errorf("invalid session id: %w", err)
++	}
++	// The id is validated as a single path component first, so appending the
++	// suffix cannot introduce a separator or a dot-segment.
++	return sessionID + sessionMetaSuffix, nil
++}
++
++func (l *Lock) openSessionsDir(create bool) (int, bool, error) {
++	if create {
++		fd, err := ensureChildDir(l.autoskFD, sessionsDirName, 0o755)
++		if err != nil {
++			return -1, false, fmt.Errorf("open sessions dir: %w", err)
++		}
++		return fd, true, nil
++	}
++	fd, err := unix.Openat(l.autoskFD, sessionsDirName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
++	if errors.Is(err, unix.ENOENT) {
++		return -1, false, nil
++	}
++	if err != nil {
++		return -1, false, fmt.Errorf("open sessions dir: %w", err)
++	}
++	if err := requireDir(fd, sessionsDirName); err != nil {
++		closeErr := unix.Close(fd)
++		return -1, false, errors.Join(err, closeErr)
++	}
++	return fd, true, nil
++}
++
+ func (l *Lock) ReadRuntimeBlob(digest string) (_ ReadResult, err error) {
+ 	if err := validateRuntimeDigest(digest); err != nil {
+ 		return ReadResult{}, err
+diff --git a/internal/storelock/sessions_test.go b/internal/storelock/sessions_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..81ac3083f66bc626275fd2dbae94395f65249c51
+--- /dev/null
++++ b/internal/storelock/sessions_test.go
+@@ -0,0 +1,197 @@
++package storelock
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"syscall"
++	"testing"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++func withSessionsLock(t *testing.T, root string) *Lock {
++	t.Helper()
++	lock, err := Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if closeErr := lock.Close(); closeErr != nil {
++			t.Fatal(closeErr)
++		}
++	})
++	return lock
++}
++
++func TestSessionMetaRoundTripAndIdentity(t *testing.T) {
++	root := t.TempDir()
++	lock := withSessionsLock(t, root)
++
++	missing, err := lock.ReadSessionMeta("ses-111111")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if missing.Exists {
++		t.Fatal("a session with no meta file must read as absent, not as an error")
++	}
++
++	data := []byte("{\"id\":\"ses-111111\"}\n")
++	sig, err := lock.WriteSessionMeta("ses-111111", data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var st unix.Stat_t
++	if err := unix.Lstat(filepath.Join(root, ".autosk", "sessions", "ses-111111.json"), &st); err != nil {
++		t.Fatal(err)
++	}
++	if want := statInfoFrom(st); sig != want {
++		t.Fatalf("write reported %+v, an independent lstat says %+v", sig, want)
++	}
++
++	read, err := lock.ReadSessionMeta("ses-111111")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !read.Exists || string(read.Data) != string(data) || read.Stat != sig {
++		t.Fatalf("round trip returned exists=%v data=%q stat=%+v", read.Exists, read.Data, read.Stat)
++	}
++}
++
++func TestListSessionIDsNamesOnlyWhatHasAMeta(t *testing.T) {
++	root := t.TempDir()
++	lock := withSessionsLock(t, root)
++
++	if ids, err := lock.ListSessionIDs(); err != nil {
++		t.Fatal(err)
++	} else if len(ids) != 0 {
++		t.Fatalf("expected no sessions before any write, got %v", ids)
++	}
++
++	for _, id := range []string{"ses-bbbbbb", "ses-aaaaaa"} {
++		if _, err := lock.WriteSessionMeta(id, []byte("{}\n")); err != nil {
++			t.Fatal(err)
++		}
++	}
++	dir := filepath.Join(root, ".autosk", "sessions")
++	// A transcript with no meta is not a session; naming it would invent one.
++	if err := os.WriteFile(filepath.Join(dir, "ses-cccccc.jsonl"), []byte("{}\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	// Neither is a dotfile, nor a name that is not a single path component once
++	// the suffix is removed.
++	if err := os.WriteFile(filepath.Join(dir, ".hidden.json"), []byte("{}\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++
++	ids, err := lock.ListSessionIDs()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(ids) != 2 || ids[0] != "ses-aaaaaa" || ids[1] != "ses-bbbbbb" {
++		t.Fatalf("expected the two metas in sorted order, got %v", ids)
++	}
++}
++
++func TestSessionMetaRejectsSymlinkAndFIFO(t *testing.T) {
++	root := t.TempDir()
++	lock := withSessionsLock(t, root)
++	if _, err := lock.WriteSessionMeta("ses-111111", []byte("{}\n")); err != nil {
++		t.Fatal(err)
++	}
++	dir := filepath.Join(root, ".autosk", "sessions")
++
++	outside := filepath.Join(t.TempDir(), "elsewhere.json")
++	if err := os.WriteFile(outside, []byte("stolen\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Remove(filepath.Join(dir, "ses-111111.json")); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(dir, "ses-111111.json")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.ReadSessionMeta("ses-111111"); err == nil {
++		t.Fatal("expected a symlinked session meta to be refused")
++	} else if Code(err) != "not_regular" {
++		t.Fatalf("expected refusal class not_regular, got %q (%v)", Code(err), err)
++	}
++	// Publishing replaces the link rather than writing through it.
++	if _, err := lock.WriteSessionMeta("ses-111111", []byte("mine\n")); err != nil {
++		t.Fatal(err)
++	}
++	if stolen, err := os.ReadFile(outside); err != nil {
++		t.Fatal(err)
++	} else if string(stolen) != "stolen\n" {
++		t.Fatalf("the write followed the symlink and clobbered %q", outside)
++	}
++
++	if err := os.Remove(filepath.Join(dir, "ses-222222.json")); err != nil && !os.IsNotExist(err) {
++		t.Fatal(err)
++	}
++	if err := syscall.Mkfifo(filepath.Join(dir, "ses-222222.json"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan error, 1)
++	go func() {
++		_, readErr := lock.ReadSessionMeta("ses-222222")
++		done <- readErr
++	}()
++	select {
++	case readErr := <-done:
++		if !errors.Is(readErr, ErrNotRegular) {
++			t.Fatalf("expected ErrNotRegular for a FIFO session meta, got %v", readErr)
++		}
++	case <-time.After(500 * time.Millisecond):
++		t.Fatal("ReadSessionMeta blocked on a FIFO")
++	}
++}
++
++func TestSessionMetaRejectsUnsafeIDsAndOversize(t *testing.T) {
++	root := t.TempDir()
++	lock := withSessionsLock(t, root)
++
++	for _, id := range []string{"", ".", "..", "a/b", "../../etc/passwd"} {
++		if _, err := lock.ReadSessionMeta(id); err == nil {
++			t.Fatalf("ReadSessionMeta accepted session id %q", id)
++		}
++		if _, err := lock.WriteSessionMeta(id, []byte("{}\n")); err == nil {
++			t.Fatalf("WriteSessionMeta accepted session id %q", id)
++		}
++	}
++
++	oversize := make([]byte, maxFileBytes+1)
++	if _, err := lock.WriteSessionMeta("ses-111111", oversize); err == nil {
++		t.Fatal("expected an oversize session meta write to be refused")
++	} else if Code(err) != "too_large" {
++		t.Fatalf("expected refusal class too_large, got %q", Code(err))
++	}
++	if _, err := os.Stat(filepath.Join(root, ".autosk", "sessions")); !os.IsNotExist(err) {
++		t.Fatalf("the refused write created the sessions directory anyway (%v)", err)
++	}
++}
++
++func TestSessionMetaRefusesWhenTheLockPathChanged(t *testing.T) {
++	root := t.TempDir()
++	lock := withSessionsLock(t, root)
++
++	autosk := filepath.Join(root, ".autosk")
++	if err := os.Rename(autosk, filepath.Join(root, ".autosk-moved")); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Mkdir(autosk, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	for _, probe := range []func() error{
++		func() error { _, err := lock.ReadSessionMeta("ses-111111"); return err },
++		func() error { _, err := lock.WriteSessionMeta("ses-111111", []byte("{}\n")); return err },
++		func() error { _, err := lock.ListSessionIDs(); return err },
++	} {
++		if err := probe(); err == nil {
++			t.Fatal("expected a swapped .autosk to be refused")
++		} else if !errors.Is(err, ErrPathChanged) {
++			t.Fatalf("expected ErrPathChanged, got %v", err)
++		}
++	}
++}
