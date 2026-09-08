@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/reflect-pass/reflect-pass.v1.json",
+  "title": "Reflect pass",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reflect_pass_id",
+    "follows_pass",
+    "epic",
+    "extract",
+    "lenses",
+    "findings",
+    "rule_verdicts",
+    "governance_budget"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "reflect_pass_id": {
+      "type": "string",
+      "pattern": "^rfp-[0-9a-z-]{3,64}$"
+    },
+    "follows_pass": {
+      "description": "The pass this one follows over the same Epic, or null for the first.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^rfp-[0-9a-z-]{3,64}$"
+        }
+      ]
+    },
+    "epic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "epic_id",
+        "state",
+        "outcome_digest"
+      ],
+      "properties": {
+        "epic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "closed",
+            "open_by_user_request"
+          ]
+        },
+        "outcome_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "outcome_digest_after": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "extract": {
+      "description": "The sanitized retrospective extract. Reviewers read this and nothing else.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clearance_ref",
+        "clearance_digest",
+        "sources",
+        "items"
+      ],
+      "properties": {
+        "clearance_ref": {
+          "type": "string",
+          "pattern": "^clearance-[0-9a-z-]{3,64}$"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "locator",
+              "summary"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "incident",
+                  "retry",
+                  "extra_round",
+                  "false_block",
+                  "manual_friction",
+                  "tool_gap"
+                ]
+              },
+              "locator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 8
+              },
+              "recurrence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "clearance_digest": {
+          "description": "The digest of the extract the clearance was granted over.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "lenses": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lens",
+          "session_id",
+          "read_only",
+          "sources_read"
+        ],
+        "properties": {
+          "lens": {
+            "enum": [
+              "judgment",
+              "tooling_friction",
+              "divergent_effects"
+            ]
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "read_only": {
+            "const": true
+          },
+          "sources_read": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding_id",
+          "lens",
+          "proposal",
+          "disposition"
+        ],
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lens": {
+            "enum": [
+              "judgment",
+              "tooling_friction",
+              "divergent_effects"
+            ]
+          },
+          "merged_from": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "proposal": {
+            "enum": [
+              "new_rule",
+              "relax_rule",
+              "remove_rule",
+              "tooling_or_template",
+              "note_only"
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "backlog"
+            ]
+          },
+          "observed_failure": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "locator",
+              "occurrences"
+            ],
+            "properties": {
+              "locator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "occurrences": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "import": {
+            "description": "The single exception to needing an observed failure.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "decision_ref",
+              "panel_ref"
+            ],
+            "properties": {
+              "decision_ref": {
+                "type": "string",
+                "pattern": "^decision-[0-9a-z-]{3,64}$"
+              },
+              "panel_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "recurrence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "activation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "bundle_changed",
+              "panel_ref"
+            ],
+            "properties": {
+              "bundle_changed": {
+                "type": "boolean"
+              },
+              "panel_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "rule_verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rule_id",
+          "verdict",
+          "evidence_locators"
+        ],
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "pattern": "^rule-[0-9a-z-]{2,64}$"
+          },
+          "verdict": {
+            "enum": [
+              "keep",
+              "relax",
+              "remove"
+            ]
+          },
+          "evidence_locators": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "observed_benefit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observed_cost": {
+            "type": "string",
+            "minLength": 1
+          },
+          "false_blocks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "extra_rounds": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "governance_budget": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "lines",
+          "bytes",
+          "previous_approved_lines",
+          "epic_start_lines",
+          "net_delta_lines",
+          "form"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "previous_approved_lines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epic_start_lines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "net_delta_lines": {
+            "type": "integer"
+          },
+          "growth_rationale": {
+            "type": "string",
+            "minLength": 16
+          },
+          "replacement_candidates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "form": {
+            "enum": [
+              "executable_check",
+              "prose"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

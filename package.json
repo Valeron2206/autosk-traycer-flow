@@ -37,6 +37,7 @@
     "validate:bounded-loop": "node scripts/validate-bounded-loop.mjs",
     "validate:requirement-revision": "node scripts/validate-requirement-revision.mjs",
     "validate:autobuild-run": "node scripts/validate-autobuild-run.mjs",
+    "validate:reflect-cost-watch": "node scripts/validate-reflect-cost-watch.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {

@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "reflect_pass_id": "rfp-store-lock-1",
+  "follows_pass": null,
+  "epic": {
+    "epic_id": "epic-store-lock",
+    "state": "closed",
+    "outcome_digest": "011b550d2ece60cca72866d72a72d11cc23a1d742c12cca2905132e5bd0d2513"
+  },
+  "extract": {
+    "clearance_ref": "clearance-0007",
+    "sources": [
+      "epic-store-lock/gates/**",
+      "epic-store-lock/tickets/**/receipts",
+      "epic-store-lock/notes/**"
+    ],
+    "items": [
+      {
+        "kind": "incident",
+        "locator": "epic-store-lock/tickets/T-102/run-3#helper-timeout",
+        "summary": "the helper timed out once under a cold module cache",
+        "recurrence": 1
+      },
+      {
+        "kind": "false_block",
+        "locator": "epic-store-lock/gates/scope#0007",
+        "summary": "the scope gate blocked a doc-only change three times",
+        "recurrence": 3
+      },
+      {
+        "kind": "manual_friction",
+        "locator": "epic-store-lock/notes/reseal#manual",
+        "summary": "the registry digest was resealed by hand in four passes",
+        "recurrence": 4
+      },
+      {
+        "kind": "tool_gap",
+        "locator": "epic-store-lock/notes/reseal#no-script",
+        "summary": "no committed script recomputes the design-candidate digest",
+        "recurrence": 4
+      }
+    ],
+    "clearance_digest": "a47bb8cbba67a577809f8ed8cfdfcbc849985544c5c43f224e361c1bbd667d89"
+  },
+  "lenses": [
+    {
+      "lens": "judgment",
+      "session_id": "session-lens-judgment",
+      "read_only": true,
+      "sources_read": [
+        "epic-store-lock/gates/**",
+        "epic-store-lock/tickets/**/receipts"
+      ]
+    },
+    {
+      "lens": "tooling_friction",
+      "session_id": "session-lens-tooling",
+      "read_only": true,
+      "sources_read": [
+        "epic-store-lock/notes/**"
+      ]
+    },
+    {
+      "lens": "divergent_effects",
+      "session_id": "session-lens-divergent",
+      "read_only": true,
+      "sources_read": [
+        "epic-store-lock/gates/**"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "F-1",
+      "lens": "tooling_friction",
+      "proposal": "tooling_or_template",
+      "disposition": "accepted",
+      "observed_failure": {
+        "locator": "epic-store-lock/notes/reseal#manual",
+        "occurrences": 4
+      },
+      "recurrence": 4,
+      "activation": {
+        "bundle_changed": false,
+        "panel_ref": null
+      }
+    },
+    {
+      "finding_id": "F-2",
+      "lens": "judgment",
+      "proposal": "relax_rule",
+      "disposition": "accepted",
+      "observed_failure": {
+        "locator": "epic-store-lock/gates/scope#0007",
+        "occurrences": 3
+      },
+      "recurrence": 3,
+      "activation": {
+        "bundle_changed": true,
+        "panel_ref": "panel-2026-09-08-scope-relax"
+      }
+    },
+    {
+      "finding_id": "F-3",
+      "lens": "divergent_effects",
+      "proposal": "new_rule",
+      "disposition": "backlog",
+      "activation": {
+        "bundle_changed": false,
+        "panel_ref": null
+      }
+    },
+    {
+      "finding_id": "F-4",
+      "lens": "judgment",
+      "proposal": "note_only",
+      "disposition": "rejected",
+      "merged_from": [
+        "F-4a",
+        "F-4b"
+      ],
+      "activation": {
+        "bundle_changed": false,
+        "panel_ref": null
+      }
+    }
+  ],
+  "rule_verdicts": [
+    {
+      "rule_id": "rule-scope-gate",
+      "verdict": "relax",
+      "evidence_locators": [
+        "epic-store-lock/gates/scope#0007"
+      ],
+      "observed_benefit": "caught two genuinely out-of-scope files in earlier epics",
+      "observed_cost": "blocked three doc-only changes in this one",
+      "false_blocks": 3,
+      "extra_rounds": 3
+    },
+    {
+      "rule_id": "rule-reseal-by-hand",
+      "verdict": "remove",
+      "evidence_locators": [
+        "epic-store-lock/notes/reseal#manual"
+      ],
+      "observed_benefit": "none observed",
+      "observed_cost": "four manual passes",
+      "false_blocks": 0,
+      "extra_rounds": 4
+    }
+  ],
+  "governance_budget": [
+    {
+      "path": "docs/governance/scope-gate.md",
+      "lines": 41,
+      "bytes": 2180,
+      "previous_approved_lines": 52,
+      "epic_start_lines": 52,
+      "net_delta_lines": -11,
+      "form": "prose"
+    },
+    {
+      "path": "scripts/reseal-design-candidate.mjs",
+      "lines": 38,
+      "bytes": 1520,
+      "previous_approved_lines": 0,
+      "epic_start_lines": 0,
+      "net_delta_lines": 38,
+      "growth_rationale": "replaces four manual reseal passes with a check that fails when the candidate drifts",
+      "replacement_candidates": [
+        "docs/governance/reseal-by-hand.md"
+      ],
+      "form": "executable_check"
+    }
+  ]
+}

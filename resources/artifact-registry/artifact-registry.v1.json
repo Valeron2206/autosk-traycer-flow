@@ -267,6 +267,7 @@
         "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
         "docs/contracts/provider-preflight.md",
+        "docs/contracts/reflect-cost-watch.md",
         "docs/contracts/requirement-revision.md",
         "docs/contracts/stage-carriers.md",
         "docs/contracts/tickets-manifest.md",
@@ -287,6 +288,7 @@
         "artifact_write_receipt",
         "autobuild_run",
         "clearance_manifest",
+        "cost_watch_registry",
         "creation_grant",
         "delivery_profile",
         "design_candidate",
@@ -306,6 +308,7 @@
         "planning_ref_contract",
         "platform_matrix",
         "provider_preflight",
+        "reflect_pass",
         "revision_record",
         "stage_carriers",
         "tech_plan",
@@ -348,6 +351,35 @@
       "retention": "durable",
       "human_approval": "required",
       "model_family_policy": "cross_family_required"
+    },
+    {
+      "class": "cost_watch_registry",
+      "category": "governance_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "reflect_pass"
+      ],
+      "paths": [
+        "docs/governance/cost-watch/registry.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the registry records measured cost; it is append-only and its prefix checkpoint is what is reviewed"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "adr"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     },
     {
       "class": "creation_grant",
@@ -1009,6 +1041,37 @@
       "human_approval": "not_required"
     },
     {
+      "class": "reflect_pass",
+      "category": "governance_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "clearance_manifest"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/reflect/*/pass.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the pass proposes; an accepted governance change is its own artifact and takes the full panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "adr",
+        "decision_log"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "revision_record",
       "category": "governance_defining",
       "author_roles": [
@@ -1236,5 +1299,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "daa5a2bbfdfbaa8a6c64768787f4f018c2dc8d5c4a9a81ef4ab1de6b5aaacf21"
+  "registry_digest": "2bab652871384054c3678f185f9951dbca05ab98bf23c8b74543a5e9f65f3507"
 }

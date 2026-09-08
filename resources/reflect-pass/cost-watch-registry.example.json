@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "seq": 1,
+      "checkpoint": {
+        "length": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "rule_id": "rule-scope-gate",
+      "section": "gates",
+      "name": "pull-request file scope",
+      "history": [
+        "introduced in epic-planning after two out-of-scope files landed"
+      ],
+      "pass_id": "rfp-store-lock-1",
+      "epic_id": "epic-store-lock",
+      "verdict": "relax",
+      "evidence_locators": [
+        "epic-store-lock/gates/scope#0007"
+      ],
+      "observed_benefit": "caught two genuinely out-of-scope files in earlier epics",
+      "observed_cost": "blocked three doc-only changes in this one",
+      "false_blocks": 3,
+      "extra_rounds": 3,
+      "writer": {
+        "lock_id": "lock-a",
+        "operation_id": "op-0001"
+      }
+    },
+    {
+      "seq": 2,
+      "checkpoint": {
+        "length": 1,
+        "sha256": "8163dccf3a600a0f548be99868b0fbec6ce623dd7f483a6aa686cc6d848a6efa"
+      },
+      "rule_id": "rule-reseal-by-hand",
+      "section": "process",
+      "name": "reseal the design candidate by hand",
+      "history": [
+        "introduced by an imported rule, never measured"
+      ],
+      "pass_id": "rfp-store-lock-1",
+      "epic_id": "epic-store-lock",
+      "verdict": "remove",
+      "evidence_locators": [
+        "epic-store-lock/notes/reseal#manual"
+      ],
+      "observed_benefit": "none observed",
+      "observed_cost": "four manual passes",
+      "false_blocks": 0,
+      "extra_rounds": 4,
+      "writer": {
+        "lock_id": "lock-a",
+        "operation_id": "op-0002"
+      }
+    },
+    {
+      "seq": 3,
+      "checkpoint": {
+        "length": 2,
+        "sha256": "02b2ff89383e3b1a1ad76d9628a9182150110a05531e17833aca7c34eae99551"
+      },
+      "rule_id": "rule-evidence-locator",
+      "section": "gates",
+      "name": "every finding cites a locator",
+      "history": [
+        "kept across three epics"
+      ],
+      "pass_id": "rfp-other-epic-1",
+      "epic_id": "epic-transcripts",
+      "verdict": "keep",
+      "evidence_locators": [
+        "epic-transcripts/gates/findings#0002"
+      ],
+      "observed_benefit": "two speculative rules were sent to backlog instead of landing",
+      "observed_cost": "none observed",
+      "false_blocks": 0,
+      "extra_rounds": 0,
+      "writer": {
+        "lock_id": "lock-b",
+        "operation_id": "op-0003"
+      }
+    }
+  ]
+}
