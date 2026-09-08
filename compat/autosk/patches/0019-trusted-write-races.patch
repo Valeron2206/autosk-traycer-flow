@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/extensions/bootstrap.ts b/daemon/core/src/extensions/bootstrap.ts
-index 56722c9fb1c8c1b02c0a53edd3a1c64c2478ad09..d4cc8aba4e4cf1a82743f603fd35932a3364c9b6 100644
+index 56722c9fb1c8c1b02c0a53edd3a1c64c2478ad09..52e2f13444cf85eda59463bf4a44688bcf0ccce3 100644
 --- a/daemon/core/src/extensions/bootstrap.ts
 +++ b/daemon/core/src/extensions/bootstrap.ts
 @@ -24,7 +24,7 @@
@@ -26,10 +26,11 @@ index 56722c9fb1c8c1b02c0a53edd3a1c64c2478ad09..d4cc8aba4e4cf1a82743f603fd35932a
      logger.info(`autoskd: first-run init complete — wrote ${settingsPath} (extensions: ${extensions.join(", ")})`);
      return { status: "installed" };
    } catch (e) {
-@@ -248,8 +254,30 @@ export function ensurePackagesManifest(packagesDir: string): void {
+@@ -247,9 +253,30 @@ export function ensurePackagesManifest(packagesDir: string): void {
+   );
  }
  
- /** Writes `settings.json` with the loaded-extension list. */
+-/** Writes `settings.json` with the loaded-extension list. */
 -function writeSettings(settingsPath: string, extensions: string[]): void {
 -  writeFileSync(settingsPath, `${JSON.stringify({ extensions }, null, 2)}\n`, "utf8");
 +/**
@@ -60,69 +61,88 @@ index 56722c9fb1c8c1b02c0a53edd3a1c64c2478ad09..d4cc8aba4e4cf1a82743f603fd35932a
  
  /**
 diff --git a/daemon/core/src/rpc/token.ts b/daemon/core/src/rpc/token.ts
-index 81a404f89ae0fd0d5326c40dafac6e6d0e98fbf7..3a06d1084ad017792f2e656c76d389ffaaa38cf6 100644
+index 81a404f89ae0fd0d5326c40dafac6e6d0e98fbf7..6f1d424f8eeb692c612fda0fe715b3f7e185ce51 100644
 --- a/daemon/core/src/rpc/token.ts
 +++ b/daemon/core/src/rpc/token.ts
-@@ -8,7 +8,16 @@
+@@ -5,10 +5,13 @@
+  * socket is `0600` in a `0700` dir, so filesystem perms already authenticate the
+  * local peer). On startup the daemon reads the token, minting a fresh random
+  * one if the file is absent. Path: `$AUTOSK_TOKEN_FILE` → `~/.autosk/daemon-token`.
++ *
++ * The file is published by `link`, so the name never exists without the token in
++ * it — see {@link ensureToken}.
   */
  
  import { randomBytes } from "node:crypto";
 -import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
-+import {
-+  chmodSync,
-+  closeSync,
-+  mkdirSync,
-+  openSync,
-+  readFileSync,
-+  renameSync,
-+  writeFileSync,
-+  writeSync,
-+} from "node:fs";
++import { chmodSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
  import { dirname, join } from "node:path";
  
  /** Resolves the token path: `$AUTOSK_TOKEN_FILE` → `~/.autosk/daemon-token`. */
-@@ -40,16 +49,39 @@ export function ensureToken(path: string): string {
+@@ -21,9 +24,11 @@ export function resolveTokenPath(): string | null {
+ }
+ 
+ /**
+- * Reads the token at `path`, minting + persisting a fresh one (`0600`) if the
+- * file is absent or empty. The file is created `0600` from the start so the
+- * secret never briefly exists with looser umask perms.
++ * Reads the token at `path`, minting and publishing a fresh one (`0600`) if the
++ * file is absent. An existing but EMPTY file is refused rather than replaced.
++ *
++ * The temp the token is written to is created `0600`; `umask` only clears bits,
++ * so it can never be wider.
+  */
+ export function ensureToken(path: string): string {
+   try {
+@@ -40,16 +45,43 @@ export function ensureToken(path: string): string {
    } catch {
      // best-effort
    }
 -  const fd = openSync(path, "w", 0o600);
-+  // Exclusive create, never a truncating open. A truncating write leaves a window
-+  // in which the file exists and is EMPTY — which this same function reads as
-+  // "absent" — so two daemons starting at once each minted and each clobbered, and
-+  // every loser was left holding a secret the file no longer contained. With `wx`
-+  // the loser is told so and adopts the winner's token instead.
++  // Publish the token so the file NEVER exists without it.
++  //
++  // The first attempt at this used `openSync(path, "wx")`, which is exclusive but
++  // not atomic with the write: it creates a 0-byte file, and the `writeSync` is a
++  // separate syscall. A concurrent starter that reached EEXIST in that gap read the
++  // file empty, took it for a leftover, and replaced it — leaving the creator
++  // returning a token no longer on disk. That is the very defect this function was
++  // changed to close; measurement put it at 4 occurrences in 150 rounds, seven
++  // times rarer than before and not gone.
++  //
++  // `link` is the atomic exclusive publish: the name appears already pointing at a
++  // file that holds the token, or it fails with EEXIST and somebody else won. There
++  // is no window in which the name exists empty, so no recovery branch is needed —
++  // and a recovery branch cannot be made correct anyway, because a read-back after a
++  // lossy replace can always be overtaken.
++  const tmp = `${path}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
++  writeFileSync(tmp, `${token}\n`, { mode: 0o600 });
    try {
 -    writeSync(fd, `${token}\n`);
--  } finally {
--    closeSync(fd);
-+    const fd = openSync(path, "wx", 0o600);
-+    try {
-+      writeSync(fd, `${token}\n`);
-+    } finally {
-+      closeSync(fd);
-+    }
++    linkSync(tmp, path);
 +  } catch (e) {
 +    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
 +    const existing = readFileSync(path, "utf8").trim();
 +    if (existing.length > 0) return existing;
-+    // The file exists but is empty: a leftover from an interrupted or older
-+    // truncating write. Replace it by rename, so no reader sees it empty, and
-+    // return what actually landed — concurrent recoverers then agree too.
-+    const tmp = `${path}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
-+    writeFileSync(tmp, `${token}\n`, { mode: 0o600 });
-+    try {
-+      chmodSync(tmp, 0o600);
-+    } catch {
-+      // best-effort: umask may have widened the create mode
-+    }
-+    renameSync(tmp, path);
-+    return readFileSync(path, "utf8").trim();
-   }
-   try {
-     chmodSync(path, 0o600);
-   } catch {
++    // An existing but EMPTY token file is a corrupt secret, not a race to recover
++    // from: replacing it would invalidate every client that already holds the real
++    // one, and doing so concurrently is exactly the clobber above. Refuse, and say
++    // which file to remove.
++    throw new Error(
++      `${path} exists but is empty: remove it and restart, or point AUTOSK_TOKEN_FILE elsewhere`,
++    );
+   } finally {
+-    closeSync(fd);
+-  }
+-  try {
+-    chmodSync(path, 0o600);
+-  } catch {
 -    // best-effort (in case the file pre-existed empty with wider perms)
-+    // best-effort: umask may have widened the create mode
++    try {
++      unlinkSync(tmp);
++    } catch {
++      // The link either succeeded (the token lives under `path` now) or did not;
++      // either way a leftover temp is not worth failing a daemon start over.
++    }
    }
    return token;
  }
@@ -179,10 +199,10 @@ index 04607f59902c123ac08d23734d7dddf2fc5ade60..d9374957c37b97316f5e7b177a38cd8a
 +});
 diff --git a/daemon/core/test/rpc.token.test.ts b/daemon/core/test/rpc.token.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..697a4cae9a0ba2f73ffc5b5f8ebfad1713ab1bb3
+index 0000000000000000000000000000000000000000..ddd2132992aaff5f81506883732dbec8f8908796
 --- /dev/null
 +++ b/daemon/core/test/rpc.token.test.ts
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,101 @@
 +/**
 + * The daemon's TCP auth token file (issue #13, trusted state written outside the
 + * boundary adapter).
@@ -194,7 +214,7 @@ index 0000000000000000000000000000000000000000..697a4cae9a0ba2f73ffc5b5f8ebfad17
 + */
 +
 +import { describe, expect, test } from "bun:test";
-+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
++import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 +import { join } from "node:path";
 +import { fileURLToPath } from "node:url";
 +
@@ -214,24 +234,35 @@ index 0000000000000000000000000000000000000000..697a4cae9a0ba2f73ffc5b5f8ebfad17
 +    }
 +  });
 +
-+  test("an empty token file is replaced by rename, never truncated in place", () => {
-+    // The deterministic half, and the actual regression guard. A truncating
-+    // `openSync(path, "w")` rewrites the SAME inode, so a concurrent reader can
-+    // see the file exist and be empty — which `ensureToken` itself reads as
-+    // "absent". Replacing by rename means the file only ever appears with the
-+    // token already in it. The inode is what tells the two apart.
++  test("the token file never exists without the token in it", () => {
++    // The guard for the publish being atomic. The temp is written first and `link`
++    // makes the name appear already pointing at it, so there is no moment at which
++    // the path exists and is empty — which is what a concurrent starter would have
++    // read as "absent" and replaced. The temp must not survive either.
++    const dir = tempDir();
++    try {
++      const path = join(dir.path, "daemon-token");
++      const token = ensureToken(path);
++      expect(token).toMatch(/^[0-9a-f]{64}$/u);
++      expect(readFileSync(path, "utf8").trim()).toBe(token);
++      expect(statSync(path).mode & 0o777).toBe(0o600);
++      expect(readdirSync(dir.path)).toEqual(["daemon-token"]);
++    } finally {
++      dir.cleanup();
++    }
++  });
++
++  test("an existing but empty token file is refused, not silently replaced", () => {
++    // Replacing it would invalidate every client already holding the real secret,
++    // and doing so concurrently is the clobber this function was changed to close.
++    // A corrupt secret is refused with the path to remove.
 +    const dir = tempDir();
 +    try {
 +      const path = join(dir.path, "daemon-token");
 +      writeFileSync(path, "", { mode: 0o600 });
-+      const before = statSync(path).ino;
-+
-+      const token = ensureToken(path);
-+
-+      expect(token).toMatch(/^[0-9a-f]{64}$/u);
-+      expect(readFileSync(path, "utf8").trim()).toBe(token);
-+      expect(statSync(path).ino, "the file was rewritten in place").not.toBe(before);
-+      expect(statSync(path).mode & 0o777).toBe(0o600);
++      expect(() => ensureToken(path)).toThrow(/exists but is empty/);
++      expect(readFileSync(path, "utf8")).toBe(""); // left exactly as found
++      expect(readdirSync(dir.path)).toEqual(["daemon-token"]); // no temp left behind
 +    } finally {
 +      dir.cleanup();
 +    }
@@ -272,19 +303,4 @@ index 0000000000000000000000000000000000000000..697a4cae9a0ba2f73ffc5b5f8ebfad17
 +    }
 +  }, 20000);
 +
-+  test("a reader never observes the file empty while it is being minted", () => {
-+    // A truncating write leaves a window in which the file exists and is empty,
-+    // which `ensureToken` itself reads as "absent". The replacement must make the
-+    // file appear only once it already holds the token.
-+    const dir = tempDir();
-+    try {
-+      const path = join(dir.path, "daemon-token");
-+      expect(existsSync(path)).toBe(false);
-+      const token = ensureToken(path);
-+      expect(readFileSync(path, "utf8").trim()).toBe(token);
-+      expect(token).toMatch(/^[0-9a-f]{64}$/u);
-+    } finally {
-+      dir.cleanup();
-+    }
-+  });
 +});

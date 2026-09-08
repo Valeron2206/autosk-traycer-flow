@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "138f78609e0b2cb812bf658a507021fa9a2a1c1c",
+  "result_tree": "2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -81,7 +81,7 @@
     },
     {
       "file": "patches/0019-trusted-write-races.patch",
-      "sha256": "b130dee4a42883f4f3a314f6200aace8712f162bd32d2387908f68a4b251b179"
+      "sha256": "6e6dc47fac0bb714375b64930d644b7811104867ddf987f4e7ee2bbd8c8cd8d8"
     }
   ],
   "license": {

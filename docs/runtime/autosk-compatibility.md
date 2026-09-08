@@ -40,7 +40,7 @@ apply in the listed order, each producing the tree beside it:
 | `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` |
 | `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
-| `0019-trusted-write-races.patch` | `138f78609e0b2cb812bf658a507021fa9a2a1c1c` — the current `result_tree` |
+| `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -177,10 +177,15 @@ single-writer would be wrong:
 - The RPC token was written with a truncating `openSync(path, "w")`, so two
   daemons starting at once each minted and each clobbered — every loser left
   holding a secret the file no longer contained — and a reader in between could
-  observe it empty, which `ensureToken` itself reads as "absent". **Fixed**: an
-  exclusive create, with the loser adopting the winner's token; a pre-existing
-  empty file is replaced by rename rather than truncated, so the file only ever
-  appears with the token already in it.
+  observe it empty, which `ensureToken` itself reads as "absent". **Fixed**, and
+  the first fix was not enough to say so: an exclusive `open(…, "wx")` creates a
+  0-byte file and the write is a separate syscall, so the same clobber survived
+  through that gap, seven times rarer. The token is now published with `link`,
+  which is atomic — the name appears already pointing at a file holding the token
+  — and an existing but empty file is **refused** rather than replaced, because a
+  read-back after a lossy replace can always be overtaken. Measured over 300
+  rounds × 24 concurrent starters: the previous version still produced
+  mismatches, this one produces none.
 
 Neither statement is a plan to leave any of this alone; they are the honest
 starting point for the slices that close it.
