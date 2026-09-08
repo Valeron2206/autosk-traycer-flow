@@ -16,7 +16,8 @@ import { createHash } from 'node:crypto';
 
 import { demand, immutable } from '../runtime/contracts.mjs';
 
-import { classifyRun, recipeErrors, selfProofState } from './verify-doc.mjs';
+import { classify } from './artifact-classifier.mjs';
+import { classifyRun, coverageErrors, recipeErrors, selfProofState } from './verify-doc.mjs';
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -170,4 +171,56 @@ export async function proveDocument(run, { doc, recipeId, cwd, env }) {
   }
   const proved = { ...doc, self_proof: selfProof(doc, execution) };
   return Object.freeze({ doc: Object.freeze(proved), execution, state: selfProofState(proved) });
+}
+
+/**
+ * Whether this project needs a verification document at all.
+ *
+ * Not every project does, and creating one for a repository with nothing to
+ * drive produces a document that describes how to verify nothing — which then
+ * has to be maintained, and read, and eventually believed.
+ *
+ * The question is answered by the artifact registry rather than by a judgement:
+ * a project with behaviour-defining paths has behaviour to verify. A path
+ * nobody can classify counts as needing one, because "probably just docs" is
+ * the reading this whole registry exists to remove.
+ */
+export function bootstrapDecision(registry, { paths, existingDoc = null }) {
+  const behaviour = [];
+  const unclassified = [];
+  for (const path of paths) {
+    const classified = classify(registry, path);
+    if (classified.status === 'classified' && classified.category === 'behavior_defining') behaviour.push(path);
+    else if (classified.status === 'parked') unclassified.push(path);
+  }
+  const needed = behaviour.length > 0 || unclassified.length > 0;
+  if (!needed) {
+    return Object.freeze({ decision: 'not_needed', reason: 'no behaviour-defining paths', behaviour: immutable([]) });
+  }
+  if (!existingDoc) {
+    return Object.freeze({
+      decision: 'create',
+      behaviour: immutable(behaviour.sort()),
+      unclassified: immutable(unclassified.sort()),
+    });
+  }
+  return Object.freeze({
+    decision: 'exists',
+    behaviour: immutable(behaviour.sort()),
+    unclassified: immutable(unclassified.sort()),
+  });
+}
+
+/**
+ * Coverage, asked before dispatch rather than at completion.
+ *
+ * Behaviour with no recipe is not proven by an argument that it obviously
+ * works, and asking now is what makes the gap cheap to fix.
+ */
+export function dispatchCoverage(ticket, doc) {
+  const errors = coverageErrors(ticket, (doc.recipes ?? []).map((recipe) => recipe.recipe_id));
+  return Object.freeze({
+    decision: errors.length === 0 ? 'dispatch' : 'park',
+    errors: immutable(errors.map(Object.freeze)),
+  });
 }

@@ -16,7 +16,22 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { isDeliverable } from "../src/host/verify-doc.mjs";
-import { executeRecipe, proveDocument, runStep, selfProof, tokenize } from "../src/host/verify-doc-runner.mjs";
+import { readFile } from "node:fs/promises";
+
+import { ROOT } from "../scripts/validate-artifact-registry.mjs";
+import {
+  bootstrapDecision,
+  dispatchCoverage,
+  executeRecipe,
+  proveDocument,
+  runStep,
+  selfProof,
+  tokenize,
+} from "../src/host/verify-doc-runner.mjs";
+
+const registry = JSON.parse(
+  await readFile(path.join(ROOT, "resources/artifact-registry/artifact-registry.v1.json"), "utf8"),
+);
 
 const execFileAsync = promisify(execFile);
 const code = (name) => (error) => error.code === name;
@@ -189,4 +204,32 @@ test("the run digest is over what actually ran", async (t) => {
   });
   const third = await proveDocument(run, { doc: other, recipeId: "r-1", cwd });
   assert.notEqual(third.doc.self_proof.run_digest, first.doc.self_proof.run_digest);
+});
+
+test("a project gets a verification document when it has behaviour to verify", () => {
+  // Creating one for a repository with nothing to drive produces a document
+  // that describes how to verify nothing — and then has to be maintained,
+  // read, and eventually believed.
+  const docsOnly = bootstrapDecision(registry, { paths: ["README.md"] });
+  assert.equal(docsOnly.decision, "not_needed");
+
+  const withCode = bootstrapDecision(registry, { paths: ["README.md", "src/host/panel.mjs"] });
+  assert.equal(withCode.decision, "create");
+  assert.deepEqual([...withCode.behaviour], ["src/host/panel.mjs"]);
+  assert.equal(bootstrapDecision(registry, { paths: ["src/host/panel.mjs"], existingDoc: {} }).decision, "exists");
+
+  // "Probably just docs" is the reading the registry exists to remove.
+  const unknown = bootstrapDecision(registry, { paths: ["some/unregistered/thing.txt"] });
+  assert.equal(unknown.decision, "create");
+  assert.deepEqual([...unknown.unclassified], ["some/unregistered/thing.txt"]);
+});
+
+test("coverage is asked before dispatch, so the gap is cheap", () => {
+  const covered = dispatchCoverage({ behaviours: [{ id: "b-1", recipe_ids: ["r-1"] }] }, doc());
+  assert.equal(covered.decision, "dispatch");
+  const gap = dispatchCoverage({ behaviours: [{ id: "b-1" }] }, doc());
+  assert.equal(gap.decision, "park");
+  assert.ok(gap.errors.some((error) => error.reason === "verify_coverage_gap"));
+  const unknownRecipe = dispatchCoverage({ behaviours: [{ id: "b-1", recipe_ids: ["r-9"] }] }, doc());
+  assert.equal(unknownRecipe.decision, "park");
 });
