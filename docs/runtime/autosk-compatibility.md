@@ -44,7 +44,8 @@ apply in the listed order, each producing the tree beside it:
 | `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
 | `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` |
 | `0022-session-meta-through-adapter.patch` | `033d7a28fbbeaac4c5ea7e38995c5dded35f9322` |
-| `0023-grant-signature.patch` | `60b5ac3e55a7d110333417d09f1b6f740ac6c23d` — the current `result_tree` |
+| `0023-grant-signature.patch` | `60b5ac3e55a7d110333417d09f1b6f740ac6c23d` |
+| `0024-transcript-through-adapter.patch` | `600db19b48ac4c9cbb6d332bbea7637281cc1a93` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -220,22 +221,42 @@ gets read — exactly what ADR-028 declined ("A project that never writes truste
 state should not hold a lock"). Changing that is a change to ADR-028, not a change
 of call site, so it is recorded as the remaining half.
 
-One boundary of a split adapter has to be stated rather than implied. In
-`create` the transcript header is written before the meta, and the transcript has
-not moved yet — so against a symlinked `sessions/` the header lands in the target
-before the meta write refuses. That is an improvement on what it replaced, not a
-new hole: before patch `0022` BOTH files landed there and `create` **succeeded**,
-so the daemon would run a session whose state lives outside the project. Now the
-session is refused and exactly one file escapes. It is #13 criterion 4 ("failures
-leave no partial trusted state"), it closes with the transcript slice, and a test
-asserts the count so that a second escaped file fails loudly.
+The session **transcript** followed in patch `0024`, with
+`read_session_transcript`, `write_session_transcript` and
+`append_session_transcript` — seventeen ops. It closes #13 criterion 4 ("failures
+leave no partial trusted state") at the place that criterion was actually open:
+against a symlinked `sessions/` directory, `create` used to write the transcript
+header into the target and only then have the meta refused. Two slices ago BOTH
+files landed there and `create` **succeeded**; after `0022` exactly one escaped;
+now the transcript write is the one that refuses first and nothing is left behind.
+The test that counted the escaped file now asserts the target is empty.
 
-The session transcript and the project registry remain. The registry is out of the
-adapter by ADR-028 (it lives in `$HOME`, not in the project); the transcript needs a
-chunked read, because it is appended without bound and `readTranscript` reads the
-whole file on every paged call. The registry is
-out of the adapter by ADR-028 (it lives in `$HOME`, not in the project); the session
-files are the next slice.
+The transcript is read in bounded windows rather than in one call, and that is the
+design rather than an implementation detail. A transcript is appended for as long
+as its session runs, so a whole-file op would need a size limit — and a limit on
+an append-only file is a ceiling a long session eventually hits, after which its
+own history stops being readable. So the append carries no limit, the read is
+chunked, and `readTranscript` joins the windows so its callers see the same whole
+file they always did.
+
+Chunking has one consequence that is not obvious and that a test now pins. The
+wire is JSON, and `encoding/json` does not carry invalid UTF-8: it substitutes
+U+FFFD. A window ends wherever the byte count runs out, so the ordinary case is a
+character cut in half — which would arrive at the daemon silently corrupted. The
+helper therefore stops each window on a character boundary and refuses anything
+else invalid, including an offset that starts inside a character. The same rule
+was missing on the whole-file reads that already crossed this wire, so a stored
+document with a bad byte was reaching the daemon with that byte replaced; those
+reads refuse now too, with the existing `not_utf8` class.
+
+The new ops make this a different contract, so the protocol revision is `3`. It is
+compared exactly on the readiness line, and the daemon's constant is the single
+place the number is written: the tests read it out of the source rather than
+repeating it, because a fake helper announcing a stale revision fails at readiness
+for a reason that has nothing to do with what those tests are about.
+
+The project registry remains outside the adapter by ADR-028 — it lives in `$HOME`,
+not in the project — and `scan()` remains on plain `fs` for the reason above.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:
