@@ -49,7 +49,7 @@ apply in the listed order, each producing the tree beside it:
 | `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` |
 | `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` |
 | `0027-serve-pinned-code.patch` | `72ed6e0ea07646666aaf81d6b7ee34f729b9715b` |
-| `0028-session-bound-create.patch` | `8fc807eb1eac3338644c2131a3c75191c558de44` — the current `result_tree` |
+| `0028-session-bound-create.patch` | `b83fa230dde4795ac082a75b41b6965cac577a2b` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

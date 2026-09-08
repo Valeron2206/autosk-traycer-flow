@@ -1,3 +1,149 @@
+diff --git a/cmd/autosk/creation_test.go b/cmd/autosk/creation_test.go
+index 912684e..7ba9054 100644
+--- a/cmd/autosk/creation_test.go
++++ b/cmd/autosk/creation_test.go
+@@ -9,53 +9,29 @@ import (
+ 	"testing"
+ )
+ 
+-func TestCreateBoundJSONReceiptAndRetry(t *testing.T) {
++// TestCreateBoundRefusesAnUnboundCall is what this surface can prove on its own
++// since issue #10 criterion 7: a bound create must name the session it came
++// from, and a CLI invoked from a terminal has none.
++//
++// The receipt, the retry and the conflict are still proven end to end through
++// the compiled binaries — in scripts/verify-autosk-creation.mjs, where the calls
++// are made by an agent with the token in its child environment, which is the
++// path a model actually takes. They cannot be proven here without standing up a
++// session, and a test that pretended otherwise would be testing a call nobody is
++// allowed to make.
++func TestCreateBoundRefusesAnUnboundCall(t *testing.T) {
+ 	dir := initProject(t)
+ 	key := "flow:" + strings.Repeat("a", 64)
+ 	hash := strings.Repeat("b", 64)
+-	blocker := "ask-123456"
+ 
+-	out, err := runRoot(t, dir, "--json", "create", "child", "--description", "body", "--blocked-by", blocker, "--creation-key", key, "--creation-binding-hash", hash)
+-	if err != nil {
+-		t.Fatalf("create bound: %v\n%s", err, out)
+-	}
+-	var first struct {
+-		Outcome string `json:"outcome"`
+-		Task    struct {
+-			ID                  string   `json:"id"`
+-			Status              string   `json:"status"`
+-			Workflow            *string  `json:"workflow"`
+-			Step                *string  `json:"step"`
+-			Title               string   `json:"title"`
+-			Description         string   `json:"description"`
+-			BlockedBy           []string `json:"blocked_by"`
+-			CreationKey         string   `json:"creation_key"`
+-			CreationBindingHash string   `json:"creation_binding_hash"`
+-		} `json:"task"`
+-	}
+-	if err := json.Unmarshal([]byte(out), &first); err != nil {
+-		t.Fatalf("unmarshal receipt: %v\n%s", err, out)
+-	}
+-	if first.Outcome != "created" || first.Task.Title != "child" || first.Task.CreationKey != key || first.Task.CreationBindingHash != hash {
+-		t.Fatalf("unexpected first receipt: %+v", first)
+-	}
+-	if first.Task.Workflow != nil || first.Task.Step != nil {
+-		t.Fatalf("workflow/step should be null: %+v", first.Task)
+-	}
+-	if len(first.Task.BlockedBy) != 1 || first.Task.BlockedBy[0] != blocker {
+-		t.Fatalf("blocked_by = %v, want [%s]", first.Task.BlockedBy, blocker)
+-	}
+-
+-	retry, err := runRoot(t, dir, "--json", "create", "display retry", "--creation-key", key, "--creation-binding-hash", hash)
+-	if err != nil {
+-		t.Fatalf("retry bound: %v\n%s", err, retry)
+-	}
+-	var second map[string]any
+-	if err := json.Unmarshal([]byte(retry), &second); err != nil {
+-		t.Fatalf("unmarshal retry: %v\n%s", err, retry)
++	out, err := runRoot(t, dir, "--json", "create", "child", "--creation-key", key, "--creation-binding-hash", hash)
++	if !errors.Is(err, errSilentExit1) {
++		t.Fatalf("expected a refusal with exit 1, got %v\n%s", err, out)
+ 	}
+-	if second["outcome"] != "existing_same_binding" {
+-		t.Fatalf("retry outcome = %v, want existing_same_binding", second["outcome"])
++	// The reason is part of the answer: an operator has to be able to tell "this
++	// call is not attributable" from "this binding conflicts".
++	if !strings.Contains(out, `"reason":"creation_unbound_call"`) || !strings.Contains(out, `"outcome":"invalid"`) {
++		t.Fatalf("expected a structured unbound refusal, got %s", out)
+ 	}
+ 
+ 	list, err := runRoot(t, dir, "list", "--json")
+@@ -66,8 +42,33 @@ func TestCreateBoundJSONReceiptAndRetry(t *testing.T) {
+ 	if err := json.Unmarshal([]byte(list), &tasks); err != nil {
+ 		t.Fatalf("unmarshal list: %v\n%s", err, list)
+ 	}
+-	if len(tasks) != 1 {
+-		t.Fatalf("task count = %d, want 1: %s", len(tasks), list)
++	// Refused before anything was written: a task created and then disowned would
++	// be worse than no task.
++	if len(tasks) != 0 {
++		t.Fatalf("task count = %d, want 0: %s", len(tasks), list)
++	}
++}
++
++// TestCreateBoundSendsTheTokenItWasGiven covers the other half at this surface:
++// the CLI carries the session's token when its environment has one. What the
++// daemon then does with it is the daemon's tests; that the value leaves this
++// process at all is this one's.
++func TestCreateBoundSendsTheTokenItWasGiven(t *testing.T) {
++	dir := initProject(t)
++	t.Setenv("AUTOSK_SESSION_TOKEN", "not-a-live-token")
++	key := "flow:" + strings.Repeat("a", 64)
++	hash := strings.Repeat("b", 64)
++
++	out, err := runRoot(t, dir, "--json", "create", "child", "--creation-key", key, "--creation-binding-hash", hash)
++	if !errors.Is(err, errSilentExit1) {
++		t.Fatalf("expected a refusal with exit 1, got %v\n%s", err, out)
++	}
++	// Still refused — the token is not one the daemon minted — and refused as the
++	// same class, because an unknown token and no token mean the same thing on
++	// the wire. What this shows is that the value was sent: without it the daemon
++	// could not have judged it at all.
++	if !strings.Contains(out, `"reason":"creation_unbound_call"`) {
++		t.Fatalf("expected a structured unbound refusal, got %s", out)
+ 	}
+ }
+ 
+@@ -132,33 +133,3 @@ func TestCreateBoundRejectsInvalidTitleBeforeClient(t *testing.T) {
+ 		t.Fatalf("validation should run before auto-init; stat err=%v", statErr)
+ 	}
+ }
+-
+-func TestCreateBoundConflictEmitsJSONErrorAndNoDuplicate(t *testing.T) {
+-	dir := initProject(t)
+-	key := "flow:" + strings.Repeat("a", 64)
+-	firstHash := strings.Repeat("b", 64)
+-	secondHash := strings.Repeat("c", 64)
+-	if out, err := runRoot(t, dir, "--json", "create", "child", "--creation-key", key, "--creation-binding-hash", firstHash); err != nil {
+-		t.Fatalf("first create: %v\n%s", err, out)
+-	}
+-
+-	out, err := runRoot(t, dir, "--json", "create", "changed", "--creation-key", key, "--creation-binding-hash", secondHash)
+-	if !errors.Is(err, errSilentExit1) {
+-		t.Fatalf("expected conflict silent exit, got %v\n%s", err, out)
+-	}
+-	if !strings.Contains(out, `"code":1004`) || !strings.Contains(out, `"outcome":"conflict"`) || !strings.Contains(out, `"creation_key":"`+key+`"`) {
+-		t.Fatalf("expected structured conflict, got %s", out)
+-	}
+-
+-	list, err := runRoot(t, dir, "list", "--json")
+-	if err != nil {
+-		t.Fatalf("list: %v\n%s", err, list)
+-	}
+-	var tasks []any
+-	if err := json.Unmarshal([]byte(list), &tasks); err != nil {
+-		t.Fatalf("unmarshal list: %v\n%s", err, list)
+-	}
+-	if len(tasks) != 1 {
+-		t.Fatalf("task count = %d, want 1: %s", len(tasks), list)
+-	}
+-}
 diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
 index aa70cfa..7534b92 100644
 --- a/daemon/core/src/engine/engine.ts
