@@ -417,10 +417,10 @@ index 1c30bd02a44b733e5887d95b7e3ca1430600a531..13ec1efce84cf28d4a0edab15bdd1d47
  });
 diff --git a/internal/storelock/comments_test.go b/internal/storelock/comments_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..3115d4b5626e8eea7a543e242502de3a483d457f
+index 0000000000000000000000000000000000000000..b9ecc9789411c77cfb227825ee6ee3a0e8e19a19
 --- /dev/null
 +++ b/internal/storelock/comments_test.go
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,331 @@
 +package storelock
 +
 +import (
@@ -712,8 +712,48 @@ index 0000000000000000000000000000000000000000..3115d4b5626e8eea7a543e242502de3a
 +		t.Fatalf("creation index has mode %o, want 600", st.Mode&0o777)
 +	}
 +}
++
++func TestCommentsRefuseToPublishWhatTheyCannotReadBack(t *testing.T) {
++	// The read limit is new to this path: the daemon used to read comments with
++	// plain `readFile`, which has none. Without a matching refusal on the write,
++	// a large comment file could be published once and never read again — and
++	// the view path, which tolerates refusals, would report it as empty.
++	root := t.TempDir()
++	lock := withCommentsLock(t, root)
++
++	oversize := make([]byte, maxFileBytes+1)
++	for i := range oversize {
++		oversize[i] = 'x'
++	}
++	if _, err := lock.WriteComments("ask-111111", oversize); err == nil {
++		t.Fatal("expected an oversize comment write to be refused")
++	} else if !errors.Is(err, ErrTooLarge) {
++		t.Fatalf("expected ErrTooLarge, got %v", err)
++	} else if Code(err) != "too_large" {
++		t.Fatalf("expected refusal class too_large, got %q", Code(err))
++	}
++
++	// Refused before anything is created: no task directory, no partial file.
++	if _, err := os.Stat(filepath.Join(root, ".autosk", "tasks", "ask-111111")); !os.IsNotExist(err) {
++		t.Fatalf("the refused write created a task directory anyway (%v)", err)
++	}
++
++	// The largest acceptable payload round-trips, so the limit is a boundary and
++	// not an off-by-one that quietly rejects a legal file.
++	atLimit := oversize[:maxFileBytes]
++	if _, err := lock.WriteComments("ask-111111", atLimit); err != nil {
++		t.Fatal(err)
++	}
++	read, err := lock.ReadComments("ask-111111")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !read.Exists || len(read.Data) != maxFileBytes {
++		t.Fatalf("round trip at the limit returned exists=%v len=%d", read.Exists, len(read.Data))
++	}
++}
 diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
-index 666fb791a37aa3e0088dddffc275c014b1bc2808..b518d1915fad15258879d36fb05995622a2d2c00 100644
+index 666fb791a37aa3e0088dddffc275c014b1bc2808..9dd6d902727c5f3de7595642e9e9bc18fc11ddc5 100644
 --- a/internal/storelock/lock_unix.go
 +++ b/internal/storelock/lock_unix.go
 @@ -28,6 +28,7 @@ const (
@@ -788,7 +828,7 @@ index 666fb791a37aa3e0088dddffc275c014b1bc2808..b518d1915fad15258879d36fb0599562
  }
  
  type runtimeHandles struct {
-@@ -346,11 +404,41 @@ func (l *Lock) WriteTask(taskID string, data []byte) error {
+@@ -346,11 +404,48 @@ func (l *Lock) WriteTask(taskID string, data []byte) error {
  	if err != nil {
  		return err
  	}
@@ -819,6 +859,13 @@ index 666fb791a37aa3e0088dddffc275c014b1bc2808..b518d1915fad15258879d36fb0599562
 +	if err := l.verifyLockPath(); err != nil {
 +		return StatInfo{}, err
 +	}
++	// Refuse to publish a file this helper would then refuse to read back. The
++	// read limit is new to this path — the daemon used to read comments with
++	// plain `readFile`, which has none — so without this a large comment file
++	// could be written once and never be readable again.
++	if int64(len(data)) > maxFileBytes {
++		return StatInfo{}, fmt.Errorf("%s exceeds %d bytes: %w", commentsFileName, int64(maxFileBytes), ErrTooLarge)
++	}
 +	taskFD, _, err := l.openTaskDir(taskID, true)
 +	if err != nil {
 +		return StatInfo{}, err
@@ -831,7 +878,7 @@ index 666fb791a37aa3e0088dddffc275c014b1bc2808..b518d1915fad15258879d36fb0599562
  func (l *Lock) ReadRuntimeBlob(digest string) (_ ReadResult, err error) {
  	if err := validateRuntimeDigest(digest); err != nil {
  		return ReadResult{}, err
-@@ -992,6 +1080,12 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+@@ -992,6 +1087,12 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
  	if errors.Is(err, unix.ENOENT) {
  		return ReadResult{Exists: false}, nil
  	}
@@ -844,7 +891,7 @@ index 666fb791a37aa3e0088dddffc275c014b1bc2808..b518d1915fad15258879d36fb0599562
  	if err != nil {
  		return ReadResult{}, err
  	}
-@@ -1034,7 +1128,46 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+@@ -1034,7 +1135,46 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
  	if int64(len(data)) > maxBytes {
  		return ReadResult{}, fmt.Errorf("%s exceeds %d bytes: %w", name, maxBytes, ErrTooLarge)
  	}

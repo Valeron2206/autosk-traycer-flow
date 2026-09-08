@@ -42,7 +42,7 @@ apply in the listed order, each producing the tree beside it:
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
 | `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
-| `0021-comments-through-adapter.patch` | `f218f0c963bf7575154e87f3c1250971dbad21c2` — the current `result_tree` |
+| `0021-comments-through-adapter.patch` | `ae3133280f5093b40b3fff5ecf8553d6545de586` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -197,6 +197,12 @@ The helper now applies the process umask (read in `init`, before any goroutine o
 ours exists) to the *ordinary* project files, `task.json` and `comments.jsonl`,
 and to nothing else: the `0600` of the creation index and the runtime store is a
 requirement, not a default, and must hold whatever the umask is.
+
+The read limit is new to this path too — the daemon used to read comments with
+plain `readFile`, which has none — so `write_comments` refuses a payload the
+helper would then refuse to read back. Publishing a file that can never be read
+again would be bad on its own; with the view path now tolerating refusals it
+would also show as an empty comment list, which is the worst of both.
 
 The session meta and transcript, and the project registry, remain. The registry is
 out of the adapter by ADR-028 (it lives in `$HOME`, not in the project); the session
