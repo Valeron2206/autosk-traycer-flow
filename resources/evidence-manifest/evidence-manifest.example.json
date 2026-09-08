@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "epic_id": "epic-2026-09-a",
+  "task_id": "ask-4f21aa",
+  "round": 2,
+  "attempt": 1,
+  "agent": "review",
+  "candidate_identity": "1111111111111111111111111111111111111111111111111111111111111111",
+  "anchor_version": 3,
+  "producer": {
+    "tool": "autosk-verify",
+    "version": "1.4.0",
+    "config_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "media_type": "application/json",
+  "size": 8412,
+  "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "mode": 420,
+  "clearance_manifest": "resources/clearance/epic-2026-09-a.json",
+  "source_recipe": {
+    "command_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "environment_digest": "5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "created_at": "2026-09-08T12:00:00.000Z",
+  "evidence_class": "verification_harness_run",
+  "durability": "durable",
+  "storage": {
+    "owner_project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "path": ".autosk-evidence/epic-2026-09-a/ask-4f21aa/2/review/batch.json"
+  },
+  "references": [
+    "6666666666666666666666666666666666666666666666666666666666666666"
+  ],
+  "dependents": [
+    "7777777777777777777777777777777777777777777777777777777777777777"
+  ],
+  "deletion": {
+    "state": "present"
+  },
+  "truncation": {
+    "state": "complete"
+  },
+  "retention_pin": {
+    "epic_policy_digest": "8888888888888888888888888888888888888888888888888888888888888888",
+    "decision_version": 2
+  },
+  "batch": {
+    "contract_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+    "base_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tree_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "pathspec_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "harness_source_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "harness_binary_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "harness_config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "mutation_set_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "toolchain_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "applied_proof": [
+      {
+        "mutation_id": "guard-removed",
+        "applied_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "expected_killer": "test/validate-x.test.mjs :: refuses an oversize payload",
+    "observed_red": "1 failing: refuses an oversize payload",
+    "green_controls": [
+      {
+        "control_id": "suite-unmutated",
+        "outcome": "green"
+      }
+    ],
+    "outcome": "product_pass",
+    "before_tree": "3333333333333333333333333333333333333333",
+    "after_tree": "3333333333333333333333333333333333333333",
+    "restore": {
+      "state": "verified",
+      "receipt_sequence": 11
+    },
+    "retained_ephemeral": [],
+    "deleted_ephemeral": [
+      "build/mutants/guard-removed"
+    ]
+  }
+}

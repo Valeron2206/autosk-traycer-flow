@@ -196,6 +196,7 @@
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
         "docs/contracts/epic-staging.md",
+        "docs/contracts/evidence-manifest.md",
         "docs/contracts/execution-base.md",
         "docs/contracts/external-source-snapshot.md",
         "docs/contracts/finding-registry.md",
@@ -221,6 +222,7 @@
         "delivery_profile",
         "design_candidate",
         "epic_staging",
+        "evidence_manifest",
         "execution_base",
         "external_source_snapshot",
         "fault_matrix",
@@ -421,6 +423,31 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
+    },
+    {
+      "class": "evidence_manifest",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "driver"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk-evidence/**/evidence-manifest.json"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
     },
     {
       "class": "execution_base",
@@ -887,5 +914,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "a868fd8ddfb880335095ea54e6477a696fc1889a220d95baa0bb05dd47ddbcd5"
+  "registry_digest": "c05b30c6b48988821139da450862bc11f9d63b9e1961c2e2b88c536d7d8fe6d7"
 }
