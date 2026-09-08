@@ -42,7 +42,7 @@ apply in the listed order, each producing the tree beside it:
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
 | `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
-| `0021-comments-through-adapter.patch` | `912a4a2acb91b99970885c5fbf5bcaa337767963` — the current `result_tree` |
+| `0021-comments-through-adapter.patch` | `f218f0c963bf7575154e87f3c1250971dbad21c2` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -186,6 +186,17 @@ project over one planted link. Neither is right. The view path now reports a ref
 comment file as a count of zero and warns once per reason, while a caller who asked
 for that task's comments by name still gets the refusal — tolerating it on the
 listing is not the same as hiding it from the caller who wanted it.
+
+One more thing had to move with the write, and it is easy to miss: **permissions**.
+The daemon's own writer creates an ordinary project file with the mode the
+operator's umask allows; the helper sets modes explicitly, on purpose, because
+several of its files must be private no matter what the umask says. Routing
+comments through it therefore widened `comments.jsonl` from `0600` to `0644` on a
+machine with `umask 077` — silently, while `task.json` beside it stayed `0600`.
+The helper now applies the process umask (read in `init`, before any goroutine of
+ours exists) to the *ordinary* project files, `task.json` and `comments.jsonl`,
+and to nothing else: the `0600` of the creation index and the runtime store is a
+requirement, not a default, and must hold whatever the umask is.
 
 The session meta and transcript, and the project registry, remain. The registry is
 out of the adapter by ADR-028 (it lives in `$HOME`, not in the project); the session
