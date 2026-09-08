@@ -38,7 +38,7 @@ apply in the listed order, each producing the tree beside it:
 | `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
 | `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` |
 | `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` |
-| `0017-helper-refusal-classes.patch` | `c838735cbbfd327f29889bea73b85ef0b9f137db` — the current `result_tree` |
+| `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -138,21 +138,27 @@ guessing. The two constants are `protocolVersion` in
 
 ### Refusal classes
 
-Every refusal used to reach the daemon as prose, and the TypeScript side told them
-apart by matching substrings — which turns a reworded message into a silent
-behaviour change. The helper now names the class of a refusal it can classify:
+Every refusal used to reach the daemon as prose, and the helper's own Go tests told
+them apart by matching substrings — which makes a reworded message a silent
+behaviour change. (The TypeScript side never matched on message text; the claim
+that it did was wrong and is corrected here.) The helper now names the class of a
+refusal it can classify:
 
-| Code | Meaning |
-| --- | --- |
-| `timeout` | the project lock was not acquired in time |
-| `not_regular` | not a single-linked regular file — a directory, FIFO, socket, device, or extra hard links |
-| `not_dir` | a component that must be a directory is not one |
-| `ownership` | the file is not private to the current user (uid or mode) |
-| `cross_device` | the path leaves the device the project root lives on |
-| `digest_mismatch` | content does not hash to the digest it is filed under |
-| `cas_mismatch` | the expected-existing identity did not hold |
-| `too_large` | the payload exceeds the helper's limit |
-| `not_utf8` | the payload is not valid UTF-8 |
+| Code | Meaning | Reaches a `HelperRefusal`? |
+| --- | --- | --- |
+| `not_regular` | not a single-linked regular file — directory, FIFO, socket, device, or extra hard links | yes |
+| `not_dir` | a component that must be a directory is not one (usually `ENOTDIR`, since every open is `O_DIRECTORY`) | yes |
+| `ownership` | the file is not private to the current user (uid or mode) | yes |
+| `cross_device` | the path leaves the device the project root lives on | yes |
+| `path_changed` | a directory or file the lock is anchored to was replaced while the lock was held — the directory-swap case | yes |
+| `digest_mismatch` | content does not hash to the digest it is filed under, on write **or** on read of a corrupted store | yes |
+| `cas_mismatch` | the expected-existing identity did not hold | yes |
+| `too_large` | the payload exceeds the helper's limit | on read; on write the daemon pre-checks the identical limit, so it does not reach the wire today |
+| `not_utf8` | the payload is not valid UTF-8 | on read; on write, same pre-check |
+| `timeout` | the project lock was not acquired in time | **no** — `Acquire` fails before the readiness line, so this is a spawn failure, never a response |
+
+The last column matters: a class that cannot reach a caller is a dead branch, and
+advertising one is the same false confidence this table exists to remove.
 
 The set is deliberately not exhaustive, and the contract is exact: **a code, when
 present, is authoritative; its absence means unclassified — never "fine" and never

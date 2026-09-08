@@ -212,11 +212,42 @@ index 57798e281dd41454e630eafead11c6cc2f4a36f1..16eddb31f17f0bb8f138d3eb18974d60
 +    expect(new HelperRefusal("write_runtime_index", "boom", "cas_mismatch").code).toBe("cas_mismatch");
 +  });
 +});
+diff --git a/internal/storelock/lock_test.go b/internal/storelock/lock_test.go
+index d32e3877209ea3f252f3f80b4644241e23a72ad3..80c1275f77b49058e642ca6c730ba16389025505 100644
+--- a/internal/storelock/lock_test.go
++++ b/internal/storelock/lock_test.go
+@@ -349,7 +349,7 @@ func TestLockRejectsLockPathReplacementBeforeIO(t *testing.T) {
+ 	if err == nil {
+ 		t.Fatal("expected original lock holder to reject IO after lock path replacement")
+ 	}
+-	if !strings.Contains(err.Error(), "lock path changed") {
++	if !errors.Is(err, ErrPathChanged) {
+ 		t.Fatalf("expected lock path drift error, got %v", err)
+ 	}
+ }
+@@ -382,7 +382,7 @@ func TestLockRejectsVersionDirectoryReplacementBeforeIO(t *testing.T) {
+ 	if err == nil {
+ 		t.Fatal("expected original lock holder to reject IO after creation version dir replacement")
+ 	}
+-	if !strings.Contains(err.Error(), "creation version dir path changed") {
++	if !errors.Is(err, ErrPathChanged) {
+ 		t.Fatalf("expected creation version dir drift error, got %v", err)
+ 	}
+ }
+@@ -415,7 +415,7 @@ func TestLockRejectsAutoskDirectoryReplacementBeforeIO(t *testing.T) {
+ 	if err == nil {
+ 		t.Fatal("expected original lock holder to reject IO after .autosk replacement")
+ 	}
+-	if !strings.Contains(err.Error(), ".autosk dir path changed") {
++	if !errors.Is(err, ErrPathChanged) {
+ 		t.Fatalf("expected .autosk dir drift error, got %v", err)
+ 	}
+ }
 diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
-index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b20c94e298 100644
+index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..666fb791a37aa3e0088dddffc275c014b1bc2808 100644
 --- a/internal/storelock/lock_unix.go
 +++ b/internal/storelock/lock_unix.go
-@@ -38,6 +38,67 @@ const (
+@@ -38,6 +38,74 @@ const (
  
  var ErrTimeout = errors.New("store lock timeout")
  
@@ -249,6 +280,11 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
 +	ErrTooLarge = errors.New("payload exceeds the size limit")
 +	// ErrNotUTF8: the payload is not valid UTF-8.
 +	ErrNotUTF8 = errors.New("payload is not valid UTF-8")
++	// ErrPathChanged: a directory or file the lock is anchored to was replaced
++	// while the lock was held — the directory-swap case #13 names. It is the one
++	// refusal that says the filesystem moved under a verified handle, so a caller
++	// must be able to tell it from an ordinary failure.
++	ErrPathChanged = errors.New("path changed while the lock is held")
 +)
 +
 +// Code names the refusal class of err, or "" when it is unclassified.
@@ -262,7 +298,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
 +		return "timeout"
 +	case errors.Is(err, ErrNotRegular):
 +		return "not_regular"
-+	case errors.Is(err, ErrNotDir):
++	case errors.Is(err, ErrNotDir) || errors.Is(err, unix.ENOTDIR):
 +		return "not_dir"
 +	case errors.Is(err, ErrOwnership):
 +		return "ownership"
@@ -276,6 +312,8 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
 +		return "too_large"
 +	case errors.Is(err, ErrNotUTF8):
 +		return "not_utf8"
++	case errors.Is(err, ErrPathChanged):
++		return "path_changed"
 +	default:
 +		return ""
 +	}
@@ -284,7 +322,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  type Lock struct {
  	rootPath   string
  	rootFD     int
-@@ -327,13 +388,13 @@ func (l *Lock) WriteRuntimeBlob(digest string, data []byte) (err error) {
+@@ -327,13 +395,13 @@ func (l *Lock) WriteRuntimeBlob(digest string, data []byte) (err error) {
  		return err
  	}
  	if len(data) > maxRuntimeFileBytes {
@@ -301,7 +339,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  	}
  	handles, err := l.openRuntimeBlobsDir(true)
  	if err != nil {
-@@ -430,10 +491,10 @@ func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error
+@@ -430,10 +498,10 @@ func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error
  		}
  	}
  	if len(data) > maxRuntimeFileBytes {
@@ -314,7 +352,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  	}
  	handles, err := l.openRuntimeVersionDir(true)
  	if err != nil {
-@@ -451,15 +512,15 @@ func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error
+@@ -451,21 +519,21 @@ func (l *Lock) WriteRuntimeIndex(expectedDigest *string, data []byte) (err error
  	}
  	if expectedDigest == nil {
  		if current.Exists {
@@ -333,7 +371,14 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  		}
  	}
  	if expectedDigest == nil {
-@@ -743,7 +804,7 @@ func requireDir(fd int, label string) error {
+ 		if err := atomicCreateAt(handles.versionFD, indexFileName, data, 0o600); err != nil {
+ 			if errors.Is(err, unix.EEXIST) {
+-				return errors.New("runtime index already exists")
++				return fmt.Errorf("runtime index already exists: %w", ErrCASMismatch)
+ 			}
+ 			return err
+ 		}
+@@ -743,7 +811,7 @@ func requireDir(fd int, label string) error {
  		return fmt.Errorf("stat %s: %w", label, err)
  	}
  	if st.Mode&unix.S_IFMT != unix.S_IFDIR {
@@ -342,7 +387,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  	}
  	return nil
  }
-@@ -754,10 +815,10 @@ func requireRegularSingleLink(fd int, label string) error {
+@@ -754,10 +822,10 @@ func requireRegularSingleLink(fd int, label string) error {
  		return err
  	}
  	if st.Mode&unix.S_IFMT != unix.S_IFREG {
@@ -355,7 +400,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  	}
  	return nil
  }
-@@ -771,7 +832,7 @@ func requireRuntimeDir(fd int, label string, rootID fileIdentity) (fileIdentity,
+@@ -771,7 +839,7 @@ func requireRuntimeDir(fd int, label string, rootID fileIdentity) (fileIdentity,
  		return fileIdentity{}, fmt.Errorf("%s is not a directory", label)
  	}
  	if uint64(st.Dev) != rootID.dev {
@@ -364,7 +409,7 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  	}
  	if err := requirePrivateFileOwnership(st, label); err != nil {
  		return fileIdentity{}, err
-@@ -793,10 +854,10 @@ func wrapCreateFinalError(err error) error {
+@@ -793,10 +861,10 @@ func wrapCreateFinalError(err error) error {
  
  func requirePrivateFileOwnership(st unix.Stat_t, label string) error {
  	if st.Uid != uint32(unix.Geteuid()) {
@@ -377,7 +422,34 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  	}
  	return nil
  }
-@@ -941,7 +1002,7 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+@@ -859,7 +927,7 @@ func verifyChildPath(parentFD int, name string, heldFD int, want fileIdentity, l
+ 		return err
+ 	}
+ 	if err := compareFDIdentity(fd, want, label+" path"); err != nil {
+-		return fmt.Errorf("%s path changed while lock is held", label)
++		return fmt.Errorf("%s: %w", label, ErrPathChanged)
+ 	}
+ 	return nil
+ }
+@@ -896,7 +964,7 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
+ 		return err
+ 	}
+ 	if uint64(st.Dev) != want.dev || uint64(st.Ino) != want.ino {
+-		return errors.New("store lock path changed while lock is held")
++		return fmt.Errorf("store lock: %w", ErrPathChanged)
+ 	}
+ 	return nil
+ }
+@@ -911,7 +979,7 @@ func readRuntimeFile(parentFD int, name string, rootID fileIdentity) (ReadResult
+ 		return result, err
+ 	}
+ 	if !utf8.Valid(result.Data) {
+-		return ReadResult{}, fmt.Errorf("%s is not valid UTF-8", name)
++		return ReadResult{}, fmt.Errorf("%s: %w", name, ErrNotUTF8)
+ 	}
+ 	return result, nil
+ }
+@@ -941,7 +1009,7 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
  		// a reason to refuse the bytes rather than to skip the comparison.
  		if uint64(st.Dev) != rootID.dev {
  			closeErr := unix.Close(fd)
@@ -386,8 +458,35 @@ index 76474c80818dc5a79bed5fa8a221d41e02d2ed16..897cc2fff2e6ae167f84f8b9041867b2
  		}
  		if err := requirePrivateFileOwnership(st, name); err != nil {
  			closeErr := unix.Close(fd)
+@@ -950,7 +1018,7 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+ 	}
+ 	if st.Size > maxBytes {
+ 		closeErr := unix.Close(fd)
+-		return ReadResult{}, errors.Join(fmt.Errorf("%s exceeds %d bytes", name, maxBytes), closeErr)
++		return ReadResult{}, errors.Join(fmt.Errorf("%s exceeds %d bytes: %w", name, maxBytes, ErrTooLarge), closeErr)
+ 	}
+ 	file := os.NewFile(uintptr(fd), name)
+ 	if file == nil {
+@@ -964,7 +1032,7 @@ func readRegularFileLimit(parentFD int, name string, maxBytes int64, rootID file
+ 		return ReadResult{}, err
+ 	}
+ 	if int64(len(data)) > maxBytes {
+-		return ReadResult{}, fmt.Errorf("%s exceeds %d bytes", name, maxBytes)
++		return ReadResult{}, fmt.Errorf("%s exceeds %d bytes: %w", name, maxBytes, ErrTooLarge)
+ 	}
+ 	return ReadResult{Exists: true, Data: data}, nil
+ }
+@@ -1086,7 +1154,7 @@ func runtimeDataDigest(data []byte) string {
+ func verifyRuntimeDataDigest(label string, digest string, data []byte) error {
+ 	actual := runtimeDataDigest(data)
+ 	if actual != digest {
+-		return fmt.Errorf("%s digest mismatch: expected %s actual %s", label, digest, actual)
++		return fmt.Errorf("%s digest mismatch: expected %s actual %s: %w", label, digest, actual, ErrDigestMismatch)
+ 	}
+ 	return nil
+ }
 diff --git a/internal/storelock/runtime_test.go b/internal/storelock/runtime_test.go
-index ad14e7298dbdd9ade0252c828d0625562b09dcff..5632b89da8d055b486277d54a4aab2027ba872b3 100644
+index ad14e7298dbdd9ade0252c828d0625562b09dcff..4571465393d7b0d481349240814e11d09b9fc77e 100644
 --- a/internal/storelock/runtime_test.go
 +++ b/internal/storelock/runtime_test.go
 @@ -5,6 +5,7 @@ import (
@@ -407,6 +506,15 @@ index ad14e7298dbdd9ade0252c828d0625562b09dcff..5632b89da8d055b486277d54a4aab202
  		t.Fatalf("expected hardlinked blob to be rejected, got %v", err)
  	}
  
+@@ -188,7 +189,7 @@ func TestRuntimeBlobRejectsCorruptExistingHardlinkAndFIFO(t *testing.T) {
+ 	}()
+ 	select {
+ 	case err := <-done:
+-		if err == nil || !strings.Contains(err.Error(), "regular file") {
++		if err == nil || !errors.Is(err, ErrNotRegular) {
+ 			t.Fatalf("expected FIFO blob to be rejected, got %v", err)
+ 		}
+ 	case <-time.After(500 * time.Millisecond):
 @@ -376,7 +377,7 @@ func TestRuntimeRejectsUnsafeDirectoryMode(t *testing.T) {
  		t.Fatal(err)
  	}
@@ -416,6 +524,15 @@ index ad14e7298dbdd9ade0252c828d0625562b09dcff..5632b89da8d055b486277d54a4aab202
  		t.Fatalf("expected unsafe runtime dir mode to be rejected, got %v", err)
  	}
  	if _, err := os.Stat(filepath.Join(runtimeDir, "v1", "index.json")); !errors.Is(err, os.ErrNotExist) {
+@@ -403,7 +404,7 @@ func TestRuntimeHierarchyValidationRejectsDirectorySwap(t *testing.T) {
+ 	if err := os.MkdirAll(versionPath, 0o700); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if err := handles.verify(); err == nil || !strings.Contains(err.Error(), "runtime version dir path changed") {
++	if err := handles.verify(); err == nil || !errors.Is(err, ErrPathChanged) {
+ 		t.Fatalf("expected runtime version dir drift error, got %v", err)
+ 	}
+ }
 @@ -428,10 +429,10 @@ func TestRuntimeRejectsGroupOrWorldAccessibleBlob(t *testing.T) {
  		t.Fatal(err)
  	}
@@ -480,7 +597,7 @@ index ad14e7298dbdd9ade0252c828d0625562b09dcff..5632b89da8d055b486277d54a4aab202
  		t.Fatalf("expected an unidentified root device to be rejected, got %v", err)
  	}
  }
-@@ -571,3 +572,30 @@ func TestCreateFinalErrorNamesUnsupportedNoReplaceRename(t *testing.T) {
+@@ -571,3 +572,32 @@ func TestCreateFinalErrorNamesUnsupportedNoReplaceRename(t *testing.T) {
  		t.Fatalf("EEXIST must not be reported as an unsupported filesystem: %v", exists)
  	}
  }
@@ -502,6 +619,8 @@ index ad14e7298dbdd9ade0252c828d0625562b09dcff..5632b89da8d055b486277d54a4aab202
 +		{fmt.Errorf("x: %w", ErrCASMismatch), "cas_mismatch"},
 +		{fmt.Errorf("x: %w", ErrTooLarge), "too_large"},
 +		{fmt.Errorf("x: %w", ErrNotUTF8), "not_utf8"},
++		{fmt.Errorf("x: %w", ErrPathChanged), "path_changed"},
++		{fmt.Errorf("open tasks dir: %w", unix.ENOTDIR), "not_dir"},
 +		{errors.New("something nobody classified"), ""},
 +		{fmt.Errorf("wrapped: %w", errors.New("still unclassified")), ""},
 +		{nil, ""},
