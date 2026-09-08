@@ -32,7 +32,8 @@ apply in the listed order, each producing the tree beside it:
 | `0008-migration-apply.patch` | `74c05ee7f39a4d8669ad04cf3c26035129d7dda0` |
 | `0009-migration-rollback.patch` | `c45f47eb3895072ffccf72c8456cd3a26f4ad281` |
 | `0010-session-candidate-identity.patch` | `9242baec104cfa14df183edd55bcfda2fb50a29f` |
-| `0011-concurrent-epics.patch` | `eda6fbcb67759d349777827e4ecb2b29c90e9937` — the current `result_tree` |
+| `0011-concurrent-epics.patch` | `eda6fbcb67759d349777827e4ecb2b29c90e9937` |
+| `0012-reload-and-missing-version.patch` | `5a16304e20883870375cefc7816b4875c581d354` — the current `result_tree` |
 
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
