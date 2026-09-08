@@ -1,0 +1,100 @@
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b8b9f11c2c964bd06cb582ef5cb6a2121606ce7
+--- /dev/null
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -0,0 +1,94 @@
++/**
++ * Which trusted state the filesystem boundary adapter actually covers (issue #13).
++ *
++ * #13 says: "Нельзя иметь безопасный adapter для одной подсистемы и обычный
++ * `fs.writeFile/rm` для другой trusted state." These tests establish, against the
++ * code rather than against prose, exactly where the line falls today — because the
++ * two candidate readings of that gap are not the same defect and do not have the
++ * same fix.
++ */
++
++import { afterEach, beforeEach, describe, expect, test } from "bun:test";
++import { readFileSync } from "node:fs";
++import { mkdir, writeFile } from "node:fs/promises";
++import { dirname } from "node:path";
++
++import { Store, creationKeyHash } from "../src/index.ts";
++import { tempDir } from "./helpers.ts";
++
++const KEY = "flow:coverage";
++const HASH = "b".repeat(64);
++
++describe("what the boundary adapter covers", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let store: Store;
++
++  beforeEach(async () => {
++    dir = tempDir();
++    store = new Store(dir.path, { watch: false });
++    await store.open();
++  });
++  afterEach(async () => {
++    await store.close();
++    dir.cleanup();
++  });
++
++  test("a task under a pending reservation is withheld from the ordinary write path", async () => {
++    // This is why `task.json` having two writers is not, today, a lost-update
++    // hazard: the reservation index withholds a task from the ordinary path for
++    // exactly the window in which the locked path may write it. Discovered by
++    // trying to construct the race and failing — the exclusion is real, and it is
++    // load-bearing, so it is pinned here rather than assumed.
++    const shared = await store.createTask({ title: "before" });
++    const keyHash = creationKeyHash(KEY);
++    await mkdir(dirname(store.paths.creationIndexJson), { recursive: true });
++    await writeFile(
++      store.paths.creationIndexJson,
++      JSON.stringify({
++        schema_version: 1,
++        reservations: {
++          [keyHash]: {
++            key_hash: keyHash, creation_key: KEY, creation_binding_hash: HASH,
++            task_id: shared.id, state: "pending",
++            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", deleted_at: null,
++          },
++        },
++      }, null, 2) + "\n",
++    );
++
++    await expect(store.updateTask(shared.id, { title: "edited outside the lock" })).rejects.toThrow(
++      /task not found/,
++    );
++    expect((await store.listTaskViews()).map((t) => t.id)).not.toContain(shared.id);
++  });
++
++  test("the helper can only write three kinds of file, and comments and sessions are not among them", () => {
++    // The gap #13 names is not a race for these: they have ONE writer. It is that
++    // the one writer is plain `node:fs`, so they get none of the adapter's
++    // guarantees — no no-follow, no owner or mode check, no device check.
++    const helper = readFileSync(new URL("../../../cmd/autosk-store-lock/main.go", import.meta.url), "utf8");
++    const ops = [...helper.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
++    expect(ops.sort()).toEqual([
++      "list_task_ids",
++      "read_creation_index",
++      "read_runtime_blob",
++      "read_runtime_index",
++      "read_task",
++      "write_creation_index",
++      "write_runtime_blob",
++      "write_runtime_index",
++      "write_task",
++    ]);
++
++    const taskStore = readFileSync(new URL("../src/store/taskStore.ts", import.meta.url), "utf8");
++    const sessionStore = readFileSync(new URL("../src/store/sessionStore.ts", import.meta.url), "utf8");
++    for (const [name, source] of [["taskStore", taskStore], ["sessionStore", sessionStore]] as const) {
++      expect(source, name).toContain("atomicWrite");
++      expect(source, name).not.toContain("withCreationLock");
++    }
++    // comments.jsonl and the session meta/transcript have no helper op at all, so
++    // routing them through the adapter needs new ops, not a call-site change.
++    expect(ops).not.toContain("write_comments");
++    expect(ops).not.toContain("write_session_meta");
++  });
++});
