@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "epic_id": "epic-0001",
+  "staging_ref": "refs/autosk/epics/epic-0001/staging",
+  "target_ref": "refs/heads/main",
+  "recorded_target_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "planning_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "receipts": [
+    {
+      "ticket_id": "T01",
+      "delta_digest": "986256b3dbf07ef00f8703a2ea251dc40477e062c92c8d0039bfb070fc914c35",
+      "applied_commit_oid": "1111111111111111111111111111111111111111"
+    },
+    {
+      "ticket_id": "T02",
+      "delta_digest": "eddc108be7f0bb616575518dd4041973a96e42185a8ecab3e54932ad83c3d8b6",
+      "applied_commit_oid": "2222222222222222222222222222222222222222"
+    },
+    {
+      "ticket_id": "T03",
+      "delta_digest": "ae5f1d79b5773366a2c0c7f60b55110b45fbf2a7d86676bea3fc8156c856bde0",
+      "applied_commit_oid": "3333333333333333333333333333333333333333"
+    }
+  ],
+  "phase": "post_cas_verified",
+  "staging_commit_oid": "cccccccccccccccccccccccccccccccccccccccc",
+  "staging_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
+  "aggregate": {
+    "staging_commit_oid": "cccccccccccccccccccccccccccccccccccccccc",
+    "staging_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
+    "verification_config_digest": "93bd185a879f0bc99534c72f21af2fd955d8edd23f8d22f8badfc92d497d921b",
+    "instruction_lock_digest": "9ef75459dd5e850d4fe408aca5e77717ee408ba010ca6342a5d7ca6bd21685c8",
+    "included_tickets": [
+      "T01",
+      "T02",
+      "T03"
+    ],
+    "outcome": "pass",
+    "record_hash": "a6e0b829b7f35a820a9dcec98215ce87ee1094583b982d38de20d92b111816f3"
+  },
+  "acceptance": {
+    "kind": "human",
+    "staging_commit_oid": "cccccccccccccccccccccccccccccccccccccccc",
+    "staging_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
+    "aggregate_record_hash": "a6e0b829b7f35a820a9dcec98215ce87ee1094583b982d38de20d92b111816f3",
+    "included_tickets": [
+      "T01",
+      "T02",
+      "T03"
+    ],
+    "target_ref": "refs/heads/main",
+    "recorded_target_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "delivery_profile_digest": "7510f35e54ac583f1ef6aa0b3c14d6bc7fad4d79f9450f217f08df951d1b167a",
+    "decision_id": "dec-0042"
+  },
+  "post_cas": {
+    "target_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "target_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
+    "containment_verified": true,
+    "reflog_verified": true
+  }
+}

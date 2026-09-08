@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/epic-staging.v1.json",
+  "title": "Epic staging and final target CAS v1",
+  "description": "Approved Tickets accumulate privately; the user's target moves once. Closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "epic_id",
+    "staging_ref",
+    "target_ref",
+    "recorded_target_base",
+    "planning_head",
+    "receipts",
+    "phase",
+    "staging_commit_oid",
+    "staging_tree_oid"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "epic_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "staging_ref": {
+      "type": "string",
+      "pattern": "^refs/autosk/epics/[^/]+/staging$"
+    },
+    "target_ref": {
+      "type": "string",
+      "pattern": "^refs/[A-Za-z0-9._/-]+$"
+    },
+    "recorded_target_base": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "planning_head": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "receipts": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ticket_id",
+          "delta_digest",
+          "applied_commit_oid"
+        ],
+        "properties": {
+          "ticket_id": {
+            "type": "string",
+            "pattern": "^T[0-9]{2,4}$"
+          },
+          "delta_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "applied_commit_oid": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+          }
+        }
+      }
+    },
+    "phase": {
+      "enum": [
+        "staging_created",
+        "deltas_applied",
+        "aggregate_verified",
+        "accepted",
+        "target_advanced",
+        "post_cas_verified"
+      ]
+    },
+    "staging_commit_oid": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "staging_tree_oid": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "staging_commit_oid",
+        "staging_tree_oid",
+        "verification_config_digest",
+        "instruction_lock_digest",
+        "included_tickets",
+        "outcome",
+        "record_hash"
+      ],
+      "properties": {
+        "staging_commit_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "staging_tree_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "verification_config_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "instruction_lock_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "included_tickets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^T[0-9]{2,4}$"
+          }
+        },
+        "outcome": {
+          "enum": [
+            "pass",
+            "fail",
+            "command_failure",
+            "environment_failure"
+          ]
+        },
+        "record_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "staging_commit_oid",
+        "staging_tree_oid",
+        "aggregate_record_hash",
+        "included_tickets",
+        "target_ref",
+        "recorded_target_base",
+        "delivery_profile_digest"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "pinned_auto_policy"
+          ]
+        },
+        "staging_commit_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "staging_tree_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "aggregate_record_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "included_tickets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^T[0-9]{2,4}$"
+          }
+        },
+        "target_ref": {
+          "type": "string",
+          "pattern": "^refs/[A-Za-z0-9._/-]+$"
+        },
+        "recorded_target_base": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "delivery_profile_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "post_cas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_oid",
+        "target_tree_oid",
+        "containment_verified",
+        "reflog_verified"
+      ],
+      "properties": {
+        "target_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "target_tree_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "containment_verified": {
+          "type": "boolean"
+        },
+        "reflog_verified": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
