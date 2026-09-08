@@ -28,6 +28,10 @@ const env = {
   AUTOSK_STORE_LOCK_BIN: proxyPath,
   AUTOSK_NO_AUTO_INSTALL: "1",
   AUTOSK_SKIP_SHELL_PATH: "1",
+  // Read by the evidence extension inside the daemon, which inherits this env.
+  AUTOSK_EVIDENCE_PLAN: path.join(root, "evidence-plan.json"),
+  AUTOSK_EVIDENCE_OUT: path.join(root, "evidence-results.json"),
+  AUTOSK_FAULT_PLAN: planPath,
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -275,6 +279,97 @@ async function cli(cwd, args, expectedCode = 0) {
   return stdout;
 }
 
+/**
+ * The extension this evidence drives each fault point through.
+ *
+ * A bound create must name the session it came from (issue #10, criterion 7), so
+ * the CLI calls have to be made by an agent with the token in the child
+ * environment. Arming and disarming the fault happens INSIDE the agent for a
+ * reason that is not convenience: the session's own writes — creating the
+ * evidence task, enrolling it — are `write_task` calls, and a fault armed before
+ * them would fire on the wrong one. Between the arm and the disarm the only
+ * store writes are the bound create's.
+ */
+const EVIDENCE_EXTENSION = `
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+export default function (autosk) {
+  autosk.registerWorkflow({
+    name: "evidence",
+    firstStep: "run",
+    steps: {
+      run: {
+        onRun: async (ctx) => {
+          const plan = JSON.parse(await readFile(process.env.AUTOSK_EVIDENCE_PLAN, "utf8"));
+          const results = [];
+          const record = async (value) => {
+            results.push(value);
+            await writeFile(process.env.AUTOSK_EVIDENCE_OUT, JSON.stringify(results));
+          };
+          for (const step of plan) {
+            if (step.arm !== undefined) {
+              await writeFile(process.env.AUTOSK_FAULT_PLAN, JSON.stringify(step.arm));
+              await record({ armed: step.arm });
+              continue;
+            }
+            if (step.read !== undefined) {
+              try {
+                await record({ read: JSON.parse(await readFile(step.read, "utf8")) });
+              } catch (error) {
+                await record({ read: null, code: error.code });
+              }
+              continue;
+            }
+            const r = await ctx.exec(["autosk", ...step.args], {
+              cwd: step.cwd,
+              env: {
+                ...process.env,
+                AUTOSK_CWD: step.cwd,
+                AUTOSK_AGENT: ctx.workflows.current.step,
+                AUTOSK_SESSION_TOKEN: ctx.sessionToken,
+              },
+            });
+            await record({ code: r.code, stdout: r.stdout, stderr: r.stderr });
+          }
+          await ctx.transit({ status: "done" });
+        },
+      },
+    },
+  });
+}
+`;
+
+async function installEvidenceExtension(cwd) {
+  await mkdir(path.join(cwd, ".autosk", "extensions"), { recursive: true });
+  await writeFile(path.join(cwd, ".autosk", "extensions", "evidence.js"), EVIDENCE_EXTENSION);
+}
+
+/** Runs a plan inside one real session and returns what each step produced. */
+async function runInSession(cwd, plan) {
+  await writeFile(path.join(root, "evidence-plan.json"), JSON.stringify(plan));
+  await writeFile(path.join(root, "evidence-results.json"), "[]");
+  const task = JSON.parse(await cli(cwd, ["create", "Evidence run", "--json"]));
+  await cli(cwd, ["enroll", task.id, "--workflow", "evidence", "--json"]);
+  for (let attempt = 0; attempt < 900; attempt += 1) {
+    const view = JSON.parse(await cli(cwd, ["show", task.id, "--json"]));
+    if (view.status === "done") break;
+    if (view.status === "human" || view.status === "cancel") {
+      throw new Error(`evidence session ended as ${view.status}: ${await readFile(path.join(root, "evidence-results.json"), "utf8")}`);
+    }
+    await delay(100);
+  }
+  const results = JSON.parse(await readFile(path.join(root, "evidence-results.json"), "utf8"));
+  assert.equal(results.length, plan.length, `evidence session ran ${results.length} of ${plan.length} steps`);
+  return { results, taskId: task.id };
+}
+
+/** One CLI result from inside a session, asserted the way `cli` asserts one outside. */
+function fromSession(result, args, expectedCode = 0) {
+  assert.equal(result.code, expectedCode, `CLI ${args[0]}: ${result.stdout} ${result.stderr}`);
+  return result.stdout;
+}
+
 const evidence = [];
 
 try {
@@ -289,16 +384,29 @@ try {
   ]) {
     const cwd = path.join(root, point);
     await mkdir(cwd);
+    // Written before `init`, because `init` opens the project and the registry
+    // is built once at open.
+    await installEvidenceExtension(cwd);
     await cli(cwd, ["init"]);
 
     const key = `flow:${createHash("sha256").update(point).digest("hex")}`;
     const hash = createHash("sha256").update(`${point}:binding`).digest("hex");
     const args = ["create", "Crash child", "--creation-key", key, "--creation-binding-hash", hash, "--json"];
+    const indexPath = path.join(cwd, ".autosk", "creation", "v1", "index.json");
 
-    await writeFile(planPath, JSON.stringify({ point }));
-    assert(JSON.parse(await cli(cwd, args, 1)).error, "fault must surface as an error");
+    const session = await runInSession(cwd, [
+      { arm: { point } },
+      { args, cwd },
+      { read: planPath },
+      { read: indexPath },
+      { arm: {} },
+      { args, cwd },
+    ]);
+    const [, faulted, hitStep, indexStep, , recovered] = session.results;
 
-    const hit = JSON.parse(await readFile(planPath, "utf8"));
+    assert(JSON.parse(fromSession(faulted, args, 1)).error, "fault must surface as an error");
+
+    const hit = hitStep.read;
     assert.equal(hit.hit, point, "the selected native persistence boundary must be reached");
     assert.equal(hit.requestedSignal, "SIGKILL", "fault helper must request SIGKILL");
     assert.equal(hit.killReturned, true, "native writer must receive the requested signal");
@@ -307,17 +415,11 @@ try {
     assert.equal(hit.proxyFailed, false, "fault proxy must complete without an unrelated error");
     if (point.endsWith(".after")) assert.equal(hit.response.ok, true, "native write must acknowledge fsync before injection");
 
-    const indexPath = path.join(cwd, ".autosk", "creation", "v1", "index.json");
-    let previousId;
-    try {
-      const index = JSON.parse(await readFile(indexPath, "utf8"));
-      previousId = Object.values(index.reservations)[0]?.task_id;
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    const previousId = indexStep.read
+      ? Object.values(indexStep.read.reservations)[0]?.task_id
+      : undefined;
 
-    await writeFile(planPath, "{}\n");
-    const result = JSON.parse(await cli(cwd, args));
+    const result = JSON.parse(fromSession(recovered, args));
     if (previousId) assert.equal(result.task.id, previousId);
     const expectedOutcome = ["task.after", "activation.before", "activation.after"].includes(point)
       ? "existing_same_binding"
@@ -326,8 +428,11 @@ try {
     assert.equal(result.task.creation_key, key);
     assert.equal(result.task.creation_binding_hash, hash);
 
+    // Two tasks, both accounted for: the child this point is about, and the
+    // evidence session's own task — which exists because a bound create must now
+    // come from a session. Anything else is an orphan, which is what this checks.
     const tasks = await readdir(path.join(cwd, ".autosk", "tasks"));
-    assert.deepEqual(tasks, [result.task.id]);
+    assert.deepEqual(tasks.sort(), [result.task.id, session.taskId].sort());
     const onDisk = JSON.parse(await readFile(path.join(cwd, ".autosk", "tasks", result.task.id, "task.json"), "utf8"));
     assert.equal(onDisk.creation_key, key);
     assert.equal(onDisk.creation_binding_hash, hash);

@@ -48,7 +48,8 @@ apply in the listed order, each producing the tree beside it:
 | `0024-transcript-through-adapter.patch` | `600db19b48ac4c9cbb6d332bbea7637281cc1a93` |
 | `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` |
 | `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` |
-| `0027-serve-pinned-code.patch` | `72ed6e0ea07646666aaf81d6b7ee34f729b9715b` — the current `result_tree` |
+| `0027-serve-pinned-code.patch` | `72ed6e0ea07646666aaf81d6b7ee34f729b9715b` |
+| `0028-session-bound-create.patch` | `b83fa230dde4795ac082a75b41b6965cac577a2b` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -365,6 +366,45 @@ entry fails to load and says so rather than guessing.
 A store that cannot answer either question leaves the installed code in place.
 An unreadable store is a reason to serve what is there, not to take a project
 down.
+
+## Where a bound create came from
+
+Patch `0028` gives every session a token and makes `task.create_bound` require
+it. The gap is not that the verb is badly validated — every field of it is
+checked. It is that every field describes the PROJECT, so a create a model made
+from inside a session was indistinguishable from one typed at a terminal, and an
+unattributable create cannot carry the runtime identity the session was admitted
+under. The daemon's record of which code minted a task simply stopped at that
+boundary.
+
+The token is 256 bits of randomness held only in the daemon process. It is never
+written to the project and never derived from anything guessable, and it stops
+existing the moment its session settles — so a token that leaks out of a
+finished session is already useless, which is the property a signature alone
+would not give. A token also names a session in ONE project; accepting it
+elsewhere would make it a key to every project the daemon has open.
+
+Absent, wrong-typed and unknown tokens are one refusal (`creation_unbound_call`),
+not three. On the wire they all mean the same thing — this caller is not bound —
+and telling them apart would only tell a prober which of its guesses was better
+formed.
+
+The session hands the token to its agent as `ctx.sessionToken`, the agent puts
+it in the child environment as `AUTOSK_SESSION_TOKEN` beside `AUTOSK_CWD`, and
+the Go client sends it on this verb only. A reservation then records
+`created_by`: the session id and the identity that session was admitted under,
+with `null` for a session that had none — `null` there says "no admission", while
+an absent `created_by` says "nobody recorded a session", and those are different
+claims.
+
+`task.creation-binding` becomes **v2**. A required new parameter is a new
+revision rather than an addition: a caller written for v1 sends no token and
+every one of its calls is now refused, and a capability whose version did not
+move would let such a caller believe it was supported and discover otherwise one
+refusal at a time.
+
+The price, accepted by the owner on 2026-09-08: a direct `autosk` CLI call
+outside any session no longer creates a bound task.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:

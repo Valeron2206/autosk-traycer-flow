@@ -1,0 +1,1268 @@
+diff --git a/cmd/autosk/creation_test.go b/cmd/autosk/creation_test.go
+index 912684e..7ba9054 100644
+--- a/cmd/autosk/creation_test.go
++++ b/cmd/autosk/creation_test.go
+@@ -9,53 +9,29 @@ import (
+ 	"testing"
+ )
+ 
+-func TestCreateBoundJSONReceiptAndRetry(t *testing.T) {
++// TestCreateBoundRefusesAnUnboundCall is what this surface can prove on its own
++// since issue #10 criterion 7: a bound create must name the session it came
++// from, and a CLI invoked from a terminal has none.
++//
++// The receipt, the retry and the conflict are still proven end to end through
++// the compiled binaries — in scripts/verify-autosk-creation.mjs, where the calls
++// are made by an agent with the token in its child environment, which is the
++// path a model actually takes. They cannot be proven here without standing up a
++// session, and a test that pretended otherwise would be testing a call nobody is
++// allowed to make.
++func TestCreateBoundRefusesAnUnboundCall(t *testing.T) {
+ 	dir := initProject(t)
+ 	key := "flow:" + strings.Repeat("a", 64)
+ 	hash := strings.Repeat("b", 64)
+-	blocker := "ask-123456"
+ 
+-	out, err := runRoot(t, dir, "--json", "create", "child", "--description", "body", "--blocked-by", blocker, "--creation-key", key, "--creation-binding-hash", hash)
+-	if err != nil {
+-		t.Fatalf("create bound: %v\n%s", err, out)
+-	}
+-	var first struct {
+-		Outcome string `json:"outcome"`
+-		Task    struct {
+-			ID                  string   `json:"id"`
+-			Status              string   `json:"status"`
+-			Workflow            *string  `json:"workflow"`
+-			Step                *string  `json:"step"`
+-			Title               string   `json:"title"`
+-			Description         string   `json:"description"`
+-			BlockedBy           []string `json:"blocked_by"`
+-			CreationKey         string   `json:"creation_key"`
+-			CreationBindingHash string   `json:"creation_binding_hash"`
+-		} `json:"task"`
+-	}
+-	if err := json.Unmarshal([]byte(out), &first); err != nil {
+-		t.Fatalf("unmarshal receipt: %v\n%s", err, out)
+-	}
+-	if first.Outcome != "created" || first.Task.Title != "child" || first.Task.CreationKey != key || first.Task.CreationBindingHash != hash {
+-		t.Fatalf("unexpected first receipt: %+v", first)
+-	}
+-	if first.Task.Workflow != nil || first.Task.Step != nil {
+-		t.Fatalf("workflow/step should be null: %+v", first.Task)
+-	}
+-	if len(first.Task.BlockedBy) != 1 || first.Task.BlockedBy[0] != blocker {
+-		t.Fatalf("blocked_by = %v, want [%s]", first.Task.BlockedBy, blocker)
+-	}
+-
+-	retry, err := runRoot(t, dir, "--json", "create", "display retry", "--creation-key", key, "--creation-binding-hash", hash)
+-	if err != nil {
+-		t.Fatalf("retry bound: %v\n%s", err, retry)
+-	}
+-	var second map[string]any
+-	if err := json.Unmarshal([]byte(retry), &second); err != nil {
+-		t.Fatalf("unmarshal retry: %v\n%s", err, retry)
++	out, err := runRoot(t, dir, "--json", "create", "child", "--creation-key", key, "--creation-binding-hash", hash)
++	if !errors.Is(err, errSilentExit1) {
++		t.Fatalf("expected a refusal with exit 1, got %v\n%s", err, out)
+ 	}
+-	if second["outcome"] != "existing_same_binding" {
+-		t.Fatalf("retry outcome = %v, want existing_same_binding", second["outcome"])
++	// The reason is part of the answer: an operator has to be able to tell "this
++	// call is not attributable" from "this binding conflicts".
++	if !strings.Contains(out, `"reason":"creation_unbound_call"`) || !strings.Contains(out, `"outcome":"invalid"`) {
++		t.Fatalf("expected a structured unbound refusal, got %s", out)
+ 	}
+ 
+ 	list, err := runRoot(t, dir, "list", "--json")
+@@ -66,8 +42,33 @@ func TestCreateBoundJSONReceiptAndRetry(t *testing.T) {
+ 	if err := json.Unmarshal([]byte(list), &tasks); err != nil {
+ 		t.Fatalf("unmarshal list: %v\n%s", err, list)
+ 	}
+-	if len(tasks) != 1 {
+-		t.Fatalf("task count = %d, want 1: %s", len(tasks), list)
++	// Refused before anything was written: a task created and then disowned would
++	// be worse than no task.
++	if len(tasks) != 0 {
++		t.Fatalf("task count = %d, want 0: %s", len(tasks), list)
++	}
++}
++
++// TestCreateBoundSendsTheTokenItWasGiven covers the other half at this surface:
++// the CLI carries the session's token when its environment has one. What the
++// daemon then does with it is the daemon's tests; that the value leaves this
++// process at all is this one's.
++func TestCreateBoundSendsTheTokenItWasGiven(t *testing.T) {
++	dir := initProject(t)
++	t.Setenv("AUTOSK_SESSION_TOKEN", "not-a-live-token")
++	key := "flow:" + strings.Repeat("a", 64)
++	hash := strings.Repeat("b", 64)
++
++	out, err := runRoot(t, dir, "--json", "create", "child", "--creation-key", key, "--creation-binding-hash", hash)
++	if !errors.Is(err, errSilentExit1) {
++		t.Fatalf("expected a refusal with exit 1, got %v\n%s", err, out)
++	}
++	// Still refused — the token is not one the daemon minted — and refused as the
++	// same class, because an unknown token and no token mean the same thing on
++	// the wire. What this shows is that the value was sent: without it the daemon
++	// could not have judged it at all.
++	if !strings.Contains(out, `"reason":"creation_unbound_call"`) {
++		t.Fatalf("expected a structured unbound refusal, got %s", out)
+ 	}
+ }
+ 
+@@ -132,33 +133,3 @@ func TestCreateBoundRejectsInvalidTitleBeforeClient(t *testing.T) {
+ 		t.Fatalf("validation should run before auto-init; stat err=%v", statErr)
+ 	}
+ }
+-
+-func TestCreateBoundConflictEmitsJSONErrorAndNoDuplicate(t *testing.T) {
+-	dir := initProject(t)
+-	key := "flow:" + strings.Repeat("a", 64)
+-	firstHash := strings.Repeat("b", 64)
+-	secondHash := strings.Repeat("c", 64)
+-	if out, err := runRoot(t, dir, "--json", "create", "child", "--creation-key", key, "--creation-binding-hash", firstHash); err != nil {
+-		t.Fatalf("first create: %v\n%s", err, out)
+-	}
+-
+-	out, err := runRoot(t, dir, "--json", "create", "changed", "--creation-key", key, "--creation-binding-hash", secondHash)
+-	if !errors.Is(err, errSilentExit1) {
+-		t.Fatalf("expected conflict silent exit, got %v\n%s", err, out)
+-	}
+-	if !strings.Contains(out, `"code":1004`) || !strings.Contains(out, `"outcome":"conflict"`) || !strings.Contains(out, `"creation_key":"`+key+`"`) {
+-		t.Fatalf("expected structured conflict, got %s", out)
+-	}
+-
+-	list, err := runRoot(t, dir, "list", "--json")
+-	if err != nil {
+-		t.Fatalf("list: %v\n%s", err, list)
+-	}
+-	var tasks []any
+-	if err := json.Unmarshal([]byte(list), &tasks); err != nil {
+-		t.Fatalf("unmarshal list: %v\n%s", err, list)
+-	}
+-	if len(tasks) != 1 {
+-		t.Fatalf("task count = %d, want 1: %s", len(tasks), list)
+-	}
+-}
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index aa70cfa..7534b92 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -31,6 +31,7 @@ import {
+   type WorkflowDefinition,
+ } from "@autosk/sdk";
+ import { GrantSigner } from "./grantSignature.ts";
++import { SessionTokens } from "./sessionTokens.ts";
+ 
+ import { systemClock, type Clock } from "../store/clock.ts";
+ import { consoleLogger, type Logger } from "../store/logger.ts";
+@@ -85,6 +86,14 @@ export class Engine implements SessionHost {
+    * to does not either.
+    */
+   readonly grantSigner = new GrantSigner();
++  /**
++   * The live session tokens of this daemon run (issue #10, criterion 7).
++   *
++   * Here for the same reason as the signer: one registry per process, and a
++   * token stops existing when its session settles — so it does not survive a
++   * restart, which is correct, because neither does the session it named.
++   */
++  readonly sessionTokens = new SessionTokens();
+   private readonly workers: number;
+ 
+   private readonly projects = new Map<string, EngineProject>();
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index b93e497..4f7f3b2 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -152,6 +152,8 @@ export class SessionRuntime {
+   private started = false;
+   /** The session has reached a terminal state (set once by {@link settleOnce}). */
+   private settled = false;
++  /** The token a bound create must present to be attributed to this session. */
++  private readonly boundToken: string;
+ 
+   constructor(init: SessionRuntimeInit) {
+     this.id = init.sessionId;
+@@ -177,6 +179,18 @@ export class SessionRuntime {
+       this.step = init.step;
+       this.admitted = init.runtimeIdentity;
+     }
++    // The token a bound create must present (issue #10, criterion 7). Minted for
++    // every session, interactive included: an interactive session is still a
++    // place a model runs, and leaving it without one would leave the CLI hole
++    // open in exactly the shape it was found.
++    this.boundToken = this.host.sessionTokens.mint({
++      projectRoot: this.project.root,
++      sessionId: this.id,
++      taskId: this.taskId,
++      workflow: this.workflowName,
++      step: this.step,
++      runtimeIdentity: this.admitted,
++    });
+ 
+     this.transcript = new TranscriptWriter(
+       this.project.store.sessions,
+@@ -612,6 +626,11 @@ export class SessionRuntime {
+   private settleOnce(): boolean {
+     if (this.settled) return false;
+     this.settled = true;
++    // The token dies with the session. A token that outlived its session would
++    // let a child process keep minting bound tasks against a session that is no
++    // longer running, and the identity it carries would be a description of the
++    // past rather than of the caller.
++    this.host.sessionTokens.revoke(this.boundToken);
+     return true;
+   }
+ 
+@@ -704,6 +723,10 @@ export class SessionRuntime {
+       // The canonical project root — identical to `cwd`, kept distinct so an agent
+       // that runs its harness in a sandbox still has an unambiguous project handle.
+       projectRoot: this.project.root,
++      // Handed to the agent so a CLI child it spawns can be attributed to this
++      // session (issue #10, criterion 7). The agent puts it in the environment;
++      // the daemon resolves it and refuses a bound create without it.
++      sessionToken: this.boundToken,
+       signal: this.controller.signal,
+       log: {
+         message: (m: TranscriptMessage) => this.transcript.message(m),
+diff --git a/daemon/core/src/engine/sessionTokens.ts b/daemon/core/src/engine/sessionTokens.ts
+new file mode 100644
+index 0000000..0b6c6f1
+--- /dev/null
++++ b/daemon/core/src/engine/sessionTokens.ts
+@@ -0,0 +1,80 @@
++/**
++ * Session-bound tokens for the write verbs that mint a task (issue #10,
++ * criterion 7).
++ *
++ * The hole this closes is not that the daemon fails to validate a bound create.
++ * It is that the daemon could not tell WHERE one came from. A model inside a
++ * session shells out to the `autosk` CLI, which reaches the RPC surface
++ * directly, and every field of that call describes the project rather than the
++ * session — so a bound create arrived with no session attached, and the runtime
++ * identity the session was admitted under could not be carried onto it. The
++ * daemon's own record of "which code minted this task" simply stopped at that
++ * boundary.
++ *
++ * So a session gets a token, the token names the session, and a bound create
++ * without one is refused rather than accepted unbound. The owner's decision of
++ * 2026-09-08 accepts the price: a direct CLI call outside any session no longer
++ * creates a bound task.
++ *
++ * The token is a 256-bit random value held only in this process. It is never
++ * written to the project, never derived from anything guessable, and it stops
++ * existing the moment its session settles — so a token that leaks out of a
++ * finished session is already useless, which is the property a signature alone
++ * would not give.
++ */
++
++import { randomBytes } from "node:crypto";
++
++import type { RuntimeIdentityPin } from "@autosk/sdk";
++
++/** What a token proves about the caller holding it. */
++export interface SessionBinding {
++  /** The project the session belongs to; a token from one project is not usable in another. */
++  projectRoot: string;
++  sessionId: string;
++  taskId: string;
++  workflow: string;
++  step: string;
++  /**
++   * What the session was admitted under, or `null` when there was nothing to
++   * admit. `null` is not "unknown" — it is the same absence the session itself
++   * carries, and a caller must treat it as "this session has no identity to pass
++   * on" rather than filling one in.
++   */
++  runtimeIdentity: RuntimeIdentityPin | null;
++}
++
++/** The live tokens of this daemon run. */
++export class SessionTokens {
++  readonly #byToken = new Map<string, SessionBinding>();
++
++  /** Mints a token for a session. The caller must revoke it when the session settles. */
++  mint(binding: SessionBinding): string {
++    const token = randomBytes(32).toString("hex");
++    this.#byToken.set(token, binding);
++    return token;
++  }
++
++  /**
++   * What a token proves, or `null` for anything else.
++   *
++   * A non-string is `null` rather than a throw: the value arrives from the wire,
++   * where "absent", "a number" and "a wrong string" are all the same answer —
++   * this caller is not bound — and distinguishing them would only tell a prober
++   * which of its guesses was better formed.
++   */
++  resolve(token: unknown): SessionBinding | null {
++    if (typeof token !== "string") return null;
++    return this.#byToken.get(token) ?? null;
++  }
++
++  /** Retires a token. Idempotent: settling twice is normal. */
++  revoke(token: string): void {
++    this.#byToken.delete(token);
++  }
++
++  /** How many tokens are live. For tests and diagnostics; never a wire value. */
++  get size(): number {
++    return this.#byToken.size;
++  }
++}
+diff --git a/daemon/core/src/engine/types.ts b/daemon/core/src/engine/types.ts
+index 01ffc9b..c8c436b 100644
+--- a/daemon/core/src/engine/types.ts
++++ b/daemon/core/src/engine/types.ts
+@@ -8,6 +8,7 @@
+  * `session.ts` can import them without a cycle.
+  */
+ import type { GrantSigner } from "./grantSignature.ts";
++import type { SessionTokens } from "./sessionTokens.ts";
+ 
+ import {
+   ErrorCodes,
+@@ -76,6 +77,14 @@ export interface SessionHost {
+    * SDK a verifier, never anything that could produce a signature.
+    */
+   readonly grantSigner: GrantSigner;
++  /**
++   * This daemon run's live session tokens (issue #10, criterion 7).
++   *
++   * On the host for the same reason as the signer: they exist once per process,
++   * and a session mints its own token through the host rather than owning the
++   * registry that would let it resolve anyone else's.
++   */
++  readonly sessionTokens: SessionTokens;
+   /** Parks a task to `human` with `error` (status flip + an `autosk` comment + notify). */
+   park(project: EngineProject, taskId: string, error: string): Promise<void>;
+   /**
+diff --git a/daemon/core/src/rpc/capabilities.ts b/daemon/core/src/rpc/capabilities.ts
+index de57f7f..c23ca98 100644
+--- a/daemon/core/src/rpc/capabilities.ts
++++ b/daemon/core/src/rpc/capabilities.ts
+@@ -29,13 +29,19 @@ interface Declaration {
+ }
+ 
+ /**
+- * `task.creation-binding` v1: `creation_key` + `creation_binding_hash` are
++ * `task.creation-binding` v2: `creation_key` + `creation_binding_hash` are
+  * written once, under the cross-process project lock, by the process holding it;
+  * an exact retry returns the same task, a different binding is a conflict, and
+  * neither field can be edited afterwards.
++ *
++ * v2 added `session_token`, and it is REQUIRED (issue #10, criterion 7). That is
++ * a new revision rather than an addition, because a caller written for v1 sends
++ * no token and every one of its calls is now refused — a capability whose
++ * version did not move would let such a caller believe it was supported and
++ * discover otherwise one refusal at a time.
+  */
+ const DECLARED: readonly Declaration[] = [
+-  { name: "task.creation-binding", version: 1, methods: ["task.create_bound"] },
++  { name: "task.creation-binding", version: 2, methods: ["task.create_bound"] },
+ ];
+ 
+ /**
+diff --git a/daemon/core/src/rpc/daemon.ts b/daemon/core/src/rpc/daemon.ts
+index 67f62fb..967b637 100644
+--- a/daemon/core/src/rpc/daemon.ts
++++ b/daemon/core/src/rpc/daemon.ts
+@@ -504,7 +504,24 @@ export class Daemon {
+         const cwd = reqCwd(o);
+         const input = parseTaskCreateBound(o);
+         const handle = await this.resolveHandle(cwd);
+-        return handle.store.createTaskWithCreationBinding(input);
++        // The call must be attributable to a live session (issue #10, criterion
++        // 7). Every other field of this request describes the PROJECT, so before
++        // this the daemon could not tell a create made inside a session from one
++        // typed at a terminal — and could not carry the runtime identity the
++        // session was admitted under onto the task it minted.
++        const binding = this.engine.sessionTokens.resolve(o.session_token);
++        if (binding === null) {
++          throw creationInvalid("creation_unbound_call", optCreationKey(o));
++        }
++        // A token names a session in ONE project. Accepting it elsewhere would
++        // make it a key to every project the daemon has open.
++        if (binding.projectRoot !== handle.root) {
++          throw creationInvalid("creation_unbound_call", optCreationKey(o));
++        }
++        return handle.store.createTaskWithCreationBinding(input, {
++          session_id: binding.sessionId,
++          runtime_identity: binding.runtimeIdentity,
++        });
+       },
+       "task.update": async (params) => {
+         const o = asObj(params);
+@@ -908,6 +925,7 @@ const taskCreateBoundKeys = new Set([
+   "blocked_by",
+   "creation_key",
+   "creation_binding_hash",
++  "session_token",
+ ]);
+ 
+ function rejectCreationMarkers(o: Record<string, unknown>): void {
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 61bff33..9ed2312 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
+ import { dirname, join } from "node:path";
+ import { StringDecoder } from "node:string_decoder";
+ 
+-import type { TaskCreationInput } from "@autosk/sdk";
++import type { RuntimeIdentityPin, TaskCreationInput } from "@autosk/sdk";
+ 
+ import type { ProjectPaths } from "./paths.ts";
+ import {
+@@ -68,6 +68,19 @@ export class TaskCreationError extends Error {
+   }
+ }
+ 
++/**
++ * Who minted a reservation (issue #10, criterion 7).
++ *
++ * A bound create now has to name the session it came from, so the record can say
++ * which code minted the task rather than only that some caller did. The pin is
++ * `null` when the session had no admission of its own — the same absence the
++ * session carries, never a value invented here.
++ */
++export interface CreationProvenance {
++  session_id: string;
++  runtime_identity: RuntimeIdentityPin | null;
++}
++
+ export interface CreationReservationRecord {
+   key_hash: string;
+   creation_key: string;
+@@ -77,6 +90,13 @@ export interface CreationReservationRecord {
+   created_at: string;
+   updated_at: string;
+   deleted_at: string | null;
++  /**
++   * The session that minted this reservation, absent on a record written before
++   * bound creates had to name one. Absent means UNRECORDED, not "no session":
++   * the daemon could not attribute the call at the time, which is exactly the
++   * gap criterion 7 names.
++   */
++  created_by?: CreationProvenance;
+ }
+ 
+ export interface CreationIndexRecord {
+@@ -240,7 +260,7 @@ export function serializeCreationIndex(index: CreationIndexRecord): string {
+   const reservations: Record<string, unknown> = {};
+   for (const key of Object.keys(index.reservations).sort()) {
+     const r = index.reservations[key]!;
+-    reservations[key] = {
++    const out: Record<string, unknown> = {
+       key_hash: r.key_hash,
+       creation_key: r.creation_key,
+       creation_binding_hash: r.creation_binding_hash,
+@@ -250,6 +270,16 @@ export function serializeCreationIndex(index: CreationIndexRecord): string {
+       updated_at: r.updated_at,
+       deleted_at: r.deleted_at,
+     };
++    // Written only when it exists: an absent `created_by` must stay absent
++    // rather than become `null`, because `null` inside it means "the session had
++    // no admission" and absence means "nobody recorded a session at all".
++    if (r.created_by !== undefined) {
++      out.created_by = {
++        session_id: r.created_by.session_id,
++        runtime_identity: r.created_by.runtime_identity,
++      };
++    }
++    reservations[key] = out;
+   }
+   return JSON.stringify({ schema_version: INDEX_VERSION, reservations }, null, 2) + "\n";
+ }
+@@ -518,7 +548,14 @@ function parseReservation(raw: unknown): CreationReservationRecord {
+     "task_id",
+     "updated_at",
+   ];
+-  if (JSON.stringify(keys) !== JSON.stringify(expected)) {
++  // `created_by` is optional because a record written before bound creates had
++  // to name a session does not carry it. Everything else stays exact: an
++  // unexpected field in this index is a record this daemon did not write.
++  const withProvenance = [...expected, "created_by"].sort();
++  if (
++    JSON.stringify(keys) !== JSON.stringify(expected) &&
++    JSON.stringify(keys) !== JSON.stringify(withProvenance)
++  ) {
+     throw new Error("reservation fields do not match schema");
+   }
+   const r = raw as Record<string, unknown>;
+@@ -539,6 +576,21 @@ function parseReservation(raw: unknown): CreationReservationRecord {
+   if (r.deleted_at !== null && typeof r.deleted_at !== "string") {
+     throw new Error("invalid deleted_at");
+   }
++  if (r.created_by !== undefined) {
++    if (!isPlainRecord(r.created_by)) throw new Error("invalid created_by");
++    const by = r.created_by as Record<string, unknown>;
++    if (JSON.stringify(Object.keys(by).sort()) !== JSON.stringify(["runtime_identity", "session_id"])) {
++      throw new Error("created_by fields do not match schema");
++    }
++    if (typeof by.session_id !== "string" || by.session_id.length === 0) {
++      throw new Error("invalid created_by.session_id");
++    }
++    // `null` is a value here, not a missing field: it says the session had no
++    // admission, which is different from nobody having recorded one.
++    if (by.runtime_identity !== null && !isPlainRecord(by.runtime_identity)) {
++      throw new Error("invalid created_by.runtime_identity");
++    }
++  }
+   if (r.key_hash !== creationKeyHash(r.creation_key)) {
+     throw new Error("key_hash does not match creation_key");
+   }
+@@ -548,7 +600,7 @@ function parseReservation(raw: unknown): CreationReservationRecord {
+   if (r.state !== "deleted" && r.deleted_at !== null) {
+     throw new Error("non-deleted reservation must not carry deleted_at");
+   }
+-  return {
++  const record: CreationReservationRecord = {
+     key_hash: r.key_hash,
+     creation_key: r.creation_key,
+     creation_binding_hash: r.creation_binding_hash,
+@@ -558,6 +610,11 @@ function parseReservation(raw: unknown): CreationReservationRecord {
+     updated_at: r.updated_at,
+     deleted_at: r.deleted_at,
+   };
++  // Rebuilt field by field rather than spread, so an unexpected key can never
++  // ride through — which is why the optional one has to be carried explicitly
++  // instead of surviving by accident.
++  if (r.created_by !== undefined) record.created_by = r.created_by as unknown as CreationProvenance;
++  return record;
+ }
+ 
+ function validateCreationIndex(index: CreationIndexRecord): void {
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index ce2799e..45c2b25 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -49,6 +49,7 @@ import {
+   withCreationLock,
+   type CreationIndexRecord,
+   type CreationLockIO,
++  type CreationProvenance,
+   type CreationReservationRecord,
+ } from "./creation.ts";
+ import { createHash, randomUUID } from "node:crypto";
+@@ -595,7 +596,10 @@ export class Store {
+   }
+ 
+   /** Atomically creates or reuses a task bound to one per-project creation key. */
+-  async createTaskWithCreationBinding(input: TaskCreationInput): Promise<TaskCreationResult> {
++  async createTaskWithCreationBinding(
++    input: TaskCreationInput,
++    createdBy?: CreationProvenance,
++  ): Promise<TaskCreationResult> {
+     validateTaskCreationInput(input);
+     const frozen: TaskCreationInput = {
+       title: input.title,
+@@ -604,8 +608,14 @@ export class Store {
+     };
+     if (input.description !== undefined) frozen.description = input.description;
+     if (input.blocked_by !== undefined) frozen.blocked_by = [...input.blocked_by];
++    // Copied, not held: the caller keeps a reference to what it passed, and a
++    // record that can change after it is validated is not a record.
++    const provenance: CreationProvenance | undefined =
++      createdBy === undefined
++        ? undefined
++        : { session_id: createdBy.session_id, runtime_identity: createdBy.runtime_identity };
+     const { result, changed } = await withCreationLock(this.paths, (io) =>
+-      this.createTaskWithCreationBindingLocked(io, frozen),
++      this.createTaskWithCreationBindingLocked(io, frozen, provenance),
+     );
+     if (changed) this.notifyTaskChange(result.task.id);
+     return result;
+@@ -614,6 +624,7 @@ export class Store {
+   private async createTaskWithCreationBindingLocked(
+     io: CreationLockIO,
+     input: TaskCreationInput,
++    createdBy?: CreationProvenance,
+   ): Promise<{ result: TaskCreationResult; changed: boolean }> {
+     const index = await this.readCreationIndexFromHelper(io);
+     const keyHash = hashCreationKey(input.creation_key);
+@@ -643,6 +654,10 @@ export class Store {
+       updated_at: now,
+       deleted_at: null,
+     };
++    // Recorded only when the caller could be attributed. An absent `created_by`
++    // says the daemon did not know, and inventing one would turn "unrecorded"
++    // into a claim.
++    if (createdBy !== undefined) reservation.created_by = createdBy;
+     index.reservations[keyHash] = reservation;
+     await io.writeCreationIndex(serializeCreationIndex(index));
+ 
+diff --git a/daemon/core/test/engine.sessionToken.test.ts b/daemon/core/test/engine.sessionToken.test.ts
+new file mode 100644
+index 0000000..fd84f8f
+--- /dev/null
++++ b/daemon/core/test/engine.sessionToken.test.ts
+@@ -0,0 +1,104 @@
++/**
++ * The token a session hands its children (issue #10, criterion 7).
++ *
++ * The gap it closes is not that a bound create is badly validated — every field
++ * of that call is checked. It is that the call describes the PROJECT, so a
++ * create a model made from inside a session was indistinguishable from one typed
++ * at a terminal, and an unattributable create cannot carry the runtime identity
++ * the session was admitted under.
++ *
++ * These tests are about the token's lifetime, because that is the half a
++ * registry test cannot see: it has to exist while the session runs and stop
++ * existing when it ends.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++
++import { gate, makeEngine, makeProject, oneStep, type TestProject } from "./engineHarness.ts";
++import { waitForComplete } from "./helpers.ts";
++
++describe("a session's bound token", () => {
++  const projects: TestProject[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(async () => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const p of projects.splice(0)) {
++      await p.store.close();
++      p.cleanup();
++    }
++  });
++
++  function track(p: TestProject): TestProject {
++    projects.push(p);
++    return p;
++  }
++
++  test("exists while the session runs, and is gone once it settles", async () => {
++    const running = gate();
++    const finish = gate();
++    let seen: string | undefined;
++    const p = track(
++      await makeProject({
++        workflows: [
++          oneStep("wf", {
++            onRun: async (ctx) => {
++              seen = ctx.sessionToken;
++              running.open();
++              await finish.wait;
++              await ctx.transit({ status: "done" });
++            },
++          }),
++        ],
++      }),
++    );
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "holds a token" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    await running.wait;
++
++    // The agent has one, and it resolves to THIS session in THIS project.
++    expect(typeof seen).toBe("string");
++    const binding = engine.sessionTokens.resolve(seen);
++    expect(binding).not.toBeNull();
++    expect(binding!.projectRoot).toBe(p.root);
++    expect(binding!.taskId).toBe(task.id);
++    expect(binding!.workflow).toBe("wf");
++
++    finish.open();
++    await waitForComplete(p.store, task.id, "done", 10000);
++
++    // And it stops existing with the session. A token that outlived its session
++    // would let a child keep minting bound tasks against a session that is no
++    // longer running, carrying an identity that describes the past.
++    expect(engine.sessionTokens.resolve(seen)).toBeNull();
++    expect(engine.sessionTokens.size).toBe(0);
++  });
++
++  test("a session that fails still takes its token with it", async () => {
++    // Settling is settling. A failure path that skipped the revoke would leave
++    // exactly the tokens whose sessions ended badly.
++    const p = track(
++      await makeProject({
++        workflows: [
++          oneStep("wf", {
++            onRun: async () => {
++              throw new Error("agent exploded");
++            },
++          }),
++        ],
++      }),
++    );
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "fails" });
++    await engine.enroll(p.root, task.id, { workflow: "wf" });
++    await waitForComplete(p.store, task.id, "human", 10000);
++
++    expect(engine.sessionTokens.size).toBe(0);
++  });
++});
+diff --git a/daemon/core/test/rpc.capabilities.test.ts b/daemon/core/test/rpc.capabilities.test.ts
+index 970c8e7..93e2f15 100644
+--- a/daemon/core/test/rpc.capabilities.test.ts
++++ b/daemon/core/test/rpc.capabilities.test.ts
+@@ -16,7 +16,7 @@ import { startTestDaemon, type RpcClient, type TestDaemon } from "./rpcHarness.t
+ describe("meta.capabilities", () => {
+   test("declares the creation-binding guarantee with the method that implements it", () => {
+     expect(capabilitiesOf(RPC_METHODS)).toEqual([
+-      { name: "task.creation-binding", version: 1, methods: ["task.create_bound"] },
++      { name: "task.creation-binding", version: 2, methods: ["task.create_bound"] },
+     ]);
+   });
+ 
+@@ -56,7 +56,7 @@ describe("meta.capabilities", () => {
+       // so this fails if the handler is ever wired to a constant instead.
+       expect(info).toEqual({ capabilities: capabilitiesOf(td.runtime.daemon.registeredMethods()) });
+       expect(info.capabilities).toEqual([
+-        { name: "task.creation-binding", version: 1, methods: ["task.create_bound"] },
++        { name: "task.creation-binding", version: 2, methods: ["task.create_bound"] },
+       ]);
+     });
+   });
+diff --git a/daemon/core/test/rpc.creation.test.ts b/daemon/core/test/rpc.creation.test.ts
+index 1b1f89a..c7b5950 100644
+--- a/daemon/core/test/rpc.creation.test.ts
++++ b/daemon/core/test/rpc.creation.test.ts
+@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+ 
+ import { ErrorCodes } from "@autosk/sdk";
+ import { toRpcError } from "../src/rpc/errors.ts";
+-import { TaskCreationError } from "../src/store/creation.ts";
++import {
++  parseCreationIndexText,
++  TaskCreationError,
++  withCreationLock,
++  type CreationReservationRecord,
++} from "../src/store/creation.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
++import { SessionTokens } from "../src/engine/sessionTokens.ts";
+ import { startTestDaemon, type RpcClient, type TestDaemon } from "./rpcHarness.ts";
+ 
+ const creationKey = "flow:" + "a".repeat(64);
+@@ -49,12 +56,27 @@ describe("atomic creation RPC", () => {
+   let daemon: TestDaemon;
+   let client: RpcClient;
+   let cwd: string;
++  /** A live session's token: a bound create must name the session it came from. */
++  let sessionToken: string;
+ 
+   beforeEach(async () => {
+     daemon = await startTestDaemon();
+     cwd = await daemon.makeProject("creation");
+     client = await daemon.client();
++    sessionToken = await mintToken(cwd);
+   });
++
++  async function mintToken(root: string): Promise<string> {
++    const handle = await daemon.handle(root);
++    return daemon.engine.sessionTokens.mint({
++      projectRoot: handle.root,
++      sessionId: "0190a1b2-c3d4-7e5f-8a9b-00000000dead",
++      taskId: "ask-parent",
++      workflow: "wf",
++      step: "dev",
++      runtimeIdentity: null,
++    });
++  }
+   afterEach(async () => {
+     await daemon.cleanup();
+   });
+@@ -68,7 +90,7 @@ describe("atomic creation RPC", () => {
+   });
+ 
+   test("bound creation returns the exact receipt and reuses the task", async () => {
+-    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash };
++    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash, session_token: sessionToken };
+     const first = await client.callRaw("task.create_bound", input);
+     expect(first.error).toBeUndefined();
+     expect(first.result).toMatchObject({ outcome: "created", task: {
+@@ -82,7 +104,7 @@ describe("atomic creation RPC", () => {
+   });
+ 
+   test("a changed binding is a structured conflict", async () => {
+-    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash };
++    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash, session_token: sessionToken };
+     const first = await client.callRaw("task.create_bound", input);
+     expect(first.error).toBeUndefined();
+     const changed = await client.callRaw("task.create_bound", { ...input, creation_binding_hash: "c".repeat(64) });
+@@ -92,7 +114,7 @@ describe("atomic creation RPC", () => {
+   });
+ 
+   test("incomplete, malformed, and extra fields fail before creating anything", async () => {
+-    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash };
++    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash, session_token: sessionToken };
+     for (const params of [
+       { cwd, title: "T", creation_key: creationKey },
+       { cwd, title: "T", creation_binding_hash: creationHash },
+@@ -112,9 +134,14 @@ describe("atomic creation RPC", () => {
+   test("the same key resolves independently in two projects", async () => {
+     const other = await daemon.makeProject("other");
+     const input = { title: "T", creation_key: creationKey, creation_binding_hash: creationHash };
+-    const first = await client.callRaw("task.create_bound", { ...input, cwd });
++    const first = await client.callRaw("task.create_bound", { ...input, cwd, session_token: sessionToken });
+     expect(first.error).toBeUndefined();
+-    const second = await client.callRaw("task.create_bound", { ...input, cwd: other });
++    // A token names a session in ONE project, so the second project needs its own.
++    const second = await client.callRaw("task.create_bound", {
++      ...input,
++      cwd: other,
++      session_token: await mintToken(other),
++    });
+     expect(second.error).toBeUndefined();
+     expect(second.result).toMatchObject({ outcome: "created" });
+     expect((await client.call<unknown[]>("task.list", { cwd })).length).toBe(1);
+@@ -122,7 +149,7 @@ describe("atomic creation RPC", () => {
+   });
+ 
+   test("malformed display and blocker fields return typed invalid outcomes", async () => {
+-    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash };
++    const input = { cwd, title: "T", creation_key: creationKey, creation_binding_hash: creationHash, session_token: sessionToken };
+     for (const patch of [
+       { title: undefined }, { title: null }, { title: 12 },
+       { description: null }, { description: 12 },
+@@ -135,3 +162,136 @@ describe("atomic creation RPC", () => {
+     expect(await client.call<unknown[]>("task.list", { cwd })).toEqual([]);
+   });
+ });
++
++describe("a bound create must name the session it came from", () => {
++  let daemon: TestDaemon;
++  let client: RpcClient;
++  let cwd: string;
++
++  beforeEach(async () => {
++    daemon = await startTestDaemon();
++    cwd = await daemon.makeProject("bound");
++    client = await daemon.client();
++  });
++  afterEach(async () => {
++    await daemon.cleanup();
++  });
++
++  const base = { title: "T", creation_key: creationKey, creation_binding_hash: creationHash };
++
++  async function mint(root: string, overrides: Record<string, unknown> = {}): Promise<string> {
++    const handle = await daemon.handle(root);
++    return daemon.engine.sessionTokens.mint({
++      projectRoot: handle.root,
++      sessionId: "0190a1b2-c3d4-7e5f-8a9b-00000000beef",
++      taskId: "ask-parent",
++      workflow: "wf",
++      step: "dev",
++      runtimeIdentity: null,
++      ...overrides,
++    } as never);
++  }
++
++  test("no token, an unknown token and a wrong-typed token are the same refusal", async () => {
++    // The gap this closes: every other field of the request describes the
++    // PROJECT, so a create typed at a terminal was indistinguishable from one a
++    // model made inside a session — and an unattributable create cannot carry
++    // the runtime identity the session was admitted under.
++    for (const token of [undefined, "", "f".repeat(64), 12, null, {}]) {
++      const params: Record<string, unknown> = { cwd, ...base };
++      if (token !== undefined) params.session_token = token;
++      const frame = await client.callRaw("task.create_bound", params);
++      expect(frame.error?.code).toBe(ErrorCodes.INVALID_PARAMS);
++      expect(frame.error?.details).toMatchObject({ outcome: "invalid", reason: "creation_unbound_call" });
++    }
++    expect(await client.call<unknown[]>("task.list", { cwd })).toEqual([]);
++  });
++
++  test("a token from another project does not open this one", async () => {
++    const other = await daemon.makeProject("elsewhere");
++    const frame = await client.callRaw("task.create_bound", {
++      cwd,
++      ...base,
++      session_token: await mint(other),
++    });
++    expect(frame.error?.details).toMatchObject({ reason: "creation_unbound_call" });
++    expect(await client.call<unknown[]>("task.list", { cwd })).toEqual([]);
++  });
++
++  test("a revoked token is refused, so a settled session cannot keep minting", async () => {
++    const token = await mint(cwd);
++    daemon.engine.sessionTokens.revoke(token);
++    const frame = await client.callRaw("task.create_bound", { cwd, ...base, session_token: token });
++    expect(frame.error?.details).toMatchObject({ reason: "creation_unbound_call" });
++  });
++
++  test("a bound create records the session and the identity it was admitted under", async () => {
++    // The point of binding the call: the reservation can now say which code
++    // minted the task, which is what criterion 7 asks for.
++    const pin = { workflow: "wf", digest: "a".repeat(64), graph: "b".repeat(64) };
++    const token = await mint(cwd, { runtimeIdentity: pin });
++    const frame = await client.callRaw("task.create_bound", { cwd, ...base, session_token: token });
++    expect(frame.error).toBeUndefined();
++
++    const handle = await daemon.handle(cwd);
++    const raw = await withCreationLock(new ProjectPaths(handle.root), (io) => io.readCreationIndex());
++    const index = parseCreationIndexText(raw!);
++    const reservation = Object.values(index.reservations)[0] as CreationReservationRecord;
++    expect(reservation.created_by).toEqual({
++      session_id: "0190a1b2-c3d4-7e5f-8a9b-00000000beef",
++      runtime_identity: pin,
++    });
++  });
++
++  test("a session with no admission records that absence, it does not invent one", async () => {
++    const token = await mint(cwd);
++    expect((await client.callRaw("task.create_bound", { cwd, ...base, session_token: token })).error).toBeUndefined();
++
++    const handle = await daemon.handle(cwd);
++    const raw = await withCreationLock(new ProjectPaths(handle.root), (io) => io.readCreationIndex());
++    const reservation = Object.values(parseCreationIndexText(raw!).reservations)[0] as CreationReservationRecord;
++    expect(reservation.created_by?.runtime_identity).toBeNull();
++  });
++});
++
++describe("the token registry itself", () => {
++  test("a minted token resolves to its session and stops resolving once revoked", () => {
++    const tokens = new SessionTokens();
++    const binding = {
++      projectRoot: "/repo",
++      sessionId: "s1",
++      taskId: "ask-1",
++      workflow: "wf",
++      step: "dev",
++      runtimeIdentity: null,
++    };
++    const token = tokens.mint(binding);
++    expect(tokens.resolve(token)).toEqual(binding);
++    expect(tokens.size).toBe(1);
++
++    tokens.revoke(token);
++    expect(tokens.resolve(token)).toBeNull();
++    // Revoking twice is normal: a session can settle by more than one path.
++    tokens.revoke(token);
++    expect(tokens.size).toBe(0);
++  });
++
++  test("anything that is not a live token is the same answer", () => {
++    // Not a throw and not a distinct code per shape: on the wire "absent", "a
++    // number" and "a wrong string" all mean the caller is not bound, and telling
++    // them apart would only tell a prober which guess was better formed.
++    const tokens = new SessionTokens();
++    for (const value of [undefined, null, "", 12, {}, [], "f".repeat(64)]) {
++      expect(tokens.resolve(value)).toBeNull();
++    }
++  });
++
++  test("two mints are two different tokens", () => {
++    const tokens = new SessionTokens();
++    const binding = {
++      projectRoot: "/repo", sessionId: "s", taskId: "t", workflow: "w", step: "d", runtimeIdentity: null,
++    };
++    expect(tokens.mint(binding)).not.toBe(tokens.mint(binding));
++    expect(tokens.size).toBe(2);
++  });
++});
+diff --git a/daemon/core/test/rpcHarness.ts b/daemon/core/test/rpcHarness.ts
+index f43b737..67e0209 100644
+--- a/daemon/core/test/rpcHarness.ts
++++ b/daemon/core/test/rpcHarness.ts
+@@ -44,6 +44,8 @@ export interface TestDaemon {
+   dir: string;
+   token: string | null;
+   projectManager: ProjectManager;
++  /** The engine this daemon runs, so a test can mint a session token (issue #10). */
++  engine: Engine;
+   logger: CapturingLogger;
+   /** Resolves with the exit code once the daemon's shutdown path fires. */
+   exited: Promise<number>;
+@@ -73,12 +75,13 @@ export async function startTestDaemon(opts: TestDaemonOptions = {}): Promise<Tes
+     resolveExit = r;
+   });
+ 
++  const engine = new Engine({ rescanMs: 0, ...opts.engineOptions, logger });
+   const result = await startDaemon({
+     socketPath,
+     token: opts.token === undefined ? TEST_TOKEN : opts.token,
+     tcp: opts.tcp ?? null,
+     projectManager,
+-    engine: new Engine({ rescanMs: 0, ...opts.engineOptions, logger }),
++    engine,
+     idleWindowMs: opts.idleWindowMs ?? null,
+     idleCheckMs: opts.idleCheckMs,
+     shutdownDelayMs: opts.shutdownDelayMs,
+@@ -95,6 +98,7 @@ export async function startTestDaemon(opts: TestDaemonOptions = {}): Promise<Tes
+     dir,
+     token: result.token,
+     projectManager,
++    engine,
+     logger,
+     exited,
+     async makeProject(name: string): Promise<string> {
+diff --git a/daemon/core/test/store.creation-index.test.ts b/daemon/core/test/store.creation-index.test.ts
+index 7c97e9d..ed2cbbb 100644
+--- a/daemon/core/test/store.creation-index.test.ts
++++ b/daemon/core/test/store.creation-index.test.ts
+@@ -37,6 +37,52 @@ afterEach(() => {
+   indexReadCounts.clear();
+ });
+ 
++describe("what a reservation record may say about who minted it", () => {
++  // `created_by` is the one optional field (issue #10, criterion 7). Optional
++  // because a record written before bound creates had to name a session does not
++  // carry it — and absent means UNRECORDED, never "no session".
++  const base = reservation(KEY_A, HASH_A, "ask-111111", "active");
++  const withField = (created_by: unknown) =>
++    rawIndex([{ ...base, created_by } as CreationReservationRecord]);
++
++  test("a record from before this field parses, and reads as unrecorded", () => {
++    const parsed = parseCreationIndexText(rawIndex([base]));
++    expect(Object.values(parsed.reservations)[0]!.created_by).toBeUndefined();
++  });
++
++  test("a well-formed provenance survives the round trip", () => {
++    const created_by = { session_id: "s1", runtime_identity: null };
++    const parsed = parseCreationIndexText(withField(created_by));
++    expect(Object.values(parsed.reservations)[0]!.created_by).toEqual(created_by);
++  });
++
++  test("a malformed provenance is refused rather than dropped", () => {
++    // Dropping it would turn a damaged record into a clean-looking one that says
++    // nobody was recorded, which is a different claim.
++    for (const bad of [
++      null,
++      12,
++      "s1",
++      {},
++      { session_id: "s1" },
++      { runtime_identity: null },
++      { session_id: "", runtime_identity: null },
++      { session_id: 12, runtime_identity: null },
++      { session_id: "s1", runtime_identity: "not-a-pin" },
++      { session_id: "s1", runtime_identity: null, extra: true },
++    ]) {
++      expect(() => parseCreationIndexText(withField(bad))).toThrow(TaskCreationError);
++    }
++  });
++
++  test("any other unexpected field is still refused", () => {
++    // The optional one is optional; the record is not open. A field this daemon
++    // never writes is a record it did not write.
++    const text = rawIndex([{ ...base, minted_by: "someone" } as unknown as CreationReservationRecord]);
++    expect(() => parseCreationIndexText(text)).toThrow(TaskCreationError);
++  });
++});
++
+ describe("creation index admission", () => {
+   test("rejects duplicate task_id across deleted and active reservations", () => {
+     const text = rawIndex([
+diff --git a/daemon/extensions/claude-agent/src/index.ts b/daemon/extensions/claude-agent/src/index.ts
+index e3c4ea2..4059a2b 100644
+--- a/daemon/extensions/claude-agent/src/index.ts
++++ b/daemon/extensions/claude-agent/src/index.ts
+@@ -351,6 +351,11 @@ export function autoskEnv(ctx: AgentRunContext): Record<string, string> {
+   return {
+     AUTOSK_CWD: ctx.projectRoot,
+     AUTOSK_AGENT: ctx.workflows.current.step,
++    // Attributes a CLI call to THIS session (issue #10, criterion 7). Without it
++    // a bound create reaches the daemon with nothing but the project selector
++    // and is refused, because an unattributable create cannot carry the runtime
++    // identity the session was admitted under.
++    AUTOSK_SESSION_TOKEN: ctx.sessionToken,
+   };
+ }
+ 
+diff --git a/daemon/extensions/claude-agent/test/index.test.ts b/daemon/extensions/claude-agent/test/index.test.ts
+index c07603d..1373421 100644
+--- a/daemon/extensions/claude-agent/test/index.test.ts
++++ b/daemon/extensions/claude-agent/test/index.test.ts
+@@ -12,6 +12,7 @@ function fakeCtx(overrides: Partial<AgentRunContext> = {}): AgentRunContext {
+   return {
+     projectRoot: "/repo/project",
+     cwd: "/home/.autosk/worktrees/slug/ask-1",
++    sessionToken: "tok-1",
+     workflows: { current: { workflow: "feature-dev", step: "dev", targets: [] } },
+     ...overrides,
+   } as unknown as AgentRunContext;
+@@ -117,10 +118,13 @@ describe("buildMcpConfig", () => {
+ });
+ 
+ describe("autoskEnv", () => {
+-  test("maps projectRoot → AUTOSK_CWD and step → AUTOSK_AGENT (no socket — the MCP tools are server-bound)", () => {
++  test("maps projectRoot, step and the session token (no socket — the MCP tools are server-bound)", () => {
++    // The token is what lets a bound create made by this agent be attributed to
++    // the session (issue #10, criterion 7); without it the daemon refuses it.
+     expect(autoskEnv(fakeCtx())).toEqual({
+       AUTOSK_CWD: "/repo/project",
+       AUTOSK_AGENT: "dev",
++      AUTOSK_SESSION_TOKEN: "tok-1",
+     });
+   });
+ });
+diff --git a/daemon/extensions/pi-agent/src/index.ts b/daemon/extensions/pi-agent/src/index.ts
+index 5bf124a..6eeb0cc 100644
+--- a/daemon/extensions/pi-agent/src/index.ts
++++ b/daemon/extensions/pi-agent/src/index.ts
+@@ -355,6 +355,11 @@ export function autoskEnv(ctx: AgentRunContext): Record<string, string> {
+   return {
+     AUTOSK_CWD: ctx.projectRoot,
+     AUTOSK_AGENT: ctx.workflows.current.step,
++    // Attributes a CLI call to THIS session (issue #10, criterion 7). Without it
++    // a bound create reaches the daemon with nothing but the project selector
++    // and is refused, because an unattributable create cannot carry the runtime
++    // identity the session was admitted under.
++    AUTOSK_SESSION_TOKEN: ctx.sessionToken,
+   };
+ }
+ 
+diff --git a/daemon/extensions/pi-agent/test/unit.test.ts b/daemon/extensions/pi-agent/test/unit.test.ts
+index 6eaaa10..574e491 100644
+--- a/daemon/extensions/pi-agent/test/unit.test.ts
++++ b/daemon/extensions/pi-agent/test/unit.test.ts
+@@ -106,13 +106,21 @@ describe("buildPiCommand", () => {
+ });
+ 
+ describe("autoskEnv — project selector + comment authorship for the spawned pi", () => {
+-  test("maps the canonical project root to AUTOSK_CWD and the step to AUTOSK_AGENT", () => {
++  test("maps the project root, the step, and the session token the CLI needs", () => {
+     const ctx = {
+       projectRoot: "/repo/project",
+       cwd: "/home/.autosk/worktrees/slug/ask-1", // worktree under isolation
++      sessionToken: "tok-1",
+       workflows: { current: { workflow: "feature-dev", step: "review", targets: [] } },
+     } as unknown as AgentRunContext;
+-    expect(autoskEnv(ctx)).toEqual({ AUTOSK_CWD: "/repo/project", AUTOSK_AGENT: "review" });
++    // The token is what lets a bound create made by this agent be attributed to
++    // the session (issue #10, criterion 7). Without it in the environment the
++    // daemon refuses the create, so it is part of this mapping, not an extra.
++    expect(autoskEnv(ctx)).toEqual({
++      AUTOSK_CWD: "/repo/project",
++      AUTOSK_AGENT: "review",
++      AUTOSK_SESSION_TOKEN: "tok-1",
++    });
+   });
+ });
+ 
+diff --git a/daemon/sdk/src/agent.ts b/daemon/sdk/src/agent.ts
+index bee35ca..c652897 100644
+--- a/daemon/sdk/src/agent.ts
++++ b/daemon/sdk/src/agent.ts
+@@ -137,6 +137,21 @@ export interface AgentRunContext {
+    * original project (e.g. to point an `autosk` CLI at it via `AUTOSK_CWD`).
+    */
+   projectRoot: string;
++  /**
++   * The token that attributes an `autosk` CLI call to THIS session (issue #10,
++   * criterion 7).
++   *
++   * An agent that shells out to the CLI must put it in the child environment as
++   * `AUTOSK_SESSION_TOKEN`, beside `AUTOSK_CWD`. Without it the CLI reaches the
++   * RPC surface with nothing but the project selector, and a bound create is
++   * refused — the daemon cannot attribute it to a session, so it cannot carry
++   * the runtime identity the session was admitted under onto the task.
++   *
++   * It is a secret: it is valid for as long as this session runs and no longer,
++   * and it belongs in the environment of a child this session spawns, not in a
++   * transcript, a comment, or a file.
++   */
++  sessionToken: string;
+   /** Fired on abort / daemon shutdown. */
+   signal: AbortSignal;
+ 
+diff --git a/internal/daemon/rpcclient/creation_test.go b/internal/daemon/rpcclient/creation_test.go
+index 95ffff4..6540f00 100644
+--- a/internal/daemon/rpcclient/creation_test.go
++++ b/internal/daemon/rpcclient/creation_test.go
+@@ -112,3 +112,56 @@ func TestCreateBoundConflict(t *testing.T) {
+ 		t.Fatalf("details = %#v", apiErr.Details)
+ 	}
+ }
++
++// TestCreateBoundToken is about the one field that decides
++// whether the daemon can attribute this call at all (issue #10, criterion 7).
++// It is sent only on this verb: it is a secret, and every other method has no
++// use for it. Absent and empty are the same refusal at the daemon, so only one
++// of them belongs on the wire.
++//
++// The name is short on purpose: a unix socket path has a hard length limit, and
++// the temp dir Go builds from the test name is most of it.
++func TestCreateBoundToken(t *testing.T) {
++	for _, tc := range []struct {
++		token   string
++		present bool
++	}{
++		{"deadbeef", true},
++		{"", false},
++	} {
++		t.Setenv(EnvSessionToken, tc.token)
++		var gotParams map[string]any
++		sock := fakeServer(t, func(_ string, params map[string]any) (any, *RPCError) {
++			gotParams = params
++			return map[string]any{
++				"outcome": "created",
++				"task": map[string]any{
++					"id": "ask-000001", "status": "new", "workflow": nil, "step": nil,
++					"title": "child", "description": "", "blocked_by": []any{},
++					"creation_key":          "flow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++					"creation_binding_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
++				},
++			}, nil
++		})
++		cli, err := New(Options{Sock: sock, Cwd: "/repo", NoAutoSpawn: true})
++		if err != nil {
++			t.Fatalf("new: %v", err)
++		}
++		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++		if _, err := cli.CreateTaskWithCreationBinding(ctx, "child", "", nil,
++			"flow:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
++		); err != nil {
++			cancel()
++			t.Fatalf("create bound (token %q): %v", tc.token, err)
++		}
++		cancel()
++		got, present := gotParams["session_token"]
++		if present != tc.present {
++			t.Fatalf("token %q: session_token present = %v, want %v", tc.token, present, tc.present)
++		}
++		if tc.present && got != tc.token {
++			t.Fatalf("session_token = %v, want %v", got, tc.token)
++		}
++	}
++}
+diff --git a/internal/daemon/rpcclient/writes.go b/internal/daemon/rpcclient/writes.go
+index 6b9d12d..726a3f8 100644
+--- a/internal/daemon/rpcclient/writes.go
++++ b/internal/daemon/rpcclient/writes.go
+@@ -2,10 +2,16 @@ package rpcclient
+ 
+ import (
+ 	"context"
++	"os"
+ 
+ 	"autosk/internal/daemon/api"
+ )
+ 
++// EnvSessionToken names the environment variable that attributes an `autosk`
++// call to the session that spawned this process (issue #10, criterion 7). The
++// daemon sets it for the agent; the agent's own children inherit it.
++const EnvSessionToken = "AUTOSK_SESSION_TOKEN"
++
+ // The proto-v2 write surface (plan §4). Every write carries the {cwd} selector
+ // only — v2 dropped db_path + the cli|lazy source discriminator.
+ 
+@@ -53,6 +59,13 @@ func (c *Client) CreateTaskWithCreationBinding(ctx context.Context, title, descr
+ 	if len(blockedBy) > 0 {
+ 		extra["blocked_by"] = blockedBy
+ 	}
++	// The session this call belongs to (issue #10, criterion 7). The daemon sets
++	// it in the environment of the agent that spawned us; without it a bound
++	// create is refused, because the daemon cannot attribute an unbound call to
++	// a session and so cannot carry that session's runtime identity onto the
++	// task. Sent only on this verb: it is a secret, and the rest of the API has
++	// no use for it.
++	putStr(extra, "session_token", os.Getenv(EnvSessionToken))
+ 	var out TaskCreationResult
+ 	err := c.call(ctx, "task.create_bound", c.selector(extra), &out)
+ 	return out, err
