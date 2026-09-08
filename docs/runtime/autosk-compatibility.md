@@ -46,7 +46,8 @@ apply in the listed order, each producing the tree beside it:
 | `0022-session-meta-through-adapter.patch` | `033d7a28fbbeaac4c5ea7e38995c5dded35f9322` |
 | `0023-grant-signature.patch` | `60b5ac3e55a7d110333417d09f1b6f740ac6c23d` |
 | `0024-transcript-through-adapter.patch` | `600db19b48ac4c9cbb6d332bbea7637281cc1a93` |
-| `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` — the current `result_tree` |
+| `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` |
+| `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -301,6 +302,35 @@ second structure obliged to agree with the listings, and two structures obliged
 to agree eventually disagree. A listing this build cannot read keeps everything —
 "I cannot tell what this distribution contains" is not permission to delete its
 files.
+
+Patch `0026` puts a held distribution back on disk, at
+`runtime/v1/code/<digest>/`. The path being a function of the digest is the
+point rather than a naming convenience: Bun keys its module cache by resolved
+path, so one globally installed extension is ONE module for every project that
+imports it, and a project pinned to the older version would get whatever the
+first importer loaded. A tree per digest gives each version its own path.
+
+The tree is built in a staging directory and its identity is RECOMPUTED there,
+before it is given the name a caller imports from — a tree published first and
+checked second is one something can import in between. The check is not
+ceremony: a listing can be self-consistent (it hashes to its own digest) and
+still not be this distribution, because the identity is taken over the canonical
+order, and only recomputing the built tree tells them apart. An existing tree is
+re-verified rather than trusted by name, because the directory belongs to the
+project and something can write to it; a tampered tree is rebuilt from the
+blobs.
+
+Two limits are stated rather than implied. The listing covers bytes and link
+targets, not permissions, so a materialised tree is byte-identical and
+metadata-approximate. And a distribution whose root is a single FILE — the
+ordinary `.autosk/extensions/wf.js` shape — comes back as a directory containing
+that file; its canonical listing is identical, so the digest verifies, and the
+entry inside it keeps its own name.
+
+The caller is the recovery check at project open: every distribution an open
+task is pinned to but the registry cannot currently provide is rebuilt, and
+rebuilding IS the check. A project that cannot rebuild old code records a
+diagnostic and still opens — the task is parked, which is the safe state.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:
