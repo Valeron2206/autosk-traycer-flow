@@ -1,0 +1,25 @@
+{
+  "result_schema_version": 1,
+  "kind": "verification_batch",
+  "role": "verifier",
+  "step_identity": {
+    "task_id": "ask-a1b2c3",
+    "session_id": "0190a1b2-c3d4-7e5f-8a9b-0000000000d2",
+    "attempt": 1,
+    "anchor_digest": "79bfb0e2ba76b9d447606ddbcc494834f05a4c11deb052e74b49ea307a3c5bcd",
+    "runtime_identity_digest": "d92c6a81b2ff50096bcda80885427d1f59a25b5f483f7055523504925d16ab23"
+  },
+  "outcome": "pass",
+  "summary": "mutation batch applied, control green, tree restored",
+  "attribution_echo": "autosk-flow/protocol/v1#verifier",
+  "batch": {
+    "product_outcome": "pass",
+    "tool_outcome": "ok",
+    "environment_outcome": "ok",
+    "application_proof": "evidence/mutation-apply-2026-09-08.log",
+    "green_control": "evidence/control-green-2026-09-08.log",
+    "restore_receipt": "evidence/restore-2026-09-08.json",
+    "harness_digest": "49f756463ad9dcfb9b6ade54d7d6f15476e7214f46a65b4b0c55d46845b12f70",
+    "mutation_set_digest": "8e7d0a25009b2454ceb10f370fa61693719faebd0e5e0c2e43129c90e799ab51"
+  }
+}

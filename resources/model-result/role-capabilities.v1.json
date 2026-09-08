@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "capability_model": "autosk-flow/role-capabilities/v1",
+  "roles": {
+    "author": [
+      "workspace_edit",
+      "workspace_read",
+      "workspace_exec",
+      "submit_work_result"
+    ],
+    "implementer": [
+      "workspace_edit",
+      "workspace_read",
+      "workspace_exec",
+      "submit_work_result"
+    ],
+    "gate": [
+      "snapshot_read",
+      "submit_gate_result"
+    ],
+    "verifier": [
+      "deterministic_runner",
+      "submit_verification_result"
+    ],
+    "mediator": [
+      "host_decision"
+    ],
+    "coordinator": [
+      "host_decision"
+    ]
+  },
+  "forbidden_for_every_role": [
+    "autosk_task_mutate",
+    "autosk_step_mutate",
+    "autosk_comment_write",
+    "autosk_metadata_mutate"
+  ]
+}
