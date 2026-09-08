@@ -43,6 +43,9 @@ jobs:
       - name: Validate project delivery profile design contract
         run: npm run validate:delivery-profile
 
+      - name: Validate artifact registry design contract
+        run: npm run validate:artifact-registry
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

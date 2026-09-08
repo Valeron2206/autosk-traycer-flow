@@ -1,0 +1,509 @@
+{
+  "schema_version": 1,
+  "classifier_version": "autosk-flow/artifact-classifier/v1",
+  "classes": [
+    {
+      "class": "adr",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner",
+        "reviewer"
+      ],
+      "requires": [],
+      "paths": [
+        "04-decisions.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tech_plan",
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "artifact_registry",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/artifact-registry/artifact-registry.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "brief",
+        "core_flow",
+        "tech_plan",
+        "tickets",
+        "adr",
+        "decision_log"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "schema": "resources/artifact-registry/artifact-registry.schema.json",
+      "validator": "scripts/validate-artifact-registry.mjs"
+    },
+    {
+      "class": "behavior_pack",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/packs/*/pack.manifest.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "brief",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/brief.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "core_flow",
+        "tech_plan",
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "model_family_policy": "cross_family_required"
+    },
+    {
+      "class": "contract_document",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner",
+        "reviewer"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [],
+      "paths": [
+        "docs/contracts/artifact-registry.md",
+        "docs/contracts/delivery-profile.md",
+        "docs/contracts/epic-planning-ref.md",
+        "docs/contracts/project-instructions-lock.md",
+        "docs/contracts/tickets-manifest.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "artifact_registry",
+        "delivery_profile",
+        "instruction_lock",
+        "planning_ref_contract",
+        "tech_plan",
+        "tickets"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "core_flow",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [
+        "brief"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/core-flow.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tech_plan",
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "model_family_policy": "cross_family_required"
+    },
+    {
+      "class": "decision_log",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner",
+        "reviewer"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/decision-log.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "brief",
+        "core_flow",
+        "tech_plan",
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "delivery_profile",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/delivery/delivery-profile.lock.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "schema": "resources/delivery-profile/delivery-profile.schema.json",
+      "validator": "scripts/validate-delivery-profile.mjs"
+    },
+    {
+      "class": "explanatory_doc",
+      "category": "explanatory",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "README.md",
+        "CONTRIBUTING.md",
+        "docs/*.md"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
+      "class": "governance_update",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/governance/*"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "adr",
+        "decision_log"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "instruction_lock",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/instructions/project-instructions.lock.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "brief",
+        "core_flow",
+        "tech_plan",
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "schema": "resources/project-instructions/project-instructions-lock.schema.json",
+      "validator": "scripts/validate-project-instructions-lock.mjs"
+    },
+    {
+      "class": "migration_plan",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/autosk/epics/*/migration-plan.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "planning_ref_contract",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "refs/autosk/epics/*/planning"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "validator": "scripts/validate-planning-ref-design.mjs"
+    },
+    {
+      "class": "runtime_evidence",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "evidence/*"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "epic_scoped",
+      "human_approval": "not_required"
+    },
+    {
+      "class": "tech_plan",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [
+        "core_flow"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/tech-plan.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "model_family_policy": "cross_family_required"
+    },
+    {
+      "class": "tickets",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [
+        "tech_plan"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/tickets/tickets.manifest.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required",
+      "model_family_policy": "cross_family_required",
+      "schema": "resources/tickets-manifest/tickets-manifest.schema.json",
+      "validator": "scripts/validate-tickets-manifest-design.mjs"
+    },
+    {
+      "class": "verification_doc",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "docs/contracts/*-verification.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    }
+  ],
+  "registry_digest": "5d84ec0553d769aab962c56a9f98349c3a11d79f3e73137ed03600eea0b301ce"
+}
