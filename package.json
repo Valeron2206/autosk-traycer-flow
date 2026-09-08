@@ -41,6 +41,7 @@
     "validate:housekeeping": "node scripts/validate-housekeeping.mjs",
     "validate:debate": "node scripts/validate-debate.mjs",
     "validate:walkthrough": "node scripts/validate-walkthrough.mjs",
+    "validate:static-analysis": "node scripts/validate-static-analysis.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {

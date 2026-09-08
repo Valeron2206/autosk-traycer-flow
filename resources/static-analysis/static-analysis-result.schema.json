@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/static-analysis/static-analysis-result.v1.json",
+  "title": "Static analysis result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "mode",
+    "policy_digest",
+    "candidate",
+    "provider",
+    "input_reports",
+    "analysis",
+    "conditions_evaluated",
+    "outcome",
+    "findings",
+    "replaces_review"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "operation_id": { "type": "string", "pattern": "^sao-[0-9a-z-]{3,64}$" },
+    "mode": { "enum": ["pull_request", "main_branch", "unavailable"] },
+    "policy_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_oid", "tree_oid", "pathspec", "current_tree_oid"],
+      "properties": {
+        "commit_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "current_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "pathspec": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "server_identity", "scanner_identity", "analyzers"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "server_identity": { "type": "string", "minLength": 1 },
+        "scanner_identity": { "type": "string", "minLength": 1 },
+        "analyzers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "version": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "unsupported_modes": { "type": "array", "items": { "enum": ["pull_request", "main_branch", "arbitrary_branch"] } }
+      }
+    },
+    "input_reports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "sha256", "produced_from_tree_oid"],
+        "properties": {
+          "kind": { "enum": ["coverage", "sarif", "generic_issues"] },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "produced_from_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "producer": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis_id", "task_id", "state", "receipt_recorded"],
+      "properties": {
+        "analysis_id": { "type": "string", "minLength": 1 },
+        "task_id": { "type": "string", "minLength": 1 },
+        "project_key": { "type": "string", "minLength": 1 },
+        "state": { "enum": ["pending", "success", "failed", "canceled", "not_run"] },
+        "receipt_recorded": { "type": "boolean" }
+      }
+    },
+    "webhook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authenticated", "analysis_id", "project_key", "delivery_id", "seen_delivery_ids"],
+      "properties": {
+        "authenticated": { "type": "boolean" },
+        "analysis_id": { "type": "string", "minLength": 1 },
+        "project_key": { "type": "string", "minLength": 1 },
+        "delivery_id": { "type": "string", "minLength": 1 },
+        "seen_delivery_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "conditions_evaluated": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,48}$" } },
+    "outcome": { "enum": ["pass", "fail", "not_run", "blocked"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "kind", "disposition", "disposed_by"],
+        "properties": {
+          "finding_id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["issue", "security_hotspot", "duplication", "coverage"] },
+          "disposition": { "enum": ["open", "reviewed_safe", "false_positive", "accepted_debt", "to_fix"] },
+          "disposed_by": { "enum": ["implementer", "reviewer", "operator", "unset"] },
+          "triage_ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "replaces_review": { "const": false }
+  }
+}
