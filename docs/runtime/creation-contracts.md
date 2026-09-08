@@ -129,19 +129,31 @@ The creation key and binding hash come from the grant, never from the caller, so
 holding the capability does not let an agent invent a child identity.
 
 **What the daemon verifies.** The grant must name this session, its task, its
-workflow, its step and that step's *current visit count*, and must not have
-expired. The visit comes from the task's own record rather than from the grant, so
-a grant minted for visit 1 cannot be replayed onto visit 2 by asserting the number
-it was minted with — replaying one grant across visits is precisely how a fan-out
-duplicates. Expiry is re-checked on every `create`, not only at mint: a capability
-that checked once would keep admitting children for as long as it was held, and a
-settled session issues nothing and invalidates what it already issued.
+workflow and its step, must agree with that step's recorded visit count, and must
+not have expired. Expiry is re-checked on every `create`, not only at mint: a
+capability that checked once would keep admitting children for as long as it was
+held. A settled session issues nothing and invalidates what it already issued. An
+unreadable clock is a refusal rather than an immortal grant — `expires_at_ms <=
+NaN` is false, so a check that failed open would be worse than none.
 
-**What it does not verify, said plainly.** `project_sha256`, `operation_id` and
-`context_digest` are the host's own canonicalisation and the daemon cannot
-recompute them. They are carried through unchanged, and a capability whose binding
-differs from the grant is refused — which is a narrower claim than "verified", and
-deliberately so.
+**What it does not establish, said plainly.** Nothing here distinguishes a grant
+the host compiled from one the caller wrote. There is no signature; `project_sha256`,
+`operation_id` and `context_digest` are the host's own canonicalisation, carried
+through and checked against nothing; and every field the daemon *does* check is
+something the caller already knows about itself — including the visit count, which
+is ordinary editable task metadata. So this narrows what a **given** grant can do.
+It is not yet proof that the host issued one, and the unforgeable half is unbuilt.
+
+The one binding a caller cannot choose is the **session id**: a later entry of the
+same step is a new session, so a grant cannot be replayed into it.
+
+A related hole was closed here rather than left for later. The visit count is read
+from `task.metadata.step_visits`, and metadata edits address leaves by dot-path —
+so `__proto__.step_visits` wrote onto `Object.prototype` and every other task in
+the daemon then read a visit map it never had. That is a daemon-wide defect
+independent of this feature, reachable from `task.metadata.set` and from
+`autosk metadata set`. Paths that traverse the prototype chain are now refused, and
+`getStepVisits` reads own keys only.
 
 The shape is closed: exact fields, bounded slots, unique slot ids, unique creation
 keys within a grant, no blocker on the parent, and refusals for non-plain

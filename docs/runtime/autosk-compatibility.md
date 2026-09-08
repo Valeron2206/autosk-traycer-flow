@@ -36,7 +36,7 @@ apply in the listed order, each producing the tree beside it:
 | `0012-reload-and-missing-version.patch` | `5a16304e20883870375cefc7816b4875c581d354` |
 | `0013-daemon-capability-report.patch` | `3eb7758f59b9793f5162b0a79a5803c33e2b4a8f` |
 | `0014-creation-scenarios.patch` | `726fe5a99b01e719c95e35cb0b41510fbebf7183` |
-| `0015-scoped-child-creation.patch` | `8538735a326cf55a811ecb9e29bf3f4b674da31d` — the current `result_tree` |
+| `0015-scoped-child-creation.patch` | `8eafa1fc623340c61b88ce8eafa0142e213278aa` — the current `result_tree` |
 
 Earlier patches are never edited in place; a new change is a new numbered patch.
 The license is retained in the source and each development bundle.
