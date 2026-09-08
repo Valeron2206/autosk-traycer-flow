@@ -97,6 +97,10 @@
       "decision_scope": [
         "remotes.strategy"
       ]
+    },
+    "completion_predicate": {
+      "source": "project_config",
+      "blob_oid": "dddddddddddddddddddddddddddddddddddddddd"
     }
   },
   "unresolved": [],

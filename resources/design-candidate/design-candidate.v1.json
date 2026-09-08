@@ -60,7 +60,7 @@
     },
     {
       "path": "docs/contracts/delivery-profile.md",
-      "sha256": "9812966aa09068d531b8e2904c002df7acfad711a12c33338540c8f524049bb1"
+      "sha256": "16bd7f6a720ffc5381f14c3423011dec3d8648a2ee9b95b4cbf63deb018eb323"
     },
     {
       "path": "docs/contracts/doctor-report.md",
@@ -196,7 +196,7 @@
     },
     {
       "path": "resources/delivery-profile/delivery-profile.schema.json",
-      "sha256": "4c3f369ec2106bcf9b480ae172ff44097a155a12641a121b116d9f0008c232cd"
+      "sha256": "718018b97bb3b031b6f17c1010c1e09d779d1d73a553ab5f8bc0b613febea0dd"
     },
     {
       "path": "resources/design-candidate/design-candidate.schema.json",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "23fbe9f8ad239d56936cb18f9cdee9f0f877b3242cbd3a9336bdb3c1a23560fb",
+  "candidate_digest": "812f898eed0e77809a30497ae1b94dd71d8a225b14f4527149c4b9dd8746f412",
   "dispositions": [
     {
       "issue": 3,
