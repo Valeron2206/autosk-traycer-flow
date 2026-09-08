@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "registry_version": 1,
+  "route_id": "cursor/cursor-kimi-2.5",
+  "provider": "cursor",
+  "harness": "oh-my-pi",
+  "executable_version": "1.4.0",
+  "model_id": "cursor-kimi-2.5",
+  "requested_effort": "xhigh",
+  "effective_effort": null,
+  "effort_confirmation": "unconfirmable",
+  "auth": "live",
+  "smoke": {
+    "state": "passed",
+    "contains_project_data": false
+  },
+  "permission_modes": [
+    "read_only",
+    "supervised",
+    "full_access"
+  ],
+  "session_resume": {
+    "mechanism": "token",
+    "format": "omp/session/v1"
+  },
+  "limits": {
+    "max_prompt_bytes": 1048576,
+    "max_output_bytes": 262144
+  },
+  "timeouts": {
+    "idle_ms": 120000,
+    "wall_clock_ms": 1800000
+  },
+  "process_tree_termination": "group_kill",
+  "warning_detection": "structured",
+  "failure_domain": "cursor",
+  "retry_budget": 2,
+  "checked_at": "2026-09-08T11:00:00.000Z",
+  "expires_at": "2026-09-09T11:00:00.000Z",
+  "privacy": {
+    "telemetry": "none"
+  },
+  "residual_risks": [
+    {
+      "risk": "the harness reported dropping the effort parameter",
+      "reason": "a warning was returned on the smoke call"
+    }
+  ]
+}
