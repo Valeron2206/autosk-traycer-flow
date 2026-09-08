@@ -41,7 +41,7 @@ apply in the listed order, each producing the tree beside it:
 | `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
-| `0020-longlived-helper.patch` | `a5d61e280a66a38042d600a692e23a5518e05faa` — the current `result_tree` |
+| `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

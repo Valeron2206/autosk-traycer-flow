@@ -1,5 +1,5 @@
 diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
-index 05691184e7ba7db278d247a25ca01000058745de..f874ada72edd6281ad25083a2844c0c5a99f038a 100644
+index 05691184e7ba7db278d247a25ca01000058745de..977bc2359dc70b9d6e905ff3ac79af58582d5b59 100644
 --- a/daemon/core/src/store/creation.ts
 +++ b/daemon/core/src/store/creation.ts
 @@ -209,10 +209,16 @@ export function serializeCreationIndex(index: CreationIndexRecord): string {
@@ -63,7 +63,7 @@ index 05691184e7ba7db278d247a25ca01000058745de..f874ada72edd6281ad25083a2844c0c5
 + * the session is dropped and the next call establishes a new one, which is the
 + * recovery ADR-028 requires; nothing routes around the helper in the meantime.
 + */
-+export class ProjectHelper {
++class ProjectHelper {
 +  private session: HelperSession | null = null;
 +  private tail: Promise<unknown> = Promise.resolve();
 +
@@ -227,17 +227,17 @@ index b551f0403d602cbdb52f6eb2e85216b05916b3e2..7241ab9324e1d153ac7a922d63868d35
    serializeCreationIndex,
    type CreationIndexRecord,
 diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
-index 59664cab4ff5e0a30356c0fa17b46e7aaacddc94..e8c355214583852d73094d036f779a6233d0be58 100644
+index 59664cab4ff5e0a30356c0fa17b46e7aaacddc94..ed823c59aa5554b23c820ba9384a08f50385e138 100644
 --- a/daemon/core/src/store/store.ts
 +++ b/daemon/core/src/store/store.ts
-@@ -45,6 +45,7 @@ import {
+@@ -42,6 +42,7 @@ import {
+   hasCreationBinding,
+   parseCreationIndexText,
+   readCreationIndex,
++  releaseCreationLock,
    serializeCreationIndex,
    stateError,
    validateTaskCreationInput,
-+  releaseCreationLock,
-   withCreationLock,
-   type CreationIndexRecord,
-   type CreationLockIO,
 @@ -255,6 +256,12 @@ export class Store {
      this.watcher?.close();
      this.watcher = null;
