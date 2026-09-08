@@ -49,6 +49,12 @@ Order matters here and is deliberately not sorted away — unlike the set-valued
 
 The base digest is part of the Ticket's candidate and review identity.
 
+## 5a. How the composition is built
+
+In a temporary index outside the project, from blobs that already exist, in the recorded order — the same three rules the approved-delta apply follows, for the same reasons. The composition commit is written with a given identity and both given dates, so replaying the recorded order produces the same commit OID rather than a new one every time; a base that changed identity on retry would invalidate the digest that names it.
+
+Two predecessors that write one path with the same bytes and mode are one change made twice and compose. Two that write it differently do not, and the composition refuses rather than letting the last one win: the loser's PASS was about content this base would not contain.
+
 ## 6. What must hold before a worktree exists
 
 - every predecessor has a valid PASS, a commit binding and a delta binding;
