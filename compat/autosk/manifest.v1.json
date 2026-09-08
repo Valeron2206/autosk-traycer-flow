@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "dc2e2c02a954579b8552848761edeb9800302d1b",
+  "result_tree": "9f52d343ff42ee495f9caa408ef7e7564d878516",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -126,6 +126,10 @@
     {
       "file": "patches/0030-artifact-write-adapter.patch",
       "sha256": "fa84e6acec02518650cb95e55d7d4245a4337bbb8da815e63158a2d072652751"
+    },
+    {
+      "file": "patches/0031-partial-frame-race.patch",
+      "sha256": "257ad57d0f0d48ceef33ba278cc65322152bb4ad35c2b2b22bd503f0acb235b3"
     }
   ],
   "license": {

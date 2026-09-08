@@ -1,0 +1,18 @@
+diff --git a/daemon/core/test/rpc.subscriptions.test.ts b/daemon/core/test/rpc.subscriptions.test.ts
+index ddaf9f0..0ee4fc9 100644
+--- a/daemon/core/test/rpc.subscriptions.test.ts
++++ b/daemon/core/test/rpc.subscriptions.test.ts
+@@ -198,6 +198,13 @@ describe("session.subscribe replay-then-tail", () => {
+         ev(n).event?.type === "custom" &&
+         (ev(n).event as { customType?: string }).customType === "test:commitB",
+     );
++    // And the partial is waited for in its own right rather than assumed to have
++    // arrived by now. It travels a different path from a commit — ephemeral,
++    // outside the transcript's serial chain — so which of the two lands first is
++    // a race, and synchronising on one while reading the other is what made this
++    // flaky. Since the transcript moved through the boundary adapter a commit is
++    // a round trip slower, and the race started resolving the other way.
++    await client.waitForNotification((n) => n.method === "session-event" && ev(n).kind === "partial");
+ 
+     const isEvent = (n: { method: string }) => n.method === "session-event";
+     const commitAIdx = client.notifications.findIndex(
