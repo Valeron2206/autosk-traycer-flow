@@ -19,6 +19,7 @@ import {
   ROOT,
   SCHEMA_PATH,
   UNRESOLVED_REASONS,
+  canonicalValue,
   deliveryProfileDesignDigest,
   loadFiles,
   profileDigest,
@@ -197,6 +198,53 @@ test("a digest that does not recompute is refused", () => {
     ),
     /profile_digest does not recompute/u,
   );
+});
+
+test("the same set in a different order is not drift", () => {
+  // Every array here is a set. Serialising positionally would make a
+  // re-resolution that returned the same permissions in a different order look
+  // like drift — and drift invalidates approvals that nothing was wrong with.
+  const before = profileDigest(example());
+  const after = profileDigest(
+    mutated(
+      (profile) => {
+        profile.integration.allowed_modes = [...profile.integration.allowed_modes].reverse();
+      },
+      { reseal: false },
+    ),
+  );
+  assert.equal(before, after);
+});
+
+test("a different set is drift", () => {
+  const before = profileDigest(example());
+  const after = profileDigest(
+    mutated(
+      (profile) => {
+        profile.integration.allowed_modes = ["merge"];
+      },
+      { reseal: false },
+    ),
+  );
+  assert.notEqual(before, after);
+});
+
+test("the file must still be written in canonical order", () => {
+  // Order-insensitive identity must not become permission to write the file any
+  // way at all: two profiles with the same content should be the same bytes, so
+  // a diff shows a real change rather than a reshuffle.
+  assertRejects(
+    mutated((profile) => {
+      profile.integration.allowed_modes = ["squash", "pull_request"];
+    }),
+    /must be written in canonical \(sorted\) order/u,
+  );
+});
+
+test("canonical serialisation sorts nested keys as well as arrays", () => {
+  assert.equal(canonicalValue({ b: 1, a: [3, 1, 2] }), '{"a":[1,2,3],"b":1}');
+  assert.equal(canonicalValue([{ b: 2, a: 1 }]), '[{"a":1,"b":2}]');
+  assert.equal(canonicalValue(undefined), "undefined");
 });
 
 test("a non-binding field can be reworded without invalidating a candidate", () => {

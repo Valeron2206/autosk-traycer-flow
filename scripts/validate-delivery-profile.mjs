@@ -78,9 +78,38 @@ export function profileDigest(profile) {
   const canonical = profile.binding_fields
     .slice()
     .sort()
-    .map((pointer) => `${pointer}=${JSON.stringify(valueAt(profile, pointer)) ?? "undefined"}`)
+    .map((pointer) => `${pointer}=${canonicalValue(valueAt(profile, pointer))}`)
     .join(";");
   return sha256(canonical);
+}
+
+/**
+ * Content, not the order it happened to be written in.
+ *
+ * Every array in this schema is a SET — allowed modes, required checks, a
+ * decision's scope. Serialising them positionally would make a re-resolution
+ * that returns the same permissions in a different order look like drift, and
+ * drift invalidates approvals. Object keys are sorted for the same reason.
+ */
+export function canonicalValue(value) {
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalValue).sort().join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalValue(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** True when `value` is written in the order {@link canonicalValue} would put it. */
+function isSortedArray(value) {
+  if (!Array.isArray(value)) return true;
+  const written = value.map(canonicalValue);
+  return written.every((entry, index) => index === 0 || written[index - 1] <= entry);
 }
 
 /** The identity of this design as bytes, so a review verdict can be bound to it. */
@@ -173,6 +202,15 @@ export function validateProfile(profile, schema) {
 
   if (profile.release.deploy_excluded !== true) {
     errors.push("release.deploy_excluded must be true: deployment to real users is out of scope");
+  }
+
+  // The digest is order-insensitive so a reordered re-resolution is not drift;
+  // the file is still required to be written in that order, so two profiles with
+  // the same content are the same bytes and a diff shows a real change.
+  for (const pointer of profile.binding_fields) {
+    if (!isSortedArray(valueAt(profile, pointer))) {
+      errors.push(`${pointer}: array must be written in canonical (sorted) order`);
+    }
   }
 
   const expected = profileDigest(profile);

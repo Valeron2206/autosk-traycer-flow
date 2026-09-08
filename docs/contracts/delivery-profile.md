@@ -55,7 +55,9 @@ Unknown fields and unknown versions fail closed.
 
 ## 5. Identity
 
-`profile_digest` is SHA-256 over the canonical serialisation of every field that can change what the host does — not over the whole document, because prose fields such as a human decision's rationale must be editable without invalidating a candidate that never depended on them. The schema marks which fields are binding; the digest covers exactly those, and the validator recomputes it.
+`profile_digest` is SHA-256 over the canonical serialisation of every field that can change what the host does — not over the whole document, because prose fields such as a human decision's rationale must be editable without invalidating a candidate that never depended on them. The profile marks which fields are binding; the digest covers exactly those, and the validator recomputes it.
+
+The serialisation is content, not writing order. Every array here is a set — allowed modes, required checks, a decision's scope — so serialising positionally would make a re-resolution that returned the same permissions in a different order look like drift, and drift invalidates approvals. Arrays are sorted and object keys are sorted before hashing. The file is still required to be *written* in that order, so two profiles with the same content are the same bytes and a diff shows a real change rather than a reshuffle.
 
 `profile_digest` binds planning and Ticket candidate identity wherever the profile changes how commits are structured, staging and aggregate evidence, human acceptance, and the final integration operation.
 

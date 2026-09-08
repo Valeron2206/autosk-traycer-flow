@@ -17,8 +17,8 @@
   },
   "integration": {
     "allowed_modes": [
-      "squash",
-      "pull_request"
+      "pull_request",
+      "squash"
     ],
     "local_staging": "host",
     "final_push": "external",
@@ -116,5 +116,5 @@
     "remotes/strategy",
     "completion_predicate"
   ],
-  "profile_digest": "38d1500069cc0b9cba720c8597a9c7cff05182cc9a9f057215c820afeef577aa"
+  "profile_digest": "b8ec67c07cf0926ef79a552e176342911496995877322a6bac363940f1b6b03a"
 }
