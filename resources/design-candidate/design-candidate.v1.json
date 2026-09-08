@@ -68,7 +68,7 @@
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
-      "sha256": "394a03f1e81162ca274a604a2643f58202fc36c41de86188b140f3e77a7e0a88"
+      "sha256": "7ff57fc30aeabbe3dcc2a58e863ca9070d3abc60a7e083e99a22213b8e7dffd1"
     },
     {
       "path": "docs/contracts/epic-staging.md",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "95f7e32b35fe71b2c86ec79a9927acff5837af0921c92198c12c9737c4cf76c7",
+  "candidate_digest": "ce1c187f12ca428fc2602364dbdff2e033e69bc0438dc8fce872038aa170976e",
   "dispositions": [
     {
       "issue": 3,

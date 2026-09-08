@@ -436,6 +436,8 @@ The commit has no merge parent and cannot include changes outside the candidate 
 
 The CAS uses an exact expected-old value. No fetch-and-retry against a new parent, force update, rebase, merge, cherry-pick, or branch-name inference is allowed.
 
+Two observations are unknown transitions rather than checkpoints, and both park: a ref with no reflog at all, and a ref observed without a recorded checkpoint depth. Counting movements against either would make every foreign movement read as `checkpoint`, because zero minus zero is zero however the ref got there — the ref looking untouched precisely because nothing was recorded. This is also why the ref is created and advanced with `--create-reflog`: git keeps reflogs only for refs under `refs/heads`, `refs/remotes`, `refs/notes` and HEAD, so a planning ref would otherwise be exactly that unobservable case.
+
 After phase `verified`, host atomically records:
 
 - `planning.head_oid=expected_commit_oid`;
