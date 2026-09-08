@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "project": {
+    "canonical_root": "/srv/projects/example",
+    "project_identity": "a31928515822ddc768d58d764ba4562cf31ebb6777f38cfc0ee449e767d59ba1",
+    "epic_id": "epic-0001"
+  },
+  "target": {
+    "target_ref": "refs/heads/main",
+    "base_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "direct_push_allowed": false,
+    "protection_snapshot": {
+      "required_pull_request_reviews": 1,
+      "required_linear_history": true,
+      "allow_force_pushes": false
+    }
+  },
+  "integration": {
+    "allowed_modes": [
+      "pull_request",
+      "squash"
+    ],
+    "local_staging": "host",
+    "final_push": "external",
+    "pull_request": "host",
+    "merge_queue_required": false
+  },
+  "authorship": {
+    "signing": "ssh",
+    "signing_reproduction": "git -c gpg.format=ssh -c user.signingkey=<host key> commit -S",
+    "dco": "required",
+    "message_policy": "conventional_commits"
+  },
+  "checks": {
+    "required": [
+      {
+        "name": "validate",
+        "provenance": {
+          "source": "remote_discovery",
+          "observed_at": "2026-09-08T06:00:00Z",
+          "expires_at": "2026-09-08T07:00:00Z"
+        }
+      },
+      {
+        "name": "autosk / linux-x64",
+        "provenance": {
+          "source": "remote_discovery",
+          "observed_at": "2026-09-08T06:00:00Z",
+          "expires_at": "2026-09-08T07:00:00Z"
+        }
+      }
+    ],
+    "ci_command": "npm test",
+    "ci_config_digest": "eeaf1b40368c4c73e78a08e46c24a502a8d430a6ed57a76c5385b9dba3db6a55"
+  },
+  "review": {
+    "required_approvals": 1,
+    "code_owner_review_required": false
+  },
+  "remotes": {
+    "strategy": "origin",
+    "credential_class": "forge_token",
+    "credential_location": "host keychain, never in project artifacts"
+  },
+  "release": {
+    "deploy_excluded": true
+  },
+  "completion_predicate": "the pull request is merged into refs/heads/main and every required check passed on its head",
+  "rollback": "revert commit on refs/heads/main through the same pull-request path; no force push, no history rewrite",
+  "provenance": {
+    "target": {
+      "source": "remote_discovery",
+      "observed_at": "2026-09-08T06:00:00Z",
+      "expires_at": "2026-09-08T07:00:00Z"
+    },
+    "integration": {
+      "source": "project_config",
+      "blob_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "authorship": {
+      "source": "project_config",
+      "blob_oid": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    "checks": {
+      "source": "remote_discovery",
+      "observed_at": "2026-09-08T06:00:00Z",
+      "expires_at": "2026-09-08T07:00:00Z"
+    },
+    "review": {
+      "source": "remote_discovery",
+      "observed_at": "2026-09-08T06:00:00Z",
+      "expires_at": "2026-09-08T07:00:00Z"
+    },
+    "remotes": {
+      "source": "human_decision",
+      "decision_id": "dec-0007",
+      "decision_scope": [
+        "remotes.strategy"
+      ]
+    }
+  },
+  "unresolved": [],
+  "binding_fields": [
+    "target/target_ref",
+    "target/base_oid",
+    "target/direct_push_allowed",
+    "integration/allowed_modes",
+    "integration/local_staging",
+    "integration/final_push",
+    "integration/pull_request",
+    "authorship/signing",
+    "authorship/dco",
+    "authorship/message_policy",
+    "checks/ci_config_digest",
+    "review/required_approvals",
+    "remotes/strategy",
+    "completion_predicate"
+  ],
+  "profile_digest": "b8ec67c07cf0926ef79a552e176342911496995877322a6bac363940f1b6b03a"
+}
