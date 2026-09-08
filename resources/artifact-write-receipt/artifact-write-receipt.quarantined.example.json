@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "epic_id": "epic-2026-09-a",
+  "artifact_class": "evidence_bundle",
+  "destination": "docs/generated/report.bin",
+  "expected_previous": {
+    "state": "file",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mode": 420
+  },
+  "intended_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "intended_size": 4096,
+  "observed_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+  "observed_size": 33554432,
+  "observed_mode": 420,
+  "operation_id": "op-9a10",
+  "planning_base_oid": "cccccccccccccccccccccccccccccccccccccccc",
+  "pathspec_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "runtime_identity": {
+    "workflow": "feature-dev",
+    "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "graph": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "helper": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "policy": {
+    "max_bytes": 16777216,
+    "allowed_modes": [
+      420,
+      436
+    ]
+  },
+  "phase": "quarantined",
+  "quarantine": {
+    "state": "held",
+    "reason": "oversize",
+    "path": ".autosk/quarantine/op-9a10/report.bin",
+    "disposition": "pending"
+  },
+  "reconciliation": {
+    "state": "diverged",
+    "report": {
+      "canonical_bytes": "33554432 bytes at 999… , outside the 16777216 policy",
+      "task_metadata": "step records the artifact as produced",
+      "receipt": "quarantined; nothing was published to the canonical path",
+      "model_output": "the proposed bytes are retained under the quarantine path"
+    }
+  },
+  "recorded_at": "2026-09-08T12:00:00.000Z",
+  "sequence": 2
+}
