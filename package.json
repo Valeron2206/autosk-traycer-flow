@@ -11,7 +11,8 @@
     "generate:capabilities": "node scripts/validate-program-capability-matrix.mjs --write-docs",
     "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope",
     "validate:tickets-manifest": "node scripts/validate-tickets-manifest-design.mjs",
-    "validate:instructions-lock": "node scripts/validate-project-instructions-lock.mjs"
+    "validate:instructions-lock": "node scripts/validate-project-instructions-lock.mjs",
+    "validate:delivery-profile": "node scripts/validate-delivery-profile.mjs"
   },
   "engines": {
     "node": ">=24"

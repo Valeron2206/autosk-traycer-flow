@@ -86,6 +86,8 @@ Files-backend packing is closed inside that single service-owned common Git dire
 
 CAS/reflog-механика `integrate-approved` переносится вместе с тестами в пакет `autosk-flow` и вызывается как собственный executable/module. Исходная Traycer-команда используется только для миграционного сравнения. Runtime не обращается к `traycer-protocol`, `~/.traycer`, Traycer skills или Traycer sessions.
 
+Какие из этих операций вообще разрешены в конкретном репозитории, решает delivery profile, зафиксированный до первого implementation dispatch (ADR-030, issue #17). Локальный CAS над target ref — не умолчание: проект может требовать pull request, merge queue, подписанные коммиты или DCO, и это выясняется до того, как появятся approved commits, а не при первом отказанном push. Неподдерживаемый режим останавливает Epic с decision packet, а не переключает доставку на скрытый запасной путь.
+
 ### Глобальное и проектное владение
 
 Глобально устанавливаются только:
