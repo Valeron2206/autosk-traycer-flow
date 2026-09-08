@@ -12,7 +12,8 @@
     "validate:scope": "node scripts/validate-traycer-parity.mjs --check-file-scope",
     "validate:tickets-manifest": "node scripts/validate-tickets-manifest-design.mjs",
     "validate:instructions-lock": "node scripts/validate-project-instructions-lock.mjs",
-    "validate:delivery-profile": "node scripts/validate-delivery-profile.mjs"
+    "validate:delivery-profile": "node scripts/validate-delivery-profile.mjs",
+    "validate:artifact-registry": "node scripts/validate-artifact-registry.mjs"
   },
   "engines": {
     "node": ">=24"

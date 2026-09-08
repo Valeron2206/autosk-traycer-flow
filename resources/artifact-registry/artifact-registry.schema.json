@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/artifact-registry.v1.json",
+  "title": "Artifact registry v1",
+  "description": "Which artifact classes this project knows how to govern. Closed: unknown fields and unknown versions fail.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "classifier_version",
+    "classes",
+    "registry_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "classifier_version": {
+      "const": "autosk-flow/artifact-classifier/v1"
+    },
+    "classes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "class",
+          "category",
+          "author_roles",
+          "requires",
+          "paths",
+          "review",
+          "identity_fields",
+          "carrier",
+          "impacts",
+          "publication",
+          "model_execution_allowed",
+          "retention",
+          "human_approval"
+        ],
+        "properties": {
+          "class": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,48}$"
+          },
+          "category": {
+            "enum": [
+              "behavior_defining",
+              "governance_defining",
+              "explanatory",
+              "runtime_evidence"
+            ]
+          },
+          "author_roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "model_family_policy": {
+            "enum": [
+              "any",
+              "cross_family_required",
+              "host_only"
+            ]
+          },
+          "requires": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{2,48}$"
+            }
+          },
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "full_panel",
+                  "narrow_review",
+                  "none"
+                ]
+              },
+              "condition": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "identity_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "carrier": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "validator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "impacts": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{2,48}$"
+            }
+          },
+          "publication": {
+            "enum": [
+              "planning_ref",
+              "governance_ref",
+              "none"
+            ]
+          },
+          "model_execution_allowed": {
+            "type": "boolean"
+          },
+          "retention": {
+            "enum": [
+              "durable",
+              "epic_scoped",
+              "transient"
+            ]
+          },
+          "human_approval": {
+            "enum": [
+              "required",
+              "not_required"
+            ]
+          }
+        }
+      }
+    },
+    "registry_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
