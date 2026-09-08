@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "locator": "uploads/2026-09/spec-v3.pdf",
+  "source_kind": "upload",
+  "media_type": "application/pdf",
+  "source_size": 918244,
+  "source_mode": 420,
+  "provenance": {
+    "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "arrival": "in_project"
+  },
+  "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "snapshot_path": ".autosk/snapshots/bbbbbbbb/spec-v3.pdf",
+  "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "read_back_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "operation_id": "op-2210",
+  "receipt_sequence": 4,
+  "clearance": "cleared",
+  "epic_id": "epic-2026-09-a",
+  "anchor_version": 2,
+  "lifecycle": "superseded",
+  "superseded_by": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

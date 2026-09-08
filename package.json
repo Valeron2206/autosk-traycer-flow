@@ -24,6 +24,7 @@
     "validate:platform-support": "node scripts/validate-platform-support.mjs",
     "validate:creation-grant": "node scripts/validate-creation-grant.mjs",
     "validate:artifact-write-receipt": "node scripts/validate-artifact-write-receipt.mjs",
+    "validate:external-source-snapshot": "node scripts/validate-external-source-snapshot.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs"
   },
   "engines": {
