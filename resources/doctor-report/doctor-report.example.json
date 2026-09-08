@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "runtime_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "generated_at": "2026-09-08T12:00:00.000Z",
+  "tool": {
+    "name": "autosk-flow-doctor",
+    "version": "1.0.0"
+  },
+  "checks": [
+    {
+      "id": "project_identity.canonical_root",
+      "category": "project_identity",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "project_identity.store_consistent",
+      "category": "project_identity",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "daemon.capability_creation_binding",
+      "category": "daemon",
+      "status": "pass",
+      "evidence": {
+        "capability": "task.creation-binding",
+        "version": 2
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "daemon.helper_available",
+      "category": "daemon",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "governance.bundle_attested",
+      "category": "governance",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "governance.carrier_coverage",
+      "category": "governance",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "providers.panel_routes_attested",
+      "category": "providers",
+      "status": "pass",
+      "evidence": {
+        "routes": 4,
+        "domains": 4
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "git_delivery.worktree_clean",
+      "category": "git_delivery",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "security.scanner_self_test",
+      "category": "security",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "scheduler.no_orphan_sessions",
+      "category": "scheduler",
+      "status": "pass",
+      "evidence": {
+        "observed": "ok"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      }
+    },
+    {
+      "id": "providers.process_tree_kill",
+      "category": "providers",
+      "status": "unverifiable",
+      "evidence": {
+        "reason_code": "requires_real_dispatch"
+      },
+      "provenance": {
+        "tool": "autosk-flow-doctor",
+        "version": "1.0.0",
+        "checked_at": "2026-09-08T12:00:00.000Z",
+        "expires_at": "2026-09-08T13:00:00.000Z"
+      },
+      "unverifiable_reason": "killing a real provider process tree is not a read-only action"
+    }
+  ]
+}

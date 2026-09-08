@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "5d5fc7e93d2b6e31e8723634aa714d9db1f53ecc065458e163fcc99fb7f055ee"
+      "sha256": "f159905f8c778fafae7558de512d739f01c334b085a667261fdd7ebaea11668e"
     },
     {
       "path": "README.md",
@@ -49,6 +49,10 @@
     {
       "path": "docs/contracts/delivery-profile.md",
       "sha256": "9812966aa09068d531b8e2904c002df7acfad711a12c33338540c8f524049bb1"
+    },
+    {
+      "path": "docs/contracts/doctor-report.md",
+      "sha256": "924a811a6d382a1d2fae99773d9e0e0f938c568c9645cbe2aa5bcdcd99bbfe2f"
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
@@ -137,6 +141,10 @@
     {
       "path": "resources/design-candidate/design-candidate.schema.json",
       "sha256": "8dd0e9711fbaaf68835d18fb1d648f2aa98ad0c519075ad6d55562d341e65460"
+    },
+    {
+      "path": "resources/doctor-report/doctor-report.schema.json",
+      "sha256": "e6be5898efca407d8a682d03b97c7e37bebbd4508ac57854383ebfb449f6b679"
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
@@ -263,7 +271,7 @@
       "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
     }
   ],
-  "candidate_digest": "6348a6eb805847a6ec9487bc1a68db6c2be659f51e4ee5e74af821842733b0f3",
+  "candidate_digest": "2602417c6895df1ddc3f67ed2369ac017162a853d2d9f4fae189a2237e727fd6",
   "dispositions": [
     {
       "issue": 3,
