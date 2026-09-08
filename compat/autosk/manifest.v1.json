@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "42b705c7824f63a2d7dec85282c956d7aee61add",
+  "result_tree": "a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -106,6 +106,10 @@
     {
       "file": "patches/0025-distribution-bytes.patch",
       "sha256": "534fb2d3792f3dba9338d393df4f075b42428b2fe59334cf8291cd5ac5ae9fd1"
+    },
+    {
+      "file": "patches/0026-materialize-held-distributions.patch",
+      "sha256": "391edd644c7851fffbcc8f5cf0a4bda6b25c52abd99b6c7d33be7461177a1e0e"
     }
   ],
   "license": {
