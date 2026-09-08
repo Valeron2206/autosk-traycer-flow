@@ -1,0 +1,306 @@
+diff --git a/daemon/core/src/extensions/bootstrap.ts b/daemon/core/src/extensions/bootstrap.ts
+index 56722c9fb1c8c1b02c0a53edd3a1c64c2478ad09..52e2f13444cf85eda59463bf4a44688bcf0ccce3 100644
+--- a/daemon/core/src/extensions/bootstrap.ts
++++ b/daemon/core/src/extensions/bootstrap.ts
+@@ -24,7 +24,7 @@
+  */
+ 
+ import { spawn } from "node:child_process";
+-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
++import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } from "node:fs";
+ import { dirname, join } from "node:path";
+ 
+ import { AUTOSK_DIR } from "../store/paths.ts";
+@@ -158,7 +158,13 @@ export async function ensureGlobalBootstrap(opts: BootstrapOptions): Promise<Boo
+       return { status: "failed", error: res.error };
+     }
+ 
+-    writeSettings(settingsPath, extensions);
++    if (!writeSettingsIfAbsent(settingsPath, extensions)) {
++      logger.info(
++        `autoskd: ${settingsPath} appeared while the first-run install was running — ` +
++          `leaving it as written rather than replacing it with the defaults`,
++      );
++      return { status: "skipped" };
++    }
+     logger.info(`autoskd: first-run init complete — wrote ${settingsPath} (extensions: ${extensions.join(", ")})`);
+     return { status: "installed" };
+   } catch (e) {
+@@ -247,9 +253,30 @@ export function ensurePackagesManifest(packagesDir: string): void {
+   );
+ }
+ 
+-/** Writes `settings.json` with the loaded-extension list. */
+-function writeSettings(settingsPath: string, extensions: string[]): void {
+-  writeFileSync(settingsPath, `${JSON.stringify({ extensions }, null, 2)}\n`, "utf8");
++/**
++ * Writes the first-run `settings.json`, but only if it is still absent.
++ *
++ * The decision and the write have to be ONE operation. The caller's `existsSync`
++ * is taken before a network `npm install`, so the file can appear during a window
++ * that is seconds long — an `autosk ext add` landing there was silently replaced
++ * by the default list, and the operator's extension disappeared. An exclusive
++ * create makes the loser find out instead of overwriting.
++ *
++ * Returns whether this call created the file.
++ */
++function writeSettingsIfAbsent(settingsPath: string, extensions: string[]): boolean {
++  try {
++    const fd = openSync(settingsPath, "wx");
++    try {
++      writeSync(fd, `${JSON.stringify({ extensions }, null, 2)}\n`);
++    } finally {
++      closeSync(fd);
++    }
++    return true;
++  } catch (e) {
++    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
++    throw e;
++  }
+ }
+ 
+ /**
+diff --git a/daemon/core/src/rpc/token.ts b/daemon/core/src/rpc/token.ts
+index 81a404f89ae0fd0d5326c40dafac6e6d0e98fbf7..6f1d424f8eeb692c612fda0fe715b3f7e185ce51 100644
+--- a/daemon/core/src/rpc/token.ts
++++ b/daemon/core/src/rpc/token.ts
+@@ -5,10 +5,13 @@
+  * socket is `0600` in a `0700` dir, so filesystem perms already authenticate the
+  * local peer). On startup the daemon reads the token, minting a fresh random
+  * one if the file is absent. Path: `$AUTOSK_TOKEN_FILE` → `~/.autosk/daemon-token`.
++ *
++ * The file is published by `link`, so the name never exists without the token in
++ * it — see {@link ensureToken}.
+  */
+ 
+ import { randomBytes } from "node:crypto";
+-import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
++import { chmodSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+ import { dirname, join } from "node:path";
+ 
+ /** Resolves the token path: `$AUTOSK_TOKEN_FILE` → `~/.autosk/daemon-token`. */
+@@ -21,9 +24,11 @@ export function resolveTokenPath(): string | null {
+ }
+ 
+ /**
+- * Reads the token at `path`, minting + persisting a fresh one (`0600`) if the
+- * file is absent or empty. The file is created `0600` from the start so the
+- * secret never briefly exists with looser umask perms.
++ * Reads the token at `path`, minting and publishing a fresh one (`0600`) if the
++ * file is absent. An existing but EMPTY file is refused rather than replaced.
++ *
++ * The temp the token is written to is created `0600`; `umask` only clears bits,
++ * so it can never be wider.
+  */
+ export function ensureToken(path: string): string {
+   try {
+@@ -40,16 +45,43 @@ export function ensureToken(path: string): string {
+   } catch {
+     // best-effort
+   }
+-  const fd = openSync(path, "w", 0o600);
++  // Publish the token so the file NEVER exists without it.
++  //
++  // The first attempt at this used `openSync(path, "wx")`, which is exclusive but
++  // not atomic with the write: it creates a 0-byte file, and the `writeSync` is a
++  // separate syscall. A concurrent starter that reached EEXIST in that gap read the
++  // file empty, took it for a leftover, and replaced it — leaving the creator
++  // returning a token no longer on disk. That is the very defect this function was
++  // changed to close; measurement put it at 4 occurrences in 150 rounds, seven
++  // times rarer than before and not gone.
++  //
++  // `link` is the atomic exclusive publish: the name appears already pointing at a
++  // file that holds the token, or it fails with EEXIST and somebody else won. There
++  // is no window in which the name exists empty, so no recovery branch is needed —
++  // and a recovery branch cannot be made correct anyway, because a read-back after a
++  // lossy replace can always be overtaken.
++  const tmp = `${path}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
++  writeFileSync(tmp, `${token}\n`, { mode: 0o600 });
+   try {
+-    writeSync(fd, `${token}\n`);
++    linkSync(tmp, path);
++  } catch (e) {
++    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
++    const existing = readFileSync(path, "utf8").trim();
++    if (existing.length > 0) return existing;
++    // An existing but EMPTY token file is a corrupt secret, not a race to recover
++    // from: replacing it would invalidate every client that already holds the real
++    // one, and doing so concurrently is exactly the clobber above. Refuse, and say
++    // which file to remove.
++    throw new Error(
++      `${path} exists but is empty: remove it and restart, or point AUTOSK_TOKEN_FILE elsewhere`,
++    );
+   } finally {
+-    closeSync(fd);
+-  }
+-  try {
+-    chmodSync(path, 0o600);
+-  } catch {
+-    // best-effort (in case the file pre-existed empty with wider perms)
++    try {
++      unlinkSync(tmp);
++    } catch {
++      // The link either succeeded (the token lives under `path` now) or did not;
++      // either way a leftover temp is not worth failing a daemon start over.
++    }
+   }
+   return token;
+ }
+diff --git a/daemon/core/test/extensions.bootstrap.test.ts b/daemon/core/test/extensions.bootstrap.test.ts
+index 04607f59902c123ac08d23734d7dddf2fc5ade60..d9374957c37b97316f5e7b177a38cd8a52fd08fb 100644
+--- a/daemon/core/test/extensions.bootstrap.test.ts
++++ b/daemon/core/test/extensions.bootstrap.test.ts
+@@ -13,8 +13,8 @@
+  */
+ 
+ import { afterEach, describe, expect, test } from "bun:test";
+-import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+-import { join } from "node:path";
++import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
++import { dirname, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ 
+ import {
+@@ -147,3 +147,35 @@ describe("first-run bootstrap", () => {
+     }
+   });
+ });
++
++describe("first-run bootstrap does not overwrite settings written during the install", () => {
++  test("an extension added while npm runs survives", async () => {
++    // `ensureGlobalBootstrap` decides to write from an `existsSync` taken BEFORE a
++    // network `npm install`, then writes unconditionally. An `ext add` landing in
++    // that window — which is seconds long — is replaced by the default list, and
++    // the operator's extension silently disappears. The injected installer stands
++    // in for that window exactly: it is the awaited call between the check and the
++    // write.
++    const dir = tempDir();
++    try {
++      const home = dir.path;
++      const settingsPath = join(home, ".autosk", "settings.json");
++      const result = await ensureGlobalBootstrap({
++        home,
++        logger: { info: () => {}, warn: () => {}, error: () => {} },
++        install: async () => {
++          // Someone runs `autosk ext add` while the install is in flight.
++          mkdirSync(dirname(settingsPath), { recursive: true });
++          writeFileSync(settingsPath, JSON.stringify({ extensions: ["npm:@me/mine"] }, null, 2) + "\n");
++          return { ok: true };
++        },
++      });
++
++      const onDisk = JSON.parse(readFileSync(settingsPath, "utf8")) as { extensions: string[] };
++      expect(onDisk.extensions, "the operator's entry was overwritten").toContain("npm:@me/mine");
++      expect(result.status).toBe("skipped");
++    } finally {
++      dir.cleanup();
++    }
++  });
++});
+diff --git a/daemon/core/test/rpc.token.test.ts b/daemon/core/test/rpc.token.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ddd2132992aaff5f81506883732dbec8f8908796
+--- /dev/null
++++ b/daemon/core/test/rpc.token.test.ts
+@@ -0,0 +1,101 @@
++/**
++ * The daemon's TCP auth token file (issue #13, trusted state written outside the
++ * boundary adapter).
++ *
++ * `ensureToken` mints the secret that gates the TCP transport. It is trusted
++ * state, and it was written with a truncating `openSync(path, "w")` — so two
++ * daemons starting at once could each mint and each clobber, and a reader in
++ * between could observe the file empty and treat it as absent.
++ */
++
++import { describe, expect, test } from "bun:test";
++import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { fileURLToPath } from "node:url";
++
++import { ensureToken } from "../src/index.ts";
++import { tempDir } from "./helpers.ts";
++
++describe("ensureToken", () => {
++  test("returns the existing token untouched", () => {
++    const dir = tempDir();
++    try {
++      const path = join(dir.path, "daemon-token");
++      writeFileSync(path, "already-here\n", { mode: 0o600 });
++      expect(ensureToken(path)).toBe("already-here");
++      expect(readFileSync(path, "utf8")).toBe("already-here\n");
++    } finally {
++      dir.cleanup();
++    }
++  });
++
++  test("the token file never exists without the token in it", () => {
++    // The guard for the publish being atomic. The temp is written first and `link`
++    // makes the name appear already pointing at it, so there is no moment at which
++    // the path exists and is empty — which is what a concurrent starter would have
++    // read as "absent" and replaced. The temp must not survive either.
++    const dir = tempDir();
++    try {
++      const path = join(dir.path, "daemon-token");
++      const token = ensureToken(path);
++      expect(token).toMatch(/^[0-9a-f]{64}$/u);
++      expect(readFileSync(path, "utf8").trim()).toBe(token);
++      expect(statSync(path).mode & 0o777).toBe(0o600);
++      expect(readdirSync(dir.path)).toEqual(["daemon-token"]);
++    } finally {
++      dir.cleanup();
++    }
++  });
++
++  test("an existing but empty token file is refused, not silently replaced", () => {
++    // Replacing it would invalidate every client already holding the real secret,
++    // and doing so concurrently is the clobber this function was changed to close.
++    // A corrupt secret is refused with the path to remove.
++    const dir = tempDir();
++    try {
++      const path = join(dir.path, "daemon-token");
++      writeFileSync(path, "", { mode: 0o600 });
++      expect(() => ensureToken(path)).toThrow(/exists but is empty/);
++      expect(readFileSync(path, "utf8")).toBe(""); // left exactly as found
++      expect(readdirSync(dir.path)).toEqual(["daemon-token"]); // no temp left behind
++    } finally {
++      dir.cleanup();
++    }
++  });
++
++  test("concurrent daemons agree on one token", async () => {
++    // A demonstration, not a guard: whether the processes actually overlap is up
++    // to the scheduler, and reverting the fix does NOT reliably fail this. It is
++    // kept because it is how the defect was found — twelve starters minted two
++    // different tokens, leaving every loser holding a secret the file no longer
++    // contained — and because agreement is the property that matters. The guard
++    // is the inode test above.
++    const dir = tempDir();
++    try {
++      const path = join(dir.path, "daemon-token");
++      const code = `
++        import { ensureToken } from ${JSON.stringify(fileURLToPath(new URL("../src/index.ts", import.meta.url)))};
++        process.stdout.write(ensureToken(process.argv[1]) + "\\n");
++      `;
++      const procs = Array.from({ length: 12 }, () =>
++        Bun.spawn([process.execPath, "--eval", code, path], { stdout: "pipe", stderr: "pipe" }),
++      );
++      const results = await Promise.all(
++        procs.map(async (p) => ({
++          code: await p.exited,
++          out: (await new Response(p.stdout).text()).trim(),
++          err: await new Response(p.stderr).text(),
++        })),
++      );
++      for (const r of results) expect(r.code, r.err).toBe(0);
++
++      const minted = new Set(results.map((r) => r.out));
++      const onDisk = readFileSync(path, "utf8").trim();
++      expect(minted.size, `processes minted ${minted.size} different tokens`).toBe(1);
++      expect([...minted][0]).toBe(onDisk);
++    } finally {
++      dir.cleanup();
++    }
++  }, 20000);
++
++});

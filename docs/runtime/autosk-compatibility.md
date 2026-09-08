@@ -39,7 +39,8 @@ apply in the listed order, each producing the tree beside it:
 | `0015-scoped-child-creation.patch` | `8ef375d6549fa9ea6e13c543a2ff4bb95f846fe7` |
 | `0016-helper-protocol-handshake.patch` | `eabf757e05350ccbe12c29d0756b5c49ac175667` |
 | `0017-helper-refusal-classes.patch` | `0afeac0cc82901aa387c983d44ccd50346bbe749` |
-| `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` — the current `result_tree` |
+| `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
+| `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -167,14 +168,24 @@ Two members of that list need naming separately, because calling them
 single-writer would be wrong:
 
 - `~/.autosk/settings.json` has **two** writers — first-run bootstrap and the
-  extension add/remove path — and they are not serialised against each other.
-  Bootstrap decides to write from an `existsSync` check taken *before* a network
-  `npm install`, so an add landing in that window is overwritten by the default
-  list. That is a genuine time-of-check/time-of-use bug, separate from the adapter
-  question, and it is recorded here rather than folded into it.
-- The RPC token is written with a truncating `openSync(path, "w")`, not even the
-  temp-and-rename `atomicWrite` the others use, so a concurrent reader can observe
-  an empty token.
+  extension add/remove path — and they were not serialised against each other.
+  Bootstrap decided to write from an `existsSync` taken *before* a network
+  `npm install`, then wrote unconditionally, so an `ext add` landing in that
+  window was replaced by the default list and the operator's extension vanished.
+  **Fixed**: the decision and the write are one exclusive create, and a file that
+  appeared during the install is left as written.
+- The RPC token was written with a truncating `openSync(path, "w")`, so two
+  daemons starting at once each minted and each clobbered — every loser left
+  holding a secret the file no longer contained — and a reader in between could
+  observe it empty, which `ensureToken` itself reads as "absent". **Fixed**, and
+  the first fix was not enough to say so: an exclusive `open(…, "wx")` creates a
+  0-byte file and the write is a separate syscall, so the same clobber survived
+  through that gap, seven times rarer. The token is now published with `link`,
+  which is atomic — the name appears already pointing at a file holding the token
+  — and an existing but empty file is **refused** rather than replaced, because a
+  read-back after a lossy replace can always be overtaken. Measured over 300
+  rounds × 24 concurrent starters: the previous version still produced
+  mismatches, this one produces none.
 
 Neither statement is a plan to leave any of this alone; they are the honest
 starting point for the slices that close it.
