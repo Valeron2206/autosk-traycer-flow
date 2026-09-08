@@ -167,6 +167,7 @@
         "docs/contracts/artifact-registry.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
+        "docs/contracts/epic-staging.md",
         "docs/contracts/execution-base.md",
         "docs/contracts/finding-registry.md",
         "docs/contracts/model-result.md",
@@ -185,6 +186,7 @@
         "approved_delta",
         "artifact_registry",
         "delivery_profile",
+        "epic_staging",
         "execution_base",
         "finding_registry",
         "instruction_lock",
@@ -288,6 +290,40 @@
       "human_approval": "required",
       "schema": "resources/delivery-profile/delivery-profile.schema.json",
       "validator": "scripts/validate-delivery-profile.mjs"
+    },
+    {
+      "class": "epic_staging",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "model_family_policy": "host_only",
+      "requires": [
+        "tickets",
+        "approved_delta"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/staging/staging-state.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the state is recorded by the host, not authored"
+      },
+      "identity_fields": [
+        "epic_id",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/epic-staging/epic-staging.schema.json",
+      "validator": "scripts/validate-epic-staging.mjs",
+      "impacts": [
+        "approved_delta"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     },
     {
       "class": "execution_base",
@@ -639,5 +675,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "379c1b8aada5fea7e661f9a019d11896fff3dfc83a25143dabc2ec7076a21ea3"
+  "registry_digest": "9031e395efd4bda1483307a69c84e00fadeb0a0ec73d2052db27ce9613977aea"
 }
