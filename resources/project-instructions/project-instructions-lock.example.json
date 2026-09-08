@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "discovery_algorithm": "autosk-flow/instruction-discovery/v1",
+  "object_format": "sha1",
+  "project": {
+    "canonical_root": "/srv/projects/example",
+    "project_identity": "a31928515822ddc768d58d764ba4562cf31ebb6777f38cfc0ee449e767d59ba1",
+    "epic_id": "epic-0001"
+  },
+  "source": {
+    "commit_oid": "dddddddddddddddddddddddddddddddddddddddd",
+    "tree_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "supported_filenames": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md"
+  ],
+  "limits": {
+    "max_discovered_files": 256,
+    "max_file_bytes": 1048576,
+    "max_total_instruction_bytes": 4194304
+  },
+  "precedence": [
+    "user_corrections",
+    "approved_epic_artifacts",
+    "pinned_project_instructions",
+    "governance_protocol",
+    "role_stage_contract"
+  ],
+  "secret_scan_policy": {
+    "scanner": "autosk-flow/secret-scan/v1",
+    "disposition": "exclude_and_report"
+  },
+  "admitted": [
+    {
+      "ordinal": 1,
+      "path": "AGENTS.md",
+      "governed_directory": "",
+      "blob_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "100644",
+      "size_bytes": 2048,
+      "sha256": "fda9fd506a0edc5ed31cf7a245ee21d179336beb459ce3f2f60545af7e7a1cb9",
+      "applicability": {
+        "roles": [
+          "implementer",
+          "reviewer"
+        ],
+        "stages": [
+          "implement",
+          "review"
+        ],
+        "pathspec": [
+          "**"
+        ]
+      }
+    },
+    {
+      "ordinal": 2,
+      "path": "daemon/AGENTS.md",
+      "governed_directory": "daemon",
+      "blob_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "mode": "100644",
+      "size_bytes": 1024,
+      "sha256": "66314707b03d3d62240c6567064f74310e3d406667215e574162cd8b78bdf09f",
+      "applicability": {
+        "roles": [
+          "implementer"
+        ],
+        "stages": [
+          "implement"
+        ],
+        "pathspec": [
+          "daemon/**"
+        ]
+      }
+    },
+    {
+      "ordinal": 3,
+      "path": "daemon/core/AGENTS.md",
+      "governed_directory": "daemon/core",
+      "blob_oid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mode": "100644",
+      "size_bytes": 512,
+      "sha256": "afeea939353a00749a8ee387e2dfbd7b326b1dad5d3b70f5a488e80fddee8e95",
+      "applicability": {
+        "roles": [
+          "implementer"
+        ],
+        "stages": [
+          "implement"
+        ],
+        "pathspec": [
+          "daemon/core/**"
+        ]
+      }
+    }
+  ],
+  "excluded": [
+    {
+      "path": "docs/.cursorrules",
+      "reason": "unsupported_filename",
+      "detail": "a provider would load this by default; the lock does not"
+    },
+    {
+      "path": "tools/AGENTS.md",
+      "reason": "not_a_regular_blob",
+      "mode": "120000",
+      "detail": "symlink; never followed"
+    },
+    {
+      "path": "secrets/CLAUDE.md",
+      "reason": "clearance_required",
+      "detail": "secret scan hit; visible in the audit, never sent"
+    }
+  ],
+  "combined_digest": "f29de085ca9a3b855483f19a22bc91c5754c4f03e0294ed56d6401e6cbb93c82"
+}

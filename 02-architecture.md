@@ -307,10 +307,16 @@ Project filesystem adapter отклоняет traversal/symlink/junction и ис
 
 Пользователь и координатор не копируют протокол вручную. Для каждого запуска расширение собирает PromptEnvelope:
 
+Строка «pinned project instruction set» ниже — не свободный текст, а
+скомпилированный срез из `project-instructions.lock.json`, зафиксированного на
+старте Epic (ADR-029, issue #12). Файл, который провайдер загрузил бы сам, в
+конверт не попадает: auto-context либо отключён, либо целиком перечислен lock'ом.
+
 ~~~text
 pinned common protocol
 + role contract
 + stage contract
++ pinned project instruction set (compiled slice, ADR-029)
 + current daemon-attributed user decisions and accepted corrections
 + current alignment record and re-resolved project policy proof, если применимо
 + approved and recomputed material-decision manifests
