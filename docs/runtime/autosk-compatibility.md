@@ -47,7 +47,8 @@ apply in the listed order, each producing the tree beside it:
 | `0023-grant-signature.patch` | `60b5ac3e55a7d110333417d09f1b6f740ac6c23d` |
 | `0024-transcript-through-adapter.patch` | `600db19b48ac4c9cbb6d332bbea7637281cc1a93` |
 | `0025-distribution-bytes.patch` | `42b705c7824f63a2d7dec85282c956d7aee61add` |
-| `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` — the current `result_tree` |
+| `0026-materialize-held-distributions.patch` | `a4bb54d606f37fc2e55e1afcc8ee3cd581ce7678` |
+| `0027-serve-pinned-code.patch` | `72ed6e0ea07646666aaf81d6b7ee34f729b9715b` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -331,6 +332,39 @@ The caller is the recovery check at project open: every distribution an open
 task is pinned to but the registry cannot currently provide is rebuilt, and
 rebuilding IS the check. A project that cannot rebuild old code records a
 diagnostic and still opens — the task is parked, which is the safe state.
+
+## Which version a project serves
+
+Patch `0027` lets the loader import the restored tree instead of the installed
+one. The rule has three parts and each earns its place:
+
+- A project serves the **installed** distribution when its open tasks are pinned
+  to it, or when it has no open tasks. That is the ordinary case and it is
+  unchanged.
+- When nothing open was admitted under the installed bytes and the project holds
+  the version that was, it serves the **held** version. This is what "Project A
+  stays on v1 while Project B starts on v2" means when there is one globally
+  installed copy: the install directory is shared, so a project that must not
+  move cannot rely on it.
+- When **several** held versions are pinned at once, none is served. Open tasks
+  pinned to different versions cannot all be satisfied by one registry, and
+  choosing between them would silently favour some tasks over others; the
+  installed version is served and the conflict is reported, so the affected
+  tasks park rather than run on a version nobody chose.
+
+The mixed case — some tasks on the installed version, some on an older held one
+— keeps the installed version for the same reason: moving off it would take the
+tasks that ARE on it off their own code.
+
+The loader re-identifies the substituted tree before importing it. The store
+verified the tree when it built it; this is the loader declining to take that on
+trust for code it is about to run. And it cannot know that two versions agree on
+where their entry point is, so a held tree that does not contain the installed
+entry fails to load and says so rather than guessing.
+
+A store that cannot answer either question leaves the installed code in place.
+An unreadable store is a reason to serve what is there, not to take a project
+down.
 
 Two members of that list need naming separately, because calling them
 single-writer would be wrong:

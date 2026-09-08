@@ -1,0 +1,456 @@
+diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
+index 1db31bf..9a4c33a 100644
+--- a/daemon/core/src/extensions/loader.ts
++++ b/daemon/core/src/extensions/loader.ts
+@@ -60,6 +60,92 @@ export interface ExtensionEnv {
+    * `process.env.HOME`. Injected by tests so they never touch the real `$HOME`.
+    */
+   home?: string;
++  /**
++   * How to find the code a project's open tasks are pinned to (issue #10,
++   * criterion 6). Omitted, the loader serves whatever is installed — which is
++   * the right answer for a project with no history to keep.
++   */
++  pinnedCode?: PinnedCodeSource;
++}
++
++/**
++ * The two questions the loader asks the store before it imports anything.
++ *
++ * Passed in rather than reached for, because the loader is used by tests and by
++ * discovery paths that have no store, and a loader that required one would make
++ * "which code is installed" depend on a project being open.
++ */
++export interface PinnedCodeSource {
++  /** The distributions this project's OPEN tasks are pinned to. */
++  pinned(): Promise<Set<string>>;
++  /** Where a held distribution was put back, or `null` when it is not held. */
++  restore(digest: string): Promise<string | null>;
++}
++
++/**
++ * Decides which distribution a project should serve for one installed entry.
++ *
++ * The rule, and the reasoning for each half:
++ *
++ * - The installed distribution is what a project serves when its open tasks are
++ *   pinned to it, or when it has no open tasks at all. That is the ordinary case
++ *   and it is unchanged.
++ * - When the installed bytes are NOT what the open tasks were admitted under,
++ *   and the project holds the version they were, the project serves the held
++ *   version. This is what "Project A stays on v1 while Project B starts on v2"
++ *   means when there is one globally installed copy: the install directory is
++ *   shared, so a project that must not move cannot rely on it.
++ * - When SEVERAL held versions could be served, none is. Open tasks pinned to
++ *   different versions cannot all be satisfied by one registry, and choosing
++ *   between them would silently favour some tasks over others; the installed
++ *   version is served and the conflict is reported, so the affected tasks park
++ *   rather than run on a version nobody chose.
++ */
++async function resolveServedRoot(
++  registry: ExtensionRegistry,
++  source: string,
++  installed: DistributionIdentity,
++  pinnedCode: PinnedCodeSource | undefined,
++): Promise<{ root: string; entryPath: string } | null> {
++  if (pinnedCode === undefined) return null;
++  let pinned: Set<string>;
++  try {
++    pinned = await pinnedCode.pinned();
++  } catch (e) {
++    registry.recordDiagnostic(source, `pinned distributions cannot be read: ${errMsg(e)}`);
++    return null;
++  }
++  if (pinned.size === 0 || pinned.has(installed.digest)) return null;
++
++  const restorable: { digest: string; root: string }[] = [];
++  for (const digest of pinned) {
++    try {
++      const root = await pinnedCode.restore(digest);
++      if (root !== null) restorable.push({ digest, root });
++    } catch (e) {
++      registry.recordDiagnostic(source, `distribution ${digest} cannot be restored: ${errMsg(e)}`);
++    }
++  }
++  if (restorable.length === 0) return null;
++  if (restorable.length > 1) {
++    registry.recordDiagnostic(
++      source,
++      `open tasks are pinned to ${restorable.length} different held distributions ` +
++        `(${restorable.map((r) => r.digest.slice(0, 12)).sort().join(", ")}); serving the installed code, ` +
++        "so those tasks stay parked until a migration picks one",
++    );
++    return null;
++  }
++  const chosen = restorable[0]!;
++  registry.recordDiagnostic(
++    source,
++    `serving held distribution ${chosen.digest} instead of the installed ${installed.digest}: ` +
++      "open tasks were admitted under it",
++  );
++  // The same entry, relative to the restored root. A version that moved its
++  // entry fails the import below and is reported there, which is the honest
++  // outcome: this cannot know that two versions agree on their entry point.
++  return { root: chosen.root, entryPath: join(chosen.root, installed.entry) };
+ }
+ 
+ /**
+@@ -202,6 +288,7 @@ async function loadEntry(
+   registry: ExtensionRegistry,
+   entry: ExtensionEntry,
+   identities: Map<string, DistributionIdentity | Error>,
++  pinnedCode?: PinnedCodeSource,
+ ): Promise<void> {
+   // Identify the exact bytes before importing them (issue #10). A distribution
+   // that cannot be identified is refused rather than loaded unidentified: a
+@@ -244,17 +331,35 @@ async function loadEntry(
+   }
+   let identity = cached;
+ 
++  // The project may have to serve code that is not what is installed, when its
++  // open tasks were admitted under a version the install directory no longer
++  // has. `served` is where the code actually comes from; `entry.entryPath` is
++  // where it was installed, and after this point only `served` matters.
++  const substitute = await resolveServedRoot(registry, entry.source, cached, pinnedCode);
++  const servedEntryPath = substitute?.entryPath ?? entry.entryPath;
++  if (substitute !== null) {
++    try {
++      // Identified again, from the tree that will actually be imported. The store
++      // verified it when it built it; this is the loader refusing to take that on
++      // trust for code it is about to run.
++      identity = distributionIdentity(substitute.root, substitute.entryPath);
++    } catch (e) {
++      registry.recordDiagnostic(entry.source, `held distribution cannot be identified: ${errMsg(e)}`);
++      return;
++    }
++  }
++
+   // Bun's module cache resolves symlinks and `..`, so two spellings of one file
+   // share one cached module. The binding key must resolve the same way or a second
+   // spelling would bind a fresh identity for code that is not re-evaluated.
+   let resolvedEntry: string;
+   try {
+-    resolvedEntry = realpathSync(entry.entryPath);
++    resolvedEntry = realpathSync(servedEntryPath);
+   } catch (e) {
+     registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${errMsg(e)}`);
+     return;
+   }
+-  const url = pathToFileURL(entry.entryPath).href;
++  const url = pathToFileURL(servedEntryPath).href;
+   const imported = importedIdentities.get(resolvedEntry);
+   if (imported !== undefined && imported.digest !== identity.digest) {
+     registry.recordDiagnostic(
+@@ -312,7 +417,7 @@ export async function loadProjectRegistry(
+   // first-registered wins a name collision deterministically.
+   const identities = new Map<string, DistributionIdentity | Error>();
+   for (const entry of entries) {
+-    await loadEntry(registry, entry, identities);
++    await loadEntry(registry, entry, identities, env.pinnedCode);
+   }
+   return registry;
+ }
+diff --git a/daemon/core/src/project/manager.ts b/daemon/core/src/project/manager.ts
+index 819f4f9..c877a95 100644
+--- a/daemon/core/src/project/manager.ts
++++ b/daemon/core/src/project/manager.ts
+@@ -241,7 +241,7 @@ export class ProjectManager {
+         // just-loaded store: a `work` task whose workflow/step vanished from the
+         // registry is parked to `human` before the scheduler can ever pick it up.
+         // No live sessions exist on a fresh open, so no skip-live predicate.
+-        const extensions = await loadProjectRegistry(root, this.extensionsEnv);
++        const extensions = await loadProjectRegistry(root, this.envFor(store));
+         await this.applyLoadedRegistry(root, store, extensions, { verb: "opening" });
+         const handle: ProjectHandle = { root, store, extensions, opened_at: this.clock() };
+         this.projects.set(root, handle);
+@@ -256,6 +256,25 @@ export class ProjectManager {
+     });
+   }
+ 
++  /**
++   * The loader environment for one project, with the two questions about pinned
++   * code answered by that project's own store (issue #10, criterion 6).
++   *
++   * A project whose open tasks were admitted under a version the install
++   * directory no longer has serves the version it holds, not the one that
++   * happens to be installed — which for one globally installed extension is the
++   * only way "Project A stays on v1 while Project B starts on v2" can be true.
++   */
++  private envFor(store: Store): ExtensionEnv {
++    return {
++      ...this.extensionsEnv,
++      pinnedCode: {
++        pinned: () => store.referencedDistributions(),
++        restore: (digest) => store.materializeDistribution(digest),
++      },
++    };
++  }
++
+   /**
+    * Rebuilds a currently-open project's extension registry from disk and swaps
+    * it onto the handle in place (extension hot-reload, plan §1-2). Returns a
+@@ -278,7 +297,7 @@ export class ProjectManager {
+     return this.openLocks.run(root, async () => {
+       const handle = this.projects.get(root);
+       if (!handle) return { open: false, diagnostics: [], workflows: [], parked: [] };
+-      const next = await loadProjectRegistry(root, this.extensionsEnv);
++      const next = await loadProjectRegistry(root, this.envFor(handle.store));
+       // Atomic swap: a single synchronous reassignment of the handle field the
+       // RPC read handlers (`registry.*`, `project.diagnostics`) consult fresh.
+       handle.extensions = next;
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index 3e17c93..9907752 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
+ import { basename, dirname, join } from "node:path";
+ 
+ import { loadProjectRegistry, resolveProjectEntries } from "../src/index.ts";
++import { distributionTreeIdentity } from "../src/extensions/identity.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+ /** A default-export factory that registers one workflow with an inline agent step. */
+@@ -478,3 +479,154 @@ describe("extension loader — no trust model", () => {
+     expect(registry.diagnostics).toEqual([]);
+   });
+ });
++
++describe("serving the code a project's open tasks were admitted under", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let proj: string;
++  let home: string;
++
++  beforeEach(() => {
++    dir = tempDir();
++    proj = join(dir.path, "proj");
++    home = join(dir.path, "home");
++  });
++  afterEach(() => dir.cleanup());
++
++  /** A held distribution, put back the way the store would put it back. */
++  function heldCopy(name: string, body: string): { root: string; digest: string } {
++    const root = join(dir.path, "held", name);
++    write(join(root, "wf.ts"), body);
++    return { root, digest: distributionTreeIdentity(root).digest };
++  }
++
++  function source(pinned: string[], held: Record<string, string>) {
++    return {
++      pinned: async () => new Set(pinned),
++      restore: async (digest: string) => held[digest] ?? null,
++    };
++  }
++
++  test("an installed version the open tasks were not admitted under is not served", async () => {
++    // One globally installed extension has one copy on disk, so a project that
++    // must not move cannot rely on the install directory.
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "v2" }));
++    const v1 = heldCopy("v1", extFile("wf", { description: "v1" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source([v1.digest], { [v1.digest]: v1.root }),
++    });
++
++    expect(registry.workflowIdentity("wf")!.digest).toBe(v1.digest);
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("v1");
++    expect(registry.diagnostics.some((d) => d.error.includes("serving held distribution"))).toBe(true);
++  });
++
++  test("a project pinned to what is installed serves the installed code", async () => {
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "installed" }));
++    const installed = distributionTreeIdentity(join(proj, ".autosk/extensions/wf.ts")).digest;
++    const other = heldCopy("other", extFile("wf", { description: "other" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source([installed], { [other.digest]: other.root }),
++    });
++
++    expect(registry.workflowIdentity("wf")!.digest).toBe(installed);
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
++  });
++
++  test("tasks on the installed version keep it, even when an older one is held", async () => {
++    // The mixed case, which is the ordinary one after an update: some open tasks
++    // were admitted under the installed code and some under the previous
++    // version. Only one can be served. Moving off the installed version would
++    // take the tasks that ARE on it off their own code, so the project stays
++    // where it is and the older tasks park.
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "installed" }));
++    const installed = distributionTreeIdentity(join(proj, ".autosk/extensions/wf.ts")).digest;
++    const old = heldCopy("old", extFile("wf", { description: "old" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source([installed, old.digest], { [old.digest]: old.root }),
++    });
++
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
++    expect(registry.workflowIdentity("wf")!.digest).toBe(installed);
++  });
++
++  test("a project with no open tasks serves the installed code", async () => {
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "installed" }));
++    const held = heldCopy("held", extFile("wf", { description: "held" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source([], { [held.digest]: held.root }),
++    });
++
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
++  });
++
++  test("a pinned version the project does not hold leaves the installed code in place", async () => {
++    // The task stays parked, which is the safe state. Serving something else
++    // because the right code is missing would be the unsafe one.
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "installed" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source(["a".repeat(64)], {}),
++    });
++
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
++  });
++
++  test("two held versions pinned at once serve neither, and say why", async () => {
++    // Open tasks pinned to different versions cannot all be satisfied by one
++    // registry. Choosing between them would silently favour some tasks.
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "installed" }));
++    const a = heldCopy("a", extFile("wf", { description: "a" }));
++    const b = heldCopy("b", extFile("wf", { description: "b" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source([a.digest, b.digest], { [a.digest]: a.root, [b.digest]: b.root }),
++    });
++
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
++    expect(registry.diagnostics.some((d) => d.error.includes("2 different held distributions"))).toBe(true);
++  });
++
++  test("a held version whose entry moved is reported, not guessed at", async () => {
++    // This cannot know that two versions agree on their entry point, so a tree
++    // that does not have the entry fails to load and says so.
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf"));
++    const moved = join(dir.path, "held", "moved");
++    write(join(moved, "elsewhere.ts"), extFile("wf"));
++    const digest = distributionTreeIdentity(moved).digest;
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: source([digest], { [digest]: moved }),
++    });
++
++    expect(registry.workflowNames()).toEqual([]);
++    expect(registry.diagnostics.some((d) => d.error.includes("held distribution cannot be identified"))).toBe(true);
++  });
++
++  test("a store that cannot answer leaves the installed code in place", async () => {
++    write(join(proj, ".autosk/extensions/wf.ts"), extFile("wf", { description: "installed" }));
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: {
++        pinned: async () => {
++          throw new Error("store is unreadable");
++        },
++        restore: async () => null,
++      },
++    });
++
++    expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
++    expect(registry.diagnostics.some((d) => d.error.includes("pinned distributions cannot be read"))).toBe(true);
++  });
++});
+diff --git a/daemon/core/test/extensions.reload.test.ts b/daemon/core/test/extensions.reload.test.ts
+index cb85b3a..c102f88 100644
+--- a/daemon/core/test/extensions.reload.test.ts
++++ b/daemon/core/test/extensions.reload.test.ts
+@@ -17,6 +17,7 @@ import {
+   ProjectManager,
+   ProjectRegistry,
+ } from "../src/index.ts";
++import { canonicalDistribution } from "../src/extensions/identity.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+ /** A local extension file registering a one-step `go → done` workflow named `name`. */
+@@ -159,3 +160,76 @@ describe("ProjectManager.rebuildRegistry", () => {
+     expect(summary.parked).toEqual([]);
+   });
+ });
++
++describe("a project serves the code its open tasks were admitted under", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let mgr: ProjectManager;
++  let proj: string;
++  let home: string;
++  const extFile = (root: string) => join(root, ".autosk/extensions/wf.ts");
++
++  beforeEach(async () => {
++    dir = tempDir();
++    proj = join(dir.path, "proj");
++    home = join(dir.path, "home");
++    await initProject(proj);
++    mgr = new ProjectManager({
++      registry: new ProjectRegistry(join(home, ".autosk", "projects.json")),
++      store: { watch: false },
++      extensions: { home },
++      logger: new CapturingLogger(),
++    });
++  });
++  afterEach(async () => {
++    await mgr.close();
++    dir.cleanup();
++  });
++
++  test("an in-place update does not move a project whose open task is pinned to the old code", async () => {
++    // The wiring, end to end: the store holds the bytes, the loader asks for
++    // them, and the registry ends up on the version the task was admitted under
++    // rather than the one that happens to be installed.
++    write(extFile(proj), wfExt("wf"));
++    const root = await canonicalize(proj);
++    const handle = await mgr.open(root);
++    const v1 = handle.extensions.workflowIdentity("wf")!.digest;
++
++    // Hold the bytes the way opening a project does, then pin a task to them.
++    await handle.store.recordDistribution(
++      v1,
++      canonicalDistribution(handle.extensions.workflowIdentity("wf")!.entries),
++      handle.extensions.workflowIdentity("wf")!.root,
++    );
++    const task = await handle.store.createTask({ title: "admitted under v1" });
++    await handle.store.setPosition(
++      task.id,
++      { status: "work", workflow: "wf", step: "go" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: v1, graph: handle.extensions.workflowGraph("wf")! } },
++    );
++
++    // The installed code changes underneath it.
++    write(extFile(proj), wfExt("wf").replace("async (ctx)", "async (ctx) /* v2 */"));
++    await mgr.rebuildRegistry(root);
++
++    const served = handle.extensions.workflowIdentity("wf")!;
++    expect(served.digest).toBe(v1);
++    // And it is genuinely a different tree from the install directory.
++    expect(served.root).not.toBe(join(proj, ".autosk/extensions"));
++    expect(served.root).toContain("/runtime/v1/code/");
++  });
++
++  test("with no open task nothing is substituted; the install directory stays the source", async () => {
++    // The contrast that makes the previous test mean something. The digest does
++    // not move either, but for an older reason that has nothing to do with held
++    // bytes: this process already imported that path, so Bun serves the module
++    // it loaded until a restart. What matters here is WHERE the code comes from.
++    write(extFile(proj), wfExt("wf"));
++    const root = await canonicalize(proj);
++    const handle = await mgr.open(root);
++
++    write(extFile(proj), wfExt("wf").replace("async (ctx)", "async (ctx) /* v2 */"));
++    await mgr.rebuildRegistry(root);
++
++    expect(handle.extensions.workflowIdentity("wf")!.root).not.toContain("/runtime/v1/code/");
++  });
++});
