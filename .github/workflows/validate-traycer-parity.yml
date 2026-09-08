@@ -82,6 +82,9 @@ jobs:
       - name: Validate external source snapshot contract
         run: npm run validate:external-source-snapshot
 
+      - name: Validate evidence manifest contract
+        run: npm run validate:evidence-manifest
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

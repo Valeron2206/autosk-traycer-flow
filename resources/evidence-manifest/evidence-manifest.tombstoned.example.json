@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "epic_id": "epic-2026-09-a",
+  "task_id": "ask-4f21aa",
+  "round": 2,
+  "attempt": 1,
+  "agent": "review",
+  "candidate_identity": "1111111111111111111111111111111111111111111111111111111111111111",
+  "anchor_version": 3,
+  "producer": {
+    "tool": "autosk-verify",
+    "version": "1.4.0",
+    "config_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "media_type": "text/plain",
+  "size": 1048576,
+  "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "mode": 420,
+  "clearance_manifest": "resources/clearance/epic-2026-09-a.json",
+  "source_recipe": {
+    "command_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "environment_digest": "5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "created_at": "2026-09-08T12:00:00.000Z",
+  "evidence_class": "temporary_log",
+  "durability": "expirable",
+  "storage": {
+    "owner_project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "path": ".autosk-evidence/epic-2026-09-a/ask-4f21aa/2/review/run.log"
+  },
+  "references": [],
+  "dependents": [],
+  "deletion": {
+    "state": "tombstoned",
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "reason": "expired",
+    "at": "2026-10-08T12:00:01.000Z",
+    "actor": "daemon",
+    "operation_id": "cleanup-88"
+  },
+  "truncation": {
+    "state": "truncated",
+    "original_size": 41943040,
+    "policy_limit": 1048576
+  },
+  "retention_pin": {
+    "epic_policy_digest": "8888888888888888888888888888888888888888888888888888888888888888",
+    "decision_version": 2
+  },
+  "expires_at": "2026-10-08T12:00:00.000Z"
+}

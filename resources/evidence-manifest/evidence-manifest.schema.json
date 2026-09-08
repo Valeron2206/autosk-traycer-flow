@@ -1,0 +1,493 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence manifest record (issue #27)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_identity",
+    "epic_id",
+    "task_id",
+    "round",
+    "attempt",
+    "agent",
+    "candidate_identity",
+    "anchor_version",
+    "producer",
+    "media_type",
+    "size",
+    "sha256",
+    "mode",
+    "clearance_manifest",
+    "source_recipe",
+    "created_at",
+    "evidence_class",
+    "durability",
+    "storage",
+    "references",
+    "dependents",
+    "deletion",
+    "truncation",
+    "retention_pin"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "project_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "epic_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_identity": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "anchor_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "version",
+        "config_digest"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z]+/[a-zA-Z0-9.+-]+$"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mode": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4095
+    },
+    "clearance_manifest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_digest",
+        "environment_digest"
+      ],
+      "properties": {
+        "command_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "environment_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 20
+    },
+    "expires_at": {
+      "type": "string",
+      "minLength": 20
+    },
+    "evidence_class": {
+      "enum": [
+        "human_approval_waiver",
+        "integration_receipt",
+        "mutation_fixture",
+        "profile",
+        "protocol_runtime_instruction_lock",
+        "provider_raw_output",
+        "quarantined_sensitive",
+        "restoration_receipt",
+        "screenshot",
+        "temporary_harness_binary",
+        "temporary_harness_source",
+        "temporary_log",
+        "verdict",
+        "verification",
+        "verification_harness_run",
+        "worktree_trace"
+      ]
+    },
+    "durability": {
+      "enum": [
+        "durable",
+        "transient",
+        "expirable",
+        "restricted",
+        "never_stored"
+      ]
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_project_identity",
+        "path"
+      ],
+      "properties": {
+        "owner_project_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "dependents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "deletion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "const": "present"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "sha256",
+            "reason",
+            "at",
+            "actor",
+            "operation_id"
+          ],
+          "properties": {
+            "state": {
+              "const": "tombstoned"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "reason": {
+              "enum": [
+                "expired",
+                "superseded",
+                "unredactable",
+                "operator_request"
+              ]
+            },
+            "at": {
+              "type": "string",
+              "minLength": 20
+            },
+            "actor": {
+              "enum": [
+                "daemon",
+                "driver",
+                "user"
+              ]
+            },
+            "operation_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "truncation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "const": "complete"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "original_size",
+            "policy_limit"
+          ],
+          "properties": {
+            "state": {
+              "const": "truncated"
+            },
+            "original_size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "policy_limit": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "retention_pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "epic_policy_digest",
+        "decision_version"
+      ],
+      "properties": {
+        "epic_policy_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "decision_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_digest",
+        "base_oid",
+        "tree_oid",
+        "pathspec_digest",
+        "harness_source_digest",
+        "harness_binary_digest",
+        "harness_config_digest",
+        "mutation_set_digest",
+        "toolchain_digest",
+        "applied_proof",
+        "expected_killer",
+        "observed_red",
+        "green_controls",
+        "outcome",
+        "before_tree",
+        "after_tree",
+        "restore"
+      ],
+      "properties": {
+        "contract_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "base_oid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "tree_oid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "pathspec_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "harness_source_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "harness_binary_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "harness_config_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mutation_set_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "toolchain_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "applied_proof": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mutation_id",
+              "applied_digest"
+            ],
+            "properties": {
+              "mutation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "applied_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "expected_killer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_red": {
+          "type": "string",
+          "minLength": 1
+        },
+        "green_controls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "control_id",
+              "outcome"
+            ],
+            "properties": {
+              "control_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "outcome": {
+                "enum": [
+                  "green",
+                  "red",
+                  "not_run"
+                ]
+              }
+            }
+          }
+        },
+        "outcome": {
+          "enum": [
+            "product_pass",
+            "product_fail",
+            "mutation_not_applied",
+            "green_control_failed",
+            "tool_error",
+            "tool_timeout",
+            "restore_failed",
+            "timeout",
+            "indeterminate"
+          ]
+        },
+        "before_tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "after_tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "restore": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "receipt_sequence"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "verified",
+                "failed",
+                "not_required"
+              ]
+            },
+            "receipt_sequence": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "retained_ephemeral": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "deleted_ephemeral": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
