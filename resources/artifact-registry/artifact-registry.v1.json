@@ -228,6 +228,7 @@
         "docs/contracts/finding-registry.md",
         "docs/contracts/gate-store-projection.md",
         "docs/contracts/governance-bundle.md",
+        "docs/contracts/human-decision.md",
         "docs/contracts/model-result.md",
         "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
@@ -260,6 +261,7 @@
         "finding_registry",
         "gate_projection",
         "governance_bundle",
+        "human_decision",
         "instruction_lock",
         "model_result",
         "planning_ref_contract",
@@ -737,6 +739,31 @@
       "human_approval": "required"
     },
     {
+      "class": "human_decision",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "driver"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/decisions/**"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "instruction_lock",
       "category": "behavior_defining",
       "author_roles": [
@@ -1050,5 +1077,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "1b0ac3e2eb5dc2c35a1095c2c90512185ed6dece73935bf5fe8992b5bf378982"
+  "registry_digest": "de34f25a4239107666613619e20870a4a200242e4d79752a84864deb1b47830d"
 }

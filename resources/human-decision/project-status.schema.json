@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Project status snapshot (issue #35)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_identity",
+    "generated_at",
+    "epics",
+    "pending_decisions",
+    "open_findings",
+    "debt",
+    "waivers",
+    "operations",
+    "budgets",
+    "identities",
+    "next_safe_action"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "project_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 20
+    },
+    "epics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "epic_id",
+          "stage",
+          "tickets"
+        ],
+        "properties": {
+          "epic_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tickets": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "done",
+              "blocked"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "done": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "blocked": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "panel": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "seats",
+              "attempts",
+              "unavailable_routes"
+            ],
+            "properties": {
+              "seats": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unavailable_routes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "pending_decisions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "open_findings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "debt": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "waivers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "phase"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_calls_remaining",
+        "wall_clock_ms_remaining"
+      ],
+      "properties": {
+        "provider_calls_remaining": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_clock_ms_remaining": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planning",
+        "staging",
+        "target"
+      ],
+      "properties": {
+        "planning": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "staging": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "next_safe_action": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

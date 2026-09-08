@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "f159905f8c778fafae7558de512d739f01c334b085a667261fdd7ebaea11668e"
+      "sha256": "d82b240227c333c0db3cc12f19662eba4b0c347037c4c2c3183f93572a4cebe1"
     },
     {
       "path": "README.md",
@@ -85,6 +85,10 @@
     {
       "path": "docs/contracts/governance-bundle.md",
       "sha256": "9811731b1b4474ac21aae02654163cb4b561797cb8d4dcd90e47421664ffeb81"
+    },
+    {
+      "path": "docs/contracts/human-decision.md",
+      "sha256": "ef88eb21ada8bfa61e36d290fe3d81e0400cf690c2257551d248d8a47b13aa8d"
     },
     {
       "path": "docs/contracts/model-result.md",
@@ -173,6 +177,14 @@
     {
       "path": "resources/governance-bundle/governance-bundle.schema.json",
       "sha256": "3c0d6b54fe5ef4d3be4a1bdfa6e3d362eb1226be01493704ad90ec5b204cac20"
+    },
+    {
+      "path": "resources/human-decision/human-decision-request.schema.json",
+      "sha256": "ff1622498dec80019e45091767c2bb195b81e6058097f85acf59c8c757ad2523"
+    },
+    {
+      "path": "resources/human-decision/project-status.schema.json",
+      "sha256": "a2e1d41ca04e75566e0680570bcec92b34116819f4efb9307f456687eee5b489"
     },
     {
       "path": "resources/model-result/model-result.schema.json",
@@ -271,7 +283,7 @@
       "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
     }
   ],
-  "candidate_digest": "2602417c6895df1ddc3f67ed2369ac017162a853d2d9f4fae189a2237e727fd6",
+  "candidate_digest": "d8b960b9fd0da1e18b07e05975cb92c183ecdc347b689b4932e20bc7b652bc8a",
   "dispositions": [
     {
       "issue": 3,
