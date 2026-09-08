@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "contract_id": "abc-transcript-chunking",
+  "contract_version": 2,
+  "spec": "Make session transcript reads chunked, with an explicit offset and no partial runes at either end.",
+  "finish_predicate": {
+    "statement": "the storelock suite passes and every transcript read returns whole runes at both ends",
+    "check_command": "go test ./internal/storelock/... -run TranscriptChunk",
+    "digest": "18cb39a0a3af4dda1fc8bad182158fe91ef21aece67878441f92c1327144e920"
+  },
+  "permissions": {
+    "allowed": [
+      "edit internal/storelock/**",
+      "edit daemon/core/src/store/**",
+      "run the storelock suite"
+    ],
+    "forbidden": [
+      "network access",
+      "editing the patch manifest",
+      "force push",
+      "publishing a release"
+    ]
+  },
+  "evaluation": {
+    "surface": [
+      "internal/storelock",
+      "daemon/core/src/store"
+    ],
+    "recipes": [
+      "docs/verify/transcript-chunking.md#read-a-long-session"
+    ]
+  },
+  "rubric": {
+    "criteria": [
+      {
+        "id": "no-new-refusal-paths",
+        "statement": "no refusal class is added without a test that reaches it",
+        "non_negotiable": true,
+        "weight": 2
+      },
+      {
+        "id": "chunk-boundaries",
+        "statement": "every transcript read returns whole runes at both ends",
+        "non_negotiable": true,
+        "weight": 3
+      },
+      {
+        "id": "readable-diff",
+        "statement": "the diff reads like the surrounding code",
+        "non_negotiable": false,
+        "weight": 1
+      }
+    ],
+    "digest": "31823ec996a3253941153ffe406b60caf27a6d99cceb0fcee6f20dfe4ab99545"
+  },
+  "limits": {
+    "max_sprints": 6,
+    "wall_clock_ms": 5400000,
+    "cost_units": 400,
+    "tokens": 4000000,
+    "max_consecutive_non_improving": 2,
+    "max_negotiation_rounds": 3,
+    "max_restarts": 2
+  },
+  "enforcement": {
+    "budgets_enforced_by": "host"
+  },
+  "escape_hatch": "the operator may stop the run at any sprint boundary, and the partial work stays on its own branch",
+  "acceptance": {
+    "policy": "human",
+    "integration": "the final sprint integrates through the ordinary approved-delta path"
+  },
+  "approval": {
+    "approver": "owner",
+    "decision_ref": "decision-0041",
+    "approved_digest": "38f89dc9e2d3488615c6e82f68b20d45a85875770ceb4f7b3be2ecfe1036e880",
+    "approved_at": "2026-09-08T08:00:00Z"
+  }
+}
