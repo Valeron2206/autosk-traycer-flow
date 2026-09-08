@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "candidate_id": "design-candidate-v2",
+  "files": [
+    {
+      "path": "01-core-flows.md",
+      "sha256": "5d7fe4915753fe84b0d3e408794220eb94e5e1a539d546983956c6ebf0535f70"
+    },
+    {
+      "path": "02-architecture.md",
+      "sha256": "cc8f97d79286347ddb9e4761226841ce40bd0b29acce18302caaa7ee0181e642"
+    },
+    {
+      "path": "03-technical-plan.md",
+      "sha256": "18af245d91462c5eb2873670dacd9069e21fa3809612e00d466c23a4b13e3e56"
+    },
+    {
+      "path": "04-decisions.md",
+      "sha256": "f6539007e9d78011c571ae4a88e934ae85b218ba286715b2eefc66e7272c681a"
+    },
+    {
+      "path": "README.md",
+      "sha256": "47aafa331eb9bb5152cee55ce83d7ca020349fca3e3cd377a42435c5ae25dbef"
+    },
+    {
+      "path": "docs/contracts/approved-delta.md",
+      "sha256": "adbcf0361ea38daaf07cc8dc68a55b8909509c189b7a25f6f5812008550f82dd"
+    },
+    {
+      "path": "docs/contracts/artifact-registry.md",
+      "sha256": "9cc9d0b79db6c01e4ff9969de0eb7827bb1820ae165d8e5d7339b4bfc0b7ffca"
+    },
+    {
+      "path": "docs/contracts/clean-room-e2e.md",
+      "sha256": "7118c3ad0aaed82e1a0c3b21d3a1c3b7d7283f6df4cbcdb0adf6734e64b75557"
+    },
+    {
+      "path": "docs/contracts/creation-grant.md",
+      "sha256": "b8e802e965dca968a3eaee06d3dbd0c6b0a66fdb9863c3db34d7447c6449b148"
+    },
+    {
+      "path": "docs/contracts/delivery-profile.md",
+      "sha256": "9812966aa09068d531b8e2904c002df7acfad711a12c33338540c8f524049bb1"
+    },
+    {
+      "path": "docs/contracts/epic-planning-ref.md",
+      "sha256": "394a03f1e81162ca274a604a2643f58202fc36c41de86188b140f3e77a7e0a88"
+    },
+    {
+      "path": "docs/contracts/epic-staging.md",
+      "sha256": "135713a52104250e3d922475cc3718886c37fdef1ecd197de3d66a7f38ae855b"
+    },
+    {
+      "path": "docs/contracts/execution-base.md",
+      "sha256": "33d208850802ab6811306617c49c2a329cf65e7ef129afaec93183b576f321e6"
+    },
+    {
+      "path": "docs/contracts/finding-registry.md",
+      "sha256": "bfa32948ee76c3ba005fd6564f146f5730b9b2020c5594e45a6996c8c7b3fac5"
+    },
+    {
+      "path": "docs/contracts/gate-store-projection.md",
+      "sha256": "4f26162f4e20d84445381679c5656be2faed719fa663d7a71f436521466fc0cd"
+    },
+    {
+      "path": "docs/contracts/model-result.md",
+      "sha256": "39886be14b5543eae3787927bca0a6e28ef4aaf115e9b86f0ccbfc7da1179606"
+    },
+    {
+      "path": "docs/contracts/platform-support.md",
+      "sha256": "aaaaabc10a91a0a884a40487bec0f8b4ed81eba3fa3cd7005b6a5f2764fa4029"
+    },
+    {
+      "path": "docs/contracts/project-instructions-lock.md",
+      "sha256": "c901da370e5109d452599b9cb8e2c78f040844f4ad3f36805c123b245d85b4bc"
+    },
+    {
+      "path": "docs/contracts/tickets-manifest.md",
+      "sha256": "2cf9bf8ac93aa85036b1651a1b96897a809549c6636074196dcc9ae515624cc5"
+    },
+    {
+      "path": "resources/approved-delta/approved-delta.schema.json",
+      "sha256": "aefe32f650e86c2ea63bb0c75cc667a3fd086c9e26aae9b8bff7f9129e59523a"
+    },
+    {
+      "path": "resources/artifact-registry/artifact-registry.schema.json",
+      "sha256": "396b9d2a34cc85a2e3eeb038549c9e11b02bf8c5b9fcae9912c279a6edf8a8cf"
+    },
+    {
+      "path": "resources/clean-room-e2e/fault-matrix.schema.json",
+      "sha256": "9b65cabb087cf1f2a471672500425b6fd7f6742a7a5a6e1475ed56f03307dd9d"
+    },
+    {
+      "path": "resources/creation-grant/creation-grant.schema.json",
+      "sha256": "c5748bd0a618db1f22d97b13e709a759060d23cbf04f0c4e09a78b2b30cd4517"
+    },
+    {
+      "path": "resources/delivery-profile/delivery-profile.schema.json",
+      "sha256": "4c3f369ec2106bcf9b480ae172ff44097a155a12641a121b116d9f0008c232cd"
+    },
+    {
+      "path": "resources/design-candidate/design-candidate.schema.json",
+      "sha256": "8dd0e9711fbaaf68835d18fb1d648f2aa98ad0c519075ad6d55562d341e65460"
+    },
+    {
+      "path": "resources/epic-staging/epic-staging.schema.json",
+      "sha256": "32f3153b40b63e4ed3ab985aecbdda0a3849917797da240debf84667ab25ea0b"
+    },
+    {
+      "path": "resources/execution-base/execution-base.schema.json",
+      "sha256": "bd6bde8802fe15fc1ec784b3a792ff4f50f69b653e5e49ff16b192e82503be16"
+    },
+    {
+      "path": "resources/finding-registry/finding-registry.schema.json",
+      "sha256": "4d5f6bc7e205576a191ed31b8bc21d9ed6a3caef26c286c14f8949831bbe7e6d"
+    },
+    {
+      "path": "resources/gate-store-projection/gate-store-projection.schema.json",
+      "sha256": "65ee67c0a08a05fef420957ea8f587be1a9e229dca9ef98dd25915d3941052e6"
+    },
+    {
+      "path": "resources/model-result/model-result.schema.json",
+      "sha256": "de7b36c0874f3f627b881e6afeecb61ecdaa949bd3b4786a5859e5b6852f9788"
+    },
+    {
+      "path": "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
+      "sha256": "52e75fbb06eaec1107276b00c080314bbde6b6064ff08c1b2560d687c8514b37"
+    },
+    {
+      "path": "resources/planning-publication/candidate-audit-transfer-operation.schema.json",
+      "sha256": "ef9e85b816600d34e25c6dae0eada29d57736d2946bc8e11de1f49c9d66c7c84"
+    },
+    {
+      "path": "resources/planning-publication/candidate-closure-pack-operation.schema.json",
+      "sha256": "52b91ad6d4bcbcc5e2218466bb01d35c923cd527c0a7869c8773f4970d07ffaf"
+    },
+    {
+      "path": "resources/planning-publication/candidate-keepalive-operation.schema.json",
+      "sha256": "0cc5d9a70f10393a862d8f1873dc552491b5562aadd34e58f6d299e976e44734"
+    },
+    {
+      "path": "resources/planning-publication/candidate-supersession-operation.schema.json",
+      "sha256": "28b571243d7acb76852d60771aa810f41da8e6ab64586c9160fa0de0b80148bc"
+    },
+    {
+      "path": "resources/planning-publication/init-planning-ref-operation.schema.json",
+      "sha256": "49ceaa113a8a3d4f0d9daddee25ec00e42b63dfee3994d14ef929f6019eff6d4"
+    },
+    {
+      "path": "resources/planning-publication/planning-publication-rebinding.schema.json",
+      "sha256": "0cefa0478b5fd1420d6d20fc9d0de79ce59bf9f03501cf2f1cc3692e71537495"
+    },
+    {
+      "path": "resources/planning-publication/publish-artifact-pass-operation.schema.json",
+      "sha256": "cd07df5546f817110696b1d4fd8166608ace526fa22b536e0fe508e60a2a3ed2"
+    },
+    {
+      "path": "resources/planning-publication/record-pass-prepare-publication.schema.json",
+      "sha256": "9266f90cb36bba3ace790807e1674e843543ecf3f3b3baae7dd3283089ff04bc"
+    },
+    {
+      "path": "resources/planning-publication/ref-custody-helper-contract.schema.json",
+      "sha256": "0a5eeceba3beb7395bfe2f66be425d0dc6c3901380ae1be00242cd1580ca229e"
+    },
+    {
+      "path": "resources/planning-publication/ref-custody-helper-intents.schema.json",
+      "sha256": "7ac201d053795c486f947b14cd8d3b6c790a212794940b2529001d82a1ccbc7d"
+    },
+    {
+      "path": "resources/planning-publication/ref-custody-helper-wire.schema.json",
+      "sha256": "40bcb7de0de21b7b80d2a066a6c50c1052f07bf372a2b114d8c4dbdb20de874d"
+    },
+    {
+      "path": "resources/planning-publication/ref-custody-policy.schema.json",
+      "sha256": "b44514db3ef88a6bc46e611be862cbd4bdb18ecc21ac5303275995624f8619db"
+    },
+    {
+      "path": "resources/platform-support/platform-support.schema.json",
+      "sha256": "210f0e2d0e7e401b72cfa7eb6fa0b1ad0ab41ffedc8139f8a0394ecca7f1a0e7"
+    },
+    {
+      "path": "resources/program-capabilities/issue-inventory.schema.json",
+      "sha256": "03181f932a7e02b6de5b93f89e768dc9b94c041da38db66028c9871fbcb33f63"
+    },
+    {
+      "path": "resources/program-capabilities/matrix.schema.json",
+      "sha256": "393228dd80bca949ec9cb240af4444357f3789a2c4fd6fd420ad4fb558eef78a"
+    },
+    {
+      "path": "resources/project-instructions/project-instructions-lock.schema.json",
+      "sha256": "338f415d189315a723aee17573e6ed4d0fc93423a3ddb536fb3eebe6bb813ba2"
+    },
+    {
+      "path": "resources/tickets-manifest/tickets-manifest.schema.json",
+      "sha256": "b81c413e39740825dd0e465b08c615cd985f8ec8affd1ceba10956f0d7dff346"
+    },
+    {
+      "path": "resources/tickets-manifest/tickets-validation-receipt.schema.json",
+      "sha256": "49b00872b5bc50ed8a8160f285a63a942020f2577e597e5b3817572a20be221f"
+    },
+    {
+      "path": "resources/traycer-parity/registry.schema.json",
+      "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
+    }
+  ],
+  "candidate_digest": "3398d9410c18aba4cca5fe646e433ef4538d8d75d6ccaa3350a786ec845194d1",
+  "dispositions": [
+    {
+      "issue": 3,
+      "disposition": "accepted",
+      "where": "resources/traycer-parity/registry.v1.json, docs/traycer-parity-registry.md"
+    },
+    {
+      "issue": 4,
+      "disposition": "accepted",
+      "where": "01-core-flows.md, 02-architecture.md (human alignment lifecycles)"
+    },
+    {
+      "issue": 5,
+      "disposition": "accepted",
+      "where": "docs/contracts/epic-planning-ref.md, ADR-026"
+    },
+    {
+      "issue": 6,
+      "disposition": "accepted",
+      "where": "docs/contracts/tickets-manifest.md, ADR-027"
+    },
+    {
+      "issue": 7,
+      "disposition": "accepted",
+      "where": "docs/contracts/execution-base.md, ADR-034"
+    },
+    {
+      "issue": 8,
+      "disposition": "accepted",
+      "where": "docs/contracts/approved-delta.md, ADR-035"
+    },
+    {
+      "issue": 9,
+      "disposition": "accepted",
+      "where": "docs/contracts/epic-staging.md, ADR-036"
+    },
+    {
+      "issue": 10,
+      "disposition": "accepted",
+      "where": "02-architecture.md (runtime identity), ADR-025"
+    },
+    {
+      "issue": 11,
+      "disposition": "accepted",
+      "where": "docs/contracts/creation-grant.md, ADR-040"
+    },
+    {
+      "issue": 12,
+      "disposition": "accepted",
+      "where": "docs/contracts/project-instructions-lock.md, ADR-029"
+    },
+    {
+      "issue": 13,
+      "disposition": "accepted",
+      "where": "docs/contracts/platform-support.md, ADR-028 и ADR-039"
+    },
+    {
+      "issue": 14,
+      "disposition": "accepted",
+      "where": "docs/contracts/artifact-registry.md, ADR-031"
+    },
+    {
+      "issue": 15,
+      "disposition": "accepted",
+      "where": "docs/contracts/gate-store-projection.md, ADR-037"
+    },
+    {
+      "issue": 16,
+      "disposition": "accepted",
+      "where": "docs/contracts/finding-registry.md, ADR-032"
+    },
+    {
+      "issue": 17,
+      "disposition": "accepted",
+      "where": "docs/contracts/delivery-profile.md, ADR-030"
+    },
+    {
+      "issue": 18,
+      "disposition": "accepted",
+      "where": "docs/contracts/model-result.md, ADR-033"
+    },
+    {
+      "issue": 36,
+      "disposition": "accepted",
+      "where": "docs/contracts/clean-room-e2e.md, ADR-038"
+    }
+  ],
+  "required_panel": [
+    {
+      "seat": "opus",
+      "route": "anthropic/claude-opus-5",
+      "effort": "max"
+    },
+    {
+      "seat": "astra",
+      "route": "openai-codex/gpt-6-astra",
+      "effort": "high"
+    },
+    {
+      "seat": "grok",
+      "route": "cursor/cursor-grok-4.6",
+      "effort": "xhigh"
+    },
+    {
+      "seat": "muse",
+      "route": "meta/muse-spark-1.3-contributor",
+      "effort": "max"
+    }
+  ],
+  "attestation": {
+    "state": "pending_final_panel",
+    "verdicts": []
+  }
+}
