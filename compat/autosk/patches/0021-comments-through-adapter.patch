@@ -123,15 +123,38 @@ index 977bc2359dc70b9d6e905ff3ac79af58582d5b59..134a937f7df991db4468dfd9a472f3c9
  /**
   * A refusal the helper reported, carrying its class when it had one (issue #13).
   *
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index ed823c59aa5554b23c820ba9384a08f50385e138..a64317412c8eb2dd7112970fea614ef4f17bc726 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -1471,7 +1471,17 @@ export class Store {
+    * already isolated by `parseCommentsLenient` (R2); this only surfaces it.
+    */
+   private async commentCount(id: string): Promise<number> {
+-    const { count, skipped, sig } = await this.tasks.commentStats(id);
++    const { count, skipped, sig, refused } = await this.tasks.commentStats(id);
++    if (refused !== undefined) {
++      // De-duped on the reason rather than on a signature: there is no signature
++      // for a file the adapter refused to open, and the reason is what changes
++      // when the operator fixes or worsens it.
++      if (this.commentSkipWarned.get(id) !== refused) {
++        this.logger.warn(`comments: ${id}/comments.jsonl is unreadable: ${refused}`);
++        this.commentSkipWarned.set(id, refused);
++      }
++      return 0;
++    }
+     if (sig === null || skipped === 0) {
+       this.commentSkipWarned.delete(id);
+       return count;
 diff --git a/daemon/core/src/store/taskStore.ts b/daemon/core/src/store/taskStore.ts
-index 122f48e53c76a56e9700bb98ac83c853bea57a2d..4f650d84ce96c952cb9a7a591d68d81127463f6a 100644
+index 122f48e53c76a56e9700bb98ac83c853bea57a2d..ccdc5e125dca6bc79fadb706b11be196c8c02855 100644
 --- a/daemon/core/src/store/taskStore.ts
 +++ b/daemon/core/src/store/taskStore.ts
 @@ -14,6 +14,7 @@ import { readFile, readdir } from "node:fs/promises";
  
  import type { Comment } from "@autosk/sdk";
  import { atomicWrite, statSig } from "./atomic.ts";
-+import { withCreationLock } from "./creation.ts";
++import { HelperRefusal, withCreationLock } from "./creation.ts";
  import { ProjectPaths } from "./paths.ts";
  import {
    parseCommentsLenient,
@@ -168,7 +191,31 @@ index 122f48e53c76a56e9700bb98ac83c853bea57a2d..4f650d84ce96c952cb9a7a591d68d811
      this.commentCache.set(id, entry);
      return entry;
    }
-@@ -197,9 +211,14 @@ export class TaskStore {
+@@ -191,15 +205,36 @@ export class TaskStore {
+    * count + `sig` let the Store warn once per signature about a silently-dropped
+    * human comment (C5); `sig` is null when no `comments.jsonl` exists.
+    */
+-  async commentStats(id: string): Promise<{ count: number; skipped: number; sig: string | null }> {
+-    const r = await this.refreshComments(id);
++  async commentStats(
++    id: string,
++  ): Promise<{ count: number; skipped: number; sig: string | null; refused?: string }> {
++    let r: { sig: string; comments: Comment[]; skipped: number } | null;
++    try {
++      r = await this.refreshComments(id);
++    } catch (e) {
++      // A refusal here means the comment file is something the adapter will not
++      // read — a symlink, a FIFO, a file owned by someone else. That is a report
++      // about ONE task, and this is the path that builds every task's view: the
++      // store's standing rule is that a single unreadable file must not brick
++      // `open()` or `listTaskViews`, so it is surfaced as a count of zero plus a
++      // reason, not thrown. `readComments`, which a caller asked for by name,
++      // still propagates it.
++      if (!(e instanceof HelperRefusal)) throw e;
++      this.commentCache.delete(id);
++      return { count: 0, skipped: 0, sig: null, refused: e.message };
++    }
+     if (!r) return { count: 0, skipped: 0, sig: null };
      return { count: r.comments.length, skipped: r.skipped, sig: r.sig };
    }
  
@@ -186,7 +233,7 @@ index 122f48e53c76a56e9700bb98ac83c853bea57a2d..4f650d84ce96c952cb9a7a591d68d811
    }
  }
 diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
-index 1c30bd02a44b733e5887d95b7e3ca1430600a531..d68613bc01f73174cd7dccc864dc88085ae9477f 100644
+index 1c30bd02a44b733e5887d95b7e3ca1430600a531..13ec1efce84cf28d4a0edab15bdd1d4720db8a74 100644
 --- a/daemon/core/test/store.singlewriter.test.ts
 +++ b/daemon/core/test/store.singlewriter.test.ts
 @@ -10,10 +10,10 @@
@@ -217,7 +264,7 @@ index 1c30bd02a44b733e5887d95b7e3ca1430600a531..d68613bc01f73174cd7dccc864dc8808
      const helper = readFileSync(new URL("../../../cmd/autosk-store-lock/main.go", import.meta.url), "utf8");
      // Scoped to the request switch: a lowercase string case elsewhere in the file
      // is not an operation, and counting one would make this assertion drift.
-@@ -97,25 +99,115 @@ describe("what the boundary adapter covers", () => {
+@@ -97,25 +99,143 @@ describe("what the boundary adapter covers", () => {
      const ops = [...dispatch.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
      expect(ops.sort()).toEqual([
        "list_task_ids",
@@ -317,6 +364,34 @@ index 1c30bd02a44b733e5887d95b7e3ca1430600a531..d68613bc01f73174cd7dccc864dc8808
 +    );
 +    expect(refusal).toBeInstanceOf(HelperRefusal);
 +    expect((refusal as HelperRefusal).code).toBe("not_regular");
++  });
++
++  test("one unreadable comment file does not brick the listing, but a direct read still refuses", async () => {
++    // The store's standing rule is that a single corrupt file must not brick
++    // `open()` or `listTaskViews`. Routing comments through the adapter turned a
++    // tolerated corruption into a thrown refusal, which would have taken
++    // `task.list` down for the whole project over one planted symlink.
++    const a = await store.createTask({ title: "a" });
++    const b = await store.createTask({ title: "b" });
++    await store.addComment(a.id, { author: "x", text: "hi" });
++
++    const outside = join(dir.path, "outside.jsonl");
++    await writeFile(outside, "planted\n");
++    await rm(store.paths.commentsJsonl(a.id));
++    await symlink(outside, store.paths.commentsJsonl(a.id));
++
++    const views = await store.listTaskViews();
++    expect(views.map((v) => v.id).sort()).toEqual([a.id, b.id].sort());
++    expect(views.find((v) => v.id === a.id)!.comment_count).toBe(0);
++    expect(views.find((v) => v.id === b.id)!.comment_count).toBe(0);
++
++    // Tolerating it on the view path is not the same as hiding it: a caller who
++    // asked for THIS task's comments must not be handed a silent empty list.
++    const refusal = await store.listComments(a.id).then(
++      () => null,
++      (e: unknown) => e as Error,
++    );
++    expect(refusal).toBeInstanceOf(HelperRefusal);
 +  });
 +
 +  test("adding a comment to a symlinked file refuses rather than appending through it", async () => {

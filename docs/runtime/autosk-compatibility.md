@@ -42,7 +42,7 @@ apply in the listed order, each producing the tree beside it:
 | `0018-boundary-coverage.patch` | `ce701bc37238891593a4c8bee68d3b3ba41c94de` |
 | `0019-trusted-write-races.patch` | `2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3` |
 | `0020-longlived-helper.patch` | `95d024c686da179ab8d9a9c54b4ec4c76e12540c` |
-| `0021-comments-through-adapter.patch` | `192752cce0282d1211a6b93d18193b9946785928` — the current `result_tree` |
+| `0021-comments-through-adapter.patch` | `912a4a2acb91b99970885c5fbf5bcaa337767963` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
@@ -176,6 +176,16 @@ themselves read through the adapter, and a changed one asks the adapter, which
 refuses anything the daemon should not consume. A symlinked `comments.jsonl` is the
 case that proves it — the stat happily follows the link, the adapter does not, and
 the daemon gets a `not_regular` refusal instead of comments from outside the project.
+
+Routing a read through the adapter turns a tolerated corruption into a refusal, and
+that had to be placed rather than inherited. The store's standing rule is that one
+unreadable file must not brick `open()` or `listTaskViews`; before this slice a
+symlinked `comments.jsonl` was quietly *followed* and its target served, and the
+first version of this slice traded that for taking `task.list` down for the whole
+project over one planted link. Neither is right. The view path now reports a refused
+comment file as a count of zero and warns once per reason, while a caller who asked
+for that task's comments by name still gets the refusal — tolerating it on the
+listing is not the same as hiding it from the caller who wanted it.
 
 The session meta and transcript, and the project registry, remain. The registry is
 out of the adapter by ADR-028 (it lives in `$HOME`, not in the project); the session
