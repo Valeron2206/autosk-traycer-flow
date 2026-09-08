@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "operation_id": "wop-0012",
+  "idempotency_key": "T-102:review_state:retry",
+  "token_id": "cap-store-lock-0007",
+  "project_identity": "b683ff7f652859dbaa19842b2c8ffc06055b02543d9afe5ea72dbea042e1d8c7",
+  "task_id": "T-999",
+  "writes": [
+    {
+      "verb": "update_metadata",
+      "fields": [
+        "metadata.review_state",
+        "metadata.secret_notes"
+      ],
+      "expected_revision": 14,
+      "observed_revision": 17,
+      "metadata_schema_version": 2,
+      "metadata_valid": false,
+      "applied": true
+    },
+    {
+      "verb": "transition",
+      "fields": [
+        "state"
+      ],
+      "applied": false
+    }
+  ],
+  "atomic": true,
+  "replay_of": null,
+  "provenance": {
+    "extension": "autosk-flow@1.4.0",
+    "session_id": "s-runner-7",
+    "recorded_at": "2026-09-08T13:10:00Z"
+  },
+  "outcome": {
+    "state": "conflict"
+  }
+}

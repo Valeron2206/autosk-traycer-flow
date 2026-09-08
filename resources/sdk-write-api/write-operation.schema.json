@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/sdk-write-api/write-operation.v1.json",
+  "title": "SDK write operation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "idempotency_key",
+    "token_id",
+    "project_identity",
+    "task_id",
+    "writes",
+    "atomic",
+    "provenance",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "operation_id": { "type": "string", "pattern": "^wop-[0-9a-z-]{3,64}$" },
+    "idempotency_key": { "type": "string", "minLength": 8 },
+    "token_id": { "type": "string", "pattern": "^cap-[0-9a-z-]{3,64}$" },
+    "project_identity": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "writes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["verb", "fields"],
+        "properties": {
+          "verb": {
+            "enum": [
+              "create_task",
+              "update_metadata",
+              "add_blocker",
+              "remove_blocker",
+              "enroll_child",
+              "park_child",
+              "resume_child",
+              "cancel_child",
+              "append_event",
+              "transition"
+            ]
+          },
+          "fields": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "expected_revision": { "type": "integer", "minimum": 0 },
+          "observed_revision": { "type": "integer", "minimum": 0 },
+          "metadata_schema_version": { "type": "integer", "minimum": 1 },
+          "metadata_valid": { "type": "boolean" },
+          "creation_key": { "type": "string", "minLength": 1 },
+          "creation_binding_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "applied": { "type": "boolean" }
+        }
+      }
+    },
+    "atomic": { "type": "boolean" },
+    "replay_of": { "type": ["string", "null"], "pattern": "^wop-[0-9a-z-]{3,64}$" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extension", "session_id", "recorded_at"],
+      "properties": {
+        "extension": { "type": "string", "minLength": 1 },
+        "session_id": { "type": "string", "minLength": 1 },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["applied", "replayed", "conflict", "denied", "aborted", "unavailable"] },
+        "error_code": {
+          "enum": [
+            "revision_conflict",
+            "idempotency_replay",
+            "scope_denied",
+            "capability_expired",
+            "capability_revoked",
+            "schema_invalid",
+            "transaction_aborted",
+            "not_found",
+            "precondition_failed",
+            "unavailable"
+          ]
+        },
+        "conflicting_identity": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
