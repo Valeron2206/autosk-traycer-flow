@@ -1,0 +1,526 @@
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 05691184e7ba7db278d247a25ca01000058745de..5224d31ab9c48ec3b2f59f4c435b4a9455b82fc7 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -209,10 +209,16 @@ export function serializeCreationIndex(index: CreationIndexRecord): string {
+   return JSON.stringify({ schema_version: INDEX_VERSION, reservations }, null, 2) + "\n";
+ }
+ 
+-export async function withCreationLock<T>(
+-  paths: ProjectPaths,
+-  fn: (io: CreationLockIO) => Promise<T>,
+-): Promise<T> {
++/** One live helper process and everything needed to talk to it. */
++interface HelperSession {
++  child: ChildProcessWithoutNullStreams;
++  client: HelperClient;
++  exitPromise: Promise<HelperExit>;
++  stderrChunks: Buffer[];
++}
++
++/** Spawns a helper and waits for it to announce itself. */
++async function openHelperSession(paths: ProjectPaths): Promise<HelperSession> {
+   const child = spawn(
+     resolveStoreLockBinary(),
+     ["--root", paths.root, "--timeout-ms", String(LOCK_TIMEOUT_MS)],
+@@ -251,19 +257,127 @@ export async function withCreationLock<T>(
+   });
+ 
+   const client = new HelperClient(child, reader);
+-  let result: T | undefined;
+-  let primaryError: unknown;
+   try {
+     await waitForReady(reader);
+-    result = await fn(client);
+   } catch (e) {
+-    primaryError = e;
++    await shutdownHelper(child, exitPromise, stderrChunks);
++    throw e;
++  }
++  return { child, client, exitPromise, stderrChunks };
++}
++
++/**
++ * The long-lived helper for one project (ADR-028).
++ *
++ * The helper used to be spawned per call, which cost ~9 ms of process start for
++ * every operation and made routing all trusted writes through it untenable. One
++ * process per open project holds the lock instead, and calls queue on it: the
++ * daemon is the single owner of a project's operational state, and holding the
++ * lock for as long as it holds the project is what that ownership looks like on
++ * disk.
++ *
++ * It is opened on FIRST use rather than when the project opens. A project that
++ * never writes trusted state should not hold a lock, and making the helper a
++ * precondition for opening a project would make it mandatory for reads too.
++ *
++ * A call that fails leaves the connection alone unless the process is actually
++ * gone — a refusal is an answer, not a broken pipe. When the process HAS exited,
++ * the session is dropped and the next call establishes a new one, which is the
++ * recovery ADR-028 requires; nothing routes around the helper in the meantime.
++ */
++export class ProjectHelper {
++  private session: HelperSession | null = null;
++  private tail: Promise<unknown> = Promise.resolve();
++
++  constructor(private readonly paths: ProjectPaths) {}
++
++  /** Runs `fn` against the project's helper, serialised against other callers. */
++  run<T>(fn: (io: CreationLockIO) => Promise<T>): Promise<T> {
++    const next = this.tail.then(() => this.runNow(fn));
++    this.tail = next.catch(() => {});
++    return next;
++  }
++
++  private async runNow<T>(fn: (io: CreationLockIO) => Promise<T>): Promise<T> {
++    // A helper can die while nobody is talking to it. Retire it before the call
++    // rather than after it fails, so a caller who did nothing wrong is not the
++    // one who pays for a process the OS took away between calls.
++    if (this.session !== null && !usable(this.session)) await this.retire(this.session);
++    if (this.session === null) this.session = await openHelperSession(this.paths);
++    const session = this.session;
++    try {
++      return await fn(session.client);
++    } catch (e) {
++      // Retire the connection when it is the connection that is at fault. An
++      // error raised by `fn` over a healthy stream is the caller's, not the
++      // helper's, and retiring on it would throw away the lock for nothing.
++      if (!usable(session)) await this.retire(session);
++      throw e;
++    }
++  }
++
++  /** Drops `session` if it is still the current one, and shuts it down. */
++  private async retire(session: HelperSession): Promise<void> {
++    if (this.session === session) this.session = null;
++    await shutdownHelper(session.child, session.exitPromise, session.stderrChunks);
++  }
++
++  /** Closes the connection, releasing the project lock. Never throws. */
++  async close(): Promise<Error | null> {
++    const session = this.session;
++    this.session = null;
++    if (session === null) return null;
++    try {
++      return await shutdownHelper(session.child, session.exitPromise, session.stderrChunks);
++    } catch (e) {
++      return e instanceof Error ? e : new Error(String(e));
++    }
++  }
++}
++
++/** True while this connection can still be trusted to carry the next request. */
++function usable(session: HelperSession): boolean {
++  return (
++    session.client.broken === null &&
++    session.child.exitCode === null &&
++    session.child.signalCode === null
++  );
++}
++
++/** One helper per canonical project root, for the life of the process. */
++const projectHelpers = new Map<string, ProjectHelper>();
++
++/**
++ * Runs `fn` under the project lock, on the project's long-lived helper.
++ *
++ * The name is unchanged because the guarantee is: the callback runs while this
++ * process holds the project's cross-process lock, and no other caller in this
++ * process interleaves with it. What changed is that the lock is now held across
++ * calls instead of taken and dropped around each one.
++ */
++export async function withCreationLock<T>(
++  paths: ProjectPaths,
++  fn: (io: CreationLockIO) => Promise<T>,
++): Promise<T> {
++  let helper = projectHelpers.get(paths.root);
++  if (helper === undefined) {
++    helper = new ProjectHelper(paths);
++    projectHelpers.set(paths.root, helper);
+   }
++  return helper.run(fn);
++}
+ 
+-  const shutdownError = await shutdownHelper(child, exitPromise, stderrChunks);
+-  if (primaryError !== undefined) throw primaryError;
+-  if (shutdownError) throw shutdownError;
+-  return result as T;
++/**
++ * Releases the project's helper, if one was ever opened.
++ *
++ * Called when a store closes: the lock must not outlive the project handle that
++ * justified holding it.
++ */
++export async function releaseCreationLock(root: string): Promise<Error | null> {
++  const helper = projectHelpers.get(root);
++  if (helper === undefined) return null;
++  projectHelpers.delete(root);
++  return helper.close();
+ }
+ 
+ export function conflictError(
+@@ -417,6 +531,17 @@ function isTaskId(value: unknown): value is string {
+ class HelperClient implements CreationLockIO {
+   private nextId = 1;
+   private readonly queue: { tail: Promise<unknown> } = { tail: Promise.resolve() };
++  /**
++   * Set once this connection can no longer be trusted to be in step with the
++   * helper. A refusal is in-protocol and leaves the stream synchronised; anything
++   * else means we no longer know which answer belongs to which request, and with
++   * a long-lived connection that confusion would otherwise outlive the call.
++   */
++  private brokenBy: Error | null = null;
++
++  get broken(): Error | null {
++    return this.brokenBy;
++  }
+ 
+   constructor(
+     private readonly child: ChildProcessWithoutNullStreams,
+@@ -502,6 +627,18 @@ class HelperClient implements CreationLockIO {
+   }
+ 
+   private async requestNow(command: Omit<HelperRequest, "id">): Promise<HelperResponse> {
++    if (this.brokenBy !== null) throw this.brokenBy;
++    try {
++      return await this.exchange(command);
++    } catch (e) {
++      if (!(e instanceof HelperRefusal)) {
++        this.brokenBy = e instanceof Error ? e : new Error(String(e));
++      }
++      throw e;
++    }
++  }
++
++  private async exchange(command: Omit<HelperRequest, "id">): Promise<HelperResponse> {
+     const request: HelperRequest = { id: this.nextId++, ...command };
+     await writeStdinLine(this.child, JSON.stringify(request) + "\n");
+     const line = await withTimeout(
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index b551f0403d602cbdb52f6eb2e85216b05916b3e2..7241ab9324e1d153ac7a922d63868d35b0716630 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -20,6 +20,7 @@ export {
+   HelperRefusal,
+   readCreationIndex,
+   parseCreationIndexText,
++  releaseCreationLock,
+   emptyCreationIndex,
+   serializeCreationIndex,
+   type CreationIndexRecord,
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 59664cab4ff5e0a30356c0fa17b46e7aaacddc94..e8c355214583852d73094d036f779a6233d0be58 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -45,6 +45,7 @@ import {
+   serializeCreationIndex,
+   stateError,
+   validateTaskCreationInput,
++  releaseCreationLock,
+   withCreationLock,
+   type CreationIndexRecord,
+   type CreationLockIO,
+@@ -255,6 +256,12 @@ export class Store {
+     this.watcher?.close();
+     this.watcher = null;
+     this.opened = false;
++    // The project lock must not outlive the handle that justified holding it
++    // (ADR-028). A shutdown error is reported, not thrown: a store that is closing
++    // has nothing left to protect, and failing here would mask the caller's reason
++    // for closing.
++    const error = await releaseCreationLock(this.root);
++    if (error) this.logger.warn(`store ${this.root}: releasing the project lock: ${error.message}`);
+   }
+ 
+   // -- reconciliation ------------------------------------------------------
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index 16eddb31f17f0bb8f138d3eb18974d60c279fab4..7fe52896e3d8db53c10c3c3925bb81fbde5b9a40 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -26,7 +26,7 @@ import {
+   type TaskCreationInput,
+   type TaskCreationResult,
+ } from "../src/index.ts";
+-import { HelperRefusal, withCreationLock } from "../src/store/creation.ts";
++import { HelperRefusal, releaseCreationLock, withCreationLock } from "../src/store/creation.ts";
+ import { ProjectPaths } from "../src/store/paths.ts";
+ import { fixedClock, tempDir, waitFor } from "./helpers.ts";
+ 
+@@ -207,6 +207,42 @@ async function rejectedWithin(promise: Promise<unknown>, ms: number): Promise<Er
+   return result;
+ }
+ 
++/** True while `pid` names a process this test can still signal. */
++function alive(pid: number): boolean {
++  try {
++    process.kill(pid, 0);
++    return true;
++  } catch {
++    return false;
++  }
++}
++
++/**
++ * Writes a protocol-2 fake helper that answers requests with `answer(req)`.
++ *
++ * `body` supplies that function and may use `send` to write an extra line. The
++ * fake takes no lock: it is for tests about the CONNECTION, not about locking.
++ */
++async function writeFakeHelper(path: string, body: string[]): Promise<string> {
++  await writeFile(
++    path,
++    [
++      `#!${process.execPath}`,
++      'import { appendFileSync } from "node:fs";',
++      'import { createInterface } from "node:readline";',
++      'const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\\n");',
++      ...body,
++      'send({ ok: true, pid: process.pid, protocol: 2 });',
++      'createInterface({ input: process.stdin }).on("line", (line) => {',
++      "  send(answer(JSON.parse(line)));",
++      '}).on("close", () => process.exit(0));',
++      "",
++    ].join("\n"),
++  );
++  await chmod(path, 0o755);
++  return path;
++}
++
+ async function holdStoreLock(root: string): Promise<{ release(): Promise<void> }> {
+   const child = spawn(helperBin, ["--root", root, "--timeout-ms", "1000"], {
+     stdio: ["pipe", "pipe", "pipe"],
+@@ -272,13 +308,10 @@ describe("Store.createTaskWithCreationBinding", () => {
+     dir.cleanup();
+   });
+ 
+-  // 100 concurrent creates means 100 helper spawns: `withCreationLock` runs the
+-  // native binary once per creation, so this test's cost is dominated by process
+-  // startup and scales with how loaded the machine is, not with the work under
+-  // test. It takes about a second on its own and comfortably exceeds the default
+-  // five when the rest of this file — or the rest of the suite, in CI — is running
+-  // alongside it. The budget is stated here rather than left to a default that
+-  // describes a different machine.
++  // Since ADR-028 these 100 creates share one helper process, so the cost is no
++  // longer dominated by spawns. The generous budget stays: 100 creates still
++  // serialise through one connection and one lock, and the machine running this
++  // may be running the rest of the suite alongside it.
+   test("2/10/100 concurrent same-key creates produce one task and one created outcome", async () => {
+     for (const count of [2, 10, 100]) {
+       const localDir = tempDir();
+@@ -886,7 +919,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+     }
+   });
+ 
+-  test("a helper ignoring graceful shutdown is killed and reaped before rejection", async () => {
++  test("a helper ignoring graceful shutdown is killed and reaped when the lock is released", async () => {
+     const fakeHelper = join(dir.path, "fake-stuck-store-lock");
+     const pidFile = join(dir.path, "helper.pid");
+     await writeFile(fakeHelper, [
+@@ -914,13 +947,16 @@ describe("Store.createTaskWithCreationBinding", () => {
+       }
+     };
+     try {
+-      const completion = withCreationLock(store.paths, async () => "done").then(
+-        () => new Error("unexpected success"),
+-        (e: unknown) => e,
+-      );
++      // The connection now outlives the call (ADR-028), so shutdown happens when the
++      // lock is released rather than at the end of every operation. The guarantee is
++      // unchanged and simply moved: a helper that ignores stdin close is killed and
++      // reaped, and the failure is reported rather than swallowed.
++      expect(await withCreationLock(store.paths, async () => "done")).toBe("done");
+       await waitFor(() => existsSync(pidFile));
+       pid = Number(await readFile(pidFile, "utf8"));
+-      const error = await completion;
++      expect(isAlive()).toBe(true); // still there, holding the lock, between calls
++
++      const error = await releaseCreationLock(store.paths.root);
+       expect(error).toBeInstanceOf(Error);
+       expect((error as Error).message).toContain("did not exit after stdin close");
+       expect(isAlive()).toBe(false);
+@@ -934,6 +970,185 @@ describe("Store.createTaskWithCreationBinding", () => {
+     }
+   }, 15000);
+ 
++  test("consecutive calls are served by one helper process, released when the store closes", async () => {
++    // ADR-028: the spawn happens once per project, not once per operation. The
++    // fake records every process that starts, so three calls that reused one
++    // connection leave one line and three that did not leave three.
++    const log = join(dir.path, "spawn.log");
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-counting-store-lock"), [
++      `appendFileSync(${JSON.stringify(log)}, process.pid + "\\n");`,
++      "const answer = (req) => ({ id: req.id, ok: true, ids: [] });",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      for (let i = 0; i < 3; i++) {
++        expect(await withCreationLock(store.paths, (io) => io.listTaskIds())).toEqual([]);
++      }
++      const spawned = readFileSync(log, "utf8").trim().split("\n");
++      expect(spawned, `spawned pids: ${spawned.join(", ")}`).toHaveLength(1);
++
++      const pid = Number(spawned[0]);
++      expect(alive(pid)).toBe(true); // still there, holding the lock, between calls
++      expect(await releaseCreationLock(store.paths.root)).toBeNull();
++      await waitFor(() => !alive(pid));
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
++  test("the project lock is held between calls and released when the store closes", async () => {
++    // The identity check above uses a fake, which takes no flock and so cannot
++    // show the lock is really held. This one uses the real helper: an outside
++    // holder must fail to acquire while the connection is open, and succeed once
++    // it is closed. Without this, "held across calls" would be a claim about a
++    // process rather than about the lock.
++    expectSuccess(await store.createTaskWithCreationBinding(creationInput()), "created");
++
++    const blocked = await holdStoreLock(dir.path).then(
++      (h) => {
++        void h.release();
++        return null;
++      },
++      (e: unknown) => e as Error,
++    );
++    expect(blocked, "an outside holder acquired the lock the daemon should still hold").toBeInstanceOf(Error);
++
++    expect(await releaseCreationLock(store.paths.root)).toBeNull();
++    const holder = await holdStoreLock(dir.path);
++    await holder.release();
++  }, 20000);
++
++  test("a connection whose protocol desynchronised is not reused by the next call", async () => {
++    // Long-lived connections make stream state outlive the call that broke it.
++    // This fake emits one stray line after its first answer, which pushes every
++    // later response one behind. The first caller to notice must retire the
++    // connection, or the project is wedged until the daemon restarts.
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-desync-store-lock"), [
++      "let first = true;",
++      "const answer = (req) => {",
++      "  if (first) { first = false; queueMicrotask(() => send({ id: 999, ok: true, ids: [] })); }",
++      "  return { id: req.id, ok: true, ids: [] };",
++      "};",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      expect(await withCreationLock(store.paths, (io) => io.listTaskIds())).toEqual([]);
++
++      const desynced = await withCreationLock(store.paths, (io) => io.listTaskIds()).then(
++        () => null,
++        (e: unknown) => e as Error,
++      );
++      expect(desynced).toBeInstanceOf(Error);
++      expect(desynced!.message).toMatch(/id mismatch/i);
++
++      expect(await withCreationLock(store.paths, (io) => io.listTaskIds())).toEqual([]);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
++  test("no further write is sent over a stream that lost sync mid-callback", async () => {
++    // Retiring the connection afterwards is not enough: a callback that catches
++    // the first failure and carries on would put a WRITE onto a stream whose
++    // answers we can no longer match to requests. The helper must never see it.
++    const oplog = join(dir.path, "ops.log");
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-offbyone-store-lock"), [
++      `const oplog = ${JSON.stringify(oplog)};`,
++      "let first = true;",
++      "const answer = (req) => {",
++      '  appendFileSync(oplog, req.op + "\\n");',
++      "  if (first) { first = false; return { id: req.id + 1, ok: true, ids: [] }; }",
++      "  return { id: req.id, ok: true };",
++      "};",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      const failure = await withCreationLock(store.paths, async (io) => {
++        await io.listTaskIds().catch(() => undefined);
++        await io.writeCreationIndex(serializeCreationIndex({ schema_version: 1, reservations: {} }));
++      }).then(
++        () => null,
++        (e: unknown) => e as Error,
++      );
++      expect(failure).toBeInstanceOf(Error);
++      expect(failure!.message).toMatch(/id mismatch/i);
++      expect(readFileSync(oplog, "utf8").trim().split("\n")).toEqual(["list_task_ids"]);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
++  test("a helper killed between calls is replaced, not inherited as a dead session", async () => {
++    // ADR-028 says the death of a helper stops being a one-call event and gets
++    // explicit recovery: the connection is re-established. A caller who did
++    // nothing wrong must not pay for a process the OS took away between calls.
++    const log = join(dir.path, "spawn.log");
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-killable-store-lock"), [
++      `appendFileSync(${JSON.stringify(log)}, process.pid + "\\n");`,
++      "const answer = (req) => ({ id: req.id, ok: true, ids: [] });",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      expect(await withCreationLock(store.paths, (io) => io.listTaskIds())).toEqual([]);
++      const first = Number(readFileSync(log, "utf8").trim());
++      process.kill(first, "SIGKILL");
++      await waitFor(() => !alive(first));
++
++      expect(await withCreationLock(store.paths, (io) => io.listTaskIds())).toEqual([]);
++      const spawned = readFileSync(log, "utf8").trim().split("\n");
++      expect(spawned, `spawned pids: ${spawned.join(", ")}`).toHaveLength(2);
++      expect(spawned[1]).not.toBe(spawned[0]);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
++  test("a refusal keeps the connection: it is an answer, not a broken stream", async () => {
++    // The other direction of the check above. A refusal is a well-formed answer,
++    // so the stream is still in step and the lock is still worth holding. If
++    // refusals retired the connection too, a project answering "no" often would
++    // pay a spawn and a lock handoff for every one of them.
++    const log = join(dir.path, "spawn.log");
++    const fakeHelper = await writeFakeHelper(join(dir.path, "fake-refusing-store-lock"), [
++      `appendFileSync(${JSON.stringify(log)}, process.pid + "\\n");`,
++      "let first = true;",
++      "const answer = (req) => {",
++      "  if (first) { first = false; return { id: req.id, ok: false, error: \"nope\", code: \"ownership\" }; }",
++      "  return { id: req.id, ok: true, ids: [] };",
++      "};",
++    ]);
++
++    const previous = process.env.AUTOSK_STORE_LOCK_BIN;
++    process.env.AUTOSK_STORE_LOCK_BIN = fakeHelper;
++    try {
++      const refusal = await withCreationLock(store.paths, (io) => io.listTaskIds()).then(
++        () => null,
++        (e: unknown) => e as Error,
++      );
++      expect(refusal).toBeInstanceOf(HelperRefusal);
++      expect((refusal as HelperRefusal).code).toBe("ownership");
++
++      expect(await withCreationLock(store.paths, (io) => io.listTaskIds())).toEqual([]);
++      const spawned = readFileSync(log, "utf8").trim().split("\n");
++      expect(spawned, `spawned pids: ${spawned.join(", ")}`).toHaveLength(1);
++    } finally {
++      if (previous === undefined) delete process.env.AUTOSK_STORE_LOCK_BIN;
++      else process.env.AUTOSK_STORE_LOCK_BIN = previous;
++    }
++  }, 15000);
++
+   test("creation input is frozen before waiting for the lock helper", async () => {
+     const holder = await holdStoreLock(dir.path);
+     const input = creationInput({ blocked_by: ["ask-aaaaaa"] });

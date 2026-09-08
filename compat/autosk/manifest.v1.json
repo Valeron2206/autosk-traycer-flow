@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "2e16ab3ccbe041f18c3b8fcae8791a7ff5c0d4b3",
+  "result_tree": "06c2aed63400b9a63d59bb71179b3282f54c1a86",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -82,6 +82,10 @@
     {
       "file": "patches/0019-trusted-write-races.patch",
       "sha256": "6e6dc47fac0bb714375b64930d644b7811104867ddf987f4e7ee2bbd8c8cd8d8"
+    },
+    {
+      "file": "patches/0020-longlived-helper.patch",
+      "sha256": "5b23bbc5c81e69692c6f7f1d394131684cb5f854cf845e2c5843067e9f01948a"
     }
   ],
   "license": {
