@@ -263,6 +263,33 @@
       "human_approval": "not_required"
     },
     {
+      "class": "compat_patch_series",
+      "category": "behavior_defining",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [],
+      "paths": [
+        "compat/**"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "each patch is reviewed with the ticket that produced it, and the manifest pins the series identity; the qualification workflow rebuilds the recorded tree from the pinned upstream"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "none",
+      "model_execution_allowed": true,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "contract_document",
       "category": "governance_defining",
       "author_roles": [
@@ -572,6 +599,84 @@
       "human_approval": "required"
     },
     {
+      "class": "design_example",
+      "category": "explanatory",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "design_schema"
+      ],
+      "paths": [
+        "resources/**/*.example.json",
+        "resources/**/example-candidate/**"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "an example is read by the validator that ships with its contract; a refused example earns its place by being refused"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
+      "class": "design_schema",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/**/*.schema.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "reviewed with the contract it closes; the bytes that change here are the bytes that decide, so no editorial exemption applies"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
+      "class": "diagram",
+      "category": "explanatory",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [],
+      "paths": [
+        "diagrams/**"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "a diagram describes; it defines nothing on its own"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "doctor_report",
       "category": "runtime_evidence",
       "author_roles": [
@@ -694,9 +799,10 @@
       ],
       "requires": [],
       "paths": [
-        "README.md",
         "CONTRIBUTING.md",
-        "docs/*.md"
+        "README.md",
+        "docs/*.md",
+        "docs/runtime/*.md"
       ],
       "review": {
         "mode": "none"
@@ -1113,6 +1219,64 @@
       "human_approval": "required"
     },
     {
+      "class": "program_registry",
+      "category": "governance_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/model-result/role-capabilities.v1.json",
+        "resources/program-capabilities/issue-inventory.v1.json",
+        "resources/program-capabilities/matrix.v1.json",
+        "resources/traycer-parity/registry.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
+      "class": "project_planning_doc",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [],
+      "paths": [
+        "01-core-flows.md",
+        "02-architecture.md",
+        "03-technical-plan.md"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "adr",
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "provider_preflight",
       "category": "runtime_evidence",
       "author_roles": [
@@ -1168,6 +1332,33 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
+    },
+    {
+      "class": "repository_config",
+      "category": "behavior_defining",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [],
+      "paths": [
+        ".gitignore",
+        ".gitattributes",
+        ".coderabbit.yaml"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "configuration is never editorial: the `-text` attribute is what keeps a pinned patch checksum stable across platforms"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": true,
+      "retention": "durable",
+      "human_approval": "not_required"
     },
     {
       "class": "revision_record",
@@ -1254,6 +1445,35 @@
       "impacts": [],
       "publication": "none",
       "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
+      "class": "source_change",
+      "category": "behavior_defining",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [],
+      "paths": [
+        "src/**",
+        "scripts/**",
+        "test/**",
+        "package.json",
+        ".github/workflows/*"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "a single independent cross-family code review per issue #18, not a four-model panel; the panel reviews planning and behavior-defining documents, and code takes the review that reads code"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": true,
       "retention": "durable",
       "human_approval": "not_required"
     },
@@ -1479,7 +1699,34 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
+    },
+    {
+      "class": "verifying_key",
+      "category": "behavior_defining",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/**/*.pem"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the published half of a daemon keypair; the signing half never enters the repository, and a validator refuses one that does"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [
+        "creation_grant"
+      ],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     }
   ],
-  "registry_digest": "16b52deb963acb3d5f4885fe64841d2543fab4f28c42e87d3d1fb06ad2cfc2d6"
+  "registry_digest": "129949b9cba3d5d087cde6b1ac40b025f130ed8a201a0131812a3eff604370fd"
 }
