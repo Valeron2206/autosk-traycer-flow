@@ -135,6 +135,7 @@
         "docs/contracts/artifact-registry.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
+        "docs/contracts/execution-base.md",
         "docs/contracts/finding-registry.md",
         "docs/contracts/model-result.md",
         "docs/contracts/project-instructions-lock.md",
@@ -151,6 +152,7 @@
       "impacts": [
         "artifact_registry",
         "delivery_profile",
+        "execution_base",
         "finding_registry",
         "instruction_lock",
         "model_result",
@@ -253,6 +255,38 @@
       "human_approval": "required",
       "schema": "resources/delivery-profile/delivery-profile.schema.json",
       "validator": "scripts/validate-delivery-profile.mjs"
+    },
+    {
+      "class": "execution_base",
+      "category": "behavior_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [
+        "tickets"
+      ],
+      "paths": [
+        "docs/autosk/epics/*/tickets/*/execution-base.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the base is computed from an approved manifest, not authored"
+      },
+      "identity_fields": [
+        "ticket_id",
+        "digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/execution-base/execution-base.schema.json",
+      "validator": "scripts/validate-execution-base.mjs",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "planning_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     },
     {
       "class": "explanatory_doc",
@@ -572,5 +606,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "d470937b4a322ea8e1472de31f7def76d66df1d853babe8fcf8e0c65b02a25d1"
+  "registry_digest": "0cbf2f087bbc31f1f28bc59e1096edfb3cac503b6c7668e9e574422f3c1d30b5"
 }

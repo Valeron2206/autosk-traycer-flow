@@ -15,7 +15,8 @@
     "validate:delivery-profile": "node scripts/validate-delivery-profile.mjs",
     "validate:artifact-registry": "node scripts/validate-artifact-registry.mjs",
     "validate:finding-registry": "node scripts/validate-finding-registry.mjs",
-    "validate:model-result": "node scripts/validate-model-result.mjs"
+    "validate:model-result": "node scripts/validate-model-result.mjs",
+    "validate:execution-base": "node scripts/validate-execution-base.mjs"
   },
   "engines": {
     "node": ">=24"
