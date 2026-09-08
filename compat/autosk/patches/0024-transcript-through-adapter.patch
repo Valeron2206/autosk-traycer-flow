@@ -1,0 +1,1080 @@
+diff --git a/cmd/autosk-store-lock/main.go b/cmd/autosk-store-lock/main.go
+index 10cd5ab..f39b8d4 100644
+--- a/cmd/autosk-store-lock/main.go
++++ b/cmd/autosk-store-lock/main.go
+@@ -24,7 +24,7 @@ const maxRequestBytes = 64 * 1024 * 1024
+ // out only through a malformed reply, if at all. It is compared exactly: a
+ // different revision means a different contract, and guessing which half of it
+ // still holds is not a decision this side gets to make.
+-const protocolVersion = 2
++const protocolVersion = 3
+ 
+ type readyMessage struct {
+ 	OK       bool `json:"ok"`
+@@ -37,6 +37,8 @@ type requestMessage struct {
+ 	Op             string  `json:"op"`
+ 	TaskID         string  `json:"task_id,omitempty"`
+ 	SessionID      string  `json:"session_id,omitempty"`
++	Offset         int64   `json:"offset,omitempty"`
++	MaxBytes       int64   `json:"max_bytes,omitempty"`
+ 	Digest         string  `json:"digest,omitempty"`
+ 	ExpectedDigest *string `json:"expected_digest,omitempty"`
+ 	Data           string  `json:"data,omitempty"`
+@@ -50,8 +52,11 @@ type responseMessage struct {
+ 	IDs    []string `json:"ids"`
+ 	// Sig identifies the file a read or write just touched, so the daemon can
+ 	// recognise the echo of its own write without re-statting by name.
+-	Sig   *storelock.StatInfo `json:"sig,omitempty"`
+-	Error string              `json:"error,omitempty"`
++	Sig *storelock.StatInfo `json:"sig,omitempty"`
++	// Eof says the chunk reached the end of the file, so a caller reading a
++	// transcript in pieces knows when to stop without a second stat.
++	Eof   bool   `json:"eof,omitempty"`
++	Error string `json:"error,omitempty"`
+ 	// Code names the refusal class when the helper could classify it. Absent means
+ 	// unclassified — never "fine" and never "some other class"; see storelock.Code.
+ 	Code string `json:"code,omitempty"`
+@@ -201,6 +206,29 @@ func handleRequest(lock *storelock.Lock, req requestMessage) responseMessage {
+ 			return responseError(req.ID, err)
+ 		}
+ 		return responseMessage{ID: req.ID, OK: true, IDs: ids}
++	case "read_session_transcript":
++		result, eof, err := lock.ReadSessionTranscriptChunk(req.SessionID, req.Offset, req.MaxBytes)
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		resp := responseMessage{ID: req.ID, OK: true, Exists: result.Exists, Data: string(result.Data), Eof: eof}
++		if result.Exists {
++			sig := result.Stat
++			resp.Sig = &sig
++		}
++		return resp
++	case "write_session_transcript":
++		sig, err := lock.WriteSessionTranscript(req.SessionID, []byte(req.Data))
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
++	case "append_session_transcript":
++		sig, err := lock.AppendSessionTranscript(req.SessionID, []byte(req.Data))
++		if err != nil {
++			return responseError(req.ID, err)
++		}
++		return responseMessage{ID: req.ID, OK: true, Sig: &sig}
+ 	case "read_runtime_blob":
+ 		result, err := lock.ReadRuntimeBlob(req.Digest)
+ 		if err != nil {
+diff --git a/cmd/autosk-store-lock/main_test.go b/cmd/autosk-store-lock/main_test.go
+index 3269450..4c96e17 100644
+--- a/cmd/autosk-store-lock/main_test.go
++++ b/cmd/autosk-store-lock/main_test.go
+@@ -450,3 +450,58 @@ func commandRuntimeDigest(data []byte) string {
+ 	sum := sha256.Sum256(data)
+ 	return hex.EncodeToString(sum[:])
+ }
++
++// TestTranscriptChunkBoundarySurvivesJSON is about the wire, not the file.
++//
++// A chunk that ends inside a multi-byte rune is a plain byte range, and
++// encoding/json does not carry invalid UTF-8: it substitutes U+FFFD. The daemon
++// would then reassemble a transcript whose text differs from what was written,
++// with nothing anywhere reporting an error.
++func TestTranscriptChunkBoundarySurvivesJSON(t *testing.T) {
++	root := t.TempDir()
++	lock, err := storelock.Acquire(root, time.Second)
++	if err != nil {
++		t.Fatalf("acquire: %v", err)
++	}
++	defer func() {
++		if err := lock.Close(); err != nil {
++			t.Fatalf("close: %v", err)
++		}
++	}()
++
++	// Two-byte runes, so every odd window ends mid-rune.
++	line := []byte("{\"text\":\"" + strings.Repeat("д", 8) + "\"}\n")
++	if _, err := lock.AppendSessionTranscript("ses-777777", line); err != nil {
++		t.Fatalf("append: %v", err)
++	}
++
++	var got []byte
++	offset := int64(0)
++	for {
++		resp := handleRequest(lock, requestMessage{
++			ID: 1, Op: "read_session_transcript", SessionID: "ses-777777", Offset: offset, MaxBytes: 5,
++		})
++		if !resp.OK {
++			t.Fatalf("read at %d refused: %s", offset, resp.Error)
++		}
++		encoded, err := json.Marshal(resp)
++		if err != nil {
++			t.Fatalf("marshal: %v", err)
++		}
++		var decoded responseMessage
++		if err := json.Unmarshal(encoded, &decoded); err != nil {
++			t.Fatalf("unmarshal: %v", err)
++		}
++		if decoded.Data == "" {
++			t.Fatalf("no progress at offset %d", offset)
++		}
++		got = append(got, decoded.Data...)
++		offset += int64(len(decoded.Data))
++		if decoded.Eof {
++			break
++		}
++	}
++	if !bytes.Equal(got, line) {
++		t.Fatalf("transcript did not survive the wire:\n want %q\n  got %q", line, got)
++	}
++}
+diff --git a/daemon/core/src/store/creation.ts b/daemon/core/src/store/creation.ts
+index 3784711..7919430 100644
+--- a/daemon/core/src/store/creation.ts
++++ b/daemon/core/src/store/creation.ts
+@@ -24,7 +24,7 @@ const INDEX_VERSION = 1;
+  * this side can do honestly. Keep in step with `protocolVersion` in
+  * `cmd/autosk-store-lock/main.go`.
+  */
+-const HELPER_PROTOCOL_VERSION = 2;
++const HELPER_PROTOCOL_VERSION = 3;
+ const LOCK_TIMEOUT_MS = 30_000;
+ const READY_TIMEOUT_MS = 10_000;
+ const REQUEST_TIMEOUT_MS = 30_000;
+@@ -33,6 +33,13 @@ const KILL_WAIT_TIMEOUT_MS = 2_000;
+ const MAX_STDERR_BYTES = 64 * 1024;
+ const MAX_LINE_BYTES = 64 * 1024 * 1024;
+ const MAX_RUNTIME_BYTES = 8 * 1024 * 1024;
++/**
++ * The window one `read_session_transcript` call asks for.
++ *
++ * Below the helper's own per-read ceiling, so a chunk is never refused for being
++ * too large; a whole transcript is read as as many of these as it takes.
++ */
++const TRANSCRIPT_CHUNK_BYTES = 4 * 1024 * 1024;
+ const MAX_QUEUED_LINES = 1024;
+ const MAX_TITLE_BYTES = 8192;
+ const MAX_DESCRIPTION_BYTES = 65_536;
+@@ -82,9 +89,12 @@ interface HelperRequest {
+   op: "read_creation_index" | "write_creation_index" | "list_task_ids" | "read_task" | "write_task"
+     | "read_runtime_blob" | "write_runtime_blob" | "read_runtime_index" | "write_runtime_index"
+     | "read_comments" | "write_comments"
+-    | "read_session_meta" | "write_session_meta" | "list_session_ids";
++    | "read_session_meta" | "write_session_meta" | "list_session_ids"
++    | "read_session_transcript" | "write_session_transcript" | "append_session_transcript";
+   task_id?: string;
+   session_id?: string;
++  offset?: number;
++  max_bytes?: number;
+   digest?: string;
+   expected_digest?: string | null;
+   data?: string;
+@@ -97,6 +107,7 @@ interface HelperResponse {
+   data?: unknown;
+   ids?: unknown;
+   sig?: unknown;
++  eof?: unknown;
+   error?: unknown;
+   code?: unknown;
+ }
+@@ -122,6 +133,17 @@ export interface CreationLockIO {
+   readSessionMeta(sessionId: string): Promise<{ data: string; sig: string } | null>;
+   writeSessionMeta(sessionId: string, data: string): Promise<string>;
+   listSessionIds(): Promise<string[]>;
++  /**
++   * One window of a transcript. `eof` says the window reached the end, which is
++   * how a caller reading a long transcript knows to stop without a second stat.
++   */
++  readSessionTranscriptChunk(
++    sessionId: string,
++    offset: number,
++    maxBytes: number,
++  ): Promise<{ data: string; sig: string; eof: boolean } | null>;
++  writeSessionTranscript(sessionId: string, data: string): Promise<string>;
++  appendSessionTranscript(sessionId: string, data: string): Promise<string>;
+ }
+ 
+ export function creationKeyHash(key: string): string {
+@@ -661,6 +683,46 @@ class HelperClient implements CreationLockIO {
+     return response.ids;
+   }
+ 
++  async readSessionTranscriptChunk(
++    sessionId: string,
++    offset: number,
++    maxBytes: number,
++  ): Promise<{ data: string; sig: string; eof: boolean } | null> {
++    const response = await this.request({
++      op: "read_session_transcript",
++      session_id: sessionId,
++      offset,
++      max_bytes: maxBytes,
++    });
++    if (typeof response.exists !== "boolean") {
++      throw new Error("autosk-store-lock returned invalid transcript existence flag");
++    }
++    // `eof` is read whether or not the file exists: an absent transcript is a
++    // finished read, and treating it as "more to come" would loop forever.
++    if (typeof response.eof !== "boolean") {
++      throw new Error("autosk-store-lock returned invalid transcript eof flag");
++    }
++    if (!response.exists) return null;
++    if (typeof response.data !== "string") {
++      throw new Error("autosk-store-lock returned invalid transcript data");
++    }
++    return {
++      data: response.data,
++      sig: helperFileSig(response.sig, "read_session_transcript"),
++      eof: response.eof,
++    };
++  }
++
++  async writeSessionTranscript(sessionId: string, data: string): Promise<string> {
++    const response = await this.request({ op: "write_session_transcript", session_id: sessionId, data });
++    return helperFileSig(response.sig, "write_session_transcript");
++  }
++
++  async appendSessionTranscript(sessionId: string, data: string): Promise<string> {
++    const response = await this.request({ op: "append_session_transcript", session_id: sessionId, data });
++    return helperFileSig(response.sig, "append_session_transcript");
++  }
++
+   private async readWithSig(
+     command: Omit<HelperRequest, "id">,
+     what: string,
+diff --git a/daemon/core/src/store/sessionStore.ts b/daemon/core/src/store/sessionStore.ts
+index 54d2af0..ce83b25 100644
+--- a/daemon/core/src/store/sessionStore.ts
++++ b/daemon/core/src/store/sessionStore.ts
+@@ -21,7 +21,7 @@ import type {
+   TranscriptEntry,
+   TranscriptLine,
+ } from "@autosk/sdk";
+-import { appendLine, atomicWrite, fileSig, statSig } from "./atomic.ts";
++import { fileSig, statSig } from "./atomic.ts";
+ import { withCreationLock } from "./creation.ts";
+ import { KeyedMutex } from "./lock.ts";
+ import { consoleLogger, type Logger } from "./logger.ts";
+@@ -36,6 +36,12 @@ import {
+ 
+ const LIVE_STATUSES: ReadonlySet<SessionStatus> = new Set(["queued", "running"]);
+ 
++/**
++ * How much of a transcript one adapter call asks for. Below the helper's own
++ * per-read ceiling, so a window is never refused for being too large.
++ */
++const TRANSCRIPT_CHUNK_BYTES = 4 * 1024 * 1024;
++
+ export interface CreateSessionInput {
+   id: string;
+   /** `"task"` (default) or `"interactive"`; interactive tolerates empty task_id/workflow/step. */
+@@ -160,18 +166,36 @@ export class SessionStore {
+    * Reads transcript lines. `fromLine` is 1-based (header is line 1); `limit`
+    * caps the count. Returns the lines plus the 1-based cursor to resume tailing.
+    *
+-   * NOTE (P5): this re-reads + re-parses the whole file on every paged call, so
+-   * subscribe-then-tail clients pay O(file) per page. Acceptable for P2; when P5
+-   * wires live tailing, replace this with a line/byte-offset index or an
+-   * incremental streamed read so each poll is O(new lines), not O(file).
++   * The file is fetched as a sequence of bounded windows rather than in one
++   * call. A transcript grows for as long as its session runs, so a whole-file
++   * op would need a size limit, and a limit on an append-only file is a ceiling
++   * a long session eventually hits — after which its own history stops being
++   * readable. The windows are joined here, so the caller sees the same whole
++   * file it always did.
++   *
++   * NOTE (P5): this still re-reads + re-parses everything on every paged call,
++   * so subscribe-then-tail clients pay O(file) per page. Acceptable for P2; when
++   * P5 wires live tailing, keep a byte offset per subscriber and ask for the
++   * windows after it, so each poll is O(new lines), not O(file).
+    */
+   async readTranscript(
+     id: string,
+     opts: { fromLine?: number; limit?: number } = {},
+   ): Promise<{ lines: TranscriptLine[]; nextLine: number }> {
+-    const probe = await statSig(this.paths.sessionTranscript(id));
+-    if (!probe) return { lines: [], nextLine: 1 };
+-    const text = await readFile(this.paths.sessionTranscript(id), "utf8");
++    const text = await withCreationLock(this.paths, async (io) => {
++      const parts: string[] = [];
++      let offset = 0;
++      for (;;) {
++        const chunk = await io.readSessionTranscriptChunk(id, offset, TRANSCRIPT_CHUNK_BYTES);
++        if (!chunk) return null;
++        parts.push(chunk.data);
++        // The helper stops each window on a character boundary, so advancing by
++        // what came back is what makes the next window start on one too.
++        offset += Buffer.byteLength(chunk.data, "utf8");
++        if (chunk.eof) return parts.join("");
++      }
++    });
++    if (text === null) return { lines: [], nextLine: 1 };
+     const all = parseTranscript(text);
+     const from = Math.max(1, opts.fromLine ?? 1);
+     const start = from - 1;
+@@ -213,10 +237,10 @@ export class SessionStore {
+         timestamp: input.timestamp,
+         cwd: input.cwd,
+       };
+-      await atomicWrite(this.paths.sessionTranscript(input.id), serializeSessionHeader(header) + "\n");
+-      const sig = await withCreationLock(this.paths, (io) =>
+-        io.writeSessionMeta(input.id, serializeSessionMeta(meta)),
+-      );
++      const sig = await withCreationLock(this.paths, async (io) => {
++        await io.writeSessionTranscript(input.id, serializeSessionHeader(header) + "\n");
++        return io.writeSessionMeta(input.id, serializeSessionMeta(meta));
++      });
+       this.metaCache.set(input.id, { sig, value: meta });
+       this.indexMeta(meta);
+       return meta;
+@@ -274,7 +298,9 @@ export class SessionStore {
+   /** Appends one transcript entry (a single newline-terminated JSON line). */
+   async appendEntry(id: string, entry: TranscriptEntry): Promise<void> {
+     await this.locks.run(`session::${id}`, async () => {
+-      await appendLine(this.paths.sessionTranscript(id), serializeTranscriptLine(entry) + "\n");
++      await withCreationLock(this.paths, (io) =>
++        io.appendSessionTranscript(id, serializeTranscriptLine(entry) + "\n"),
++      );
+     });
+   }
+ 
+diff --git a/daemon/core/test/store.creation.test.ts b/daemon/core/test/store.creation.test.ts
+index aeb99b2..5d2ed5c 100644
+--- a/daemon/core/test/store.creation.test.ts
++++ b/daemon/core/test/store.creation.test.ts
+@@ -34,6 +34,19 @@ const KEY = `flow:${"a".repeat(64)}`;
+ const OTHER_KEY = `flow:${"c".repeat(64)}`;
+ const HASH = "b".repeat(64);
+ const OTHER_HASH = "d".repeat(64);
++
++/**
++ * The revision the fake helpers below announce, read from the daemon's own
++ * constant rather than repeated as a number here. A fake on a stale revision is
++ * refused at readiness, which would fail these tests for a reason that has
++ * nothing to do with what any of them is about.
++ */
++const HELPER_PROTOCOL = ((): number => {
++  const source = readFileSync(new URL("../src/store/creation.ts", import.meta.url), "utf8");
++  const match = /const HELPER_PROTOCOL_VERSION = (\d+);/u.exec(source);
++  if (!match) throw new Error("cannot read HELPER_PROTOCOL_VERSION from creation.ts");
++  return Number(match[1]);
++})();
+ const NINE_TASK_FIELDS = [
+   "id",
+   "status",
+@@ -218,7 +231,7 @@ function alive(pid: number): boolean {
+ }
+ 
+ /**
+- * Writes a protocol-2 fake helper that answers requests with `answer(req)`.
++ * Writes a fake helper on the current protocol that answers with `answer(req)`.
+  *
+  * `body` supplies that function and may use `send` to write an extra line. The
+  * fake takes no lock: it is for tests about the CONNECTION, not about locking.
+@@ -232,7 +245,7 @@ async function writeFakeHelper(path: string, body: string[]): Promise<string> {
+       'import { createInterface } from "node:readline";',
+       'const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\\n");',
+       ...body,
+-      'send({ ok: true, pid: process.pid, protocol: 2 });',
++      `send({ ok: true, pid: process.pid, protocol: ${HELPER_PROTOCOL} });`,
+       'createInterface({ input: process.stdin }).on("line", (line) => {',
+       "  send(answer(JSON.parse(line)));",
+       '}).on("close", () => process.exit(0));',
+@@ -636,7 +649,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+       fakeHelper,
+       [
+         "#!/bin/sh",
+-        "printf '%s\\n' '{\"ok\":true,\"pid\":123,\"protocol\":2}'",
++        `printf '%s\\n' '{"ok":true,"pid":123,"protocol":${HELPER_PROTOCOL}}'`,
+         "IFS= read -r first",
+         "printf '%s\\n' '{\"id\":1,\"ok\":true,\"exists\":false}'",
+         "IFS= read -r second",
+@@ -678,7 +691,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         'const tasksDir = join(root, ".autosk", "tasks");',
+         'const taskJson = (id) => join(tasksDir, id, "task.json");',
+         'const put = (file, data) => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, data); };',
+-        'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 2 }) + "\\n");',
++        `process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: ${HELPER_PROTOCOL} }) + "\\n");`,
+         'let buffer = "";',
+         'process.stdin.on("data", (chunk) => {',
+         '  buffer += chunk;',
+@@ -880,7 +893,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+         "  process.stdout.write(Buffer.from(bytes.slice(0, split)));",
+         "  setTimeout(() => process.stdout.write(Buffer.from(bytes.slice(split))), 1);",
+         "}",
+-        "splitWrite(JSON.stringify({ ok: true, pid: 123, protocol: 2, note: \"д\" }));",
++        `splitWrite(JSON.stringify({ ok: true, pid: 123, protocol: ${HELPER_PROTOCOL}, note: "д" }));`,
+         "let buffer = \"\";",
+         "process.stdin.on(\"data\", (chunk) => {",
+         "  buffer += chunk.toString(\"utf8\");",
+@@ -929,7 +942,7 @@ describe("Store.createTaskWithCreationBinding", () => {
+       'process.on("SIGTERM", () => {});',
+       'process.stdin.resume();',
+       'setInterval(() => {}, 1000);',
+-      'process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: 2 }) + "\\n");',
++      `process.stdout.write(JSON.stringify({ ok: true, pid: process.pid, protocol: ${HELPER_PROTOCOL} }) + "\\n");`,
+       '',
+     ].join("\n"));
+     await chmod(fakeHelper, 0o755);
+diff --git a/daemon/core/test/store.singlewriter.test.ts b/daemon/core/test/store.singlewriter.test.ts
+index 66ad7e8..fd80f01 100644
+--- a/daemon/core/test/store.singlewriter.test.ts
++++ b/daemon/core/test/store.singlewriter.test.ts
+@@ -97,6 +97,7 @@ describe("what the boundary adapter covers", () => {
+     const dispatch = helper.slice(helper.indexOf("switch req.Op"), helper.indexOf("func responseError"));
+     const ops = [...dispatch.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
+     expect(ops.sort()).toEqual([
++      "append_session_transcript",
+       "list_session_ids",
+       "list_task_ids",
+       "read_comments",
+@@ -104,18 +105,21 @@ describe("what the boundary adapter covers", () => {
+       "read_runtime_blob",
+       "read_runtime_index",
+       "read_session_meta",
++      "read_session_transcript",
+       "read_task",
+       "write_comments",
+       "write_creation_index",
+       "write_runtime_blob",
+       "write_runtime_index",
+       "write_session_meta",
++      "write_session_transcript",
+       "write_task",
+     ]);
+ 
+-    // Covered: comment bytes, and the session meta on every per-session read and
+-    // every write. The cheap stat that survives in both stores is the change
+-    // DETECTOR for paths that must stay O(N), never what bytes are trusted on.
++    // Covered: comment bytes, the session meta on every per-session read and
++    // every write, and the transcript on every read, header write and append.
++    // The cheap stat that survives in both stores is the change DETECTOR for
++    // paths that must stay O(N), never what bytes are trusted on.
+     const taskStore = readFileSync(new URL("../src/store/taskStore.ts", import.meta.url), "utf8");
+     expect(taskStore).toContain("io.readComments(id)");
+     expect(taskStore).toContain("io.writeComments(id");
+@@ -125,18 +129,20 @@ describe("what the boundary adapter covers", () => {
+     expect(sessionStore).toContain("io.readSessionMeta(id)");
+     expect(sessionStore).toContain("io.writeSessionMeta(");
+     expect(sessionStore).not.toContain("atomicWrite(this.paths.sessionMeta");
+-
+-    // NOT covered, each for a stated reason rather than by omission:
+-    // `task.json` still has a second, plain-fs writer; the transcript has no
+-    // helper op at all; and `scan` deliberately stays on plain `fs` because it
+-    // runs on `open()` and routing it would make the helper a precondition of
+-    // opening a project — which ADR-028 declined.
++    expect(sessionStore).toContain("io.readSessionTranscriptChunk(id");
++    expect(sessionStore).toContain("io.writeSessionTranscript(input.id");
++    expect(sessionStore).toContain("io.appendSessionTranscript(id");
++    // The transcript has no plain-fs path left in this store, for reads or writes.
++    expect(sessionStore).not.toMatch(/atomicWrite\(this\.paths\.sessionTranscript/u);
++    expect(sessionStore).not.toMatch(/appendLine\(this\.paths\.sessionTranscript/u);
++    expect(sessionStore).not.toMatch(/readFile\(this\.paths\.sessionTranscript/u);
++
++    // NOT covered, each for a stated reason rather than by omission: `task.json`
++    // still has a second, plain-fs writer, and `scan` deliberately stays on plain
++    // `fs` because it runs on `open()` and routing it would make the helper a
++    // precondition of opening a project — which ADR-028 declined.
+     expect(taskStore).toContain("atomicWrite(this.paths.taskJson");
+-    expect(sessionStore).toContain("atomicWrite(this.paths.sessionTranscript");
+-    expect(sessionStore).toContain("appendLine(this.paths.sessionTranscript");
+     expect(sessionStore).toMatch(/readdir\(this\.paths\.sessionsDir\)/u);
+-    expect(ops).not.toContain("write_session_transcript");
+-    expect(ops).not.toContain("append_session_transcript");
+   });
+ });
+ 
+@@ -216,14 +222,14 @@ describe("session meta through the boundary adapter", () => {
+     expect(readdirSync(outside), "the write escaped into the symlink target").toEqual([]);
+   });
+ 
+-  test("a hostile sessions directory refuses the session, and the transcript is what still escapes", async () => {
+-    // Honest boundary of a split adapter. Before this slice both the transcript
+-    // header AND the meta landed in the symlink target and `create` SUCCEEDED —
+-    // the daemon would run a session whose state lives outside the project. Now
+-    // the meta write refuses and no session is registered. One file still lands
+-    // there first, because the transcript has not moved through the adapter yet;
+-    // that is #13 criterion 4 ("failures leave no partial trusted state") and it
+-    // closes with the transcript slice, not with a claim here.
++  test("a hostile sessions directory refuses the session and leaves nothing behind", async () => {
++    // #13 criterion 4: a failure leaves no partial trusted state. Two slices ago
++    // both the transcript header AND the meta landed in the symlink target and
++    // `create` SUCCEEDED — the daemon would run a session whose state lives
++    // outside the project. Then the meta refused but the header still escaped,
++    // because the transcript had not moved through the adapter. Now the
++    // transcript write is the one that refuses, first, and the target stays
++    // empty.
+     const task = await store.createTask({ title: "t" });
+     await store.setPosition(task.id, { status: "work", workflow: "feature-dev", step: "dev" }, { countVisit: "dev" });
+     const outside = join(dir.path, "elsewhere");
+@@ -242,11 +248,9 @@ describe("session meta through the boundary adapter", () => {
+     }).then(() => null, (e: unknown) => e as Error);
+ 
+     expect(refusal).toBeInstanceOf(Error);
+-    expect(refusal!.message).toMatch(/write_session_meta/);
++    expect(refusal!.message).toMatch(/write_session_transcript/);
+     expect(store.sessions.sessionsForTask(task.id)).toEqual([]);
+-    // Exactly one file escaped, and it is the transcript. If this ever becomes
+-    // two, the meta escaped too and the refusal above stopped working.
+-    expect(readdirSync(outside)).toEqual([`${SESSION_ID}.jsonl`]);
++    expect(readdirSync(outside), "a file escaped into the symlink target").toEqual([]);
+   });
+ 
+   test("a meta write publishes over a symlink instead of through it", async () => {
+diff --git a/internal/storelock/lock_unix.go b/internal/storelock/lock_unix.go
+index 2b6ca5a..9119d3c 100644
+--- a/internal/storelock/lock_unix.go
++++ b/internal/storelock/lock_unix.go
+@@ -34,6 +34,7 @@ const (
+ 	indexFileName       = "index.json"
+ 	lockFileName        = "store.lock"
+ 	sessionMetaSuffix   = ".json"
++	sessionTxSuffix     = ".jsonl"
+ 	maxFileBytes        = 16 * 1024 * 1024
+ 	maxRuntimeFileBytes = 8 * 1024 * 1024
+ 	maxTaskEntries      = 100000
+@@ -551,6 +552,87 @@ func (l *Lock) ListSessionIDs() ([]string, error) {
+ 	return ids, nil
+ }
+ 
++// ReadSessionTranscriptChunk reads at most `maxBytes` from `offset`.
++//
++// Chunked on purpose. A transcript is appended without bound, and the daemon
++// already reads the whole file on every paged call, so a single whole-file op
++// would have to carry a size limit — and a limit on an append-only file is a
++// ceiling a long session eventually hits, turning its own history unreadable.
++// Reading in bounded pieces keeps the total unbounded.
++func (l *Lock) ReadSessionTranscriptChunk(sessionID string, offset int64, maxBytes int64) (ReadResult, bool, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return ReadResult{}, false, err
++	}
++	// A window smaller than one rune could not advance past a multi-byte
++	// character: the boundary trim below would return nothing and the caller
++	// would ask for the same bytes forever.
++	if offset < 0 || maxBytes < utf8.UTFMax || maxBytes > maxFileBytes {
++		return ReadResult{}, false, fmt.Errorf("invalid transcript range")
++	}
++	name, err := sessionTranscriptName(sessionID)
++	if err != nil {
++		return ReadResult{}, false, err
++	}
++	sessionsFD, exists, err := l.openSessionsDir(false)
++	if err != nil || !exists {
++		return ReadResult{Exists: false}, true, err
++	}
++	result, eof, readErr := readChunkAt(sessionsFD, name, offset, maxBytes)
++	closeErr := unix.Close(sessionsFD)
++	return result, eof, errors.Join(readErr, closeErr)
++}
++
++// WriteSessionTranscript replaces a transcript. Used for the header line only.
++func (l *Lock) WriteSessionTranscript(sessionID string, data []byte) (StatInfo, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return StatInfo{}, err
++	}
++	name, err := sessionTranscriptName(sessionID)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	if int64(len(data)) > maxFileBytes {
++		return StatInfo{}, fmt.Errorf("%s exceeds %d bytes: %w", name, int64(maxFileBytes), ErrTooLarge)
++	}
++	sessionsFD, _, err := l.openSessionsDir(true)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	info, writeErr := writeAndStatAt(sessionsFD, name, data, publicFileMode(0o644))
++	closeErr := unix.Close(sessionsFD)
++	return info, errors.Join(writeErr, closeErr)
++}
++
++// AppendSessionTranscript appends one or more whole lines.
++//
++// There is no size limit here, and that is the point: appending is how a session
++// records what happened, and refusing an append because the file grew would lose
++// history rather than protect anything. The read is chunked precisely so that
++// this can stay unbounded.
++func (l *Lock) AppendSessionTranscript(sessionID string, data []byte) (StatInfo, error) {
++	if err := l.verifyLockPath(); err != nil {
++		return StatInfo{}, err
++	}
++	name, err := sessionTranscriptName(sessionID)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	sessionsFD, _, err := l.openSessionsDir(true)
++	if err != nil {
++		return StatInfo{}, err
++	}
++	info, appendErr := appendAndStatAt(sessionsFD, name, data, publicFileMode(0o644))
++	closeErr := unix.Close(sessionsFD)
++	return info, errors.Join(appendErr, closeErr)
++}
++
++func sessionTranscriptName(sessionID string) (string, error) {
++	if err := validateChildName(sessionID); err != nil {
++		return "", fmt.Errorf("invalid session id: %w", err)
++	}
++	return sessionID + sessionTxSuffix, nil
++}
++
+ func sessionMetaName(sessionID string) (string, error) {
+ 	if err := validateChildName(sessionID); err != nil {
+ 		return "", fmt.Errorf("invalid session id: %w", err)
+@@ -1201,7 +1283,17 @@ func verifyLockFilePath(versionFD int, lockFD int, want fileIdentity) (err error
+ }
+ 
+ func readRegularFile(parentFD int, name string) (ReadResult, error) {
+-	return readRegularFileLimit(parentFD, name, maxFileBytes, fileIdentity{}, false)
++	result, err := readRegularFileLimit(parentFD, name, maxFileBytes, fileIdentity{}, false)
++	if err != nil || !result.Exists {
++		return result, err
++	}
++	// Same wire, same rule as the runtime files and the transcript chunks: a
++	// stored document that is not valid UTF-8 is refused rather than delivered
++	// with its bad bytes silently replaced by U+FFFD.
++	if !utf8.Valid(result.Data) {
++		return ReadResult{}, fmt.Errorf("%s: %w", name, ErrNotUTF8)
++	}
++	return result, nil
+ }
+ 
+ func readRuntimeFile(parentFD int, name string, rootID fileIdentity) (ReadResult, error) {
+@@ -1313,6 +1405,112 @@ func statRegularAt(parentFD int, name string) (StatInfo, error) {
+ 	return statInfoFrom(st), nil
+ }
+ 
++// readChunkAt reads a bounded window of a regular file, reporting whether the
++// window reached the end. Refuses anything but a regular file reached without
++// following a link, exactly as a whole-file read does.
++func readChunkAt(parentFD int, name string, offset int64, maxBytes int64) (ReadResult, bool, error) {
++	if err := validateChildName(name); err != nil {
++		return ReadResult{}, false, err
++	}
++	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
++	if errors.Is(err, unix.ENOENT) {
++		return ReadResult{Exists: false}, true, nil
++	}
++	if errors.Is(err, unix.ELOOP) {
++		return ReadResult{}, false, fmt.Errorf("%s is a symbolic link: %w", name, ErrNotRegular)
++	}
++	if err != nil {
++		return ReadResult{}, false, err
++	}
++	defer func() { _ = unix.Close(fd) }()
++	if err := requireRegularSingleLink(fd, name); err != nil {
++		return ReadResult{}, false, err
++	}
++	st, err := statFD(fd, name)
++	if err != nil {
++		return ReadResult{}, false, err
++	}
++	if offset > st.Size {
++		return ReadResult{}, false, fmt.Errorf("%s: offset past end of file", name)
++	}
++	buf := make([]byte, maxBytes)
++	n, err := unix.Pread(fd, buf, offset)
++	if err != nil {
++		return ReadResult{}, false, err
++	}
++	eof := offset+int64(n) >= st.Size
++	data, eof, err := chunkForWire(name, buf[:n], eof)
++	if err != nil {
++		return ReadResult{}, false, err
++	}
++	return ReadResult{Exists: true, Data: data, Stat: statInfoFrom(st)}, eof, nil
++}
++
++// chunkForWire makes a byte range safe to put in a JSON string.
++//
++// The wire is JSON, and encoding/json does not carry invalid UTF-8 — it
++// substitutes U+FFFD. A chunk boundary lands wherever the window ends, so the
++// ordinary case is a rune cut in half; that one is recoverable, because the next
++// chunk starts where this one stops. Anything else invalid is a corrupt
++// transcript and is refused, since the alternative is handing the daemon text
++// that differs from what was written with nothing anywhere reporting an error.
++func chunkForWire(name string, data []byte, eof bool) ([]byte, bool, error) {
++	if utf8.Valid(data) {
++		return data, eof, nil
++	}
++	if len(data) > 0 && !utf8.RuneStart(data[0]) {
++		return nil, false, fmt.Errorf("%s: offset is not on a character boundary: %w", name, ErrNotUTF8)
++	}
++	for cut := 1; cut < utf8.UTFMax && cut < len(data); cut++ {
++		if head := data[:len(data)-cut]; utf8.Valid(head) {
++			if eof {
++				// There is no next chunk to complete these bytes, so they are not
++				// a boundary. Whether they are a truncated rune or a stray byte is
++				// not something this can tell apart, and the message does not
++				// claim to.
++				return nil, false, fmt.Errorf("%s ends with bytes that are not a complete character: %w", name, ErrNotUTF8)
++			}
++			return head, false, nil
++		}
++	}
++	return nil, false, fmt.Errorf("%s: %w", name, ErrNotUTF8)
++}
++
++// appendAndStatAt appends to `name`, creating it if absent, and reports what the
++// file became. O_APPEND makes the position atomic against a concurrent writer;
++// the project lock makes that concurrency impossible anyway, and relying on both
++// costs nothing.
++func appendAndStatAt(parentFD int, name string, data []byte, mode uint32) (StatInfo, error) {
++	if err := validateChildName(name); err != nil {
++		return StatInfo{}, err
++	}
++	fd, err := unix.Openat(parentFD, name,
++		unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW, mode)
++	if errors.Is(err, unix.ELOOP) {
++		return StatInfo{}, fmt.Errorf("%s is a symbolic link: %w", name, ErrNotRegular)
++	}
++	if err != nil {
++		return StatInfo{}, err
++	}
++	if err := requireRegularSingleLink(fd, name); err != nil {
++		return StatInfo{}, errors.Join(err, unix.Close(fd))
++	}
++	if err := writeAll(fd, data); err != nil {
++		return StatInfo{}, errors.Join(err, unix.Close(fd))
++	}
++	if err := unix.Fsync(fd); err != nil {
++		return StatInfo{}, errors.Join(err, unix.Close(fd))
++	}
++	st, err := statFD(fd, name)
++	if err != nil {
++		return StatInfo{}, errors.Join(err, unix.Close(fd))
++	}
++	if err := unix.Close(fd); err != nil {
++		return StatInfo{}, err
++	}
++	return statInfoFrom(st), nil
++}
++
+ func atomicCreateAt(parentFD int, name string, data []byte, mode uint32) (err error) {
+ 	if err := validateChildName(name); err != nil {
+ 		return err
+diff --git a/internal/storelock/transcript_test.go b/internal/storelock/transcript_test.go
+new file mode 100644
+index 0000000..6f409d2
+--- /dev/null
++++ b/internal/storelock/transcript_test.go
+@@ -0,0 +1,320 @@
++package storelock
++
++import (
++	"bytes"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++	"unicode/utf8"
++
++	"golang.org/x/sys/unix"
++)
++
++func withTranscriptLock(t *testing.T, root string) *Lock {
++	t.Helper()
++	lock, err := Acquire(root, time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if closeErr := lock.Close(); closeErr != nil {
++			t.Fatal(closeErr)
++		}
++	})
++	return lock
++}
++
++func readWholeTranscript(t *testing.T, lock *Lock, id string, window int64) []byte {
++	t.Helper()
++	var out []byte
++	for offset := int64(0); ; {
++		chunk, eof, err := lock.ReadSessionTranscriptChunk(id, offset, window)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !chunk.Exists {
++			return nil
++		}
++		out = append(out, chunk.Data...)
++		offset += int64(len(chunk.Data))
++		if eof {
++			return out
++		}
++		if len(chunk.Data) == 0 {
++			t.Fatal("no progress and not at eof")
++		}
++	}
++}
++
++func TestTranscriptAppendIsUnboundedWhileReadsAreChunked(t *testing.T) {
++	// The point of the split: appending is how a session records what happened,
++	// so it carries no size limit, and the read is chunked so that the total can
++	// stay unbounded without a ceiling nobody can lift.
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte("{\"header\":1}\n")); err != nil {
++		t.Fatal(err)
++	}
++	var expected bytes.Buffer
++	expected.WriteString("{\"header\":1}\n")
++	for i := 0; i < 200; i++ {
++		line := []byte("{\"line\":" + strings.Repeat("9", 40) + "}\n")
++		if _, err := lock.AppendSessionTranscript("ses-111111", line); err != nil {
++			t.Fatal(err)
++		}
++		expected.Write(line)
++	}
++
++	// A window far smaller than the file: the caller reassembles it in pieces.
++	got := readWholeTranscript(t, lock, "ses-111111", 64)
++	if !bytes.Equal(got, expected.Bytes()) {
++		t.Fatalf("chunked read returned %d bytes, wrote %d", len(got), expected.Len())
++	}
++	// ...and a window larger than the file returns it in one piece with eof set.
++	chunk, eof, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, maxFileBytes)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !eof || !bytes.Equal(chunk.Data, expected.Bytes()) {
++		t.Fatalf("single-window read: eof=%v len=%d", eof, len(chunk.Data))
++	}
++}
++
++func TestTranscriptChunkReportsEofExactlyAtTheEnd(t *testing.T) {
++	// An off-by-one here would either drop the last line or loop forever.
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte("abcdef")); err != nil {
++		t.Fatal(err)
++	}
++	for _, tc := range []struct {
++		offset int64
++		window int64
++		want   string
++		eof    bool
++	}{
++		{0, 4, "abcd", false},
++		{4, 4, "ef", true},
++		{0, 6, "abcdef", true},
++		{6, 4, "", true},
++	} {
++		chunk, eof, err := lock.ReadSessionTranscriptChunk("ses-111111", tc.offset, tc.window)
++		if err != nil {
++			t.Fatalf("offset %d: %v", tc.offset, err)
++		}
++		if string(chunk.Data) != tc.want || eof != tc.eof {
++			t.Fatalf("offset %d window %d: got %q eof=%v, want %q eof=%v",
++				tc.offset, tc.window, chunk.Data, eof, tc.want, tc.eof)
++		}
++	}
++}
++
++func TestTranscriptRejectsUnreadableRanges(t *testing.T) {
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte("abc")); err != nil {
++		t.Fatal(err)
++	}
++	for _, tc := range []struct{ offset, window int64 }{{-1, 10}, {0, 0}, {0, -1}, {0, 3}, {0, maxFileBytes + 1}} {
++		if _, _, err := lock.ReadSessionTranscriptChunk("ses-111111", tc.offset, tc.window); err == nil {
++			t.Fatalf("accepted offset %d window %d", tc.offset, tc.window)
++		}
++	}
++	// Past the end is a caller error, not an empty answer: it usually means the
++	// caller is resuming from a position the file no longer has.
++	if _, _, err := lock.ReadSessionTranscriptChunk("ses-111111", 99, 10); err == nil {
++		t.Fatal("accepted an offset past the end")
++	}
++}
++
++func TestTranscriptAbsentReadsAsAbsent(t *testing.T) {
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	chunk, eof, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, 100)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if chunk.Exists || !eof {
++		t.Fatalf("absent transcript: exists=%v eof=%v", chunk.Exists, eof)
++	}
++}
++
++func TestTranscriptRefusesSymlinkAndFIFO(t *testing.T) {
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte("x\n")); err != nil {
++		t.Fatal(err)
++	}
++	dir := filepath.Join(root, ".autosk", "sessions")
++
++	outside := filepath.Join(t.TempDir(), "elsewhere.jsonl")
++	if err := os.WriteFile(outside, []byte("stolen\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Remove(filepath.Join(dir, "ses-111111.jsonl")); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(dir, "ses-111111.jsonl")); err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, 10); !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("expected ErrNotRegular on read, got %v", err)
++	}
++	// The append must not follow it either: appending through a link would write
++	// outside the project and keep doing so for the life of the session.
++	if _, err := lock.AppendSessionTranscript("ses-111111", []byte("mine\n")); !errors.Is(err, ErrNotRegular) {
++		t.Fatalf("expected ErrNotRegular on append, got %v", err)
++	}
++	if stolen, err := os.ReadFile(outside); err != nil {
++		t.Fatal(err)
++	} else if string(stolen) != "stolen\n" {
++		t.Fatalf("the append followed the symlink: %q", stolen)
++	}
++
++	if err := unix.Mkfifo(filepath.Join(dir, "ses-222222.jsonl"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan error, 1)
++	go func() {
++		_, _, readErr := lock.ReadSessionTranscriptChunk("ses-222222", 0, 10)
++		done <- readErr
++	}()
++	select {
++	case err := <-done:
++		if !errors.Is(err, ErrNotRegular) {
++			t.Fatalf("expected ErrNotRegular for a FIFO transcript, got %v", err)
++		}
++	case <-time.After(500 * time.Millisecond):
++		t.Fatal("the chunk read blocked on a FIFO")
++	}
++}
++
++func TestTranscriptRefusesWhenTheLockPathChanged(t *testing.T) {
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	autosk := filepath.Join(root, ".autosk")
++	if err := os.Rename(autosk, filepath.Join(root, ".autosk-moved")); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Mkdir(autosk, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	for _, probe := range []func() error{
++		func() error { _, _, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, 10); return err },
++		func() error { _, err := lock.WriteSessionTranscript("ses-111111", []byte("x\n")); return err },
++		func() error { _, err := lock.AppendSessionTranscript("ses-111111", []byte("x\n")); return err },
++	} {
++		if err := probe(); !errors.Is(err, ErrPathChanged) {
++			t.Fatalf("expected ErrPathChanged, got %v", err)
++		}
++	}
++}
++
++func TestTranscriptRejectsUnsafeSessionIDs(t *testing.T) {
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	for _, id := range []string{"", ".", "..", "a/b", "../../etc/passwd"} {
++		if _, _, err := lock.ReadSessionTranscriptChunk(id, 0, 10); err == nil {
++			t.Fatalf("read accepted session id %q", id)
++		}
++		if _, err := lock.AppendSessionTranscript(id, []byte("x\n")); err == nil {
++			t.Fatalf("append accepted session id %q", id)
++		}
++	}
++}
++
++func TestTranscriptChunkStopsOnACharacterBoundary(t *testing.T) {
++	// A window is a byte count, so it lands mid-rune constantly. The chunk that
++	// comes back must still be text: the wire is JSON, which cannot carry a half
++	// character without replacing it.
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	line := []byte(strings.Repeat("д", 6) + "\n")
++	if _, err := lock.WriteSessionTranscript("ses-111111", line); err != nil {
++		t.Fatal(err)
++	}
++	chunk, eof, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, 5)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if eof {
++		t.Fatal("a trimmed chunk is not the end of the file")
++	}
++	if !utf8.Valid(chunk.Data) {
++		t.Fatalf("chunk is not valid UTF-8: %q", chunk.Data)
++	}
++	if !bytes.Equal(chunk.Data, []byte("дд")) {
++		t.Fatalf("want the two whole runes that fit, got %q", chunk.Data)
++	}
++	if bytes.Equal(readWholeTranscript(t, lock, "ses-111111", 5), line) == false {
++		t.Fatal("the whole transcript did not reassemble from trimmed chunks")
++	}
++}
++
++func TestTranscriptRefusesAnOffsetInsideACharacter(t *testing.T) {
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte("дд\n")); err != nil {
++		t.Fatal(err)
++	}
++	// Byte 1 is the continuation half of the first rune. Reading from there would
++	// otherwise produce a leading replacement character.
++	_, _, err := lock.ReadSessionTranscriptChunk("ses-111111", 1, 10)
++	if !errors.Is(err, ErrNotUTF8) {
++		t.Fatalf("expected ErrNotUTF8, got %v", err)
++	}
++	// The class is the same as a corrupt file's, so the message is the only thing
++	// that separates "the caller resumed mid-character" from "the file is
++	// damaged" — and sending someone to inspect a healthy file is a real cost.
++	if !strings.Contains(err.Error(), "not on a character boundary") {
++		t.Fatalf("a bad offset was reported as file corruption: %v", err)
++	}
++}
++
++func TestTranscriptRefusesAFileEndingInsideACharacter(t *testing.T) {
++	// Not a boundary: there is no next chunk to complete the rune, so the file is
++	// truncated and saying so is the only honest answer.
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte{0xd0, 0xb4, 0xd0}); err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, 100); !errors.Is(err, ErrNotUTF8) {
++		t.Fatalf("expected ErrNotUTF8, got %v", err)
++	}
++}
++
++func TestStoredDocumentsAreRefusedWhenNotUTF8(t *testing.T) {
++	// Whole-file reads cross the same JSON wire as the chunks. A task document
++	// with a bad byte was reaching the daemon with that byte replaced, which is a
++	// silently different document.
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if err := lock.WriteTask("task-abc", []byte(`{"id":"task-abc"}`)); err != nil {
++		t.Fatal(err)
++	}
++	path := filepath.Join(root, ".autosk", "tasks", "task-abc", "task.json")
++	if err := os.WriteFile(path, []byte{'{', 0xff, '}'}, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := lock.ReadTask("task-abc"); !errors.Is(err, ErrNotUTF8) {
++		t.Fatalf("expected ErrNotUTF8, got %v", err)
++	}
++}
++
++func TestTranscriptRefusesBytesThatAreNotTextAtAll(t *testing.T) {
++	// Trimming the tail recovers a split rune. It cannot recover a chunk that is
++	// not text anywhere, and guessing would put garbage on the wire as U+FFFD.
++	root := t.TempDir()
++	lock := withTranscriptLock(t, root)
++	if _, err := lock.WriteSessionTranscript("ses-111111", []byte{0xff, 0xff, 0xff, 0xff}); err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err := lock.ReadSessionTranscriptChunk("ses-111111", 0, 4); !errors.Is(err, ErrNotUTF8) {
++		t.Fatalf("expected ErrNotUTF8, got %v", err)
++	}
++}
