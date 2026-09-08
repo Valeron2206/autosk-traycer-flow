@@ -179,6 +179,30 @@
       "model_family_policy": "cross_family_required"
     },
     {
+      "class": "clearance_manifest",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "driver"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/clearance/**"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "contract_document",
       "category": "governance_defining",
       "author_roles": [
@@ -192,6 +216,7 @@
         "docs/contracts/artifact-registry.md",
         "docs/contracts/artifact-write-receipt.md",
         "docs/contracts/clean-room-e2e.md",
+        "docs/contracts/clearance-manifest.md",
         "docs/contracts/creation-grant.md",
         "docs/contracts/delivery-profile.md",
         "docs/contracts/epic-planning-ref.md",
@@ -219,6 +244,7 @@
         "approved_delta",
         "artifact_registry",
         "artifact_write_receipt",
+        "clearance_manifest",
         "creation_grant",
         "delivery_profile",
         "design_candidate",
@@ -942,5 +968,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "50753b43fabcf915e3b6841daaf70082dbff06fafe01b26d9553fdb2c9a29631"
+  "registry_digest": "cc701b70ff8f0f6ef73a65b49db585854a40935409fb404cc52428757895e36c"
 }

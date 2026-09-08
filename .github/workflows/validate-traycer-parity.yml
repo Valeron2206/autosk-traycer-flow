@@ -88,6 +88,9 @@ jobs:
       - name: Validate governance bundle contract
         run: npm run validate:governance-bundle
 
+      - name: Validate clearance manifest contract
+        run: npm run validate:clearance-manifest
+
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"

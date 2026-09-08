@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "dispatch_id": "dispatch-7f21",
+  "attempt": 1,
+  "artifact_identity": "1111111111111111111111111111111111111111111111111111111111111111",
+  "candidate_identity": "2222222222222222222222222222222222222222222222222222222222222222",
+  "anchor_version": 3,
+  "included_sources": [
+    {
+      "logical_id": "plan/03-technical-plan.md",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "classification": "text"
+    },
+    {
+      "logical_id": "context/diff",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "classification": "text"
+    }
+  ],
+  "redactions": [
+    {
+      "fragment_id": "context/diff#12",
+      "reason": "absolute_path"
+    }
+  ],
+  "scanner": {
+    "tool": "gitleaks",
+    "version": "8.28.0",
+    "config_digest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "self_test": {
+      "state": "passed",
+      "planted_token_detected": true,
+      "clean_fixture_exit": 0
+    },
+    "result": "clean",
+    "finding_count": 0,
+    "scanned_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "keyword_grep_only": false
+  },
+  "personal_data_review": {
+    "state": "cleared",
+    "reviewer": "owner"
+  },
+  "sanitized_body_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+  "sanitized_body_size": 18422,
+  "serialized_at": "2026-09-08T12:00:00.000Z"
+}
