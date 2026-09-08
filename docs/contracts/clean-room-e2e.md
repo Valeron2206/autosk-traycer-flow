@@ -76,6 +76,12 @@ The harness is a test subject too, and each of these must fail when it should:
 
 The suite runs from one canonical command in CI, with no real provider, no network and no credentials. An optional real-provider smoke test is documented and **not** run automatically — a gate that needs a live account is not a gate that can be trusted to run.
 
+`npm run clean-room` prepares the pinned source, builds the binaries and drives the daemon; `npm run clean-room:faults` runs the fault harness, which needs neither, and the full run invokes it as its last step.
+
+Each fault case does two things. It creates the fault for real — a symlink out of the project, a ref moved by a second process, an inherited `GIT_DIR`, a harness that prints success and exits 0, a swap left between its two durable writes — and it runs a control: the same guard, asked about the state without the fault, has to stay silent. A guard that refuses everything would detect every fault and mean nothing by it, so a failed control demotes the row rather than being reported beside it.
+
+The coverage table is derived from that run rather than declared next to it, and a group counts as covered by a real fault only when the fault was detected and its control stayed silent. What no harness performs is reported as not covered, with no row rounded up.
+
 ## 8. Park reasons
 
 Closed set: `mutation_not_applied`, `green_control_failed`, `restore_failed`, `timeout`, `indeterminate`, `harness_self_test_failed`, `digest_changed_after_mint`, `ephemeral_helper_left`, `traycer_artifact_present`, `cross_project_leakage`.
@@ -95,6 +101,7 @@ Every fault group in `resources/clean-room-e2e/fault-matrix.v1.json` carries its
 | The target ref does not move before aggregate PASS and acceptance | §3, and #9's contract |
 | Retained and removed objects match policy after success | §6 |
 | One canonical command in CI | §7 |
+| Every fault group is covered by an injected fault, or reported as not covered | §7, §9 |
 | No real provider, network or credentials | §1, §7 |
 | An optional real-provider smoke is documented, not automatic | §7 |
 | Every fault group has a complete `VerificationBatchContract` before #39 | §4, §9 |

@@ -34,6 +34,7 @@
     "doctor": "node scripts/autosk-flow-doctor.mjs",
     "classify:changeset": "node scripts/classify-changeset.mjs",
     "clean-room": "node scripts/clean-room-e2e.mjs",
+    "clean-room:faults": "node scripts/clean-room-faults.mjs",
     "validate:human-decision": "node scripts/validate-human-decision.mjs",
     "validate:verify-doc": "node scripts/validate-verify-doc.mjs",
     "validate:work-type-gates": "node scripts/validate-work-type-gates.mjs",

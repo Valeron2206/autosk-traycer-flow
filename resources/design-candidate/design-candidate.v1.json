@@ -44,7 +44,7 @@
     },
     {
       "path": "docs/contracts/clean-room-e2e.md",
-      "sha256": "7118c3ad0aaed82e1a0c3b21d3a1c3b7d7283f6df4cbcdb0adf6734e64b75557"
+      "sha256": "c66edcd941dfc3fbf052273c36987b372b27997d1d608dfa451e1d650054aed9"
     },
     {
       "path": "docs/contracts/clearance-manifest.md",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "bb78a344d50a288305acc397fcc98886c38f3a0ad9fc7a91af3bfdfde5728220",
+  "candidate_digest": "ca3c9b76dc3134db9aafdf8367edc02d86282c244c3296fb405b960a8e008a1c",
   "dispositions": [
     {
       "issue": 3,

@@ -21,6 +21,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { runFaults } from './clean-room-faults.mjs';
+
 const execFileAsync = promisify(execFile);
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,12 +33,20 @@ export const MATRIX_PATH = 'resources/clean-room-e2e/fault-matrix.v1.json';
  *
  * `real_fault` means a process was actually killed or a state actually
  * corrupted during the run; anything else is named as what it is.
+ *
+ * F005-F016 are absent here on purpose: they are covered by the fault harness,
+ * and their entries are derived from what that run actually detected rather
+ * than declared in advance. A table is a claim; a run is evidence.
  */
 export const COVERAGE = Object.freeze({
   F001: { harness: 'crash', evidence: 'reservation.before / reservation.after', real_fault: true },
   F002: { harness: 'crash', evidence: 'task.before / task.after', real_fault: true },
   F003: { harness: 'crash', evidence: 'activation.before / activation.after', real_fault: true },
-  F004: { harness: 'creation', evidence: 'session token does not open another project', real_fault: false },
+  // F004 is the distribution swapped between enroll and resume. The creation
+  // harness checks that a session token does not open another project, which is
+  // a different property; claiming it here would be the kind of confident
+  // sentence this report exists to avoid.
+  F004: { harness: null, evidence: null, real_fault: false },
   F005: { harness: null, evidence: null, real_fault: false },
   F006: { harness: null, evidence: null, real_fault: false },
   F007: { harness: null, evidence: null, real_fault: false },
@@ -50,6 +60,26 @@ export const COVERAGE = Object.freeze({
   F015: { harness: null, evidence: null, real_fault: false },
   F016: { harness: null, evidence: null, real_fault: false },
 });
+
+/**
+ * Coverage entries derived from a fault-harness run.
+ *
+ * A group counts as covered by a real fault only when the fault was detected
+ * *and* the case's control stayed silent. A guard that refuses everything
+ * detects every fault and means nothing by it, so a failed control demotes the
+ * row rather than being reported alongside it.
+ */
+export function faultCoverage(report) {
+  const entries = report.results.map((entry) => [
+    entry.id,
+    {
+      harness: 'faults',
+      evidence: entry.detail,
+      real_fault: entry.detected === true && entry.control === true,
+    },
+  ]);
+  return Object.freeze(Object.fromEntries(entries));
+}
 
 /** Environment variables that would make the run not a clean room. */
 export const FORBIDDEN_ENV = Object.freeze(['TRAYCER_HOME', 'TRAYCER_CONFIG', 'TRAYCER_TOKEN']);
@@ -229,7 +259,19 @@ export async function cleanRoomRun({ keep = false, moduleCache = path.join(tmpdi
       steps.push({ step: `harness:${name}`, ok: result.ok, ms: result.ms, summary });
     }
 
-    return finish({ workspace, steps, receipt, keep });
+    // The fault harness runs in its own temporary repositories, so it needs
+    // neither the built binaries nor the pinned source — but it belongs to this
+    // run, because its results are what the coverage table is derived from.
+    const started = Date.now();
+    const faults = await runFaults();
+    steps.push({
+      step: 'harness:faults',
+      ok: faults.ok,
+      ms: Date.now() - started,
+      summary: { detected: faults.detected, controlled: faults.controlled, total: faults.total },
+    });
+
+    return finish({ workspace, steps, receipt, keep, faults });
   } catch (error) {
     return finish({ workspace, steps, receipt, keep, error: String(error) });
   }
@@ -245,7 +287,7 @@ function lastJsonLine(text) {
   }
 }
 
-async function finish({ workspace, steps, receipt, keep, error }) {
+async function finish({ workspace, steps, receipt, keep, error, faults }) {
   // Go leaves its module cache read-only, so an ordinary recursive remove
   // fails on a tree it wrote. Making it writable first is the difference
   // between a workspace that is cleaned up and one that accumulates.
@@ -254,7 +296,7 @@ async function finish({ workspace, steps, receipt, keep, error }) {
     await rm(workspace, { recursive: true, force: true });
   }
   const matrix = JSON.parse(await readFile(path.join(ROOT, MATRIX_PATH), 'utf8'));
-  const coverage = coverageReport(matrix);
+  const coverage = coverageReport(matrix, faults ? { ...COVERAGE, ...faultCoverage(faults) } : COVERAGE);
   return Object.freeze({
     schema_version: 1,
     workspace: keep ? workspace : null,
