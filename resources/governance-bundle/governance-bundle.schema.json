@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Governance bundle manifest and attestation (issue #37)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "version",
+    "members",
+    "bundle_digest",
+    "canonical_form",
+    "attestation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "stage": {
+      "enum": [
+        "baseline",
+        "adaptation",
+        "release"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "bundle_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canonical_form": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "line_ending",
+        "path_order",
+        "json_indent",
+        "trailing_newline"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "utf-8"
+        },
+        "line_ending": {
+          "const": "lf"
+        },
+        "path_order": {
+          "const": "raw_bytes"
+        },
+        "json_indent": {
+          "const": 2
+        },
+        "trailing_newline": {
+          "const": true
+        }
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_digest",
+        "panel",
+        "tool_version",
+        "schema_version",
+        "state"
+      ],
+      "properties": {
+        "candidate_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "panel": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "seat",
+              "route",
+              "effort",
+              "verdict",
+              "candidate_digest"
+            ],
+            "properties": {
+              "seat": {
+                "enum": [
+                  "opus",
+                  "astra",
+                  "grok",
+                  "muse"
+                ]
+              },
+              "route": {
+                "type": "string",
+                "minLength": 1
+              },
+              "effort": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verdict": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ]
+              },
+              "candidate_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "tool_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "release_actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "released_at": {
+          "type": "string",
+          "minLength": 20
+        },
+        "state": {
+          "enum": [
+            "pending_panel",
+            "attested",
+            "blocked"
+          ]
+        }
+      }
+    },
+    "supersedes": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rollback_of": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

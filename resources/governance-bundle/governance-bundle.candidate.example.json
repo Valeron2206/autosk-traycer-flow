@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "stage": "adaptation",
+  "version": "1.1.0",
+  "members": [
+    {
+      "path": "agent-selection-guide.md",
+      "sha256": "5c160fd90c8b48c72d6b3225fb460919d5629617c4e4cf9fb6a56deeb4dea56a",
+      "size": 44
+    },
+    {
+      "path": "bundle-attestation.json",
+      "sha256": "ad5595674117bfaf493bede3c51817283218712000c1fa43a92af3bfcebd6509",
+      "size": 43
+    },
+    {
+      "path": "bundle-manifest.json",
+      "sha256": "001f39212e6156fc7aeec5ba413ca9d729e32fe442848c28b4175b70364a40b1",
+      "size": 40
+    },
+    {
+      "path": "protocol/00-index.md",
+      "sha256": "66c3a85b4d0c114f8e296d94eab9f1916e96e0daae5773c2b2313d6c7b41a0c5",
+      "size": 40
+    },
+    {
+      "path": "protocol/01-roles.md",
+      "sha256": "4137b0d38de02e2eb20c223d8706eb04cf38e3775d9a2d0d8401e6d482d24222",
+      "size": 40
+    },
+    {
+      "path": "protocol/02-stages.md",
+      "sha256": "6dd3497e65466bcad0abfeb59a52a94c4daea7248a1fad2f054d177959cad82f",
+      "size": 41
+    },
+    {
+      "path": "protocol/03-carriers.md",
+      "sha256": "5869b56a97c0c00878abff093ac774a7d4e3c3aba4fae0deceb8aaa50940afef",
+      "size": 43
+    },
+    {
+      "path": "protocol/04-verdicts.md",
+      "sha256": "a5af7c150cd33ae02f60f434e24f143977bc2047fd296c8ee80725ab788e14ac",
+      "size": 43
+    },
+    {
+      "path": "protocol/05-findings.md",
+      "sha256": "de39f5b42619facf16b17f84cf2bd2d621e5af1c7fbe35bed5df99784c6b668a",
+      "size": 43
+    },
+    {
+      "path": "protocol/06-contest.md",
+      "sha256": "707bdafb69cd3dbcbe0f24b9acc3c62b8ad0179382baf9da9f0ca1e94ebe01c6",
+      "size": 42
+    },
+    {
+      "path": "protocol/07-evidence.md",
+      "sha256": "48d6c0dc19c586b0886e81818b4f207b3b17a6a3aff97f44f34096400a4612ca",
+      "size": 43
+    },
+    {
+      "path": "protocol/08-retention.md",
+      "sha256": "43302e3bfd6c161383212bb5ad2f5b09c99c0dbcc5bad2c89bb5b75f03b13ede",
+      "size": 44
+    },
+    {
+      "path": "protocol/09-identity.md",
+      "sha256": "f9d401d7e226255d94213d8929e7271401ec2c0c4579f1f36d02c1772ef06eee",
+      "size": 43
+    },
+    {
+      "path": "protocol/10-recovery.md",
+      "sha256": "e1c676f87c3fd6be1dd532ff28ab94264e3e5bd1749c244b526ba77dc415d429",
+      "size": 43
+    },
+    {
+      "path": "protocol/11-release.md",
+      "sha256": "921ecb2ee6efdec3eeeafb3cb3543a72b3113353028c40213afcbd1dc7bad6ac",
+      "size": 42
+    },
+    {
+      "path": "role/author.md",
+      "sha256": "4265b56f2aa2226efe7892fe151e38aff1197caaf0fb6077bc07b25d99a84cb8",
+      "size": 34
+    },
+    {
+      "path": "role/fixer.md",
+      "sha256": "08da4a28cd83ab5ff37cb85814b6dde302db0468ce4d0444a7a8f378e04d0ec8",
+      "size": 33
+    },
+    {
+      "path": "role/reviewer.md",
+      "sha256": "8a9868ef6cb4df052af2da6fc9e4504b1ac120f4c96e49444fb058f01746b11e",
+      "size": 36
+    },
+    {
+      "path": "stage-carriers.json",
+      "sha256": "f577b612c088a3123b391260d8639ffd0a35745ee6fa217d9e99d399b5076189",
+      "size": 39
+    },
+    {
+      "path": "stage/build.md",
+      "sha256": "94164f6a58574551fb3e14a1e8ea2b21ac9874964252266d81a93682ad5a025a",
+      "size": 34
+    },
+    {
+      "path": "stage/plan.md",
+      "sha256": "dd048aefe68cd7e28187da36c69e9e58f62472b9be67ed606ccd8cb2145759ed",
+      "size": 33
+    },
+    {
+      "path": "stage/verify.md",
+      "sha256": "2431d11d097f604731caa103ae43f5bd8b0089ef75836a9fc8d023b069ef9f02",
+      "size": 35
+    }
+  ],
+  "bundle_digest": "8c98979ab6ba31c0ccb63974e494047bc50f7cc01ad27f3ba714e1cbf0591008",
+  "canonical_form": {
+    "encoding": "utf-8",
+    "line_ending": "lf",
+    "path_order": "raw_bytes",
+    "json_indent": 2,
+    "trailing_newline": true
+  },
+  "attestation": {
+    "candidate_digest": "8c98979ab6ba31c0ccb63974e494047bc50f7cc01ad27f3ba714e1cbf0591008",
+    "panel": [],
+    "tool_version": "autosk-flow-governance/1.0.0",
+    "schema_version": 1,
+    "state": "pending_panel"
+  }
+}

@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "57ae916739ba97b65d36fb02e3ca665162cd546d4781572fb4035090815fce3f"
+      "sha256": "7bc396eca354e63807f3f34d52e3e72735aec7be0c062f6af04e7c6fdf52afec"
     },
     {
       "path": "README.md",
@@ -73,6 +73,10 @@
     {
       "path": "docs/contracts/gate-store-projection.md",
       "sha256": "4f26162f4e20d84445381679c5656be2faed719fa663d7a71f436521466fc0cd"
+    },
+    {
+      "path": "docs/contracts/governance-bundle.md",
+      "sha256": "9811731b1b4474ac21aae02654163cb4b561797cb8d4dcd90e47421664ffeb81"
     },
     {
       "path": "docs/contracts/model-result.md",
@@ -141,6 +145,10 @@
     {
       "path": "resources/gate-store-projection/gate-store-projection.schema.json",
       "sha256": "65ee67c0a08a05fef420957ea8f587be1a9e229dca9ef98dd25915d3941052e6"
+    },
+    {
+      "path": "resources/governance-bundle/governance-bundle.schema.json",
+      "sha256": "3c0d6b54fe5ef4d3be4a1bdfa6e3d362eb1226be01493704ad90ec5b204cac20"
     },
     {
       "path": "resources/model-result/model-result.schema.json",
@@ -227,7 +235,7 @@
       "sha256": "a434ff1390eacfafe65afc17dbb57a1850493daae200c2513339e9c5fd0a4969"
     }
   ],
-  "candidate_digest": "35bc5021e17d1dd46f5b6a19051cac2445026d4d6c107ad0833b68a3a61c412c",
+  "candidate_digest": "08a0c7e105d41137f8f48deb1ab29433409d05913193c963a0a64c750f40fdf6",
   "dispositions": [
     {
       "issue": 3,
