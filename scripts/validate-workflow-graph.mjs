@@ -72,21 +72,21 @@ export const GRAPH_PARK_REASONS = Object.freeze([
   "transition_not_declared",
 ]);
 
-let parkReasonCache;
-
 /**
  * The codes a graph may name.
  *
  * The schema says a code outside the vocabulary is refused. Checking only the
  * spelling would leave that sentence unenforced: `totally_unknown_reason` has
  * the right shape and belongs to nobody.
+ *
+ * Read every time, and a fresh set every time. One remembered set is shared
+ * mutable state: a caller that adds to it widens what every later check will
+ * accept, and a second root would silently be checked against the first root's
+ * vocabulary.
  */
 export function parkReasons(root = ROOT) {
-  if (!parkReasonCache) {
-    const vocabulary = JSON.parse(readFileSync(path.join(root, VOCABULARY_PATH), "utf8"));
-    parkReasonCache = new Set([...vocabulary.park_reasons.map((entry) => entry.code), ...GRAPH_PARK_REASONS]);
-  }
-  return parkReasonCache;
+  const vocabulary = JSON.parse(readFileSync(path.join(root, VOCABULARY_PATH), "utf8"));
+  return new Set([...vocabulary.park_reasons.map((entry) => entry.code), ...GRAPH_PARK_REASONS]);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,16 +120,34 @@ export function parkReasons(root = ROOT) {
  * `10e-1` all arrive here as 1.
  */
 export function exactInteger(token, refuse) {
-  const parts = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/u.exec(token);
+  const parts = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/u.exec(token);
   if (!parts) return refuse(`${token} is not a number the graph writes`);
   const [, sign, whole, fraction = "", exponent = "0"] = parts;
   const digits = whole + fraction;
+
+  // Zero first, and without touching the exponent. An exponent is a number in
+  // the input, not a length: `0e1000000000` is twelve characters and is zero,
+  // and deciding that by shifting a decimal point would ask for a billion of
+  // them.
+  const significant = digits.search(/[1-9]/u);
+  if (significant === -1) return sign === "-" ? refuse("-0 is a second spelling of 0") : 0;
+
+  // Where the decimal point lands among the digits. Beyond it is the fraction,
+  // and a non-zero digit there means the token is not an integer however it was
+  // written. Slicing past the end costs nothing, so a huge point is safe here.
   const point = whole.length + Number(exponent);
-  if (/[1-9]/u.test(point >= digits.length ? "" : digits.slice(Math.max(point, 0)))) {
+  if (point <= significant || /[1-9]/u.test(digits.slice(point))) {
     return refuse(`${token} is not an integer`);
   }
-  const magnitude = point <= 0 ? 0n : BigInt(digits.slice(0, point).padEnd(point, "0"));
-  if (magnitude === 0n && sign === "-") return refuse("-0 is a second spelling of 0");
+
+  // How many digits the integer has, counted rather than built. The largest
+  // exactly representable integer has sixteen, so anything longer is refused
+  // before a string of that length is ever allocated.
+  const length = point - significant;
+  if (length > String(Number.MAX_SAFE_INTEGER).length) {
+    return refuse(`${token} is outside the exactly representable range`);
+  }
+  const magnitude = BigInt(digits.slice(significant, point).padEnd(length, "0"));
   const value = sign === "-" ? -magnitude : magnitude;
   if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < -BigInt(Number.MAX_SAFE_INTEGER)) {
     return refuse(`${token} is outside the exactly representable range`);

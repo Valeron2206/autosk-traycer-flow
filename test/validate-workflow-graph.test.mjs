@@ -26,7 +26,9 @@ import {
   canonicalBytes,
   canonicalText,
   encodeName,
+  exactInteger,
   graphDigest,
+  parkReasons,
   loadFiles,
   parseStrict,
   validateGraph,
@@ -401,5 +403,72 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     [...produced].filter((entry) => !REFUSALS.includes(entry)).sort(),
     [],
     `reachable and undeclared: ${[...produced].filter((entry) => !REFUSALS.includes(entry)).join(", ")}`,
+  );
+});
+
+// --- findings the fixes themselves introduced -------------------------------
+
+/**
+ * An exponent is a number in the input, not a length.
+ *
+ * Reading integrality from the digits meant shifting the decimal point, and
+ * shifting it by padding a string costs the value of the exponent rather than
+ * the size of the token: `1e1000000000` is twelve characters and asked for a
+ * billion. `Number` never did that, so this was a regression the earlier fix
+ * introduced, not a hole it failed to close.
+ */
+test("ASTRA-S1-05: a large exponent costs the length of the input, not its value", () => {
+  assert.throws(() => parseStrict("1e1000000000"), /graph_number_not_canonical/u);
+  assert.throws(() => parseStrict("1e999999999999999999999999"), /graph_number_not_canonical/u);
+  assert.throws(() => parseStrict("1e309"), /graph_number_not_canonical/u);
+});
+
+test("ASTRA-S1-05: zero is zero at any exponent", () => {
+  assert.equal(parseStrict("0e1000000000"), 0);
+  assert.equal(parseStrict("0e-1000000000"), 0);
+  assert.equal(parseStrict("0.000e309"), 0);
+  assert.throws(() => parseStrict("-0e1000000000"), /graph_number_not_canonical/u);
+});
+
+test("ASTRA-S1-05: the exactly representable boundary is where it says it is", () => {
+  assert.equal(parseStrict("9007199254740991"), 9007199254740991);
+  assert.equal(parseStrict("-9007199254740991"), -9007199254740991);
+  assert.throws(() => parseStrict("9007199254740992"), /graph_number_not_canonical/u);
+  assert.equal(parseStrict("9e15"), 9e15);
+  assert.equal(parseStrict("0.001e3"), 1);
+});
+
+test("ASTRA-S1-05: exactInteger holds the JSON grammar on its own, not only through the scanner", () => {
+  const refuse = (message) => {
+    throw new SyntaxError(message);
+  };
+  for (const token of ["01", "00", "-01"]) {
+    assert.throws(() => exactInteger(token, refuse), /is not a number the graph writes/u, token);
+  }
+});
+
+/**
+ * The authoritative set is read, not remembered.
+ *
+ * One module-global Set, handed out to every caller, is shared mutable state:
+ * a caller that adds to it widens what every later check will accept, and a
+ * second root silently gets the first root's vocabulary.
+ */
+test("ASTRA-S1-06: the park-reason set is not shared mutable state", () => {
+  const first = parkReasons();
+  first.add("totally_unknown_reason");
+  const second = parkReasons();
+  assert.equal(second.has("totally_unknown_reason"), false, "a caller must not be able to widen the authoritative set");
+  assert.notEqual(first, second, "each call must hand out its own set");
+});
+
+test("ASTRA-S1-06: a widened set cannot leak into the next validation", () => {
+  parkReasons().add("totally_unknown_reason");
+  assertRefuses(
+    mutated((document) => {
+      document.guards[0].park_reason = "totally_unknown_reason";
+      document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason";
+    }),
+    "graph_park_reason_unknown",
   );
 });

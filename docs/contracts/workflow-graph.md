@@ -49,7 +49,7 @@ The digest is taken over the canonical serialization, not over the file bytes. O
 | Arrays that carry order | `transitions` and `resume_targets` are serialized exactly as declared |
 | Arrays that do not | `steps`, `predicates`, `guards`, `caps`, `recovery`, a transition's `guards`, a step's `hooks`, a predicate's `reads`, `parks_at` and `policy_rules` are sorted, so a reshuffle of a set does not move the digest |
 | Whitespace | none is significant: no indentation and no space after a separator |
-| Numbers | integers only, written without a leading zero, without a `+`, without a fractional part and without an exponent; `-0` is refused. `1` and `1e0` are one value and two writings, so exactly one of them is canonical. Integrality is read from the digits as written, never from the float they convert to: `1.00000000000000001` rounds to exactly 1 and `1e-4000` underflows to 0, and an implementation with exact decimal arithmetic would refuse both |
+| Numbers | integers only, written without a leading zero, without a `+`, without a fractional part and without an exponent; `-0` is refused. `1` and `1e0` are one value and two writings, so exactly one of them is canonical. Integrality is read from the digits as written, never from the float they convert to: `1.00000000000000001` rounds to exactly 1 and `1e-4000` underflows to 0, and an implementation with exact decimal arithmetic would refuse both. Zero is zero at every exponent, so `0e1000000000` is 0 and `-0e1000000000` is refused; an exponent is a number in the input and never a length, so reading one must cost the size of the token and not the value of the exponent |
 | Duplicate keys | refused by the **parse**, never by the schema |
 | Names compared with the daemon | base64 of UTF-16LE, standard alphabet with padding |
 
@@ -123,6 +123,8 @@ None of the three belongs in `resources/refusal-vocabulary/refusal-vocabulary.v1
 - the duplicate key is refused by the parse, and a test shows the schema does not see it
 - a member named `__proto__` arrives as an own property and is refused by the schema
 - a fraction that rounds to an integer and an exponent that underflows to zero are both refused, while `1`, `1.0`, `1e0` and `10e-1` still converge
+- a token with a huge positive exponent is refused by its value and not by exhausting memory, and zero is still zero at that exponent
+- the authoritative park-reason set is read for each check and handed out as a fresh set, so a caller cannot widen what a later check accepts
 - a park reason no vocabulary owns is refused, and the two graph-level codes cannot be renamed
 - the canonical reference reproduces byte for byte, and each of its four forks is exercised
 - a resume target that is not a declared edge out of its `parks_at` step is refused

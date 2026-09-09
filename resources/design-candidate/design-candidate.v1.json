@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "2ff7f612562ff38d3d0f9b8006f0b8f36c846a58a015cc07db8f0268ad61ac87"
+      "sha256": "5808afb7d2a11493ba540028fc81dba7233c7ea4b0245e7c47cf146508e18268"
     },
     {
       "path": "README.md",
@@ -180,7 +180,7 @@
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "8f33f31652a147df4ed1ed097c664918fcabe60aa520ac6fd0757311438ea091"
+      "sha256": "a3dfe7f653f8fa722ac4fc4ef1f6ec5ac7783e40fb71a84f0b403a85f211800d"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -483,7 +483,7 @@
       "sha256": "536d050db7b903c5e5f8ac678d5eef1f4f1c6b292472436cd150b217b1556b00"
     }
   ],
-  "candidate_digest": "f891f607b0f0d6fa157bdd10e7ec8f5ab2731757cf90d2bc5b0eed9fdac90762",
+  "candidate_digest": "6936a297a783230cd40cc18384f6994aa3f15e2bd38c4292b153a7380ea80db3",
   "dispositions": [
     {
       "issue": 3,
