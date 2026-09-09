@@ -252,7 +252,28 @@ test("a beforeEach hook failure is not an assertion kill", () => {
   assert.equal(classifyRun(run), "environment");
 });
 
-test("logged TestContext text plus a missing import is not an assertion kill", () => {
+test("arbitrary TestContext text without a TAP testCodeFailure is not an assertion kill", () => {
+  const run = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "initializing TestContext",
+      "TAP version 13",
+      "# Subtest: /dev/stdin",
+      "not ok 1 - /dev/stdin",
+      "  ---",
+      "  type: 'test'",
+      "  code: 'ERR_MODULE_NOT_FOUND'",
+      "  ...",
+      "",
+    ].join("\n"),
+    stderr: "",
+  };
+  assert.equal(killedByAssertion([run]), 0);
+  assert.equal(classifyRun(run), "environment");
+});
+
+test("a live missing import after a console.log is not an assertion kill", () => {
   const run = spawnSync(process.execPath, [...TEST_SPAWN_ARGS, "/dev/stdin"], {
     input: [
       'console.log("initializing TestContext");',
@@ -262,7 +283,6 @@ test("logged TestContext text plus a missing import is not an assertion kill", (
     encoding: "utf8",
   });
   assert.equal(run.status, 1);
-  assert.ok((run.stdout + run.stderr).includes("TestContext"));
   assert.equal(killedByAssertion([run]), 0);
   assert.equal(classifyRun(run), "environment");
 });
