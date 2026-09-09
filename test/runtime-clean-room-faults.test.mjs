@@ -73,8 +73,8 @@ test("the coverage table is derived from the run, and the run completes it", () 
   assert.equal(covered.counts.not_covered, undefined);
   assert.equal(covered.counts.covered_by_real_fault, matrix.groups.length);
   assert.equal(covered.complete, true);
-  // And the table on its own still claims none of the twelve this harness owns:
+  // And the table on its own still claims none of the groups this harness owns:
   // they are covered by the run, not by the declaration beside it.
   const declared = coverageReport(matrix);
-  assert.equal(declared.counts.not_covered, 12);
+  assert.equal(declared.counts.not_covered, Object.keys(CASES).length);
 });

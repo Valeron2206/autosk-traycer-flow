@@ -8,7 +8,8 @@
     "ref_movement",
     "staging_integration",
     "aggregate_verification",
-    "final_cas"
+    "final_cas",
+    "planning_publication"
   ],
   "gate_failing_outcomes": [
     "mutation_not_applied",
@@ -414,6 +415,106 @@
         {
           "kind": "restore_proof",
           "locator": "evidence/final_cas/016/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F017",
+      "boundary": "planning_publication",
+      "description": "crash after the publication commit object exists, before the CAS",
+      "fault": "SIGKILL between writing the commit object and advancing the planning ref",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/planning_publication/017/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/planning_publication/017/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/planning_publication/017/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/planning_publication/017/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F018",
+      "boundary": "planning_publication",
+      "description": "crash after the CAS landed, before the receipt was written",
+      "fault": "SIGKILL between the planning-ref update and the operation receipt",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/planning_publication/018/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/planning_publication/018/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/planning_publication/018/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/planning_publication/018/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F019",
+      "boundary": "planning_publication",
+      "description": "the candidate keepalive ref is deleted under a live operation",
+      "fault": "the keepalive ref is removed by a second process mid-operation",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/planning_publication/019/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/planning_publication/019/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/planning_publication/019/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/planning_publication/019/restore.json"
+        }
+      ],
+      "expected_gate_outcome": "pass"
+    },
+    {
+      "id": "F020",
+      "boundary": "planning_publication",
+      "description": "crash inside the live-to-audit custody window",
+      "fault": "SIGKILL after the audit copy exists and before the live copy is deleted",
+      "proofs": [
+        {
+          "kind": "application_proof",
+          "locator": "evidence/planning_publication/020/applied.log"
+        },
+        {
+          "kind": "red_killer",
+          "locator": "evidence/planning_publication/020/killer.log"
+        },
+        {
+          "kind": "green_control",
+          "locator": "evidence/planning_publication/020/control.log"
+        },
+        {
+          "kind": "restore_proof",
+          "locator": "evidence/planning_publication/020/restore.json"
         }
       ],
       "expected_gate_outcome": "pass"
