@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk.dev/schemas/material-decision-manifest.v1.json",
+  "title": "MaterialDecisionManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_kind",
+    "artifact_id",
+    "decisions",
+    "normative_sections"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "artifact_kind": {
+      "enum": [
+        "brief",
+        "core_flow",
+        "tech_plan",
+        "tickets"
+      ]
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision_id",
+          "kind",
+          "statement",
+          "sections"
+        ],
+        "properties": {
+          "decision_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "kind": {
+            "enum": [
+              "product_behavior",
+              "technical_constraint",
+              "delivery_operations_security_data"
+            ]
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 2000
+          },
+          "sections": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "supersedes": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      }
+    },
+    "normative_sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "section",
+          "decision_ids"
+        ],
+        "properties": {
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "decision_ids": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{2,63}$"
+            }
+          }
+        }
+      }
+    },
+    "approved_manifest_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

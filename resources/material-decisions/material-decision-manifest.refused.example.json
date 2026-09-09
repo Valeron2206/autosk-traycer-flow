@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "core_flow",
+  "artifact_id": "core-flow-0001",
+  "decisions": [
+    {
+      "decision_id": "cancel-discards-partial",
+      "kind": "product_behavior",
+      "statement": "Cancelling a run keeps partial work so a later resume can continue it.",
+      "sections": [
+        "3. Cancel"
+      ]
+    },
+    {
+      "decision_id": "retry-doubles-timeout",
+      "kind": "technical_constraint",
+      "statement": "A retry doubles the timeout of the step it repeats.",
+      "sections": [
+        "6. Retry"
+      ]
+    }
+  ],
+  "normative_sections": [
+    {
+      "section": "3. Cancel",
+      "decision_ids": [
+        "cancel-discards-partial"
+      ]
+    },
+    {
+      "section": "4. Fan-out",
+      "decision_ids": []
+    },
+    {
+      "section": "6. Retry",
+      "decision_ids": [
+        "retry-doubles-timeout"
+      ]
+    }
+  ]
+}

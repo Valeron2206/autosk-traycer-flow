@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "core_flow",
+  "artifact_id": "core-flow-0001",
+  "decisions": [
+    {
+      "decision_id": "cancel-discards-partial",
+      "kind": "product_behavior",
+      "statement": "Cancelling a run discards partial work rather than keeping it for a later resume.",
+      "sections": [
+        "3. Cancel"
+      ],
+      "rationale": "Keeping it made two users disagree about what a resume would do."
+    },
+    {
+      "decision_id": "one-creation-key",
+      "kind": "technical_constraint",
+      "statement": "A child is created under exactly one creation key, and a retry finds the same child.",
+      "sections": [
+        "4. Fan-out"
+      ]
+    }
+  ],
+  "normative_sections": [
+    {
+      "section": "3. Cancel",
+      "decision_ids": [
+        "cancel-discards-partial"
+      ]
+    },
+    {
+      "section": "4. Fan-out",
+      "decision_ids": [
+        "one-creation-key"
+      ]
+    },
+    {
+      "section": "5. Glossary",
+      "decision_ids": []
+    }
+  ]
+}
