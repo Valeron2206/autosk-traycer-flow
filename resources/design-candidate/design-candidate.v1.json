@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "c8da4ad047124ecb063289af8ded84492e293f5200a7ca6c1461679410a80080"
+      "sha256": "fa95160a11344024b001aac52d7b45c352d32780af063b17a7670ddc98abad09"
     },
     {
       "path": "02-architecture.md",
@@ -200,7 +200,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "8637a8b516b846df1c60de9f6b7add68d35b83fd21d90d492abefb3dddeb3ee4"
+      "sha256": "6d94ff7b3fef07db9c6187d6d220bcec2eabf1ce1c9420676454285c0bfdc4b8"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -463,7 +463,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "13e46e62c0cfd24d328c06c35b8eadd7e82f56f5ea02e6e661985c13917add45",
+  "candidate_digest": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
   "dispositions": [
     {
       "issue": 3,

@@ -64,7 +64,7 @@
     },
     {
       "class": "arena_block",
-      "category": "behavior_defining",
+      "category": "runtime_evidence",
       "author_roles": [
         "planner",
         "implementer"
@@ -72,10 +72,10 @@
       "model_family_policy": "cross_family_required",
       "requires": [],
       "paths": [
-        "resources/arena/*.json"
+        ".autosk/autosk-flow/arena/*.json"
       ],
       "review": {
-        "mode": "full_panel"
+        "mode": "none"
       },
       "identity_fields": [
         "project_identity",
@@ -88,7 +88,7 @@
       "impacts": [
         "tech_plan"
       ],
-      "publication": "planning_ref",
+      "publication": "none",
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
@@ -1901,5 +1901,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "54067507bdc6404095e320881e215c321d8585c349ab8f6aa3b64847c845f7ac"
+  "registry_digest": "a4efca336896be9d059b02d86a8220be498cc87615cae0822ad0b27016c659ce"
 }
