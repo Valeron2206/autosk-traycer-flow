@@ -207,6 +207,14 @@ test("a seat that answered about another candidate does not count", () => {
   assert.ok(
     attestationErrors(stale, digest).some((error) => /answered about another candidate/u.test(error.detail)),
   );
+  // The attestation's own binding is a separate claim from any seat's: an
+  // attestation about another candidate is wrong even when all four seats agree
+  // with each other.
+  const elsewhere = attestation("9".repeat(64));
+  assert.ok(
+    attestationErrors(elsewhere, digest)
+      .some((error) => error.reason === "bundle_attestation_mismatch" && error.detail === "9".repeat(64)),
+  );
 });
 
 test("the current pointer moves by compare-and-swap, and re-releasing is idempotent", () => {
@@ -263,6 +271,15 @@ test("a pinned Epic keeps its bundle, and moving an active one is its own workfl
       approvalRef: "decision-13",
     }),
     [],
+  );
+  // Migrating to the bundle it is already on is not a no-op to wave through: an
+  // approval was asked for a move that is not happening, so the request is
+  // about something other than what it says.
+  assert.ok(
+    epicMigrationErrors({ state: "active", pinned_bundle: "digest-a" }, {
+      toBundle: "digest-a",
+      approvalRef: "decision-13",
+    }).some((error) => /already on that bundle/u.test(error.detail)),
   );
 });
 

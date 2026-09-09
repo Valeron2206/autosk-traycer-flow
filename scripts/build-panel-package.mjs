@@ -22,6 +22,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
+
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -39,26 +41,39 @@ async function read(relative) {
   return readFile(path.join(ROOT, relative), 'utf8');
 }
 
-/** The headings and refusal classes of one contract, without its whole body. */
+/**
+ * The headings and refusal classes of one contract, without its whole body.
+ *
+ * Contracts close their sets in two forms — an inline `Closed set:` sentence
+ * and a bulleted `Refusal classes` section — and reading only the first is how
+ * a package tells a panel that twenty-two contracts declare no closed set when
+ * every one of them does. Round 1 found exactly that, so both forms are read
+ * and the form is reported.
+ */
 export function contractOutline(text) {
   const headings = [];
   for (const line of text.split('\n')) {
     if (/^##\s/u.test(line)) headings.push(line.replace(/^##\s*/u, '').trim());
   }
-  const refusals = [];
-  const closed = /Closed set:\s*([^.]+)\./u.exec(text);
-  if (closed) {
-    for (const entry of closed[1].split(',')) {
-      const name = entry.replace(/[`\s]/gu, '');
-      if (name) refusals.push(name);
-    }
+  const refusals = new Set();
+  const inline = /Closed set[^:]*:\s*([\s\S]+?)(?:\n\n|\.\s*\n)/u.exec(text);
+  if (inline) {
+    for (const match of inline[1].matchAll(/`([a-z][a-z0-9_]{4,})`/gu)) refusals.add(match[1]);
   }
-  return { headings, refusals };
+  const section = /(?:^|\n)##\s*\d+\.\s*(?:Refusal classes|What a refusal looks like)\s*\n([\s\S]*?)(?=\n##\s|$)/u.exec(text);
+  if (section) {
+    for (const match of section[1].matchAll(/^-\s*`([a-z][a-z0-9_]{4,})`/gmu)) refusals.add(match[1]);
+  }
+  const form = inline && section ? 'both' : inline ? 'inline' : section ? 'section' : 'none';
+  return { headings, refusals: [...refusals].sort(), form };
 }
 
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, tests, contracts }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts }) {
   const sections = [];
+  const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
+  const open = contracts.filter((entry) => entry.refusals.length === 0);
+  const sameTree = cleanRoom.extension?.tree === tree && cleanRoom.extension?.dirty === false;
 
   sections.push(`# autosk-traycer-flow — final acceptance package
 
@@ -77,8 +92,34 @@ about it. Every seat receives these exact bytes.
 | candidate files | ${candidate.files.length} |
 | attestation state before this panel | \`${candidate.attestation.state}\` |
 
-The candidate digest is recomputed by \`scripts/validate-design-candidate.mjs\`
-from the files on disk. A verdict is about this digest and no other.`);
+The candidate digest is recomputable from section 3 alone. The rule, as
+\`scripts/validate-design-candidate.mjs\` implements it, is
+
+\`\`\`
+candidate_digest = sha256( join("\\n", sort( map(files, f => f.path + " " + f.sha256) )) )
+\`\`\`
+
+over the UTF-8 bytes of that joined string, with no trailing newline. Section 3
+carries the full 64-hex digest of every file for that reason: a truncated
+digest cannot be recomputed, and a verdict about a digest nobody can recompute
+is a verdict about a claim.
+
+### What is being delivered
+
+The extension is this repository. The daemon it runs against is **not** upstream
+\`autosk\` as published: it is upstream plus a pinned patch series, and the
+distinction matters because the design rests on three primitives (ADR-014,
+ADR-023, ADR-025) that upstream does not implement — the series supplies them.
+
+| field | value |
+| --- | --- |
+| upstream repository | ${compat.upstream.repository} |
+| upstream commit | \`${compat.upstream.commit}\` |
+| upstream tree | \`${compat.upstream.tree}\` |
+| pinned patches | ${compat.patches.length}, each SHA-256 pinned in \`compat/autosk/manifest.v1.json\` |
+| resulting source tree | \`${compat.result_tree}\` |
+
+The clean-room run in section 5 built exactly that tree.`);
 
   sections.push(`## 2. What the seats are asked
 
@@ -94,28 +135,43 @@ Four questions, in this order. Answer each one about the version above.
 4. **Are there Critical or High findings that should block acceptance?**
 
 A seat that cannot answer a question says so. An answer of "looks fine" without
-having read the material is worse than no answer, because it is counted.`);
+having read the material is worse than no answer, because it is counted.
 
-  sections.push(`## 3. The design pack, by path and digest
+This panel is asked about the **design and the evidence**, not about whether
+every issue in the program is finished. Section 5's "what is not claimed" list
+is part of what you are reviewing: if something there should not have been
+deferred, that is a finding.`);
 
-${candidate.files.length} files. The two marked **full text** are reproduced
-whole in section 6; the rest are named here so a verdict can state what it
-covered.
+  sections.push(`## 3. The design pack, by path and full digest
+
+${candidate.files.length} files. The ${FULL_TEXT.length} marked **full text** are
+reproduced whole in section 6; the rest are named here with their complete
+digests, so section 1's candidate digest can be recomputed from this table and
+any file can be checked against the repository at the commit above.
 
 | path | sha256 | in this package |
 | --- | --- | --- |
-${candidate.files.map((file) => `| \`${file.path}\` | \`${file.sha256.slice(0, 16)}…\` | ${FULL_TEXT.includes(file.path) ? 'full text' : 'digest only'} |`).join('\n')}`);
+${candidate.files.map((file) => `| \`${file.path}\` | \`${file.sha256}\` | ${FULL_TEXT.includes(file.path) ? 'full text' : 'digest only'} |`).join('\n')}`);
 
   sections.push(`## 4. The contracts, by rule inventory
 
-Each contract's sections and its closed refusal set. The full text of any of
-these is in the repository at the commit above.
+Each contract's sections and its closed refusal set, read from both forms a
+contract may use — the inline \`Closed set:\` sentence and the bulleted
+\`Refusal classes\` section.
+
+**${contracts.length} contracts, ${classes} refusal classes, ${open.length} declaring no closed set.**
+${open.length > 0 ? `Declaring none: ${open.map((entry) => `\`${entry.path}\``).join(', ')}.` : 'Every contract closes its own set.'}
+
+The park reasons those classes feed are enumerated separately in
+\`resources/refusal-vocabulary/refusal-vocabulary.v1.json\` and checked by
+\`npm run validate:refusal-vocabulary\`, which binds each reason to a registered
+workflow step and records whether this repository or the daemon produces it.
 
 ${contracts.map((entry) => `### ${entry.path}
 
 Sections: ${entry.headings.join('; ')}
 
-${entry.refusals.length > 0 ? `Closed refusal set: ${entry.refusals.map((name) => `\`${name}\``).join(', ')}` : 'No closed refusal set is declared in this document.'}`).join('\n\n')}`);
+${entry.refusals.length > 0 ? `Closed refusal set (${entry.form}): ${entry.refusals.map((name) => `\`${name}\``).join(', ')}` : 'No closed refusal set is declared in this document.'}`).join('\n\n')}`);
 
   sections.push(`## 5. Evidence
 
@@ -123,37 +179,69 @@ ${entry.refusals.length > 0 ? `Closed refusal set: ${entry.refusals.map((name) =
 
 \`npm test\` on the frozen commit: **${tests.passed} pass, ${tests.failed} fail**.
 
-Every runtime module in \`src/host/\` was mutation-tested: each guard neutered
-one at a time, the module's own test file re-run, and a surviving mutant treated
-as a missing test or a dead guard rather than as noise. The counts are in the
-pull request that introduced each module.
+### Mutation
 
-### Clean-room end-to-end
-
-One command, an isolated HOME with no Traycer, the pinned upstream source built
-from source, and both product harnesses plus the fault harness.
+Reproducible as \`node scripts/mutation-report.mjs\`, not deferred to a pull
+request. Each guard is neutered one at a time and the module's own test file is
+re-run; a mutant that survives is a missing test, a dead guard, or an equivalent
+mutant, and the third is allowed only where somebody has written down why, at
+the line it applies to.
 
 | field | value |
 | --- | --- |
-| pinned upstream commit | \`${cleanRoom.upstream_commit}\` |
+| modules covered | ${mutation.totals.modules} |
+| mutants | ${mutation.totals.mutants} |
+| killed | ${mutation.totals.killed} |
+| survivors | ${mutation.survivors.length}, all named in \`resources/mutation-report/mutation-survivors.v1.json\` |
+| report digest | \`${mutation.report_digest}\` |
+
+What is mutated is exactly this and nothing else: ${mutation.rules.map((rule) => `\`${rule}\``).join(', ')}.
+A broader hand-run procedure was used while each module was written and its
+counts are in the pull requests; the number above is the one this command
+reproduces, and the two are not the same number.
+
+### Clean-room end-to-end
+
+One command, an isolated HOME with no Traycer, the pinned source built from
+source, and both product harnesses plus the fault harness.
+
+| field | value |
+| --- | --- |
+| upstream commit | \`${cleanRoom.upstream_commit}\` |
 | reproduced source tree | \`${cleanRoom.source_tree}\` |
+| extension commit exercised | \`${cleanRoom.extension?.commit ?? 'not recorded'}\` |
+| extension tree exercised | \`${cleanRoom.extension?.tree ?? 'not recorded'}\` |
+| worktree clean at run time | ${cleanRoom.extension?.dirty === false ? 'yes' : 'no'} |
+| same bytes as the version under review | ${sameTree ? 'yes — the exercised tree equals the main tree in section 1' : 'NO — this run is about other bytes, and section 1 is not proven end to end by it'} |
 | report digest | \`${cleanRoom.report_digest}\` |
 | overall | ${cleanRoom.ok ? 'ok' : 'FAILED'} |
 
 Steps: ${cleanRoom.steps.map((step) => `${step.step}=${step.ok === false ? 'FAIL' : 'ok'}`).join(', ')}.
 
-Fault-matrix coverage: ${Object.entries(cleanRoom.coverage.counts).map(([state, count]) => `${state}=${count}`).join(', ')}; complete=${cleanRoom.coverage.complete}.
+### The fault matrix, with its denominator
 
-Each fault group is injected for real and paired with a control — the same
-guard, asked about the state without the fault, has to stay silent. A guard
-that refuses everything would detect every fault and mean nothing by it.
+**${matrix.groups.length} groups**, which is the denominator for the coverage
+counts below. They are, in full:
+
+${matrix.groups.map((group) => `- \`${group.id}\` (${group.boundary}) — ${group.description}`).join('\n')}
+
+Coverage: ${Object.entries(cleanRoom.coverage.counts).map(([state, count]) => `${state}=${count}`).join(', ')}; complete=${cleanRoom.coverage.complete}.
+
+Each group is injected for real and paired with a control — the same guard,
+asked about the state without the fault, has to stay silent. A guard that
+refuses everything would detect every fault and mean nothing by it.
 
 ### What is not claimed
 
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
-- Issue #10's criterion 2 (the declarative workflow graph) is deferred to this
-  design gate and is not claimed as implemented.
+- Issue #10's criterion 2 (the declarative workflow graph) is deferred. No
+  artifact in section 3 is that graph, and this panel is **not** being asked to
+  accept it as delivered — only to say whether deferring it is a defect in the
+  design under review.
+- ${mutation.totals.modules} of the runtime modules are covered by the
+  reproducible mutation command; the daemon is not in this repository and its
+  guards are not mutated by it.
 - No deployment to real users has been performed, and none is claimed.`);
 
   const full = [];
@@ -165,6 +253,14 @@ ${await read(relative)}
 \`\`\``);
   }
   sections.push(`## 6. The load-bearing design text, in full
+
+Reproduced whole: ${FULL_TEXT.map((name) => `\`${name}\``).join(', ')}.
+
+Not reproduced, and named so a verdict can say what it covered: every other file
+in section 3 — the ${contracts.length} contracts (summarised by rule inventory in
+section 4), the JSON Schemas, the resources and the technical plan. Their full
+digests are in section 3, and the repository at the commit in section 1 holds
+their bytes.
 
 ${full.join('\n\n')}`);
 
@@ -194,16 +290,24 @@ findings, or \`blocking_non_verdict\` if you could not review it.`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : null;
-  const cleanRoomPath = process.argv.includes('--clean-room')
-    ? process.argv[process.argv.indexOf('--clean-room') + 1]
-    : null;
-  const commit = process.argv[process.argv.indexOf('--commit') + 1];
-  const tree = process.argv[process.argv.indexOf('--tree') + 1];
-  const passed = Number(process.argv[process.argv.indexOf('--tests-passed') + 1]);
+  const arg = (name) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null);
+  const out = arg('--out');
+  const commit = arg('--commit');
+  const tree = arg('--tree');
+  const passed = Number(arg('--tests-passed'));
+  const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
 
   const candidate = JSON.parse(await read('resources/design-candidate/design-candidate.v1.json'));
-  const cleanRoom = JSON.parse(await readFile(cleanRoomPath, 'utf8'));
+  const matrix = JSON.parse(await read('resources/clean-room-e2e/fault-matrix.v1.json'));
+  const compat = JSON.parse(await read('compat/autosk/manifest.v1.json'));
+  const cleanRoom = await readJson(arg('--clean-room'));
+  const mutationReport = await readJson(arg('--mutation'));
+  const mutation = {
+    ...mutationReport,
+    rules: MUTATION_RULES.map((rule) => rule.from),
+    report_digest: reportDigest(mutationReport),
+  };
+
   const { readdir } = await import('node:fs/promises');
   const contracts = [];
   for (const name of (await readdir(path.join(ROOT, CONTRACT_GLOB))).sort()) {
@@ -217,6 +321,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     tree,
     candidate,
     cleanRoom,
+    matrix,
+    mutation,
+    compat,
     tests: { passed, failed: 0 },
     contracts,
   });
@@ -224,4 +331,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`package_bytes=${built.bytes}`);
   console.log(`package_digest=${built.digest}`);
   console.log(`contracts=${contracts.length}`);
+  console.log(`refusal_classes=${contracts.reduce((sum, entry) => sum + entry.refusals.length, 0)}`);
+  console.log(`fault_groups=${matrix.groups.length}`);
 }
