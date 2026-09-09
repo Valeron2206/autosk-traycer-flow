@@ -32,6 +32,47 @@ export const REQUIRED_PANEL = Object.freeze([
   { route_id: "meta/muse-spark-1.3-contributor", effort: "max" },
 ]);
 
+export const FAMILY_PARTITION_PATH = "resources/panel-roster/family-partition.v1.json";
+
+/**
+ * The family each route belongs to.
+ *
+ * Cross-family independence is the mechanism behind the panel gate, behind Lead
+ * selection and behind `arena_judge_family_conflict`. Panel round 3 found that
+ * "family" was a naming convention nothing pinned, so a partition that quietly
+ * put two seats in one family would have left the gate looking intact.
+ */
+export function familyOf(routeId, partition) {
+  const match = partition.families.find((entry) =>
+    entry.route_prefixes.some((prefix) => routeId.startsWith(prefix)));
+  return match ? match.family : null;
+}
+
+/** Whether the required panel really is four distinct families. */
+export function partitionErrors(partition, panel = REQUIRED_PANEL) {
+  const errors = [];
+  const declared = partition.families.map((entry) => entry.family);
+  if (new Set(declared).size !== declared.length) {
+    errors.push(`${FAMILY_PARTITION_PATH}: a family is declared twice`);
+  }
+  const ordered = [...partition.master_order].sort();
+  if (ordered.join(",") !== [...declared].sort().join(",")) {
+    // A master order over families that are not the declared ones would rank
+    // something the partition does not contain.
+    errors.push(`${FAMILY_PARTITION_PATH}: the master order and the declared families differ`);
+  }
+  const seats = panel.map((entry) => ({ route: entry.route_id, family: familyOf(entry.route_id, partition) }));
+  for (const seat of seats) {
+    if (!seat.family) errors.push(`${FAMILY_PARTITION_PATH}: ${seat.route} belongs to no declared family`);
+  }
+  const families = seats.filter((seat) => seat.family).map((seat) => seat.family);
+  if (new Set(families).size !== panel.length) {
+    // Four seats in three families is a three-model panel wearing four names.
+    errors.push(`${FAMILY_PARTITION_PATH}: the ${panel.length} required routes span ${new Set(families).size} families`);
+  }
+  return errors;
+}
+
 export const REFUSALS = Object.freeze([
   "route_model_unsupported",
   "route_effort_dropped",
@@ -71,7 +112,7 @@ export function routeAvailability(route, { nowMs, downDomains = [] } = {}) {
 
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, UNAVAILABLE_EXAMPLE_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, UNAVAILABLE_EXAMPLE_PATH, FAMILY_PARTITION_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -121,6 +162,7 @@ export function validateRoute(route, schema) {
 
 export function validateProviderPreflightDesign(files) {
   const errors = [];
+  errors.push(...partitionErrors(JSON.parse(files[FAMILY_PARTITION_PATH])));
   const contract = files[CONTRACT_PATH];
   if (!contract.includes(CONTRACT_MARKER)) errors.push(`${CONTRACT_PATH}: missing ${CONTRACT_MARKER}`);
   if (!contract.includes(SCHEMA_PATH)) errors.push(`${CONTRACT_PATH}: does not point at ${SCHEMA_PATH}`);

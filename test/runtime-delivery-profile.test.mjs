@@ -154,6 +154,20 @@ test("a required check is bound to the exact commit it ran on", () => {
   const failures = requiredCheckErrors(example, { results: failedHere, commitOid: COMMIT });
   assert.equal(failures.length, 1);
   assert.ok(/validate: failure/u.test(failures[0].detail), failures[0].detail);
+
+  // A check that failed *here* and is no longer required still failed. Both
+  // halves decide it: a failure on another commit is another commit's fact, and
+  // a success here that is no longer required is not a failure at all.
+  const removed = [{ name: "gone", commit_oid: COMMIT, conclusion: "failure" }, ...results];
+  const stillCounts = requiredCheckErrors(example, { results: removed, commitOid: COMMIT });
+  assert.ok(stillCounts.some((error) => /gone: failed and no longer required/u.test(error.detail)));
+  const elsewhereGone = [{ name: "gone", commit_oid: "d".repeat(40), conclusion: "failure" }, ...results];
+  assert.ok(
+    !requiredCheckErrors(example, { results: elsewhereGone, commitOid: COMMIT })
+      .some((error) => /no longer required/u.test(error.detail)),
+  );
+  const succeededGone = [{ name: "gone", commit_oid: COMMIT, conclusion: "success" }, ...results];
+  assert.deepEqual(requiredCheckErrors(example, { results: succeededGone, commitOid: COMMIT }), []);
 });
 
 test("a check added mid-run invalidates a result that never ran it; one removed validates nothing", () => {
@@ -184,7 +198,33 @@ test("discovery is evidence with a shelf life", () => {
   assert.deepEqual(resolutionErrors(example, { nowMs: NOW }), []);
   const expired = resolutionErrors(example, { nowMs: LATER });
   assert.ok(expired.some((error) => error.reason === "discovery_expired"));
+  // The instant itself: discovery that expires exactly now has expired. `<=`
+  // and `<` differ by that one moment, and it decides whether a branch
+  // protection reading may still be relied on.
+  const at = Date.parse(example.provenance.checks.expires_at);
+  assert.ok(
+    resolutionErrors(example, { nowMs: at }).some((error) => error.reason === "discovery_expired"),
+  );
+  assert.deepEqual(resolutionErrors(example, { nowMs: at - 1 }), []);
   assert.equal(directMovementAdmission(unprotected(), { mode: "merge", nowMs: LATER }).decision, "refused");
+});
+
+test("an unresolved entry is matched by exact pointer and by prefix, and by nothing else", () => {
+  // `pointer === entry.field || pointer.startsWith(`${entry.field}/`)` — an
+  // `===` alone would miss a whole section marked unresolved, and a prefix
+  // alone would miss the exact field. A section named `target` must not match
+  // a field named `targeted`, which the separator is there for.
+  const withUnresolved = (field, reason = "discovery_unavailable") =>
+    resolutionErrors({ ...example, unresolved: [{ field, reason }] },
+      { nowMs: NOW, fields: ["target/direct_push_allowed"] });
+
+  // Exact.
+  assert.ok(withUnresolved("target/direct_push_allowed").some((error) => error.reason === "discovery_unavailable"));
+  // Prefix, at a path boundary.
+  assert.ok(withUnresolved("target").some((error) => error.reason === "discovery_unavailable"));
+  // A shared textual prefix that is not a path boundary matches nothing.
+  assert.deepEqual(withUnresolved("targe"), []);
+  assert.deepEqual(withUnresolved("elsewhere"), []);
 });
 
 test("an unresolved field is not a field with a convenient default", () => {
@@ -256,6 +296,13 @@ test("drift is content, not the order the profile was written in", () => {
   assert.deepEqual(driftErrors(example, reordered), []);
   assert.equal(reordered.profile_digest, example.profile_digest);
   assert.equal(canonicalValue(["b", "a"]), canonicalValue(["a", "b"]));
+  // `null` is a value and not an object: `typeof null === 'object'`, so a
+  // canonicaliser that forgot to exclude it would call `Object.keys(null)` and
+  // throw on a profile that legitimately records a null.
+  assert.equal(canonicalValue(null), canonicalValue(null));
+  assert.notEqual(canonicalValue(null), canonicalValue({}));
+  assert.notEqual(canonicalValue(null), canonicalValue(undefined));
+  assert.equal(canonicalValue({ a: null }), canonicalValue({ a: null }));
   assert.equal(valueAt(example, "integration/local_staging"), "host");
 });
 
@@ -267,6 +314,15 @@ test("a digest that does not recompute is drift on its own", () => {
 
 test("a credential in a project artifact is refused wherever it is nested", () => {
   assert.deepEqual(credentialErrors(example), []);
+  // The walk must survive a null in the document: `typeof null === 'object'`,
+  // so a scan that forgot to exclude it would throw on the artifact it exists
+  // to check — and a scanner that crashes finds no credentials at all.
+  assert.deepEqual(credentialErrors({ a: null, b: [null], c: { d: null } }), []);
+  assert.deepEqual(credentialErrors(null), []);
+  assert.ok(
+    credentialErrors({ a: { b: [{ c: `ghp_${"A".repeat(36)}` }] } })
+      .some((error) => error.reason === "credential_missing"),
+  );
   const leaked = profile({ remotes: { credential_location: `ghp_${"A".repeat(36)}` } });
   assert.ok(credentialErrors(leaked).some((error) => error.reason === "credential_missing"));
   assert.ok(

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "note": "Cross-family independence is the mechanism behind the panel gate and behind Lead and judge selection. Until this file existed the partition was a naming convention nobody could check, so `arena_judge_family_conflict` and the reviewer order rested on a mapping nothing pinned.",
+  "master_order": ["gpt", "kimi", "grok", "opus"],
+  "families": [
+    {
+      "family": "gpt",
+      "display": "GPT",
+      "note": "Codex is the same family as GPT: a Codex-authored artifact reviewed by GPT would not be cross-family.",
+      "route_prefixes": ["openai/", "openai-codex/"]
+    },
+    { "family": "kimi", "display": "Kimi", "route_prefixes": ["moonshot/", "meta/"] },
+    { "family": "grok", "display": "Grok", "route_prefixes": ["xai/", "cursor/"] },
+    { "family": "opus", "display": "Opus", "route_prefixes": ["anthropic/"] }
+  ]
+}

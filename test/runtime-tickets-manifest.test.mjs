@@ -110,6 +110,38 @@ test("the collision key is conservative, because a case-insensitive filesystem i
   assert.equal(selectorsOverlap(dir("src/a"), dir("src/a/b")), true);
   assert.equal(selectorsOverlap(dir("src/a"), dir("src/b")), false);
   assert.equal(selectorsOverlap(file("src/a.ts"), dir("src/b")), false);
+
+  // Each branch of the overlap rule, asked where the branches differ. Predicate
+  // mutation found the kind comparisons and the prefix alternatives untested:
+  // `===` could have been `!==` and the `||` chain could have been an `&&`,
+  // with every case above still passing.
+  assert.equal(selectorsOverlap(file("src/a.ts"), file("src/b.ts")), false);
+  assert.equal(selectorsOverlap(dir("src/a"), dir("src/a")), true);
+  assert.equal(selectorsOverlap(dir("src/a/b"), dir("src/a")), true);
+  // A shared textual prefix that is not a path boundary is not an overlap:
+  // `src/ab` is not inside `src/a`, and a `startsWith` without the separator
+  // would say it is.
+  assert.equal(selectorsOverlap(dir("src/a"), dir("src/ab")), false);
+  assert.equal(selectorsOverlap(dir("src/a"), file("src/ab.ts")), false);
+  // A file exactly at the directory, and a file below it.
+  assert.equal(selectorsOverlap(dir("src/a"), file("src/a")), true);
+  assert.equal(selectorsOverlap(file("src/a/b.ts"), dir("src/a")), true);
+  // A file whose path is a prefix of a directory does not overlap it: nothing
+  // is inside a file. Reading the rule as "either side is a directory" would
+  // make this true, which is why the two kinds are asked together and not
+  // separately.
+  assert.equal(selectorsOverlap(file("src/a"), dir("src/a/b")), false);
+});
+
+test("the digest of a manifest does not depend on the order its tickets were written", () => {
+  // The projection sorts by id, and the comparator's ties are unreachable while
+  // duplicate ids are refused — so the property that matters is the one tested:
+  // the same set in another order is the same digest.
+  const one = manifest([ticket("T1"), ticket("T2"), ticket("T3")]);
+  const other = manifest([ticket("T3"), ticket("T1"), ticket("T2")]);
+  assert.equal(manifestDigest(one), manifestDigest(other));
+  const different = manifest([ticket("T1"), ticket("T2")]);
+  assert.notEqual(manifestDigest(one), manifestDigest(different));
 });
 
 test("overlapping Tickets must be ordered in one direction", () => {

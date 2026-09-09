@@ -283,6 +283,47 @@ test("a removal nobody approved is a scope violation, not an absence", () => {
   assert.ok(errors.some((error) => /removed and not approved/u.test(error.detail)), JSON.stringify(errors));
   // Outside the Ticket's scope it is not this delta's business.
   assert.deepEqual(integrationProof(delta(), result({ removed_paths: ["docs/readme.md"] })), []);
+  // Three facts decide it: the path is not approved, it was not renamed away,
+  // and it is in scope. A path removed *because* a declared rename moved it is
+  // accounted for and silent, which is the half an `||` there would lose.
+  const renamedAway = delta({
+    entries: [{
+      path: "src/store/new.ts", from_path: "src/store/gone.ts", status: "R",
+      old_blob: oid("1"), new_blob: oid("2"), old_mode: "100644", new_mode: "100644",
+    }],
+  });
+  assert.ok(
+    !integrationProof(renamedAway, result({
+      applied_entries: [{ path: "src/store/new.ts", new_blob: oid("2"), new_mode: "100644" }],
+      removed_paths: ["src/store/gone.ts"],
+    })).some((error) => /removed and not approved/u.test(error.detail)),
+  );
+  // A rename in the delta does not excuse a removal of some *other* path: the
+  // status and the path are one fact together. Reading either alone would let
+  // any delta that contains a single rename hide every unapproved deletion.
+  assert.ok(
+    integrationProof(renamedAway, result({
+      applied_entries: [{ path: "src/store/new.ts", new_blob: oid("2"), new_mode: "100644" }],
+      removed_paths: ["src/store/gone.ts", "src/store/unrelated.ts"],
+    })).some((error) => /src\/store\/unrelated\.ts: removed and not approved/u.test(error.detail)),
+  );
+});
+
+test("the applied result carries the ref movement it claims, and the proof reads it", () => {
+  // `errors.push(...refMovementErrors(...))` — dropping that spread would make
+  // every ref-movement refusal invisible while the rest of the proof still
+  // looked thorough.
+  const moved = result({
+    ref_movement: {
+      ref: "refs/autosk/epics/e/staging", expected_old_oid: oid("9"), observed_old_oid: oid("a"),
+      post_state: "known", reflog_entries: 1,
+    },
+  });
+  assert.ok(integrationProof(delta(), moved).some((error) => error.reason === "foreign_ref_movement"));
+  // And a result with no recorded movement at all is indeterminate rather than
+  // clean, which is the other thing that spread carries.
+  const nothing = result({ ref_movement: undefined });
+  assert.ok(integrationProof(delta(), nothing).some((error) => error.reason === "indeterminate_post_state"));
 });
 
 test("a result not bound to this operation and base is refused", () => {

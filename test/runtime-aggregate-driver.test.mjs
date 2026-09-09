@@ -84,6 +84,9 @@ test("the checks run on the exact staging tree, and the record is bound to it", 
 
   const aggregate = await verifyAggregate({ git, run: runner, state, checks, dir });
   assert.equal(aggregate.outcome, "pass");
+  // A passing check carries no detail: attaching output to a pass would make
+  // every green run look like it had something to say.
+  assert.equal(aggregate.results[0].detail, null);
   assert.equal(aggregate.environment_outcome, "ok");
   assert.equal(aggregate.staging_commit_oid, state.staging_commit_oid);
   // Bound by the module, so a PASS cannot be carried to another tree.
@@ -110,6 +113,10 @@ test("a check that ran and failed is a product failure", async (t) => {
   assert.equal(aggregate.outcome, "fail");
   assert.equal(aggregate.environment_outcome, "ok");
   assert.equal(aggregate.results[0].exit_code, 3);
+  // A failing check carries what it said; a passing one carries no detail at
+  // all. `=== 0` decides which, and swapping it would attach a failure's output
+  // to a pass and hide it on a failure.
+  assert.ok(aggregate.results[0].detail.length > 0);
   assert.ok(aggregateErrors({ ...state, aggregate }).some((error) => error.reason === "aggregate_failed"));
 });
 

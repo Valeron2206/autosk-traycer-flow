@@ -1,4 +1,113 @@
 {
   "schema_version": 1,
-  "equivalent_mutants": []
+  "equivalent_mutants": [
+    {
+      "module": "src/host/work-type-gates.mjs",
+      "line": 136,
+      "guard": "< -> <=",
+      "reason": "Unreachable with the value that would distinguish it. `deltaRatio < 0 ? 'improved' : 'regressed'` is only evaluated when `Math.abs(deltaRatio) >= noiseThreshold`, and the threshold is demanded to be a positive number, so a delta of exactly zero always returns 'inconclusive' on the line above. `<=` and `<` therefore agree on every input that reaches this line."
+    },
+    {
+      "module": "src/host/tickets-manifest.mjs",
+      "line": 213,
+      "guard": "< -> <=",
+      "reason": "The outer loop body is nothing but the inner loop, whose bound is `j = i + 1; j < tickets.length`. With `i === tickets.length` that condition is false at once, so `tickets[i]` is never dereferenced and the extra iteration does nothing. The mutant and the original visit the same pairs."
+    },
+    {
+      "module": "src/host/tickets-manifest.mjs",
+      "line": 239,
+      "guard": "< -> <=",
+      "reason": "The comparator's two branches differ only when two ticket ids are equal, and `tickets_duplicate_id` refuses a manifest with a repeated id before any digest is taken. The property the sort exists for — the same set in another order gives the same digest — is tested directly."
+    },
+    {
+      "module": "src/host/tickets-manifest.mjs",
+      "line": 239,
+      "guard": "> -> >=",
+      "reason": "The other half of the same comparator, unreachable for the same reason: equal ids cannot occur in a manifest that reaches the projection."
+    },
+    {
+      "module": "src/host/planning-publication.mjs",
+      "line": 54,
+      "guard": "< -> <=",
+      "reason": "The comparator's branches differ only for two equal trailer names, and the list is proven duplicate-free by test: `TRAILERS` and the kind-specific set are disjoint, so no tie is reachable. The property the sort exists for — one ordering whatever order a host listed them in — is tested directly."
+    },
+    {
+      "module": "src/host/planning-publication.mjs",
+      "line": 54,
+      "guard": "> -> >=",
+      "reason": "The comparator's branches differ only for two equal trailer names, and the list is proven duplicate-free by test: `TRAILERS` and the kind-specific set are disjoint, so no tie is reachable. The property the sort exists for — one ordering whatever order a host listed them in — is tested directly."
+    },
+    {
+      "module": "src/host/governance-bundle.mjs",
+      "line": 76,
+      "guard": "< -> <=",
+      "reason": "The comparator's branches differ only for two members with the same path, and `inventoryErrors` refuses a bundle whose manifest repeats one. The property the sort exists for — one digest whatever order the members arrive in — is tested directly."
+    },
+    {
+      "module": "src/host/governance-bundle.mjs",
+      "line": 76,
+      "guard": "> -> >=",
+      "reason": "The comparator's branches differ only for two members with the same path, and `inventoryErrors` refuses a bundle whose manifest repeats one. The property the sort exists for — one digest whatever order the members arrive in — is tested directly."
+    },
+    {
+      "module": "src/host/project-fs.mjs",
+      "line": 32,
+      "guard": "<= -> <",
+      "reason": "The two differ only when the separator is at position zero — a target directly under the filesystem root — where `'/'` and `''` both produce a resolved path outside any project root. The one root that would tell them apart is `/` itself, and the adapter now refuses that at construction (`fs_outside_project`), with a test. So no admitted project can reach an input where the branches disagree."
+    },
+    {
+      "module": "src/host/delta-driver.mjs",
+      "line": 88,
+      "guard": "<= -> <",
+      "reason": "The same one-line helper, used only on a temporary index path built by this module under a directory it created. That path always has a separator past position zero, so the zero case — the only place the branches differ — is unreachable from any call site."
+    },
+    {
+      "module": "src/host/delta-driver.mjs",
+      "line": 152,
+      "guard": "< -> <=",
+      "reason": "Paths in a tree listing are unique by construction — a tree cannot hold one path twice — and the declared-entry loop de-duplicates before this sort runs. The comparator's tie branch is therefore unreachable, and the ordering property is tested directly."
+    },
+    {
+      "module": "src/host/delta-driver.mjs",
+      "line": 152,
+      "guard": "> -> >=",
+      "reason": "Paths in a tree listing are unique by construction — a tree cannot hold one path twice — and the declared-entry loop de-duplicates before this sort runs. The comparator's tie branch is therefore unreachable, and the ordering property is tested directly."
+    },
+    {
+      "module": "src/host/approved-delta.mjs",
+      "line": 81,
+      "guard": "< -> <=",
+      "reason": "The same comparator over a path list that `containment_mismatch` refuses when a path appears twice, so equal paths cannot reach it. The property — one canonical order whatever order the entries arrived in — is tested."
+    },
+    {
+      "module": "src/host/approved-delta.mjs",
+      "line": 81,
+      "guard": "> -> >=",
+      "reason": "The same comparator over a path list that `containment_mismatch` refuses when a path appears twice, so equal paths cannot reach it. The property — one canonical order whatever order the entries arrived in — is tested."
+    },
+    {
+      "module": "src/host/finding-registry.mjs",
+      "line": 79,
+      "guard": "< -> <=",
+      "reason": "A comparator over registry keys, which are unique by construction: the entries come from a Map. Equal keys cannot occur, so the tie branch is unreachable."
+    },
+    {
+      "module": "src/host/finding-registry.mjs",
+      "line": 79,
+      "guard": "> -> >=",
+      "reason": "A comparator over registry keys, which are unique by construction: the entries come from a Map. Equal keys cannot occur, so the tie branch is unreachable."
+    },
+    {
+      "module": "src/host/verify-doc-runner.mjs",
+      "line": 116,
+      "guard": "=== -> !==",
+      "reason": "`reported_as` is read by `classifyRun` only when `doctor_outcome === 'failed'`, where the single guard refuses the value `product_failure`. Both the original and the mutant supply something else there — `infrastructure_failure` or `undefined` — so the classification and the returned outcome are identical for every input."
+    },
+    {
+      "module": "src/host/artifact-classifier.mjs",
+      "line": 95,
+      "guard": "< -> <=",
+      "reason": "The comparator's second key breaks ties in specificity by class name, and two entries with the same specificity *and* the same class name would be one class registered twice — which `ambiguous_class` refuses before any path is classified. The tie branch is therefore unreachable, and the selection property is tested directly."
+    }
+  ]
 }

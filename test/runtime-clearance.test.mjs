@@ -205,6 +205,12 @@ test("absolute home paths are redacted, and the redaction is recorded without th
   assert.ok(manifest.redactions.some((entry) => entry.reason === "absolute_home_path"));
   const { redactions } = redact("no home here", { home: "/home/operator" });
   assert.deepEqual(redactions, []);
+  // A one-character home is not a home. Replacing "/" everywhere would rewrite
+  // every path in the body and record it as a redaction, which is the opposite
+  // of what a reader would take the manifest to mean.
+  const slash = redact("/etc/hosts and /var/log", { home: "/" });
+  assert.equal(slash.body, "/etc/hosts and /var/log");
+  assert.deepEqual(slash.redactions, []);
 });
 
 test("the manifest never quotes what it removed", () => {

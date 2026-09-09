@@ -145,6 +145,17 @@ test("new scaffolding is contracted rather than promised", () => {
   assert.deepEqual(commandErrors(contracted), []);
 });
 
+test("the recipe check reads the command and the surface, not only the five parts", () => {
+  // `recipeErrors` spreads two other checks into its result. Dropping either
+  // spread would leave it reporting on the five parts alone while looking like
+  // a complete check — and a vague invocation or an unpermitted surface would
+  // pass a document that says it verifies things.
+  const vague = recipe({ commands: [{ id: "c", invocation: "TBD", exit_semantics: "0", cleanup: "none" }] });
+  assert.ok(recipeErrors(vague).some((error) => error.reason === "verify_command_not_exact"));
+  const shared = recipe({ surface: "shared" });
+  assert.ok(recipeErrors(shared).some((error) => error.reason === "verify_surface_not_permitted"));
+});
+
 test("a shared surface needs recorded permission", () => {
   // "It only reads" is a claim about code that has not run yet.
   assert.deepEqual(surfaceErrors(recipe()), []);

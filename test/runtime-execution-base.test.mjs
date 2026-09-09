@@ -137,6 +137,35 @@ test("a missing predecessor binding stops the base before any worktree exists", 
     objects,
   });
   assert.ok(unbound.some((error) => /no commit or delta binding/u.test(error.detail)));
+  // Each half of the binding on its own: a commit with no delta digest is as
+  // unbound as neither, and an `&&` there would let one through.
+  for (const half of [{ commit_oid: "a".repeat(40) }, { delta_digest: "b".repeat(64) }]) {
+    const partial = baseAdmission(base(), {
+      predecessorStates: states({ T2: { pass: "valid", ...half } }),
+      objects,
+    });
+    assert.ok(
+      partial.some((error) => /no commit or delta binding/u.test(error.detail)),
+      JSON.stringify(half),
+    );
+  }
+  // And a PASS that is anything but valid is its own refusal, separate from the
+  // binding: `!== 'valid'` rather than "equal to some known bad value".
+  for (const pass of ["stale", "revoked", undefined]) {
+    const state = { commit_oid: "a".repeat(40), delta_digest: "b".repeat(64), pass };
+    assert.ok(
+      baseAdmission(base(), { predecessorStates: states({ T2: state }), objects })
+        .some((error) => error.reason === "stale_predecessor_pass"),
+      String(pass),
+    );
+  }
+});
+
+test("a base whose predecessors all hold a valid PASS is admitted", () => {
+  // The converse of every refusal above, and the case that pins the direction
+  // of the comparison: with `=== 'valid'` there, three valid predecessors
+  // would each be reported stale and a correct base would never compose.
+  assert.deepEqual(baseAdmission(base(), { predecessorStates: states(), objects }), []);
 });
 
 test("a stale predecessor PASS is a PASS about a tree that no longer exists", () => {
@@ -161,6 +190,21 @@ test("overlapping compatible deltas compose, and incompatible ones do not", () =
     predecessor("T2", { entries: [{ path: "src/shared.ts", new_blob: oid("2"), new_mode: "100644" }] }),
   ];
   assert.ok(overlapErrors(different).some((error) => error.reason === "incompatible_overlapping_deltas"));
+  // Through the admission, not only against the helper: the base is where the
+  // conflict has to stop, and a `baseAdmission` that dropped these would admit
+  // a composition nobody can produce.
+  const conflicting = base({ predecessors: different });
+  conflicting.digest = baseDigest(conflicting);
+  assert.ok(
+    baseAdmission(conflicting, { predecessorStates: states(), objects })
+      .some((error) => error.reason === "incompatible_overlapping_deltas"),
+  );
+  const agreeing = base({ predecessors: same });
+  agreeing.digest = baseDigest(agreeing);
+  assert.ok(
+    !baseAdmission(agreeing, { predecessorStates: states(), objects })
+      .some((error) => error.reason === "incompatible_overlapping_deltas"),
+  );
   // A mode that differs is the same conflict with no textual difference to see.
   const mode = [
     predecessor("T1", { entries: [{ path: "src/shared.ts", new_blob: oid("1"), new_mode: "100644" }] }),

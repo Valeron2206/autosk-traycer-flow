@@ -190,6 +190,25 @@ test("journal records out of sequence are refused", () => {
     { projectBinding: BINDING },
   );
   assert.ok(errors.some((entry) => entry.reason === "provenance_out_of_order"));
+  // The same sequence twice is also out of order: two records claiming one
+  // position cannot both be next, and `<=` rather than `<` is what says so.
+  assert.ok(
+    provenanceErrors(
+      [journalRecord({ sequence: 2 }), journalRecord({ operation_id: "op-2", sequence: 2 })],
+      ["timestamps"],
+      { projectBinding: BINDING },
+    ).some((entry) => entry.reason === "provenance_out_of_order"),
+  );
+  // And a strictly increasing pair is silent, so the refusal is the ordering
+  // and not the pairing.
+  assert.deepEqual(
+    provenanceErrors(
+      [journalRecord({ sequence: 1 }), journalRecord({ operation_id: "op-2", sequence: 2 })],
+      ["timestamps"],
+      { projectBinding: BINDING },
+    ).filter((entry) => entry.reason === "provenance_out_of_order"),
+    [],
+  );
 });
 
 test("comments append freely, and the frozen prefix may not change", () => {
@@ -199,6 +218,13 @@ test("comments append freely, and the frozen prefix may not change", () => {
   const rewritten = ["a", "B", "c", "d"];
   assert.equal(frozenPrefixDigest(before, 3), frozenPrefixDigest(appended, 3));
   assert.notEqual(frozenPrefixDigest(before, 3), frozenPrefixDigest(rewritten, 3));
+  // The checkpoint may sit at either end of the file — zero lines frozen, or
+  // all of them — and one past the end is outside it. Only interior values were
+  // tested, so both bounds could have been off by one.
+  assert.doesNotThrow(() => frozenPrefixDigest(before, 0));
+  assert.doesNotThrow(() => frozenPrefixDigest(before, before.length));
+  assert.throws(() => frozenPrefixDigest(before, before.length + 1), (error) => error.code === "frozen_prefix_modified");
+  assert.throws(() => frozenPrefixDigest(before, -1), (error) => error.code === "frozen_prefix_modified");
 
   assert.equal(
     evaluateRun(run({ comments: { before, after: appended, checkpoint: 3 } })).verdict,

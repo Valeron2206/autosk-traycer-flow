@@ -150,6 +150,20 @@ test("the budget is fixed, and exceeding it is refused rather than truncated", (
   const mapping = shipped.carriers[`${role}.${stage}`];
   const huge = bundle(Object.fromEntries(mapping.required.map((file) => [file, "x".repeat(200_000)])));
   assert.throws(() => compile(role, stage, { bundle: huge }), code("carrier_budget_exceeded"));
+  // Exactly the budget compiles: the bound is "larger than", and only values
+  // far past it were asked, so `<=` could have been `<` and a carrier sized to
+  // the budget would have been refused.
+  const budget = shipped.budget.max_bytes;
+  const padded = (extra) => bundle(Object.fromEntries(
+    mapping.required.map((file, index) => [file, index === 0 ? "x".repeat(extra) : "x"]),
+  ));
+  // One padding byte at a time changes the body by exactly one byte, so the
+  // size at the bound is found rather than guessed.
+  const atOne = Buffer.byteLength(compile(role, stage, { bundle: padded(1) }).body, "utf8");
+  const exact = 1 + (budget - atOne);
+  const at = compile(role, stage, { bundle: padded(exact) });
+  assert.equal(Buffer.byteLength(at.body, "utf8"), budget);
+  assert.throws(() => compile(role, stage, { bundle: padded(exact + 1) }), code("carrier_budget_exceeded"));
 });
 
 test("the same inputs serialise to the same bytes", () => {

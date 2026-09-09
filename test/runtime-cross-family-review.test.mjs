@@ -53,6 +53,10 @@ test("a fixer's family is excluded as firmly as an author's", () => {
   assert.deepEqual([...reviewerRoute({ authors: ["claude"], fixers: ["codex"] })], ["kimi", "grok"]);
   assert.equal(normalizeFamily("codex"), "gpt");
   assert.equal(normalizeFamily("anthropic"), "claude");
+  // A family with no name is not a family: the empty string would collapse two
+  // participants into one and make a cross-family review look satisfied.
+  assert.throws(() => normalizeFamily(""), (error) => error.code === "review_family_collision");
+  assert.throws(() => normalizeFamily(undefined), (error) => error.code === "review_family_collision");
   assert.throws(() => normalizeFamily(undefined), code("review_family_collision"));
 });
 
@@ -86,6 +90,14 @@ test("the full cycle has a limit, after which it is a person's", () => {
 
 test("an editorial exemption is classified, not argued", () => {
   // A behaviour-defining file is never exempt, whatever the change is called.
+  // An exemption with no candidate names nothing: it would cover whatever
+  // candidate happened to be current when somebody read it.
+  for (const identity of ["", undefined]) {
+    assert.throws(
+      () => editorialExemption(registry, { paths: ["a.md"], candidateIdentity: identity, declaredEditorial: true }),
+      (error) => error.code === "review_exemption_not_permitted",
+    );
+  }
   const behaviour = editorialExemption(registry, {
     paths: ["src/host/panel.mjs"],
     candidateIdentity: CANDIDATE,

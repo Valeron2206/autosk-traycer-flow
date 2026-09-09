@@ -171,6 +171,45 @@ test("a pruned object is rewritten from the persisted bytes, not created anew", 
   });
 });
 
+test("the trailer list is sorted and holds each name once", () => {
+  // The sort rule alone determines the commit bytes, so what matters is the
+  // property rather than the comparator: the list is ordered, and no name
+  // appears twice — a duplicate would make the comparator's tie branch
+  // reachable and two hosts could then disagree on the bytes.
+  for (const kind of ["artifact_pass", "anchor_invalidation"]) {
+    const names = trailerNamesFor(kind);
+    assert.deepEqual(names, [...names].sort());
+    assert.equal(new Set(names).size, names.length, kind);
+  }
+  assert.notDeepEqual(trailerNamesFor("artifact_pass"), trailerNamesFor("anchor_invalidation"));
+});
+
+test("both halves of each crash-window condition are asked", () => {
+  // The recovery table reads a ref and a reflog together, and a table that
+  // acted on either alone would resume from a state it never observed.
+  // Predicate mutation found every one of these `&&`s untested on the half that
+  // does not hold.
+  const park = (value) => publicationDecision(value).action;
+
+  // The ref moved but the reflog does not show one matching entry: that is not
+  // a landed CAS, it is an unexplained ref, and it parks.
+  assert.equal(park(observation({ ref: "expected_commit", reflog: "checkpoint" })), "park");
+  assert.equal(park(observation({ phase: "commit_created", ref: "expected_commit", reflog: "checkpoint", object: "matching" })), "park");
+  // The reflog shows a matching entry but the ref is still at the parent: the
+  // entry is about something else.
+  assert.deepEqual(
+    publicationDecision(observation({ ref: "expected_parent", reflog: "one_new_matching", object: "matching" })),
+    { action: "verify_existing_object", phase: "commit_created" },
+  );
+
+  // The advance needs all three: the parent ref, a valid keepalive and a
+  // reflog still at its checkpoint. Each missing one alone stops it.
+  const advancing = { phase: "commit_created", ref: "expected_parent", object: "matching", keepalive: "exact", reflog: "checkpoint" };
+  assert.equal(publicationDecision(observation(advancing)).action, "cas_advance_ref");
+  assert.equal(park({ ...observation(advancing), keepalive: "invalid" }), "park");
+  assert.equal(park({ ...observation(advancing), reflog: "unknown" }), "park");
+});
+
 test("the ref advances by CAS from the expected parent", () => {
   assert.deepEqual(publicationDecision(observation({ phase: "commit_created", object: "matching" })), {
     action: "cas_advance_ref",

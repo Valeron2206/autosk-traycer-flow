@@ -69,7 +69,7 @@ export function contractOutline(text) {
 }
 
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary }) {
   const sections = [];
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
   const open = contracts.filter((entry) => entry.refusals.length === 0);
@@ -167,6 +167,31 @@ The park reasons those classes feed are enumerated separately in
 \`npm run validate:refusal-vocabulary\`, which binds each reason to a registered
 workflow step and records whether this repository or the daemon produces it.
 
+**${vocabulary.park_reasons.length} park reasons.** ${vocabulary.park_reasons.filter((entry) => entry.closed_by.startsWith('docs/')).length}
+are closed by the artifact contract they belong to; the remaining
+${vocabulary.park_reasons.filter((entry) => !entry.closed_by.startsWith('docs/')).length} are the workflow's own vocabulary and are owned by the
+resume contract in \`03-technical-plan.md\` §7. That is why the alignment park
+reasons appear in no contract's closed set above and are still owned: the owner
+is a recorded field, not an inference. Each entry in the vocabulary names it,
+and the validator refuses an entry with no owner, an entry naming a document
+that does not close it, and a name two contracts declare.
+
+${vocabulary.park_reasons.filter((entry) => entry.producer === 'host').length} are produced by code in this repository; the other
+${vocabulary.park_reasons.filter((entry) => entry.producer === 'daemon').length} are parked by the daemon, which is delivered as the pinned
+patch series in section 1 and is not in the mutation table.
+
+**Where each contract's rules are evaluated.** A closed rule set with nothing
+that runs it is a design obligation, not an implemented one, and the difference
+belongs on the row rather than in a reader's inference:
+
+| contract | host module in the mutation table |
+| --- | --- |
+${contracts.map((entry) => {
+    const stem = entry.path.replace(/^docs\/contracts\//u, '').replace(/\.md$/u, '');
+    const module = mutation.modules.find((row) => row.module === `src/host/${stem}.mjs`);
+    return `| \`${entry.path}\` | ${module ? `\`${module.module}\` (${module.killed}/${module.mutants})` : 'none — design only in this version'} |`;
+  }).join('\n')}
+
 ${contracts.map((entry) => `### ${entry.path}
 
 Sections: ${entry.headings.join('; ')}
@@ -189,7 +214,8 @@ the line it applies to.
 
 | field | value |
 | --- | --- |
-| modules covered | ${mutation.totals.modules} |
+| modules with at least one mutable guard | ${mutation.modules.filter((entry) => entry.mutants > 0).length} of ${mutation.totals.modules} |
+| modules with none, which prove nothing about test strength | ${mutation.modules.filter((entry) => entry.mutants === 0).map((entry) => '\`' + entry.module + '\`').join(', ') || 'none'} |
 | mutants | ${mutation.totals.mutants} |
 | killed | ${mutation.totals.killed} |
 | survivors | ${mutation.survivors.length}, all named in \`resources/mutation-report/mutation-survivors.v1.json\` |
@@ -226,24 +252,35 @@ counts below. They are, in full:
 ${matrix.groups.map((group) => `- \`${group.id}\` (${group.boundary}) — ${group.description}`).join('\n')}
 
 Coverage: ${Object.entries(cleanRoom.coverage.counts).map(([state, count]) => `${state}=${count}`).join(', ')}; complete=${cleanRoom.coverage.complete}.
+Read \`complete\` as complete over this enumeration and over injection —
+${cleanRoom.coverage.rows.filter((row) => row.control === true || (cleanRoom.faults ?? []).some((entry) => entry.id === row.id && entry.control)).length} of ${matrix.groups.length} groups also carry a silent control.
 
-Each group is injected for real and paired with a control — the same guard,
-asked about the state without the fault, has to stay silent. A guard that
-refuses everything would detect every fault and mean nothing by it, so the
-per-case result is given rather than the count it rolls up into:
+Every group is injected for real. Most are also **paired with a control** — the
+same guard, asked about the state without the fault, has to stay silent — and
+three are not. F001–F003 are run by the crash harness, which injects at two
+points in a write and never asks the un-faulted question.
+
+That distinction is load-bearing and the coverage line does not carry it, so it
+is stated here instead: \`complete=true\` means every group was injected, not that
+every guard was shown to be specific. For the three uncontrolled groups the
+package cannot rule out a guard that would refuse the un-faulted state too.
+
+The per-case result is given rather than the count it rolls up into:
 
 ${cleanRoom.coverage.rows.length > 0
     ? `Every group in the matrix appears here. Sixteen are injected by the fault
-harness and carry a control; the other four are covered by the creation, crash
-and identity harnesses, which run a real fault without a paired control — the
-row says which, so a partial row is not read as a missing one.
+harness and carry a control, the identity harness runs both a fault and its
+control, and the crash harness injects without one — the row says which, so a
+partial row is not read as a missing one.
 
 | group | harness | fault detected | control silent | evidence |
 | --- | --- | --- | --- | --- |
 ${cleanRoom.coverage.rows.map((row) => {
       const injected = (cleanRoom.faults ?? []).find((entry) => entry.id === row.id);
       const detected = injected ? (injected.detected ? 'yes' : 'NO') : row.state === 'covered_by_real_fault' ? 'yes' : 'NO';
-      const control = injected ? (injected.control ? 'yes' : 'NO') : 'not paired';
+      const control = injected
+        ? (injected.control ? 'yes' : 'NO')
+        : row.control === true ? 'yes' : 'not paired';
       return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${detected} | ${control} | ${injected ? injected.detail : row.evidence ?? 'not covered'} |`;
     }).join('\n')}`
     : 'The run recorded no per-group results, so the counts above are all this package can show.'}
@@ -262,9 +299,20 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   artifact in section 3 is that graph, and this panel is **not** being asked to
   accept it as delivered — only to say whether deferring it is a defect in the
   design under review.
-- ${mutation.totals.modules} of the runtime modules are covered by the
-  reproducible mutation command; the daemon is not in this repository and its
-  guards are not mutated by it.
+- ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the
+  reproducible mutation command. The daemon is not in this repository and its
+  guards are not mutated by it, so nothing here is evidence about them.
+- A contract whose row in section 4 says **design only in this version** has a
+  closed rule set and nothing in this repository that evaluates it. That is a
+  design obligation, not an implemented one, and it is listed rather than left
+  to be inferred from the mutation table.
+- There is no mapping from a refusal class to a killed mutant. The command shows
+  that each module's guards are exercised by its own tests; it does not show
+  that every one of the ${contracts.reduce((sum, entry) => sum + entry.refusals.length, 0)} declared classes is reachable. Each contract
+  carries its own "every refusal class can be produced" test, which is a
+  different and narrower claim.
+- \`npm test\` is reported as a pass/fail total with no coverage figure. Read it
+  as "the suite is green", not as "the suite is adequate".
 - No deployment to real users has been performed, and none is claimed.`);
 
   const full = [];
@@ -321,6 +369,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
 
   const candidate = JSON.parse(await read('resources/design-candidate/design-candidate.v1.json'));
+  const vocabulary = JSON.parse(await read('resources/refusal-vocabulary/refusal-vocabulary.v1.json'));
   const matrix = JSON.parse(await read('resources/clean-room-e2e/fault-matrix.v1.json'));
   const compat = JSON.parse(await read('compat/autosk/manifest.v1.json'));
   const cleanRoom = await readJson(arg('--clean-room'));
@@ -349,6 +398,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     compat,
     tests: { passed, failed: 0 },
     contracts,
+    vocabulary,
   });
   if (out) await writeFile(out, built.text);
   console.log(`package_bytes=${built.bytes}`);

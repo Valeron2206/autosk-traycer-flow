@@ -204,6 +204,85 @@ test("the readings that turn prose into a decision", () => {
   assert.equal(authState({ stderr: "error: authentication token expired", exit_code: 2, result: null }), "expired");
   assert.equal(authState({ stderr: "", exit_code: null, result: null }), "unknown");
   assert.equal(authState({ stderr: "", exit_code: 0, result: {} }), "valid");
+  // The last line reads two facts together, and each alone is not the answer:
+  // a result with a non-zero exit is still an answer, and a missing result with
+  // a zero exit is a provider that said nothing but did not fail. Only both at
+  // once means "we cannot tell".
+  assert.equal(authState({ stderr: "", exit_code: 2, result: null }), "unknown");
+  assert.equal(authState({ stderr: "", exit_code: 2, result: {} }), "valid");
+  assert.equal(authState({ stderr: "", exit_code: 0, result: null }), "valid");
+  // The credential wording alone does not make it expired: a provider that
+  // mentions a token and exits zero has not refused anything.
+  assert.equal(authState({ stderr: "refreshed the token", exit_code: 0, result: {} }), "valid");
+});
+
+test("a probe that answered late is timed out even though nothing killed it", async () => {
+  // `timedOut === true || exceeded !== null` — the process finishing on its own
+  // does not mean it finished in time. With an `&&` there, a route that answers
+  // an hour late would read as a route that answers.
+  const record = await preflightRoute(run, route(), {
+    timeouts: { idle_ms: 0, wall_clock_ms: 2000 },
+    nowMs: NOW,
+    parseResult,
+  });
+  assert.equal(record.smoke.state, "timed_out");
+
+  // And the opposite: the same provider answering the same way inside its
+  // budget passes, so the difference is the budget and not the answer.
+  const inTime = await preflightRoute(run, route(), { timeouts: TIMEOUTS, nowMs: NOW, parseResult });
+  assert.equal(inTime.smoke.state, "passed");
+});
+
+test("a provider that reports no effort does not get the one we asked for back", async () => {
+  // "Read back, not repeated" is the rule this line states. A provider that
+  // answers with an explicit null effort has told us something — that it has
+  // none — and substituting the requested effort there would turn our own
+  // request into the provider's answer. The fallback belongs only to the case
+  // where nothing was confirmable at all.
+  const nullEffort = async () => ({
+    code: 0,
+    stdout: `<<<autosk-result ${JSON.stringify({ effort: null, effort_echoed: true })}>>>\n`,
+    stderr: "",
+    timedOut: false,
+  });
+  const record = await preflightRoute(nullEffort, route(), { timeouts: TIMEOUTS, nowMs: NOW, parseResult });
+  assert.equal(record.effort_confirmation, "reported");
+  assert.equal(record.effective_effort, null);
+
+  // And the genuinely unconfirmable case does fall back, which is why the two
+  // have to be told apart.
+  const noEffort = async () => ({ code: 0, stdout: `<<<autosk-result ${JSON.stringify({ ok: true })}>>>\n`, stderr: "", timedOut: false });
+  const unconfirmable = await preflightRoute(noEffort, route(), { timeouts: TIMEOUTS, nowMs: NOW, parseResult });
+  assert.equal(unconfirmable.effort_confirmation, "unconfirmable");
+  assert.equal(unconfirmable.effective_effort, "high");
+});
+
+test("a runner that reports its tree was left alive is not a clean probe", async () => {
+  // `treeKilled !== false` reads an absent field as "we did not have to kill
+  // anything". An explicit `false` is the runner saying it tried and could not,
+  // which is a different fact and must not be read as the absent one.
+  // The distinction only exists on a timed-out probe: that is where a leftover
+  // process is a leak the next run inherits, and where the two classifications
+  // diverge.
+  const late = { idle_ms: 0, wall_clock_ms: 2000 };
+  const leaves = async (command, args, options) => ({ ...(await run(command, args, options)), treeKilled: false, orphans: 2 });
+  // Read from the probe rather than the route record: the record collapses both
+  // timeouts to one state, and the distinction being tested lives one level
+  // down, where the classification is made.
+  const leaked = await runSmoke(leaves, route(), { timeouts: late, parseResult });
+  assert.equal(leaked.state, "timed_out");
+  assert.equal(leaked.observed.classification, "timeout_leaked");
+
+  // The same timeout with nothing left behind is the clean classification, so
+  // an absent `treeKilled` reads as "nothing had to be killed" rather than as
+  // "the kill failed".
+  const clean = await runSmoke(run, route(), { timeouts: late, parseResult });
+  assert.equal(clean.observed.classification, "timeout_clean");
+
+  // And an orphan alone leaks it, even when the kill reported success.
+  const orphaned = async (command, args, options) => ({ ...(await run(command, args, options)), orphans: 1 });
+  const withOrphan = await runSmoke(orphaned, route(), { timeouts: late, parseResult });
+  assert.equal(withOrphan.observed.classification, "timeout_leaked");
   assert.equal(modelSupported({ stderr: "error: model x is not available on this account", exit_code: 3, result: null }, "x"), false);
   assert.equal(modelSupported({ stderr: "", exit_code: 0, result: {} }, "x"), true);
 });

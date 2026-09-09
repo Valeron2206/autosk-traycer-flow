@@ -139,6 +139,11 @@ test("an unresolved product decision is not an assumption", () => {
   assert.ok(
     materialAmbiguityErrors({ assumptions: [{ id: "a-2", alternatives: ["queue", "reject"] }] }).length === 1,
   );
+  // One alternative is not a choice, and no alternatives is not either: the
+  // bound is "more than one", and only two of the three counts were asked.
+  assert.deepEqual(materialAmbiguityErrors({ assumptions: [{ id: "a-3", alternatives: ["queue"] }] }), []);
+  assert.deepEqual(materialAmbiguityErrors({ assumptions: [{ id: "a-4", alternatives: [] }] }), []);
+  assert.deepEqual(materialAmbiguityErrors({ assumptions: [{ id: "a-5" }] }), []);
 });
 
 test("a silent inference the user never saw blocks the Tech Plan", () => {
@@ -241,6 +246,29 @@ test("an autonomous policy continues only within the scope it recorded", () => {
     code("alignment_stale"),
   );
   assert.throws(() => policyAlignment({ kinds: ["brief"], anchor_version: 3 }, { ...context("brief"), scopeDigest: scope }), code("alignment_missing"));
+  // An empty policy reference is as absent as none: a policy that names itself
+  // with the empty string has named nothing, and `> 0` is what says so.
+  assert.throws(
+    () => policyAlignment({ ...policy, policy_ref: "" }, { ...context("brief"), scopeDigest: scope }),
+    code("alignment_missing"),
+  );
+  assert.doesNotThrow(() => policyAlignment({ ...policy, policy_ref: "p" }, { ...context("brief"), scopeDigest: scope }));
+});
+
+test("no record and a stale record are told apart in the reason and in the detail", () => {
+  // `forKind.length === 0` decides both the refusal class and the sentence an
+  // operator reads. With a `!==` there the two would swap: a missing alignment
+  // would be reported as one given for another anchor version, sending someone
+  // to re-approve something that was never approved.
+  const missing = gateAdmission({ ...context("brief"), records: [] });
+  assert.equal(missing.reason, "alignment_missing");
+  assert.match(missing.detail, /no alignment record for brief/u);
+
+  const packet = packetFor("brief");
+  const stale = recordAlignment(packet, confirm(packet), { nowMs: NOW }).record;
+  const drifted = gateAdmission({ ...context("brief", 99), records: [stale] });
+  assert.equal(drifted.reason, "alignment_stale");
+  assert.match(drifted.detail, /another anchor version or scope/u);
 });
 
 test("a correction while waiting raises the anchor version and restarts the cycle", () => {
@@ -250,6 +278,13 @@ test("a correction while waiting raises the anchor version and restarts the cycl
   assert.equal(effect.anchor_version, 4);
   assert.deepEqual([...effect.invalidated], ["brief"]);
   assert.equal(effect.restart, "clarify_core_flow");
+  // A record already at the new anchor version is not invalidated by reaching
+  // it: the boundary is "older than the next version", and a record exactly at
+  // it survives while one exactly below does not.
+  const atNext = { ...record, kind: "tech_plan", anchor_version: 4 };
+  const atCurrent = { ...record, kind: "tickets", anchor_version: 3 };
+  const mixed = correctionEffect({ anchorVersion: 3, records: [atNext, atCurrent], waitingFor: "core_flow" });
+  assert.deepEqual([...mixed.invalidated], ["tickets"]);
   // And the approval given under the old anchor no longer admits anything.
   assert.equal(gateAdmission({ ...context("brief", 4), records: [record] }).reason, "alignment_stale");
 });
