@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "record_id": "iar-0007",
+  "scope_id": "epic-0001",
+  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "epic_id": "epic-0001",
+  "run_id": "run-0003",
+  "target_ref": "refs/heads/main",
+  "initial_target_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "ordered_ticket_commit_oids": [
+    "cccccccccccccccccccccccccccccccccccccccc",
+    "dddddddddddddddddddddddddddddddddddddddd"
+  ],
+  "ordered_ref_transitions": [
+    {
+      "index": 0,
+      "from_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "to_oid": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "index": 1,
+      "from_oid": "cccccccccccccccccccccccccccccccccccccccc",
+      "to_oid": "dddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "final_tree_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "remaining_start_index": 0,
+  "integration_plan_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "controlling_anchor_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "classifier_proof_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+  "relevant_authority_projection_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+  "dependency_head_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+  "intent_head_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+  "previous_authorization_head_hash": null,
+  "expires_at": "2026-09-10T12:00:00Z",
+  "terminal_disposition": "active",
+  "issued_by": "user_decision_record",
+  "user_decision_record_id": "udr-0042",
+  "user_decision_record_hash": "7777777777777777777777777777777777777777777777777777777777777777"
+}

@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "1c6a7244a8010255f593db9525a4c686e7782a1c9762e2a7eb6693b96ce8d504"
+      "sha256": "01292d24905e3092022139f4171541d171771f1294118fcac8da3aa7c7c805af"
     },
     {
       "path": "README.md",
@@ -105,6 +105,10 @@
     {
       "path": "docs/contracts/human-decision.md",
       "sha256": "ef88eb21ada8bfa61e36d290fe3d81e0400cf690c2257551d248d8a47b13aa8d"
+    },
+    {
+      "path": "docs/contracts/integration-authorization.md",
+      "sha256": "1fa57fe4dee5906dd3d3b2f4f194599cb47ce1f67d889a495808f7aca6612a4f"
     },
     {
       "path": "docs/contracts/model-result.md",
@@ -247,6 +251,18 @@
       "sha256": "a2e1d41ca04e75566e0680570bcec92b34116819f4efb9307f456687eee5b489"
     },
     {
+      "path": "resources/integration-authorization/integration-authorization.example.json",
+      "sha256": "2cfadfc85321d716aaee56c819d250d2065fbdcf0f2fc13ed08d3495bf8eaaca"
+    },
+    {
+      "path": "resources/integration-authorization/integration-authorization.refused.example.json",
+      "sha256": "1aae8e264d89da87ddf1fa9646fd4507c5d3e67b3e40f0d785ea55e16a67489d"
+    },
+    {
+      "path": "resources/integration-authorization/integration-authorization.schema.json",
+      "sha256": "32b1dce3e47d7be443e93480384f8da5f32e40299edc878dcb5a5a6d8bb1b264"
+    },
+    {
       "path": "resources/iteration-result/iteration-result.schema.json",
       "sha256": "bd97401d83f4255df914913e0f3bbebade25ac9e1752c074af61fcd6fbcf2c4a"
     },
@@ -387,7 +403,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "6bbd25efb941db364a648ebe30e6a444f69c657eb703068af553c098527cc8d8",
+  "candidate_digest": "e2b174be1c0703617224eebaac66595e9f2f7a63cb056b26aa1c9232e5f8a2f3",
   "dispositions": [
     {
       "issue": 3,
