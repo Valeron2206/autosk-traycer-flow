@@ -64,16 +64,17 @@ test("a case that failed its control is not claimed as a real fault", () => {
   assert.equal(derived.F006.evidence, "the guard refuses everything");
 });
 
-test("the coverage table is derived from the run, and says what remains", () => {
+test("the coverage table is derived from the run, and the run completes it", () => {
   const covered = coverageReport(matrix, { ...COVERAGE, ...faultCoverage(report) });
   for (const id of Object.keys(CASES)) {
     assert.equal(covered.rows.find((row) => row.id === id).state, "covered_by_real_fault", id);
   }
-  // The residue is F004, and the report says so rather than rounding up.
-  assert.equal(covered.counts.not_covered, 1);
-  assert.equal(covered.rows.find((row) => row.id === "F004").state, "not_covered");
-  assert.equal(covered.complete, false);
-  // And the table on its own claims none of the twelve.
+  // Every group is now covered by a fault that actually ran, F004 included.
+  assert.equal(covered.counts.not_covered, undefined);
+  assert.equal(covered.counts.covered_by_real_fault, matrix.groups.length);
+  assert.equal(covered.complete, true);
+  // And the table on its own still claims none of the twelve this harness owns:
+  // they are covered by the run, not by the declaration beside it.
   const declared = coverageReport(matrix);
-  assert.equal(declared.counts.not_covered, 13);
+  assert.equal(declared.counts.not_covered, 12);
 });

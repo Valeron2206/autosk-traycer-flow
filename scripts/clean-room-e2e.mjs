@@ -42,11 +42,11 @@ export const COVERAGE = Object.freeze({
   F001: { harness: 'crash', evidence: 'reservation.before / reservation.after', real_fault: true },
   F002: { harness: 'crash', evidence: 'task.before / task.after', real_fault: true },
   F003: { harness: 'crash', evidence: 'activation.before / activation.after', real_fault: true },
-  // F004 is the distribution swapped between enroll and resume. The creation
-  // harness checks that a session token does not open another project, which is
-  // a different property; claiming it here would be the kind of confident
-  // sentence this report exists to avoid.
-  F004: { harness: null, evidence: null, real_fault: false },
+  F004: {
+    harness: 'identity',
+    evidence: 'the admitted task keeps its pin across a real swap; a later admission gets the new one',
+    real_fault: true,
+  },
   F005: { harness: null, evidence: null, real_fault: false },
   F006: { harness: null, evidence: null, real_fault: false },
   F007: { harness: null, evidence: null, real_fault: false },
@@ -253,6 +253,7 @@ export async function cleanRoomRun({ keep = false, moduleCache = path.join(tmpdi
     for (const [name, script] of [
       ['creation', 'scripts/verify-autosk-creation.mjs'],
       ['crash', 'scripts/verify-autosk-crash.mjs'],
+      ['identity', 'scripts/verify-autosk-identity.mjs'],
     ]) {
       const result = await run('node', [path.join(ROOT, script), sourceDir], { cwd: ROOT, env });
       const summary = lastJsonLine(result.stdout);
