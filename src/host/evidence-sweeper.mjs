@@ -15,6 +15,7 @@
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 
+import { redact } from './clearance.mjs';
 import { CLASS_DURABILITY, cleanupPlan, tombstoneFor } from './evidence-retention.mjs';
 
 /** Every file under the evidence root, with the id the records use. */
@@ -52,7 +53,14 @@ export async function walkEvidence(fs, root, prefix = '') {
  * Built completely before the plan, from every referring record. A partial
  * inventory is worse than none: it reads like a complete one.
  */
-export async function referenceInventory(fs, { referringFiles, pattern = /evidence\/([A-Za-z0-9._\-/]+)/gu }) {
+export async function referenceInventory(fs, {
+  referringFiles,
+  // Records rather than files: an external-source snapshot points at evidence
+  // from a record that was never written to the evidence root, and a sweep that
+  // only reads files would not see it referring to anything.
+  referringRecords = [],
+  pattern = /evidence\/([A-Za-z0-9._\-/]+)/gu,
+}) {
   const references = new Set();
   const read = [];
   const unreadable = [];
@@ -65,6 +73,11 @@ export async function referenceInventory(fs, { referringFiles, pattern = /eviden
       continue;
     }
     read.push(file);
+    for (const match of text.matchAll(pattern)) references.add(match[1]);
+  }
+  for (const record of referringRecords) {
+    const text = JSON.stringify(record);
+    read.push(record.id ?? record.snapshot_path ?? '<record>');
     for (const match of text.matchAll(pattern)) references.add(match[1]);
   }
   // A referring record nobody could read leaves the inventory incomplete, and
@@ -85,6 +98,9 @@ export async function sweep(fs, {
   root,
   records,
   referringFiles,
+  // Snapshot records from #21: what they point at is referenced, whether or
+  // not anything under the evidence root says so.
+  snapshots = [],
   nowMs,
   actor,
   operationId,
@@ -92,7 +108,7 @@ export async function sweep(fs, {
   dryRun = true,
 }) {
   const present = await walkEvidence(fs, root);
-  const inventory = await referenceInventory(fs, { referringFiles });
+  const inventory = await referenceInventory(fs, { referringFiles, referringRecords: snapshots });
   const byId = new Map(present.map((entry) => [entry.evidence_id, entry]));
 
   // Records about evidence that is no longer there are reported, not planned:
@@ -136,5 +152,43 @@ export async function sweep(fs, {
     tombstones: immutable(tombstones),
     missing: immutable(missing.map((record) => record.evidence_id).sort()),
     orphans: immutable(orphans.map((entry) => entry.evidence_id).sort()),
+  });
+}
+
+/**
+ * What may leave, and in what form.
+ *
+ * A `restricted` class is not exported as it stands. For an audience inside the
+ * project it goes out redacted, and for anyone else it does not go out at all —
+ * and the export says which records it withheld, because a bundle that quietly
+ * drops evidence is one whose reader cannot tell what is missing.
+ */
+export function exportSelection(records, { audience, home, replacements = [] }) {
+  demand(audience === 'project' || audience === 'public', 'evidence_referenced_deletion',
+    'An export names its audience', { audience });
+  const included = [];
+  const redacted = [];
+  const withheld = [];
+  for (const record of records) {
+    const durability = CLASS_DURABILITY[record.class];
+    demand(durability !== undefined, 'evidence_referenced_deletion',
+      'An export cannot classify a record it has no class for', { evidence_id: record.evidence_id });
+    if (durability !== 'restricted') {
+      included.push(record.evidence_id);
+      continue;
+    }
+    if (audience === 'public') {
+      withheld.push(Object.freeze({ evidence_id: record.evidence_id, reason: `restricted class ${record.class}` }));
+      continue;
+    }
+    const { body, redactions } = redact(record.text ?? '', { home, replacements });
+    redacted.push(Object.freeze({ evidence_id: record.evidence_id, text: body, redactions: immutable(redactions) }));
+  }
+  return Object.freeze({
+    audience,
+    include: immutable(included.sort()),
+    redact: immutable(redacted),
+    // Named, not dropped: a reader can see that something was held back.
+    withheld: immutable(withheld),
   });
 }
