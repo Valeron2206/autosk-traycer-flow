@@ -38,10 +38,12 @@
       ],
       "properties": {
         "transition_not_declared": {
-          "$ref": "#/$defs/park_reason"
+          "description": "Pinned to its own code: this contract owns it, so a document that renamed it would be naming a refusal nothing closes.",
+          "const": "transition_not_declared"
         },
         "resume_target_not_permitted": {
-          "$ref": "#/$defs/park_reason"
+          "description": "Pinned to its own code, for the same reason.",
+          "const": "resume_target_not_permitted"
         }
       }
     },

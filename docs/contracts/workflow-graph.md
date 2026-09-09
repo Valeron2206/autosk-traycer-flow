@@ -22,6 +22,8 @@ It also does not amend issue #10. The subject of a transition — who is entitle
 
 A workflow graph is one JSON document. Every field is closed: an unknown field, an unknown `schema_version`, or a value outside a declared enumeration is refused rather than ignored.
 
+"Closed" includes the key a language gives special meaning to. A member named `__proto__` is built as an own property of the parsed object, because assigning it would move the object's prototype instead: a closed schema reads own properties, so an assigned `__proto__` would be invisible to it and would then be dropped by the serializer — a document saying something the digest never covered.
+
 | Component | Where it lives | What it decides |
 | --- | --- | --- |
 | Steps | `steps[]` | The states the flow can be at. A step is `agent`, which runs and declares which hooks it has, or `status`, which drives a task status and runs nothing. |
@@ -47,7 +49,7 @@ The digest is taken over the canonical serialization, not over the file bytes. O
 | Arrays that carry order | `transitions` and `resume_targets` are serialized exactly as declared |
 | Arrays that do not | `steps`, `predicates`, `guards`, `caps`, `recovery`, a transition's `guards`, a step's `hooks`, a predicate's `reads`, `parks_at` and `policy_rules` are sorted, so a reshuffle of a set does not move the digest |
 | Whitespace | none is significant: no indentation and no space after a separator |
-| Numbers | integers only, written without a leading zero, without a `+`, without a fractional part and without an exponent; `-0` is refused. `1` and `1e0` are one value and two writings, so exactly one of them is canonical |
+| Numbers | integers only, written without a leading zero, without a `+`, without a fractional part and without an exponent; `-0` is refused. `1` and `1e0` are one value and two writings, so exactly one of them is canonical. Integrality is read from the digits as written, never from the float they convert to: `1.00000000000000001` rounds to exactly 1 and `1e-4000` underflows to 0, and an implementation with exact decimal arithmetic would refuse both |
 | Duplicate keys | refused by the **parse**, never by the schema |
 | Names compared with the daemon | base64 of UTF-16LE, standard alphabet with padding |
 
@@ -101,9 +103,13 @@ Every park reason a document can produce — from a step's `no_transition_reason
 
 ## 9. Refusal classes
 
-Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_number_not_canonical`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
+Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
 
 The set holds two kinds, because one contract owns both. The prefixed codes are design-time: the validator refuses a document. The three without the prefix are runtime park reasons the graph itself issues, which no edge and no step can carry — an undeclared pair has no edge, and therefore no guard on which to hang a reason.
+
+Three of the design-time codes are about the document before its graph is read. `graph_not_json` is any parse failure other than the two the parse names itself; `graph_duplicate_key` and `graph_number_not_canonical` are those two. `graph_schema` is a shape refusal, including the ordinary case of a field the document is not allowed to carry. They are listed because a reachable refusal that is not declared is a set that reads as closed and is not: the test that guards this set runs a battery of malformed documents and compares the codes actually produced against the list above, rather than reading the list back to itself.
+
+`graph_park_reason_unknown` is the code for a park reason nobody owns. The authoritative set is the park reasons of `resources/refusal-vocabulary/refusal-vocabulary.v1.json` together with the three this contract owns. Checking only the spelling would leave section 4's promise a sentence: `totally_unknown_reason` has the right shape, belongs to no vocabulary, and is exactly the code no recovery contract can be read for.
 
 None of the three belongs in `resources/refusal-vocabulary/refusal-vocabulary.v1.json`. That resource is the enumeration of park states of the **autosk workflow**, extracted from the resume table that owns it, and these are states of a graph runtime that does not exist yet. Recording them there would assert they are reachable today, which is false. They are owned and closed here, exactly as `docs/contracts/execution-base.md` owns and closes its own set.
 
@@ -113,7 +119,11 @@ None of the three belongs in `resources/refusal-vocabulary/refusal-vocabulary.v1
 
 - the working example is accepted and the refused example is refused
 - every refusal class in section 9 is produced by a test, and the two runtime codes are proved unreachable from a schema-valid document rather than merely unused
+- the codes a battery of malformed documents actually produces are compared against section 9, so a reachable and undeclared code fails the suite
 - the duplicate key is refused by the parse, and a test shows the schema does not see it
+- a member named `__proto__` arrives as an own property and is refused by the schema
+- a fraction that rounds to an integer and an exponent that underflows to zero are both refused, while `1`, `1.0`, `1e0` and `10e-1` still converge
+- a park reason no vocabulary owns is refused, and the two graph-level codes cannot be renamed
 - the canonical reference reproduces byte for byte, and each of its four forks is exercised
 - a resume target that is not a declared edge out of its `parks_at` step is refused
 - two edges leaving one step at equal priority are refused

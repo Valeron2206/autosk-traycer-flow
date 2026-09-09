@@ -278,3 +278,128 @@ test("a reference that drops a fork is caught", () => {
   reference.forks = reference.forks.filter((fork) => fork.fork !== "duplicate_key");
   assert.ok(validateReference(reference).some((message) => message.includes("fork duplicate_key is not exercised")));
 });
+
+// --- findings from the slice 1 cross-family review --------------------------
+
+/**
+ * A JSON key named `__proto__` is not an ordinary key.
+ *
+ * Assigning it with `value[key] = ...` moves the parsed object's prototype
+ * instead of creating an own property, so the closed-document rule never sees
+ * it: `additionalProperties: false` reads own properties, and there are none.
+ * The document then passes and the canonical bytes silently drop what it said.
+ */
+test("ASTRA-S1-01: __proto__ parses as an own property, not as the prototype", () => {
+  const parsed = parseStrict('{"__proto__":{"unexpected":true},"schema_version":1}');
+  assert.ok(Object.hasOwn(parsed, "__proto__"), "__proto__ must be an own property");
+  assert.equal(Object.getPrototypeOf(parsed), Object.prototype, "the prototype must not have moved");
+  assert.equal(parsed.unexpected, undefined, "nothing may be inherited from the parsed value");
+});
+
+test("ASTRA-S1-01: a graph carrying __proto__ is refused rather than quietly dropped", () => {
+  const carried = parseStrict(canonicalText(example()).replace(/^\{/u, '{"__proto__":{"unexpected":true},'));
+  const errors = validateGraph(carried, schema);
+  assert.ok(
+    errors.some((message) => message.includes("__proto__")),
+    `expected a refusal naming __proto__, got:\n${errors.join("\n") || "(no findings)"}`,
+  );
+});
+
+/**
+ * Integrality is a property of the written number, not of the float it becomes.
+ *
+ * `1.00000000000000001` rounds to exactly 1 and `1e-4000` underflows to 0, so a
+ * check made after the conversion accepts two fractions as integers. An
+ * implementation with exact decimal arithmetic would refuse both, which makes
+ * the reference stop proving that two implementations agree.
+ */
+test("ASTRA-S1-02: a fraction that rounds to an integer is refused", () => {
+  assert.throws(() => parseStrict("1.00000000000000001"), /graph_number_not_canonical/u);
+});
+
+test("ASTRA-S1-02: an exponent that underflows to zero is refused", () => {
+  assert.throws(() => parseStrict("1e-4000"), /graph_number_not_canonical/u);
+});
+
+test("ASTRA-S1-02: minus zero is refused where its sign still exists", () => {
+  assert.throws(() => parseStrict("-0"), /graph_number_not_canonical/u);
+  assert.throws(() => parseStrict("-0.0e7"), /graph_number_not_canonical/u);
+});
+
+test("ASTRA-S1-02: an integer larger than the exactly representable range is refused", () => {
+  assert.throws(() => parseStrict("9007199254740993"), /graph_number_not_canonical/u);
+});
+
+test("ASTRA-S1-02: the writings that mean one integer still converge", () => {
+  for (const text of ["1", "1.0", "1e0", "10e-1", "0", "-7"]) {
+    assert.equal(parseStrict(text), Number(text), `${text} must survive as its integer`);
+  }
+});
+
+/**
+ * The schema promises that a code outside the vocabulary is refused by the
+ * validator. Until this test, only the spelling was checked.
+ */
+test("ASTRA-S1-03: a park reason no vocabulary owns is refused", () => {
+  assertRefuses(
+    mutated((document) => {
+      document.guards[0].park_reason = "totally_unknown_reason";
+      document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason";
+    }),
+    "graph_park_reason_unknown",
+  );
+});
+
+test("ASTRA-S1-03: the graph-level reasons cannot be renamed to something else", () => {
+  assertRefuses(
+    mutated((document) => { document.graph_reasons.transition_not_declared = "totally_unknown_reason"; }),
+    "graph_schema",
+  );
+});
+
+/**
+ * The closed set is checked against what the validator actually emits.
+ *
+ * Reading a hand-kept list back to itself cannot notice a code that is reachable
+ * and undeclared, which is how `graph_schema` stayed out of the contract.
+ */
+test("ASTRA-S1-04: every refusal reachable from a real input is declared", () => {
+  const produced = new Set();
+  const code = (message) => message.split(":")[0];
+
+  const mutations = [
+    (document) => { document.first_step = "nowhere"; },
+    (document) => { document.steps[1].name = "intake"; },
+    (document) => { document.transitions[0].to = "nowhere"; },
+    (document) => { document.guards[0].predicate = "never_declared"; },
+    (document) => { document.transitions[1].guards = ["never_declared"]; },
+    (document) => { document.transitions[2].priority = 0; },
+    (document) => { document.caps[0].counted_transition = "never_declared"; },
+    (document) => { document.transitions.push({ id: "done_to_intake", from: "done", to: "intake", priority: 0, guards: [] }); },
+    (document) => { document.steps[0].no_transition_reason = "quick_classification_invalid"; document.steps.push({ name: "orphan", kind: "agent", hooks: ["onRun"], no_transition_reason: "quick_classification_invalid" }); },
+    (document) => { document.recovery[0].resume_targets = ["done"]; },
+    (document) => { delete document.steps[0].no_transition_reason; },
+    (document) => { document.unexpected = true; },
+    (document) => { document.guards[0].park_reason = "totally_unknown_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason"; },
+  ];
+  for (const mutate of mutations) {
+    for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
+  }
+  for (const message of validateGraph(mutated((document) => { document.caps[0].limit = 9; }, { reseal: false }), schema)) {
+    produced.add(code(message));
+  }
+  for (const text of ['{"a":1,"a":2}', "{", '{"a" 1}', "1.5", "-0", '{"a":1} trailing']) {
+    try {
+      parseStrict(text);
+    } catch (error) {
+      produced.add(code(error.message));
+    }
+  }
+
+  assert.ok(produced.size >= 12, `the battery produced only ${produced.size} codes`);
+  assert.deepEqual(
+    [...produced].filter((entry) => !REFUSALS.includes(entry)).sort(),
+    [],
+    `reachable and undeclared: ${[...produced].filter((entry) => !REFUSALS.includes(entry)).join(", ")}`,
+  );
+});

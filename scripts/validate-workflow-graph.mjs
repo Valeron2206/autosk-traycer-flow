@@ -29,6 +29,7 @@ export const SCHEMA_PATH = "resources/workflow-graph/workflow-graph.schema.json"
 export const EXAMPLE_PATH = "resources/workflow-graph/workflow-graph.example.json";
 export const REFUSED_PATH = "resources/workflow-graph/workflow-graph.refused.example.json";
 export const REFERENCE_PATH = "resources/workflow-graph/canonical-reference.json";
+export const VOCABULARY_PATH = "resources/refusal-vocabulary/refusal-vocabulary.v1.json";
 export const CONTRACT_MARKER = "<!-- workflow-graph-contract:v1 -->";
 
 /**
@@ -48,11 +49,14 @@ export const REFUSALS = Object.freeze([
   "graph_first_step_unknown",
   "graph_guard_unknown",
   "graph_lone_surrogate",
+  "graph_not_json",
   "graph_number_not_canonical",
+  "graph_park_reason_unknown",
   "graph_predicate_unknown",
   "graph_priority_ambiguous",
   "graph_recovery_missing",
   "graph_recovery_reason_unknown",
+  "graph_schema",
   "graph_step_unknown",
   "graph_step_unreachable",
   "graph_terminal_step_leaves",
@@ -60,6 +64,30 @@ export const REFUSALS = Object.freeze([
   "resume_target_not_permitted",
   "transition_not_declared",
 ]);
+
+/** The three this contract owns. Every other code a graph names is the workflow's. */
+export const GRAPH_PARK_REASONS = Object.freeze([
+  "no_transition_reason",
+  "resume_target_not_permitted",
+  "transition_not_declared",
+]);
+
+let parkReasonCache;
+
+/**
+ * The codes a graph may name.
+ *
+ * The schema says a code outside the vocabulary is refused. Checking only the
+ * spelling would leave that sentence unenforced: `totally_unknown_reason` has
+ * the right shape and belongs to nobody.
+ */
+export function parkReasons(root = ROOT) {
+  if (!parkReasonCache) {
+    const vocabulary = JSON.parse(readFileSync(path.join(root, VOCABULARY_PATH), "utf8"));
+    parkReasonCache = new Set([...vocabulary.park_reasons.map((entry) => entry.code), ...GRAPH_PARK_REASONS]);
+  }
+  return parkReasonCache;
+}
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -77,12 +105,45 @@ export const REFUSALS = Object.freeze([
  * the way out rather than refused here, because two spellings of one value are
  * one value. Only the duplicate key loses information, and only it is refused.
  */
+/**
+ * The integer a numeric token exactly denotes, or a refusal.
+ *
+ * Integrality is a property of what was written, not of the float it becomes.
+ * `1.00000000000000001` rounds to exactly 1 and `1e-4000` underflows to 0, so a
+ * check made after the conversion accepts two fractions as integers — and an
+ * implementation with exact decimal arithmetic would refuse both, which is the
+ * disagreement the canonical reference exists to prevent. The digits are read
+ * first and converted only once the value is known to be an integer the range
+ * can hold exactly.
+ *
+ * The spellings that mean one integer still converge: `1`, `1.0`, `1e0` and
+ * `10e-1` all arrive here as 1.
+ */
+export function exactInteger(token, refuse) {
+  const parts = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/u.exec(token);
+  if (!parts) return refuse(`${token} is not a number the graph writes`);
+  const [, sign, whole, fraction = "", exponent = "0"] = parts;
+  const digits = whole + fraction;
+  const point = whole.length + Number(exponent);
+  if (/[1-9]/u.test(point >= digits.length ? "" : digits.slice(Math.max(point, 0)))) {
+    return refuse(`${token} is not an integer`);
+  }
+  const magnitude = point <= 0 ? 0n : BigInt(digits.slice(0, point).padEnd(point, "0"));
+  if (magnitude === 0n && sign === "-") return refuse("-0 is a second spelling of 0");
+  const value = sign === "-" ? -magnitude : magnitude;
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < -BigInt(Number.MAX_SAFE_INTEGER)) {
+    return refuse(`${token} is outside the exactly representable range`);
+  }
+  return Number(value);
+}
+
 export function parseStrict(text) {
   let at = 0;
 
-  const fail = (message) => {
-    throw new SyntaxError(`${message} at offset ${at}`);
+  const failWith = (code, message) => {
+    throw new SyntaxError(`${code}: ${message} at offset ${at}`);
   };
+  const fail = (message) => failWith("graph_not_json", message);
 
   const skipWhitespace = () => {
     while (at < text.length && (text[at] === " " || text[at] === "\t" || text[at] === "\n" || text[at] === "\r")) {
@@ -148,7 +209,7 @@ export function parseStrict(text) {
       if (!/[0-9]/u.test(text[at] ?? "")) fail("malformed exponent");
       while (/[0-9]/u.test(text[at] ?? "")) at += 1;
     }
-    return Number(text.slice(start, at));
+    return exactInteger(text.slice(start, at), (message) => failWith("graph_number_not_canonical", message));
   };
 
   const parseValue = () => {
@@ -169,12 +230,21 @@ export function parseStrict(text) {
         const key = parseStringValue();
         if (seen.has(key)) {
           at = keyAt;
-          fail(`graph_duplicate_key: ${JSON.stringify(key)} is written twice in one object`);
+          failWith("graph_duplicate_key", `${JSON.stringify(key)} is written twice in one object`);
         }
         seen.add(key);
         skipWhitespace();
         expect(":");
-        value[key] = parseValue();
+        // Defined rather than assigned: `value.__proto__ = x` moves the object's
+        // prototype instead of creating an own property, and a closed schema
+        // reads own properties — so an assigned `__proto__` would be invisible
+        // to `additionalProperties: false` and dropped by the serializer.
+        Object.defineProperty(value, key, {
+          value: parseValue(),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
         skipWhitespace();
         if (text[at] === ",") {
           at += 1;
@@ -380,7 +450,7 @@ export function graphDigest(document) {
  * to anything. A schema-valid document whose edges point at steps that do not
  * exist is exactly the failure prose graphs have today.
  */
-export function validateGraph(document, schema) {
+export function validateGraph(document, schema, allowed = parkReasons()) {
   const schemaErrors = validateJsonSchema(document, schema).map((message) => `graph_schema: ${message}`);
   if (schemaErrors.length > 0) return schemaErrors;
 
@@ -472,6 +542,20 @@ export function validateGraph(document, schema) {
   for (const step of document.steps) if (step.no_transition_reason) produced.add(step.no_transition_reason);
   for (const guard of document.guards) produced.add(guard.park_reason);
   for (const cap of document.caps) produced.add(cap.park_reason);
+
+  // The schema says a code outside the vocabulary is refused. Checking only the
+  // spelling would leave that a sentence: a well-formed name owned by nobody is
+  // exactly the code no recovery contract can be read for.
+  for (const [named, reason] of [
+    ...document.steps
+      .filter((step) => step.no_transition_reason)
+      .map((step) => [`step ${step.name}`, step.no_transition_reason]),
+    ...document.guards.map((guard) => [`guard ${guard.id}`, guard.park_reason]),
+    ...document.caps.map((cap) => [`cap ${cap.cycle}`, cap.park_reason]),
+    ...document.recovery.map((row) => [`recovery row ${row.reason}`, row.reason]),
+  ]) {
+    if (!allowed.has(reason)) errors.push(`graph_park_reason_unknown: ${named} names ${reason}`);
+  }
 
   const rows = new Map(document.recovery.map((row) => [row.reason, row]));
   for (const reason of [...produced].sort()) {
