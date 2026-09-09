@@ -502,7 +502,23 @@ base
 → Tickets PASS
 ```
 
-## 11. Relationship to downstream issues
+## 11. Refusal classes
+
+Closed set, so a caller may branch on them rather than on message text:
+
+- `planning_ref_init_invalid` — the base is missing, is not a commit, comes from another object store, or is bound to another project or Epic; also a corrupt or missing init operation;
+- `planning_ref_capability_missing` — the pinned ref, reflog, helper or atomic PASS capability did not pass its synthetic preflight, so no Git write is attempted;
+- `planning_ref_foreign_movement` — the ref moved without a persisted operation and reflog proof, including same-OID move-away-and-back;
+- `planning_candidate_keepalive_invalid` — the keepalive ref pre-existed, moved, was deleted, or its object closure cannot be verified;
+- `planning_candidate_base_stale` — the ref changed after the candidate was minted, so the candidate and every verdict bound to it are about an earlier head;
+- `planning_publication_invalid` — a publication operation is missing or conflicting and cannot be rebuilt from committed bytes alone;
+- `planning_publication_corrupt` — the committed recipe or receipt bytes do not restore, or a pre-CAS object is missing;
+- `planning_signing_unavailable` — the trusted signer cannot produce replayable signature bytes under the current locked policy, before any PASS, operation, object or ref side effect;
+- `artifact_freeze_invalid` — the freeze mint disagrees with the exact scope, pathspec or tree, so no panel child and no PASS follow from it.
+
+Every one of these parks the workflow in `human` at the step named by the resume contract; the enumeration and the step binding are checked by `docs/contracts/refusal-vocabulary.md`.
+
+## 12. Relationship to downstream issues
 
 - **Issue #6:** the verified Tickets publication commit contains the frozen human-readable Tickets and canonical manifest. Its OID becomes the final `planning_head` for that Tickets version.
 - **Issue #7:** every Ticket execution base starts from that exact verified `planning_head`, then composes approved transitive predecessor deltas.
@@ -515,7 +531,7 @@ base
 - **Issue #17:** delivery profile may replace the closed v1 bootstrap target/base, host identity and signing policy from section 3; a stricter project blocks until that exact policy is available.
 - **Issue #25:** requirement revision supplies the approved semantic impact map; this contract performs only the crash-safe Git publication.
 
-## 12. Retention and cleanup
+## 13. Retention and cleanup
 
 The planning ref and every commit/object referenced by:
 
@@ -540,7 +556,7 @@ Audit deletion is a separate typed `audit_candidate_housekeeping_op`, governed b
 
 Git GC may prune the separate unreferenced publication commit object because its exact bytes remain in the protected operation, so retry rewrites those bytes to the same OID before CAS; it may not prune the candidate snapshot commit/tree/blob closure protected by the live or audit ref. Git GC must not make current or post-CAS audit-required planning objects unreachable. Planning, live candidate and audit candidate reflogs retain both scoped expiry values `never`; ordinary maintenance must not truncate their load-bearing prefixes. Unexpected truncation is explicit foreign/corrupt evidence, never normal adoption.
 
-## 13. Required runtime tests
+## 14. Required runtime tests
 
 Implementation of issue #5 is release-blocking and must include at least:
 
@@ -594,7 +610,7 @@ Implementation of issue #5 is release-blocking and must include at least:
 48. crash freeze before and after snapshot-object write and keepalive preparation; deterministic snapshot recipe replay must preserve the same commit OID, candidate identity, operation ID and ref.
 49. execute approved audit expiry through prepared, ref_deleted and tombstone_verified; crash after helper deletion and prove the same operation reconstructs its receipt and tombstone without a second delete.
 
-## 14. Acceptance mapping for issue #5
+## 15. Acceptance mapping for issue #5
 
 - one private ref per Planned Epic: sections 1, 4;
 - reachable commit after each artifact PASS: sections 6–9;

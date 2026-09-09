@@ -327,6 +327,7 @@
         "docs/contracts/project-instructions-lock.md",
         "docs/contracts/provider-preflight.md",
         "docs/contracts/reflect-cost-watch.md",
+        "docs/contracts/refusal-vocabulary.md",
         "docs/contracts/requirement-revision.md",
         "docs/contracts/sdk-write-api.md",
         "docs/contracts/stage-carriers.md",
@@ -375,6 +376,7 @@
         "platform_matrix",
         "provider_preflight",
         "reflect_pass",
+        "refusal_vocabulary",
         "revision_record",
         "sdk_write_operation",
         "stage_carriers",
@@ -1418,6 +1420,35 @@
       "human_approval": "required"
     },
     {
+      "class": "refusal_vocabulary",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/refusal-vocabulary/refusal-vocabulary.v1.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the enumeration is extracted from the resume contract, so a change to it is a change to that table and is reviewed with it"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/refusal-vocabulary/refusal-vocabulary.schema.json",
+      "validator": "scripts/validate-refusal-vocabulary.mjs",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "repository_config",
       "category": "behavior_defining",
       "author_roles": [
@@ -1812,5 +1843,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "e8d27a33e3831f366edce235503fff37ae1af8b12693a33a3b2ea5b055c69dba"
+  "registry_digest": "a8aef9c6be17cf33763616a3727ac1c55a1bb189cc6272238347eafcb0c167a2"
 }

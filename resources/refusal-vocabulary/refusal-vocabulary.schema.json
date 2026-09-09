@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/refusal-vocabulary/refusal-vocabulary.schema.json",
+  "title": "Closed park vocabulary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "step_classes", "park_reasons", "vocabulary_digest"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "step_classes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["class", "members", "derivation"],
+        "properties": {
+          "class": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "members": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+          },
+          "derivation": { "type": "string", "pattern": "^(listed|prefix:[a-z_]+|complement:[a-z_]+)$" }
+        }
+      }
+    },
+    "park_reasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "parks_at", "parks_at_classes", "producer", "producer_files"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "parks_at": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
+          "parks_at_classes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
+          "producer": { "enum": ["host", "daemon"] },
+          "producer_files": { "type": "array", "items": { "type": "string", "pattern": "^(src|scripts)/" } }
+        }
+      }
+    },
+    "vocabulary_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

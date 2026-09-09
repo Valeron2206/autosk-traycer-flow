@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "step_classes": [
+    { "class": "gate_model_step", "members": ["review_artifact", "review_disposition", "review_candidate", "judge"], "derivation": "listed" }
+  ],
+  "park_reasons": [
+    {
+      "code": "planning_ref_init_invalid",
+      "parks_at": ["init_planning_ref"],
+      "parks_at_classes": [],
+      "producer": "daemon",
+      "producer_files": []
+    },
+    {
+      "code": "gate_provider_unavailable",
+      "parks_at": ["freeze_the_artifact"],
+      "parks_at_classes": ["retry_step"],
+      "producer": "host",
+      "producer_files": ["src/host/nothing-names-this.mjs"]
+    },
+    {
+      "code": "park_reason_nobody_declared",
+      "parks_at": ["freeze"],
+      "parks_at_classes": [],
+      "producer": "daemon",
+      "producer_files": []
+    }
+  ],
+  "vocabulary_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+}
