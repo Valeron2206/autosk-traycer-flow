@@ -116,6 +116,7 @@
         "record_aggregate_remediation"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -125,6 +126,7 @@
         "record_aggregate_remediation"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -135,6 +137,7 @@
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -145,6 +148,7 @@
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -154,6 +158,7 @@
         "complete_anchor_handoff"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -163,6 +168,7 @@
         "record_anchor_impact_approval"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -172,6 +178,7 @@
         "prepare_anchor_impact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -181,6 +188,7 @@
         "rebuild_anchor"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -190,6 +198,7 @@
         "rebuild_code_anchor"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -199,6 +208,7 @@
         "rebuild_code_anchor"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -210,6 +220,7 @@
         "verify_candidate"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -221,6 +232,7 @@
         "verify_candidate"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -232,6 +244,7 @@
         "verify_candidate"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -241,6 +254,7 @@
         "fix_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -250,6 +264,7 @@
         "apply_arena_decision"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -259,6 +274,7 @@
         "dispatch_arena"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -268,6 +284,7 @@
         "draft_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -277,6 +294,7 @@
         "draft_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -286,6 +304,7 @@
         "draft_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -295,6 +314,7 @@
         "draft_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -304,6 +324,7 @@
         "fix_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -313,6 +334,7 @@
         "fix_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -322,6 +344,7 @@
         "fix_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -331,6 +354,7 @@
         "freeze_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -342,6 +366,7 @@
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -351,6 +376,7 @@
         "freeze_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -360,6 +386,7 @@
         "authority_recovery"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -373,6 +400,7 @@
       "parks_at_classes": [
         "gate_join_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -382,6 +410,7 @@
         "record_alignment"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -391,6 +420,7 @@
         "fix"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -400,6 +430,7 @@
       "parks_at_classes": [
         "dispatch_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -409,6 +440,7 @@
         "cleanup"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -418,6 +450,7 @@
         "freeze"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -427,6 +460,7 @@
         "commit_on_pass"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -436,6 +470,7 @@
         "commit_on_pass"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -445,6 +480,7 @@
         "dispatch_contest"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -454,6 +490,7 @@
         "record_alignment"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -463,6 +500,7 @@
       "parks_at_classes": [
         "gate_model_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -472,6 +510,7 @@
         "fix"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -481,6 +520,7 @@
         "fix"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -490,6 +530,7 @@
         "fix"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -499,6 +540,7 @@
         "integration_recovery"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -508,6 +550,7 @@
         "freeze"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -517,6 +560,7 @@
       "parks_at_classes": [
         "gate_model_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -526,6 +570,7 @@
       "parks_at_classes": [
         "gate_model_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -535,6 +580,7 @@
       "parks_at_classes": [
         "gate_model_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -544,6 +590,7 @@
       "parks_at_classes": [
         "gate_model_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -553,6 +600,7 @@
         "implement"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -562,6 +610,7 @@
         "implement"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -572,6 +621,7 @@
         "invalidate_quick_classification"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "host",
       "producer_files": [
         "src/host/quick-flow.mjs"
@@ -583,6 +633,7 @@
         "accept"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/integration-authorization.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-integration-authorization.mjs"
@@ -594,6 +645,7 @@
         "integrate"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -603,6 +655,7 @@
         "integrate"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -612,6 +665,7 @@
         "dispatch_narrow_review"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -623,6 +677,7 @@
         "human"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -634,6 +689,7 @@
         "human"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -643,6 +699,7 @@
         "dispatch_panel"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -654,6 +711,7 @@
         "panel_join"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -664,6 +722,7 @@
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs"
@@ -683,6 +742,7 @@
         "synthesize_panel"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs",
@@ -696,6 +756,7 @@
         "publish_planning_invalidation"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs",
@@ -710,6 +771,7 @@
         "record_artifact_pass"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs"
@@ -729,6 +791,7 @@
         "synthesize_panel"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs"
@@ -749,6 +812,7 @@
         "synthesize_panel"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs",
@@ -761,6 +825,7 @@
         "init_planning_ref"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs"
@@ -772,6 +837,7 @@
         "record_artifact_pass"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-planning-ref-design.mjs",
@@ -784,6 +850,7 @@
       "parks_at_classes": [
         "deterministic_step"
       ],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -793,6 +860,7 @@
         "repair_protocol_snapshot"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -802,6 +870,7 @@
         "invalidate_quick_classification"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "host",
       "producer_files": [
         "src/host/quick-flow.mjs"
@@ -814,6 +883,7 @@
         "fix_artifact"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -824,6 +894,7 @@
         "dispatch_review"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -833,6 +904,7 @@
         "freeze"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -842,6 +914,7 @@
         "record_alignment"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -851,6 +924,7 @@
         "dispatch_ticket_dag"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -860,6 +934,7 @@
         "dispatch_ticket_dag"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -870,6 +945,7 @@
         "rebuild_anchor"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -880,6 +956,7 @@
         "resume_repaired_tickets"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -889,6 +966,7 @@
         "record_alignment"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -899,6 +977,7 @@
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-tickets-manifest-design.mjs"
@@ -910,6 +989,7 @@
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "host",
       "producer_files": [
         "scripts/validate-tickets-manifest-design.mjs"
@@ -921,6 +1001,7 @@
         "fix"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -930,6 +1011,7 @@
         "verify"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -939,6 +1021,7 @@
         "verify"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -949,9 +1032,10 @@
         "repair_anchor_handoff"
       ],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "4330470161baef413d9c67900cb4e7ecdf13e8dfbe6f62807930ea54a5421682"
+  "vocabulary_digest": "263cea27bc55d2de8d91c21117f39d1c26e66e67bab1ca2cd8ab0845d34ff684"
 }

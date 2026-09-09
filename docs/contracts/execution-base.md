@@ -77,7 +77,9 @@ Composition objects stay reachable until the end of the Epic's audit retention. 
 
 ## 9. Park reasons
 
-Closed set: `missing_predecessor_binding`, `stale_predecessor_pass`, `incompatible_overlapping_deltas`, `composition_failed`, `base_mismatch`, `dag_changed`, `anchor_changed`, `foreign_ref_movement`, `unreachable_composition_object`.
+Closed set: `missing_predecessor_binding`, `stale_predecessor_pass`, `incompatible_overlapping_deltas`, `composition_failed`, `base_mismatch`, `dag_changed`, `anchor_changed`, `unreachable_composition_object`.
+
+This contract also raises `foreign_ref_movement`, which `docs/contracts/approved-delta.md` owns and closes: the private ref is not where we recorded it, and the meaning is the same one whichever code observes it. A refusal name declared by two contracts cannot have a single owner, a single producer or a single step, so it is declared once and consumed here.
 
 ## 10. Required implementation tests
 

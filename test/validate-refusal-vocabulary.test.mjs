@@ -30,11 +30,13 @@ import {
   readSources,
   registeredSteps,
   stepErrors,
+  ownerErrors,
   unclosedContracts,
   unmappedCodes,
   validateDesign,
   vocabularyDigest,
   vocabularyErrors,
+  WORKFLOW_OWNER,
 } from "../scripts/validate-refusal-vocabulary.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
@@ -165,6 +167,53 @@ test("a short code is not produced by a file that only writes a longer one", () 
   assert.deepEqual(producerErrors({ park_reasons: [entry] }, sources), []);
 });
 
+test("a park reason with no recorded owner, or the wrong one, is refused", () => {
+  // "Somebody must have closed this somewhere" is how a code with no owner
+  // survives, so the owner is a field rather than an inference.
+  const contracts = { "a.md": "Closed set: `alpha_beta`, `gamma_delta`.\n" };
+  const entry = { code: "alpha_beta", parks_at: ["freeze"], parks_at_classes: [], producer: "daemon", producer_files: [] };
+  assert.deepEqual(ownerErrors({ park_reasons: [{ ...entry, closed_by: "docs/contracts/a.md" }] }, contracts), []);
+  assert.deepEqual(
+    reasons(ownerErrors({ park_reasons: [{ ...entry, closed_by: undefined }] }, contracts)),
+    ["refusal_vocabulary_owner_missing"],
+  );
+  assert.deepEqual(
+    reasons(ownerErrors({ park_reasons: [{ ...entry, closed_by: "docs/contracts/other.md" }] }, contracts)),
+    ["refusal_vocabulary_owner_missing"],
+  );
+  // A reason no contract closes belongs to the workflow, and must say so.
+  const workflow = { ...entry, code: "some_workflow_park" };
+  assert.deepEqual(ownerErrors({ park_reasons: [{ ...workflow, closed_by: WORKFLOW_OWNER }] }, contracts), []);
+  assert.deepEqual(
+    reasons(ownerErrors({ park_reasons: [{ ...workflow, closed_by: "docs/contracts/a.md" }] }, contracts)),
+    ["refusal_vocabulary_owner_missing"],
+  );
+});
+
+test("a name two contracts declare is refused rather than resolved by precedence", () => {
+  // A caller branching on the name cannot tell which of the two conditions it
+  // got, and the vocabulary would have to give it two producers and two steps.
+  const shared = {
+    "a.md": "Closed set: `alpha_beta`.\n",
+    "b.md": "Closed set: `alpha_beta`.\n",
+  };
+  assert.ok(
+    reasons(ownerErrors({ park_reasons: [] }, shared)).includes("refusal_vocabulary_owner_ambiguous"),
+  );
+  assert.deepEqual(
+    reasons(ownerErrors({ park_reasons: [] }, { "a.md": "Closed set: `alpha_beta`.\n" })),
+    [],
+  );
+});
+
+test("no shipped contract declares a name another one also declares", () => {
+  assert.deepEqual(
+    ownerErrors({ park_reasons: [] }, context.contracts)
+      .filter((entry) => entry.reason === "refusal_vocabulary_owner_ambiguous"),
+    [],
+  );
+});
+
 test("every contract closes its refusal set", () => {
   assert.deepEqual(unclosedContracts(context.contracts), []);
   assert.deepEqual(
@@ -220,6 +269,10 @@ test("every refusal class the contract closes can be produced", () => {
     vocabularyErrors(JSON.parse(files[REFUSED_PATH]), context).map((entry) => entry.reason),
   );
   for (const entry of unclosedContracts({ "open.md": "no closed set here" })) produced.add(entry.reason);
+  for (const entry of ownerErrors(
+    { park_reasons: [] },
+    { "a.md": "Closed set: `alpha_beta`.\n", "b.md": "Closed set: `alpha_beta`.\n" },
+  )) produced.add(entry.reason);
   for (const refusal of REFUSALS) {
     assert.ok(produced.has(refusal), `${refusal} is documented and never produced`);
   }

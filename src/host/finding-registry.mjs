@@ -37,7 +37,7 @@ export const PARK_REASONS = immutable([
   'missing_debt_ticket',
   'stale_candidate_binding',
   'originator_unknown',
-  'registry_drift',
+  'finding_registry_drift',
 ]);
 
 const rank = (severity) => SEVERITIES.indexOf(severity);
@@ -256,7 +256,7 @@ export function lateFindingRoute(severity, workState) {
     case 'released':
       return 'change_issue';
     default:
-      return demand(false, 'registry_drift', 'Unknown work state', { work_state: workState });
+      return demand(false, 'finding_registry_drift', 'Unknown work state', { work_state: workState });
   }
 }
 

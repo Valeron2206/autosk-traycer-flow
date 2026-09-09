@@ -37,7 +37,7 @@ export const PARK_REASONS = Object.freeze([
   "missing_debt_ticket",
   "stale_candidate_binding",
   "originator_unknown",
-  "registry_drift",
+  "finding_registry_drift",
 ]);
 
 /** Rejections must name one of these, and cite a basis as well. */

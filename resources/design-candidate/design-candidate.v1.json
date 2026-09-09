@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "749ce8b6e5b1fc033cece0605da4d389a8e188a68526a968c913f55cf82a3ba7"
+      "sha256": "99a12c032a2ed25a925e16baf02fdb41b33dd0c0e8772b4aee289787a7c9131a"
     },
     {
       "path": "README.md",
@@ -84,7 +84,7 @@
     },
     {
       "path": "docs/contracts/execution-base.md",
-      "sha256": "510032c4357b7517755e6f059b78c81312f2a7b805406bab99a75a760f42447f"
+      "sha256": "2066e981d56d064e5db470efe83deaeaf7d3c512b207f2368cd11f19396fe921"
     },
     {
       "path": "docs/contracts/external-source-snapshot.md",
@@ -92,7 +92,7 @@
     },
     {
       "path": "docs/contracts/finding-registry.md",
-      "sha256": "bfa32948ee76c3ba005fd6564f146f5730b9b2020c5594e45a6996c8c7b3fac5"
+      "sha256": "f9dcbe204508a01aab86f4f0c3322c62628439f081310a526d0caab7e1714532"
     },
     {
       "path": "docs/contracts/gate-store-projection.md",
@@ -140,7 +140,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "80426bc957e9062dfd43fc54132fc416afd260f43442c0179f49ce3b0720fab0"
+      "sha256": "7d39b97a582057565451dc82a180c97c1c01aca388bcd71232d9cbbcbdd24ec3"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -384,15 +384,15 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.refused.example.json",
-      "sha256": "83baed9da05089c76c5b644636d11ad37a623c6f2715296bfdae7a7fd707a447"
+      "sha256": "1bf3ef5fb596097b83241903425b23b191476b98f12ef113d4ae9a54fe16643a"
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.schema.json",
-      "sha256": "ccf53da55fc9076150a4e8aabf464929ae7c2a187dd60f17f86ea4d0d3012bbf"
+      "sha256": "6768b61d6efe56d0a277a8437a35cf927836f23a986bce961e86af194946c397"
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "1b7e10cd87c4135892a4cf3e8c384e9c77ae26b864dea1c719ca9a9cd6b1a07b"
+      "sha256": "d234718a85255276bd7efe4ccd2d4002c64c71ecbc998cf39fe2663a01e664ed"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -447,7 +447,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "ac4de9592373dfa1f504d0cb182b1bf5a8d0afe5fb0bfbbc7524e8ea0db8a5fd",
+  "candidate_digest": "4045aa72d3aadfa253b88175d31534142a5a1def337dfaa02021369f056f3d27",
   "dispositions": [
     {
       "issue": 3,

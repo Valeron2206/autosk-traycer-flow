@@ -283,7 +283,7 @@ test("a late finding is routed forward, never by rewriting history", () => {
   assert.equal(lateFindingRoute("medium", "integrated"), "ordinary_disposition");
   assert.equal(lateFindingRoute("medium", "unintegrated"), "ordinary_disposition");
   assert.equal(lateFindingRoute("critical", "superseded"), "recorded_stale");
-  assert.throws(() => lateFindingRoute("critical", "somewhere"), code("registry_drift"));
+  assert.throws(() => lateFindingRoute("critical", "somewhere"), code("finding_registry_drift"));
   assert.throws(() => lateFindingRoute("urgent", "integrated"), code("unknown_severity"));
 });
 
