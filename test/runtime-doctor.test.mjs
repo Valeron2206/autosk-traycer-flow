@@ -105,6 +105,28 @@ async function statuses(env) {
   return new Map(results.map((result) => [result.id, result]));
 }
 
+test("every registered check produces a result, including one whose probe throws", async () => {
+  // A check that disappears from the report is worse than a failing one: the
+  // report would be shorter and still say pass.
+  const env = fakeEnv();
+  const registry = checkRegistry(env);
+  const results = await runChecks(env, registry);
+  assert.equal(results.length, registry.length);
+  assert.deepEqual(results.map((result) => result.id), registry.map((check) => check.id));
+
+  const throwing = [...registry.slice(0, 2), {
+    id: "probe.explodes",
+    category: registry[0].category,
+    run: () => { throw new Error("probe blew up"); },
+  }];
+  const withFailure = await runChecks(env, throwing);
+  assert.equal(withFailure.length, throwing.length);
+  const failed = withFailure.at(-1);
+  assert.equal(failed.id, "probe.explodes");
+  assert.equal(failed.status, "fail");
+  assert.match(failed.evidence.error, /probe blew up/u);
+});
+
 test("a healthy host passes, and says how much it could not establish", async () => {
   const results = await runChecks(fakeEnv());
   const report = buildReport({

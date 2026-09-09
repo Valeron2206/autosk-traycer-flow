@@ -1221,6 +1221,31 @@
       "human_approval": "required"
     },
     {
+      "class": "mutation_survivor_register",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "implementer"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/mutation-report/mutation-survivors.v1.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "each entry excuses a guard from the mutation run, so an addition is reviewed as the claim it is"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "panel_record",
       "category": "runtime_evidence",
       "author_roles": [
@@ -1843,5 +1868,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "a8aef9c6be17cf33763616a3727ac1c55a1bb189cc6272238347eafcb0c167a2"
+  "registry_digest": "049aa14c1ded8c21d9ea9675e36665a2e9dc91a5f3fde68e35e3bbb84fbdc525"
 }

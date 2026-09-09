@@ -236,7 +236,7 @@ export function unclosedContracts(contracts) {
   const errors = [];
   for (const [name, text] of Object.entries(contracts)) {
     const inline = /Closed set[^:]*:\s*(.+?)(?:\n\n|\.\s*\n)/su.exec(text);
-    const section = /\n##\s*\d+\.\s*(?:Refusal classes|What a refusal looks like)\s*\n([\s\S]*?)(?=\n##\s|$)/u.exec(text);
+    const section = /(?:^|\n)##\s*\d+\.\s*(?:Refusal classes|What a refusal looks like)\s*\n([\s\S]*?)(?=\n##\s|$)/u.exec(text);
     const codes = new Set([
       ...(inline ? all(/`([a-z][a-z0-9_]{4,})`/gu, inline[1]) : []),
       ...(section ? all(/^-\s*`([a-z][a-z0-9_]{4,})`/gmu, section[1]) : []),

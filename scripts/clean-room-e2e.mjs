@@ -288,6 +288,26 @@ function lastJsonLine(text) {
   }
 }
 
+/**
+ * The identity of the extension the run actually exercised.
+ *
+ * The report already pins the daemon source. Without this it does not pin the
+ * other half: a green run says nothing about which extension bytes produced it,
+ * and a reviewer holding a frozen tree cannot tell whether the run was about
+ * that tree. `dirty` is part of the answer — a run from a modified worktree is
+ * about bytes that are in no commit.
+ */
+export async function extensionIdentity(git = (args) => execFileAsync('git', args, { cwd: ROOT })) {
+  try {
+    const tree = (await git(['rev-parse', 'HEAD^{tree}'])).stdout.trim();
+    const commit = (await git(['rev-parse', 'HEAD'])).stdout.trim();
+    const status = (await git(['status', '--porcelain'])).stdout.trim();
+    return Object.freeze({ commit, tree, dirty: status.length > 0 });
+  } catch (error) {
+    return Object.freeze({ commit: null, tree: null, dirty: null, error: String(error) });
+  }
+}
+
 async function finish({ workspace, steps, receipt, keep, error, faults }) {
   // Go leaves its module cache read-only, so an ordinary recursive remove
   // fails on a tree it wrote. Making it writable first is the difference
@@ -303,6 +323,7 @@ async function finish({ workspace, steps, receipt, keep, error, faults }) {
     workspace: keep ? workspace : null,
     source_tree: receipt?.source_tree ?? null,
     upstream_commit: receipt?.upstream_commit ?? null,
+    extension: await extensionIdentity(),
     steps: Object.freeze(steps),
     coverage,
     ok: !error && steps.every((step) => step.ok !== false),
@@ -320,6 +341,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`${step.ok === false ? 'FAIL' : 'ok  '} ${step.step}${step.ms ? ` (${step.ms}ms)` : ''}`);
   }
   console.log(`source_tree=${report.source_tree}`);
+  console.log(`extension_tree=${report.extension.tree}${report.extension.dirty ? ' (dirty)' : ''}`);
   for (const [state, count] of Object.entries(report.coverage.counts)) console.log(`${state}: ${count}`);
   if (report.error) console.error(report.error);
   process.exitCode = report.ok ? 0 : 1;

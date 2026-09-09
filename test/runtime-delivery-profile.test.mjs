@@ -203,6 +203,26 @@ test("an unresolved field is not a field with a convenient default", () => {
     resolutionErrors(missing, { nowMs: NOW })
       .some((error) => error.reason === "unknown_binding_field" && error.detail.includes("direct_push_allowed")),
   );
+  // A section with no provenance at all is a different gap from a field with no
+  // value: nobody said where any of it came from, so the value that is there is
+  // not evidence either.
+  const unprovenanced = structuredClone(example);
+  delete unprovenanced.provenance.target;
+  assert.ok(
+    resolutionErrors(unprovenanced, { nowMs: NOW })
+      .some((error) => error.reason === "unknown_binding_field" && /no provenance/u.test(error.detail)),
+  );
+});
+
+test("a mode nobody defined is refused as unknown, not as not-allowed", () => {
+  // "Not in your allowed list" and "not a mode" are different answers, and the
+  // second is the one that tells an operator they have a typo.
+  const unknown = directMovementAdmission(example, { mode: "fast_forward_maybe", nowMs: NOW });
+  assert.equal(unknown.decision, "refused");
+  assert.ok(unknown.reasons.some((entry) =>
+    entry.reason === "unsupported_integration_mode" && /unknown mode fast_forward_maybe/u.test(entry.detail)));
+  const notAllowed = directMovementAdmission(example, { mode: "rebase", nowMs: NOW });
+  assert.ok(notAllowed.reasons.every((entry) => !/unknown mode/u.test(entry.detail ?? "")));
 });
 
 test("a forge that could not be reached and a token that may not read are different problems", () => {
