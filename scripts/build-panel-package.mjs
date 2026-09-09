@@ -232,11 +232,21 @@ asked about the state without the fault, has to stay silent. A guard that
 refuses everything would detect every fault and mean nothing by it, so the
 per-case result is given rather than the count it rolls up into:
 
-${cleanRoom.faults && cleanRoom.faults.length > 0
-    ? `| group | fault detected | control silent | what the case observed |
-| --- | --- | --- | --- |
-${cleanRoom.faults.map((entry) => `| \`${entry.id}\` | ${entry.detected ? 'yes' : 'NO'} | ${entry.control ? 'yes' : 'NO'} | ${entry.detail} |`).join('\n')}`
-    : 'The run recorded no per-case results, so the counts above are all this package can show.'}
+${cleanRoom.coverage.rows.length > 0
+    ? `Every group in the matrix appears here. Sixteen are injected by the fault
+harness and carry a control; the other four are covered by the creation, crash
+and identity harnesses, which run a real fault without a paired control — the
+row says which, so a partial row is not read as a missing one.
+
+| group | harness | fault detected | control silent | evidence |
+| --- | --- | --- | --- | --- |
+${cleanRoom.coverage.rows.map((row) => {
+      const injected = (cleanRoom.faults ?? []).find((entry) => entry.id === row.id);
+      const detected = injected ? (injected.detected ? 'yes' : 'NO') : row.state === 'covered_by_real_fault' ? 'yes' : 'NO';
+      const control = injected ? (injected.control ? 'yes' : 'NO') : 'not paired';
+      return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${detected} | ${control} | ${injected ? injected.detail : row.evidence ?? 'not covered'} |`;
+    }).join('\n')}`
+    : 'The run recorded no per-group results, so the counts above are all this package can show.'}
 
 ### Mutation, module by module
 
