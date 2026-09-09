@@ -26,7 +26,7 @@ intake
   -> cleanup
 ~~~
 
-Чисто редакционная Quick-правка может пропустить Code Review только через deterministic editorial classification с exact candidate identity и changed path set. Exemption запрещён для executable code, config/schema/security, prompts, governance bundle и любого behavior-defining документа. Любое другое изменение сохраняет независимую проверку, если пользователь явно её не отменил.
+Чисто редакционная Quick-правка может пропустить Code Review только через deterministic editorial classification с exact candidate identity и changed path set. Классификатор — не отдельное суждение: это Artifact Registry (`resources/artifact-registry/artifact-registry.v1.json`), и исключение записывает его `registry_digest`, поэтому «редакционность» всегда относится к конкретной версии реестра. Путь, который реестр не может классифицировать, исключения не получает. Exemption запрещён для executable code, config/schema/security, prompts, governance bundle и любого behavior-defining документа. Любое другое изменение сохраняет независимую проверку, если пользователь явно её не отменил.
 
 Quick classification проверяется не только на intake, а перед каждым переходом из implementation, verification, fix, freeze, review-result, accept и в integrate prologue до первого Git side effect. Completion/evidence records обязаны перечислять новые material questions и Planned-triggers. Если обнаружены behavior/API/schema/security/concurrency/migration изменения, неясная граница либо material scope expansion, `invalidate_quick_classification` запрещает дальнейшие Quick side effects и идемпотентно создаёт project-bound Planned replacement от исходного base. Текущий worktree передаётся replacement по exact ownership/evidence receipt и остаётся непроверенным, а не code candidate. Старый Quick получает `superseded_by`, outcome=reclassified и не может commit/integrate; грязный worktree не удаляется автоматически. Обычное расширение scope через `implementation_scope_invalid` допустимо только пока повторная классификация остаётся Quick.
 
@@ -100,7 +100,7 @@ Brief и Core Flow пропускаются только по objective classifi
 
 <!-- planning-ref-contract:v1 -->
 
-У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic_ref_key>/planning`. `epic_ref_key` — lowercase SHA-256 canonical project/Epic identity, а не display ID или пользовательский slug. Линия инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
+У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic_ref_key>/planning`. `epic_ref_key` определён в `02-architecture.md` §2 как domain-separated SHA-256 канонического `{project_root_sha256, epic_id}` в нижнем регистре; это единственное определение, здесь оно не переизлагается. Это не display ID и не пользовательский slug. Линия инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
 
 До panel/waiver host сохраняет полную commit/tree/blob closure в helper-owned quarantine pack, затем создаёт `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>` на frozen snapshot commit. После verdict daemon capability v1 одной metadata CAS записывает recorded PASS, immutable `planning_publication_op` и подготовленные helper intents; recorded PASS не завершает artifact kind. `publish_artifact_pass` создаёт single-parent commit, CAS-продвигает planning ref и проверяет closure. Затем монотонный `candidate_audit_transfer_op` сначала создаёт/проверяет audit ref, пока live keepalive остаётся, потом отдельной expected-old CAS удаляет live и финально проверяет audit-present/live-absent. Только verified transfer создаёт Published PASS и разрешает `select_next`; audit ref хранится до approved retention expiry.
 
@@ -127,7 +127,7 @@ Brief, Core Flow и Tech Plan до approval существуют только к
 
 `UserDecisionRecord` создаёт только autoskd после signed user-presence challenge. Project public-key pin создаётся trusted client при project init до model task и write-once. Daemon canonicalizes exact object `{project_root_sha256,record_id,nonce,expires_at,request_id,epic_id,task_id,anchor_version,subject_hash,payload_hash,previous_secure_head_hash,journal_sequence}`; `epic_id`/`task_id` всегда присутствуют как string или `null`, omission запрещён. Signature считается над domain separator + canonical bytes, которые сохраняются в record. Daemon commits authority+nonce heads before returning record/projection/effects.
 
-Recovery: valid crash-tail is byte-verified then authority+nonce heads commit before projection; invalid tail had no effects/nonce reuse. Missing committed bytes fail-closed. Dependency/intent heads protect projections. Signer/secure state must be in a preflight-proven separate OS boundary or hardware enclave inaccessible to model accessibility/ptrace/keychain; no boundary, headless or unpinned project blocks model launch.
+Recovery: valid crash-tail is byte-verified then authority+nonce heads commit before projection; invalid tail had no effects/nonce reuse. Missing committed bytes fail-closed. Dependency/intent heads protect projections. Signer/secure state must be in a preflight-proven separate OS boundary or hardware enclave inaccessible to model accessibility/ptrace/keychain; no boundary, headless или unpinned project blocks model launch. Проверяет это `security.signer_boundary` в `autosk-flow doctor`: объявленный endpoint, недостижимый из процесса, в котором работает модель, плюс сообщённая демоном идентичность подписи вне этого процесса. Проверка не доказывает изоляцию и этого не утверждает; необъявленная граница — `unverifiable`, а `workflow-preflight` требует эту проверку для implementation и panel, поэтому «нет границы» останавливает запуск модели механически, а не на словах.
 
 Модель может подготовить packet и recommendation, но обычная daemon connection без signature не создаёт `actor=user`. Git Decision Log/comment служит только человекочитаемым зеркалом, если его hash уже связан с signed daemon record; bare Git/comment bytes не являются approval source. Тот же канал обязателен для policy issuance/revocation, waiver, anchor-impact/supersedes approval и integration acceptance.
 
@@ -200,6 +200,8 @@ Contest disposition терминален для canonical finding ID и exact ca
 
 Arena включается, когда Tech Plan помечает решение как arena и задаёт причину плюс 3–6 измеримых критериев, либо когда пользователь просит её явно.
 
+Arena и Debate — разные пути, и выбор между ними решает один вопрос из `docs/contracts/debate.md` §3: существует ли артефакт, постройка которого ответила бы на него. Если да — это Arena, и Debate отвергается (`debate_empirical_question`); ниже описана именно Arena. Debate — для non-empirical one-way-door решений, у него собственный ростер из трёх–пяти позиций, собственные два gate'а и собственный контракт; он не заменяет ни Arena, ни четырёхмодельную панель.
+
 ~~~text
 approved arena framing
   -> candidate A: Grok, isolated worktree
@@ -246,21 +248,23 @@ Judge ранжирует варианты и выдаёт рекомендаци
 
 1. проверяет scope и ignored/untracked files;
 2. вычисляет candidate tree OID через временный Git index;
-3. для Tickets повторно читает exact tree, сверяет schema-valid `record_kind=pending_validation_proof` с `candidate_tree_oid=null` и создаёт host-owned `record_kind=final_validation_receipt` с `candidate_tree_oid`, равным вычисленному tree OID; final receipt не входит в самоидентифицируемое дерево;
+3. для Tickets повторно читает exact tree, сверяет schema-valid `record_kind=pending_validation_proof` с `candidate_tree_oid=null` и создаёт host-owned `record_kind=final_validation_receipt` с `candidate_tree_oid`, равным вычисленному tree OID; final receipt не входит в самоидентифицируемое дерево. Расхождение между тем, что прочитано из mutable path, и тем, что прочитано из Git-дерева, — не выбор в пользу одного из двух: freeze отказывает с `tickets_manifest_stale`, ничего не замораживает и возвращает задачу к перегенерации манифеста, потому что два разных ответа означают, что ни один из них не описывает кандидата;
 4. создаёт недвигающий refs snapshot commit;
 5. фиксирует base OID, pathspec, tree OID, anchor version и attempt;
 6. передаёт frozen identity в следующий `dispatch_review`; уже этот отдельный шаг создаёт review-task с новым task ID и OID-pinned рабочей копией.
 
-Маршрут проверяющего выбирается по union фактических author и fixer families:
+Маршрут проверяющего выбирается по **union фактических author и fixer families** — тому же множеству, по которому §3 выбирает Lead. Ключ таблицы ниже — этот union, а не только авторы: чинивший из семьи проверяющего делает проверяющего автором части того, что он проверяет.
 
-| Авторский набор | Порядок reviewer |
+| Union авторов и чинивших | Порядок reviewer |
 | --- | --- |
 | Claude | GPT, затем Kimi, затем Grok |
-| Codex | Kimi, затем Grok |
+| Codex (то же, что GPT) | Kimi, затем Grok |
 | Grok | GPT, затем Kimi |
 | Kimi | GPT, затем Grok |
 | Human/outside | GPT, затем Kimi, затем Grok |
-| Mixed | мастер-порядок GPT, затем Kimi, затем Grok; оставить только семьи вне полного author/fixer set |
+| Любой другой union | мастер-порядок GPT, затем Kimi, затем Grok, минус каждая семья, входящая в union |
+
+Строки с одной семьёй — частные случаи последней: они перечислены, потому что читаются чаще, а не потому, что подчиняются другому правилу. Codex и GPT — одна семья под двумя именами, поэтому Codex-авторство исключает GPT-проверяющего.
 
 Если внешней семьи нет, Code Review не запускается молча: задача переходит человеку для human review, re-expression кандидата либо точного waiver.
 
@@ -282,15 +286,20 @@ review findings
 
 По умолчанию после PASS всех Tickets epic-задача останавливается human. Пропустить её может только signed `IntegrationAuthorizationRecord` exact run/candidate: target/base, ordered ref transitions, completed-prefix receipt, final tree, controlling digest и expiry. Если record истёк после частичного CAS, workflow сохраняет exact prefix и возвращается в accept; новый record начинается от current target OID и покрывает remaining transitions. Project policy integration не разрешает.
 
-После разрешения:
+После разрешения порядок фиксирован, и целевая ветка в нём последняя. Он совпадает с `docs/contracts/epic-staging.md` §1–§6, потому что это один и тот же путь, описанный здесь для потока:
 
-1. Tickets интегрируются в порядке зависимостей;
-2. merge OID строится без движения целевой ветки;
-3. approved tree сверяется повторно;
-4. daemon `integrateApproved` под mutex сначала пишет durable pending operation receipt, затем revalidates и выполняет target CAS, после чего commits outcome receipt; crash recovery resolves exact ref/reflog before checking authorization expiry;
-5. запускается aggregate verification всего epic;
-6. worktree и временные snapshot сначала очищаются с force=false; dirty workspace сохраняется для решения человеком;
-7. epic переходит в done.
+1. approved Ticket deltas применяются к приватному staging ref `refs/autosk/epics/<epic-id>/staging` от записанной target base; пользовательская ветка не двигается;
+2. каждый apply даёт durable integration receipt, а lineage от базы до головы staging не имеет неучтённых коммитов;
+3. **aggregate verification выполняется на точном staging OID/дереве** и связывается с ним, с verification config digest и с instruction lock; любое движение staging после PASS аннулирует эту связь;
+4. при необходимости integration-fix Ticket проходит те же gates, что обычный code Ticket, и возвращает поток к шагу 3;
+5. человек принимает **точную проверенную staging identity** — или её принимает закреплённая auto-policy, связанная той же identity; приёмка относится к идентичности, а не к намерению её произвести;
+6. delivery profile (#17) решает, кому принадлежит финальное движение: при `pull_request`, `merge_queue` или `fork_pull_request`, при запрете прямого push или когда финальный push не наш, host открывает PR либо ставит в очередь и **не двигает ветку сам**;
+7. только если профиль это разрешает, daemon `integrateApproved` под mutex пишет durable pending operation receipt, revalidates и выполняет **один** target CAS с ожидаемым старым значением, равным записанной базе, после чего commits outcome receipt; crash recovery resolves exact ref/reflog before checking authorization expiry;
+8. после CAS перечитываются target OID/дерево, containment записанного результата и дельта reflog; CAS, сообщивший об успехе, не является доказательством того, что ветка держит задуманное;
+9. worktree и временные snapshot очищаются с force=false; **грязный workspace не удаляется и переводит epic в human** — очистка, стирающая непроверенную работу, необратима;
+10. epic переходит в done только после шага 8 и непроблемной очистки шага 9.
+
+Aggregate PASS предшествует любому движению целевой ветки. Обратный порядок оставляет target в непроверенном объединённом состоянии, если индивидуально зелёные Tickets конфликтуют на уровне Epic, — ровно то, ради чего существует приватный staging.
 
 Любое расхождение base/tree, внешнее движение ветки, неясный reflog, конфликт или неполное доказательство переводит задачу в human. История не переписывается автоматически.
 
@@ -300,7 +309,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 
 | Причина | Реальный workflow step | Обязательное состояние |
 | --- | --- | --- |
-| Brief framing не согласован | record_alignment | полный daemon `UserDecisionRecord` framing либо current exact policy той же identity |
+| Brief framing не согласован | record_alignment | полный daemon `UserDecisionRecord` framing; policy не подходит: §2 запрещает ей утверждать product framing Brief |
 | Core Flow содержит открытое решение поведения | record_alignment | daemon record закрыл каждое material решение; model self-approval запрещён |
 | Tech Plan не готов из-за open question или silent inference | record_alignment | readiness/classifier proof подтверждены daemon record либо current exact policy |
 | Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
@@ -369,4 +378,4 @@ onTransit отклоняет resume, если причина park и требу�
 | Пропустить Code Review | только пользователь; строго редакционная Quick-правка освобождена deterministic rules | daemon review waiver либо editorial classification + exact identity/path set; governance не editorial |
 | Сократить панель из-за недоступности | только пользователь | unavailable seat, причина, daemon waiver и фактический roster |
 | Integration authorization | пользователь подписал exact run/candidate integration packet | `IntegrationAuthorizationRecord` ID/hash; project alignment policy запрещена |
-| Превысить 10 раундов | пользователь | daemon cap decision + human resume |
+| Превысить 10 раундов | пользователь | daemon cap decision + human resume; решение называет новый конечный предел и не может быть «без предела», поэтому повторные решения не образуют неограниченный цикл |

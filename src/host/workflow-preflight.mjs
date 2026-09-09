@@ -26,16 +26,19 @@ export const REQUIRED_CHECKS = immutable({
   // so requiring a daemon here would park work that has no need of one.
   planning: immutable(['project_identity.git_worktree', 'project_identity.compat_manifest',
     'governance.contracts_present', 'scheduler.node_version']),
-  // Implementation runs code and commits it.
+  // Implementation runs code and commits it — and it is a model workflow, so
+  // the signer boundary the flow asserts has to have been checked rather than
+  // assumed. `unverifiable` blocks here, which is the point: a boundary nobody
+  // declared is one nobody can check.
   implementation: immutable(['project_identity.git_worktree', 'project_identity.compat_manifest',
     'daemon.binary_present', 'daemon.store_lock_helper', 'git_delivery.git_available',
-    'security.no_traycer', 'scheduler.node_version']),
+    'security.no_traycer', 'security.signer_boundary', 'scheduler.node_version']),
   // A panel dispatches to providers, and the routes it will use must at least
   // be declared; whether they answer is `providers.routes_live`, which no
   // read-only check can establish and which the panel therefore requires
   // deliberately — it starts them itself.
   panel: immutable(['project_identity.compat_manifest', 'providers.panel_routes_declared',
-    'security.no_traycer', 'scheduler.node_version']),
+    'security.no_traycer', 'security.signer_boundary', 'scheduler.node_version']),
   // Delivery is where a missing remote stops being a warning.
   delivery: immutable(['project_identity.git_worktree', 'git_delivery.git_available',
     'git_delivery.origin_configured', 'security.no_traycer']),

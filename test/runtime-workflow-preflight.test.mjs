@@ -51,6 +51,10 @@ function passingReport(overrides = new Map()) {
 
 function fakeEnv() {
   return {
+    // A healthy host declares where its signer is and the daemon says it runs
+    // outside this process: that is what "the boundary was checked" means.
+    signerEndpoint: "/run/autosk/signer.sock",
+    signerIdentity: async () => ({ same_process: false }),
     root: "/project",
     home: "/home/operator",
     processEnv: {},
@@ -76,7 +80,10 @@ function fakeEnv() {
     async readFileBytes() {
       return Buffer.from("bytes");
     },
-    async stat() {
+    async stat(target) {
+      // Everything this host has is present — except the signer socket, which
+      // is the point: a boundary you can stat from here is not a boundary.
+      if (target === "/run/autosk/signer.sock") throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
       return { size: 1 };
     },
     async run(command, args) {

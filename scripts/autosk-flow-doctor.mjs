@@ -36,6 +36,17 @@ export function hostEnv({ root = ROOT, nowMs = () => Date.now() } = {}) {
     requiredNodeMajor: 24,
     daemonBinary: process.env.AUTOSKD_BIN ?? '',
     helperBinary: process.env.AUTOSK_STORE_LOCK_BIN ?? '',
+    // Declared, never guessed: a machine that has not said where its signer
+    // lives has not proven a boundary, and the check reports that rather than
+    // inventing a default path to probe.
+    signerEndpoint: process.env.AUTOSK_SIGNER_SOCK ?? null,
+    signerIdentity: async () => {
+      // The daemon is the only thing that can say whether the signer runs
+      // outside this process. Absent an answer, the check stays unverifiable.
+      const reported = process.env.AUTOSK_SIGNER_SAME_PROCESS;
+      if (reported === undefined) throw new Error('the daemon reported no signer identity');
+      return { same_process: reported !== '0' };
+    },
     join: (...parts) => path.join(...parts),
     readFile: (relative) => readFile(path.isAbsolute(relative) ? relative : resolve(relative), 'utf8'),
     readFileBytes: (target) => readFile(path.isAbsolute(target) ? target : resolve(target)),

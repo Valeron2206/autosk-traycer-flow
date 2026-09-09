@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "candidate_id": "design-candidate-v2",
+  "candidate_id": "design-candidate-v3",
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "5d7fe4915753fe84b0d3e408794220eb94e5e1a539d546983956c6ebf0535f70"
+      "sha256": "6fda8de26a4d927125f0496c0343af8622fee7244c07047c2e7e416c872ed309"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "cc8f97d79286347ddb9e4761226841ce40bd0b29acce18302caaa7ee0181e642"
+      "sha256": "43627603ee4b4a2868d0e5f86a51e274b0d83e18b501020cb42933ec0a302d62"
     },
     {
       "path": "03-technical-plan.md",
@@ -387,7 +387,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+  "candidate_digest": "6bbd25efb941db364a648ebe30e6a444f69c657eb703068af553c098527cc8d8",
   "dispositions": [
     {
       "issue": 3,
@@ -498,49 +498,7 @@
     }
   ],
   "attestation": {
-    "state": "blocked",
-    "blocked_reason": "Round 1 of the final panel returned four fail verdicts on candidate 1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811 (frozen commit eef3b074). 31 findings are recorded in resources/design-candidate/panel/round-1.json; the load-bearing ones are the integration order in 01-core-flows.md section 7, two records with no contract or schema, and several contradictions between the two full-text documents. A new candidate is required.",
-    "verdicts": [
-      {
-        "seat": "opus",
-        "route": "anthropic/claude-opus-5",
-        "effort": "max",
-        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
-        "verdict": "fail",
-        "session_id": "01a083a1-55c8-729d-8a02-01292cf12368",
-        "recorded_at": "2026-09-09T01:01:05Z",
-        "findings_registry": "resources/design-candidate/panel/round-1.json"
-      },
-      {
-        "seat": "astra",
-        "route": "openai-codex/gpt-6-astra",
-        "effort": "high",
-        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
-        "verdict": "fail",
-        "session_id": "01a083a3-704c-76d3-8e63-f4fe34c6c585",
-        "recorded_at": "2026-09-09T01:01:05Z",
-        "findings_registry": "resources/design-candidate/panel/round-1.json"
-      },
-      {
-        "seat": "grok",
-        "route": "cursor/cursor-grok-4.6",
-        "effort": "xhigh",
-        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
-        "verdict": "fail",
-        "session_id": "01a083a5-f560-75e2-9a12-376f5499a871",
-        "recorded_at": "2026-09-09T01:01:05Z",
-        "findings_registry": "resources/design-candidate/panel/round-1.json"
-      },
-      {
-        "seat": "muse",
-        "route": "meta/muse-spark-1.3-contributor",
-        "effort": "max",
-        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
-        "verdict": "fail",
-        "session_id": "01a083aa-d0ef-74cf-bec4-cb570d6715c3",
-        "recorded_at": "2026-09-09T01:01:05Z",
-        "findings_registry": "resources/design-candidate/panel/round-1.json"
-      }
-    ]
+    "state": "pending_final_panel",
+    "verdicts": []
   }
 }

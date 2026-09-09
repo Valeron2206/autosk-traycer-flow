@@ -9,10 +9,13 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
   CANDIDATE_PATH,
+  ROOT,
   GROUP_A,
   GROUP_B,
   REQUIRED_PANEL,
@@ -61,22 +64,32 @@ test("the shipped candidate validates against the bytes on disk", () => {
   assert.deepEqual(validateDesignCandidate(files), []);
 });
 
-test("the shipped attestation is what the verdicts compute, and says why", () => {
-  // Round 1 of the panel returned four fails, so the shipped state is
-  // `blocked`. Recording anything else would be the "administrative status
-  // edit" the issue warns about.
-  assert.equal(candidate().attestation.state, "blocked");
-  assert.equal(computeAttestationState(candidate()), "blocked");
-  assert.ok(candidate().attestation.blocked_reason.length > 0);
-  // Four verdicts, one per required seat, each on the exact route and effort.
-  const verdicts = candidate().attestation.verdicts;
-  assert.equal(verdicts.length, 4);
+test("the shipped attestation is what the verdicts compute", () => {
+  // These are not the bytes round 1 reviewed: those verdicts are about
+  // candidate v2 and stay with it in resources/design-candidate/panel/. This
+  // candidate has been changed by the fixes, carries no verdicts, and is
+  // therefore pending — recording anything else would be the "administrative
+  // status edit" the issue warns about.
+  assert.equal(candidate().candidate_id, "design-candidate-v3");
+  assert.equal(candidate().attestation.state, "pending_final_panel");
+  assert.equal(computeAttestationState(candidate()), "pending_final_panel");
+  assert.deepEqual(candidate().attestation.verdicts, []);
+});
+
+test("a round that ran is kept with the candidate it was about", () => {
+  // A PASS — or a fail — is about bytes. Round 1's record names the digest it
+  // reviewed, and that digest is not this one.
+  const round = JSON.parse(readFileSync(path.join(ROOT, "resources/design-candidate/panel/round-1.json"), "utf8"));
+  assert.equal(round.candidate_digest.length, 64);
+  assert.notEqual(round.candidate_digest, candidate().candidate_digest);
+  assert.equal(round.seats.length, 4);
   for (const required of REQUIRED_PANEL) {
-    const seat = verdicts.find((entry) => entry.seat === required.seat);
+    const seat = round.seats.find((entry) => entry.seat === required.seat);
     assert.equal(seat.route, required.route);
     assert.equal(seat.effort, required.effort);
-    assert.equal(seat.candidate_digest, candidate().candidate_digest);
+    assert.equal(seat.verdict, "fail");
     assert.ok(seat.session_id.length > 0, required.seat);
+    assert.ok(seat.findings.length > 0, required.seat);
   }
 });
 
@@ -180,7 +193,7 @@ test("an asserted state must match the computed one", () => {
     mutated((value) => {
       value.attestation.state = "pass";
     }),
-    /attestation state is pass, computed blocked/u,
+    /attestation state is pass, computed pending_final_panel/u,
   );
 });
 
