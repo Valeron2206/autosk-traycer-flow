@@ -10,10 +10,14 @@ import { join } from 'node:path';
 const report = (overrides = {}) => ({
   capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'], ...overrides }],
 });
-const refuses = (input, code) => {
+const refuses = (input, code, message) => {
   assert.throws(() => requireDaemonCapabilities(input), (error) => {
     assert.equal(error.name, 'FlowError');
     assert.equal(error.code, code);
+    // Several guards share `daemon_capability_invalid`, so a case that names
+    // which one it is about says the message too. Without it, neutering the
+    // guard under test leaves a neighbouring guard to throw the same code.
+    if (message !== undefined) assert.equal(error.message, message);
     return true;
   });
 };
@@ -40,12 +44,19 @@ test('a required capability implemented by a different method is refused', () =>
   refuses(report({ methods: ['task.create_bound', 'task.create_extra'] }), 'daemon_capability_method_mismatch');
 });
 
-test('a capability naming the same method twice, or sharing one, is refused', () => {
-  refuses(report({ methods: ['task.create_bound', 'task.create_bound'] }), 'daemon_capability_invalid');
+test('a capability naming the same method twice, sharing one, or reported twice, is refused', () => {
+  refuses(report({ methods: ['task.create_bound', 'task.create_bound'] }), 'daemon_capability_invalid',
+    'A capability names the same method twice');
   refuses({ capabilities: [
     { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
     { name: 'other.thing', version: 1, methods: ['task.create_bound'] },
-  ] }, 'daemon_capability_invalid');
+  ] }, 'daemon_capability_invalid', 'Two capabilities claim the same method');
+  // The same name reported twice is its own failure: a handler table declares
+  // each capability once, so a report with a repeat did not come from one.
+  refuses({ capabilities: [
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_other'] },
+  ] }, 'daemon_capability_invalid', 'The same capability is reported twice');
 });
 
 test('a daemon without the capability does not start the flow', () => {

@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "abf5f482864f5ca56cc59158887582afcc2328055284756b8f5974c273b2b12a"
+      "sha256": "c9f6253eb05582392b9df38bb3af2f100a2edad69814b0e3f078c609a63fe95b"
     },
     {
       "path": "README.md",
@@ -291,6 +291,10 @@
       "sha256": "de7b36c0874f3f627b881e6afeecb61ecdaa949bd3b4786a5859e5b6852f9788"
     },
     {
+      "path": "resources/mutation-report/mutation-survivors.v1.json",
+      "sha256": "dfc61153d65fa03ce3405d420ec564f13d7ea6a154bf82de8c677b15b9dec4ba"
+    },
+    {
       "path": "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
       "sha256": "52e75fbb06eaec1107276b00c080314bbde6b6064ff08c1b2560d687c8514b37"
     },
@@ -435,7 +439,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "d63cd9c44151777d32bf4bfb35bb4a97ef0655bd4f6cde06cc8ca956dc8ddcda",
+  "candidate_digest": "185e7ee7bd985df68d7462d84c879db6eb51cdeb4fedf0c012e9638ac2d5d0d7",
   "dispositions": [
     {
       "issue": 3,

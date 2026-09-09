@@ -78,8 +78,19 @@ test("durability is derived from the class, not asserted by the producer", () =>
 
 test("a truncated record says so, and says how big it was", () => {
   assert.deepEqual(truncationErrors(record()), []);
+  // The two gaps are named separately: a record with neither field would let one
+  // assertion pass while the guard under test was never evaluated.
   const silent = truncationErrors(record({ truncated: true }));
-  assert.ok(silent.some((error) => error.reason === "evidence_truncated_as_complete"));
+  assert.deepEqual(silent.map((error) => error.detail).sort(),
+    ["no original size recorded", "no truncation policy recorded"]);
+  assert.deepEqual(
+    truncationErrors(record({ truncated: true, original_size_bytes: 9000 })).map((error) => error.detail),
+    ["no truncation policy recorded"],
+  );
+  assert.deepEqual(
+    truncationErrors(record({ truncated: true, truncation_policy: "tail" })).map((error) => error.detail),
+    ["no original size recorded"],
+  );
   const inconsistent = truncationErrors(
     record({ truncated: true, original_size_bytes: 100, size_bytes: 400, truncation_policy: "tail" }),
   );

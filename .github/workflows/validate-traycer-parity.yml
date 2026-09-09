@@ -3,6 +3,7 @@ name: Validate program design registries
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -161,3 +162,25 @@ jobs:
       - name: Validate pull-request file scope
         if: github.event_name == 'pull_request'
         run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
+
+  # The mutation run is the evidence behind "every runtime module was
+  # mutation-tested", so it is a command that executes rather than a number in a
+  # pull request. It neuters 512 guards one at a time and re-runs a test file
+  # for each, which is too slow to sit in front of every push; it runs on main
+  # and on demand, where a survivor nobody named is still caught loudly.
+  mutation:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Neuter every guard and re-run its tests
+        run: npm run mutation-report

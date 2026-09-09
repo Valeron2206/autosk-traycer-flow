@@ -113,6 +113,30 @@ test("an entry records mode and blob on both sides, because text is not identity
   assert.deepEqual(MODES.slice(), ["100644", "100755", "120000", "160000"]);
 });
 
+test("an entry that is not a whole entry is refused, one reason at a time", () => {
+  // Five separate guards over the same record. Each is asked here on its own,
+  // because a fixture that trips two of them proves neither.
+  const detail = (value, pattern) => validateDelta(value).some((error) =>
+    error.reason === "containment_mismatch" && pattern.test(error.detail));
+
+  assert.ok(detail(delta({ entries: [entry({ status: "X" })] }), /unknown status X/u));
+  // An unknown status stops there: the rest of the checks would be about a
+  // record whose shape nobody has agreed on.
+  assert.equal(
+    validateDelta(delta({ entries: [entry({ status: "X", new_blob: undefined })] }))
+      .filter((error) => error.reason === "containment_mismatch").length,
+    1,
+  );
+  assert.ok(detail(delta({ entries: [entry({ new_blob: undefined })] }), /no new blob/u));
+  assert.ok(detail(delta({ entries: [entry({ old_blob: undefined })] }), /no old blob/u));
+  // A deletion has no new blob and an addition has no old one; neither is a gap.
+  assert.ok(!detail(delta({ entries: [entry({ status: "D", new_blob: undefined })] }), /no new blob/u));
+  assert.ok(!detail(delta({ entries: [entry({ status: "A", old_blob: undefined, old_mode: undefined })] }), /no old blob/u));
+  assert.ok(detail(delta({ entries: [entry({ new_mode: "100600" })] }), /unknown new_mode 100600/u));
+  assert.ok(detail(delta({ entries: [entry({ old_mode: "100600" })] }), /unknown old_mode 100600/u));
+  assert.ok(detail(delta({ entries: [entry(), entry({ new_blob: oid("3") })] }), /a path appears twice/u));
+});
+
 test("a modification that changed neither bytes nor mode is not a modification", () => {
   const nothing = delta({ entries: [entry({ new_blob: oid("1") })] });
   assert.ok(validateDelta(nothing).some((error) => /changes nothing/u.test(error.detail)));

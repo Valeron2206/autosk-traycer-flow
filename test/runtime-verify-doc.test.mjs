@@ -109,6 +109,16 @@ test("a command is written literally, with its exit semantics and cleanup", () =
       field,
     );
   }
+  // A command with no invocation is refused there and not carried on into the
+  // field checks: the fields belong to a command, and there is not one yet.
+  assert.deepEqual(
+    commandErrors(recipe({ commands: [{ id: "c" }] })).map((error) => error.detail),
+    ["c: no invocation"],
+  );
+  assert.deepEqual(
+    commandErrors(recipe({ commands: [{ id: "c", invocation: "   " }] })).map((error) => error.detail),
+    ["c: no invocation"],
+  );
 });
 
 test("new scaffolding is contracted rather than promised", () => {

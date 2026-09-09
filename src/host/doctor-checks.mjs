@@ -387,7 +387,8 @@ export async function runChecks(env, registry = checkRegistry(env)) {
       provenance: provenance('autosk-flow-doctor', env.toolVersion, env.nowMs(), TTL_MS.fast),
     });
   }
-  demand(results.length === registry.length, 'doctor_required_set_unsatisfied',
-    'Every registered check produces a result');
+  // Every registered check produces a result, including one whose probe threw:
+  // the loop pushes exactly once per entry. Asserting it here could not fail,
+  // so the property is a test rather than a guard that reads like one.
   return results;
 }

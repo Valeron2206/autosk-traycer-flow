@@ -33,12 +33,28 @@ test('candidate, session, parent visit and locks are load-bearing context',()=>{
     const raw=input();change(raw);assert.notEqual(compileTaskCreationGrant(raw).context_digest,one.context_digest);
   }
 });
-for(const [name,change] of [
-  ['foreign project',r=>r.slots[0].intent.context={...context,project_root_sha256:'f'.repeat(64)}],
-  ['foreign parent',r=>r.slots[0].intent.parent_task_id='ask-cccccc'],['foreign operation',r=>r.slots[0].intent.operation_id='other'],
-  ['duplicate slot',r=>r.slots.push(structuredClone(r.slots[0]))],['untracked field',r=>r.extra=true],['empty slots',r=>r.slots=[]],
-  ['sparse slots',r=>r.slots=Array(2)],['parent blocker',r=>r.slots[0].display.blocked_by=[r.parent_task_id]],
-])test(`grant compiler rejects ${name}`,()=>{const raw=input();assert.doesNotThrow(()=>compileTaskCreationGrant(raw));change(raw);assert.throws(()=>compileTaskCreationGrant(raw));});
+// Each fixture names the refusal it expects. Asserting only that something
+// threw let a fixture be caught by an unrelated guard downstream — the parent
+// blocker was refused as an invalid compiled slot, so the guard the test was
+// named after was never evaluated.
+for(const [name,change,message] of [
+  ['foreign project',r=>r.slots[0].intent.context={...context,project_root_sha256:'f'.repeat(64)},'Child intent belongs to another context, parent, operation or duplicate slot'],
+  ['foreign parent',r=>r.slots[0].intent.parent_task_id='ask-cccccc','Child intent belongs to another context, parent, operation or duplicate slot'],
+  ['foreign operation',r=>r.slots[0].intent.operation_id='other','Child intent belongs to another context, parent, operation or duplicate slot'],
+  ['duplicate slot',r=>r.slots.push(structuredClone(r.slots[0])),'Child intent belongs to another context, parent, operation or duplicate slot'],
+  ['untracked field',r=>r.extra=true,'Record fields must match the closed contract'],
+  ['empty slots',r=>r.slots=[],'Invalid bounded array'],
+  ['sparse slots',r=>r.slots=Array(2),'Invalid bounded array'],
+  ['accessor index',r=>Object.defineProperty(r.slots,'0',{get:()=>({intent:r.slots[1].intent,display:{title:'t',description:'d',blocked_by:[]}}),enumerable:true,configurable:true}),'Array accessors or holes are forbidden'],
+  ['parent blocker',r=>r.slots[0].display.blocked_by=[r.parent_task_id],'Invalid child blockers'],
+  ['duplicate blocker',r=>r.slots[0].display.blocked_by=['ask-dddddd','ask-dddddd'],'Invalid child blockers'],
+  ['unsupported version',r=>r.schema_version=2,'Unsupported creation grant version'],
+  ['zero step visit',r=>r.step_visit=0,'Invalid step visit/expiry'],
+  ['non-integer expiry',r=>r.expires_at_ms=1.5,'Invalid step visit/expiry'],
+  ['blank title',r=>r.slots[0].display.title='   ','Invalid display text'],
+  ['oversized description',r=>r.slots[0].display.description='x'.repeat(65537),'Invalid display text'],
+])test(`grant compiler rejects ${name}`,()=>{const raw=input();assert.doesNotThrow(()=>compileTaskCreationGrant(raw));change(raw);
+  assert.throws(()=>compileTaskCreationGrant(raw),e=>e.message===message,`${name} was refused by another guard`);});
 test('call wrapper verifies bound SDK result and never invokes another grant',async()=>{
   const grant=compileTaskCreationGrant(input()),api=apiDouble(grant);
   assert.equal((await createGrantedChild(api,grant,'gpt')).task.id,'ask-bbbbbb');
@@ -55,9 +71,28 @@ test('success prose, wrong marker and prematurely enrolled child are not accepte
 test('malformed compiled grant rejects before calling the capability',async()=>{
   const compiled=compileTaskCreationGrant(input());let calls=0;
   const api={...apiDouble(compiled),create:async()=>{calls++;throw Error('must not call')}};
-  for(const change of [g=>g.slots=null,g=>g.slots=Array(1),g=>g.slots[0].input=null,g=>g.schema_version=2,g=>g.context_digest=null]){
+  // The expected message is part of each case: a compiled grant has several
+  // guards over the same record, and "some code was thrown" cannot tell whether
+  // the one under test was ever evaluated.
+  for(const [change,message] of [
+    [g=>g.slots=null,'Invalid bounded array'],
+    [g=>g.slots=Array(1),'Invalid bounded array'],
+    [g=>g.slots[0].input=null,'Expected a plain record'],
+    [g=>g.schema_version=2,'Unsupported compiled grant version'],
+    [g=>g.context_digest=null,'Expected SHA-256'],
+    [g=>g.step_visit=0,'Invalid compiled visit/expiry'],
+    [g=>g.slots[0].input.title='  ','Invalid compiled display text'],
+    [g=>g.slots[0].input.creation_key='flow:zz','Expected a compiled creation key'],
+    [g=>g.slots[0].input.blocked_by=[g.parent_task_id],'Invalid or duplicate compiled slot'],
+    [g=>{g.slots[1].slot_id=g.slots[0].slot_id;},'Invalid or duplicate compiled slot'],
+  ]){
     const raw=structuredClone(compiled);change(raw);
-    await assert.rejects(createGrantedChild(api,raw,'gpt'),e=>typeof e.code==='string');
+    await assert.rejects(createGrantedChild(api,raw,'gpt'),e=>e.message===message);
+  }
+  // A capability that is not the scoped creation API is refused before the
+  // grant is even read, so a wrong protocol never reaches a create call.
+  for(const bad of [{capabilities:{protocol:'other'},create:async()=>{}},{capabilities:{protocol:'autosk-scoped-task-creation/v1'}},null]){
+    await assert.rejects(createGrantedChild(bad,compiled,'gpt'),{code:'scoped_creation_unavailable'});
   }
   assert.equal(calls,0);
 });
