@@ -321,6 +321,7 @@
         "docs/contracts/housekeeping.md",
         "docs/contracts/human-decision.md",
         "docs/contracts/integration-authorization.md",
+        "docs/contracts/material-decisions.md",
         "docs/contracts/model-result.md",
         "docs/contracts/platform-support.md",
         "docs/contracts/project-instructions-lock.md",
@@ -368,6 +369,7 @@
         "human_decision",
         "instruction_lock",
         "iteration_result",
+        "material_decision_manifest",
         "model_result",
         "planning_ref_contract",
         "platform_matrix",
@@ -1128,6 +1130,35 @@
       "human_approval": "not_required"
     },
     {
+      "class": "material_decision_manifest",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        ".autosk/autosk-flow/material-decisions/*.json"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "project_identity",
+        "epic_id",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/material-decisions/material-decision-manifest.schema.json",
+      "validator": "scripts/validate-material-decisions.mjs",
+      "impacts": [
+        "tickets"
+      ],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "migration_plan",
       "category": "behavior_defining",
       "author_roles": [
@@ -1781,5 +1812,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "8d9cea97988b6f97bd68bcfdbbeed90728d4abf9aba3b21311190f94e8141d6a"
+  "registry_digest": "e8d27a33e3831f366edce235503fff37ae1af8b12693a33a3b2ea5b055c69dba"
 }

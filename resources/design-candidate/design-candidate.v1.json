@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "01292d24905e3092022139f4171541d171771f1294118fcac8da3aa7c7c805af"
+      "sha256": "29910ffc5e2dfabb84908719a34f5a241a55ae3c868d8c71eadd2789aca39322"
     },
     {
       "path": "README.md",
@@ -109,6 +109,10 @@
     {
       "path": "docs/contracts/integration-authorization.md",
       "sha256": "1fa57fe4dee5906dd3d3b2f4f194599cb47ce1f67d889a495808f7aca6612a4f"
+    },
+    {
+      "path": "docs/contracts/material-decisions.md",
+      "sha256": "069e18e1eb98acd457a74d0bcd6bfe46426ebf26d1e3c1908ba282b013eb5b98"
     },
     {
       "path": "docs/contracts/model-result.md",
@@ -267,6 +271,18 @@
       "sha256": "bd97401d83f4255df914913e0f3bbebade25ac9e1752c074af61fcd6fbcf2c4a"
     },
     {
+      "path": "resources/material-decisions/material-decision-manifest.example.json",
+      "sha256": "0a150ac6d840a35c29437252fe1f3f2527368b34d33f914b93e691a05527f574"
+    },
+    {
+      "path": "resources/material-decisions/material-decision-manifest.refused.example.json",
+      "sha256": "3d6957a09cfba8c6dd6223a8fb4560b39ce703ba8795742589477637a204d9d9"
+    },
+    {
+      "path": "resources/material-decisions/material-decision-manifest.schema.json",
+      "sha256": "8180abfc9f388d45f1c70fc24c5b6f71476dde3f632d4e28b331f80b88040435"
+    },
+    {
       "path": "resources/model-result/model-result.schema.json",
       "sha256": "de7b36c0874f3f627b881e6afeecb61ecdaa949bd3b4786a5859e5b6852f9788"
     },
@@ -403,7 +419,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "e2b174be1c0703617224eebaac66595e9f2f7a63cb056b26aa1c9232e5f8a2f3",
+  "candidate_digest": "228d8e46341db1923778222d9f33014602edd1db34fcc690ffaa2ea2aa6ef837",
   "dispositions": [
     {
       "issue": 3,

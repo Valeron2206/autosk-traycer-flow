@@ -38,6 +38,7 @@
     "bundle:build": "node scripts/governance-bundle.mjs",
     "validate:human-decision": "node scripts/validate-human-decision.mjs",
     "validate:integration-authorization": "node scripts/validate-integration-authorization.mjs",
+    "validate:material-decisions": "node scripts/validate-material-decisions.mjs",
     "validate:verify-doc": "node scripts/validate-verify-doc.mjs",
     "validate:work-type-gates": "node scripts/validate-work-type-gates.mjs",
     "validate:bounded-loop": "node scripts/validate-bounded-loop.mjs",
