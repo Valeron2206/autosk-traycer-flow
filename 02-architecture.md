@@ -60,7 +60,7 @@ autosk v2 остаётся движком задач и переходов. Но
 
 Хранит нормативные артефакты и код. Git object database даёт tree/commit OID для неизменяемой идентичности. Branch name никогда не считается идентичностью.
 
-Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic_ref_key>/planning`. Key — domain-separated SHA-256 canonical `{project_root_sha256,epic_id}`. Его verified head — единственная текущая Git-проекция принятых planning artifacts. До publication каждый frozen candidate владеет `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>`. Deterministic host adapter только формирует и авторизует exact requests; sole writer ref-custody helper выполняет каждый create/CAS/delete для `refs/autosk/**` и `logs/refs/autosk/**`. Target branch и чужие Epic refs не затрагиваются.
+Каждый Planned Epic владеет private append-only ref `refs/autosk/epics/<epic_ref_key>/planning`. Key — domain-separated SHA-256 canonical `{project_root_sha256,epic_id}`, в шестнадцатеричном нижнем регистре; имя ref'а сравнивается побайтово в expected-old CAS, поэтому кодировка входит в определение, а не остаётся соглашением о записи. Его verified head — единственная текущая Git-проекция принятых planning artifacts. До publication каждый frozen candidate владеет `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>`. Deterministic host adapter только формирует и авторизует exact requests; sole writer ref-custody helper выполняет каждый create/CAS/delete для `refs/autosk/**` и `logs/refs/autosk/**`. Target branch и чужие Epic refs не затрагиваются.
 
 Enforceable boundary: the service-owned canonical project common Git directory is the single object/ref database for target, planning, candidate and audit refs; it is not a second repository. Each worktree keeps isolated service-managed `HEAD`, index and worktree state in its own per-worktree Git directory; its read-only gitfile points there and a read-only `commondir` link reaches the common ODB. Project/model accounts cannot open either Git directory for writes or invoke Git mutations; autoskd mediates ordinary project Git operations and the separate-account ref-custody helper is the sole writer of `refs/autosk/**` and their reflogs. Every ancestor is root/helper-owned and descriptor-pinned. Linux/macOS bootstrap proves the chain, peer credentials and denied direct ref/pack/rename probes; unsupported layouts fail before workflow effects.
 
@@ -265,7 +265,7 @@ resources/governance/bundles/autosk-v1/
 При старте Epic daemon-side AgentDefinition проверяет manifest/digest активного bundle и копирует exact bundle bytes в проект:
 
 ~~~text
-<absolute-project-root>/.autosk/autosk-flow/protocol-snapshots/<sha256>/
+<canonical-project-root>/.autosk/autosk-flow/protocol-snapshots/<sha256>/
   agent-selection-guide.md
   protocol/
   bundle-manifest.json
@@ -279,10 +279,10 @@ Installer/cache хранит bundle versions content-addressed по digest, по
 ### Доказательства
 
 ~~~text
-<absolute-project-root>/.autosk-evidence/<epic-id>/<task-id>/<round>/<agent>/
+<canonical-project-root>/.autosk-evidence/<epic-id>/<task-id>/<round>/<agent>/
 ~~~
 
-Каталог игнорируется Git и содержит logs/screenshots/evidence mirrors. Accepted verdict authority — daemon gate-result receipt + protected result head; metadata хранит receipt ref и optional evidence path/hash. Editable evidence/session transcript не является outcome source.
+`<canonical-project-root>` — тот же разрешённый корень, который проверяют guard'ы изоляции этого раздела, а не любой абсолютный путь, оказавшийся у вызывающей стороны: F005 существует именно потому, что символическая ссылка делает эти два написания разными. Каталог игнорируется Git и содержит logs/screenshots/evidence mirrors. Accepted verdict authority — daemon gate-result receipt + protected result head; metadata хранит receipt ref и optional evidence path/hash. Editable evidence/session transcript не является outcome source.
 
 ### Состояние интеграции
 
@@ -405,7 +405,7 @@ candidate identity =
   + attempt
 ~~~
 
-`governance_mapping_set_digest` — domain-separated SHA-256 canonical ordered set доказательств только для дополнительных плановых/управляющих документов в exact candidate tree; пустой set имеет канонический digest. Закрытый classifier отдельно выдаёт `ordinary_implementation` для source/config/schema/prompt/test/migration paths из declared implementation scope, поэтому такие файлы не требуют mapping. Text artifact хранит embedded mapping block, non-embeddable artifact — связанный companion JSON; orphan/mismatch sidecar fail-closed. Digest не входит в parent-derived `controlling_anchor_digest`: он вычисляется из exact tree и classifier rule version и напрямую входит в artifact/code candidate, а значит также в verdict binding. Freeze, record_artifact_pass/record_code_verdict и commit/integration заново вычисляют set; любое отличие делает прежний verdict stale.
+`governance_mapping_set_digest` — domain-separated SHA-256 canonical ordered set доказательств только для дополнительных плановых/управляющих документов в exact candidate tree; пустой set имеет канонический digest. Роль пути для этого набора определяет реестр артефактов: путь, которым управляет класс реестра, получает lifecycle этого класса, и для source/config/schema/prompt/test/migration путей из declared implementation scope это `source_change` — они не требуют mapping и в набор не входят. Пятизначный path-role classifier `01-core-flows.md` §2 остаётся описанием того, какой lifecycle подразумевался для роли, пока её не внесли в реестр, и входом идентичности не является: идентичность не может зависеть от правила, которое `01-core-flows.md` §2 объявляет недостижимым. Text artifact хранит embedded mapping block, non-embeddable artifact — связанный companion JSON; orphan/mismatch sidecar fail-closed. Digest не входит в parent-derived `controlling_anchor_digest`: он вычисляется из exact tree и версии реестра (`registry_digest`) и напрямую входит в artifact/code candidate, а значит также в verdict binding. Freeze, record_artifact_pass/record_code_verdict и commit/integration заново вычисляют set; любое отличие делает прежний verdict stale.
 
 ### Verdict
 

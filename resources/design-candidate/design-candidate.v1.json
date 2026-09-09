@@ -4,11 +4,11 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "6a15d0f7a96acdf81e779652fbb13179d0b84614279e82617d662678679d67c8"
+      "sha256": "79ab1997aec55d34b39d777aff60c803f00aed2c75d7838619998149ad635e57"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "43627603ee4b4a2868d0e5f86a51e274b0d83e18b501020cb42933ec0a302d62"
+      "sha256": "d61ce0a8f5d36c9b25a0d2ae27f6894a0260ef85379456f379e6e18b495cb458"
     },
     {
       "path": "03-technical-plan.md",
@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "58d3cc295424421c4807778f71917dd1e0e411097523c512cb705603ac5c8d54"
+      "sha256": "878f1e96aa756aebc56e8b252588a3d1bf6cbcb85b189ccb4f82057733ce29e1"
     },
     {
       "path": "README.md",
@@ -132,7 +132,7 @@
     },
     {
       "path": "docs/contracts/provider-preflight.md",
-      "sha256": "f3354771c534ef34f77af67187d87c76728e3d4293e3b1ae7d47a37255d686de"
+      "sha256": "920197288e0106bd984c6b4de48b02fbdab76a45768e9ac44739128ddf3ade04"
     },
     {
       "path": "docs/contracts/reflect-cost-watch.md",
@@ -447,7 +447,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "b9bf9b51824c00fd8ed5e689bef4f4d6969718cd37fa9920c9ea3214bfaa00b1",
+  "candidate_digest": "b59622fc0c1c1566355a1c01b18b1bce4802fc7cc74c3667330f0a0c35ab1032",
   "dispositions": [
     {
       "issue": 3,

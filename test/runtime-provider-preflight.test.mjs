@@ -13,6 +13,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  AUTO_CONTEXT,
   EFFORT_CONFIRMATION,
   REFUSALS,
   assertAdmits,
@@ -58,6 +59,7 @@ function route(overrides = {}) {
     timeouts: { idle_ms: 120_000, wall_clock_ms: 900_000 },
     process_tree_termination: "tree_kill",
     warning_detection: { dropped_parameter: null },
+    auto_context: { disposition: "disabled" },
     failure_domain: "anthropic-api",
     retry_budget: { used: 0, max: 3 },
     checked_at: new Date(NOW - 60_000).toISOString(),
@@ -253,6 +255,33 @@ test("diagnostics are redacted and bounded before they are stored", () => {
   assert.equal(boundDiagnostics(undefined), "");
 });
 
+test("a route that does not say what the provider loads by itself is refused", () => {
+  // The envelope is a pinned slice. A file the provider loads on its own would
+  // enter it unpinned and void the protocol hash and every PASS bound to it,
+  // silently — so the disposition is asked for rather than assumed, and "we did
+  // not see it load anything" is not one of the answers.
+  const reasons = (overrides, policy = {}) =>
+    routeAdmission(route(overrides), { nowMs: NOW, requestedEffort: "max", permissionMode: "read_only", policy })
+      .reasons.map((entry) => entry.reason);
+
+  assert.ok(!reasons({}).includes("route_auto_context_unpinned"));
+  assert.ok(reasons({ auto_context: undefined }).includes("route_auto_context_unpinned"));
+  assert.ok(reasons({ auto_context: { disposition: "probably_off" } }).includes("route_auto_context_unpinned"));
+
+  // Enumerated by *which* lock: a route pinned to another Epic's lock says
+  // nothing about what this one would load.
+  const enumerated = { disposition: "enumerated_by_lock", instruction_lock_digest: "a".repeat(64) };
+  assert.ok(
+    !reasons({ auto_context: enumerated }, { instructionLockDigest: "a".repeat(64) })
+      .includes("route_auto_context_unpinned"),
+  );
+  assert.ok(
+    reasons({ auto_context: enumerated }, { instructionLockDigest: "b".repeat(64) })
+      .includes("route_auto_context_unpinned"),
+  );
+  assert.deepEqual(AUTO_CONTEXT.slice(), ["disabled", "enumerated_by_lock"]);
+});
+
 test("every refusal class the contract closes can be produced", () => {
   const produced = new Set();
   const outcomes = [
@@ -265,6 +294,7 @@ test("every refusal class the contract closes can be produced", () => {
     admits({ expires_at: new Date(NOW - 1).toISOString() }),
     routeAdmission(route(), { nowMs: NOW, domainState: { "anthropic-api": "down" } }),
     admits({ retry_budget: { used: 5, max: 3 } }),
+    admits({ auto_context: undefined }),
   ];
   for (const outcome of outcomes) {
     for (const entry of outcome.reasons) produced.add(entry.reason);

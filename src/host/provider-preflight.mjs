@@ -24,7 +24,11 @@ export const REFUSALS = immutable([
   'route_retry_budget_exhausted',
   'route_result_missing',
   'route_session_generation_conflict',
+  'route_auto_context_unpinned',
 ]);
+
+/** How a provider's own context loading is disposed of on a route. */
+export const AUTO_CONTEXT = immutable(['disabled', 'enumerated_by_lock']);
 
 /** How the effective effort was established. Its own field, deliberately. */
 export const EFFORT_CONFIRMATION = immutable(['observed', 'reported', 'unconfirmable']);
@@ -52,6 +56,24 @@ export function routeAdmission(route, { nowMs, requestedEffort, permissionMode, 
   if (route.auth?.state !== 'valid') reasons.push({ reason: 'route_auth_expired', detail: route.auth?.state ?? 'unknown' });
   if (route.smoke?.state !== 'passed') reasons.push({ reason: 'route_smoke_failed', detail: route.smoke?.state ?? 'unknown' });
   if (route.model_supported === false) reasons.push({ reason: 'route_model_unsupported', detail: route.model_id });
+
+  // The envelope is a pinned slice, and a file the provider loads by itself is
+  // not in it. Bytes nobody pinned entering the envelope would void the protocol
+  // hash and every PASS bound to it, silently, so the disposition is asked for
+  // rather than assumed: either the provider's own context loading is off, or
+  // the instruction lock enumerates all of it. "We did not see it load
+  // anything" is neither.
+  if (!AUTO_CONTEXT.includes(route.auto_context?.disposition)) {
+    reasons.push({ reason: 'route_auto_context_unpinned', detail: route.auto_context?.disposition ?? 'unstated' });
+  } else if (route.auto_context.disposition === 'enumerated_by_lock'
+      && route.auto_context.instruction_lock_digest !== policy.instructionLockDigest) {
+    // Enumerated by *which* lock: a route pinned to another Epic's lock says
+    // nothing about what this one would load.
+    reasons.push({
+      reason: 'route_auto_context_unpinned',
+      detail: `lock ${route.auto_context.instruction_lock_digest ?? 'absent'}`,
+    });
+  }
 
   // A warning about a dropped parameter makes the route unavailable, not
   // degraded: a warning nobody acts on is a warning nobody needed to send.

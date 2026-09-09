@@ -44,6 +44,7 @@ export const REFUSALS = Object.freeze([
   "route_retry_budget_exhausted",
   "route_result_missing",
   "route_session_generation_conflict",
+  "route_auto_context_unpinned",
 ]);
 
 /**
