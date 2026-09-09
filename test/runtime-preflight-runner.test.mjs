@@ -51,6 +51,7 @@ const route = (overrides = {}) => ({
   command: "node",
   args: [PROVIDER],
   mode: "ok",
+  auto_context: { disposition: "disabled" },
   retry_budget: { used: 0, max: 3 },
   ...overrides,
 });

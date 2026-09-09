@@ -46,6 +46,7 @@ function route(id, overrides = {}) {
     permission_modes: ["read_only"],
     timeouts: { idle_ms: 1000, wall_clock_ms: 2000 },
     warning_detection: { dropped_parameter: null },
+    auto_context: { disposition: "disabled" },
     failure_domain: id.split("/")[0],
     retry_budget: { used: 0, max: 3 },
     expires_at: new Date(NOW + 3_600_000).toISOString(),

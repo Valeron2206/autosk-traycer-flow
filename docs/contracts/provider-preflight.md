@@ -45,6 +45,20 @@ Provider, harness and executable version; the exact model id; the requested effo
 
 An attestation has a `checked_at` and an `expires_at`, and an expired one is not an attestation. The capability registry version enters the runtime lock (#10), so a route whose registry changed mid-Epic is a change the Epic can notice rather than absorb.
 
+## 5a. What the provider loads by itself
+
+The prompt envelope is a pinned slice of the instruction lock. A file the
+provider loads on its own would enter that envelope unpinned, and unpinned bytes
+void the protocol hash and every PASS bound to it — silently, which is the part
+that matters.
+
+So the route record states the disposition rather than leaving it to be
+observed: either the provider's own context loading is `disabled`, or it is
+`enumerated_by_lock` and the record names the exact instruction-lock digest that
+enumerates it. A route pinned to another Epic's lock says nothing about what
+this one would load. "We did not see it load anything" is not one of the two
+answers, and a record that gives neither is `route_auto_context_unpinned`.
+
 ## 6. Refusal classes
 
 - `route_model_unsupported`;
@@ -57,7 +71,8 @@ An attestation has a `checked_at` and an `expires_at`, and an expired one is not
 - `route_failure_domain_down`;
 - `route_retry_budget_exhausted`;
 - `route_result_missing`;
-- `route_session_generation_conflict`.
+- `route_session_generation_conflict`;
+- `route_auto_context_unpinned`.
 
 ## 7. What this contract decides, and what it defers
 

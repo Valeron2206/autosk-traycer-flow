@@ -100,7 +100,7 @@ Brief и Core Flow пропускаются только по objective classifi
 
 <!-- planning-ref-contract:v1 -->
 
-У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic_ref_key>/planning`. `epic_ref_key` определён в `02-architecture.md` §2 как domain-separated SHA-256 канонического `{project_root_sha256, epic_id}` в нижнем регистре; это единственное определение, здесь оно не переизлагается. Это не display ID и не пользовательский slug. Линия инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
+У каждого Planned Epic есть одна приватная append-only линия `refs/autosk/epics/<epic_ref_key>/planning`. `epic_ref_key` определён в `02-architecture.md` §2; это единственное определение, и здесь оно не переизлагается — даже частично. Имя ref'а входит в expected-old CAS побайтово, поэтому регистр и кодировка — часть идентичности, а не форматирование, и второе изложение с лишним требованием создаёт два разных ключа под одним именем. Это не display ID и не пользовательский slug. Линия инициализируется exact recorded base до первого planning draft. Каждый следующий author worktree строится только от verified head этой линии.
 
 До panel/waiver host сохраняет полную commit/tree/blob closure в helper-owned quarantine pack, затем создаёт `refs/autosk/epics/<epic_ref_key>/candidates/<candidate_identity>` на frozen snapshot commit. После verdict daemon capability v1 одной metadata CAS записывает recorded PASS, immutable `planning_publication_op` и подготовленные helper intents; recorded PASS не завершает artifact kind. `publish_artifact_pass` создаёт single-parent commit, CAS-продвигает planning ref и проверяет closure. Затем монотонный `candidate_audit_transfer_op` сначала создаёт/проверяет audit ref, пока live keepalive остаётся, потом отдельной expected-old CAS удаляет live и финально проверяет audit-present/live-absent. Только verified transfer создаёт Published PASS и разрешает `select_next`; audit ref хранится до approved retention expiry.
 
@@ -167,6 +167,8 @@ Quick-flow не получает эти состояния, пока его об
 | Human/outside family | GPT | Kimi | Grok | Opus |
 
 Lead обязан быть другой семьёй относительно всех авторов и всех агентов, реально исправлявших артефакт. Для mixed authorship применяется мастер-порядок GPT, затем Kimi, Grok, Opus, отфильтрованный до семей вне полного author/fixer set. Если такой семьи нет, процесс переходит человеку.
+
+**Supplementary** — это место семьи автора. Оно занимает своё место в составе и обязано ответить, как и остальные три: синтез не начинается без валидного ответа каждого из четырёх. Отличается оно ровно одним: его находки не могут в одиночку блокировать приёмку — Critical или High только от supplementary поднимают вопрос к Lead, который либо подтверждает находку своим голосом, либо записывает несогласие. Обратное — молчаливое право семьи автора закрыть собственный артефакт или самой себе его завернуть — и есть то, ради чего роль вообще названа отдельно; безымянное место с полными правами было бы просто пятым голосом автора.
 
 Все места получают:
 

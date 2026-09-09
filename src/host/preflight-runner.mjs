@@ -153,6 +153,13 @@ export async function preflightRoute(run, route, { timeouts, nowMs, ttlMs = 15 *
     auth: Object.freeze({ state: authState(observed) }),
     smoke: Object.freeze({ state: smoke.state, elapsed_ms: observed.elapsed_ms }),
     warning_detection: Object.freeze({ dropped_parameter: dropped }),
+    // Carried from the route's configuration, not inferred from the probe: a
+    // probe that loaded nothing extra this once is not a statement about what
+    // the provider would load on a real run.
+    auto_context: Object.freeze({
+      disposition: route.auto_context?.disposition ?? null,
+      instruction_lock_digest: route.auto_context?.instruction_lock_digest ?? null,
+    }),
     expires_at: new Date(nowMs + ttlMs).toISOString(),
     retry_budget: route.retry_budget,
     observed_at: new Date(nowMs).toISOString(),
