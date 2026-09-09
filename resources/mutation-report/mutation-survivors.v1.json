@@ -109,5 +109,31 @@
       "guard": "< -> <=",
       "reason": "The comparator's second key breaks ties in specificity by class name, and two entries with the same specificity *and* the same class name would be one class registered twice — which `ambiguous_class` refuses before any path is classified. The tie branch is therefore unreachable, and the selection property is tested directly."
     }
+  ],
+  "non_terminating_mutants": [
+    {
+      "module": "src/host/artifact-classifier.mjs",
+      "line": 118,
+      "guard": "> -> >=",
+      "reason": "`while (queue.length > 0)` is the only exit of `impactClosure`. `> -> >=` makes an empty queue (`length === 0`) still enter the body. `queue.shift()` then yields `undefined`; `byName.get(undefined)?.impacts ?? []` is empty, so nothing is enqueued and the condition stays true. `seen` only suppresses re-enqueue of a named class — it is not the loop condition — so even a cycle-free registry hangs once the work list drains. The mutant never returns an impact set."
+    },
+    {
+      "module": "src/host/tickets-manifest.mjs",
+      "line": 131,
+      "guard": "> -> >=",
+      "reason": "`while (ready.length > 0)` is Kahn termination in `kahnOrder`: empty `ready` means the remaining nodes are a cycle (or the graph is done). `> -> >=` keeps that empty list in the body. `ready.shift()` yields `undefined`, which is pushed onto `order` every iteration; `children.get(undefined) ?? []` adds nothing back. The mutant never returns, so `graphErrors` cannot observe `order.length !== tickets.length` and the cycle refusal is unreachable."
+    },
+    {
+      "module": "src/host/tickets-manifest.mjs",
+      "line": 190,
+      "guard": "> -> >=",
+      "reason": "`while (stack.length > 0)` is the only way `reaches` inside `comparable` returns false. `> -> >=` keeps an empty stack in the body. `stack.pop()` yields `undefined`; `byId.get(undefined)?.depends_on ?? []` is empty, so the `parent === to` hit and the `stack.push` never run, and `return false` after the loop is unreachable. `seen` only skips parents already walked — it does not stop the loop — so a fully explored (even acyclic) walk hangs instead of answering."
+    },
+    {
+      "module": "src/host/staging-lineage.mjs",
+      "line": 34,
+      "guard": "demand(",
+      "reason": "`demand(!seen.has(receipt.staging_commit_oid), 'containment_mismatch', …)` is the only break of a receipt cycle in `lineageFor`. Neutralising it leaves `while (cursor !== head)` walking `cursor = receipt.staging_commit_oid`. On a loop (a→b, b→a) every cursor is a key in `byBase`, so `if (!receipt) break` never fires, and `head` off the cycle (the existing test uses `z`) is never reached. `seen.add` of a repeat is a no-op and is not a loop condition. The test that feeds that loop is correct — it asserts `containment_mismatch` — but without the demand the walk does not return a value to assert."
+    }
   ]
 }

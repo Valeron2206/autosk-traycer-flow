@@ -4,14 +4,15 @@
  * The command exists so that "every runtime module was mutation-tested" can be
  * recomputed by whoever holds the frozen tree instead of being read out of a
  * pull request. These check the parts that decide what it means: what counts as
- * a guard, which test file answers for which module, and when a survivor is
- * allowed to stand.
+ * a guard, which test file answers for which module, and when a survivor or a
+ * timeout kill is allowed to stand.
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { PREDICATE_RULES, RULES, mutants, pairs, reportDigest, unnamedSurvivors } from "../scripts/mutation-report.mjs";
+import { PREDICATE_RULES, RULES, TEST_SPAWN_ARGS, classifyRun, killedByAssertion, mutants, pairs, reportDigest, unnamedSurvivors, unnamedTimeoutKills } from "../scripts/mutation-report.mjs";
 
 test("each mutant neuters exactly one guard and leaves a program that runs", () => {
   const source = [
@@ -86,6 +87,204 @@ test("a survivor stands only where somebody named it, at its line", () => {
   // The line is part of the name: moving the guard does not carry the excuse.
   assert.equal(unnamedSurvivors(survivors, { equivalent_mutants: [{ module: "src/host/a.mjs", line: 13 }] }).length, 2);
   assert.equal(unnamedSurvivors(survivors, { equivalent_mutants: [] }).length, 2);
+});
+
+test("a timeout kill stands only where somebody named it, at its line", () => {
+  const timedOut = [
+    { module: "src/host/a.mjs", line: 12, guard: "> -> >=" },
+    { module: "src/host/b.mjs", line: 40, guard: "demand(" },
+  ];
+  const expected = {
+    equivalent_mutants: [],
+    non_terminating_mutants: [{
+      module: "src/host/a.mjs",
+      line: 12,
+      guard: "> -> >=",
+      reason: "while (queue.length > 0) becomes >= 0, which holds for an empty queue",
+    }],
+  };
+  assert.deepEqual(unnamedTimeoutKills(timedOut, expected).map((entry) => entry.module), ["src/host/b.mjs"]);
+  // The line is part of the name: moving the loop does not carry the excuse.
+  assert.equal(unnamedTimeoutKills(timedOut, { non_terminating_mutants: [{ module: "src/host/a.mjs", line: 13 }] }).length, 2);
+  assert.equal(unnamedTimeoutKills(timedOut, { non_terminating_mutants: [] }).length, 2);
+  // A named equivalent is a different class: it does not excuse a timeout.
+  assert.equal(unnamedTimeoutKills(timedOut, { equivalent_mutants: [{ module: "src/host/a.mjs", line: 12 }] }).length, 2);
+});
+
+test("a load failure is not an assertion kill", () => {
+  const load = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "✖ load-fail.test.mjs (0.8ms)",
+      "ℹ tests 1",
+      "ℹ pass 0",
+      "ℹ fail 1",
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'x'",
+      "    at finalizeResolution (node:internal/modules/esm/resolve:271:11)",
+    ].join("\n"),
+    stderr: "",
+  };
+  const missingExport = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "✖ missing-export.test.mjs (1.1ms)",
+      "ℹ tests 1",
+      "ℹ fail 1",
+      "SyntaxError: The requested module './m.mjs' does not provide an export named 'x'",
+      "    at #asyncInstantiate (node:internal/modules/esm/module_job:326:21)",
+    ].join("\n"),
+    stderr: "",
+  };
+  const assertion = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "TAP version 13",
+      "# Subtest: fails",
+      "not ok 1 - fails",
+      "  ---",
+      "  type: 'test'",
+      "  failureType: 'testCodeFailure'",
+      "  name: 'AssertionError'",
+      "  ...",
+      "# tests 1",
+      "# fail 1",
+      "",
+    ].join("\n"),
+    stderr: "",
+  };
+  const thrown = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "TAP version 13",
+      "# Subtest: throws",
+      "not ok 1 - throws",
+      "  ---",
+      "  type: 'test'",
+      "  failureType: 'testCodeFailure'",
+      "  error: 'boom'",
+      "  ...",
+      "# tests 1",
+      "# fail 1",
+      "",
+    ].join("\n"),
+    stderr: "",
+  };
+  const late = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "TAP version 13",
+      "# Subtest: late",
+      "not ok 1 - late",
+      "  ---",
+      "  type: 'test'",
+      "  failureType: 'testCodeFailure'",
+      "  name: 'AssertionError'",
+      "  stack: |-",
+      "    Timeout._onTimeout (file:///dev/fd/0:5:18)",
+      "  ...",
+      "",
+    ].join("\n"),
+    stderr: "",
+  };
+  assert.equal(killedByAssertion([load]), 0);
+  assert.equal(killedByAssertion([missingExport]), 0);
+  assert.equal(killedByAssertion([assertion]), 1);
+  assert.equal(killedByAssertion([thrown]), 1);
+  assert.equal(killedByAssertion([late]), 1);
+  assert.equal(classifyRun(load), "environment");
+  assert.equal(classifyRun(missingExport), "environment");
+  assert.equal(classifyRun(assertion), "assertion");
+  assert.equal(classifyRun(thrown), "assertion");
+  assert.equal(classifyRun(late), "assertion");
+});
+
+test("an import-time ENOENT is not an assertion kill", () => {
+  const run = spawnSync(process.execPath, [...TEST_SPAWN_ARGS, "/dev/stdin"], {
+    input: [
+      'import { readFileSync } from "node:fs";',
+      'import test from "node:test";',
+      'readFileSync("/dev/__review_missing_fixture__");',
+      'test("unreached", () => {});',
+      "",
+    ].join("\n"),
+    encoding: "utf8",
+  });
+  assert.equal(run.status, 1);
+  assert.equal(killedByAssertion([run]), 0);
+  assert.equal(classifyRun(run), "environment");
+});
+
+test("AssertionError text without an executed test is not an assertion kill", () => {
+  const poisoned = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "✖ load-fail.test.mjs (0.8ms)",
+      "ℹ tests 1",
+      "ℹ fail 1",
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'x' — see AssertionError docs",
+      "    at finalizeResolution (node:internal/modules/esm/resolve:271:11)",
+    ].join("\n"),
+    stderr: "",
+  };
+  assert.equal(killedByAssertion([poisoned]), 0);
+  assert.equal(classifyRun(poisoned), "environment");
+});
+
+test("a beforeEach hook failure is not an assertion kill", () => {
+  const run = spawnSync(process.execPath, [...TEST_SPAWN_ARGS, "/dev/stdin"], {
+    input: [
+      'import { readFileSync } from "node:fs";',
+      'import test from "node:test";',
+      'test.beforeEach(() => { readFileSync("/dev/__review_missing_fixture__"); });',
+      'test("unreached", () => {});',
+      "",
+    ].join("\n"),
+    encoding: "utf8",
+  });
+  assert.equal(run.status, 1);
+  assert.equal(killedByAssertion([run]), 0);
+  assert.equal(classifyRun(run), "environment");
+});
+
+test("arbitrary TestContext text without a TAP testCodeFailure is not an assertion kill", () => {
+  const run = {
+    status: 1,
+    signal: null,
+    stdout: [
+      "initializing TestContext",
+      "TAP version 13",
+      "# Subtest: /dev/stdin",
+      "not ok 1 - /dev/stdin",
+      "  ---",
+      "  type: 'test'",
+      "  code: 'ERR_MODULE_NOT_FOUND'",
+      "  ...",
+      "",
+    ].join("\n"),
+    stderr: "",
+  };
+  assert.equal(killedByAssertion([run]), 0);
+  assert.equal(classifyRun(run), "environment");
+});
+
+test("a live missing import after a console.log is not an assertion kill", () => {
+  const run = spawnSync(process.execPath, [...TEST_SPAWN_ARGS, "/dev/stdin"], {
+    input: [
+      'console.log("initializing TestContext");',
+      'await import("./no-such-module.mjs");',
+      "",
+    ].join("\n"),
+    encoding: "utf8",
+  });
+  assert.equal(run.status, 1);
+  assert.equal(killedByAssertion([run]), 0);
+  assert.equal(classifyRun(run), "environment");
 });
 
 test("the digest covers the counts, so a report cannot be cited for another run", () => {
