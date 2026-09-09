@@ -103,13 +103,15 @@ Every park reason a document can produce — from a step's `no_transition_reason
 
 ## 9. Refusal classes
 
-Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
+Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
 
 The set holds two kinds, because one contract owns both. The prefixed codes are design-time: the validator refuses a document. The three without the prefix are runtime park reasons the graph itself issues, which no edge and no step can carry — an undeclared pair has no edge, and therefore no guard on which to hang a reason.
 
 Three of the design-time codes are about the document before its graph is read. `graph_not_json` is any parse failure other than the two the parse names itself; `graph_duplicate_key` and `graph_number_not_canonical` are those two. `graph_schema` is a shape refusal, including the ordinary case of a field the document is not allowed to carry. They are listed because a reachable refusal that is not declared is a set that reads as closed and is not: the test that guards this set runs a battery of malformed documents and compares the codes actually produced against the list above, rather than reading the list back to itself.
 
-`graph_park_reason_unknown` is the code for a park reason nobody owns. The authoritative set is the park reasons of `resources/refusal-vocabulary/refusal-vocabulary.v1.json` together with the three this contract owns. Checking only the spelling would leave section 4's promise a sentence: `totally_unknown_reason` has the right shape, belongs to no vocabulary, and is exactly the code no recovery contract can be read for.
+Two codes are about which reason a document may name, and they answer different questions. `graph_park_reason_unknown` is the code for a park reason nobody owns: the authoritative set for a step, a guard, a cap or a recovery row is the park reasons of `resources/refusal-vocabulary/refusal-vocabulary.v1.json`, and checking only the spelling would leave section 4's promise a sentence, because `totally_unknown_reason` has the right shape and belongs to no vocabulary.
+
+`graph_park_reason_reserved` is the code for a reason that is owned, and owned by the graph. Owning a code and being allowed to name it are different questions. The three codes this contract owns are issued by the graph about itself, so a guard carrying `transition_not_declared` would be claiming an edge refused for a reason that exists precisely when there is no edge, and a guard carrying `no_transition_reason` would produce, from a schema-valid document, the code section 9 says no valid document can produce. The reserved three are refused everywhere except `graph_reasons`, where they are pinned.
 
 None of the three belongs in `resources/refusal-vocabulary/refusal-vocabulary.v1.json`. That resource is the enumeration of park states of the **autosk workflow**, extracted from the resume table that owns it, and these are states of a graph runtime that does not exist yet. Recording them there would assert they are reachable today, which is false. They are owned and closed here, exactly as `docs/contracts/execution-base.md` owns and closes its own set.
 
@@ -126,6 +128,7 @@ None of the three belongs in `resources/refusal-vocabulary/refusal-vocabulary.v1
 - a token with a huge positive exponent is refused by its value and not by exhausting memory, and zero is still zero at that exponent
 - the authoritative park-reason set is read for each check and handed out as a fresh set, so a caller cannot widen what a later check accepts
 - a park reason no vocabulary owns is refused, and the two graph-level codes cannot be renamed
+- each reserved graph-level code is refused on a step, a guard and a cap, with a matching recovery row present, so the refusal is not a missing row wearing another name
 - the canonical reference reproduces byte for byte, and each of its four forks is exercised
 - a resume target that is not a declared edge out of its `parks_at` step is refused
 - two edges leaving one step at equal priority are refused

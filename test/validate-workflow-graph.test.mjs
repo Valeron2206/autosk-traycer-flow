@@ -19,6 +19,7 @@ import test from "node:test";
 import {
   CONTRACT_PATH,
   EXAMPLE_PATH,
+  GRAPH_PARK_REASONS,
   REFERENCE_PATH,
   REFUSALS,
   REFUSED_PATH,
@@ -383,6 +384,7 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     (document) => { delete document.steps[0].no_transition_reason; },
     (document) => { document.unexpected = true; },
     (document) => { document.guards[0].park_reason = "totally_unknown_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason"; },
+    (document) => { document.guards[0].park_reason = "no_transition_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "no_transition_reason"; },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -471,4 +473,56 @@ test("ASTRA-S1-06: a widened set cannot leak into the next validation", () => {
     }),
     "graph_park_reason_unknown",
   );
+});
+
+// --- round 2 -----------------------------------------------------------------
+
+/**
+ * Owning a code and being allowed to name it are different questions.
+ *
+ * The three graph-level reasons belong to the graph itself: an undeclared pair
+ * has no edge and therefore no guard to hang a reason on. Merging them into one
+ * allowed set let an ordinary guard carry `no_transition_reason` — a code the
+ * contract says no valid document can produce.
+ */
+test("ASTRA-R2-01: a guard cannot carry a reason the graph issues about itself", () => {
+  for (const reserved of GRAPH_PARK_REASONS) {
+    assertRefuses(
+      mutated((document) => {
+        const previous = document.guards[0].park_reason;
+        document.guards[0].park_reason = reserved;
+        document.recovery.find((row) => row.reason === previous).reason = reserved;
+      }),
+      "graph_park_reason_reserved",
+    );
+  }
+});
+
+test("ASTRA-R2-01: a step cannot carry one either", () => {
+  for (const reserved of GRAPH_PARK_REASONS) {
+    assertRefuses(
+      mutated((document) => {
+        const previous = document.steps[0].no_transition_reason;
+        document.steps[0].no_transition_reason = reserved;
+        document.recovery.find((row) => row.reason === previous).reason = reserved;
+      }),
+      "graph_park_reason_reserved",
+    );
+  }
+});
+
+test("ASTRA-R2-01: a cap cannot carry one either", () => {
+  assertRefuses(
+    mutated((document) => {
+      const previous = document.caps[0].park_reason;
+      document.caps[0].park_reason = "no_transition_reason";
+      document.recovery.find((row) => row.reason === previous).reason = "no_transition_reason";
+    }),
+    "graph_park_reason_reserved",
+  );
+});
+
+test("ASTRA-R2-01: the workflow vocabulary is what an ordinary field may name", () => {
+  assert.equal(parkReasons().has("no_transition_reason"), false, "a reserved code is not a workflow park reason");
+  assert.equal(parkReasons().has("core_flow_decision_required"), true, "the workflow vocabulary is still the source");
 });

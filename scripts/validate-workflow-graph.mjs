@@ -51,6 +51,7 @@ export const REFUSALS = Object.freeze([
   "graph_lone_surrogate",
   "graph_not_json",
   "graph_number_not_canonical",
+  "graph_park_reason_reserved",
   "graph_park_reason_unknown",
   "graph_predicate_unknown",
   "graph_priority_ambiguous",
@@ -73,7 +74,13 @@ export const GRAPH_PARK_REASONS = Object.freeze([
 ]);
 
 /**
- * The codes a graph may name.
+ * The codes an ordinary step, guard, cap or recovery row may name.
+ *
+ * This is the workflow's own vocabulary and nothing else. Owning a code and
+ * being allowed to name it are different questions: the three above belong to
+ * the graph, which issues them about itself, so a document that put one on a
+ * guard would be claiming an edge refused for a reason that exists precisely
+ * when there is no edge.
  *
  * The schema says a code outside the vocabulary is refused. Checking only the
  * spelling would leave that sentence unenforced: `totally_unknown_reason` has
@@ -86,7 +93,7 @@ export const GRAPH_PARK_REASONS = Object.freeze([
  */
 export function parkReasons(root = ROOT) {
   const vocabulary = JSON.parse(readFileSync(path.join(root, VOCABULARY_PATH), "utf8"));
-  return new Set([...vocabulary.park_reasons.map((entry) => entry.code), ...GRAPH_PARK_REASONS]);
+  return new Set(vocabulary.park_reasons.map((entry) => entry.code));
 }
 
 // ---------------------------------------------------------------------------
@@ -572,7 +579,11 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     ...document.caps.map((cap) => [`cap ${cap.cycle}`, cap.park_reason]),
     ...document.recovery.map((row) => [`recovery row ${row.reason}`, row.reason]),
   ]) {
-    if (!allowed.has(reason)) errors.push(`graph_park_reason_unknown: ${named} names ${reason}`);
+    if (GRAPH_PARK_REASONS.includes(reason)) {
+      errors.push(`graph_park_reason_reserved: ${named} names ${reason}, which the graph issues about itself`);
+    } else if (!allowed.has(reason)) {
+      errors.push(`graph_park_reason_unknown: ${named} names ${reason}`);
+    }
   }
 
   const rows = new Map(document.recovery.map((row) => [row.reason, row]));
