@@ -59,6 +59,10 @@ export const COVERAGE = Object.freeze({
   F014: { harness: null, evidence: null, real_fault: false },
   F015: { harness: null, evidence: null, real_fault: false },
   F016: { harness: null, evidence: null, real_fault: false },
+  F017: { harness: null, evidence: null, real_fault: false },
+  F018: { harness: null, evidence: null, real_fault: false },
+  F019: { harness: null, evidence: null, real_fault: false },
+  F020: { harness: null, evidence: null, real_fault: false },
 });
 
 /**

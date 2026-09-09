@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "99a12c032a2ed25a925e16baf02fdb41b33dd0c0e8772b4aee289787a7c9131a"
+      "sha256": "58d3cc295424421c4807778f71917dd1e0e411097523c512cb705603ac5c8d54"
     },
     {
       "path": "README.md",
@@ -200,7 +200,7 @@
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.schema.json",
-      "sha256": "9b65cabb087cf1f2a471672500425b6fd7f6742a7a5a6e1475ed56f03307dd9d"
+      "sha256": "998fb3d44c9255d12b177f491d8f01ba9f877a78a8f5e430957aed0ca5b75edc"
     },
     {
       "path": "resources/clearance-manifest/clearance-manifest.schema.json",
@@ -447,7 +447,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "4045aa72d3aadfa253b88175d31534142a5a1def337dfaa02021369f056f3d27",
+  "candidate_digest": "b9bf9b51824c00fd8ed5e689bef4f4d6969718cd37fa9920c9ea3214bfaa00b1",
   "dispositions": [
     {
       "issue": 3,

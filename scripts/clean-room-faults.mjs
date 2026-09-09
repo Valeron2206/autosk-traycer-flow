@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Real fault injection for the clean-room matrix (#36, groups F005-F016).
+ * Real fault injection for the clean-room matrix (#36, groups F005-F020).
  *
  * Every case here creates the fault for real — a symlink on disk, a ref moved
  * by a second process, an inherited `GIT_DIR`, a harness that prints success
@@ -26,6 +26,7 @@ import { aggregateBinding, casAdmission, postCasErrors, resumePlan } from '../sr
 import { batchSufficiencyErrors } from '../src/host/work-type-gates.mjs';
 import { classifyExit, dispatchOutcome, waitExceeded } from '../src/host/provider-preflight.mjs';
 import { locationErrors } from '../src/host/source-snapshot.mjs';
+import { publicationDecision } from '../src/host/planning-publication.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -418,6 +419,171 @@ function acceptedState({ head, staging }) {
   return base;
 }
 
+
+/** The planning ref a publication advances, and its keepalive. */
+const PLANNING_REF = 'refs/autosk/epics/clean-room/planning';
+const KEEPALIVE_REF = 'refs/autosk/epics/clean-room/candidate';
+
+/**
+ * A real planning ref with a real candidate keepalive.
+ *
+ * The publication cases differ only in how far the interrupted operation got,
+ * so every difference has to come from observed refs, reflogs and objects
+ * rather than from how the fixture was written. `--create-reflog` because git
+ * keeps reflogs only for the namespaces it knows about, and a private ref is
+ * not one of them.
+ */
+async function planningRepo(root, name) {
+  const { repo, head, tree } = await repository(path.join(root, name));
+  await git(repo, 'update-ref', '--create-reflog', PLANNING_REF, head);
+  await git(repo, 'update-ref', '--create-reflog', KEEPALIVE_REF, head);
+  return { repo, head, tree };
+}
+
+/** A real commit object written but not yet pointed at by any ref. */
+async function orphanCommit(repo, parent, message) {
+  await writeFile(path.join(repo, 'c.txt'), `${message}\n`);
+  await git(repo, 'add', 'c.txt');
+  const { stdout: tree } = await git(repo, 'write-tree');
+  const { stdout: oid } = await git(repo, 'commit-tree', tree.trim(), '-p', parent, '-m', message);
+  await git(repo, 'reset', '--quiet', '--hard', parent);
+  return { oid: oid.trim(), tree: tree.trim() };
+}
+
+/** Whether the ref and its object are really what the observation claims. */
+async function refState(repo, ref, expected) {
+  const { stdout } = await git(repo, 'rev-parse', ref);
+  return stdout.trim() === expected;
+}
+
+/**
+ * F017 — crash after the publication commit object exists, before the CAS.
+ *
+ * The object is written for real and the ref has not moved. The remaining step
+ * is to verify the object that survived, not to write a second one: a new
+ * object would be a different OID for the same logical commit.
+ */
+async function f017(root) {
+  const { repo, head } = await planningRepo(root, 'f017');
+  const commit = await orphanCommit(repo, head, 'publication');
+  const stillAtParent = await refState(repo, PLANNING_REF, head);
+  const decision = publicationDecision({
+    phase: 'prepared', ref: 'expected_parent', reflog: 'checkpoint',
+    object: 'matching', keepalive: 'exact', binding: 'current',
+  });
+  // The control is the same state with no object written: then writing one is
+  // exactly the right action, so the guard is not answering "verify" to
+  // everything.
+  const control = publicationDecision({
+    phase: 'prepared', ref: 'expected_parent', reflog: 'checkpoint',
+    object: 'absent', keepalive: 'exact', binding: 'current',
+  });
+  await rm(repo, { recursive: true, force: true });
+  return {
+    detected: stillAtParent && decision.action === 'verify_existing_object' && decision.phase === 'commit_created',
+    control: control.action === 'write_commit_object',
+    detail: `object ${commit.oid.slice(0, 8)} survived; the ref is still at the parent`,
+  };
+}
+
+/**
+ * F018 — crash after the CAS landed, before the receipt was written.
+ *
+ * The ref really moved and its reflog really holds one new matching entry, so
+ * the receipt is reconstructed rather than the ref moved a second time.
+ */
+async function f018(root) {
+  const { repo, head } = await planningRepo(root, 'f018');
+  const commit = await orphanCommit(repo, head, 'publication');
+  await git(repo, 'update-ref', '--create-reflog', PLANNING_REF, commit.oid, head);
+  const advanced = await refState(repo, PLANNING_REF, commit.oid);
+  const { stdout: log } = await git(repo, 'reflog', 'show', PLANNING_REF);
+  const entries = log.trim().split('\n').filter(Boolean).length;
+  const decision = publicationDecision({
+    phase: 'prepared', ref: 'expected_commit', reflog: 'one_new_matching',
+    object: 'matching', keepalive: 'exact', binding: 'current',
+  });
+  // The control is the world where the CAS had not happened: the same guard
+  // then says to advance the ref, not to reconstruct a receipt for a move that
+  // never occurred.
+  const control = publicationDecision({
+    phase: 'commit_created', ref: 'expected_parent', reflog: 'checkpoint',
+    object: 'matching', keepalive: 'exact', binding: 'current',
+  });
+  await rm(repo, { recursive: true, force: true });
+  return {
+    detected: advanced && entries === 2 && decision.action === 'reconstruct_cas_receipt' && decision.phase === 'ref_advanced',
+    control: control.action === 'cas_advance_ref',
+    detail: `the ref advanced to ${commit.oid.slice(0, 8)} and the reflog grew by one`,
+  };
+}
+
+/**
+ * F019 — the candidate keepalive ref is deleted under a live operation.
+ *
+ * The snapshot the whole publication is about is gone, so nothing downstream
+ * may proceed on the assumption that it is still reachable.
+ */
+async function f019(root) {
+  const { repo, head } = await planningRepo(root, 'f019');
+  await git(repo, 'update-ref', '-d', KEEPALIVE_REF);
+  let missing = false;
+  try {
+    await git(repo, 'rev-parse', '--verify', KEEPALIVE_REF);
+  } catch {
+    missing = true;
+  }
+  const decision = publicationDecision({
+    phase: 'commit_created', ref: 'expected_parent', reflog: 'checkpoint',
+    object: 'matching', keepalive: 'invalid', binding: 'current',
+  });
+  // The control is the intact keepalive from the same phase: then the operation
+  // continues, so "invalid" is doing the work rather than the phase.
+  const control = publicationDecision({
+    phase: 'commit_created', ref: 'expected_parent', reflog: 'checkpoint',
+    object: 'matching', keepalive: 'exact', binding: 'current',
+  });
+  const stillThere = await refState(repo, PLANNING_REF, head);
+  await rm(repo, { recursive: true, force: true });
+  return {
+    detected: missing && stillThere && decision.action === 'park'
+      && decision.park_reason === 'planning_candidate_keepalive_invalid',
+    control: control.action === 'cas_advance_ref',
+    detail: 'the keepalive ref is gone; the planning ref never moved',
+  };
+}
+
+/**
+ * F020 — crash inside the live-to-audit custody window.
+ *
+ * The audit copy exists and the live one has not been deleted yet. That is the
+ * one window the transfer is ordered to make safe: audit first, so no moment
+ * has neither copy. The resume finishes that exact transfer.
+ */
+async function f020(root) {
+  const { repo, head } = await planningRepo(root, 'f020');
+  const audit = 'refs/autosk/epics/clean-room/audit';
+  await git(repo, 'update-ref', '--create-reflog', audit, head);
+  const bothPresent = (await refState(repo, audit, head)) && (await refState(repo, KEEPALIVE_REF, head));
+  const decision = publicationDecision({
+    phase: 'verified', ref: 'expected_commit', reflog: 'checkpoint',
+    object: 'matching', keepalive: 'verified', binding: 'current',
+  });
+  // The control is the completed transfer: once the live copy is released the
+  // same guard finalizes metadata and never touches a ref again.
+  await git(repo, 'update-ref', '-d', KEEPALIVE_REF);
+  const released = publicationDecision({
+    phase: 'verified', ref: 'expected_commit', reflog: 'checkpoint',
+    object: 'matching', keepalive: 'released', binding: 'current',
+  });
+  await rm(repo, { recursive: true, force: true });
+  return {
+    detected: bothPresent && decision.action === 'transfer_keepalive_to_audit',
+    control: released.action === 'finalize_metadata_only' && released.next_step === 'select_next',
+    detail: 'the audit copy exists while the live one still does; the transfer resumes',
+  };
+}
+
 export const CASES = Object.freeze({
   F005: f005,
   F006: f006,
@@ -431,6 +597,10 @@ export const CASES = Object.freeze({
   F014: f014,
   F015: f015,
   F016: f016,
+  F017: f017,
+  F018: f018,
+  F019: f019,
+  F020: f020,
 });
 
 /** Runs every case, with its control, against a real workspace. */
