@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "round": 1,
+  "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+  "frozen_commit": "eef3b07411e6eaded3b34b86acfd01e48ee62286",
+  "frozen_tree": "b7cf842eceebdc8700bb8859e420ea41df49fc11",
+  "package_sha256": "5924d65f0efa3b69a57689e1022a5e605fc0d215ad3574476ec48e53acd426f4",
+  "system_prompt_sha256": "443e987e879c25107d673441eab33417d882745ff35a1280daed434cec6c0f75",
+  "runner": "omp (Oh My Pi) v18.1.13, --no-tools --no-lsp, one session per seat",
+  "seats": [
+    {
+      "seat": "opus",
+      "route": "anthropic/claude-opus-5",
+      "effort": "max",
+      "observed_model": "anthropic/claude-opus-5",
+      "session_id": "01a083a1-55c8-729d-8a02-01292cf12368",
+      "reported_tokens": 50898,
+      "verdict": "fail",
+      "candidate_digest_echoed": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "Package section 4 (rule inventory) vs. section 3 — 22 of 35 contracts",
+          "what": "Twenty-two contracts declare a \"Refusal classes\" section but the inventory records \"No closed refusal set is declared in this document\" (artifact-write-receipt, autobuild-run, bounded-loop, clearance-manifest, debate, doctor-report, evidence-manifest, external-source-snapshot, governance-bundle, housekeeping, human-decision, provider-preflight, reflect-cost-watch, requirement-revision, sdk-write-api, stage-carriers, static-analysis, verify-doc, walkthrough, work-type-gates, plus epic-planning-ref/project-instructions-lock/tickets-manifest which have none at all), so for the majority of the contract surface the refusal vocabulary is open-ended and nothing in this package shows a validator that can enumerate or check it — a guarantee (\"fail-closed with a named refusal\") whose mechanism is absent from the reviewable material."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §8 (resume table) row `planning_ref_capability_missing`, `planning_ref_foreign_movement`, `planning_candidate_keepalive_invalid` vs. §2 refusal names",
+          "what": "Several park reasons used as workflow states in the resume table (`planning_ref_init_invalid`, `planning_ref_capability_missing`, `planning_ref_foreign_movement`, `planning_candidate_keepalive_invalid`, `planning_candidate_base_stale`, `planning_publication_invalid`, `planning_publication_corrupt`, `planning_signing_unavailable`, `artifact_mapping_required`, `alignment_policy_out_of_scope`, `alignment_record_stale`, `tickets_manifest_invalid/stale`, `protocol_lock_invalid`, `arena_fallback_required`, `implementation_scope_invalid`, `brief_alignment_required`, `core_flow_decision_required`, `tech_plan_readiness_required`, `tickets_breakdown_alignment_required`) belong to no closed refusal set in section 4 — `epic-planning-ref.md` and `project-instructions-lock.md` explicitly declare none — so the set of reachable park states is asserted by prose only and no listed schema in section 3 is named as its validator."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §3 (panel roster table) vs. §6 (code-review reviewer order)",
+          "what": "The two cross-family rules contradict each other in the mixed-authorship case: §3 requires the Lead to be \"другой семьи относительно всех авторов и всех агентов, реально исправлявших артефакт\" and falls through to a human when no such family exists, while §6's reviewer-order table for `Codex` omits GPT entirely (\"Kimi, затем Grok\") and for `Claude` lists GPT/Kimi/Grok — the filters are stated over different sets (author-only vs. author∪fixer) in the same document, so a Codex-authored artifact fixed by Kimi yields different legal reviewers under the two tables."
+        },
+        {
+          "severity": "high",
+          "where": "Section 5 (Evidence) — \"Every runtime module in `src/host/` was mutation-tested\"",
+          "what": "The mutation-testing claim outruns the package: no mutant counts, no killed/survived totals and no per-module figures are given here — they are deferred to \"the pull request that introduced each module\", which is not in the package and not digest-pinned, so the strongest correctness claim in the evidence section is unverifiable from the frozen artifact under review."
+        },
+        {
+          "severity": "high",
+          "where": "Section 5 (Evidence) — \"Fault-matrix coverage: covered_by_real_fault=16; complete=true\"",
+          "what": "`complete=true` is asserted against an undisclosed denominator: neither the fault matrix's total group count nor its enumeration appears in the package (only the digest of `resources/clean-room-e2e/fault-matrix.schema.json`), so \"16 covered, complete\" cannot be distinguished from \"16 of 16 defined by the same run that reports it\" — self-certifying completeness."
+        },
+        {
+          "severity": "high",
+          "where": "02-architecture.md §2 (\"Current autosk не даёт three required surfaces: ADR-014, ADR-023, ADR-025\") vs. §5/§7",
+          "what": "The whole design is load-bearing on three upstream primitives (creation identity, signed authority/intent, workflow custody) that the document itself states the pinned autosk `5163f00` does not implement; the package pins that same upstream commit in section 5 and reports `deps:daemon=ok`, so the clean-room run cannot have exercised `UserDecisionRecord` signing, protected authority/dependency/intent heads, or `orchestrateChildBatch` — the primary guarantee (\"model cannot self-approve; approval requires a daemon-attributed signed record\") has no mechanism at the reviewed commit, only a preflight that blocks."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 (\"Согласование решений человеком\") — signer boundary",
+          "what": "The mandatory \"separate OS boundary or hardware enclave inaccessible to model accessibility/ptrace/keychain\" is declared a preflight assertion, but nothing in this package — no contract in section 4, no schema in section 3, no clean-room step in section 5 — evaluates it; `harness:identity=ok` is not stated to include a signer-isolation probe, so a refusal class for \"no enforceable boundary\" exists in prose (\"blocks model launch\") with no named producer."
+        },
+        {
+          "severity": "medium",
+          "where": "Package section 2 question 3 vs. section 5 (\"What is not claimed\")",
+          "what": "Issue #10 criterion 2 (declarative workflow graph) is \"deferred to this design gate\" — i.e. the panel is asked to accept a design gate for a criterion whose satisfaction is the gate itself — while the package supplies no artifact named as that workflow graph among the 96 files, making the deferral unclosable by this panel."
+        },
+        {
+          "severity": "medium",
+          "where": "02-architecture.md §5 (\"Автономный governance bundle\") — 13-file digest vs. the listed tree",
+          "what": "The bundle tree lists `agent-selection-guide.md`, `bundle-manifest.json`, `bundle-attestation.json` and 12 protocol files under `protocol/`, and the digest is defined over \"these 13 файлов\" (guide + 12 protocol) while `protocol.lock.json` is said to record \"SHA-256 каждого из 13 нормативных файлов\"; the arithmetic only closes if the manifest and attestation are excluded, which the text asserts for the content preimage but never states for the lock's 13 — an off-by-one in the identity definition of the governance root of trust."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §6 step 3 vs. 02-architecture.md \"Canonical Tickets manifest\"",
+          "what": "The pre-freeze `pending_validation_proof` (`candidate_tree_oid=null`, explicitly \"не является authority\") and the post-freeze `final_validation_receipt` are described in two places with different actors and orderings (core-flows: freeze step re-reads the exact tree; architecture: `freeze_artifact` calls `validateTicketsCandidateGitTree`), and neither text says what happens when the two validations disagree — the failure edge for the one place mutable-path and Git-tree reads can diverge is unspecified."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §7 item 6 vs. §8 row \"Dirty cleanup\"",
+          "what": "Integration step 6 cleans up with `force=false` and preserves a dirty workspace \"для решения человеком\", but the epic is then said to transition to `done` in step 7; the resume table's `Dirty cleanup -> cleanup` row implies the epic must instead park, so the terminal state after a dirty cleanup is contradictory between the happy path and the recovery table."
+        },
+        {
+          "severity": "medium",
+          "where": "02-architecture.md §3 (\"штатный worker pool по умолчанию имеет четыре места\") vs. §3 fairness paragraph",
+          "what": "The panel's parallelism guarantee rests on a default pool of four while the same section admits the pool is global and configurable and that one project's panel \"может временно занять все worker slots\"; with multiple active Epics the four-seat fan-in can deadlock against itself (parent blocked by four children that cannot be scheduled) and the document defers any admission/fairness layer until \"доказанный starvation\" — a liveness hazard with no mechanism, only an observation."
+        },
+        {
+          "severity": "medium",
+          "where": "Package section 3 — coverage of the review",
+          "what": "Only 2 of 96 files are reproduced in full; the other 94 (including every schema that would show whether the prose rules are actually machine-checkable, and all 35 contracts) are present as truncated 16-hex-digit digest prefixes that cannot be recomputed or checked against the candidate digest, so no seat can verify the section-4 rule inventory against the documents it summarizes."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md §1 (Quick) — editorial exemption",
+          "what": "The editorial Code Review exemption is defined by a \"deterministic editorial classification\" whose rule set is never enumerated here (only its exclusions), so the boundary between an exempt editorial change and a `behavior-defining документ` rests on an unnamed classifier version."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md §3 (\"Лимит полного цикла — 10 раундов\") vs. §9 (\"Превысить 10 раундов\")",
+          "what": "The round cap is stated once as a hard human handoff and once as a user-waivable exception with a \"daemon cap decision\", but neither text says whether the new cap is bounded, so an unbounded review loop is reachable by repeated cap decisions."
+        }
+      ],
+      "read": "The full panel package: section 1 (version/digest table), section 2 (the four questions), section 3 (the 96-path/digest inventory, read as a list — digests are truncated prefixes and were not recomputed), section 4 (all 35 contracts' section headings and their declared-or-absent closed refusal sets, cross-checked against the park reasons and refusal names appearing in the full-text documents), section 5 (tests, mutation-testing claim, clean-room e2e table and step list, fault-matrix line, and the three 'not claimed' items), and section 6 in full — both 01-core-flows.md (all 9 sections including the alignment table, the resume table, and the exceptions table) and 02-architecture.md (all 10 sections including Git/ref-custody, planning publication adapter, tickets manifest, storage layout, identity preimages, worktree/read-only review, and the not-built list). Cross-checks performed: refusal names in the full texts against the section-4 closed sets; the two cross-family routing tables against each other; the governance-bundle file count against its digest definition; the pinned upstream commit in section 5 against the ADR-014/023/025 gap stated in 02-architecture.md §2/§3.",
+      "not_read": "The 94 files that are digest-only: all 35 contract documents' actual text (only their section titles and refusal sets as summarized in section 4), 03-technical-plan.md, 04-decisions.md, README.md, and all 57 JSON schemas under resources/. I could not verify any digest (the package gives 16-hex-digit prefixes only, and I have no tools), could not open the repository at eef3b07 or the clean-room report 22d5a0d4…, could not see the fault matrix's total group count, and could not see the mutation-testing counts, which the package places in per-module pull requests outside this material. Findings about those files are therefore about what the package itself states or omits, not about their contents."
+    },
+    {
+      "seat": "astra",
+      "route": "openai-codex/gpt-6-astra",
+      "effort": "high",
+      "observed_model": "openai-codex/gpt-6-astra",
+      "session_id": "01a083a3-704c-76d3-8e63-f4fe34c6c585",
+      "reported_tokens": 29352,
+      "verdict": "fail",
+      "candidate_digest_echoed": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §7 «Принятие, интеграция и завершение», шаги 4–5; 02-architecture.md §7, integrateApproved",
+          "what": "Нормативная последовательность выполняет CAS пользовательской target branch до aggregate verification всего Epic, не требуя предварительного aggregate PASS на exact final tree; [INFERENCE] несовместимые по совокупному поведению Tickets могут попасть в целевую ветку до обнаружения ошибки, поэтому aggregate gate должен предшествовать target CAS и связываться с проверенной staging identity."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §2 «Согласование решений человеком» и §8, строка «Brief framing не согласован»",
+          "what": "§2 прямо запрещает policy утверждать product framing Brief, однако recovery-таблица §8 разрешает продолжение по «daemon UserDecisionRecord framing либо current exact policy той же identity», задавая противоречивое условие одного approval gate."
+        },
+        {
+          "severity": "medium",
+          "where": "Пакет §5 «Evidence / Clean-room end-to-end»",
+          "what": "Сводка clean-room фиксирует upstream commit, reproduced source tree и report digest, но не показывает identity фактически загруженного autosk-flow и её связь с проверяемым main tree/candidate digest, поэтому приведённого overall=ok недостаточно для подтверждения end-to-end именно замороженной версии расширения."
+        }
+      ],
+      "read": "Прочитан весь предоставленный пакет: идентичность версии, четыре вопроса, все строки инвентаря файлов, все перечни разделов и refusal sets, сводка доказательств и оговорки, полный текст 01-core-flows.md и 02-architecture.md, формат вердикта. В доступном нормативном тексте обнаружены противоречивые условия approval и блокирующая последовательность integration/aggregate verification. Проверить наличие исполняемого механизма для каждого правила и каждой refusal class по этому пакету невозможно. Числа 1729/0 и 16, mutation-testing и overall=ok прочитаны как заявления пакета, а не независимо подтверждённые результаты; отсутствие SonarQube pilot, декларативного workflow graph и deployment явно оговорено.",
+      "not_read": "Полное содержимое остальных 94 файлов кандидата: в пакете для них приведены только пути, сокращённые SHA-256 и, для контрактов, перечни разделов/refusal sets. Также недоступны исходники runtime, workflow и валидаторов, тесты, PR с mutation counts, исходные test/mutation logs, clean-room report и fault matrix с application/control/restore receipts, upstream source и содержимое собранных артефактов. Репозиторий не открывался, команды не запускались, commit/tree/candidate/report digests независимо не пересчитывались."
+    },
+    {
+      "seat": "grok",
+      "route": "cursor/cursor-grok-4.6",
+      "effort": "xhigh",
+      "observed_model": "cursor/cursor-grok-4.6",
+      "session_id": "01a083a5-f560-75e2-9a12-376f5499a871",
+      "reported_tokens": 3877,
+      "verdict": "fail",
+      "candidate_digest_echoed": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §7 vs 02-architecture.md §2 (delivery-profile.md)",
+          "what": "After accept, Core Flows specifies only local merge-OID plus daemon integrateApproved target CAS; Architecture says local CAS is not the default and delivery-profile (PR, merge queue, signed commits, DCO) is bound before first implementation dispatch, but §7 never consults that profile and gives those modes no completion path."
+        },
+        {
+          "severity": "high",
+          "where": "96-file inventory vs 01-core-flows.md §7 / 02-architecture.md §5",
+          "what": "IntegrationAuthorizationRecord is the only token that may skip human accept and CAS-advance the user's target ref, yet the candidate has no contract path and no schema for it (unlike creation-grant and the planning-publication ops)."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 (autosk-material-decisions) vs 96-file inventory",
+          "what": "The load-bearing rule that unreferenced prose is not material authority depends on one fenced JSON block plus a deterministic projector, and neither a material-decision nor a projector schema appears in the candidate."
+        },
+        {
+          "severity": "high",
+          "where": "02-architecture.md §3 vs package §5 Clean-room",
+          "what": "Architecture says current autosk lacks ADR-014/023/025 and must preflight-block every model workflow until they exist; §5 reports clean-room overall=ok with harness:creation and harness:identity on pinned 5163f00 and neither reconciles that dependency nor records the mandatory signer OS-boundary proof."
+        },
+        {
+          "severity": "high",
+          "where": "docs/contracts/debate.md §§3–5 vs 01-core-flows.md §4 and §8",
+          "what": "The inventory treats Arena-or-Debate as one choice with a 3–5 position roster; Core Flows Arena is two family-isolated implementation candidates plus optional C, and the §8 resume table has Arena parks but no Debate lifecycle."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/epic-planning-ref.md and docs/contracts/tickets-manifest.md (§4 inventory)",
+          "what": "Both are marked v1 load-bearing in 01/02 and §8 names many planning_* / tickets_manifest_* parks, but this package records no closed refusal set for either document."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §2 vs docs/contracts/artifact-registry.md",
+          "what": "The same digest specifies a closed four-way path-role classifier until issue #14 and also a full Artifact Registry contract with a different classifier and closed refusals, with no migration rule in the reproduced text."
+        },
+        {
+          "severity": "medium",
+          "where": "package §5 Tests",
+          "what": "1729 passing tests and per-module mutation testing of src/host/ are asserted here; this package has no transcript, and mutation counts are explicitly left in pull requests outside the package."
+        }
+      ],
+      "read": "Package §§1–5 in full (version table, 96-path digest inventory, every contract's section list and closed-refusal declaration, evidence claims and non-claims); the reproduced full text of 01-core-flows.md and 02-architecture.md in §6.",
+      "not_read": "Bodies of 03-technical-plan.md, 04-decisions.md, README.md, all 34 contract files, and all 57 resource/schema files (digest/path only); npm test transcript; mutation-test PRs/counts; clean-room report body beyond the §5 summary and digest."
+    },
+    {
+      "seat": "muse",
+      "route": "meta/muse-spark-1.3-contributor",
+      "effort": "max",
+      "observed_model": "meta/muse-spark-1.3-contributor",
+      "session_id": "01a083aa-d0ef-74cf-bec4-cb570d6715c3",
+      "reported_tokens": 35039,
+      "verdict": "fail",
+      "candidate_digest_echoed": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+      "findings": [
+        {
+          "severity": "critical",
+          "where": "section 3 file list + section 1 candidate digest",
+          "what": "Section 3 lists all 96 files with truncated 16-hex hash prefixes and omits the validator script, so the panel cannot recompute candidate digest 1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811 from the bytes provided."
+        },
+        {
+          "severity": "high",
+          "where": "section 5 Evidence Tests",
+          "what": "Section 5 asserts 1729 passing tests and per-module guard-neuter mutation testing with counts only in unspecified PRs, providing no logs or module inventory for the panel to verify scope or outcome."
+        },
+        {
+          "severity": "high",
+          "where": "section 5 Clean-room end-to-end vs section 4 clean-room-e2e and model-result inventories",
+          "what": "Section 5 asserts clean-room ok with 16 real faults plus silent controls and cites only a report digest and upstream commits without the report or matrix, so fault-to-guard pairing and control silence cannot be checked against the closed refusal sets."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md sections 2 and 8 + 02-architecture.md section 5 vs section 4 rule inventory",
+          "what": "Core flows and architecture direct behavior on codes such as brief_alignment_required and planning_ref_foreign_movement and tickets_manifest_invalid and protocol_lock_invalid yet section 4 lists no closed refusal set containing them and their apparent owner contracts declare no closed set."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md section 2 vs 02-architecture.md section 2 Git",
+          "what": "01-core-flows defines epic_ref_key as lowercase SHA-256 of canonical project and Epic identity while 02-architecture defines it as domain-separated SHA-256 of project_root_sha256 plus epic_id, leaving the normative planning-ref name construction ambiguous."
+        }
+      ],
+      "read": "Full text of 01-core-flows.md and 02-architecture.md in section 6 plus section 1 version table plus section 2 questions plus section 4 contract section titles and closed refusal sets plus section 5 evidence table plus section 7 verdict shape",
+      "not_read": "Full bytes of the other 94 files shown only as truncated digests in section 3 including 03-technical-plan plus 04-decisions plus README plus 34 docs-contracts full texts plus 57 resources schemas plus upstream repo plus test logs plus clean-room report plus fault matrix plus cited PR mutation counts"
+    }
+  ]
+}

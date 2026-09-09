@@ -498,7 +498,49 @@
     }
   ],
   "attestation": {
-    "state": "pending_final_panel",
-    "verdicts": []
+    "state": "blocked",
+    "blocked_reason": "Round 1 of the final panel returned four fail verdicts on candidate 1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811 (frozen commit eef3b074). 31 findings are recorded in resources/design-candidate/panel/round-1.json; the load-bearing ones are the integration order in 01-core-flows.md section 7, two records with no contract or schema, and several contradictions between the two full-text documents. A new candidate is required.",
+    "verdicts": [
+      {
+        "seat": "opus",
+        "route": "anthropic/claude-opus-5",
+        "effort": "max",
+        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+        "verdict": "fail",
+        "session_id": "01a083a1-55c8-729d-8a02-01292cf12368",
+        "recorded_at": "2026-09-09T01:01:05Z",
+        "findings_registry": "resources/design-candidate/panel/round-1.json"
+      },
+      {
+        "seat": "astra",
+        "route": "openai-codex/gpt-6-astra",
+        "effort": "high",
+        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+        "verdict": "fail",
+        "session_id": "01a083a3-704c-76d3-8e63-f4fe34c6c585",
+        "recorded_at": "2026-09-09T01:01:05Z",
+        "findings_registry": "resources/design-candidate/panel/round-1.json"
+      },
+      {
+        "seat": "grok",
+        "route": "cursor/cursor-grok-4.6",
+        "effort": "xhigh",
+        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+        "verdict": "fail",
+        "session_id": "01a083a5-f560-75e2-9a12-376f5499a871",
+        "recorded_at": "2026-09-09T01:01:05Z",
+        "findings_registry": "resources/design-candidate/panel/round-1.json"
+      },
+      {
+        "seat": "muse",
+        "route": "meta/muse-spark-1.3-contributor",
+        "effort": "max",
+        "candidate_digest": "1d24beb33007a51e437a0ac05bb11809e2d4cb6853806375826ff06d1d25c811",
+        "verdict": "fail",
+        "session_id": "01a083aa-d0ef-74cf-bec4-cb570d6715c3",
+        "recorded_at": "2026-09-09T01:01:05Z",
+        "findings_registry": "resources/design-candidate/panel/round-1.json"
+      }
+    ]
   }
 }
