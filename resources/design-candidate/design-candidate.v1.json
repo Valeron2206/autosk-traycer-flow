@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "79ab1997aec55d34b39d777aff60c803f00aed2c75d7838619998149ad635e57"
+      "sha256": "c8da4ad047124ecb063289af8ded84492e293f5200a7ca6c1461679410a80080"
     },
     {
       "path": "02-architecture.md",
@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "878f1e96aa756aebc56e8b252588a3d1bf6cbcb85b189ccb4f82057733ce29e1"
+      "sha256": "fdc7f01082c5e76e7e044ceb5e8b53c6e3bd3f0114dab6ee32faa3d5d9967587"
     },
     {
       "path": "README.md",
@@ -29,6 +29,10 @@
     {
       "path": "docs/contracts/approved-delta.md",
       "sha256": "7fea85f4f86657287d7e9d7cbea7ee882127aabf454bcec79c1012d8c67741bf"
+    },
+    {
+      "path": "docs/contracts/arena.md",
+      "sha256": "6fdd774900ca09b2711383cec7f2dd6fb842bfd88cc8eee4edaf18f7c8b22e26"
     },
     {
       "path": "docs/contracts/artifact-registry.md",
@@ -179,12 +183,24 @@
       "sha256": "aefe32f650e86c2ea63bb0c75cc667a3fd086c9e26aae9b8bff7f9129e59523a"
     },
     {
+      "path": "resources/arena/arena-block.example.json",
+      "sha256": "40e150d8172ca1e5c1394d453ddf28e76fa6b58c1ed222a7ac19ffec3bfa78f4"
+    },
+    {
+      "path": "resources/arena/arena-block.refused.example.json",
+      "sha256": "06fc3358eace8a8a580f561d8f38fc1502c52a65fd0528675cc7c7dcdae8d771"
+    },
+    {
+      "path": "resources/arena/arena-block.schema.json",
+      "sha256": "c21acd144fbe3c4bbe900ece95419595535566d2cd52ff62f26de0caf2af2de3"
+    },
+    {
       "path": "resources/artifact-registry/artifact-registry.schema.json",
       "sha256": "396b9d2a34cc85a2e3eeb038549c9e11b02bf8c5b9fcae9912c279a6edf8a8cf"
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "d74919ffd3d0582c58a5fc7445db59ecb3a9316ef36359757c5e60d2ef1b527c"
+      "sha256": "8637a8b516b846df1c60de9f6b7add68d35b83fd21d90d492abefb3dddeb3ee4"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -392,7 +408,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "d234718a85255276bd7efe4ccd2d4002c64c71ecbc998cf39fe2663a01e664ed"
+      "sha256": "f2d07a266c32fae4fbd42579a42c4b6d40061c6695fa06f70e230d9815e07741"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -447,7 +463,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "b59622fc0c1c1566355a1c01b18b1bce4802fc7cc74c3667330f0a0c35ab1032",
+  "candidate_digest": "13e46e62c0cfd24d328c06c35b8eadd7e82f56f5ea02e6e661985c13917add45",
   "dispositions": [
     {
       "issue": 3,

@@ -146,6 +146,9 @@ jobs:
       - name: Validate the closed park vocabulary
         run: npm run validate:refusal-vocabulary
 
+      - name: Validate the Arena block contract
+        run: npm run validate:arena
+
       # The doctor is read-only, so running it in CI costs nothing and proves the
       # command still produces a schema-valid report on a machine that is not the
       # author's. A `fail` here is expected: the runner has no daemon binaries.

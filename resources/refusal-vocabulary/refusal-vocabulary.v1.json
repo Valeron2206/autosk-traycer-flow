@@ -254,9 +254,11 @@
         "fix_artifact"
       ],
       "parks_at_classes": [],
-      "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "closed_by": "docs/contracts/arena.md",
+      "producer": "host",
+      "producer_files": [
+        "scripts/validate-arena.mjs"
+      ]
     },
     {
       "code": "arena_fallback_required",
@@ -264,9 +266,11 @@
         "apply_arena_decision"
       ],
       "parks_at_classes": [],
-      "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "closed_by": "docs/contracts/arena.md",
+      "producer": "host",
+      "producer_files": [
+        "scripts/validate-arena.mjs"
+      ]
     },
     {
       "code": "arena_join_invalid",
@@ -284,9 +288,11 @@
         "draft_artifact"
       ],
       "parks_at_classes": [],
-      "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "closed_by": "docs/contracts/arena.md",
+      "producer": "host",
+      "producer_files": [
+        "scripts/validate-arena.mjs"
+      ]
     },
     {
       "code": "artifact_draft_provider_unavailable",
@@ -745,6 +751,7 @@
       "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
+        "scripts/clean-room-faults.mjs",
         "scripts/validate-planning-ref-design.mjs",
         "src/host/planning-publication.mjs"
       ]
@@ -1037,5 +1044,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "263cea27bc55d2de8d91c21117f39d1c26e66e67bab1ca2cd8ab0845d34ff684"
+  "vocabulary_digest": "fee392f5c098e4ea747990f43e89c586e4ebe3bcd261cff6728a0fd82d5812b3"
 }
