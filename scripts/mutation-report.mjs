@@ -7,7 +7,8 @@
  * test file is re-run. A mutant that survives is a missing test, a dead guard,
  * or an equivalent mutant — and the third is only allowed when somebody has
  * written down why, at the line it applies to. A survivor nobody has named
- * fails this command.
+ * fails this command. A timeout kill is the same obligation: named, at its
+ * line, with a proof that that site cannot terminate — or the command fails.
  *
  * The point is not the number. The point is that the number can be recomputed
  * by anyone holding the frozen tree, which is what "mutation-tested" has to
@@ -26,6 +27,13 @@ export const EXPECTED_PATH = "resources/mutation-report/mutation-survivors.v1.js
 
 /** How long one mutant's test file may run before it counts as killed by hang. */
 export const TEST_TIMEOUT_MS = 45_000;
+
+/** The runner argv that produces the TAP classifyRun parses. */
+export const TEST_SPAWN_ARGS = Object.freeze([
+  "--test",
+  "--test-reporter=tap",
+  "--test-isolation=none",
+]);
 
 /**
  * How a refusal's emission is neutered.
@@ -172,12 +180,55 @@ export function pairs(listing) {
     .filter(Boolean);
 }
 
+function unnamedAgainst(entries, named) {
+  const allowed = new Map(
+    named.map((entry) => [`${entry.module}:${entry.line}`, entry]),
+  );
+  return entries.filter((entry) => !allowed.has(`${entry.module}:${entry.line}`));
+}
+
 /** A survivor is allowed only when it is named, at its line, with a reason. */
 export function unnamedSurvivors(survivors, expected) {
-  const allowed = new Map(
-    expected.equivalent_mutants.map((entry) => [`${entry.module}:${entry.line}`, entry]),
-  );
-  return survivors.filter((entry) => !allowed.has(`${entry.module}:${entry.line}`));
+  return unnamedAgainst(survivors, expected.equivalent_mutants);
+}
+
+/** A timeout kill is allowed only when it is named, at its line, with a reason. */
+export function unnamedTimeoutKills(timedOut, expected) {
+  return unnamedAgainst(timedOut, expected.non_terminating_mutants ?? []);
+}
+
+/**
+ * How one spawn is classified.
+ *
+ * The harness asks the runner for TAP. An assertion kill is a `not ok` record
+ * whose diagnostic names `failureType: testCodeFailure` — a declared test
+ * that ran and failed. A hook failure (`hookFailed`), a file-level load
+ * failure (no `failureType`), and any other unproven nonzero are environment.
+ */
+export function classifyRun(run) {
+  if (run.status === 0) return "survived";
+  if (run.status === null) return "timeout";
+  if (tapTestCodeFailure(`${run.stdout ?? ""}${run.stderr ?? ""}`)) return "assertion";
+  return "environment";
+}
+
+function tapTestCodeFailure(text) {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!/^not ok \d+ - /u.test(lines[i])) continue;
+    if (lines[i + 1] !== "  ---") continue;
+    i += 2;
+    while (i < lines.length && lines[i] !== "  ...") {
+      if (/^  failureType: ['"]testCodeFailure['"]$/u.test(lines[i])) return true;
+      i += 1;
+    }
+  }
+  return false;
+}
+
+/** The number the owner's rule governs: tests that ran and failed. */
+export function killedByAssertion(runs) {
+  return runs.filter((run) => classifyRun(run) === "assertion").length;
 }
 
 /** The digest the report is cited by. */
@@ -227,6 +278,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const modules = [];
   const survivors = [];
   const timedOut = [];
+  const environmentFailures = [];
+  let assertionKilled = 0;
   for (const pair of covered) {
     const absolute = path.join(ROOT, pair.module);
     const original = readFileSync(absolute, "utf8");
@@ -241,7 +294,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         // fail, and an unbounded wait turns a six-minute run into an overnight
         // one. A timeout is still a kill — the tests did not pass — but it is
         // counted separately, because "the suite never finished" is a different
-        // observation from "the suite failed".
+        // observation from "the suite failed", and it is admissible only when
+        // the site is named with a proof that that mutant cannot terminate.
         //
         // `--test-isolation=none` matters more than the timeout: with the
         // default, the runner spawns a grandchild per test file, the timeout
@@ -250,18 +304,27 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         // for eleven minutes, which is what actually exhausted this machine —
         // a harness that leaks a process per hanging mutant cannot finish a run
         // that has any.
-        const run = spawnSync(process.execPath, ["--test", "--test-isolation=none", pair.test], {
+        const run = spawnSync(process.execPath, [...TEST_SPAWN_ARGS, pair.test], {
           cwd: ROOT,
           encoding: "utf8",
           timeout: TEST_TIMEOUT_MS,
           killSignal: "SIGKILL",
           env: { PATH: process.env.PATH, HOME: process.env.HOME },
         });
-        if (run.status !== 0) {
+        // Status is not the classification: a load or setup failure also
+        // exits 1, and that is not a test that ran and failed.
+        const kind = classifyRun(run);
+        if (kind === "survived") {
+          survivors.push({ module: pair.module, line: mutant.line, guard: mutant.guard, text: mutant.text });
+        } else if (kind === "timeout") {
           killed += 1;
-          if (run.status === null) timedOut.push({ module: pair.module, line: mutant.line, guard: mutant.guard });
+          timedOut.push({ module: pair.module, line: mutant.line, guard: mutant.guard });
+        } else if (kind === "assertion") {
+          killed += 1;
+          assertionKilled += 1;
+        } else {
+          environmentFailures.push({ module: pair.module, line: mutant.line, guard: mutant.guard });
         }
-        else survivors.push({ module: pair.module, line: mutant.line, guard: mutant.guard, text: mutant.text });
       }
     } finally {
       writeFileSync(absolute, original);
@@ -281,13 +344,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     },
     survivors: survivors.sort((a, b) => (a.module === b.module ? a.line - b.line : a.module < b.module ? -1 : 1)),
     killed_by_timeout: timedOut,
+    environment_failures: environmentFailures,
   };
   const unnamed = unnamedSurvivors(report.survivors, expected);
+  const unnamedTimeouts = unnamedTimeoutKills(report.killed_by_timeout, expected);
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`modules=${report.totals.modules} mutants=${report.totals.mutants} killed=${report.totals.killed}`);
   console.log(`survivors=${report.survivors.length} named=${report.survivors.length - unnamed.length}`);
-  console.log(`killed_by_timeout=${report.killed_by_timeout.length}`);
+  console.log(`killed_by_assertion=${assertionKilled}`);
+  console.log(`killed_by_timeout=${report.killed_by_timeout.length} named=${report.killed_by_timeout.length - unnamedTimeouts.length}`);
+  console.log(`environment_failures=${report.environment_failures.length}`);
   console.log(`report_digest=${reportDigest(report)}`);
   for (const entry of unnamed) console.error(`unnamed survivor ${entry.module}:${entry.line} ${entry.text}`);
-  if (unnamed.length > 0) process.exitCode = 1;
+  for (const entry of unnamedTimeouts) console.error(`unnamed timeout ${entry.module}:${entry.line} ${entry.guard}`);
+  for (const entry of environmentFailures) console.error(`environment failure ${entry.module}:${entry.line} ${entry.guard}`);
+  if (unnamed.length > 0 || unnamedTimeouts.length > 0 || environmentFailures.length > 0) process.exitCode = 1;
 }

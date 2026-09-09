@@ -316,7 +316,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "b2a905b866a205ec606e46f545d6964aacb6b571b7c255dfb6e9a84a51444c60"
+      "sha256": "b300008d81e25e45dba03faad92542c02141836e8b7ad33a4de91d09addf3778"
     },
     {
       "path": "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
@@ -463,7 +463,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "ae13714231e1b5164e0505df990380c75d6e644aff6acd770b3461406b32d297",
+  "candidate_digest": "cefb3ec2520ddffedbdc077a349979fe5c06a126295289a7e0b63306f2123c5d",
   "dispositions": [
     {
       "issue": 3,
