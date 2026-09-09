@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { referenceInventory, sweep, walkEvidence } from "../src/host/evidence-sweeper.mjs";
+import { exportSelection, referenceInventory, sweep, walkEvidence } from "../src/host/evidence-sweeper.mjs";
 
 const code = (name) => (error) => error.code === name;
 const NOW = Date.parse("2026-09-09T10:00:00Z");
@@ -233,4 +233,66 @@ test("an unverified harness restore keeps its evidence, expired or not", async (
     operationId: "op-1",
   });
   assert.deepEqual([...cleared.plan.delete], ["T-1/harness.mjs"]);
+});
+
+test("a snapshot record keeps what it points at, even from outside the evidence root", async (t) => {
+  const { root, evidence } = await evidenceRoot(t);
+  await writeFile(path.join(root, "records.json"), "{}");
+  // #21's snapshots live in the project, not under the evidence root: a sweep
+  // that only read files there would not see them referring to anything.
+  const report = await sweep(fs, {
+    root: evidence,
+    records,
+    referringFiles: [path.join(root, "records.json")],
+    snapshots: [{ id: "snap-1", cites: ["evidence/T-2/screenshot.png"] }],
+    nowMs: NOW,
+    actor: "sweeper",
+    operationId: "op-1",
+    dryRun: false,
+  });
+  assert.deepEqual([...report.deleted], ["T-1/run.log"]);
+  assert.equal(await readFile(path.join(evidence, "T-2", "screenshot.png"), "utf8"), "png\n");
+  assert.ok(report.plan.keep.some((entry) => entry.evidence_id === "T-2/screenshot.png" && entry.reason === "referenced"));
+});
+
+test("the inventory counts what records point at, not only what files say", async (t) => {
+  const { root } = await evidenceRoot(t);
+  const referring = path.join(root, "records.json");
+  await writeFile(referring, "{}");
+  const inventory = await referenceInventory(fs, {
+    referringFiles: [referring],
+    referringRecords: [{ id: "snap-1", locator: "evidence/T-1/verdict.json" }],
+  });
+  assert.equal(inventory.count, 1);
+  assert.ok(inventory.references.has("T-1/verdict.json"));
+  assert.ok(inventory.read.includes("snap-1"));
+});
+
+test("a restricted class does not leave as it stands", () => {
+  const evidenceRecords = [
+    { evidence_id: "T-1/verdict.json", class: "verdict" },
+    { evidence_id: "T-1/raw.txt", class: "provider_raw_output", text: "the provider said /Users/somebody/x\n" },
+    { evidence_id: "T-2/held.bin", class: "quarantined_sensitive", text: "held bytes\n" },
+  ];
+  // Outside the project it does not go out at all, and the export says which
+  // records it withheld: a bundle that quietly drops evidence is one whose
+  // reader cannot tell what is missing.
+  const publicExport = exportSelection(evidenceRecords, { audience: "public" });
+  assert.deepEqual([...publicExport.include], ["T-1/verdict.json"]);
+  assert.equal(publicExport.withheld.length, 2);
+  assert.ok(publicExport.withheld.every((entry) => /restricted class/u.test(entry.reason)));
+
+  // Inside the project it goes out redacted.
+  const projectExport = exportSelection(evidenceRecords, { audience: "project", home: "/Users/somebody" });
+  assert.deepEqual([...projectExport.include], ["T-1/verdict.json"]);
+  assert.equal(projectExport.redact.length, 2);
+  const raw = projectExport.redact.find((entry) => entry.evidence_id === "T-1/raw.txt");
+  assert.ok(!raw.text.includes("/Users/somebody"), raw.text);
+  assert.ok(raw.redactions.some((entry) => entry.reason === "absolute_home_path"));
+
+  assert.throws(() => exportSelection(evidenceRecords, { audience: "everyone" }), code("evidence_referenced_deletion"));
+  assert.throws(
+    () => exportSelection([{ evidence_id: "x", class: "not_a_class" }], { audience: "public" }),
+    code("evidence_referenced_deletion"),
+  );
 });
