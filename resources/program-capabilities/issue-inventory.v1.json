@@ -3,8 +3,8 @@
   "schema_version": 1,
   "inventory_version": "program-issue-inventory.v1",
   "repository": "Valeron2206/autosk-traycer-flow",
-  "captured_at_utc": "2026-09-01T02:12:40Z",
-  "source_main_commit": "c48f38570f19a5ba2a1312038d10e77f0ca1d9fc",
+  "captured_at_utc": "2026-09-09T16:45:21Z",
+  "source_main_commit": "fa778ba6eca010dd893c49b908455ce0b04a2cb4",
   "issue_range": {
     "from": 3,
     "to": 39

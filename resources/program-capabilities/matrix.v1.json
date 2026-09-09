@@ -7,7 +7,7 @@
     "from": 3,
     "to": 39
   },
-  "source_main_commit": "c48f38570f19a5ba2a1312038d10e77f0ca1d9fc",
+  "source_main_commit": "fa778ba6eca010dd893c49b908455ce0b04a2cb4",
   "issue_inventory_path": "resources/program-capabilities/issue-inventory.v1.json",
   "issue_inventory_digest": "9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2",
   "source_parity_registry_path": "resources/traycer-parity/registry.v1.json",
@@ -1328,5 +1328,5 @@
       "full_program_required": true
     }
   ],
-  "canonical_digest": "de159e2afb3374271c2da94e87fd3a63801dda8893e02fa64a7997fa70600c38"
+  "canonical_digest": "af0ee88f3adc63f7686d35406216ccb66a4b5d3eda89c1f40a2e8897be3de8f3"
 }
