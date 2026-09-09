@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "workflow": "refused_flow",
+  "first_step": "intake",
+  "graph_reasons": {
+    "transition_not_declared": "transition_not_declared",
+    "resume_target_not_permitted": "resume_target_not_permitted"
+  },
+  "predicates": [
+    {
+      "id": "alignment_recorded",
+      "reads": [
+        "authority_record_id"
+      ],
+      "description": "A daemon decision record closes every material decision of the current manifest."
+    }
+  ],
+  "steps": [
+    {
+      "name": "intake",
+      "kind": "agent",
+      "hooks": [
+        "onRun"
+      ],
+      "no_transition_reason": "quick_classification_invalid"
+    },
+    {
+      "name": "await_alignment",
+      "kind": "status",
+      "status": "human"
+    },
+    {
+      "name": "record_alignment",
+      "kind": "agent",
+      "hooks": [
+        "onRun"
+      ],
+      "no_transition_reason": "alignment_record_stale"
+    },
+    {
+      "name": "freeze_artifact",
+      "kind": "agent",
+      "hooks": [
+        "onRun"
+      ],
+      "no_transition_reason": "artifact_freeze_invalid"
+    },
+    {
+      "name": "done",
+      "kind": "status",
+      "status": "done"
+    }
+  ],
+  "guards": [
+    {
+      "id": "alignment_closed_by_user",
+      "predicate": "alignment_recorded",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "core_flow_decision_required"
+    },
+    {
+      "id": "guard_on_unknown_predicate",
+      "predicate": "predicate_that_does_not_exist",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "artifact_freeze_invalid"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "intake_to_await",
+      "from": "intake",
+      "to": "await_alignment",
+      "priority": 0,
+      "guards": []
+    },
+    {
+      "id": "await_to_record",
+      "from": "await_alignment",
+      "to": "record_alignment",
+      "priority": 0,
+      "guards": [
+        "alignment_closed_by_user"
+      ]
+    },
+    {
+      "id": "await_to_freeze_same_priority",
+      "from": "await_alignment",
+      "to": "freeze_artifact",
+      "priority": 0,
+      "guards": []
+    },
+    {
+      "id": "record_to_nowhere",
+      "from": "record_alignment",
+      "to": "step_that_does_not_exist",
+      "priority": 0,
+      "guards": [
+        "guard_on_unknown_predicate"
+      ]
+    },
+    {
+      "id": "record_to_freeze",
+      "from": "record_alignment",
+      "to": "freeze_artifact",
+      "priority": 1,
+      "guards": []
+    },
+    {
+      "id": "freeze_to_done",
+      "from": "freeze_artifact",
+      "to": "done",
+      "priority": 0,
+      "guards": []
+    },
+    {
+      "id": "freeze_retry",
+      "from": "freeze_artifact",
+      "to": "freeze_artifact",
+      "priority": 1,
+      "guards": []
+    }
+  ],
+  "caps": [
+    {
+      "cycle": "artifact_review_cycle",
+      "counted_transition": "transition_that_does_not_exist",
+      "limit": 10,
+      "park_reason": "review_cap"
+    }
+  ],
+  "recovery": [
+    {
+      "reason": "core_flow_decision_required",
+      "parks_at": [
+        "await_alignment"
+      ],
+      "resume_targets": [
+        "done"
+      ],
+      "required_state": "resume_targets names done, which is not a declared edge from await_alignment, so this row is refused"
+    },
+    {
+      "reason": "quick_classification_invalid",
+      "parks_at": [
+        "intake"
+      ],
+      "resume_targets": [
+        "await_alignment"
+      ],
+      "required_state": "this row is well formed; the document is refused for the defects around it, not for this"
+    },
+    {
+      "reason": "alignment_record_stale",
+      "parks_at": [
+        "record_alignment"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "well formed, so that the refusals this example earns are the ones it advertises and not a missing row"
+    },
+    {
+      "reason": "artifact_freeze_invalid",
+      "parks_at": [
+        "freeze_artifact"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "well formed, for the same reason as the row above"
+    },
+    {
+      "reason": "review_cap",
+      "parks_at": [
+        "freeze_artifact"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "well formed; the cap that names it is the defect, not this row"
+    }
+  ],
+  "canonical_digest": "a6f36494e1af76ebf5200e0ea8b98ddd70e89e96eb0efad6542f9f39565d3ec4"
+}
