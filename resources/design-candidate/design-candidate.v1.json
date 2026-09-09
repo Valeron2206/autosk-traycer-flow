@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "0f40fa5e453ea2826008254bd6b15be294e35aae55a1e2d4ce3dae1070386e49"
+      "sha256": "6a15d0f7a96acdf81e779652fbb13179d0b84614279e82617d662678679d67c8"
     },
     {
       "path": "02-architecture.md",
@@ -21,6 +21,10 @@
     {
       "path": "README.md",
       "sha256": "47aafa331eb9bb5152cee55ce83d7ca020349fca3e3cd377a42435c5ae25dbef"
+    },
+    {
+      "path": "compat/autosk/manifest.v1.json",
+      "sha256": "c9fa1515f8b560bae7f507e1e5465e1e717ce30622ce448522701908943a3bf3"
     },
     {
       "path": "docs/contracts/approved-delta.md",
@@ -72,7 +76,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "0178f266bafc6daab7dded27f6feed056eaf209c09658a69ae5a42a17973b6e0"
+      "sha256": "d9eaa45166bb6fab9d6fdc957c02a1d69781e058aedba29d702dfeeb6ad88018"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -177,6 +181,10 @@
     {
       "path": "resources/artifact-registry/artifact-registry.schema.json",
       "sha256": "396b9d2a34cc85a2e3eeb038549c9e11b02bf8c5b9fcae9912c279a6edf8a8cf"
+    },
+    {
+      "path": "resources/artifact-registry/artifact-registry.v1.json",
+      "sha256": "d74919ffd3d0582c58a5fc7445db59ecb3a9316ef36359757c5e60d2ef1b527c"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -439,7 +447,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
+  "candidate_digest": "ac4de9592373dfa1f504d0cb182b1bf5a8d0afe5fb0bfbbc7524e8ea0db8a5fd",
   "dispositions": [
     {
       "issue": 3,
