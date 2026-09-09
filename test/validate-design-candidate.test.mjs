@@ -61,11 +61,23 @@ test("the shipped candidate validates against the bytes on disk", () => {
   assert.deepEqual(validateDesignCandidate(files), []);
 });
 
-test("the shipped attestation is pending, not a pass", () => {
-  // SOLO_BUILD defers the panel to final acceptance. Recording anything else
-  // here would be the "administrative status edit" the issue warns about.
-  assert.equal(candidate().attestation.state, "pending_final_panel");
-  assert.equal(computeAttestationState(candidate()), "pending_final_panel");
+test("the shipped attestation is what the verdicts compute, and says why", () => {
+  // Round 1 of the panel returned four fails, so the shipped state is
+  // `blocked`. Recording anything else would be the "administrative status
+  // edit" the issue warns about.
+  assert.equal(candidate().attestation.state, "blocked");
+  assert.equal(computeAttestationState(candidate()), "blocked");
+  assert.ok(candidate().attestation.blocked_reason.length > 0);
+  // Four verdicts, one per required seat, each on the exact route and effort.
+  const verdicts = candidate().attestation.verdicts;
+  assert.equal(verdicts.length, 4);
+  for (const required of REQUIRED_PANEL) {
+    const seat = verdicts.find((entry) => entry.seat === required.seat);
+    assert.equal(seat.route, required.route);
+    assert.equal(seat.effort, required.effort);
+    assert.equal(seat.candidate_digest, candidate().candidate_digest);
+    assert.ok(seat.session_id.length > 0, required.seat);
+  }
 });
 
 test("a candidate that drifted from disk is refused", () => {
@@ -154,6 +166,7 @@ test("verdicts about another candidate do not carry over", () => {
 test("one fail blocks, and blocking must say why", () => {
   const value = mutated((draft) => {
     draft.attestation.state = "blocked";
+    delete draft.attestation.blocked_reason;
   });
   const verdicts = fullPanel(value.candidate_digest);
   verdicts.find((entry) => entry.seat === "muse").verdict = "fail";
@@ -167,7 +180,7 @@ test("an asserted state must match the computed one", () => {
     mutated((value) => {
       value.attestation.state = "pass";
     }),
-    /attestation state is pass, computed pending_final_panel/u,
+    /attestation state is pass, computed blocked/u,
   );
 });
 

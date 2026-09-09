@@ -1162,6 +1162,33 @@
       "human_approval": "required"
     },
     {
+      "class": "panel_record",
+      "category": "runtime_evidence",
+      "author_roles": [
+        "planner"
+      ],
+      "model_family_policy": "cross_family_required",
+      "requires": [],
+      "paths": [
+        "resources/design-candidate/panel/*.json"
+      ],
+      "review": {
+        "mode": "none"
+      },
+      "identity_fields": [
+        "candidate_id",
+        "candidate_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/design-candidate/design-candidate.schema.json",
+      "validator": "scripts/validate-design-candidate.mjs",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "planning_ref_contract",
       "category": "governance_defining",
       "author_roles": [
@@ -1728,5 +1755,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "129949b9cba3d5d087cde6b1ac40b025f130ed8a201a0131812a3eff604370fd"
+  "registry_digest": "28bc7207d0ca9819434f7db452f961c52c946f8b66919d46051429690e62199d"
 }
