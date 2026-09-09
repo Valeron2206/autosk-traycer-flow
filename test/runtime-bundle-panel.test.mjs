@@ -342,3 +342,27 @@ test("a release actor is recorded, never inferred", () => {
     attestationErrors(result.attestation, CANDIDATE).some((error) => /no release actor/u.test(error.detail)),
   );
 });
+
+test("every seat is shown the same snapshot bytes, so a disagreement is about the lens", () => {
+  // Not the same carrier: each seat's headers carry its own dispatch identity.
+  // What has to be identical is the fragment digest — one snapshot, one hash,
+  // four readers.
+  const seats = bundleSeats();
+  const digests = new Map();
+  for (const seat of seats) {
+    const compiled = compileCarrier(carrierRegistry, {
+      role: seat.role,
+      stage: seat.stage,
+      context: seat.context,
+      bundle,
+      anchors,
+    });
+    for (const header of compiled.headers) {
+      const seen = digests.get(header.logical_id);
+      if (seen === undefined) digests.set(header.logical_id, header.file_sha256);
+      else assert.equal(header.file_sha256, seen, `${header.logical_id} differs between seats`);
+    }
+  }
+  // And the anchors are among what they all saw.
+  assert.ok([...digests.keys()].some((id) => id.startsWith("anchor:")), [...digests.keys()].join(","));
+});
