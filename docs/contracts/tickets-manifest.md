@@ -197,7 +197,21 @@ Creation identity includes project, Epic, manifest digest, Ticket ID, entry dige
 
 Missing, stale, corrupt or unsupported input parks with a typed reason and zero child/blocker side effects.
 
-## 15. Stable errors, limits and migration
+## 15. Refusal classes
+
+Closed set, so a caller may branch on them rather than on message text:
+
+- `tickets_manifest_invalid` — the manifest or a rendered view fails validation, so no Ticket is dispatched and no child, blocker or enrollment side effect exists;
+- `tickets_manifest_stale` — a binding the manifest rests on has drifted, so the old candidate, receipt and PASS records are voided and retained and a fresh identity-bound proof is required;
+- `tickets_breakdown_alignment_required` — the breakdown was changed after approval, so the approval is about a different Ticket set;
+- `ticket_join_invalid` — the handoff a join reads is malformed or does not match the edge it claims;
+- `ticket_edge_receipt_lost` — a suspended Ticket's edge receipt cannot be found, so the parent may not assume the edge closed;
+- `ticket_repair_op_invalid` — more than one repair operation, or one bound to another source or binding;
+- `ticket_repair_state_invalid` — a repair disposition that would lower a phase, or lift a blocker the daemon did not record.
+
+Every one of these parks the workflow in `human` at the step named by the resume contract; the enumeration and the step binding are checked by `docs/contracts/refusal-vocabulary.md`.
+
+## 16. Stable errors, limits and migration
 
 Every error contains stable `code`, the smallest available RFC 6901 instance `json_pointer`, message, related pointers and canonical evidence. JSON Schema failures translate the validator instance path into that pointer rather than storing it only in free-form message text. Sorting is by code-point pointer, code and evidence bytes. Required classes cover JSON/canonical/version/limit errors; duplicate IDs; dangling/self/cyclic dependencies; invalid topo order; invalid/colliding/overlapping paths; AC/evidence/governing/impact/lineage errors; rendered-path/byte drift; and stale receipts.
 
@@ -205,7 +219,7 @@ The host checks raw manifest bytes and JSON nesting depth against externally bou
 
 Unknown schema versions fail closed. Migration is a pure pinned `vN -> vN+1` transformation with before/after identities, explicit semantic decision where needed, fresh alignment, full Ticket Panel and new planning publication. Active Epics never reinterpret old bytes under a new parser.
 
-## 16. Required implementation tests
+## 17. Required implementation tests
 
 Issue #6 design validators test at minimum:
 
@@ -229,7 +243,7 @@ Issue #6 design validators test at minimum:
 
 Runtime implementation issues #7, #8 and #9 must additionally test workers=1 versus workers>=4 graph identity, stale alignment/planning/candidate/runtime/protocol/instruction/receipt handling, crashes around receipt/child/blocker/enrollment/final graph projection, idempotent retry with one child per Ticket, and proof at the dispatcher seam that operational fields are never read from Markdown. Those downstream tests do not convert this issue #6 design disposition into runtime completion.
 
-## 17. Acceptance mapping
+## 18. Acceptance mapping
 
 - versioned JSON Schema and receipt: sections 3 and 13;
 - one manifest plus human views candidate: sections 1 and 12;
