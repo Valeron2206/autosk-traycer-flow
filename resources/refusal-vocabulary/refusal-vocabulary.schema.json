@@ -31,9 +31,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["code", "parks_at", "parks_at_classes", "producer", "producer_files"],
+        "required": ["code", "parks_at", "parks_at_classes", "closed_by", "producer", "producer_files"],
         "properties": {
           "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "closed_by": { "type": "string", "pattern": "^([a-z0-9-]+\\.md|docs/contracts/[a-z0-9-]+\\.md)$" },
           "parks_at": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
           "parks_at_classes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
           "producer": { "enum": ["host", "daemon"] },

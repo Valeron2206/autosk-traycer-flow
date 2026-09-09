@@ -38,6 +38,8 @@ export const REFUSALS = Object.freeze([
   "refusal_vocabulary_producer_misdeclared",
   "refusal_vocabulary_code_unmapped",
   "refusal_vocabulary_unclosed_contract",
+  "refusal_vocabulary_owner_missing",
+  "refusal_vocabulary_owner_ambiguous",
   "refusal_vocabulary_digest_stale",
 ]);
 
@@ -231,6 +233,68 @@ export function producerErrors(vocabulary, sources) {
   return errors;
 }
 
+/** The refusal classes each contract closes, by contract file name. */
+export function closedByContract(contracts) {
+  const owners = new Map();
+  for (const [name, text] of Object.entries(contracts)) {
+    const inline = /Closed set[^:]*:\s*(.+?)(?:\n\n|\.\s*\n)/su.exec(text);
+    const section = /(?:^|\n)##\s*\d+\.\s*(?:Refusal classes|What a refusal looks like)\s*\n([\s\S]*?)(?=\n##\s|$)/u.exec(text);
+    const codes = new Set([
+      ...(inline ? all(/`([a-z][a-z0-9_]{4,})`/gu, inline[1]) : []),
+      ...(section ? all(/^-\s*`([a-z][a-z0-9_]{4,})`/gmu, section[1]) : []),
+    ]);
+    // Keyed by the path the vocabulary records, so the two are comparable.
+    const path = name.includes("/") ? name : `docs/contracts/${name}`;
+    for (const code of codes) owners.set(code, [...(owners.get(code) ?? []), path]);
+  }
+  return owners;
+}
+
+/**
+ * Who owns each park reason.
+ *
+ * Most of these are the workflow's own vocabulary and are owned by the resume
+ * contract; some are additionally closed by the artifact contract they belong
+ * to. Either way the owner is a field rather than something a reader infers,
+ * because "somebody must have closed this somewhere" is how a code with no
+ * owner survives.
+ *
+ * A name two contracts declare has no single owner, and therefore no single
+ * producer and no single step — which is what the rest of this file checks.
+ */
+export function ownerErrors(vocabulary, contracts) {
+  const owners = closedByContract(contracts);
+  const errors = [];
+  for (const [code, declaring] of owners) {
+    if (declaring.length > 1) {
+      errors.push({ reason: "refusal_vocabulary_owner_ambiguous", detail: `${code}: ${declaring.join(", ")}` });
+    }
+  }
+  for (const entry of vocabulary.park_reasons) {
+    const declaring = owners.get(entry.code) ?? [];
+    if (!entry.closed_by) {
+      errors.push({ reason: "refusal_vocabulary_owner_missing", detail: entry.code });
+      continue;
+    }
+    if (declaring.length > 0 && !declaring.includes(entry.closed_by)) {
+      errors.push({
+        reason: "refusal_vocabulary_owner_missing",
+        detail: `${entry.code}: recorded ${entry.closed_by}, closed by ${declaring.join(", ")}`,
+      });
+    }
+    if (declaring.length === 0 && entry.closed_by !== WORKFLOW_OWNER) {
+      errors.push({
+        reason: "refusal_vocabulary_owner_missing",
+        detail: `${entry.code}: no contract closes it, so the owner is ${WORKFLOW_OWNER}`,
+      });
+    }
+  }
+  return errors;
+}
+
+/** The document that owns a park reason no artifact contract closes. */
+export const WORKFLOW_OWNER = "03-technical-plan.md";
+
 /** Every contract closes its refusal set, so none of them is open-ended. */
 export function unclosedContracts(contracts) {
   const errors = [];
@@ -282,6 +346,7 @@ export function vocabularyErrors(vocabulary, { plan, flows, sources, contracts }
     ...driftErrors(vocabulary, extractVocabulary(plan)),
     ...stepErrors(vocabulary, registeredSteps(plan)),
     ...producerErrors(vocabulary, sources),
+    ...ownerErrors(vocabulary, contracts),
     ...unmappedCodes(vocabulary, flows),
     ...unclosedContracts(contracts),
   ];

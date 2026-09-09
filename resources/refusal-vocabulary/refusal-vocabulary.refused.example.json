@@ -8,6 +8,7 @@
       "code": "planning_ref_init_invalid",
       "parks_at": ["init_planning_ref"],
       "parks_at_classes": [],
+      "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "daemon",
       "producer_files": []
     },
@@ -15,6 +16,7 @@
       "code": "gate_provider_unavailable",
       "parks_at": ["freeze_the_artifact"],
       "parks_at_classes": ["retry_step"],
+      "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "host",
       "producer_files": ["src/host/nothing-names-this.mjs"]
     },
@@ -22,6 +24,7 @@
       "code": "park_reason_nobody_declared",
       "parks_at": ["freeze"],
       "parks_at_classes": [],
+      "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
     }

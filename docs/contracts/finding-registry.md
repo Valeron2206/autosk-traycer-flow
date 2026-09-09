@@ -87,7 +87,7 @@ By the state of the work the finding lands on:
 
 ## 9. Park reasons
 
-Closed set: `unknown_severity`, `unmergeable_finding`, `missing_citable_basis`, `contest_incomplete`, `undispositioned_medium`, `missing_debt_ticket`, `stale_candidate_binding`, `originator_unknown`, `registry_drift`.
+Closed set: `unknown_severity`, `unmergeable_finding`, `missing_citable_basis`, `contest_incomplete`, `undispositioned_medium`, `missing_debt_ticket`, `stale_candidate_binding`, `originator_unknown`, `finding_registry_drift`.
 
 ## 10. Required implementation tests
 
