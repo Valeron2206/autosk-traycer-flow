@@ -60,6 +60,8 @@ const mutation = {
   report_digest: "m".repeat(64),
 };
 
+const vocabulary = JSON.parse(read("resources/refusal-vocabulary/refusal-vocabulary.v1.json"));
+
 const build = (overrides = {}) => buildPackage({
   commit: "c".repeat(40),
   tree: "t".repeat(40),
@@ -70,6 +72,7 @@ const build = (overrides = {}) => buildPackage({
   compat,
   tests: { passed: 1769, failed: 0 },
   contracts,
+  vocabulary,
   ...overrides,
 });
 
@@ -138,6 +141,26 @@ test("the run either was about the reviewed bytes or says it was not", async () 
   const dirty = await build({ cleanRoom: { ...cleanRoom, extension: { ...cleanRoom.extension, dirty: true } } });
   assert.match(dirty.text, /\| NO — this run is about other bytes/u);
   assert.match(dirty.text, /worktree clean at run time \| no/u);
+});
+
+test("a reason owned by the workflow is shown as owned, not as missing", async () => {
+  // From the package alone, an alignment park reason appears in no contract's
+  // closed set — three seats read that as unowned across two rounds. The owner
+  // is a recorded field, so the package states the split rather than leaving a
+  // reader to infer it from an absence.
+  const { text } = await build();
+  const byContract = vocabulary.park_reasons.filter((entry) => entry.closed_by.startsWith("docs/")).length;
+  assert.match(text, new RegExp(`\\*\\*${vocabulary.park_reasons.length} park reasons\\.\\*\\*`, "u"));
+  assert.match(text, new RegExp(`${byContract}\\s*\\n?are closed by the artifact contract`, "u"));
+  assert.match(text, /alignment park\s*\n?reasons appear in no contract's closed set/u);
+});
+
+test("a contract with no host module says so", async () => {
+  // A closed rule set with nothing that runs it is a design obligation, not an
+  // implemented one, and the difference belongs on the row.
+  const { text } = await build();
+  assert.match(text, /Where each contract's rules are evaluated/u);
+  assert.match(text, /none — design only in this version/u);
 });
 
 test("the evidence is given as rows, not only as counts", async () => {

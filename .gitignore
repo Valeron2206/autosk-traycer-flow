@@ -24,3 +24,7 @@ tmp/
 
 # Local migration inputs are never published
 resources/governance/imported-baseline/
+
+# Written beside a module only while the mutation command has it neutered.
+# A killed run leaves one behind; the next run restores from it and removes it.
+src/host/*.mutation-backup

@@ -75,6 +75,29 @@ test("the digest is over path and hash in path order, and does not depend on mem
   const members = [member("b.md"), member("a.md")];
   assert.equal(bundleDigest(members), bundleDigest([...members].reverse()));
   assert.notEqual(bundleDigest(members), bundleDigest([member("a.md"), member("b.md", "different\n")]));
+  // The comparator's tie branch is unreachable while member paths are unique,
+  // and the inventory refuses a repeated path — so the property tested is the
+  // one the sort exists for, and the tie itself never arises.
+  const paths = [member("a.md"), member("b.md"), member("c.md")].map((entry) => entry.path);
+  assert.equal(new Set(paths).size, paths.length);
+});
+
+test("only Markdown members with real text are held to the canonical text form", () => {
+  // `typeof text === 'string' && path.endsWith('.md')` — an `||` there would
+  // hand a Buffer to a text check, and a `!==` would exempt exactly the files
+  // the rule is for. Each half is asked on its own.
+  const canonical = (path, text) => releaseAdmission(
+    { manifest: { members: [{ path, sha256: "0".repeat(64) }] }, members: [{ path, sha256: "0".repeat(64), text }] },
+    attestation("x"),
+  ).errors.filter((error) => error.reason === "bundle_not_canonical");
+
+  // A Markdown member with no trailing newline is refused.
+  assert.ok(canonical("a.md", "line").length > 0);
+  // The same bytes in a file that is not Markdown are not this rule's business.
+  assert.deepEqual(canonical("a.txt", "line"), []);
+  // And a Markdown member whose text is not a string is left to the scan, which
+  // owns "unreadable", rather than being decoded here.
+  assert.deepEqual(canonical("a.md", Buffer.from("line")), []);
 });
 
 test("timestamps are not in the digest, because a digest nobody can recompute is a name", () => {
@@ -91,6 +114,27 @@ test("the canonical text form is stated, not assumed", () => {
   assert.ok(canonicalTextErrors("a.md", "\uFEFFline\n").some((error) => /BOM/u.test(error.detail)));
   assert.ok(canonicalTextErrors("a.md", "line\r\n").some((error) => /CR/u.test(error.detail)));
   assert.ok(canonicalTextErrors("a.md", "line").some((error) => /trailing newline/u.test(error.detail)));
+  // An empty file has no trailing newline to be missing. Without this case the
+  // guard could have been `bytes.length >= 0` and nothing would have noticed.
+  assert.deepEqual(canonicalTextErrors("a.md", ""), []);
+});
+
+test("a member that cannot be read and one that is not text are the same refusal, separately reached", () => {
+  // `readable === false || typeof text !== 'string'` — testing only the first
+  // half leaves the second unasked, and an `&&` there would let a member with
+  // no text through the scan entirely.
+  assert.deepEqual(scanErrors([{ path: "a.md", text: "clean" }]), []);
+  assert.ok(
+    scanErrors([{ path: "a.md", readable: false, text: "clean" }])
+      .some((error) => error.reason === "bundle_scan_unreadable"),
+  );
+  assert.ok(
+    scanErrors([{ path: "a.md" }]).some((error) => error.reason === "bundle_scan_unreadable"),
+  );
+  assert.ok(
+    scanErrors([{ path: "a.bin", text: Buffer.from("bytes") }])
+      .some((error) => error.reason === "bundle_scan_unreadable"),
+  );
 });
 
 test("JSON is serialised with sorted keys, two-space indent and a trailing newline", () => {

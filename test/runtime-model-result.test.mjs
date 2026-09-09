@@ -281,6 +281,24 @@ test("a batch without its three proofs did not demonstrate what it claims", () =
     delete value.batch[field];
     assert.throws(() => validateBatch(value, dispatch), code(park));
   }
+  // The three are owed by a pass *and* by a fail, and by nothing else: an
+  // indeterminate or tool_failure batch demonstrated nothing to prove. Only the
+  // pass side was asked, so `outcome === 'pass' || outcome === 'fail'` could
+  // have dropped either half.
+  for (const outcome of ["pass", "fail"]) {
+    const value = batchResult({ result: { outcome }, batch: { product_outcome: outcome } });
+    delete value.batch.application_proof;
+    assert.throws(() => validateBatch(value, dispatch), code("missing_application_proof"), outcome);
+  }
+  // And an outcome that demonstrated nothing owes nothing: an indeterminate
+  // batch with no proofs is not a missing proof, it is a batch that reached no
+  // conclusion. Only a pass or a fail is a claim that needs demonstrating.
+  const indeterminate = batchResult({
+    result: { outcome: "indeterminate" },
+    batch: { product_outcome: "indeterminate" },
+  });
+  delete indeterminate.batch.application_proof;
+  assert.doesNotThrow(() => validateBatch(indeterminate, dispatch));
 });
 
 test("a stale harness or mutation-set digest invalidates the batch", () => {

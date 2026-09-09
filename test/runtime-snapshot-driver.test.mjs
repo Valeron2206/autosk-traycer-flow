@@ -211,6 +211,15 @@ test("drift is observed against the recorded digest, and uncertainty is its own 
   const changed = await observeDrift(fs, record);
   assert.equal(changed.state, "changed");
   assert.notEqual(changed.observed_sha256, record.source_sha256);
+  // Whether the drift is normative decides whether it blocks. A record that
+  // does not say is normative — silence is not permission — and one that says
+  // `false` is the only non-normative case. Reading it the other way round
+  // would let every unmarked source drift silently.
+  assert.equal(changed.normative, true);
+  const explicit = await observeDrift(fs, { ...record, normative: false });
+  assert.equal(explicit.normative, false);
+  const stated = await observeDrift(fs, { ...record, normative: true });
+  assert.equal(stated.normative, true);
 
   await rm(source);
   assert.equal((await observeDrift(fs, record)).state, "unavailable");

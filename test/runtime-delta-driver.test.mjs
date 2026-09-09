@@ -338,6 +338,44 @@ test("the applied entries are read back from the tree, not echoed from the reque
   assert.equal(await readRef(git, ref), base.commit_oid);
 });
 
+test("an entry whose mode changed alone is applied, and the list is in path order", async (t) => {
+  // Three facts decide whether a path is "applied": it is new, its bytes
+  // changed, or its mode changed. Only the first two were exercised, so the
+  // mode half of the condition could have been dropped — and a mode change has
+  // no textual diff, which is exactly why the delta contract carries modes.
+  const { git, root, base, indexFile } = await repository(t);
+  const same = await blob(git, root, "same\n");
+  const first = delta(base, [
+    { path: "src/b.ts", status: "A", new_blob: same, new_mode: "100644" },
+    { path: "src/a.ts", status: "A", new_blob: same, new_mode: "100644" },
+  ]);
+  const firstTree = await composeTree(git, { delta: first, base: base.commit_oid, indexFile, realpath });
+
+  // Same bytes, different mode, and *not declared* by the delta: the second
+  // loop is the one that has to notice it. Declared paths are listed anyway, so
+  // the mode half of the condition can only be tested on an undeclared one.
+  const modeOnly = delta(base, [
+    { path: "src/b.ts", status: "A", new_blob: same, new_mode: "100755" },
+    { path: "src/a.ts", status: "A", new_blob: same, new_mode: "100644" },
+  ]);
+  const secondTree = await composeTree(git, { delta: modeOnly, base: base.commit_oid, indexFile, realpath });
+  const declaresNeither = delta(base, []);
+  const entries = await appliedEntries(git, { tree: secondTree, baseTree: firstTree, delta: declaresNeither });
+  assert.deepEqual([...entries].map((entry) => entry.path), ["src/b.ts"]);
+  assert.equal(entries[0].new_mode, "100755");
+
+  // Identical trees report nothing, so the difference above is the mode and not
+  // the comparison itself.
+  assert.deepEqual(
+    [...await appliedEntries(git, { tree: firstTree, baseTree: firstTree, delta: declaresNeither })],
+    [],
+  );
+
+  // And the list is ordered by path, whatever order the tree walk produced.
+  const all = await appliedEntries(git, { tree: secondTree, baseTree: base.tree_oid, delta: declaresNeither });
+  assert.deepEqual([...all].map((entry) => entry.path), ["src/a.ts", "src/b.ts"]);
+});
+
 test("a path introduced inside the Ticket's scope but not approved is reported", async (t) => {
   const { git, root, base, indexFile } = await repository(t);
   const approved = await blob(git, root, "approved\n");

@@ -14,12 +14,14 @@ import test from "node:test";
 
 import {
   CATEGORIES,
+  MAX_EVIDENCE_KEYS,
   MAX_EVIDENCE_VALUE,
   buildReport,
   checkResult,
   isExpired,
   overallStatus,
   readiness,
+  redactEvidence,
   redactValue,
   reportDigest,
   unverifiableCount,
@@ -105,6 +107,85 @@ async function statuses(env) {
   return new Map(results.map((result) => [result.id, result]));
 }
 
+test("the signer boundary check is conditioned on both halves, not on either", async () => {
+  // Three panel seats named this boundary across two rounds, and predicate
+  // mutation confirmed mechanically what they suspected: only the healthy path
+  // was tested, so `reachable && distinct` could have been `reachable ||
+  // distinct` and every test still passed. It decides whether a model workflow
+  // may start at all.
+  const signer = async (overrides) => {
+    const results = await runChecks(fakeEnv(overrides));
+    return results.find((result) => result.id === "security.signer_boundary");
+  };
+
+  // Unreachable from here and a distinct signer identity: the only pass.
+  const healthy = await signer({});
+  assert.equal(healthy.status, "pass");
+  assert.equal(healthy.evidence.reachable_from_here, false);
+  assert.equal(healthy.evidence.signer_identity_distinct, true);
+
+  // Reachable from the process a model runs in is a fail, whatever the daemon
+  // reports about itself — a boundary you can reach is not a boundary.
+  const reachable = await signer({ stat: async () => ({ size: 1 }) });
+  assert.equal(reachable.status, "fail");
+  assert.match(reachable.remediation, /reachable from the process/u);
+
+  // Unreachable but the daemon says the signer shares this process: neither a
+  // pass nor a fail, because nothing was established.
+  const sameProcess = await signer({ signerIdentity: async () => ({ same_process: true }) });
+  assert.equal(sameProcess.status, "unverifiable");
+  assert.equal(sameProcess.evidence.signer_identity_distinct, false);
+  assert.match(sameProcess.unverifiable_reason, /no signer identity/u);
+
+  // A probe that throws is the same answer: unverifiable, not pass.
+  const noIdentity = await signer({ signerIdentity: async () => { throw new Error("no daemon"); } });
+  assert.equal(noIdentity.status, "unverifiable");
+
+  // And an undeclared boundary is refused before any probe runs.
+  const undeclared = await signer({ signerEndpoint: undefined });
+  assert.equal(undeclared.status, "unverifiable");
+  assert.equal(undeclared.evidence.declared, false);
+});
+
+test("a check that passed says nothing about why it could not be checked", async () => {
+  // A `pass` carrying a remediation, or a reason it was unverifiable, is a
+  // contradiction the report would print with a straight face. Predicate
+  // mutation found several conditions that decide those fields and no test that
+  // reads them on the passing side.
+  const results = await runChecks(fakeEnv());
+  const passed = results.filter((result) => result.status === "pass");
+  assert.ok(passed.length > 3, "the healthy fixture should pass several checks");
+  for (const result of passed) {
+    assert.equal(result.remediation, undefined, `${result.id} passed and still advises a fix`);
+    assert.equal(result.unverifiable_reason, undefined, `${result.id} passed and still says it could not be checked`);
+  }
+  // And the converse: a failing check does advise something.
+  const failing = (await runChecks(fakeEnv({ stat: async () => ({ size: 1 }) })))
+    .filter((result) => result.status === "fail");
+  for (const result of failing) assert.ok(result.remediation, `${result.id} failed and advises nothing`);
+});
+
+test("a command that ran and refused is as much a failure as one that could not run", async () => {
+  // `!ok || code !== 0` is two different worlds — the binary is missing, or it
+  // answered no. Only the first was ever exercised, so the `||` could have been
+  // an `&&` and a refusing git would have read as a healthy one.
+  const refusing = fakeEnv({
+    async run(command, args) {
+      if (command === "git" && args[0] === "--version") return { code: 1, stdout: "" };
+      if (command === "git" && args[0] === "rev-parse") return { code: 128, stdout: "" };
+      if (command === "git" && args[0] === "status") return { code: 0, stdout: "" };
+      if (command === "git" && args[0] === "remote") return { code: 0, stdout: "origin\n" };
+      throw new Error(`unexpected command ${command}`);
+    },
+  });
+  const results = await runChecks(refusing);
+  const byId = new Map(results.map((result) => [result.id, result]));
+  assert.equal(byId.get("git_delivery.git_available").status, "fail");
+  assert.equal(byId.get("git_delivery.git_available").evidence.error, "1");
+  assert.equal(byId.get("project_identity.git_worktree").status, "fail");
+  assert.equal(byId.get("project_identity.git_worktree").evidence.error, "128");
+});
+
 test("every registered check produces a result, including one whose probe throws", async () => {
   // A check that disappears from the report is worse than a failing one: the
   // report would be shorter and still say pass.
@@ -181,6 +262,10 @@ test("an expired result is not a result", () => {
   const stale = check("a.b", "daemon", "pass", { provenance: provenance(1000) });
   assert.equal(isExpired(stale, NOW + 2000), true);
   assert.equal(isExpired(stale, NOW), false);
+  // The instant itself: a result whose shelf life ends exactly now has ended.
+  // `<=` and `<` differ by that one moment, and nothing asked about it.
+  assert.equal(isExpired(stale, NOW + 1000), true);
+  assert.equal(isExpired(stale, NOW + 999), false);
   assert.deepEqual(readiness({ checks: [stale] }, ["a.b"], NOW + 2000).blocking, [
     { id: "a.b", reason: "doctor_check_expired" },
   ]);
@@ -212,6 +297,22 @@ test("evidence is redacted on the way in", () => {
   assert.ok(!redactValue("Authorization: Bearer abcdefgh12345678").includes("abcdefgh12345678"));
   assert.equal(redactValue("/home/operator/project", { home: "/home/operator" }), "~/project");
   assert.equal(redactValue("x".repeat(400)).length, MAX_EVIDENCE_VALUE);
+  // At the bound and one below it: a value of exactly the maximum is kept
+  // whole, and the ellipsis appears only when something was actually cut.
+  assert.equal(redactValue("x".repeat(MAX_EVIDENCE_VALUE)), "x".repeat(MAX_EVIDENCE_VALUE));
+  assert.ok(!redactValue("x".repeat(MAX_EVIDENCE_VALUE)).endsWith("…"));
+  assert.ok(redactValue("x".repeat(MAX_EVIDENCE_VALUE + 1)).endsWith("…"));
+  // A one-character home is not a home: replacing "/" everywhere would rewrite
+  // every path in the report.
+  assert.equal(redactValue("/home/operator/x", { home: "/" }), "/home/operator/x");
+
+  // Exactly as many keys as a report may hold is admitted; one more is not.
+  const keys = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, "v"]));
+  assert.doesNotThrow(() => redactEvidence(keys(MAX_EVIDENCE_KEYS)));
+  assert.throws(() => redactEvidence(keys(MAX_EVIDENCE_KEYS + 1)), (error) => error.code === "doctor_evidence_unredacted");
+  // And a key of exactly sixty-four characters is a key; sixty-five is not.
+  assert.doesNotThrow(() => redactEvidence({ ["k".repeat(64)]: "v" }));
+  assert.throws(() => redactEvidence({ ["k".repeat(65)]: "v" }), (error) => error.code === "doctor_evidence_unredacted");
   // A digest is not a secret, and redacting it would empty the identity checks
   // while looking careful.
   const digest = "a".repeat(64);

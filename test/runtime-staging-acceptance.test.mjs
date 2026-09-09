@@ -178,6 +178,20 @@ test("a pinned auto-policy is held to the same binding as a person", () => {
   // default.
   assert.throws(() => autoPolicyAcceptance(state({ staging_tree_oid: oid("9") }), policy), code("acceptance_stale"));
   assert.throws(() => autoPolicyAcceptance(current, { pinned_identity: policy.pinned_identity }), code("acceptance_missing"));
+  // An empty policy reference names no policy: the record would say a policy
+  // accepted this and be unable to say which.
+  assert.throws(
+    () => autoPolicyAcceptance(current, { ...policy, policy_ref: "" }),
+    code("acceptance_missing"),
+  );
+
+  // And an identity built from an empty field is not an identity: three fields
+  // make the digest, and an empty one would hash to something that looks like
+  // an answer.
+  for (const field of ["staging_commit_oid", "staging_tree_oid", "epic_id"]) {
+    assert.throws(() => stagingIdentity({ ...state(), [field]: "" }), code("acceptance_missing"));
+    assert.throws(() => stagingIdentity({ ...state(), [field]: undefined }), code("acceptance_missing"));
+  }
 });
 
 test("debt outside what the policy named is not something it agreed to", () => {

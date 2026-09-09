@@ -145,6 +145,11 @@ test("expiry, auth, smoke and model support each stop the route", () => {
   }
   assert.equal(isExpired(route(), NOW + 4_000_000), true);
   assert.equal(isExpired(route(), NOW), false);
+  // The instant itself. An attestation whose shelf life ends exactly now has
+  // ended: `<=` and `<` differ by that one moment, and it decides whether a
+  // panel seat may be dispatched to.
+  assert.equal(isExpired(route(), NOW + 3_600_000), true);
+  assert.equal(isExpired(route(), NOW + 3_599_999), false);
 });
 
 test("a permission mode the provider does not offer is not one to assume", () => {
@@ -252,6 +257,13 @@ test("a resume that would merge two generations is refused", () => {
 test("diagnostics are redacted and bounded before they are stored", () => {
   assert.equal(boundDiagnostics("/home/operator/x", { home: "/home/operator" }), "<home>/x");
   assert.equal(Buffer.byteLength(boundDiagnostics("x".repeat(9000)), "utf8"), 4096 + 2);
+  // At the budget and one byte over it: text that fits is returned whole, and
+  // the ellipsis appears only where something was cut.
+  assert.equal(boundDiagnostics("x".repeat(4096)), "x".repeat(4096));
+  assert.ok(!boundDiagnostics("x".repeat(4096)).endsWith("…"));
+  assert.ok(boundDiagnostics("x".repeat(4097)).endsWith("…"));
+  // A one-character home is not a home; replacing "/" would rewrite every path.
+  assert.equal(boundDiagnostics("/home/operator/x", { home: "/" }), "/home/operator/x");
   assert.equal(boundDiagnostics(undefined), "");
 });
 

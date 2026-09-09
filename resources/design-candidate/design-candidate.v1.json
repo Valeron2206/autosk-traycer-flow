@@ -4,11 +4,11 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "fa95160a11344024b001aac52d7b45c352d32780af063b17a7670ddc98abad09"
+      "sha256": "2a0e42aa675fc05d812e671ce1d9ce4780018e3a3272eb30ddd8988bbe5972e2"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "d61ce0a8f5d36c9b25a0d2ae27f6894a0260ef85379456f379e6e18b495cb458"
+      "sha256": "1ef0c566f80478a50594c25cd7dcabcf2803ee8798fbfde279f3bbcec9ac933f"
     },
     {
       "path": "03-technical-plan.md",
@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "fdc7f01082c5e76e7e044ceb5e8b53c6e3bd3f0114dab6ee32faa3d5d9967587"
+      "sha256": "bcb83523d5e8e94a24117040c2babda027e7a75cd24093355b723b1577b34ee5"
     },
     {
       "path": "README.md",
@@ -200,7 +200,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "6d94ff7b3fef07db9c6187d6d220bcec2eabf1ce1c9420676454285c0bfdc4b8"
+      "sha256": "a113f86ec5b98062024b31d6e40d1ce1c0689f068499c139acf371ba84ef3b3a"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -316,7 +316,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "dfc61153d65fa03ce3405d420ec564f13d7ea6a154bf82de8c677b15b9dec4ba"
+      "sha256": "b2a905b866a205ec606e46f545d6964aacb6b571b7c255dfb6e9a84a51444c60"
     },
     {
       "path": "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
@@ -463,7 +463,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
+  "candidate_digest": "ae13714231e1b5164e0505df990380c75d6e644aff6acd770b3461406b32d297",
   "dispositions": [
     {
       "issue": 3,

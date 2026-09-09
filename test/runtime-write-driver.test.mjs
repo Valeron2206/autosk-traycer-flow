@@ -150,6 +150,30 @@ test("a hard-linked or special destination is not a place to publish", async (t)
   await link(destination, path.join(root, "outside", "hardlink.md"));
   const observed = await observeDestination(fs, destination);
   assert.equal(observed.regular_single_linked, false);
+  // A hard link is still a regular file, so the bytes are read and compared;
+  // what makes it unpublishable is the link count, not the read. A symlink is
+  // the other case, and its bytes are deliberately not read at all — following
+  // it would read whatever it points at and call that the destination.
+  // The digest is present because a hard link is still a regular file whose
+  // bytes are the destination's bytes.
+  assert.equal(observed.sha256, digest("original\n"));
+  // A symlink is the other case, and its bytes are deliberately not read:
+  // following it would hash whatever it points at and call that the
+  // destination, which is the substitution the check exists to refuse.
+  const symlinkPath = path.join(artifactRoot, "linked.md");
+  await symlink(destination, symlinkPath);
+  const viaSymlink = await observeDestination(fs, symlinkPath);
+  assert.equal(viaSymlink.sha256, null);
+  assert.equal(viaSymlink.regular_single_linked, false);
+  // A directory standing where the artifact should be exists and is not a
+  // place to publish. Reading it would throw and the observation would report
+  // "nothing is there", which is the one answer that would let a write proceed.
+  const occupied = path.join(artifactRoot, "occupied.md");
+  await mkdir(occupied, { recursive: true });
+  const viaDirectory = await observeDestination(fs, occupied);
+  assert.equal(viaDirectory.exists, true);
+  assert.equal(viaDirectory.regular_single_linked, false);
+  assert.equal(viaDirectory.sha256, null);
   await assert.rejects(
     () => verifiedWrite(fs, {
       destination,

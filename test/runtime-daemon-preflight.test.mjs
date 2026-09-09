@@ -59,6 +59,52 @@ test('a capability naming the same method twice, sharing one, or reported twice,
   ] }, 'daemon_capability_invalid', 'The same capability is reported twice');
 });
 
+test('every bound is tested at the bound, not near it', () => {
+  // Predicate mutation found every length check here untested at its own
+  // boundary: `<= 128` could have been `< 128`, `>= 1` could have been `> 1`,
+  // and `> 0` could have been `>= 0`, with the whole suite still green. A bound
+  // nobody tests at the bound is a number in a comment.
+  const ok = (value) => assert.doesNotThrow(() => requireDaemonCapabilities(value));
+
+  // A name of exactly 128 characters is admitted; 129 is not.
+  const longName = `task.${'a'.repeat(123)}`;
+  assert.equal(longName.length, 128);
+  ok({ capabilities: [
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+    { name: longName, version: 1, methods: ['x'] },
+  ] });
+  refuses({ capabilities: [
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+    { name: `${longName}b`, version: 1, methods: ['x'] },
+  ] }, 'daemon_capability_invalid', 'Invalid capability name');
+
+  // Exactly 64 capabilities is admitted; 65 is not.
+  const filler = (n) => Array.from({ length: n }, (_, i) => ({ name: `other.f${i}`, version: 1, methods: [`m${i}`] }));
+  ok({ capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] }, ...filler(63)] });
+  refuses(
+    { capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] }, ...filler(64)] },
+    'daemon_capability_invalid', 'Invalid bounded capability list',
+  );
+
+  // Exactly 64 methods on one capability is admitted; 65 is not, and so is a
+  // method name of 129 characters or of zero.
+  const methods = (n) => Array.from({ length: n }, (_, i) => `m${i}`);
+  ok({ capabilities: [
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+    { name: 'other.wide', version: 1, methods: methods(64) },
+  ] });
+  const wide = (list) => ({ capabilities: [
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+    { name: 'other.wide', version: 1, methods: list },
+  ] });
+  refuses(wide(methods(65)), 'daemon_capability_invalid', 'A capability must name the methods that implement it');
+  refuses(wide(['']), 'daemon_capability_invalid', 'A capability must name the methods that implement it');
+  refuses(wide(['x'.repeat(129)]), 'daemon_capability_invalid', 'A capability must name the methods that implement it');
+  ok(wide(['x'.repeat(128)]));
+  // A method that is not a string at all is the other half of the same check.
+  refuses(wide([1]), 'daemon_capability_invalid', 'A capability must name the methods that implement it');
+});
+
 test('a daemon without the capability does not start the flow', () => {
   refuses({ capabilities: [] }, 'daemon_capability_missing');
   refuses({ capabilities: [{ name: 'other.thing', version: 1, methods: ['x'] }] }, 'daemon_capability_missing');

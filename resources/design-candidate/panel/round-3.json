@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "round": 3,
+  "candidate_digest": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
+  "frozen_commit": "e948ccbf7100d0c28e625ba8cae2adda309e5be2",
+  "frozen_tree": "ebd74a83cb0d562f3915713ee12c0d1da88998f3",
+  "package_sha256": "d6e558b44319a92802fa036a09e3adca98196a4a0cc299345fae3ffabc69ee6b",
+  "system_prompt_sha256": "443e987e879c25107d673441eab33417d882745ff35a1280daed434cec6c0f75",
+  "runner": "omp (Oh My Pi) v18.1.13, --no-tools --no-lsp, one session per seat",
+  "seats": [
+    {
+      "seat": "opus",
+      "route": "anthropic/claude-opus-5",
+      "effort": "max",
+      "observed_model": "claude-opus-5",
+      "session_id": "01a08445-56ce-7667-ba72-bedfb2ded18e",
+      "reported_tokens": 67699,
+      "verdict": "fail",
+      "candidate_digest_echoed": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "section 5, 'Mutation' — scripts/mutation-report.mjs",
+          "what": "The mutation operator set is five call-site prefixes (`demand(`, `errors.push(`, `reasons.push(`, `findings.push(`, `problems.push(`), i.e. it only neuters the emission of a refusal that is already reached; it cannot mutate the predicate that decides whether the guard fires (comparisons, boundary conditions, ordering, CAS expected-old values), so '514/514 killed, 0 survivors' proves the tests notice a deleted refusal push, not that the guards are correctly conditioned — the headline number is much weaker than the word 'mutation' implies."
+        },
+        {
+          "severity": "high",
+          "where": "section 5 mutation table vs. sections 3/4 — coverage denominator",
+          "what": "49 modules are mutated but 38 contracts define 389 refusal classes and the package gives no mapping from class to a killed mutant, so there is no evidence that every declared refusal class is producible or exercised; conspicuously, `src/host/doctor-checks.mjs` reports 0 mutants/0 killed while `security.signer_boundary` (01-core-flows.md §2) is the mechanism that mechanically stops model launch, and `src/host/*` has no module named for arena, debate, autobuild, housekeeping, walkthrough, reflect-cost-watch, human-decision, refusal-vocabulary, platform-support, sdk-write-api, artifact-write-receipt, static-analysis, integration-authorization or bounded-loop — contracts whose classes therefore have no shown evaluator."
+        },
+        {
+          "severity": "high",
+          "where": "section 5, fault matrix rows F001–F004",
+          "what": "Four of twenty groups are run without a paired silent control, and the package's own stated reason for controls ('a guard that refuses everything would detect every fault and mean nothing by it') applies exactly to them; the coverage line nevertheless reports `covered_by_real_fault=20; complete=true`, so the summary asserts completeness at a strength only 16 rows actually support — F004 (identity swap) in particular is the runtime-identity guard, the highest-value place for a false-positive check."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 (signer boundary) vs. 02-architecture.md §5 ('Операционная правда в autosk')",
+          "what": "The whole user-authority chain rests on `UserDecisionRecord` being unforgeable by the model, and the design admits the only enforcement is a probe that 'не доказывает изоляцию', with platform attestation named as deferred — yet §5 states flatly 'Deployment without enforceable boundary ... blocks model launch' and §2's doctor check treats an undeclared boundary as `unverifiable`; a declared-but-unattested endpoint therefore passes, so the guarantee that no model can mint `actor=user` has no mechanism, only a self-report from the daemon whose own boundary is in question."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §2 ('До issue #14 закрытый path-role classifier...') vs. 02-architecture.md §7 ('Кодовый кандидат')",
+          "what": "The five-way path-role classifier is declared unreachable in the shipped system ('в поставляемой системе пятизначный classifier недостижим') because the registry decides, yet the same paragraph keeps it as the normative rule for `governance_mapping_sidecar` / `additional_normative` / `unknown` and the park reason `artifact_mapping_required`; a rule that is simultaneously normative and unreachable leaves those park classes with no producer, and the reconciliation is prose rather than a check anything evaluates."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5, 'What is not claimed' — issue #10 criterion 2",
+          "what": "Deferring the declarative workflow graph is a defect in *this* design, not a neutral scheduling choice: 01-core-flows.md §8 encodes the resume state machine as a ~45-row prose table mapping park reason to workflow step, and §7/§5 encode ordering invariants the same way, so with no machine-checkable graph nothing validates that every one of the 389 refusal classes has a reachable owning step, that `onTransit` rejects exactly the mismatches the table names, or that the table and the implemented steps have not drifted — the package's own `refusal_vocabulary_unknown_step` class presumes a step registry the graph would have supplied."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5, 'Tests' and 'Clean-room end-to-end'",
+          "what": "`npm test` is reported only as 1809 pass / 0 fail with no coverage figure, no assertion-per-contract mapping and no statement of what the suite does not reach, and the clean-room line reports ten steps as `ok` with no per-step assertion content; both are pass/fail totals presented in positions where the reader is invited to read them as adequacy, which is a claim outrunning what was run."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5, 'Mutation' — 'A broader hand-run procedure was used ... its counts are in the pull requests'",
+          "what": "The package concedes two different mutation numbers exist and that the larger, broader one lives outside the reviewed version in pull requests that are not in section 3 and not digest-pinned; that number is therefore unreviewable from this package while still being offered as reassurance, and the reproducible number it is contrasted with is the narrow one flagged above."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5, mutation module list vs. 02-architecture.md §2 and §4",
+          "what": "The daemon is explicitly outside the mutated set, yet the load-bearing primitives ADR-014/ADR-023/ADR-025 (atomic creation binding, signed authority/intent heads, workflow custody CAS) live there and are supplied by 31 pinned patches; the extension's guards can only be as strong as those primitives, so 'the daemon's guards are not mutated' is not a minor scope note but the exclusion of the layer that actually enforces the identities everything else binds to — and no equivalent fault injection against the patched daemon is shown beyond the four uncontrolled harness rows."
+        },
+        {
+          "severity": "low",
+          "where": "section 3 vs. section 6",
+          "what": "Only 2 of 115 files are reproduced in full; the 38 contracts are given as section-4 rule inventories (headings plus refusal-class names) which cannot show whether a section's body actually specifies an evaluable rule, so the panel is asked for a design verdict on 113 files it can only check by digest against a repository it cannot open."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md §3 (panel routes) and 02-architecture.md §9",
+          "what": "Cross-family independence is the mechanism behind the panel gate, but 'family' is asserted by route-string convention (Codex and GPT declared one family in §6) with no artifact in section 3 that registers the family partition or is validated against the route table, so `arena_judge_family_conflict` and the Lead-selection rule depend on a mapping nothing in the pack pins."
+        }
+      ],
+      "read": "The whole panel package as delivered: section 1 (version, upstream commit + 31-patch series, digests), section 2 (the four questions), section 3 (all 115 path/digest rows, read as a table — I did not recompute the SHA-256 chain, having no tools), section 4 (all 38 contract entries, their section lists and all listed refusal classes), section 5 in full (test total, mutation method and per-module table of 49 modules, clean-room step list, the 20-row fault matrix with per-row evidence, and the 'what is not claimed' list), section 6 in full (`01-core-flows.md` and `02-architecture.md` end to end, including §2 alignment/policy, §5–§9 of core flows and §2, §4, §5, §7, §8 of architecture), and section 7's output shape. Findings are cross-references between these parts.",
+      "not_read": "I could not read and did not read: the bytes of the other 113 files in section 3 — all 38 contract bodies (only section 4's headings and refusal-class names were available), `03-technical-plan.md`, `04-decisions.md` (so ADR-014/023/025/029/030 are known only by reference), `README.md`, `compat/autosk/manifest.v1.json` and the 31 patches, and every JSON Schema and resource file including `refusal-vocabulary.v1.json`, `artifact-registry.v1.json`, `stage-carriers.v1.json` and `mutation-survivors.v1.json`. I did not run or verify anything: I did not recompute the candidate digest from section 3, did not verify the report digests, the clean-room tree hash or any file hash, did not run `npm test`, `node scripts/mutation-report.mjs` or the fault harness, and did not inspect any `src/host/*.mjs`, `test/*.test.mjs` or `scripts/*.mjs` source. Consequently my findings about operator scope, module-to-contract coverage and unpaired controls rest on the package's own descriptions rather than on the code."
+    },
+    {
+      "seat": "astra",
+      "route": "openai-codex/gpt-6-astra",
+      "effort": "high",
+      "observed_model": "gpt-6-astra",
+      "session_id": "01a08445-56ce-7140-a3f0-1b60a43a2cc6",
+      "reported_tokens": 41965,
+      "verdict": "fail",
+      "candidate_digest_echoed": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 «Согласование решений человеком»; 02-architecture.md §5 «Операционная правда в autosk»",
+          "what": "[INFERENCE] Отложена несущая гарантия: архитектура требует блокировать запуск модели без принудительной изоляции signer/secure store, но описанный security.signer_boundary проверяет лишь недоступность объявленного endpoint и самоотчёт демона, прямо не доказывая изоляцию, поэтому его успешность недостаточна для допуска, на котором основана исключительная пользовательская власть над approval, waiver и integration."
+        },
+        {
+          "severity": "medium",
+          "where": "Пакет §5, «The fault matrix, with its denominator», утверждение перед таблицей",
+          "what": "Утверждение «Each group is injected for real and paired with a control» противоречит последующему пояснению и таблице: парный контроль заявлен только для 16 из 20 групп, а F001–F004 явно имеют «not paired», поэтому универсальное утверждение о контролях необходимо сузить."
+        },
+        {
+          "severity": "medium",
+          "where": "Пакет §5, fault matrix: определение F004 и строка evidence для F004",
+          "what": "F004 определён как resume при изменённой runtime identity, однако приведённое свидетельство описывает сохранение pin уже допущенной задачи и новый pin следующего admission, не указывая фактический resume и результат его проверки, поэтому заявленное покрытие именно этого сценария представленным описанием не подтверждено."
+        }
+      ],
+      "read": "Прочитан весь предоставленный пакет, разделы 1–7: идентичности версии, все строки перечня файлов и digest, инвентарь секций и отказов 38 контрактов, сводки тестов и mutation, вся fault matrix, ограничения заявленных результатов и полные тексты 01-core-flows.md и 02-architecture.md. Обнаружено блокирующее расхождение между обязательной границей доверия и достаточностью описанного preflight; отсрочка декларативного workflow graph сама по себе по предоставленным текстам не доказана как дефект. Свидетельства оценены как опубликованные сводки, а не независимо воспроизведённые результаты.",
+      "not_read": "Полные тексты остальных 113 файлов из раздела 3, включая 38 контрактов, technical plan, decisions, schemas, resources и patch manifest, не предоставлены; прочитаны только их digest и доступные инвентари. Также не предоставлены и не прочитаны исходники runtime, 31 патч демона, реализации валидаторов и harness, тесты, полные отчёты и первичные логи запусков. Команды не выполнялись, digest независимо не пересчитывались; отсутствие других несущих пробелов во всём кандидате и фактическая реализация гарантий не подтверждены."
+    },
+    {
+      "seat": "grok",
+      "route": "cursor/cursor-grok-4.6",
+      "effort": "xhigh",
+      "observed_model": "cursor-grok-4.6",
+      "session_id": "01a08445-56d3-74ef-b677-2848882a13ee",
+      "reported_tokens": 6174,
+      "verdict": "fail",
+      "candidate_digest_echoed": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "docs/contracts/autobuild-run.md vs 01-core-flows.md, 02-architecture.md, section 5",
+          "what": "The candidate includes a closed Autobuild contract (15 host-enforced classes: budgets, independent generator/evaluator, no rubric mutation) but neither load-bearing design text sites a host Autobuild runtime, the mutation table has no autobuild module, and section 5 does not defer it the way it defers Sonar #47 and issue #10 criterion 2."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 and §8 vs section 4 closed sets",
+          "what": "Load-bearing stops brief_alignment_required, core_flow_decision_required, tech_plan_readiness_required, alignment_policy_out_of_scope, alignment_record_stale, artifact_mapping_required, and protocol_lock_invalid are named in the core flow, yet none appear among the 389 contract refusal classes, while the sibling tickets_breakdown_alignment_required is in tickets-manifest.md — those gates are either narrative-only or have no contract owner visible in this package."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §2 vs 02-architecture.md §5",
+          "what": "The two full texts disagree on the signer boundary: 01 states the doctor probe does not prove isolation and platform attestation is deferred, while 02 calls the same boundary an enforceable production property and a mandatory preflight assertion rather than a same-UID residual."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5 fault matrix F001–F004",
+          "what": "Coverage is declared complete=true with covered_by_real_fault=20, but F001–F004 were run without a paired silent control, so the matrix does not show that those guards stay quiet on the unfaulted state — the completeness claim is injection coverage, not specificity."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/walkthrough.md, housekeeping.md, bounded-loop.md vs 01-core-flows.md §7 and section 5 mutation table",
+          "what": "Walkthrough, housekeeping, and bounded-loop have closed host rule sets in the candidate but no step in the accept/integrate sequence, no mutated host module, and no mention on the section 5 deferral list."
+        },
+        {
+          "severity": "low",
+          "where": "section 5 mutation table src/host/doctor-checks.mjs",
+          "what": "doctor-checks.mjs is counted among the 49 covered modules with 0 mutants and 0 killed, so the reproducible mutation command did not exercise any demand/errors/reasons/findings/problems guard in the module that the signer-boundary probe depends on."
+        }
+      ],
+      "read": "Sections 1–2 (version pin, daemon patch identity, four questions); section 3 path/digest table as inventory (115 names, not file bodies); section 4 all 38 contract section lists and closed refusal sets (recounted to 389; epic-staging has 11 classes); section 5 test/mutation/clean-room/fault-matrix claims and the not-claimed list, including summing 49 mutation rows to 514 mutants; section 6 full text of 01-core-flows.md and 02-architecture.md. Issue #10 criterion 2 deferral is consistent with 02 §10 refusing a workflow DSL and is not a defect.",
+      "not_read": "File bodies of every digest-only path in section 3, including 03-technical-plan.md, 04-decisions.md, README.md, all 38 contract bodies beyond the section 4 inventory, all JSON schemas/examples/resources, compat/autosk/manifest.v1.json, refusal-vocabulary.v1.json, mutation-survivors.v1.json, and all implementation/tests. Did not recompute candidate_digest from section 3, did not re-run npm test, mutation, or clean-room, and did not read the repository tree at e948ccb."
+    },
+    {
+      "seat": "muse",
+      "route": "meta/muse-spark-1.3-contributor",
+      "effort": "max",
+      "observed_model": "muse-spark-1.3-contributor",
+      "session_id": "01a08445-56d3-7663-bb03-cd4719ffc6f9",
+      "reported_tokens": 50996,
+      "verdict": "fail",
+      "candidate_digest_echoed": "71c948f9cab51cfc4e75d8f9c1599f54fa7715403b57a7513849634db01cabd9",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 and 02-architecture.md §5",
+          "what": "Passed signer-boundary probe means only declared endpoint is unreachable from model process plus daemon-reported separate signing identity and platform attestation that could prove isolation is admitted absent while actor-user and integration signatures rest on that boundary."
+        },
+        {
+          "severity": "high",
+          "where": "Section 5 Mutation reproducible command scope",
+          "what": "Reproducible 514 of 514 mutates only five push and demand call patterns so it says nothing about CAS equality hash comparison early-return and boundary guards with broader hand-run counts left in pull requests outside this package and daemon guards explicitly excluded."
+        },
+        {
+          "severity": "high",
+          "where": "Section 5 fault matrix F001-F004",
+          "what": "Four of twenty groups report control silent as not paired so the refuse-everything safeguard stated for paired cases does not apply to them yet the matrix rolls up as covered_by_real_fault 20 with complete true."
+        },
+        {
+          "severity": "medium",
+          "where": "Section 5 Mutation module-by-module src/host/doctor-checks.mjs",
+          "what": "Zero mutants and zero killed is counted toward forty-nine modules covered so that row provides no test-strength signal while inflating the coverage denominator."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §6 reviewer routing table",
+          "what": "Code-review master order uses only GPT Kimi and Grok and excludes Opus even when Opus is outside the author-plus-fixer union while panel master order includes Opus without stated justification."
+        },
+        {
+          "severity": "medium",
+          "where": "Section 5 Tests and Clean-room end-to-end",
+          "what": "Counts and ok steps plus mutation and clean-room report digests are asserted without logs or report bytes and same-bytes and clean-worktree claims require repository fetch and rerun that this package alone does not enable."
+        }
+      ],
+      "read": "Sections 1, 2, 4, 5, 7 and Section 3 digest table and Section 6 full text of 01-core-flows.md and 02-architecture.md",
+      "not_read": "Full bytes of the other 113 design files named in Section 3 including 38 contracts full text technical plan decisions README manifest schemas and resources plus upstream repository pinned patches test mutation and clean-room logs and reports and pull requests with broader mutation counts"
+    }
+  ]
+}

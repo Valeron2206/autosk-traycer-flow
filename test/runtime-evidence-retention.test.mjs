@@ -87,6 +87,15 @@ test("a truncated record says so, and says how big it was", () => {
     truncationErrors(record({ truncated: true, original_size_bytes: 9000 })).map((error) => error.detail),
     ["no truncation policy recorded"],
   );
+  // Equal sizes are not a truncation: nothing was cut, so a record claiming
+  // truncation with the same original size is refused, and one byte more is
+  // accepted. `<=` and `<` differ by exactly that record.
+  const sized = (original) =>
+    truncationErrors(record({ truncated: true, original_size_bytes: original, truncation_policy: "tail" }))
+      .map((error) => error.detail);
+  const stored = record().size_bytes;
+  assert.ok(sized(stored).some((detail) => /is not larger than stored/u.test(detail)));
+  assert.deepEqual(sized(stored + 1), []);
   assert.deepEqual(
     truncationErrors(record({ truncated: true, truncation_policy: "tail" })).map((error) => error.detail),
     ["no original size recorded"],
@@ -172,6 +181,14 @@ test("referenced and durable evidence is never deleted, whatever the class says"
     nowMs: NOW,
   });
   assert.equal(unexpired.keep[0].reason, "not_expired");
+  // The instant itself: evidence whose horizon ends exactly now has ended, and
+  // `>` and `>=` differ by that one moment.
+  const atNow = cleanupPlan([record({ expires_at: new Date(NOW).toISOString() })], {
+    references: new Set(),
+    nowMs: NOW,
+  });
+  assert.deepEqual(atNow.keep.slice(), []);
+  assert.equal(atNow.delete.length, 1);
 });
 
 test("an ephemeral harness survives until the restore is verified", () => {
@@ -181,6 +198,15 @@ test("an ephemeral harness survives until the restore is verified", () => {
   );
   assert.deepEqual(unverified.delete.slice(), []);
   assert.equal(unverified.keep[0].reason, "restore_unverified");
+  // Each half on its own: a verified restore with no durable receipt is as
+  // unfinished as an unverified one, and an `&&` there would delete on either.
+  for (const half of [{ restore_verified: true }, { restore_receipt_id: "r-1" }]) {
+    const partial = cleanupPlan(
+      [record({ class: "temporary_harness_binary", durability: "transient", ...half })],
+      { references: new Set(), nowMs: NOW },
+    );
+    assert.equal(partial.keep[0]?.reason, "restore_unverified", JSON.stringify(half));
+  }
 
   const verified = cleanupPlan(
     [
@@ -233,6 +259,25 @@ test("a shorter retention does not reach evidence produced under a longer one", 
   assert.ok(retroactive.some((error) => error.reason === "evidence_retention_retroactive"));
   const undecided = retentionChangeErrors(previous, { horizon_ms: 120 * 86_400_000 });
   assert.ok(undecided.some((error) => /recorded decision/u.test(error.detail)));
+  // The same horizon is not a shorter one: a change that keeps the number is
+  // not retroactive, and `<` rather than `<=` is what says so.
+  assert.deepEqual(
+    retentionChangeErrors(previous, {
+      horizon_ms: previous.horizon_ms,
+      decision_ref: "decision-78",
+      applies_to: "all_evidence",
+    }),
+    [],
+  );
+  // And a longer one reaches back harmlessly.
+  assert.deepEqual(
+    retentionChangeErrors(previous, {
+      horizon_ms: previous.horizon_ms + 1,
+      decision_ref: "decision-79",
+      applies_to: "all_evidence",
+    }),
+    [],
+  );
 });
 
 test("an artifact that cannot be redacted is not stored at all", () => {

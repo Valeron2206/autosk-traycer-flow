@@ -40,6 +40,12 @@ function parentOf(filePath) {
  */
 export async function projectFs(node, { root }) {
   const resolvedRoot = await node.realpath(root);
+  // The filesystem root is not a project. Every containment check here is
+  // "inside `<root>/`", and with `<root>` empty or `/` that reads as "inside
+  // anything" — the one answer this adapter exists to never give.
+  demand(resolvedRoot.length > 1 && resolvedRoot.startsWith('/'),
+    'fs_outside_project', 'A project root is a directory, not the filesystem root',
+    { root: resolvedRoot });
 
   /** Where a path really is, and a refusal when that is not inside the project. */
   async function resolveInside(target) {

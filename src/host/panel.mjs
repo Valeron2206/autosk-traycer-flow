@@ -186,7 +186,11 @@ export function runPanel(seats, deps) {
     verdict: verdict.verdict,
     reason: verdict.reason,
     // Reported rather than asserted: whether the answered seats saw the same
-    // bytes is a fact the reader needs when the seats disagree.
-    identical_carriers: answered.length > 0 && carriers.size === 1,
+    // bytes is a fact the reader needs when the seats disagree. The set is
+    // built from the answered seats, so "exactly one distinct carrier" already
+    // means at least one seat answered — a second clause saying so could not
+    // change the answer, and a condition that cannot change the answer reads
+    // like a guarantee while guaranteeing nothing.
+    identical_carriers: carriers.size === 1,
   });
 }

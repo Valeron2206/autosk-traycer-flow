@@ -53,8 +53,27 @@ for(const [name,change,message] of [
   ['non-integer expiry',r=>r.expires_at_ms=1.5,'Invalid step visit/expiry'],
   ['blank title',r=>r.slots[0].display.title='   ','Invalid display text'],
   ['oversized description',r=>r.slots[0].display.description='x'.repeat(65537),'Invalid display text'],
+  ['oversized title',r=>r.slots[0].display.title='x'.repeat(8193),'Invalid display text'],
 ])test(`grant compiler rejects ${name}`,()=>{const raw=input();assert.doesNotThrow(()=>compileTaskCreationGrant(raw));change(raw);
   assert.throws(()=>compileTaskCreationGrant(raw),e=>e.message===message,`${name} was refused by another guard`);});
+
+test('display text is admitted at its byte bound and refused one byte past it',()=>{
+  // 8192 and 65536 are bounds, not decorations: only far-from-bound values were
+  // tested, so `<=` could have been `<` and a title of exactly the maximum
+  // would have been refused with nothing noticing.
+  const at=(title,description)=>{const raw=input();raw.slots[0].display.title=title;raw.slots[0].display.description=description;return raw;};
+  assert.doesNotThrow(()=>compileTaskCreationGrant(at('x'.repeat(8192),'y'.repeat(65536))));
+  assert.throws(()=>compileTaskCreationGrant(at('x'.repeat(8193),'y')),e=>e.message==='Invalid display text');
+  assert.throws(()=>compileTaskCreationGrant(at('x','y'.repeat(65537))),e=>e.message==='Invalid display text');
+  // And the compiled record is held to the same two bounds.
+  const compiled=compileTaskCreationGrant(input());
+  const compiledAt=(title)=>{const raw=structuredClone(compiled);raw.slots[0].input.title=title;return raw;};
+  const api={capabilities:{protocol:'autosk-scoped-task-creation/v1'},binding:{},slot_ids:[],create:async()=>{throw Error('must not call')}};
+  return Promise.all([
+    assert.rejects(createGrantedChild(api,compiledAt('x'.repeat(8193)),'gpt'),e=>e.message==='Invalid compiled display text'),
+    assert.rejects(createGrantedChild(api,compiledAt('  '),'gpt'),e=>e.message==='Invalid compiled display text'),
+  ]);
+});
 test('call wrapper verifies bound SDK result and never invokes another grant',async()=>{
   const grant=compileTaskCreationGrant(input()),api=apiDouble(grant);
   assert.equal((await createGrantedChild(api,grant,'gpt')).task.id,'ask-bbbbbb');

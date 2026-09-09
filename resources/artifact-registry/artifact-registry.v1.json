@@ -883,6 +883,33 @@
       "human_approval": "not_required"
     },
     {
+      "class": "family_partition",
+      "category": "governance_defining",
+      "author_roles": [
+        "planner"
+      ],
+      "requires": [],
+      "paths": [
+        "resources/panel-roster/family-partition.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "validator": "scripts/validate-provider-preflight.mjs",
+      "impacts": [
+        "provider_preflight"
+      ],
+      "publication": "governance_ref",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
+    },
+    {
       "class": "fault_matrix",
       "category": "behavior_defining",
       "author_roles": [
@@ -1901,5 +1928,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "a4efca336896be9d059b02d86a8220be498cc87615cae0822ad0b27016c659ce"
+  "registry_digest": "f7a0089f28635d8256fb2ce7071f5e82221950215c59e7b221afc9da157f201a"
 }

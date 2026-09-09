@@ -139,6 +139,44 @@ test("a downgrade needs a basis and must actually lower the severity", () => {
     basis: { kind: "factual_proof", reference: "the path is unreachable from any caller" },
   });
   assert.equal(effectiveSeverity(downgraded), "medium");
+  // The same severity is not a lowering: a "downgrade" that keeps the severity
+  // has cited a basis for nothing, and `>` rather than `>=` is what says so.
+  assert.throws(
+    () =>
+      applyTriage(canonical, {
+        decision: "confirmed_lower_severity",
+        severity: "high",
+        basis: { kind: "factual_proof", reference: "unchanged, so nothing was downgraded" },
+      }),
+    code("missing_citable_basis"),
+  );
+});
+
+test("a raise states a reason and must actually raise", () => {
+  // Held to a lower bar than a downgrade — a reason rather than a basis —
+  // because raising a severity does not make a finding go away. But the same
+  // two boundaries decide it: an empty reason is no reason, and the same
+  // severity is not a raise.
+  const [canonical] = canonicalMerge([raw("gpt", "F1", "high")]);
+  const raised = applyTriage(canonical, {
+    decision: "confirmed_higher_severity",
+    severity: "critical",
+    reason: "it reaches the integration path",
+  });
+  assert.equal(effectiveSeverity(raised), "critical");
+
+  assert.throws(
+    () => applyTriage(canonical, { decision: "confirmed_higher_severity", severity: "critical", reason: "   " }),
+    code("missing_citable_basis"),
+  );
+  assert.throws(
+    () => applyTriage(canonical, { decision: "confirmed_higher_severity", severity: "high", reason: "unchanged" }),
+    code("missing_citable_basis"),
+  );
+  assert.throws(
+    () => applyTriage(canonical, { decision: "confirmed_higher_severity", severity: "medium", reason: "lower" }),
+    code("missing_citable_basis"),
+  );
 });
 
 test("a raise needs a reason rather than a basis, and must raise", () => {

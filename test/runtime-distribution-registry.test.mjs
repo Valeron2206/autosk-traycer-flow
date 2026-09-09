@@ -83,6 +83,34 @@ test("the cache never evicts the current one, nor one an Epic holds", () => {
   assert.deepEqual([...freed.evict], [A]);
 });
 
+test("a kept version names its holders only when it has some", () => {
+  // `held.length > 0` decides whether the row carries a `by` list at all. An
+  // empty list would read as "held by nobody", which is a different claim from
+  // "kept for another reason" and would send an operator looking for an Epic
+  // that does not exist.
+  const state = setCurrent(registry(), B);
+  const plan = evictionPlan(state);
+  const previous = plan.keep.find((entry) => entry.digest === A);
+  assert.deepEqual([...previous.reasons], ["previous"]);
+  assert.equal(previous.by, undefined);
+
+  const heldState = acquire(state, { digest: A, epicId: "e-1" });
+  const withHolder = evictionPlan(heldState).keep.find((entry) => entry.digest === A);
+  assert.deepEqual([...withHolder.by], ["e-1"]);
+});
+
+test("a rollback that records no decision is not a rollback", () => {
+  // An empty reference names no decision: the plan would say somebody asked for
+  // this and be unable to say who.
+  const state = setCurrent(registry(), B);
+  for (const decisionRef of ["", undefined]) {
+    assert.throws(
+      () => rollbackPlan(state, { to: A, decisionRef }),
+      code("distribution_migration_blocked"),
+    );
+  }
+});
+
 test("the version a rollback would return to is kept by default", () => {
   // Deleting it makes rolling back a re-download of bytes the project had.
   const state = setCurrent(registry(), B);

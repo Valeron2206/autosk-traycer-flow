@@ -351,6 +351,14 @@ test("the carrier digest is reported so a disagreement can be read", () => {
   // when the seats disagree.
   const outcome = runPanel([SEATS[0]], deps({ provider: allAnswering() }));
   assert.equal(outcome.identical_carriers, true);
+  // No seat answered is not "they all saw the same bytes": an empty set holds
+  // one distinct value the way a silent room holds one opinion.
+  // `answered.length > 0` is what keeps the report from saying so.
+  const noneAdmitted = SEATS.map((spec) =>
+    seatSpec(spec.seat, spec.route.route_id, { route: route(spec.route.route_id, { auth: { state: "expired" } }) }));
+  const none = runPanel(noneAdmitted, deps({ provider: allAnswering() }));
+  assert.equal(none.seats.every((seat) => seat.outcome !== "answered"), true);
+  assert.equal(none.identical_carriers, false);
   assert.match(outcome.seats[0].carrier_digest, /^[0-9a-f]{64}$/u);
   assert.equal(
     outcome.seats[0].carrier_digest,

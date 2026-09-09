@@ -27,6 +27,24 @@ async function project(t) {
   return { base, root, fs: await projectFs(node, { root }) };
 }
 
+test("the filesystem root is not a project", async () => {
+  // Every containment check is "inside `<root>/`". With `<root>` at `/` that
+  // reads as "inside anything", which is the one answer this adapter exists
+  // never to give — so it is refused where the adapter is built, not where a
+  // path is checked.
+  await assert.rejects(projectFs(node, { root: "/" }), (error) => error.code === "fs_outside_project");
+});
+
+test("a path at the filesystem root is refused rather than read as a bare name", async (t) => {
+  // `/a.txt` has its only separator at position zero. Reading the parent as the
+  // empty string instead of `/` would resolve the target against the process's
+  // working directory — which, for a check whose whole job is "is this inside
+  // the project", is the one answer that must never be produced by accident.
+  const { fs } = await project(t);
+  await assert.rejects(fs.readFile("/a.txt"), (error) => error.code === "fs_outside_project");
+  await assert.rejects(fs.writeFile("/a.txt", Buffer.from("x")), (error) => error.code === "fs_outside_project");
+});
+
 test("a write lands inside the project, and is read back from there", async (t) => {
   const { root, fs } = await project(t);
   await fs.mkdir(path.join(root, "src"));

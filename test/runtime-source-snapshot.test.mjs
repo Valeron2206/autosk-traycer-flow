@@ -158,6 +158,11 @@ test("deduplication shares bytes and keeps provenance apart", () => {
   assert.equal(plan.stored_blobs.length, 2);
   assert.deepEqual(plan.provenance_records.slice(), ["a", "b", "c"]);
   assert.deepEqual(plan.shared[0].locators.slice(), ["a", "b"]);
+  // Exactly one group is shared: a digest held by a single source is not
+  // shared, and `> 1` rather than `>= 1` is what says so. Reporting every blob
+  // as shared would make the word mean nothing.
+  assert.equal(plan.shared.length, 1);
+  assert.ok(!plan.shared.some((entry) => entry.locators.length === 1));
 });
 
 test("binary bytes are hashed without text normalization", () => {

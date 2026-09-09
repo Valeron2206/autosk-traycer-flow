@@ -166,6 +166,13 @@ test("the budget is about the payload that is actually transmitted", async () =>
   assert.equal(measured.size, measured.body_size + measured.envelope_size);
   assert.ok(measured.envelope_size > 0);
   assert.deepEqual(budgetErrors(measured, { max_bytes: 65_536 }), []);
+  // A payload of exactly the budget fits: the bound is "over", not "at". One
+  // byte less is the first refusal.
+  assert.deepEqual(budgetErrors(measured, { max_bytes: measured.size }), []);
+  assert.ok(
+    budgetErrors(measured, { max_bytes: measured.size - 1 })
+      .some((error) => error.reason === "carrier_budget_exceeded"),
+  );
   const over = budgetErrors(measured, { max_bytes: measured.body_size });
   assert.ok(over.some((error) => error.reason === "carrier_budget_exceeded"));
   assert.ok(/of which \d+ is envelope/u.test(over[0].detail), over[0].detail);

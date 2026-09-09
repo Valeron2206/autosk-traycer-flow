@@ -70,6 +70,16 @@ test("a classification with no rationale is not a classification", () => {
     classificationErrors(revision({ classification_rationale: "because" }))
       .some((error) => /no rationale/u.test(error.detail)),
   );
+  // Sixteen characters is the bound, and only far-below values were asked: at
+  // fifteen it is refused, at sixteen it is not, and whitespace does not count.
+  const rationale = (n) => classificationErrors(revision({ classification_rationale: "x".repeat(n) }))
+    .some((error) => /no rationale/u.test(error.detail));
+  assert.ok(rationale(15));
+  assert.ok(!rationale(16));
+  assert.ok(
+    classificationErrors(revision({ classification_rationale: " ".repeat(40) }))
+      .some((error) => /no rationale/u.test(error.detail)),
+  );
 });
 
 test("no Ticket or code side effect precedes the approved impact plan", () => {

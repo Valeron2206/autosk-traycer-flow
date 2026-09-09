@@ -182,6 +182,23 @@ test("a delta inside the threshold is inconclusive, never a pass", () => {
   assert.equal(perfVerdict({ deltaRatio: -0.2, noiseThreshold: 0.05 }), "improved");
   assert.equal(perfVerdict({ deltaRatio: 0.2, noiseThreshold: 0.05 }), "regressed");
   assert.throws(() => perfVerdict({ deltaRatio: 0.2 }), code("perf_threshold_after_result"));
+
+  // The boundary itself, in both directions: a delta exactly at the threshold
+  // is not inside it, and a delta of exactly zero is not an improvement. Only
+  // values far from the threshold were tested, so `<` could have been `<=` and
+  // `< 0` could have been `<= 0` with nothing noticing.
+  assert.equal(perfVerdict({ deltaRatio: 0.05, noiseThreshold: 0.05 }), "regressed");
+  assert.equal(perfVerdict({ deltaRatio: -0.05, noiseThreshold: 0.05 }), "improved");
+  assert.equal(perfVerdict({ deltaRatio: 0, noiseThreshold: 0.05 }), "inconclusive");
+
+  // A threshold of zero would make every measurement conclusive, including
+  // noise, so it is refused rather than accepted as "no threshold".
+  assert.throws(() => perfVerdict({ deltaRatio: 0.2, noiseThreshold: 0 }), code("perf_threshold_after_result"));
+  assert.throws(() => perfVerdict({ deltaRatio: 0.2, noiseThreshold: -1 }), code("perf_threshold_after_result"));
+  // And a threshold that is not a number at all is a different refusal from a
+  // threshold that is a bad number; both are refused, so neither half of the
+  // condition can be dropped.
+  assert.throws(() => perfVerdict({ deltaRatio: 0.2, noiseThreshold: "0.05" }), code("perf_threshold_after_result"));
 });
 
 test("a missing listing is not a finding when the proof contract carries it", () => {
@@ -222,6 +239,15 @@ test("a batch is not sufficient because a temporary script exited 0", () => {
 });
 
 test("every mutation proves it was applied and names its killer", () => {
+  // Each half of the proof contract on its own: a killer with no observed red
+  // signature is as incomplete as neither, and the reverse likewise.
+  for (const present of ["expected_killer", "observed_red_signature"]) {
+    const partial = batch({ mutations: [{ id: "m-1", application_proof: "evidence/applied.json", [present]: "x" }] });
+    assert.ok(
+      batchSufficiencyErrors(partial).some((error) => error.reason === "batch_proof_contract_incomplete"),
+      present,
+    );
+  }
   const unapplied = batch({ mutations: [{ id: "m-1", expected_killer: "T", observed_red_signature: "r" }] });
   assert.ok(batchSufficiencyErrors(unapplied).some((error) => error.reason === "batch_mutation_not_applied"));
   const unnamed = batch({ mutations: [{ id: "m-1", application_proof: "p" }] });
@@ -273,11 +299,33 @@ test("ephemeral and committed scaffolding are held to different rules", () => {
     scaffoldingErrors({ lifecycle: "ephemeral", inside_product_source_tree: true, source_digest: "a", binary_digest: "b", config_digest: "c" })
       .some((error) => /inside the product tree/u.test(error.detail)),
   );
+  // Each digest on its own: a listing that records two of three is not a
+  // listing, and testing only the empty case leaves the other two unasked.
+  for (const missing of ["source_digest", "binary_digest", "config_digest"]) {
+    const digests = { source_digest: "a", binary_digest: "b", config_digest: "c" };
+    delete digests[missing];
+    assert.ok(
+      scaffoldingErrors({ lifecycle: "ephemeral", ...digests, restore_verified: true })
+        .some((error) => /without recorded digests/u.test(error.detail)),
+      missing,
+    );
+  }
   assert.ok(
     scaffoldingErrors({ lifecycle: "ephemeral" }).some((error) => /without recorded digests/u.test(error.detail)),
   );
   assert.ok(
     scaffoldingErrors({ lifecycle: "ephemeral", source_digest: "a", binary_digest: "b", config_digest: "c", deleted: true })
+      .some((error) => error.reason === "batch_restore_unverified"),
+  );
+  // Not deleted and not verified is not a finding: the restore is owed only by
+  // a deletion. Without this case the `&&` could have been an `||`.
+  assert.ok(
+    !scaffoldingErrors({ lifecycle: "ephemeral", source_digest: "a", binary_digest: "b", config_digest: "c" })
+      .some((error) => error.reason === "batch_restore_unverified"),
+  );
+  // Deleted *and* verified is likewise silent.
+  assert.ok(
+    !scaffoldingErrors({ lifecycle: "ephemeral", source_digest: "a", binary_digest: "b", config_digest: "c", deleted: true, restore_verified: true })
       .some((error) => error.reason === "batch_restore_unverified"),
   );
   assert.ok(
@@ -293,6 +341,16 @@ test("ephemeral and committed scaffolding are held to different rules", () => {
     scaffoldingErrors({ lifecycle: "committed_reusable", has_own_tests: true, cross_family_review: true }),
     [],
   );
+  // Each obligation on its own: committed scaffolding with tests but no review
+  // is as evaded as one with neither, and testing only "neither" leaves the
+  // second half of the condition unasked.
+  for (const present of ["has_own_tests", "cross_family_review"]) {
+    assert.ok(
+      scaffoldingErrors({ lifecycle: "committed_reusable", [present]: true })
+        .some((error) => /own tests and review/u.test(error.detail)),
+      present,
+    );
+  }
 });
 
 test("four outcomes are not failures of the product", () => {

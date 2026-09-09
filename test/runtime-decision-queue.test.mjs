@@ -17,6 +17,7 @@ import {
   assertPacketDecidable,
   decisionRecord,
   openRequest,
+  packetStrings,
   requestState,
   statusProjection,
   voidRequest,
@@ -50,6 +51,52 @@ test("the shipped packet is decidable and opens", () => {
   assert.doesNotThrow(() => assertPacketDecidable(request()));
   const opened = openRequest(request(), { nowMs: NOW });
   assert.equal(requestState(opened, NOW), "pending");
+});
+
+test("the transcript scan reaches every string and survives what is not one", () => {
+  // `value && typeof value === 'object'` — with an `||` there, `null` would be
+  // handed to `Object.values` and the scan would throw on the packet it exists
+  // to check. The guard against a leak must not be the thing that crashes.
+  assert.deepEqual(packetStrings(null), []);
+  assert.deepEqual(packetStrings(undefined), []);
+  assert.deepEqual(packetStrings(7), []);
+  assert.deepEqual(packetStrings(false), []);
+  assert.deepEqual(packetStrings("one"), ["one"]);
+  assert.deepEqual(packetStrings(["a", ["b"], null]), ["a", "b"]);
+  assert.deepEqual(packetStrings({ a: "x", b: { c: "y" }, d: null }), ["x", "y"]);
+});
+
+test("every bound is asked at the bound, and expiry is asked at the instant", () => {
+  // Predicate mutation found each of these tested only far from its boundary,
+  // so `>= 16` could have been `> 16`, `> nowMs` could have been `>= nowMs`,
+  // and the answers would have differed by exactly one case nobody wrote.
+  const reason = (n) => "x".repeat(n);
+  assert.doesNotThrow(() => assertPacketDecidable({ ...request(), why_automation_may_not_decide: reason(16) }));
+  assert.throws(
+    () => assertPacketDecidable({ ...request(), why_automation_may_not_decide: reason(15) }),
+    code("decision_packet_incomplete"),
+  );
+  // Whitespace does not count towards it: sixteen spaces are not a reason.
+  assert.throws(
+    () => assertPacketDecidable({ ...request(), why_automation_may_not_decide: " ".repeat(20) }),
+    code("decision_packet_incomplete"),
+  );
+
+  const withConsequence = (n) => {
+    const value = request();
+    value.options = value.options.map((option) => ({ ...option, consequence: "y".repeat(n) }));
+    return value;
+  };
+  assert.doesNotThrow(() => assertPacketDecidable(withConsequence(10)));
+  assert.throws(() => assertPacketDecidable(withConsequence(9)), code("decision_packet_incomplete"));
+
+  // An expiry exactly now is not in the future, and the two functions must
+  // agree about that instant: one may not open what the other calls expired.
+  const at = (ms) => ({ ...request(), expires_at: new Date(ms).toISOString() });
+  assert.throws(() => openRequest(at(NOW), { nowMs: NOW }), code("decision_expired"));
+  assert.doesNotThrow(() => openRequest(at(NOW + 1), { nowMs: NOW }));
+  assert.equal(requestState(at(NOW), NOW), "expired");
+  assert.equal(requestState(at(NOW + 1), NOW), "pending");
 });
 
 test("a packet without why the automation may not decide is refused", () => {

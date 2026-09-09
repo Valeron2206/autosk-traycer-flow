@@ -39,13 +39,22 @@ export const MATRIX_PATH = 'resources/clean-room-e2e/fault-matrix.v1.json';
  * than declared in advance. A table is a claim; a run is evidence.
  */
 export const COVERAGE = Object.freeze({
-  F001: { harness: 'crash', evidence: 'reservation.before / reservation.after', real_fault: true },
-  F002: { harness: 'crash', evidence: 'task.before / task.after', real_fault: true },
-  F003: { harness: 'crash', evidence: 'activation.before / activation.after', real_fault: true },
+  // `control` says whether the group was also asked the un-faulted question.
+  // The crash harness injects at two points and never asks it, so saying so is
+  // the difference between "injected" and "shown to be specific" — and the
+  // panel read the absence of that distinction as a completeness claim the run
+  // did not support.
+  F001: { harness: 'crash', evidence: 'reservation.before / reservation.after', real_fault: true, control: false },
+  F002: { harness: 'crash', evidence: 'task.before / task.after', real_fault: true, control: false },
+  F003: { harness: 'crash', evidence: 'activation.before / activation.after', real_fault: true, control: false },
   F004: {
     harness: 'identity',
-    evidence: 'the admitted task keeps its pin across a real swap; a later admission gets the new one',
+    // The identity harness does run the control, and the previous wording did
+    // not say so: it names the swap and the later admission but never the
+    // resume the group is defined by.
+    evidence: 'a real resume under swapped bytes keeps the admitted pin, and the same bytes resume the task cleanly',
     real_fault: true,
+    control: true,
   },
   F005: { harness: null, evidence: null, real_fault: false },
   F006: { harness: null, evidence: null, real_fault: false },
@@ -80,6 +89,7 @@ export function faultCoverage(report) {
       harness: 'faults',
       evidence: entry.detail,
       real_fault: entry.detected === true && entry.control === true,
+      control: entry.control === true,
     },
   ]);
   return Object.freeze(Object.fromEntries(entries));
@@ -168,6 +178,9 @@ export function coverageReport(matrix, coverage = COVERAGE) {
       state: entry.harness ? (entry.real_fault ? 'covered_by_real_fault' : 'covered_indirectly') : 'not_covered',
       harness: entry.harness,
       evidence: entry.evidence,
+      // Whether the un-faulted question was asked too. Carried on the row so a
+      // reader is not left to infer specificity from injection.
+      control: entry.control === true,
     });
   });
   const counts = rows.reduce((totals, row) => ({ ...totals, [row.state]: (totals[row.state] ?? 0) + 1 }), {});
@@ -177,6 +190,9 @@ export function coverageReport(matrix, coverage = COVERAGE) {
     // Stated rather than rounded up: a run that claimed the whole matrix while
     // exercising part of it would be the artefact this program keeps finding.
     complete: rows.every((row) => row.state === 'covered_by_real_fault'),
+    // Injection and specificity are different claims, so they are counted
+    // separately rather than folded into one word.
+    controlled: rows.filter((row) => row.control).length,
   });
 }
 

@@ -53,6 +53,11 @@ function observations(overrides = {}) {
 
 test("an ordinary artifact is not held", () => {
   assert.deepEqual(quarantineDecision(candidate(), policy), { state: "none" });
+  // Exactly the policy maximum is not oversized: the bound is "over", and only
+  // values far past it were asked, so `>` could have been `>=` and every file
+  // at the limit would have been quarantined.
+  assert.deepEqual(quarantineDecision(candidate({ size_bytes: policy.max_bytes }), policy), { state: "none" });
+  assert.equal(quarantineDecision(candidate({ size_bytes: policy.max_bytes + 1 }), policy).state, "held");
 });
 
 test("oversized, special, malformed and undetermined are each held", () => {
