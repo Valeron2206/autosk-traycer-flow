@@ -136,6 +136,9 @@ jobs:
       - name: Validate SDK write API contract
         run: npm run validate:sdk-write-api
 
+      - name: Validate integration authorization contract
+        run: npm run validate:integration-authorization
+
       # The doctor is read-only, so running it in CI costs nothing and proves the
       # command still produces a schema-valid report on a machine that is not the
       # author's. A `fail` here is expected: the runner has no daemon binaries.
