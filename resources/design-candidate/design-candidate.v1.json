@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "6fda8de26a4d927125f0496c0343af8622fee7244c07047c2e7e416c872ed309"
+      "sha256": "0f40fa5e453ea2826008254bd6b15be294e35aae55a1e2d4ce3dae1070386e49"
     },
     {
       "path": "02-architecture.md",
@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "c9f6253eb05582392b9df38bb3af2f100a2edad69814b0e3f078c609a63fe95b"
+      "sha256": "749ce8b6e5b1fc033cece0605da4d389a8e188a68526a968c913f55cf82a3ba7"
     },
     {
       "path": "README.md",
@@ -439,7 +439,7 @@
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
     }
   ],
-  "candidate_digest": "185e7ee7bd985df68d7462d84c879db6eb51cdeb4fedf0c012e9638ac2d5d0d7",
+  "candidate_digest": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
   "dispositions": [
     {
       "issue": 3,
