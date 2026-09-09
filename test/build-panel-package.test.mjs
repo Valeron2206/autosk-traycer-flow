@@ -29,8 +29,9 @@ const matrix = JSON.parse(read("resources/clean-room-e2e/fault-matrix.v1.json"))
 const compat = JSON.parse(read("compat/autosk/manifest.v1.json"));
 
 const cleanRoom = {
+  // Only the fault harness's own cases carry a control; F001 belongs to the
+  // crash harness, which is exactly the difference the table has to show.
   faults: [
-    { id: "F001", detected: true, control: true, detail: "the reservation survived and the task record did not" },
     { id: "F020", detected: true, control: true, detail: "the audit copy exists while the live one still does" },
   ],
   upstream_commit: compat.upstream.commit,
@@ -39,7 +40,14 @@ const cleanRoom = {
   report_digest: "r".repeat(64),
   ok: true,
   steps: [{ step: "prepare", ok: true }, { step: "harness:crash", ok: true }],
-  coverage: { counts: { covered_by_real_fault: 16, covered_indirectly: 0, not_covered: 0 }, complete: true },
+  coverage: {
+    counts: { covered_by_real_fault: 20, covered_indirectly: 0, not_covered: 0 },
+    complete: true,
+    rows: [
+      { id: "F001", boundary: "task_creation", state: "covered_by_real_fault", harness: "crash", evidence: "reservation.before / reservation.after" },
+      { id: "F020", boundary: "planning_publication", state: "covered_by_real_fault", harness: "faults", evidence: "the audit copy exists while the live one still does" },
+    ],
+  },
 };
 const mutation = {
   totals: { modules: 49, mutants: 513, killed: 513 },
@@ -136,15 +144,22 @@ test("the evidence is given as rows, not only as counts", async () => {
   // A reviewer holding counts cannot tell a discriminating guard from one that
   // refuses everything, and that distinction is why each case runs a control.
   const { text } = await build();
-  for (const entry of cleanRoom.faults) {
-    assert.match(text, new RegExp(`\\| \`${entry.id}\`.*${entry.detail.slice(0, 20)}`, "u"));
+  // Every group in the matrix, not only the injected ones: sixteen rows under a
+  // twenty-group matrix reads as four missing, and the difference between "no
+  // control" and "no coverage" has to be on the row rather than inferred.
+  for (const row of cleanRoom.coverage.rows) {
+    assert.match(text, new RegExp(`\\| \`${row.id}\` \\| ${row.harness}`, "u"));
   }
+  assert.match(text, /\| `F001` \| crash \| yes \| not paired \|/u);
+  assert.match(text, /\| `F020` \| faults \| yes \| yes \|/u);
   for (const entry of mutation.modules) {
     assert.match(text, new RegExp(entry.module.replace(/[/.]/gu, "\\$&"), "u"));
   }
   // A run that recorded no per-case results says so rather than implying rows.
-  const countsOnly = await build({ cleanRoom: { ...cleanRoom, faults: null } });
-  assert.match(countsOnly.text, /recorded no per-case results/u);
+  const countsOnly = await build({
+    cleanRoom: { ...cleanRoom, faults: null, coverage: { ...cleanRoom.coverage, rows: [] } },
+  });
+  assert.match(countsOnly.text, /recorded no per-group results/u);
 });
 
 test("the mutation claim carries its own numbers and its own rules", async () => {
