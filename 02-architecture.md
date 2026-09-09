@@ -142,11 +142,17 @@ parent: panel_join -> synthesis
 - штатный worker pool по умолчанию имеет четыре места;
 - parent не опрашивает состояние в цикле: blockers сами открывают fan-in.
 
-Current autosk не даёт three required surfaces: creation identity ADR-014, signed authority/intent ADR-023 и workflow custody/receipts ADR-025. MVP preflight запрещает любой model workflow, пока pinned autosk не реализует все три. General TasksAPI write surface остаётся отдельным улучшением.
+Upstream autosk на закреплённом коммите не даёт three required surfaces сам по себе: creation identity ADR-014, signed authority/intent ADR-023 и workflow custody/receipts ADR-025. Их поставляет **закреплённая серия патчей** `compat/autosk/patches/` поверх этого коммита: атомарное создание задачи и creation binding (`0001`, `0028`), runtime snapshot store и admission по идентичности дистрибуции (`0002`, `0003`, `0005`, `0025`–`0027`, `0029`), подпись гранта и адаптеры записи (`0023`, `0030`), custody helper и его протокол (`0016`–`0022`, `0024`). Доставляемая версия — это upstream **плюс** серия, и обе идентичности закрепляются вместе: `manifest.v1.json` фиксирует upstream commit и SHA-256 каждого патча, а clean-room воспроизводит из них ровно одно дерево.
+
+MVP preflight по-прежнему запрещает любой model workflow, если хоть один primitive отсутствует в фактически загруженной сборке: наличие патча в серии — не то же самое, что его присутствие в том, что запущено. General TasksAPI write surface остаётся отдельным улучшением.
 
 Параллельность не является гарантией correctness: worker pool глобальный и настраиваемый. Preflight рекомендует workers >= 4 и сообщает конкурирующую нагрузку; при меньшем значении места выполнятся последовательно, но gate останется тем же.
 
-При нескольких активных проектах global FIFO не обещает равную latency: панель одного проекта может временно занять все worker slots. Это не разрешает cross-project state и не меняет gates. Preflight показывает общий worker budget и активные проекты; отдельный fairness/admission слой добавляется только при доказанном starvation.
+При нескольких активных проектах global FIFO не обещает равную latency: панель одного проекта может временно занять все worker slots. Это не разрешает cross-project state и не меняет gates. Preflight показывает общий worker budget и активные проекты.
+
+Взаимная блокировка при этом невозможна по построению, и это не наблюдение, а свойство: места панели — **листья**. Место не создаёт детей, не ждёт другого места и не удерживает slot между ответами; родитель ждёт мест, но сам slot при этом не занимает. Поэтому четыре места, занятые чужим проектом, задерживают панель, но не образуют цикла ожидания — исчерпание slot'ов даёт latency, а не deadlock. Гарантия сформулирована здесь, потому что «пул глобальный» без неё читается как liveness-риск.
+
+Отдельный fairness/admission слой добавляется только при доказанном starvation: очередь честная по порядку поступления, и приоритет без наблюдаемого голодания — это политика, которую некому обосновать.
 
 ## 4. Идемпотентный fan-out
 
@@ -252,7 +258,7 @@ resources/governance/bundles/autosk-v1/
   bundle-attestation.json
 ~~~
 
-Это один Guide и точные 12 protocol files. Canonical content digest считается как SHA-256 от domain separator, bundle id/version/provenance и ordered `{relative_path, file_sha256}` для этих 13 файлов; поля `contentDigest` и attestation в собственный preimage не входят. Manifest записывает получившийся digest, а его exact bytes получают отдельный manifest hash. `bundle-attestation.json` связывает четыре panel verdict hashes с уже неизменяемым content digest; запись PASS не меняет проверенную content identity. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
+Это один Guide и точные 12 protocol files — **13 нормативных файлов**. `bundle-manifest.json` и `bundle-attestation.json` в это число не входят: манифест записывает получившийся digest и потому не может входить в его собственный preimage, а attestation связывает вердикты с уже неизменяемой content identity. Canonical content digest считается как SHA-256 от domain separator, bundle id/version/provenance и ordered `{relative_path, file_sha256}` для этих 13 файлов; поля `contentDigest` и attestation в собственный preimage не входят. Manifest записывает получившийся digest, а его exact bytes получают отдельный manifest hash. `bundle-attestation.json` связывает четыре panel verdict hashes с уже неизменяемым content digest; запись PASS не меняет проверенную content identity. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
 
 ### Замороженный protocol snapshot
 
@@ -266,7 +272,7 @@ resources/governance/bundles/autosk-v1/
   bundle-attestation.json
 ~~~
 
-`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из 13 нормативных файлов. Перед каждым prompt compile, dispatch и resume расширение заново проверяет snapshot bytes, manifest, attestation и project-root binding именно против этого Epic lock. Несовпадение fail-closed паркует задачу с `protocol_lock_invalid`; repair разрешён только из content-addressed digest, указанного в lock, без подстановки current/latest bundle. Prompt compiler читает только уже проверенный project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
+`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из тех же 13 нормативных файлов, что входят в content digest, — манифест и attestation в эти 13 не входят ни здесь, ни там. Перед каждым prompt compile, dispatch и resume расширение заново проверяет snapshot bytes, manifest, attestation и project-root binding именно против этого Epic lock. Несовпадение fail-closed паркует задачу с `protocol_lock_invalid`; repair разрешён только из content-addressed digest, указанного в lock, без подстановки current/latest bundle. Prompt compiler читает только уже проверенный project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
 
 Installer/cache хранит bundle versions content-addressed по digest, пока существует хотя бы один project lock на эту версию. Garbage collection сначала инвентаризирует locks всех зарегистрированных roots и не удаляет referenced digest; это позволяет repair повреждённого project snapshot без подстановки latest bundle.
 

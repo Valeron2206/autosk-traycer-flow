@@ -303,6 +303,54 @@ export function checkRegistry(env) {
       },
     },
     {
+      id: 'security.signer_boundary',
+      category: 'security',
+      async run() {
+        // The flow asserts that signer and secure state live behind a boundary
+        // the model cannot reach. An assertion nobody evaluates is the thing
+        // this whole doctor exists to remove, so this asks the two questions a
+        // read-only probe can answer honestly.
+        //
+        // It does NOT claim to prove isolation. A pass means the declared
+        // endpoint was not reachable from here and the daemon reports a
+        // distinct signer identity; it does not mean no path exists. Saying
+        // more than that would be the overclaim the boundary is meant to
+        // prevent.
+        const endpoint = env.signerEndpoint;
+        if (!endpoint) {
+          return {
+            // Not a pass: a boundary nobody declared is a boundary nobody can
+            // check, and a model workflow may not start on one.
+            status: 'unverifiable',
+            unverifiable_reason: 'no signer endpoint is declared, so there is nothing to probe',
+            evidence: { declared: false },
+            remediation: 'Declare the signer endpoint so the boundary can be checked before a model workflow starts.',
+            provenance: fast(),
+          };
+        }
+        const reachable = await attempt(() => env.stat(endpoint));
+        const identity = await attempt(() => env.signerIdentity());
+        const distinct = identity.ok && identity.value?.same_process === false;
+        return {
+          status: !reachable.ok && distinct ? 'pass' : reachable.ok ? 'fail' : 'unverifiable',
+          ...(!reachable.ok && !distinct
+            ? { unverifiable_reason: 'the daemon reported no signer identity, so the boundary could not be confirmed' }
+            : {}),
+          evidence: {
+            declared: true,
+            reachable_from_here: reachable.ok,
+            signer_identity_distinct: distinct,
+          },
+          remediation: reachable.ok
+            ? 'The signer endpoint is reachable from the process a model runs in; move it behind a separate OS boundary.'
+            : distinct
+              ? undefined
+              : 'The daemon did not report a signer identity distinct from this process.',
+          provenance: fast(),
+        };
+      },
+    },
+    {
       id: 'scheduler.node_version',
       category: 'scheduler',
       async run() {

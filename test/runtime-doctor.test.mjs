@@ -61,6 +61,10 @@ function fakeEnv(overrides = {}) {
   ]);
   const present = new Set(["docs/contracts/one.md", "/bin/autoskd", "/bin/autosk-store-lock"]);
   return {
+    // A healthy host declares where its signer is and the daemon says it runs
+    // outside this process: that is what "the boundary was checked" means.
+    signerEndpoint: "/run/autosk/signer.sock",
+    signerIdentity: async () => ({ same_process: false }),
     root: "/project",
     home: "/home/operator",
     processEnv: { PATH: "/usr/bin" },
