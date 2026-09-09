@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "round": 2,
+  "candidate_digest": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
+  "frozen_commit": "649949e2a3e2db5755fdec056fcb6ba6665823ab",
+  "frozen_tree": "11e6857afa4feb04639fb89579733df7ebd449fc",
+  "package_sha256": "5a9b71c9199ab930304174e5682f313fa74618fed0790527d4b8cf6da90655df",
+  "system_prompt_sha256": "443e987e879c25107d673441eab33417d882745ff35a1280daed434cec6c0f75",
+  "runner": "omp (Oh My Pi) v18.1.13, --no-tools --no-lsp, one session per seat",
+  "seats": [
+    {
+      "seat": "opus",
+      "route": "anthropic/claude-opus-5",
+      "effort": "max",
+      "observed_model": "claude-opus-5",
+      "session_id": "01a08401-406f-74f5-a9b8-b4f3538f5309",
+      "reported_tokens": 94740,
+      "verdict": "fail",
+      "candidate_digest_echoed": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §7 step 5, against §7 preamble, §2 material-decision rule, §9 exceptions table and docs/contracts/integration-authorization.md",
+          "what": "Step 5 lets acceptance of the verified staging identity be performed by \"закреплённая auto-policy\", while the same section's preamble (\"Project policy integration не разрешает\"), §2 (\"integration решения всегда требуют пользователя\"), §9 (\"project alignment policy запрещена\") and the class `integration_authorization_policy_issued` all exist to forbid exactly that, so the last human control before a user's branch moves is specified two contradictory ways."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §1 and §2 vs section 3 file table (resources/artifact-registry/)",
+          "what": "The registry instance `resources/artifact-registry/artifact-registry.v1.json` is named by exact path as the classifier whose `registry_digest` every editorial Code-Review exemption records and whose classes decide every path's lifecycle (\"реестр решает\"), but only `artifact-registry.schema.json` is among the 109 candidate files — while the sibling instances `refusal-vocabulary.v1.json` and `stage-carriers.v1.json` are present — so the deciding authority is outside the attested candidate and, taken literally, every path is `unregistered_artifact`."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 and §8 vs the 37 closed sets in section 4",
+          "what": "The four named alignment lifecycles are the design's primary human-authority gate, yet no contract among the 37 covers them, and their stop reasons `brief_alignment_required`, `core_flow_decision_required`, `tech_plan_readiness_required`, `alignment_policy_out_of_scope`, `alignment_record_stale`, `artifact_mapping_required`, `arena_fallback_required`, `protocol_lock_invalid` and `implementation_scope_invalid` appear in no closed refusal set in section 4 — only the sibling `tickets_breakdown_alignment_required` does (tickets-manifest.md) — although refusal-vocabulary.md §3 says the vocabulary is extracted from contracts, not maintained."
+        },
+        {
+          "severity": "high",
+          "where": "02-architecture.md §6 (ADR-029 envelope) vs docs/contracts/provider-preflight.md and docs/contracts/project-instructions-lock.md refusal sets",
+          "what": "The guarantee that the provider's own auto-context is \"либо отключён, либо целиком перечислен lock'ом\" has no enforcing class: provider-preflight's 11 classes cover route/auth/effort/permission-mode/smoke and nothing about context ingestion, and project-instructions-lock's 10 classes cover discovery/drift/identity of the lock file, not what the provider loads by itself — so unpinned bytes entering the envelope would silently void the protocol-hash and PASS bindings [INFERENCE: both contract bodies are digest-only here, so a clause could exist that section 4's class list does not surface]."
+        },
+        {
+          "severity": "high",
+          "where": "section 5, fault matrix F001–F016 vs 01-core-flows.md §2 and 02-architecture.md §2/§5",
+          "what": "The 16 injected groups contain no fault in the daemon authority/decision-journal domain (signed `UserDecisionRecord` crash-tail: journal-ahead accepted only after byte-exact signature verification, nonce not released, invalid tail quarantined) and none for the live→audit custody window that 02 §2 singles out (\"crash between `audit_ref_verified` and `live_ref_deleted` resumes this exact record\"), so `covered_by_real_fault=16; complete=true` is complete over the chosen enumeration while the two recovery invariants the whole authority model rests on are unexercised."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5, Mutation",
+          "what": "The mutated set is five literal call-site tokens (`demand(`, `errors.push(`, `reasons.push(`, `findings.push(`, `problems.push(`), so 512/512 shows only that each emission site is observed by some test — no predicate, boundary or control-flow mutant exists and any guard not written in those shapes is untouched — and \"modules covered: 49\" is given with no denominator in a package that supplies one for the fault matrix; \"survivors: 0, all named in resources/mutation-report/mutation-survivors.v1.json\" is also self-contradictory phrasing for an empty set."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §7 steps 6–10",
+          "what": "Under `pull_request`, `merge_queue` or `fork_pull_request` the host explicitly does not move the branch, so step 7's CAS and step 8's post-CAS re-read never run, yet step 10 makes `done` conditional on step 8 and the flow names no terminal state for the profile-routed path [INFERENCE: delivery-profile.md §6a plus `completion_predicate_unmet` probably resolves it, which means the full-text flow contradicts the digest-only contract]."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §7 step 1 vs 01-core-flows.md §2 and 02-architecture.md §2",
+          "what": "The staging ref is written `refs/autosk/epics/<epic-id>/staging` using the raw display id, while planning and candidate refs under the same helper-owned `refs/autosk/**` prefix are keyed by `<epic_ref_key>` = domain-separated SHA-256 of `{project_root_sha256, epic_id}` with the explicit warning \"Это не display ID и не пользовательский slug\", so one namespace has two key conventions and the integration-critical one carries no project binding and no guaranteed ref-name validity."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §2 (\"пятизначный classifier недостижим\") vs 02-architecture.md §7 (\"Кодовый кандидат\")",
+          "what": "The flow declares the five-way path-role classifier unreachable in the delivered system because the registry decides, but the architecture still derives `governance_mapping_set_digest` — a field of candidate identity and therefore of every verdict binding — from that classifier emitting `ordinary_implementation`, so an identity input depends on a rule the other document says nothing can reach."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §3, author/role table",
+          "what": "\"Supplementary\" (Opus/GPT/Grok/Kimi supplementary) is never defined anywhere in the reproduced text, yet synthesis requires a valid answer from all four seats and the scale says any Critical or High blocks, so an artifact's own author family occupies a counting seat whose authority to block or to clear is unstated."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5, \"What is not claimed\" (issue #10 criterion 2) vs docs/contracts/refusal-vocabulary.md §4",
+          "what": "Deferring the declarative workflow graph is defensible as scope, but refusal-vocabulary.md §4 promises \"a park reason parks at a step that exists\" and closes on `refusal_vocabulary_unknown_step`, and no artifact in section 3 is a step registry — 01 §8's hand-maintained resume table is the de-facto one — so step existence is validated against prose rather than against the transition table the runtime executes, and that pairing (defer the graph, keep the guarantee) is the defect rather than the deferral itself."
+        },
+        {
+          "severity": "medium",
+          "where": "section 4 headline (\"378 refusal classes\") vs the per-contract sets",
+          "what": "378 counts declarations, not distinct names: `registry_drift` is declared by both artifact-registry.md and finding-registry.md and `foreign_ref_movement` by both approved-delta.md and execution-base.md, while refusal-vocabulary.md binds each reason to one registered step and one producer (`refusal_vocabulary_producer_missing`/`_misdeclared`), so a name owned by two contracts cannot have a single producer or step."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md §4 and 02-architecture.md §2 vs section 3",
+          "what": "Arena gates Tech Plan changes and the extension mechanically extracts the `autosk-arena` block, but Arena has neither a contract among the 37 nor a schema among the resources and `arena_fallback_required` is closed by nothing, while Debate — the path that must be refused whenever the question is empirical — has both docs/contracts/debate.md and resources/debate/debate-manifest.schema.json."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md §2 (planning-ref paragraph) vs 02-architecture.md §2",
+          "what": "The flow states that 02 §2 holds the single definition of `epic_ref_key` and then restates it with a lowercase-hex requirement that 02 §2 does not contain, which for a byte-exact ref name used in expected-old CAS is part of identity, not formatting."
+        },
+        {
+          "severity": "low",
+          "where": "02-architecture.md §5 (\"Доказательства\", \"Замороженный protocol snapshot\" vs \"Изоляция параллельных проектов\")",
+          "what": "The evidence tree and protocol-snapshot tree are written under `<absolute-project-root>` while the isolation guards in the same section require evidence and session paths to begin with the canonical root, and the two spellings are used interchangeably even though F005 (symlinked project subdirectory) exists precisely because they can differ."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/approved-delta.md §8 (\"Parity with the Traycer suite\") vs 02-architecture.md §5 and §10",
+          "what": "A contract section requires parity with a baseline that the design says is never committed to public Git and never readable by the runtime, and no parity data file ships (only resources/traycer-parity/registry.schema.json), so that section's claim is not re-checkable by anyone outside the author's machine."
+        }
+      ],
+      "read": "The entire panel package as delivered: section 1 (version, upstream pin, patch series), section 2 (the four questions), section 3 (all 109 rows of the file table — I counted them, 109 exactly, of which 37 are docs/contracts/*), section 4 (all 37 contracts' section lists and closed refusal sets — I counted each set and summed them: 378, matching the headline exactly, and cross-checked every refusal code named in the two full-text documents against those sets), section 5 (tests, mutation scope and counts, clean-room steps, the 16 fault groups and their coverage claim, and the \"what is not claimed\" list), and the complete text of 01-core-flows.md and 02-architecture.md, cross-read against each other and against section 4. I also verified the governance-bundle arithmetic in 02 §5 (1 guide + 12 protocol files = 13 normative files, manifest and attestation excluded from their own preimage — this checks out) and the patch-series arithmetic in 02 §3 (19 of the 31 pinned patches are attributed to ADR-014/023/025; the remaining 12 are not described anywhere in the reproduced text).",
+      "not_read": "The 107 files present only as digests: all 37 contract bodies, 03-technical-plan.md, 04-decisions.md, README.md, every JSON Schema, and the resource instances (including refusal-vocabulary.v1.json, stage-carriers.v1.json and mutation-survivors.v1.json) — several findings above are therefore bounded by what section 4's inventory exposes and could be resolved inside a body I could not see. I did not recompute the candidate digest: I have no tools in this seat and SHA-256 is not computable by hand, so `2d260eb7…` is accepted as a claim, not verified — likewise the mutation report digest, the clean-room report digest, `npm test` 1792/0, the upstream commit/tree OIDs, the reproduced source tree `9f52d343…`, the 31 patch pins in compat/autosk/manifest.v1.json (which is not among the 109 files and so is not covered by the candidate digest at all), and every step outcome of the clean-room run. I did not open the repository, run any command, or read scripts/validate-design-candidate.mjs, which defines the digest rule but is itself outside the set it digests."
+    },
+    {
+      "seat": "astra",
+      "route": "openai-codex/gpt-6-astra",
+      "effort": "high",
+      "observed_model": "gpt-6-astra",
+      "session_id": "01a08401-40a6-743e-806f-e46656ac310a",
+      "reported_tokens": 37702,
+      "verdict": "fail",
+      "candidate_digest_echoed": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §7, пункт 5, против §2, начала §7 и §9",
+          "what": "Пункт 5 разрешает auto-policy принять staging identity для интеграции, хотя §2 запрещает policy для integration decisions, начало §7 требует подписанный пользователем IntegrationAuthorizationRecord, а §9 прямо запрещает project alignment policy; необходимо удалить альтернативу auto-policy либо однозначно определить её как проверку уже выданного exact user authorization, а не самостоятельное принятие."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2, описание security.signer_boundary; 02-architecture.md §5, требования к signer/secure store",
+          "what": "[INFERENCE] Проверка недоступности объявленного endpoint из model process и сообщённой демоном signer identity не устанавливает требуемую изоляцию signer/secure state от accessibility/ptrace/keychain, что текст сам признаёт, поэтому описанный preflight не обосновывает гарантию механического запрета запуска при отсутствии enforceable boundary и требует отдельного проверяемого механизма подтверждения этой границы."
+        }
+      ],
+      "read": "Прочитан весь предоставленный пакет: разделы 1–7, таблица путей и полных digest, инвентарь разделов и refusal sets, весь текст 01-core-flows.md и 02-architecture.md, сводки тестов, mutation и clean-room, все 16 fault groups и ограничения заявлений. Найдены блокирующие противоречие integration authority и недостаточность описанного подтверждения signer boundary. Свидетельства рассмотрены как отчётные заявления, а не независимо воспроизведённые результаты: mutation явно ограничена пятью формами guards в 49 модулях, daemon mutation и Sonar pilot не заявлены. Само отсутствие отдельного declarative workflow graph не доказывает отсутствия исполняемого workflow, но наличие и полноту последнего по пакету установить нельзя.",
+      "not_read": "Полные тексты остальных 107 файлов из раздела 3, включая 37 contracts, technical plan, decisions, schemas и resources: доступны только digest и частичные инвентари. Не предоставлены и не прочитаны исходники runtime, validators, workflow definitions, tests и harnesses, manifest и 31 daemon patch, полные test/mutation/clean-room reports, fault application/control/restore receipts и deployment proofs для signer boundary. Команды не выполнялись; candidate digest, file hashes, source trees и результаты запусков независимо не проверены."
+    },
+    {
+      "seat": "grok",
+      "route": "cursor/cursor-grok-4.6",
+      "effort": "xhigh",
+      "observed_model": "cursor-grok-4.6",
+      "session_id": "01a08401-4073-7394-b544-51eaf7778115",
+      "reported_tokens": 2436,
+      "verdict": "fail",
+      "candidate_digest_echoed": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §2 vs §7; 02-architecture.md §2",
+          "what": "Planning/candidate refs are keyed only by hashed epic_ref_key, which the flows say is not a display id and is not restated, yet the integration path in the same document uses refs/autosk/epics/<epic-id>/staging."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §4 and §8; 02-architecture.md §5; section 4 closed sets",
+          "what": "Resume/park codes used as onTransit keys (brief_alignment_required, core_flow_decision_required, tech_plan_readiness_required, alignment_policy_out_of_scope, alignment_record_stale, artifact_mapping_required, arena_fallback_required, protocol_lock_invalid) are not in the 378 contract classes, and Arena has no contract while Debate does."
+        },
+        {
+          "severity": "high",
+          "where": "section 5 clean-room fault matrix vs 01-core-flows.md planning publication and 02-architecture.md planning adapter",
+          "what": "Accepted planning artifacts are defined to become current only after recipe persist/read-back, expected-old CAS, keepalive, and monotonic live-to-audit transfer, but the only enumerated e2e denominator (F001–F016, complete=true) injects none of those faults; harness:crash=ok has no inventory."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §1; section 3 file list",
+          "what": "Quick editorial exemption is pinned to resources/artifact-registry/artifact-registry.v1.json, which is not one of the 109 candidate files, unlike other load-bearing v1 instances that are included."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5 Mutation",
+          "what": "The reproducible killer only neuters demand(, errors.push(, reasons.push(, findings.push(, and problems.push( in 49 extension modules, so 512/0 is not evidence for daemon/helper, CAS, audit-transfer, or signer-boundary guards unless they happen to be those five calls."
+        }
+      ],
+      "read": "Section 1 identities and patch pin; section 2 questions; section 3 109-path digest table (names and hashes only); section 4 all 37 contract section lists and closed refusal sets (recounted to 378, including 11 on epic-staging); section 5 test, mutation, clean-room, F001–F016, and not-claimed list; section 6 full 01-core-flows.md and 02-architecture.md.",
+      "not_read": "Full bytes of the 107 digest-only files (03-technical-plan.md, 04-decisions.md, README, 37 contract bodies, schemas, v1 resources); mutation-survivors body and both report bodies; repository tree at 649949e2; candidate_digest was not recomputed."
+    },
+    {
+      "seat": "muse",
+      "route": "meta/muse-spark-1.3-contributor",
+      "effort": "max",
+      "observed_model": "muse-spark-1.3-contributor",
+      "session_id": "01a08401-40a2-77c3-86bc-fc35ecb7f1b0",
+      "reported_tokens": 41421,
+      "verdict": "fail",
+      "candidate_digest_echoed": "2d260eb73ebd2b63f979e928055bedf6e12d0010e0d4cdb3a67c6853f10a5151",
+      "findings": [
+        {
+          "severity": "critical",
+          "where": "section 5 Evidence (tests/mutation/clean-room/fault matrix)",
+          "what": "Section 5 asserts 1792 passes, 512/512 mutants, clean-room ok, and 16/16 real faults but includes only counts and digests with no logs, reports, or per-fault outputs, so the claims cannot be verified from this package."
+        },
+        {
+          "severity": "critical",
+          "where": "section 1 version under review + 02-architecture.md sections 2-4 (ADR-014/023/025, 31 pinned patches)",
+          "what": "The design rests core guarantees on daemon primitives supplied by 31 patches outside the 109-file candidate, so the load-bearing enforcement code is outside the review surface and explicitly outside mutation."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md section 2 (path-role classifier vs artifact-registry)",
+          "what": "The text states the registry decides order yet also states two unordered rules give the same file different gates by reader while the five-valued classifier is unreachable until issue 14, which is an unresolved internal contradiction."
+        },
+        {
+          "severity": "high",
+          "where": "section 5 Mutation + What is not claimed",
+          "what": "The reproducible mutation covers only five demand/push patterns in 49 modules and excludes daemon guards while broader hand-run counts are not reproduced, so 512/512 cannot show no load-bearing guard is missing."
+        },
+        {
+          "severity": "high",
+          "where": "section 5 Clean-room end-to-end + fault matrix F001-F016",
+          "what": "Real-fault injection paired with silent-control checks is claimed for all 16 groups but no per-group fault/control results or harness output is included, so a discriminating guard cannot be distinguished from a refuse-everything guard."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md section 8 + section 4 rule inventory",
+          "what": "Alignment park reasons such as brief_alignment_required have no visible closed refusal set or step binding in the inventory and the full contracts and vocabulary file are digest-only, so producibility by an evaluated rule cannot be confirmed."
+        },
+        {
+          "severity": "medium",
+          "where": "section 5 What is not claimed (Issue 10 criterion 2 declarative workflow graph)",
+          "what": "Without the technical plan and full contract bytes the safety of deferring the declarative workflow graph cannot be checked for downstream dependencies on this surface."
+        }
+      ],
+      "read": "sections 1, 2, 4, 5, 7 and section 3 path-and-digest table, plus the full reproduced text of 01-core-flows.md and 02-architecture.md in section 6",
+      "not_read": "full bytes of the other 107 candidate files including 03-technical-plan.md, 04-decisions.md, README, all 37 contracts, all JSON schemas and resources; upstream commit, 31 daemon patches, and all test, mutation, clean-room, and fault-harness logs and reports referenced only by counts and digests"
+    }
+  ]
+}

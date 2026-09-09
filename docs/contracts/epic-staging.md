@@ -9,8 +9,10 @@ Status: issue #9 design contract. Runtime implementation remains `required_for_v
 Approved Tickets accumulate on a private per-Epic ref, and the user's target branch moves once:
 
 ```text
-refs/autosk/epics/<epic-id>/staging
+refs/autosk/epics/<epic_ref_key>/staging
 ```
+
+`epic_ref_key` is the same domain-separated SHA-256 of `{epic_id, project_root_sha256}` that keys every other ref under this helper-owned prefix — not a display id and not a user slug. One namespace with two naming conventions would leave the integration-critical ref with no project binding and no guarantee that the name is a legal ref at all.
 
 ```text
 planning_head
@@ -18,7 +20,7 @@ planning_head
   → verify each integration receipt
   → aggregate verification on the exact staging OID and tree
   → optional integration-fix Tickets against staging
-  → human acceptance, or a pinned auto-policy
+  → human acceptance
   → one final CAS of the target ref
   → post-CAS verification
   → cleanup
@@ -61,7 +63,9 @@ The checks run in a throwaway worktree checked out at the exact staging commit, 
 
 ## 5. Acceptance
 
-A human acceptance record — or a pinned auto-policy, which is held to the same binding — names the project and Epic identity, the final staging commit and tree, the aggregate verification record hash, the included Ticket and delta set, the target ref and base, and the delivery profile digest.
+A human acceptance record names the project and Epic identity, the final staging commit and tree, the aggregate verification record hash, the included Ticket and delta set, the target ref and base, and the delivery profile digest.
+
+A pinned auto-policy is held to the same binding, and it does one thing: it checks that the produced identity is the one the user's signed `IntegrationAuthorizationRecord` already named. It does not accept an identity on the user's behalf. The record binds the final tree, so by the time the policy runs the decision has been made and what is left is a comparison — `integration_authorization_policy_issued` refuses a record the policy itself issued, which is the same rule read from the other side.
 
 Acceptance is of an *identity*, not of a plan to produce one. If the staging tree changes afterwards, the acceptance no longer applies to what would be pushed, and the CAS is refused.
 
@@ -69,7 +73,7 @@ The question reaches the operator through the decision queue of issue #35, and t
 
 The packet offers two options with their consequences. "Approve?" with one button is not a decision, and a refusal is a recorded outcome rather than the absence of an approval — a declined Epic is a state, not a silence.
 
-A pinned auto-policy names the identity it was pinned to and the debt it tolerates. One that accepted an identity it never saw is not a policy, it is a default; debt outside what it names is not something it agreed to.
+A pinned auto-policy names the identity it was pinned to and the debt it tolerates. One that accepted an identity nobody signed for is not a policy, it is a default; debt outside what it names is not something it agreed to.
 
 ## 6. The final CAS, and what follows it
 
@@ -109,7 +113,7 @@ Closed set: `aggregate_failed`, `aggregate_binding_void`, `staging_moved_after_p
 | --- | --- |
 | Aggregate failure leaves the target ref and bytes untouched | §3, §6 |
 | A human accepts an exact aggregate-verified staging identity | §5 |
-| An auto-policy is bound to the same identity | §5 |
+| An auto-policy is bound to the same identity, and checks rather than decides | §5 |
 | Final target movement is one CAS | §6 |
 | An integration fix passes the same gates as a code Ticket | §3 |
 | A crash after aggregate PASS recovers without a model run | §7 |
