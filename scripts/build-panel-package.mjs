@@ -229,7 +229,20 @@ Coverage: ${Object.entries(cleanRoom.coverage.counts).map(([state, count]) => `$
 
 Each group is injected for real and paired with a control — the same guard,
 asked about the state without the fault, has to stay silent. A guard that
-refuses everything would detect every fault and mean nothing by it.
+refuses everything would detect every fault and mean nothing by it, so the
+per-case result is given rather than the count it rolls up into:
+
+${cleanRoom.faults && cleanRoom.faults.length > 0
+    ? `| group | fault detected | control silent | what the case observed |
+| --- | --- | --- | --- |
+${cleanRoom.faults.map((entry) => `| \`${entry.id}\` | ${entry.detected ? 'yes' : 'NO'} | ${entry.control ? 'yes' : 'NO'} | ${entry.detail} |`).join('\n')}`
+    : 'The run recorded no per-case results, so the counts above are all this package can show.'}
+
+### Mutation, module by module
+
+| module | test file | mutants | killed |
+| --- | --- | --- | --- |
+${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | ${entry.mutants} | ${entry.killed} |`).join('\n')}
 
 ### What is not claimed
 

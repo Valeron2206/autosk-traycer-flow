@@ -29,6 +29,10 @@ const matrix = JSON.parse(read("resources/clean-room-e2e/fault-matrix.v1.json"))
 const compat = JSON.parse(read("compat/autosk/manifest.v1.json"));
 
 const cleanRoom = {
+  faults: [
+    { id: "F001", detected: true, control: true, detail: "the reservation survived and the task record did not" },
+    { id: "F020", detected: true, control: true, detail: "the audit copy exists while the live one still does" },
+  ],
   upstream_commit: compat.upstream.commit,
   source_tree: compat.result_tree,
   extension: { commit: "c".repeat(40), tree: "t".repeat(40), dirty: false },
@@ -39,6 +43,10 @@ const cleanRoom = {
 };
 const mutation = {
   totals: { modules: 49, mutants: 513, killed: 513 },
+  modules: [
+    { module: "src/host/approved-delta.mjs", test: "test/runtime-approved-delta.test.mjs", mutants: 31, killed: 31 },
+    { module: "src/host/doctor-checks.mjs", test: "test/runtime-doctor.test.mjs", mutants: 0, killed: 0 },
+  ],
   survivors: [],
   rules: ["demand(", "errors.push("],
   report_digest: "m".repeat(64),
@@ -122,6 +130,21 @@ test("the run either was about the reviewed bytes or says it was not", async () 
   const dirty = await build({ cleanRoom: { ...cleanRoom, extension: { ...cleanRoom.extension, dirty: true } } });
   assert.match(dirty.text, /\| NO — this run is about other bytes/u);
   assert.match(dirty.text, /worktree clean at run time \| no/u);
+});
+
+test("the evidence is given as rows, not only as counts", async () => {
+  // A reviewer holding counts cannot tell a discriminating guard from one that
+  // refuses everything, and that distinction is why each case runs a control.
+  const { text } = await build();
+  for (const entry of cleanRoom.faults) {
+    assert.match(text, new RegExp(`\\| \`${entry.id}\`.*${entry.detail.slice(0, 20)}`, "u"));
+  }
+  for (const entry of mutation.modules) {
+    assert.match(text, new RegExp(entry.module.replace(/[/.]/gu, "\\$&"), "u"));
+  }
+  // A run that recorded no per-case results says so rather than implying rows.
+  const countsOnly = await build({ cleanRoom: { ...cleanRoom, faults: null } });
+  assert.match(countsOnly.text, /recorded no per-case results/u);
 });
 
 test("the mutation claim carries its own numbers and its own rules", async () => {

@@ -328,6 +328,13 @@ async function finish({ workspace, steps, receipt, keep, error, faults }) {
     source_tree: receipt?.source_tree ?? null,
     upstream_commit: receipt?.upstream_commit ?? null,
     extension: await extensionIdentity(),
+    // The per-case results, not only the counts they roll up into. A reviewer
+    // holding counts cannot tell a discriminating guard from one that refuses
+    // everything, and that distinction is the whole reason each case runs a
+    // control.
+    faults: faults ? Object.freeze(faults.results.map((entry) => Object.freeze({
+      id: entry.id, detected: entry.detected, control: entry.control, detail: entry.detail,
+    }))) : null,
     steps: Object.freeze(steps),
     coverage,
     ok: !error && steps.every((step) => step.ok !== false),
