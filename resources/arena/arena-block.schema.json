@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Valeron2206/autosk-traycer-flow/resources/arena/arena-block.schema.json",
+  "title": "autosk-arena block",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "framing", "candidates", "judgment", "decision", "reexpression"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "framing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "criteria", "frozen_at"],
+      "properties": {
+        "reason": { "type": "string", "minLength": 1 },
+        "criteria": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "statement", "measurement"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+              "statement": { "type": "string", "minLength": 1 },
+              "measurement": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "frozen_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "family", "worktree_digest", "state"],
+        "properties": {
+          "slot": { "enum": ["A", "B", "C"] },
+          "family": { "type": "string", "minLength": 1 },
+          "worktree_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "state": { "enum": ["live", "failed", "withdrawn"] },
+          "reason_for_third": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "judgment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["judge_family", "anonymised", "scores", "recommendation"],
+      "properties": {
+        "judge_family": { "type": "string", "minLength": 1 },
+        "anonymised": { "const": true },
+        "scores": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["criterion_id", "slot", "score", "basis"],
+            "properties": {
+              "criterion_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+              "slot": { "enum": ["A", "B", "C"] },
+              "score": { "type": "number" },
+              "basis": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "recommendation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ranking", "graft_list"],
+          "properties": {
+            "ranking": { "type": "array", "minItems": 2, "items": { "enum": ["A", "B", "C"] } },
+            "graft_list": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decided_by", "user_decision_record_id", "selected"],
+      "properties": {
+        "decided_by": { "const": "user_decision_record" },
+        "user_decision_record_id": { "type": "string", "minLength": 1 },
+        "selected": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "reexpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pre_arena_identity", "post_arena_identity", "narrow"],
+      "properties": {
+        "pre_arena_identity": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "post_arena_identity": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "narrow": { "const": false }
+      }
+    }
+  }
+}

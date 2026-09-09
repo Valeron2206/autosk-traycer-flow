@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "framing": {
+    "reason": "A block that shows what each refusal is for.",
+    "criteria": [
+      { "id": "crash_resume", "statement": "Resumes after a crash.", "measurement": "the crash harness" },
+      { "id": "foreign_movement", "statement": "Refuses a foreign move.", "measurement": "casAdmission" },
+      { "id": "added_later", "statement": "Added after candidate A started.", "measurement": "none recorded" }
+    ],
+    "frozen_at": "2026-09-09T06:00:00Z"
+  },
+  "candidates": [
+    { "slot": "A", "family": "grok", "worktree_digest": "1111111111111111111111111111111111111111111111111111111111111111", "state": "live" },
+    { "slot": "B", "family": "grok", "worktree_digest": "2222222222222222222222222222222222222222222222222222222222222222", "state": "live" }
+  ],
+  "judgment": {
+    "judge_family": "grok",
+    "anonymised": true,
+    "scores": [
+      { "criterion_id": "crash_resume", "slot": "A", "score": 1, "basis": "harness log" }
+    ],
+    "recommendation": { "ranking": ["A", "B"], "graft_list": [] }
+  },
+  "decision": {
+    "decided_by": "user_decision_record",
+    "user_decision_record_id": "decision-42",
+    "selected": ["A's approach"]
+  },
+  "reexpression": {
+    "pre_arena_identity": "5555555555555555555555555555555555555555555555555555555555555555",
+    "post_arena_identity": "5555555555555555555555555555555555555555555555555555555555555555",
+    "narrow": false
+  }
+}

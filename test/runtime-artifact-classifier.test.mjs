@@ -158,7 +158,12 @@ test("the registry covers the repository it claims to govern", () => {
   // §7: this repository governs itself. A file governed by nothing is not an
   // oversight to be argued about later — it is a missing registry entry, and
   // this is the check that makes adding one unavoidable.
-  const tracked = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" })
+  // Tracked *and* untracked-but-not-ignored. Reading only the index meant a new
+  // file's governance went unchecked until it was committed — which is after
+  // the point where adding a registry entry is cheap. This check found its own
+  // gap: `resources/arena/*.json` collided with two classes, and only CI saw it,
+  // because locally the files were not in the index yet.
+  const tracked = execFileSync("git", ["ls-files", "-c", "-o", "--exclude-standard"], { cwd: ROOT, encoding: "utf8" })
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);

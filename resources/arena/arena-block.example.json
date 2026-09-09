@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "framing": {
+    "reason": "Two ways to keep an interrupted integration resumable, and only building both shows which one survives a real crash.",
+    "criteria": [
+      {
+        "id": "crash_resume",
+        "statement": "A SIGKILL between the ref update and the read-back resumes without a model run.",
+        "measurement": "the crash harness reports resume_without_model=true"
+      },
+      {
+        "id": "foreign_movement",
+        "statement": "A target moved by another process is refused rather than overwritten.",
+        "measurement": "casAdmission returns refused with foreign_target_movement"
+      },
+      {
+        "id": "receipt_cost",
+        "statement": "The durable writes per integration stay within the recorded budget.",
+        "measurement": "fsync count per integration, measured over 100 runs"
+      }
+    ],
+    "frozen_at": "2026-09-09T00:00:00Z"
+  },
+  "candidates": [
+    { "slot": "A", "family": "grok", "worktree_digest": "1111111111111111111111111111111111111111111111111111111111111111", "state": "live" },
+    { "slot": "B", "family": "codex", "worktree_digest": "2222222222222222222222222222222222222222222222222222222222222222", "state": "live" }
+  ],
+  "judgment": {
+    "judge_family": "anthropic",
+    "anonymised": true,
+    "scores": [
+      { "criterion_id": "crash_resume", "slot": "A", "score": 1, "basis": "harness log shows resume from the durable record" },
+      { "criterion_id": "crash_resume", "slot": "B", "score": 1, "basis": "harness log shows the same" },
+      { "criterion_id": "foreign_movement", "slot": "A", "score": 1, "basis": "refused, with the observed OID named" },
+      { "criterion_id": "foreign_movement", "slot": "B", "score": 0, "basis": "retried three times before refusing" },
+      { "criterion_id": "receipt_cost", "slot": "A", "score": 0, "basis": "four fsyncs per integration" },
+      { "criterion_id": "receipt_cost", "slot": "B", "score": 1, "basis": "two fsyncs per integration" }
+    ],
+    "recommendation": {
+      "ranking": ["A", "B"],
+      "graft_list": ["A's refusal on foreign movement", "B's two-write receipt order"]
+    }
+  },
+  "decision": {
+    "decided_by": "user_decision_record",
+    "user_decision_record_id": "decision-41",
+    "selected": ["A's refusal on foreign movement", "B's two-write receipt order"]
+  },
+  "reexpression": {
+    "pre_arena_identity": "3333333333333333333333333333333333333333333333333333333333333333",
+    "post_arena_identity": "4444444444444444444444444444444444444444444444444444444444444444",
+    "narrow": false
+  }
+}
