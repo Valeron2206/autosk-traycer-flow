@@ -55,12 +55,29 @@ export function chainBlocks(plan) {
   return blocks.map((text, index) => ({ text, workflow: workflows[index] ?? "unknown" }));
 }
 
-/** The steps a segment names, with a status note like `(human)` stripped first. */
+/** A token shaped like a step name: what a typo of one would look like. */
+const NAME = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/u;
+
+/**
+ * What a segment names: the declared steps, and the things that only look like
+ * them.
+ *
+ * The chains draw through prose placeholders — `create/enroll autosk-planned
+ * replacement` — and those must not stop a chain. But dropping everything
+ * undeclared treated a misspelled step as a placeholder too, so renaming a step
+ * and missing one drawing of it passed the gate that exists to catch exactly
+ * that. A placeholder is prose; anything shaped like a step name and not
+ * declared is a name that has gone wrong.
+ */
 function stepsIn(segment, declared) {
-  return segment
-    .split("|")
-    .map((option) => option.replace(/\([^)]*\)/gu, "").trim())
-    .filter((name) => declared.has(name));
+  const steps = [];
+  const unknown = [];
+  for (const option of segment.split("|").map((part) => part.replace(/\([^)]*\)/gu, "").trim())) {
+    if (option === "") continue;
+    if (declared.has(option)) steps.push(option);
+    else if (NAME.test(option)) unknown.push(option);
+  }
+  return { steps, unknown };
 }
 
 /** Which step on the previous line starts at or before this column. */
@@ -78,10 +95,11 @@ function walk(line, declared, anchor) {
   const parts = [];
   let cursor = 0;
   for (const piece of line.split("->")) {
-    parts.push({ text: piece, start: cursor, steps: stepsIn(piece, declared) });
+    parts.push({ text: piece, start: cursor, ...stepsIn(piece, declared) });
     cursor += piece.length + 2;
   }
   const edges = [];
+  const unknown = parts.flatMap((part) => part.unknown);
   let previous = parts[0].steps.length > 0 ? parts[0].steps : anchor ? [anchor] : [];
   for (const part of parts.slice(1)) {
     // A segment naming no step is a placeholder the chain draws through, so the
@@ -90,13 +108,14 @@ function walk(line, declared, anchor) {
     for (const from of previous) for (const to of part.steps) edges.push({ from, to });
     previous = part.steps;
   }
-  return { edges, ends: previous, parts };
+  return { edges, ends: previous, parts, unknown };
 }
 
 /** Every edge and every `(human)` mark the chains draw. */
 export function readChains(plan, declared) {
   const edges = [];
   const marks = [];
+  const unknown = [];
   for (const block of chainBlocks(plan)) {
     let previousParts = null;
     let previousEnds = null;
@@ -107,9 +126,18 @@ export function readChains(plan, declared) {
       }
       const arrow = raw.indexOf("->");
       if (arrow < 0) {
-        // A label before a colon can name the sources for the arrow that follows.
+        // A line with no arrow is either a label naming the sources for the arrow
+        // that follows, or a step standing alone as the source of the next line —
+        // which is how every block opens. Treating only the label as a source
+        // lost the Planned flow's first transition entirely.
         const label = /^([^:]*):\s*$/u.exec(raw.trim());
-        previousEnds = label ? label[1].split(/[\s/]+/u).filter((word) => declared.has(word)) : null;
+        if (label) {
+          previousEnds = label[1].split(/[\s/]+/u).filter((word) => declared.has(word));
+        } else {
+          const alone = stepsIn(raw, declared);
+          unknown.push(...alone.unknown.map((name) => ({ name, workflow: block.workflow })));
+          previousEnds = alone.steps.length > 0 ? alone.steps : null;
+        }
         previousParts = null;
         continue;
       }
@@ -122,11 +150,12 @@ export function readChains(plan, declared) {
         for (const from of sources) for (const to of walked.parts[1].steps) walked.edges.push({ from, to });
       }
       for (const edge of walked.edges) edges.push({ ...edge, workflow: block.workflow });
+      for (const name of walked.unknown) unknown.push({ name, workflow: block.workflow });
       previousParts = walked.parts;
       previousEnds = walked.ends;
     }
   }
-  return { edges, marks };
+  return { edges, marks, unknown };
 }
 
 /** Every step the graph can get to from `origin`, following declared edges. */
@@ -168,7 +197,7 @@ export function chainErrors(document, { root = ROOT, read = readFileSync } = {})
     document.steps.filter((step) => step.kind === "status" && step.status === "human").map((step) => step.name),
   );
 
-  const { edges, marks } = readChains(read(path.join(root, PLAN_PATH), "utf8"), declared);
+  const { edges, marks, unknown } = readChains(read(path.join(root, PLAN_PATH), "utf8"), declared);
   const known = new Set(KNOWN_CHAIN_DIVERGENCES);
   const reach = new Map();
   const errors = [];
@@ -186,6 +215,9 @@ export function chainErrors(document, { root = ROOT, read = readFileSync } = {})
   // grows into a place where a real one can hide behind a stale entry.
   for (const named of known) {
     if (!seen.has(named)) errors.push(`chain_divergence_stale: ${named} is named as known and no longer diverges`);
+  }
+  for (const entry of unknown) {
+    errors.push(`chain_step_unknown: ${entry.workflow} draws ${entry.name}, which the graph does not declare as a step`);
   }
   for (const mark of marks) {
     if (!humanSteps.has(mark.step)) {

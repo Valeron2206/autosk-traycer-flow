@@ -122,3 +122,49 @@ test("reachability follows declared edges and stops where the flow stops", () =>
   assert.ok(reachableFrom(graph, "intake").has("done"), "the flow reaches its end");
   assert.equal(reachableFrom(graph, "done").size, 0, "nothing leaves a terminal step");
 });
+
+test("a misspelled step is a failure, not a placeholder the chain draws through", () => {
+  const graph = document();
+  // The chains draw through prose placeholders, so undeclared text cannot simply
+  // fail. But dropping everything undeclared treated a typo as prose, and the
+  // gate that exists to catch a rename missing one drawing passed it silently.
+  const typo = plan().replace(
+    "build_candidate -> verify_candidate -> freeze_candidate -> done",
+    "build_candidate -> verfy_candidate -> freeze_candidate -> done",
+  );
+  assert.notEqual(typo, plan(), "the line the test edits still exists");
+  const errors = chainErrors(graph, { read: servingPlan(typo) });
+  assert.ok(
+    errors.some((message) => message.includes("chain_step_unknown") && message.includes("verfy_candidate")),
+    `a typo must fail, got: ${errors.join("\n") || "(nothing)"}`,
+  );
+});
+
+test("prose the chain draws through is still not a failure", () => {
+  // The counterpart to the test above: section 2 bridges chains across free text,
+  // and a rule that failed on undeclared tokens outright would fail on those.
+  assert.deepEqual(chainErrors(document()), []);
+  const graph = document();
+  const declared = new Set(graph.steps.map((step) => step.name));
+  const { edges } = readChains(plan(), declared);
+  assert.ok(
+    edges.some((edge) => edge.from === "invalidate_quick_classification"),
+    "a chain still crosses the placeholder that follows invalidate_quick_classification",
+  );
+});
+
+test("a step standing alone on a line is the source of the line below it", () => {
+  const graph = document();
+  const declared = new Set(graph.steps.map((step) => step.name));
+  const { edges } = readChains(plan(), declared);
+  // Every block opens with a bare step and continues on the next line. Keeping a
+  // source only for a line ending in a colon lost the Planned flow's very first
+  // transition, so the gate claimed eight blocks and checked seven and a bit.
+  assert.ok(
+    edges.some((edge) => edge.workflow === "autosk-planned" && edge.from === "intake" && edge.to === "init_planning_ref"),
+    "autosk-planned draws intake -> init_planning_ref and the reader must see it",
+  );
+  for (const workflow of new Set(edges.map((edge) => edge.workflow))) {
+    assert.ok(edges.some((edge) => edge.workflow === workflow), `${workflow} contributes edges`);
+  }
+});
