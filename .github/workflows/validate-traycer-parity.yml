@@ -164,6 +164,12 @@ jobs:
       - name: Check section 2's chain blocks against the workflow graph
         run: npm run validate:workflow-chains
 
+      # The lock itself lives in the pinned patch series. This is what notices if
+      # a later patch drops it: each requirement is anchored to a line a named
+      # patch adds, verified against the digest the manifest already pins.
+      - name: Check the patch series still carries the runtime identity lock
+        run: npm run validate:runtime-identity-lock
+
       # The doctor is read-only, so running it in CI costs nothing and proves the
       # command still produces a schema-valid report on a machine that is not the
       # author's. A `fail` here is expected: the runner has no daemon binaries.

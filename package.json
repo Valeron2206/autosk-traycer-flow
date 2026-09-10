@@ -57,6 +57,7 @@
     "validate:workflow-graph": "node scripts/validate-workflow-graph.mjs",
     "validate:workflow-views": "node scripts/render-workflow-views.mjs",
     "validate:workflow-chains": "node scripts/check-workflow-chains.mjs",
+    "validate:runtime-identity-lock": "node scripts/validate-runtime-identity-lock.mjs",
     "render:workflow-views": "node scripts/render-workflow-views.mjs --write"
   },
   "engines": {

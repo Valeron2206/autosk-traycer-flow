@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "requirements": [
+    {
+      "id": "refusal_declared",
+      "requires": "the engine declares one refusal for a runtime identity that no longer matches the task's pin",
+      "why": "Without a named refusal the mismatch has to be reported as something else, and a reader cannot tell a task parked for this reason from a task parked for any other. It is also the reason the plan's acceptance criteria name, so a rename here silently unmeets them.",
+      "patch": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "export const EXTENSION_VERSION_MISMATCH = \"extension_version_mismatch\";",
+      "occurrences": 1
+    },
+    {
+      "id": "decision_is_one_function",
+      "requires": "one function decides whether a task may proceed on the identity it is pinned to",
+      "why": "Three call sites deciding this separately would drift: the fix that lands at enroll and not at dispatch is exactly the gap a task slips through, and it would look correct at each site read alone.",
+      "patch": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "export function runtimeIdentityDecision(",
+      "occurrences": 1
+    },
+    {
+      "id": "malformed_pin_refused",
+      "requires": "a pin that cannot be read is refused rather than repaired or dropped",
+      "why": "Repairing an unreadable pin re-admits the task on whatever the registry now holds, which is the outcome the pin exists to prevent. Dropping it is the same thing said more quietly.",
+      "patch": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "    if (pinned.state === \"malformed\") {",
+      "occurrences": 1
+    },
+    {
+      "id": "checked_between_steps",
+      "requires": "the identity is re-checked when the flow moves between two steps, and not only at enroll and resume",
+      "why": "A registry can be swapped mid-session by an extension reload. A check at the two entry points alone lets a task that was admitted on one distribution finish on another, one step at a time.",
+      "patch": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "    // admitted identity is re-checked here and not only at enroll/resume.",
+      "occurrences": 1
+    },
+    {
+      "id": "distribution_digest_compared",
+      "requires": "the distribution digest the task was admitted under is compared against the one the registry serves now",
+      "why": "This is the half of the lock that covers the bytes an extension was loaded from. Dropping it leaves the shape check alone, which passes whenever two different distributions declare the same steps.",
+      "patch": "patches/0005-workflow-shape-identity.patch",
+      "added_line": "  if (current.distribution.digest !== pinned.pin.digest) {",
+      "occurrences": 1
+    },
+    {
+      "id": "graph_digest_compared",
+      "requires": "the declared workflow shape is compared as well as the distribution",
+      "why": "The distribution digest covers the bytes, not what those bytes declared to the registry. A workflow assembled at load time from data outside its distribution can change its steps while the distribution stays identical, and only this comparison notices.",
+      "patch": "patches/0005-workflow-shape-identity.patch",
+      "added_line": "  if (current.graph !== pinned.pin.graph) {",
+      "occurrences": 1
+    },
+    {
+      "id": "absent_shape_is_not_covered",
+      "requires": "a pin carrying no shape where the registry has one is refused rather than treated as covered",
+      "why": "A pin written before shapes were recorded says nothing about the shape. Reading its silence as agreement would admit exactly the task the comparison above exists to stop, and it would do so for every task that predates the field.",
+      "patch": "patches/0005-workflow-shape-identity.patch",
+      "added_line": "  if (pinned.pin.graph === undefined) {",
+      "occurrences": 1
+    },
+    {
+      "id": "shape_digest_declared",
+      "requires": "the declared shape has a digest of its own",
+      "why": "Criterion 2 of issue #10 asks the graph digest to cover what the workflow is. This function is what produces it; without it the lock has only the distribution digest and the plan's criterion has nothing to bind to.",
+      "patch": "patches/0005-workflow-shape-identity.patch",
+      "added_line": "export function workflowGraphDigest(wf: WorkflowDefinition): string {",
+      "occurrences": 1
+    },
+    {
+      "id": "shape_digest_is_canonical",
+      "requires": "the shape digest is taken over a canonical serialization rather than over whatever the declaration happened to look like",
+      "why": "A digest over an incidental writing parks a good runtime as incompatible the first time a declaration is reformatted. The canonical form is what makes two writings of one shape one identity.",
+      "patch": "patches/0005-workflow-shape-identity.patch",
+      "added_line": "export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {",
+      "occurrences": 1
+    },
+    {
+      "id": "canonical_sorts_steps",
+      "requires": "the canonical serialization sorts the steps",
+      "why": "Step order carries no meaning to the engine, and `Object.entries` would not report the author's order for integer-like names in any case. Without the sort the digest would promise an order it cannot keep, holding for `intake`/`review` and quietly failing for `1`/`2`.",
+      "patch": "patches/0005-workflow-shape-identity.patch",
+      "added_line": "  const steps = Object.entries(wf.steps).sort(([a], [b]) =>",
+      "occurrences": 1
+    }
+  ],
+  "lock_digest": "3367896e0d84cb3f3e9088d04d3dcc84e2d427e383f34f0771075137b45abab3"
+}

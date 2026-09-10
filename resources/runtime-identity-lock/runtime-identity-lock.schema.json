@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/runtime-identity-lock.v1.json",
+  "title": "Runtime identity lock requirements v1",
+  "description": "What the pinned patch series must keep carrying for a task to stay bound to the code it was admitted under. Each requirement is anchored to one line a named patch adds, because a check that parsed the TypeScript would be a second reading of a source the manifest already pins byte for byte.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "requirements",
+    "lock_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "requires",
+          "why",
+          "patch",
+          "added_line",
+          "occurrences"
+        ],
+        "properties": {
+          "id": {
+            "description": "Named so the contract can explain it and the validator can require that it does.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          },
+          "requires": {
+            "description": "What must hold, said as a property rather than as a line of code.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "why": {
+            "description": "What goes wrong when it stops holding. A requirement whose cost nobody can state is one nobody will defend.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "patch": {
+            "description": "The patch file, as the manifest names it. The manifest pins its bytes, and this check verifies that pin before reading the line.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "added_line": {
+            "description": "One line the patch adds, verbatim and without its `+`. Anchoring to a line the patch adds means the requirement is met by bytes under the manifest's digest rather than by a pattern that happens to match.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "occurrences": {
+            "description": "How many times that patch adds exactly this line. A count rather than a presence test: a line that appears twice where one was expected is a copy someone made, and the requirement stops describing what it checks.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "lock_digest": {
+      "description": "sha256 over this document with the field removed, so the requirement set is bound as a set.",
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

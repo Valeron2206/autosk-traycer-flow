@@ -389,6 +389,7 @@
         "docs/contracts/reflect-cost-watch.md",
         "docs/contracts/refusal-vocabulary.md",
         "docs/contracts/requirement-revision.md",
+        "docs/contracts/runtime-identity-lock.md",
         "docs/contracts/sdk-write-api.md",
         "docs/contracts/stage-carriers.md",
         "docs/contracts/static-analysis.md",
@@ -1650,6 +1651,35 @@
       "human_approval": "not_required"
     },
     {
+      "class": "runtime_identity_lock",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "design_schema"
+      ],
+      "paths": [
+        "resources/runtime-identity-lock/runtime-identity-lock.v1.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "each requirement is anchored to a line the pinned patch series adds, and the validator refuses one the contract does not name. Removing a guarantee therefore has to remove it from the contract as well, which is a contract_document under full_panel; this file is reviewed narrowly with that contract rather than gated twice."
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/runtime-identity-lock/runtime-identity-lock.schema.json",
+      "validator": "scripts/validate-runtime-identity-lock.mjs",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "sdk_write_operation",
       "category": "runtime_evidence",
       "author_roles": [
@@ -1987,5 +2017,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "c7800aee198fa6d03ae9380394b4982e6dd856019e328c83a2d8090388235f9a"
+  "registry_digest": "ccffe8550d491b73a5bf8d49f9d7b6cc181fd12c96d02a4253b6241f378e5d31"
 }

@@ -151,6 +151,10 @@
       "sha256": "75dd15b3fd339c26868404bfc0a1e1a5012a256ca6836dc0e50b3e3435bede37"
     },
     {
+      "path": "docs/contracts/runtime-identity-lock.md",
+      "sha256": "234d07ff18dc4292b1567b5cbe69caed469906e956cfbe7bc6e83bb87a719250"
+    },
+    {
       "path": "docs/contracts/sdk-write-api.md",
       "sha256": "d2f7e054fcb4abb6130bafe1dbd4c63c5eecbe00e28636722683d226bc521293"
     },
@@ -204,7 +208,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "744c7550ea882a4dea61f13033241b16ccac84d3626d55a8d7eb11f5bfbc3ff9"
+      "sha256": "29029628bf2f076a24f3e66b7774d30eb6e2d9805d3a0c77c63b504278d30a8c"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -419,6 +423,14 @@
       "sha256": "6ee02cfc442d452c98251103ec7e7423a26658d81b9745df9ef9b8119dce6d6a"
     },
     {
+      "path": "resources/runtime-identity-lock/runtime-identity-lock.refused.example.json",
+      "sha256": "65f81757c7250b07eba07e7f95103384d48f5b9e73a4f9d18a8b9e19ac5a1296"
+    },
+    {
+      "path": "resources/runtime-identity-lock/runtime-identity-lock.schema.json",
+      "sha256": "931dcbdb953e9063879f91da8348efd2dc3201aac9763d0cb700578b79c9041f"
+    },
+    {
       "path": "resources/sdk-write-api/capability-token.schema.json",
       "sha256": "7a73455bd8f9a01022a7042e894e8352e4e960bdd1f7f600b9fda85bc5a84357"
     },
@@ -487,7 +499,7 @@
       "sha256": "bbed49fd84156a8ade7e2ba7b3f46dcb3b2a98e6ff3778fc391a77c6b0898e0a"
     }
   ],
-  "candidate_digest": "2be14dac8885c9ce9e6e1547a49c4fbf23e13ed9e4d92513036cd4a22d6bcf8c",
+  "candidate_digest": "3769be81644d129a08a5761b0bc86df504b7f3f4fc9d9676a3caafde4906f517",
   "dispositions": [
     {
       "issue": 3,
