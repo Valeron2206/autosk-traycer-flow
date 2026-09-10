@@ -26,6 +26,7 @@ export const SCHEMA_PATH = "resources/refusal-vocabulary/refusal-vocabulary.sche
 export const VOCABULARY_PATH = "resources/refusal-vocabulary/refusal-vocabulary.v1.json";
 export const REFUSED_PATH = "resources/refusal-vocabulary/refusal-vocabulary.refused.example.json";
 export const PLAN_PATH = "03-technical-plan.md";
+export const GRAPH_PATH = "resources/workflow-graph/workflow-graph.v1.json";
 export const FLOWS_PATH = "01-core-flows.md";
 export const CONTRACT_MARKER = "<!-- refusal-vocabulary-contract:v1 -->";
 
@@ -53,25 +54,18 @@ const all = (pattern, text) => [...text.matchAll(new RegExp(pattern))].map((matc
 /**
  * The steps a workflow may actually be at.
  *
- * Read from the registered workflow graphs in §2 rather than from a hand-kept
- * list, because a hand-kept list is a second place for the truth to live.
+ * Read from the workflow graph document, which declares them. This used to
+ * scrape §2's prose with a regular expression, and a scrape is a second reading
+ * of a text the graph already states: it saw a step wherever a token happened to
+ * match the name pattern, so a renamed step stayed registered until someone
+ * noticed, and a step the prose spelled twice was one step by luck rather than
+ * by declaration.
  */
-export function registeredSteps(plan) {
-  const lines = plan.split("\n");
-  const from = lines.findIndex((line) => line.startsWith("## 2. "));
-  const to = lines.findIndex((line) => line.startsWith("## 3. "));
-  const section = lines.slice(from, to).join("\n");
-  const steps = new Set();
-  for (const block of [...section.matchAll(/~~~text\n([\s\S]*?)\n~~~/gu)].map((match) => match[1])) {
-    for (const raw of block.split("\n")) {
-      const line = raw.replace(/\(human\)/gu, "").replace(/^[^:]*:\s*/u, "");
-      for (const part of line.split(/->|\|/u)) {
-        const token = part.trim();
-        if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/u.test(token)) steps.add(token);
-      }
-    }
+export function registeredSteps(document) {
+  if (typeof document === "string") {
+    throw new TypeError("registeredSteps reads the workflow graph document, not the plan text");
   }
-  return [...steps].sort();
+  return document.steps.map((step) => step.name).sort();
 }
 
 /**
@@ -101,8 +95,8 @@ export function parkTable(plan) {
  * therefore not silently accepted: the row ends up naming no step at all, which
  * `stepErrors` refuses.
  */
-export function extractVocabulary(plan) {
-  const registered = new Set(registeredSteps(plan));
+export function extractVocabulary(plan, graph) {
+  const registered = new Set(registeredSteps(graph));
   const byCode = new Map();
   for (const row of parkTable(plan)) {
     const classes = all(CLASS_REF, row.step);
@@ -341,10 +335,10 @@ export function vocabularyDigest(vocabulary) {
 }
 
 /** Everything, in the order a reader would ask it. */
-export function vocabularyErrors(vocabulary, { plan, flows, sources, contracts }) {
+export function vocabularyErrors(vocabulary, { plan, graph, flows, sources, contracts }) {
   const errors = [
-    ...driftErrors(vocabulary, extractVocabulary(plan)),
-    ...stepErrors(vocabulary, registeredSteps(plan)),
+    ...driftErrors(vocabulary, extractVocabulary(plan, graph)),
+    ...stepErrors(vocabulary, registeredSteps(graph)),
     ...producerErrors(vocabulary, sources),
     ...ownerErrors(vocabulary, contracts),
     ...unmappedCodes(vocabulary, flows),
@@ -357,7 +351,7 @@ export function vocabularyErrors(vocabulary, { plan, flows, sources, contracts }
 }
 
 /** The shipped design. */
-export function validateDesign(files, { plan, flows, sources, contracts }) {
+export function validateDesign(files, { plan, graph, flows, sources, contracts }) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
   if (!contract || !contract.includes(CONTRACT_MARKER)) errors.push(`${CONTRACT_PATH}: the contract marker is missing`);
@@ -371,13 +365,13 @@ export function validateDesign(files, { plan, flows, sources, contracts }) {
 
   const vocabulary = JSON.parse(files[VOCABULARY_PATH]);
   errors.push(
-    ...vocabularyErrors(vocabulary, { plan, flows, sources, contracts })
+    ...vocabularyErrors(vocabulary, { plan, graph, flows, sources, contracts })
       .map((entry) => `${VOCABULARY_PATH}: ${entry.reason}: ${entry.detail}`),
   );
 
   const refused = JSON.parse(files[REFUSED_PATH]);
   const produced = new Set(
-    vocabularyErrors(refused, { plan, flows, sources, contracts }).map((entry) => entry.reason),
+    vocabularyErrors(refused, { plan, graph, flows, sources, contracts }).map((entry) => entry.reason),
   );
   if (produced.size < 4) {
     errors.push(`${REFUSED_PATH}: the refused example produces only ${produced.size} refusal classes`);
@@ -415,6 +409,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   );
   const context = {
     plan: read(PLAN_PATH),
+    graph: JSON.parse(read(GRAPH_PATH)),
     flows: read(FLOWS_PATH),
     sources: readSources(),
     contracts: readContracts(),
@@ -427,7 +422,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const host = vocabulary.park_reasons.filter((entry) => entry.producer === "host").length;
     console.log("Refusal vocabulary validation PASS");
     console.log(`park_reasons=${vocabulary.park_reasons.length} host=${host} daemon=${vocabulary.park_reasons.length - host}`);
-    console.log(`registered_steps=${registeredSteps(context.plan).length}`);
+    console.log(`registered_steps=${registeredSteps(context.graph).length}`);
     console.log(`vocabulary_digest=${vocabulary.vocabulary_digest}`);
   }
 }

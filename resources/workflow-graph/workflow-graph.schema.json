@@ -356,6 +356,131 @@
         }
       }
     },
+    "views": {
+      "description": "The rendered tables this document is the source of. A view is written here rather than derived from `recovery` because the rendered unit is the row, not the reason: rows group several reasons behind one cell, one reason appears in several rows under different qualifiers, and one view names its reasons in prose rather than in codes. `rows` is order-carrying — the order is the table. Every code a view's rows cover, taken together, must be exactly the set `recovery` declares, which is what makes the two tables one truth rather than two that agree today.",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "renders_into",
+          "header",
+          "rule",
+          "coverage",
+          "rows"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "renders_into": {
+            "description": "The repository-relative file the view is rendered into. The header line locates it there.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "header": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "rule": {
+            "description": "The separator line under the header, carried so the render is the file's bytes and not this contract's idea of them.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "coverage": {
+            "description": "Whether the view is the whole enumeration or a part of it. `complete` must cover every reason `recovery` declares. `partial` must name every reason it leaves out, so a reason cannot quietly stop being explained: dropping one takes an edit to `omits` that a reviewer sees.",
+            "enum": [
+              "complete",
+              "partial"
+            ]
+          },
+          "omits": {
+            "description": "Present exactly when coverage is partial: the reasons this view deliberately does not explain. Covered and omitted together must be exactly what `recovery` declares.",
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 512,
+            "items": {
+              "$ref": "#/$defs/park_reason"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 512,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "covers",
+                "binds",
+                "cells"
+              ],
+              "properties": {
+                "covers": {
+                  "description": "The park reasons this row is about. Empty is legal and means the row explains something the vocabulary does not name.",
+                  "type": "array",
+                  "uniqueItems": true,
+                  "maxItems": 32,
+                  "items": {
+                    "$ref": "#/$defs/park_reason"
+                  }
+                },
+                "binds": {
+                  "description": "sha256 over the canonical form of the recovery entries this row explains, sorted by reason. Covering the whole entry rather than the reason names is what makes a changed resume rule oblige a look at the sentence explaining it: the names alone stayed valid while the rule underneath them was rewritten.",
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "cells": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                }
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "coverage": {
+                  "const": "partial"
+                }
+              },
+              "required": [
+                "coverage"
+              ]
+            },
+            "then": {
+              "required": [
+                "omits"
+              ]
+            },
+            "else": {
+              "description": "A complete view leaves nothing out, so it carries no omissions list. Narrowed property set rather than a negation, as elsewhere in this schema.",
+              "properties": {
+                "id": {},
+                "renders_into": {},
+                "header": {},
+                "rule": {},
+                "coverage": {},
+                "rows": {}
+              },
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    },
     "canonical_digest": {
       "description": "sha256 over the canonical serialization of this document with this field removed, not over the committed file bytes.",
       "type": "string",

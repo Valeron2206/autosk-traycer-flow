@@ -32,6 +32,7 @@ A workflow graph is one JSON document. Every field is closed: an unknown field, 
 | Guards | `guards[]`, referenced by id | The conditions. A guard names a predicate from a closed enumeration and the authority entitled to satisfy it. |
 | Caps | `caps[]` | The bound on a named cycle, counted by the taking of one named transition. |
 | Recovery | `recovery[]` | For each park reason, where the flow stops and where a user may resume it. |
+| Views | `views[]` | The rendered tables this document is the source of: where each goes, its header, its rows, and which park reasons each row explains. |
 
 Two design choices are load-bearing and are recorded here rather than left to a reader.
 
@@ -103,6 +104,34 @@ A cap counts the taking of one named transition and nothing else, so a retry aft
 The recovery column that used to do two jobs is split. `parks_at` is where the flow stops; `resume_targets` is where a user may resume it. Every entry in `resume_targets` must be a declared edge out of one of that reason's `parks_at` steps — a resume that is not an edge is a transition the graph never declared, and permitting it would make the graph a description rather than the thing that decides.
 
 Every park reason a document can produce — from a step's `no_transition_reason`, from a guard's `park_reason`, from a cap's `park_reason` — must have exactly one recovery row, and a row whose reason nothing produces is refused. The two graph-level reasons are the exception and carry no row: they park the flow wherever it already stands, so no single row could say where they resume from.
+
+## 8a. Views
+
+The resume contract used to be written three times: here as `recovery`, as the park table in the technical plan, and as the resume table in core flows. Three hand-kept copies drift, and a check that notices drift makes it detectable rather than impossible. Two of the three are now rendered from this document, and `views[]` is what they are rendered from.
+
+The rendered unit is the row, not the reason. A row can stand for several reasons — the park table joins three arena candidate failures behind one cell — and one reason appears in several rows under different qualifiers, as `blocked_anchor` does five times. So a view carries its rows and the reasons each row explains, rather than being derived from `recovery` by projection, which no projection could produce.
+
+`rows` is order-carrying: the order is the table. Nothing else about a view is, and the canonical serialization leaves it as written for that reason.
+
+Coverage is declared, not inferred. A `complete` view must explain every reason `recovery` declares. A `partial` view must name every reason it leaves out, and covered plus omitted must be exactly what the graph declares. That is what stops a reason from quietly ceasing to be explained: dropping one takes an edit to `omits` that a reviewer reads. A view is checked in both directions, because text equality alone would pass a document and a table that agree with each other and disagree with the vocabulary, and coverage alone would pass a table whose cells had been rewritten.
+
+A view row also binds to what it explains. `binds` is a sha256 over the canonical form of the recovery entries the row covers, so rewriting a reason's `resume_targets` or its `required_state` obliges a look at the sentence explaining it. Reason names alone were not enough: they stayed valid while the rule underneath them was rewritten, and nothing refused.
+
+The shipped graph must carry both views, `park_table` rendered into `03-technical-plan.md` and `core_flows_resume` rendered into `01-core-flows.md`. Naming them here is what stops a view from being deleted out of the check's sight: with the roster gone, deleting one left the coverage and render checks with nothing to disagree with, and the table it renders stopped being checked at all.
+
+`scripts/render-workflow-views.mjs` renders and checks; `--write` puts a view back in place. It fails when a rendered table is edited where it lands, and when this document is edited without re-rendering.
+
+## 8b. Chains
+
+Section 2's eight arrow-chain blocks are not rendered from this document and cannot be: it carries no chain layout, and there the indentation is load-bearing, because a continuation line attaches to the step whose part starts at or before its arrow column. They stay hand-drawn and are checked instead, by `scripts/check-workflow-chains.mjs`.
+
+What is checked is reachability, not adjacency. The notation summarises paths — a chain drawing `select_next -> record_alignment` means the flow gets there, not that the graph declares that edge — so demanding adjacency fails on pairs that are the chains abbreviating rather than disagreeing. What a summary must not do is draw a step the flow cannot get to at all.
+
+A drawn path the graph cannot walk is tolerated only by name, and the list is empty. Three entries lived in it while the owner decided what they were: each was a table row that states a success condition and what to record, then stops without saying where the flow goes, with the chain drawing the destination — `resume_repaired_tickets -> ticket_join`, `intake -> implement` in autosk-quick, and `invalidate_quick_classification -> done`. Read as an omission in the tables rather than as two statements disagreeing, so those three transitions are in the graph and nothing remains to tolerate.
+
+The mechanism stays for the next such gap, which should not be settled by whoever finds it. Tolerating a divergence takes an owner decision and an entry in the list; a divergence that is not named fails, a name with no divergence behind it fails too, and this contract names whatever the list holds.
+
+The `(human)` marks are checked as themselves. They are the only thing the chains state that the transition tables never do, so nothing else could catch a mark that has drifted from the step it marks.
 
 ## 9. Refusal classes
 

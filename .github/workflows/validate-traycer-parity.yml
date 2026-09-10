@@ -152,6 +152,18 @@ jobs:
       - name: Validate the declarative workflow graph contract
         run: npm run validate:workflow-graph
 
+      # The views are generated from the graph, so this fails two ways on purpose:
+      # a table edited in place no longer matches what the document renders, and a
+      # document edited without re-rendering no longer matches the table.
+      - name: Check the workflow graph's rendered views against their documents
+        run: npm run validate:workflow-views
+
+      # The eight chain blocks are hand-drawn and cannot be rendered, so this
+      # checks that what they draw the graph can still walk, and that every
+      # divergence it tolerates is one somebody wrote down.
+      - name: Check section 2's chain blocks against the workflow graph
+        run: npm run validate:workflow-chains
+
       # The doctor is read-only, so running it in CI costs nothing and proves the
       # command still produces a schema-valid report on a machine that is not the
       # author's. A `fail` here is expected: the runner has no daemon binaries.

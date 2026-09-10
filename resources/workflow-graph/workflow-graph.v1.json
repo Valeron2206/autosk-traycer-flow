@@ -3135,6 +3135,33 @@
         "task_record"
       ],
       "description": "Section 2's tables declare no exit from repair_anchor_handoff; the chain for registered workflow autosk-ticket draws this one and states no further condition."
+    },
+    {
+      "id": "cond_403",
+      "reads": [
+        "replacement_blockers",
+        "replacement_phase",
+        "semantic_writes",
+        "ticket_repair_op"
+      ],
+      "description": "repair op валидна, every replacement phase=`replacement_ready|replacement_enrolled`, parent не имеет premature replacement blockers, semantic writes sealed — the row records the daemon authority guard and the phases it performs, and section 2 draws the flow on to ticket_join"
+    },
+    {
+      "id": "cond_404",
+      "reads": [
+        "quick_handoff",
+        "replacement_binding",
+        "worktree_ownership_receipt"
+      ],
+      "description": "binding валиден — the row records the handoff op, the commit and integrate prohibition, the Planned replacement and the worktree ownership receipt, then `superseded_by` with outcome=reclassified and phase=complete, and section 2 draws the flow on to done"
+    },
+    {
+      "id": "cond_405",
+      "reads": [
+        "classification",
+        "workflow"
+      ],
+      "description": "Section 2's tables carry one `intake` row and it is the autosk-planned one; the autosk-quick chain is the only place this transition is stated, and it states no condition for it"
     }
   ],
   "steps": [
@@ -7771,6 +7798,30 @@
         "actor": "agent"
       },
       "park_reason": "waiting_parent_anchor"
+    },
+    {
+      "id": "guard_529",
+      "predicate": "cond_403",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "ticket_repair_state_invalid"
+    },
+    {
+      "id": "guard_530",
+      "predicate": "cond_404",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "quick_classification_invalid"
+    },
+    {
+      "id": "guard_531",
+      "predicate": "cond_405",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "quick_classification_invalid"
     }
   ],
   "transitions": [
@@ -12437,6 +12488,33 @@
       "guards": [
         "guard_528"
       ]
+    },
+    {
+      "id": "t_518",
+      "from": "resume_repaired_tickets",
+      "to": "ticket_join",
+      "priority": 5,
+      "guards": [
+        "guard_529"
+      ]
+    },
+    {
+      "id": "t_519",
+      "from": "invalidate_quick_classification",
+      "to": "done",
+      "priority": 1,
+      "guards": [
+        "guard_530"
+      ]
+    },
+    {
+      "id": "t_520",
+      "from": "intake",
+      "to": "implement",
+      "priority": 2,
+      "guards": [
+        "guard_531"
+      ]
     }
   ],
   "caps": [
@@ -12795,6 +12873,7 @@
       ],
       "resume_targets": [
         "await_alignment",
+        "done",
         "draft_artifact",
         "human",
         "record_alignment",
@@ -13167,6 +13246,7 @@
         "invalidate_quick_classification"
       ],
       "resume_targets": [
+        "done",
         "human",
         "invalidate_quick_classification",
         "rebuild_code_anchor",
@@ -13608,6 +13688,7 @@
         "freeze_artifact",
         "freeze_candidate",
         "human",
+        "implement",
         "init_planning_ref",
         "integrate",
         "integration_recovery",
@@ -13663,6 +13744,7 @@
         "invalidate_quick_classification"
       ],
       "resume_targets": [
+        "done",
         "human"
       ],
       "required_state": "Section 2 parks with this reason at invalidate_quick_classification: human с park.reason=quick_classification_invalid; Quick commit/integrate запрещены"
@@ -13783,7 +13865,8 @@
       "resume_targets": [
         "dispatch_ticket_dag",
         "human",
-        "resume_repaired_tickets"
+        "resume_repaired_tickets",
+        "ticket_join"
       ],
       "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, resume_repaired_tickets: human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена"
     },
@@ -13889,5 +13972,1539 @@
       "required_state": "Section 2 parks with this reason at rebuild_code_anchor, repair_anchor_handoff: идемпотентно подтвердить human park, exact unblock parent, receipt phase=edge_suspended, park.reason=waiting_parent_anchor"
     }
   ],
-  "canonical_digest": "6db525203b43583e5034a626fd20ac5df0ebdde442218b3a3ececab7e237a907"
+  "views": [
+    {
+      "id": "park_table",
+      "renders_into": "03-technical-plan.md",
+      "header": "| park.reason | Существующий workflow step | Требование |",
+      "rule": "| --- | --- | --- |",
+      "rows": [
+        {
+          "covers": [
+            "brief_alignment_required"
+          ],
+          "binds": "220e6a93908c5cc6d2633f824815997242137c4a6b100609246531910562f8dd",
+          "cells": [
+            "brief_alignment_required",
+            "record_alignment",
+            "current framing packet и matching daemon `UserDecisionRecord` либо re-resolved exact active policy"
+          ]
+        },
+        {
+          "covers": [
+            "core_flow_decision_required"
+          ],
+          "binds": "f325f9799511a17841e7b09d2e8f2e7f2cba6a580e5a66d3ab84d64ea2cd0cb4",
+          "cells": [
+            "core_flow_decision_required",
+            "record_alignment",
+            "каждое material behavior decision закрыто daemon record; model self-approval отсутствует"
+          ]
+        },
+        {
+          "covers": [
+            "tech_plan_readiness_required"
+          ],
+          "binds": "e53dee285dd329679ff820589db90145c3a41b205f21247b8731858e6aa8fcf7",
+          "cells": [
+            "tech_plan_readiness_required",
+            "record_alignment",
+            "current readiness record, classifier proof и daemon decision/current policy совпадают"
+          ]
+        },
+        {
+          "covers": [
+            "tickets_breakdown_alignment_required"
+          ],
+          "binds": "fa0a4dc8c8e68131f8517820bc5a1218b939a79e277513d66c0fd34519d575f2",
+          "cells": [
+            "tickets_breakdown_alignment_required",
+            "record_alignment",
+            "current Ticket set/DAG/scopes/outcomes/order/exclusions показаны и daemon approval subject hash совпадает"
+          ]
+        },
+        {
+          "covers": [
+            "alignment_policy_out_of_scope"
+          ],
+          "binds": "78efacb96a8ca070a498ced3121d74a251f06302c54142fe85958552babf7173",
+          "cells": [
+            "alignment_policy_out_of_scope",
+            "clarify_alignment for brief/core_flow/tech_plan; present_tickets_breakdown for tickets",
+            "trusted client signs only exact challenge; autoskd commits UserDecisionRecord then issues current daemon policy projection. Direct client policy bytes/stale signed policy rejected"
+          ]
+        },
+        {
+          "covers": [
+            "alignment_record_stale"
+          ],
+          "binds": "8ac8fbc5bc88a6a9eefcdaef4148aae9ef801735b9dde3a97cdee667e148021b",
+          "cells": [
+            "alignment_record_stale",
+            "clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets",
+            "новая anchor version/daemon impact disposition и current authority/alignment/classifier record; старые candidate/verdict/PASS bindings void или явно re-bound как unchanged"
+          ]
+        },
+        {
+          "covers": [
+            "tickets_manifest_invalid"
+          ],
+          "binds": "059d78b1a57e9291192b57de785e72fbf39b153a533dfc3d20247298b82f1c01",
+          "cells": [
+            "tickets_manifest_invalid",
+            "present_tickets_breakdown before freeze and after publication",
+            "old Tickets candidate/receipt/PASS bindings are voided and retained when present; corrected manifest/views pass fresh alignment, validation, freeze, full Panel and replacement publication before dispatch_ticket_dag; child/blocker/enrollment side effects remain absent"
+          ]
+        },
+        {
+          "covers": [
+            "tickets_manifest_stale"
+          ],
+          "binds": "af5c46b67a45ff381979edda6960d7ae280d9b0af7b67c048226f1096f895500",
+          "cells": [
+            "tickets_manifest_stale",
+            "recorded owning recovery step, then present_tickets_breakdown",
+            "protocol/runtime/project-instruction lock drift first runs repair_protocol_snapshot and any other stale binding runs its recorded owning repair; old Tickets candidate/receipt/PASS records are voided and retained; then present_tickets_breakdown -> record_alignment -> validate_tickets_manifest creates fresh identity-bound proof, freeze creates a new immutable receipt, and full Panel/replacement publication complete before dispatch"
+          ]
+        },
+        {
+          "covers": [
+            "artifact_mapping_required"
+          ],
+          "binds": "ac5c296b99ddac9e92311ceabe5a2f8d2293316a00eb4479f4de96a8f34d6841",
+          "cells": [
+            "artifact_mapping_required",
+            "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick",
+            "decision expressed in named manifest and aligned; external document reduced to verified non-normative mirror with current mapping proof, or removed from behavior-defining scope"
+          ]
+        },
+        {
+          "covers": [
+            "quick_classification_invalid"
+          ],
+          "binds": "dcfa8ac1219ca4715e9d1677ba6a62e9b1eea0e936fcab567870ac8ddc8a351a",
+          "cells": [
+            "quick_classification_invalid",
+            "invalidate_quick_classification",
+            "schema-valid trigger, original base/worktree receipt и одна daemon-owned creation binding Planned replacement; Quick commit/integrate остаются запрещены"
+          ]
+        },
+        {
+          "covers": [
+            "panel_join_invalid"
+          ],
+          "binds": "30e7589d7525677ad0e4d852c4c808f9c93fbe0a809359bc23bd8ec0003edba2",
+          "cells": [
+            "panel_join_invalid",
+            "dispatch_panel",
+            "invalid child IDs записаны, attempt+1; старые bindings void"
+          ]
+        },
+        {
+          "covers": [
+            "gate_provider_unavailable"
+          ],
+          "binds": "f7f810437df2be377b5c1a65163a0fe27fb092e218e15572756b053137dc2416",
+          "cells": [
+            "gate_provider_unavailable",
+            "`<gate_model_step>`",
+            "exact route снова проходит synthetic smoke; прежняя session продолжается либо explicit replacement записан"
+          ]
+        },
+        {
+          "covers": [
+            "gate_result_missing",
+            "gate_result_invalid"
+          ],
+          "binds": "73f3b4d5e46e4cece6e98e3bce377145c675e8a03aadc38996bb970fa66e8f46",
+          "cells": [
+            "gate_result_missing / gate_result_invalid",
+            "`<gate_model_step>`",
+            "invalid/nonexistent result не принят; attempt+1 и та же logical reviewer session с явным reminder схемы"
+          ]
+        },
+        {
+          "covers": [
+            "gate_snapshot_mutated"
+          ],
+          "binds": "7d2385620856b05cc78faf5f56b29ea7525b420e16ff6f8cbb67c28989da649d",
+          "cells": [
+            "gate_snapshot_mutated",
+            "`<gate_model_step>`",
+            "новый immutable pinned snapshot того же candidate identity создан, pre-hashes совпадают, прежний response остаётся non-verdict"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "blocked_anchor, gate child",
+            "`<gate_join_step>` после child done",
+            "immutable blocked result current identity; join ensures pending_anchor и не оставляет human child blocker"
+          ]
+        },
+        {
+          "covers": [
+            "arena_candidate_failed",
+            "arena_candidate_verify_failed",
+            "arena_candidate_freeze_invalid"
+          ],
+          "binds": "f8393357119918659b5198172ff940b771702841bbde25c1e759e39a958a5d3e",
+          "cells": [
+            "arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid",
+            "build_candidate, verify_candidate или freeze_candidate",
+            "тот же candidate attempt восстановим и identity неизменна; иначе новая Arena attempt через parent"
+          ]
+        },
+        {
+          "covers": [
+            "project_boundary_invalid"
+          ],
+          "binds": "4d35218951aaf78b0963be51840672de8ca25459a8e25a0c562726ef24ea4160",
+          "cells": [
+            "project_boundary_invalid",
+            "`<deterministic_step>`",
+            "project binding/path исправлены и повторный pre-side-effect assert PASS"
+          ]
+        },
+        {
+          "covers": [
+            "planning_ref_init_invalid"
+          ],
+          "binds": "772ae052fd1557fd6f058dd0815a8cb57f0e59f4c89b7e8fcf1372c62c2b130a",
+          "cells": [
+            "planning_ref_init_invalid",
+            "init_planning_ref",
+            "valid-base corruption restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and fresh init operation, preserving the failed record as audit evidence; ref/reflog stay unchanged or absent; adopt/reset запрещены"
+          ]
+        },
+        {
+          "covers": [
+            "planning_ref_capability_missing"
+          ],
+          "binds": "04518340d6d2a23b246293e6170bb1b17d5fb250648841939a3c88c66b89bc20",
+          "cells": [
+            "planning_ref_capability_missing",
+            "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
+            "required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged"
+          ]
+        },
+        {
+          "covers": [
+            "planning_ref_foreign_movement"
+          ],
+          "binds": "68276a5054cec973fc00d88721e3bd1990ba0f5fbcb78dabe4fa1db65f9784fe",
+          "cells": [
+            "planning_ref_foreign_movement",
+            "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
+            "exact investigation record binds operation type/ID when present, detecting gate, ref/reflog observations and recorded target; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation"
+          ]
+        },
+        {
+          "covers": [
+            "planning_candidate_keepalive_invalid"
+          ],
+          "binds": "36266929ada654ec0cc7e0ab09e495c9a2e5f57732e620563014f3889bebd6b1",
+          "cells": [
+            "planning_candidate_keepalive_invalid",
+            "freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state",
+            "exact candidate identity, keepalive ref/create or audit/release receipt and full closure must be restored without moving another ref; moved foreign ref requires signed investigation or candidate supersession; cleanup remains forbidden until namespace enumeration matches current plus planning.candidate_history"
+          ]
+        },
+        {
+          "covers": [
+            "planning_candidate_base_stale"
+          ],
+          "binds": "0532099c8b216c605011be94164f91ac2a156de984579510a4c5f131b6941579",
+          "cells": [
+            "planning_candidate_base_stale",
+            "draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets",
+            "old candidate/verdict absent or void; new author base equals current verified planning head and pathspec identity is re-minted"
+          ]
+        },
+        {
+          "covers": [
+            "planning_publication_invalid"
+          ],
+          "binds": "e52396886cbe70e81cc6f857ef5fdf97a00579fadeb6e5d050b6e35b86971c0b",
+          "cells": [
+            "planning_publication_invalid",
+            "record_artifact_pass or rebuild_anchor recorded pre-failure step",
+            "exact no-ref-side-effect proof and missing operation rebuilt only from committed bytes, or conflicting operation explicitly voided; otherwise remain human"
+          ]
+        },
+        {
+          "covers": [
+            "planning_publication_corrupt"
+          ],
+          "binds": "8e6af989afa4c3269d1ca581e11d1a6e84543bbe6a1080f42eaf8335b53f1269",
+          "cells": [
+            "planning_publication_corrupt",
+            "publish_artifact_pass or publish_planning_invalidation recorded operation kind",
+            "exact committed recipe/receipt bytes restored, or missing pre-CAS object rewritable from persisted exact bytes with unchanged ref/reflog checkpoint; foreign/indeterminate state remains human"
+          ]
+        },
+        {
+          "covers": [
+            "planning_signing_unavailable"
+          ],
+          "binds": "526331efe53a063db3331b89eb925898d64d98a99c99891091c4c9c28b24fde3",
+          "cells": [
+            "planning_signing_unavailable",
+            "record_artifact_pass",
+            "current locked delivery policy and trusted signer materialize exact replayable signature bytes before the atomic PASS+operation write; no prior PASS/object/ref side effect exists"
+          ]
+        },
+        {
+          "covers": [
+            "authority_journal_truncated"
+          ],
+          "binds": "2f202e56fc51f8d262bb4cae1bb7f58c8b264736513c127daaa2f9d7e821c757",
+          "cells": [
+            "authority_journal_truncated",
+            "authority_recovery",
+            "valid authority tail verified from stored challenge then heads commit before projection; invalid suffix without effects quarantine; missing committed dependency/intent/authority bytes restored only from exact backup or fail-closed"
+          ]
+        },
+        {
+          "covers": [
+            "child_creation_key_invalid"
+          ],
+          "binds": "c4804d3e751694cb1fee6188d659eb14eebb9ded90a562e57dc9b71a2e333eba",
+          "cells": [
+            "child_creation_key_invalid",
+            "`<dispatch_step>`",
+            "daemon-owned key+binding hash исправлены; остаётся ровно одна matching task, title/description не используются"
+          ]
+        },
+        {
+          "covers": [
+            "panel_waiver_required"
+          ],
+          "binds": "5641cc88144add47aa23638c72c7ca33bd6180c5f88cb4d674130a49e5d171e5",
+          "cells": [
+            "panel_waiver_required",
+            "freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster",
+            "retry route либо daemon-attributed waiver current identity; reduced roster также фиксирует actual roster/external Lead"
+          ]
+        },
+        {
+          "covers": [
+            "review_waiver_invalid"
+          ],
+          "binds": "bfabd414e82403b69ea26c56796f952a8c4a90f50ac5cf20b7e86dc7551b709f",
+          "cells": [
+            "review_waiver_invalid",
+            "freeze",
+            "новый signed daemon review waiver exact current candidate identity либо обычный dispatch_review; stale waiver сохранён"
+          ]
+        },
+        {
+          "covers": [
+            "contest_join_invalid"
+          ],
+          "binds": "08bd18d46ea8e2f0f84f0a0b4d9de3d8688b16c2e99966f9ede7a20098603952",
+          "cells": [
+            "contest_join_invalid",
+            "dispatch_contest",
+            "invalid disposition tasks записаны, attempt+1"
+          ]
+        },
+        {
+          "covers": [
+            "narrow_join_invalid"
+          ],
+          "binds": "70ddd7d7b2a4088a6f6da265fe6ec72cc40ace0c6eafe13f86e6382c961922b0",
+          "cells": [
+            "narrow_join_invalid",
+            "dispatch_narrow_review",
+            "прежний Lead child закрыт, новый attempt"
+          ]
+        },
+        {
+          "covers": [
+            "review_join_invalid"
+          ],
+          "binds": "8739a70d96cdd03b5ebbdcc52237f4f6289344a4a646c129e1f1f7b333405887",
+          "cells": [
+            "review_join_invalid",
+            "dispatch_review или dispatch_narrow_review",
+            "invalid review child закрыт, новый attempt и сохранён narrow/full mode"
+          ]
+        },
+        {
+          "covers": [
+            "code_verdict_invalid"
+          ],
+          "binds": "b002759ca0e9a315a6c8a361d04be0d3927806d802ed286b10eae67001208964",
+          "cells": [
+            "code_verdict_invalid",
+            "freeze",
+            "старый review binding void, новый candidate/review attempt"
+          ]
+        },
+        {
+          "covers": [
+            "protocol_lock_invalid"
+          ],
+          "binds": "d0df372017055bdbd115d898258ce9ef483d9db116acdd9db742937b47b0789a",
+          "cells": [
+            "protocol_lock_invalid",
+            "repair_protocol_snapshot",
+            "common deterministic step зарегистрирован в Planned, Quick, Ticket, panel/contest/code-review и Arena workflows; exact locked content digest/manifest/attestation доступен для atomic re-mint; иначе reinstall exact bundle либо явная migration с full gates"
+          ]
+        },
+        {
+          "covers": [
+            "arena_reexpression_missing"
+          ],
+          "binds": "26f9c5a4a8a41630e6c0117de5d509defb6ab7c24ffbd81dc2b28b901581ffdc",
+          "cells": [
+            "arena_reexpression_missing",
+            "draft_artifact",
+            "Decision Record/graft list отражены в новых Tech Plan bytes и identity отличается от pre-arena"
+          ]
+        },
+        {
+          "covers": [
+            "correction_event_invalid"
+          ],
+          "binds": "3b4375bf5d8509e2d982b524816e3f58c007a43d25cdc053f29d86e7fe5b04dd",
+          "cells": [
+            "correction_event_invalid",
+            "trusted-client decision, затем `<gate_model_step>`",
+            "append schema-valid superseding event с exact raw id/hash + daemon record ID/hash; parent atomically записывает terminal disposition, продвигает watermark и не редактирует старый comment"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_repair_op_invalid"
+          ],
+          "binds": "a383506d47aec3d883861e6094370b3cc08241804c0f7b10786c0a0852d31177",
+          "cells": [
+            "ticket_repair_op_invalid",
+            "dispatch_ticket_dag for fresh/current/planning/aggregate_unchanged or rebuild_anchor code_only",
+            "exact single op/source/binding required; conflicting op voided without child effects"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_repair_state_invalid"
+          ],
+          "binds": "dbad3b92b28399231006325bdaef28a320d8e7bd13cd222172309cb59b299197",
+          "cells": [
+            "ticket_repair_state_invalid",
+            "recorded source step `dispatch_ticket_dag` или `resume_repaired_tickets`",
+            "daemon-attributed exact repair disposition записана в open op; premature blockers сняты либо invalid Ticket superseded/replaced, phases не понижены"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "blocked_anchor, autosk-planned",
+            "prepare_anchor_impact",
+            "pending_anchor current; step deterministicly stages full map/status/cascade hash без rebuild side effects"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_impact_approval_required"
+          ],
+          "binds": "456b4bd86acbfa72f5fe69984360a888e9ff7387ebdfc0939bfc3b8528d90716",
+          "cells": [
+            "anchor_impact_approval_required",
+            "record_anchor_impact_approval",
+            "signed daemon `UserDecisionRecord` exact staged proposal hash; step atomically records approved status только при unchanged snapshot/watermark"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_impact_invalid"
+          ],
+          "binds": "dee8899837a0a161decc5cd69aeda969619e885f6ff968dc14ae5ff89062f762",
+          "cells": [
+            "anchor_impact_invalid",
+            "prepare_anchor_impact",
+            "malformed/stale proposal сохраняется как evidence; новая полная map вычисляется deterministic step, не пользователем"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_repair_ticket_live"
+          ],
+          "binds": "5e7b7b2bf53e4b90f4b56951071d044005716221e1abb859660881afffbce405",
+          "cells": [
+            "anchor_repair_ticket_live",
+            "rebuild_anchor",
+            "anchor_rebuild_op=null; каждый Ticket expected set, включая claimed-unaffected, завершился в human/done/cancel; status/impact map перечитаны; pending_anchor сохранён; rebuild writes отсутствуют"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_handoff_incomplete"
+          ],
+          "binds": "9aca79374d21c8cb8bb19b28109cfbde11fbc31eeefde8f1bdc3710f7be7ba5d",
+          "cells": [
+            "anchor_handoff_incomplete",
+            "complete_anchor_handoff",
+            "event/receipt hash валидны, Ticket human и exact parent edge ещё active"
+          ]
+        },
+        {
+          "covers": [
+            "waiting_parent_anchor"
+          ],
+          "binds": "85c856f2aacc17751fca2855b32f16ff8d6a8e4edca5718cd08e53a216bbadd1",
+          "cells": [
+            "waiting_parent_anchor с malformed/mismatched event/receipt",
+            "repair_anchor_handoff",
+            "mode=receipt_only переиспользует valid event; mode=supersede_event требует daemon user record и exact raw id/hash; bad immutable record сохраняется"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "blocked_anchor, standalone Quick",
+            "rebuild_code_anchor",
+            "own anchor bump, старые review bindings void, затем verify/freeze/full code review"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "blocked_anchor, Ticket with parent",
+            "rebuild_code_anchor",
+            "propagate pending to parent, suspend blocker with receipt, ждать parent rebuild_anchor"
+          ]
+        },
+        {
+          "covers": [
+            "waiting_parent_anchor"
+          ],
+          "binds": "85c856f2aacc17751fca2855b32f16ff8d6a8e4edca5718cd08e53a216bbadd1",
+          "cells": [
+            "waiting_parent_anchor",
+            "rebuild_code_anchor",
+            "parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt restored"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_resume_pending"
+          ],
+          "binds": "daf8b9bed2d0a5dd3219e2646048f71dd6794302eadfa7a79d01632fa544e4d8",
+          "cells": [
+            "anchor_resume_pending",
+            "rebuild_code_anchor",
+            "exact parent edge active, resume_intent совпадает с op/anchor/receipt/target и child всё ещё human"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_resume_intent_invalid"
+          ],
+          "binds": "9f6858e509b6291ec7bc8cb4104e902fd663f636bda677a7278563fc61e91d9e",
+          "cells": [
+            "anchor_resume_intent_invalid",
+            "rebuild_code_anchor",
+            "bad intent сохранён как evidence; human записал точный replacement intent либо отменил repair operation"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "blocked_anchor, Ticket pending already absorbed by parent",
+            "rebuild_code_anchor",
+            "Ticket anchor=parent, local pending=null, matching parent_rebuild_receipt, no suspended receipt"
+          ]
+        },
+        {
+          "covers": [
+            "implement_provider_unavailable"
+          ],
+          "binds": "3644695f61095ecd731be2cd278b407c5e465c4b9ef851e57707bdcbde9d344a",
+          "cells": [
+            "implement_provider_unavailable",
+            "implement",
+            "exact route снова проходит synthetic smoke; прежняя session продолжается либо explicit replacement записан"
+          ]
+        },
+        {
+          "covers": [
+            "implementation_result_invalid"
+          ],
+          "binds": "af39a2cf643371b1fe745a24035b13a1b23bcac74f48caf446cc1e38d37e4775",
+          "cells": [
+            "implementation_result_invalid",
+            "implement",
+            "invalid result сохранён, attempt+1, completion schema повторно выдана той же logical session"
+          ]
+        },
+        {
+          "covers": [
+            "implementation_scope_invalid"
+          ],
+          "binds": "6a4de8ce3843b61685411bf6938197500986fca969e3f99f2335aa4e3a03f612",
+          "cells": [
+            "implementation_scope_invalid",
+            "implement либо invalidate_quick_classification",
+            "out-of-scope dirt сохранён как evidence; expanded scope повторно классифицирован; Planned-trigger никогда не продолжает Quick"
+          ]
+        },
+        {
+          "covers": [
+            "fix_provider_unavailable",
+            "fix_result_invalid",
+            "fix_scope_invalid"
+          ],
+          "binds": "614884de7b571ef58e14d179f806294cf42b766c33e1822c06a65b66c78bcaf0",
+          "cells": [
+            "fix_provider_unavailable / fix_result_invalid / fix_scope_invalid",
+            "fix",
+            "тот же candidate/findings identity, attempt+1; provider/output/scope evidence исправлены, старый PASS не создаётся"
+          ]
+        },
+        {
+          "covers": [
+            "artifact_fix_provider_unavailable",
+            "artifact_fix_result_invalid",
+            "artifact_fix_scope_invalid"
+          ],
+          "binds": "a70362e7e7929a6d84ff2d9a7349ecc6a9195b4383b1631ac2f714a847296351",
+          "cells": [
+            "artifact_fix_provider_unavailable / artifact_fix_result_invalid / artifact_fix_scope_invalid",
+            "fix_artifact",
+            "тот же artifact candidate/findings identity, attempt+1; invalid bytes остаются non-normative"
+          ]
+        },
+        {
+          "covers": [
+            "artifact_draft_provider_unavailable",
+            "artifact_draft_result_invalid",
+            "artifact_draft_scope_invalid"
+          ],
+          "binds": "da213f6baeb56c0c37de6e923fd623907890939893fa23d476b27a7368afbecb",
+          "cells": [
+            "artifact_draft_provider_unavailable / artifact_draft_result_invalid / artifact_draft_scope_invalid",
+            "draft_artifact",
+            "same proposal/alignment identity, attempt+1; invalid/out-of-scope bytes remain non-normative"
+          ]
+        },
+        {
+          "covers": [
+            "artifact_freeze_invalid"
+          ],
+          "binds": "8178e387b4c33e86fbfa613e465363295f2f258e2ea6a927f9739b8824ba1698",
+          "cells": [
+            "artifact_freeze_invalid",
+            "freeze_artifact",
+            "scope/pathspec/tree re-minted for same current artifact/alignment; no panel child or PASS from failed mint"
+          ]
+        },
+        {
+          "covers": [
+            "verification_environment_failed"
+          ],
+          "binds": "b47e5a54e0e88f3b77ad8d8347c54da00008d73b79d134df6976e20cc34a0848",
+          "cells": [
+            "verification_environment_failed",
+            "verify",
+            "runner/environment восстановлен и candidate identity неизменна"
+          ]
+        },
+        {
+          "covers": [
+            "verification_record_invalid"
+          ],
+          "binds": "5e1b85c7903e906fc490aec3c9650dd3fdf30a608cfef76ed55d83ecafc512e0",
+          "cells": [
+            "verification_record_invalid",
+            "verify",
+            "evidence record пересоздан для той же candidate identity"
+          ]
+        },
+        {
+          "covers": [
+            "verification_cap"
+          ],
+          "binds": "efcf3f03849c181f4eeb3e29ba253cc0f55f27a8262fd44872f415372f18520b",
+          "cells": [
+            "verification_cap",
+            "fix",
+            "новый daemon-attributed cap decision и verification findings сохранены"
+          ]
+        },
+        {
+          "covers": [
+            "freeze_candidate_invalid"
+          ],
+          "binds": "2d80d7a5e277a37e794f0e19ace22e98251cd04e9059f58e993b4504ad42344c",
+          "cells": [
+            "freeze_candidate_invalid",
+            "freeze",
+            "scope/candidate identity повторно mint'ится; stale review binding void"
+          ]
+        },
+        {
+          "covers": [
+            "artifact_pass_invalid"
+          ],
+          "binds": "7f7b11e27ba36e33eafc1b8179982ef72a730e90158526ba31d1ffcce042623c",
+          "cells": [
+            "artifact_pass_invalid",
+            "freeze_artifact",
+            "старые bindings void, attempt+1, сохранённый full/narrow mode"
+          ]
+        },
+        {
+          "covers": [
+            "review_cap"
+          ],
+          "binds": "ef096b934cbcab5afa183b2ca0f6c662f1f441256e8a63fcf37e20b503f12921",
+          "cells": [
+            "review_cap",
+            "fix_artifact для Planned; fix для Quick/Ticket",
+            "новый daemon-attributed cap decision, сохранённые findings и identity"
+          ]
+        },
+        {
+          "covers": [
+            "arena_join_invalid"
+          ],
+          "binds": "56e6026572c1f3d1e76509af815d8dd82ff4975159325d0b8fa5f4642cce464f",
+          "cells": [
+            "arena_join_invalid",
+            "dispatch_arena",
+            "новый arena attempt; старые judgments void"
+          ]
+        },
+        {
+          "covers": [
+            "arena_fallback_required"
+          ],
+          "binds": "15df7bd51890bdc00654e7db5073292f46e995af8e7db92483c226f4e5730f78",
+          "cells": [
+            "arena_fallback_required",
+            "apply_arena_decision",
+            "daemon `UserDecisionRecord` выбрал fallback; review_cycles.tech_plan narrow=false/full required"
+          ]
+        },
+        {
+          "covers": [
+            "arena_contract_invalid"
+          ],
+          "binds": "312f7c55ee8d9574492e88476a0a59c2e826e62f9c1343b48bdfd7322061b4c6",
+          "cells": [
+            "arena_contract_invalid",
+            "fix_artifact",
+            "исправленный autosk-arena block, review_cycles.tech_plan.narrow=false/full_panel_required=true"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_join_invalid"
+          ],
+          "binds": "d95407cc1beb8f364e574beb57cee59c74f41c3dadb3cd3b206165e22dfbe81c",
+          "cells": [
+            "ticket_join_invalid",
+            "dispatch_ticket_dag",
+            "repair map для missing/cancelled/unbound Tickets"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_edge_receipt_lost"
+          ],
+          "binds": "a0073ea2b19b7a7cbca5f3282aeb7e0048087ea12483f69425736d260cc5bad7",
+          "cells": [
+            "ticket_edge_receipt_lost",
+            "dispatch_ticket_dag",
+            "receipt сопоставлен live Ticket или valid superseded_by, старый sandbox учтён"
+          ]
+        },
+        {
+          "covers": [
+            "candidate_changed"
+          ],
+          "binds": "09f73b047567af31394cda2f79ef9ca2f5e36173ff77967f34ba32d0cefebc25",
+          "cells": [
+            "candidate_changed",
+            "fix",
+            "approved findings/identity сохранены, новый candidate attempt"
+          ]
+        },
+        {
+          "covers": [
+            "commit_cas_failed"
+          ],
+          "binds": "48f219ce312293b840d50663a754c35d5e06fb86f08ef56e58b7d800722cfb8f",
+          "cells": [
+            "commit_cas_failed",
+            "commit_on_pass",
+            "ref всё ещё на recorded base, причина lock/storage устранена"
+          ]
+        },
+        {
+          "covers": [
+            "commit_foreign_movement"
+          ],
+          "binds": "72cca9ee3e06eeeeaf00019417866a0d7aaeb7287604db5e3d184f0e7d59248c",
+          "cells": [
+            "commit_foreign_movement",
+            "commit_on_pass",
+            "private branch снова однозначен после расследования; cancel — отдельная status-операция"
+          ]
+        },
+        {
+          "covers": [
+            "aggregate_verify_failed",
+            "aggregate_remediation_required"
+          ],
+          "binds": "6d9092c09b02b16b03720d79fc59ee9ceb2d01ef0cd04f0768118978a3e7213f",
+          "cells": [
+            "aggregate_verify_failed / aggregate_remediation_required",
+            "record_aggregate_remediation",
+            "resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel"
+          ]
+        },
+        {
+          "covers": [
+            "no_external_reviewer"
+          ],
+          "binds": "60d41c6e11d2e36b00a32a89038eaec014640623457cd967d7552773ef0c2e22",
+          "cells": [
+            "no_external_reviewer",
+            "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression",
+            "waiver resume обязательно проходит freeze consumer; режим сохраняется"
+          ]
+        },
+        {
+          "covers": [
+            "no_external_panel_lead"
+          ],
+          "binds": "607b0770a6fecf538a1ce9ca8f3a4c3d93819645c278660816a7143127f3338f",
+          "cells": [
+            "no_external_panel_lead",
+            "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead",
+            "waiver resume обязательно проходит freeze_artifact consumer; full/narrow сохраняется"
+          ]
+        },
+        {
+          "covers": [
+            "cleanup_dirty"
+          ],
+          "binds": "8d245a6df07bd01f64036b9017f712bcb0e36ba3da130e883c3f46c1444f7607",
+          "cells": [
+            "cleanup_dirty",
+            "cleanup",
+            "force=true разрешён явно или состояние сохранено"
+          ]
+        },
+        {
+          "covers": [
+            "integration_authorization_required"
+          ],
+          "binds": "4cef7e13cf0fee5769d9a4952b3366846ad190a7eff9b46f6bee87ac3d9d2ee0",
+          "cells": [
+            "integration_authorization_required",
+            "accept",
+            "новый signed record связывает current target OID, completed-prefix receipt, exact remaining transitions, final tree, relevant authority/dependency/intent bindings и expiry"
+          ]
+        },
+        {
+          "covers": [
+            "integration_obstruction"
+          ],
+          "binds": "215c871d1d9638f688c275c2d3956845dbfa5068527251c49ccd2be47eea586c",
+          "cells": [
+            "integration_obstruction",
+            "integrate",
+            "восстановимое перемещение помехи записано"
+          ]
+        },
+        {
+          "covers": [
+            "integration_precondition"
+          ],
+          "binds": "6121283c5abed7b57ae739d36f05ee54b0c100d09f0c6637061905be0eaef0d6",
+          "cells": [
+            "integration_precondition",
+            "integrate",
+            "нарушенное предусловие устранено, base/tree повторно записаны и доказательство приложено"
+          ]
+        },
+        {
+          "covers": [
+            "foreign_movement"
+          ],
+          "binds": "e6382e3f1828ee2d9e703792510d4eb56ea0c55721c6f1212297c59f3a12bf66",
+          "cells": [
+            "foreign_movement / indeterminate",
+            "integration_recovery",
+            "обычный retry запрещён; cancel — отдельная status-операция, не workflow step"
+          ]
+        }
+      ],
+      "coverage": "complete"
+    },
+    {
+      "id": "core_flows_resume",
+      "renders_into": "01-core-flows.md",
+      "header": "| Причина | Реальный workflow step | Обязательное состояние |",
+      "rule": "| --- | --- | --- |",
+      "coverage": "partial",
+      "omits": [
+        "anchor_handoff_incomplete",
+        "anchor_resume_intent_invalid",
+        "arena_candidate_failed",
+        "arena_candidate_freeze_invalid",
+        "arena_candidate_verify_failed",
+        "arena_reexpression_missing",
+        "artifact_draft_provider_unavailable",
+        "artifact_draft_result_invalid",
+        "artifact_draft_scope_invalid",
+        "artifact_fix_provider_unavailable",
+        "artifact_fix_result_invalid",
+        "artifact_fix_scope_invalid",
+        "artifact_freeze_invalid",
+        "artifact_mapping_required",
+        "authority_journal_truncated",
+        "child_creation_key_invalid",
+        "correction_event_invalid",
+        "fix_provider_unavailable",
+        "fix_result_invalid",
+        "fix_scope_invalid",
+        "freeze_candidate_invalid",
+        "gate_provider_unavailable",
+        "gate_result_invalid",
+        "gate_result_missing",
+        "gate_snapshot_mutated",
+        "implement_provider_unavailable",
+        "implementation_result_invalid",
+        "implementation_scope_invalid",
+        "project_boundary_invalid",
+        "protocol_lock_invalid",
+        "review_waiver_invalid",
+        "verification_cap",
+        "verification_environment_failed",
+        "verification_record_invalid"
+      ],
+      "rows": [
+        {
+          "covers": [
+            "brief_alignment_required"
+          ],
+          "binds": "220e6a93908c5cc6d2633f824815997242137c4a6b100609246531910562f8dd",
+          "cells": [
+            "Brief framing не согласован",
+            "record_alignment",
+            "полный daemon `UserDecisionRecord` framing; policy не подходит: §2 запрещает ей утверждать product framing Brief"
+          ]
+        },
+        {
+          "covers": [
+            "core_flow_decision_required"
+          ],
+          "binds": "f325f9799511a17841e7b09d2e8f2e7f2cba6a580e5a66d3ab84d64ea2cd0cb4",
+          "cells": [
+            "Core Flow содержит открытое решение поведения",
+            "record_alignment",
+            "daemon record закрыл каждое material решение; model self-approval запрещён"
+          ]
+        },
+        {
+          "covers": [
+            "tech_plan_readiness_required"
+          ],
+          "binds": "e53dee285dd329679ff820589db90145c3a41b205f21247b8731858e6aa8fcf7",
+          "cells": [
+            "Tech Plan не готов из-за open question или silent inference",
+            "record_alignment",
+            "readiness/classifier proof подтверждены daemon record либо current exact policy"
+          ]
+        },
+        {
+          "covers": [
+            "tickets_breakdown_alignment_required"
+          ],
+          "binds": "fa0a4dc8c8e68131f8517820bc5a1218b939a79e277513d66c0fd34519d575f2",
+          "cells": [
+            "Ticket breakdown не согласован",
+            "record_alignment",
+            "показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает"
+          ]
+        },
+        {
+          "covers": [
+            "alignment_policy_out_of_scope"
+          ],
+          "binds": "78efacb96a8ca070a498ced3121d74a251f06302c54142fe85958552babf7173",
+          "cells": [
+            "Alignment policy не покрывает решение",
+            "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets",
+            "trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection"
+          ]
+        },
+        {
+          "covers": [
+            "alignment_record_stale"
+          ],
+          "binds": "8ac8fbc5bc88a6a9eefcdaef4148aae9ef801735b9dde3a97cdee667e148021b",
+          "cells": [
+            "Alignment record устарел",
+            "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets",
+            "новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes"
+          ]
+        },
+        {
+          "covers": [
+            "tickets_manifest_invalid"
+          ],
+          "binds": "059d78b1a57e9291192b57de785e72fbf39b153a533dfc3d20247298b82f1c01",
+          "cells": [
+            "tickets_manifest_invalid",
+            "present_tickets_breakdown до freeze и после publication",
+            "old Tickets candidate/receipt/PASS bindings voided and retained when present; corrected manifest/views проходят новый alignment, validation, freeze, full Panel и replacement publication до dispatch_ticket_dag; child/blocker/enrollment side effects до этого отсутствуют"
+          ]
+        },
+        {
+          "covers": [
+            "tickets_manifest_stale"
+          ],
+          "binds": "af5c46b67a45ff381979edda6960d7ae280d9b0af7b67c048226f1096f895500",
+          "cells": [
+            "tickets_manifest_stale",
+            "owning recovery step, затем present_tickets_breakdown",
+            "protocol/runtime/project-instruction lock drift сначала проходит repair_protocol_snapshot, а другой stale binding — его recorded owning repair; old Tickets candidate/receipt/PASS records voided and retained; затем present_tickets_breakdown -> record_alignment -> validate_tickets_manifest создаёт fresh identity-bound proof, freeze создаёт новый immutable receipt, full Panel и replacement publication завершаются до dispatch"
+          ]
+        },
+        {
+          "covers": [
+            "planning_ref_init_invalid"
+          ],
+          "binds": "772ae052fd1557fd6f058dd0815a8cb57f0e59f4c89b7e8fcf1372c62c2b130a",
+          "cells": [
+            "planning_ref_init_invalid",
+            "init_planning_ref",
+            "corruption with otherwise valid base restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and a fresh init operation while preserving prior audit evidence; no adopt/reset"
+          ]
+        },
+        {
+          "covers": [
+            "planning_ref_capability_missing"
+          ],
+          "binds": "04518340d6d2a23b246293e6170bb1b17d5fb250648841939a3c88c66b89bc20",
+          "cells": [
+            "planning_ref_capability_missing",
+            "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
+            "pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged"
+          ]
+        },
+        {
+          "covers": [
+            "planning_ref_foreign_movement"
+          ],
+          "binds": "68276a5054cec973fc00d88721e3bd1990ba0f5fbcb78dabe4fa1db65f9784fe",
+          "cells": [
+            "planning_ref_foreign_movement",
+            "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
+            "exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation"
+          ]
+        },
+        {
+          "covers": [
+            "planning_candidate_keepalive_invalid"
+          ],
+          "binds": "36266929ada654ec0cc7e0ab09e495c9a2e5f57732e620563014f3889bebd6b1",
+          "cells": [
+            "planning_candidate_keepalive_invalid",
+            "freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state",
+            "exact candidate keepalive ref/create or audit/release receipt and complete object closure restored or candidate explicitly superseded; cleanup and publication remain blocked until namespace inventory matches metadata/history"
+          ]
+        },
+        {
+          "covers": [
+            "planning_candidate_base_stale"
+          ],
+          "binds": "0532099c8b216c605011be94164f91ac2a156de984579510a4c5f131b6941579",
+          "cells": [
+            "planning_candidate_base_stale",
+            "draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets",
+            "stale candidate/verdict absent or void; author base re-minted from current verified planning head"
+          ]
+        },
+        {
+          "covers": [
+            "planning_publication_invalid"
+          ],
+          "binds": "e52396886cbe70e81cc6f857ef5fdf97a00579fadeb6e5d050b6e35b86971c0b",
+          "cells": [
+            "planning_publication_invalid",
+            "record_artifact_pass or rebuild_anchor recorded pre-failure step",
+            "no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human"
+          ]
+        },
+        {
+          "covers": [
+            "planning_publication_corrupt"
+          ],
+          "binds": "8e6af989afa4c3269d1ca581e11d1a6e84543bbe6a1080f42eaf8335b53f1269",
+          "cells": [
+            "planning_publication_corrupt",
+            "publish_artifact_pass or publish_planning_invalidation recorded operation kind",
+            "committed recipe/receipt restored, or missing pre-CAS object rewritten from exact persisted bytes with unchanged checkpoint"
+          ]
+        },
+        {
+          "covers": [
+            "planning_signing_unavailable"
+          ],
+          "binds": "526331efe53a063db3331b89eb925898d64d98a99c99891091c4c9c28b24fde3",
+          "cells": [
+            "planning_signing_unavailable",
+            "record_artifact_pass",
+            "trusted signer produced exact replayable signature bytes under current locked policy before PASS/operation/object/ref side effects"
+          ]
+        },
+        {
+          "covers": [
+            "quick_classification_invalid"
+          ],
+          "binds": "dcfa8ac1219ca4715e9d1677ba6a62e9b1eea0e936fcab567870ac8ddc8a351a",
+          "cells": [
+            "Quick classification invalid, Planned handoff не завершён",
+            "invalidate_quick_classification",
+            "schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена"
+          ]
+        },
+        {
+          "covers": [],
+          "binds": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "cells": [
+            "Недоступная panel child",
+            "review_artifact",
+            "тот же route, новый attempt; parent остаётся blocked"
+          ]
+        },
+        {
+          "covers": [],
+          "binds": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "cells": [
+            "Недоступная code-review child",
+            "review_candidate",
+            "тот же route, новый attempt; parent остаётся blocked"
+          ]
+        },
+        {
+          "covers": [
+            "panel_join_invalid"
+          ],
+          "binds": "30e7589d7525677ad0e4d852c4c808f9c93fbe0a809359bc23bd8ec0003edba2",
+          "cells": [
+            "Invalid/cancelled panel child",
+            "dispatch_panel",
+            "invalid child IDs, attempt+1"
+          ]
+        },
+        {
+          "covers": [
+            "panel_waiver_required"
+          ],
+          "binds": "5641cc88144add47aa23638c72c7ca33bd6180c5f88cb4d674130a49e5d171e5",
+          "cells": [
+            "Сокращённая панель",
+            "dispatch_panel или panel_join",
+            "retry отсутствующего route либо waiver с artifact identity и фактическим roster"
+          ]
+        },
+        {
+          "covers": [
+            "contest_join_invalid"
+          ],
+          "binds": "08bd18d46ea8e2f0f84f0a0b4d9de3d8688b16c2e99966f9ede7a20098603952",
+          "cells": [
+            "Invalid contest disposition",
+            "dispatch_contest",
+            "invalid child IDs, attempt+1"
+          ]
+        },
+        {
+          "covers": [
+            "narrow_join_invalid"
+          ],
+          "binds": "70ddd7d7b2a4088a6f6da265fe6ec72cc40ace0c6eafe13f86e6382c961922b0",
+          "cells": [
+            "Invalid narrow-review child",
+            "dispatch_narrow_review",
+            "новый Lead child и attempt"
+          ]
+        },
+        {
+          "covers": [
+            "review_join_invalid"
+          ],
+          "binds": "8739a70d96cdd03b5ebbdcc52237f4f6289344a4a646c129e1f1f7b333405887",
+          "cells": [
+            "Invalid code-review child",
+            "dispatch_review или dispatch_narrow_review",
+            "новый review child, сохранённый режим и attempt"
+          ]
+        },
+        {
+          "covers": [
+            "code_verdict_invalid"
+          ],
+          "binds": "b002759ca0e9a315a6c8a361d04be0d3927806d802ed286b10eae67001208964",
+          "cells": [
+            "Code verdict revalidation failed",
+            "freeze",
+            "старый review binding void, новый candidate/review attempt"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "BLOCKED_ANCHOR, Planned",
+            "prepare_anchor_impact",
+            "deterministic step строит/stages full map + status/cascade hashes без side effects"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_impact_approval_required"
+          ],
+          "binds": "456b4bd86acbfa72f5fe69984360a888e9ff7387ebdfc0939bfc3b8528d90716",
+          "cells": [
+            "Anchor impact ждёт approval",
+            "record_anchor_impact_approval",
+            "daemon `UserDecisionRecord` подписал exact staged proposal; step record'ит approved только при unchanged status/watermark"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_impact_invalid"
+          ],
+          "binds": "dee8899837a0a161decc5cd69aeda969619e885f6ff968dc14ae5ff89062f762",
+          "cells": [
+            "Invalid/stale anchor impact map",
+            "prepare_anchor_impact",
+            "новая карта вычисляется step; пользователь не hand-author'ит dispositions"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "BLOCKED_ANCHOR, standalone Quick",
+            "rebuild_code_anchor",
+            "own anchor bump, затем verify/freeze/full review"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "BLOCKED_ANCHOR, Ticket with parent",
+            "rebuild_code_anchor",
+            "propagate pending в parent, suspend blocker с receipt, ждать parent rebuild_anchor"
+          ]
+        },
+        {
+          "covers": [
+            "waiting_parent_anchor"
+          ],
+          "binds": "85c856f2aacc17751fca2855b32f16ff8d6a8e4edca5718cd08e53a216bbadd1",
+          "cells": [
+            "Waiting for parent anchor",
+            "rebuild_code_anchor",
+            "parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_resume_pending"
+          ],
+          "binds": "daf8b9bed2d0a5dd3219e2646048f71dd6794302eadfa7a79d01632fa544e4d8",
+          "cells": [
+            "Anchor resume pending",
+            "rebuild_code_anchor",
+            "exact parent edge active; pending resume_intent совпадает с op/anchor/receipt/target и child остаётся human"
+          ]
+        },
+        {
+          "covers": [
+            "blocked_anchor"
+          ],
+          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "cells": [
+            "Parent absorbed live Ticket anchor before suspension",
+            "rebuild_code_anchor",
+            "Ticket anchor=parent, local pending=null, matching parent_rebuild_receipt, active blocker edge добавлен"
+          ]
+        },
+        {
+          "covers": [],
+          "binds": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "cells": [
+            "Affected done/cancel/new/missing Ticket, code-only repair",
+            "rebuild_anchor",
+            "consume correction events; old task исключить, superseded_by записать, replacement только создать/configure; после resume human Tickets следующий step enroll'ит replacement и ставит blockers"
+          ]
+        },
+        {
+          "covers": [],
+          "binds": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "cells": [
+            "Affected done/cancel/new/missing Ticket, planning repair",
+            "dispatch_ticket_dag",
+            "создать отдельную ticket_repair_op и подготовить replacements без enroll/blockers; затем resume human Tickets, после чего enroll/block replacements"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_repair_op_invalid",
+            "ticket_repair_state_invalid"
+          ],
+          "binds": "b20498dff3322b6b2609a0dee404534ac1d272aff90523e84ae0fdccee0399ad",
+          "cells": [
+            "Invalid/open duplicate Ticket repair operation",
+            "dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind",
+            "human выбирает одну exact op; premature blockers сняты, immutable phases не понижены"
+          ]
+        },
+        {
+          "covers": [
+            "anchor_repair_ticket_live"
+          ],
+          "binds": "5e7b7b2bf53e4b90f4b56951071d044005716221e1abb859660881afffbce405",
+          "cells": [
+            "Любой expected work Ticket, включая claimed-unaffected (anchor_repair_ticket_live)",
+            "rebuild_anchor после завершения live run",
+            "все expected Tickets human/terminal; status/impact перечитаны; pending_anchor сохранён; parent metadata write/cancel live Ticket запрещены"
+          ]
+        },
+        {
+          "covers": [
+            "artifact_pass_invalid"
+          ],
+          "binds": "7f7b11e27ba36e33eafc1b8179982ef72a730e90158526ba31d1ffcce042623c",
+          "cells": [
+            "Artifact PASS revalidation failed",
+            "freeze_artifact",
+            "старые bindings void, attempt+1, сохранённый full/narrow mode"
+          ]
+        },
+        {
+          "covers": [
+            "review_cap"
+          ],
+          "binds": "ef096b934cbcab5afa183b2ca0f6c662f1f441256e8a63fcf37e20b503f12921",
+          "cells": [
+            "Лимит review",
+            "fix_artifact для Planned; fix для Quick/Ticket",
+            "новый daemon-attributed cap decision, сохранённые findings и identity"
+          ]
+        },
+        {
+          "covers": [
+            "arena_join_invalid"
+          ],
+          "binds": "56e6026572c1f3d1e76509af815d8dd82ff4975159325d0b8fa5f4642cce464f",
+          "cells": [
+            "Invalid Arena/Judge",
+            "dispatch_arena",
+            "новый arena attempt"
+          ]
+        },
+        {
+          "covers": [
+            "arena_fallback_required"
+          ],
+          "binds": "15df7bd51890bdc00654e7db5073292f46e995af8e7db92483c226f4e5730f78",
+          "cells": [
+            "Arena fallback",
+            "apply_arena_decision",
+            "пользователь выбрал fallback; следующая панель полная"
+          ]
+        },
+        {
+          "covers": [
+            "arena_contract_invalid"
+          ],
+          "binds": "312f7c55ee8d9574492e88476a0a59c2e826e62f9c1343b48bdfd7322061b4c6",
+          "cells": [
+            "Invalid autosk-arena block",
+            "fix_artifact",
+            "исправленный block, narrow=false и новая полная panel"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_join_invalid"
+          ],
+          "binds": "d95407cc1beb8f364e574beb57cee59c74f41c3dadb3cd3b206165e22dfbe81c",
+          "cells": [
+            "Invalid Ticket set execution",
+            "dispatch_ticket_dag",
+            "repair map для конкретных Tickets"
+          ]
+        },
+        {
+          "covers": [
+            "ticket_edge_receipt_lost"
+          ],
+          "binds": "a0073ea2b19b7a7cbca5f3282aeb7e0048087ea12483f69425736d260cc5bad7",
+          "cells": [
+            "Lost suspended Ticket receipt",
+            "dispatch_ticket_dag",
+            "receipt сопоставлен live Ticket или valid superseded_by, старый sandbox учтён"
+          ]
+        },
+        {
+          "covers": [
+            "candidate_changed"
+          ],
+          "binds": "09f73b047567af31394cda2f79ef9ca2f5e36173ff77967f34ba32d0cefebc25",
+          "cells": [
+            "Candidate changed before commit",
+            "fix",
+            "approved findings/identity сохранены, новый candidate attempt"
+          ]
+        },
+        {
+          "covers": [
+            "commit_cas_failed"
+          ],
+          "binds": "48f219ce312293b840d50663a754c35d5e06fb86f08ef56e58b7d800722cfb8f",
+          "cells": [
+            "Commit CAS failed without movement",
+            "commit_on_pass",
+            "ref всё ещё на recorded base, причина lock/storage устранена"
+          ]
+        },
+        {
+          "covers": [
+            "commit_foreign_movement"
+          ],
+          "binds": "72cca9ee3e06eeeeaf00019417866a0d7aaeb7287604db5e3d184f0e7d59248c",
+          "cells": [
+            "Private ticket branch moved",
+            "commit_on_pass",
+            "branch снова однозначен после расследования; cancel — отдельная status-операция"
+          ]
+        },
+        {
+          "covers": [
+            "aggregate_verify_failed",
+            "aggregate_remediation_required"
+          ],
+          "binds": "6d9092c09b02b16b03720d79fc59ee9ceb2d01ef0cd04f0768118978a3e7213f",
+          "cells": [
+            "Aggregate verification failed",
+            "record_aggregate_remediation",
+            "external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel"
+          ]
+        },
+        {
+          "covers": [
+            "no_external_reviewer"
+          ],
+          "binds": "60d41c6e11d2e36b00a32a89038eaec014640623457cd967d7552773ef0c2e22",
+          "cells": [
+            "Нет внешней code-review family",
+            "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression",
+            "recovery возвращается к реальному waiver consumer, режим сохраняется"
+          ]
+        },
+        {
+          "covers": [
+            "no_external_panel_lead"
+          ],
+          "binds": "607b0770a6fecf538a1ce9ca8f3a4c3d93819645c278660816a7143127f3338f",
+          "cells": [
+            "Нет внешней panel Lead family",
+            "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead",
+            "recovery возвращается к waiver consumer, full/narrow сохраняется"
+          ]
+        },
+        {
+          "covers": [
+            "cleanup_dirty"
+          ],
+          "binds": "8d245a6df07bd01f64036b9017f712bcb0e36ba3da130e883c3f46c1444f7607",
+          "cells": [
+            "Dirty cleanup",
+            "cleanup",
+            "явное force-разрешение либо сохранённое восстановимое состояние"
+          ]
+        },
+        {
+          "covers": [
+            "integration_authorization_required"
+          ],
+          "binds": "4cef7e13cf0fee5769d9a4952b3366846ad190a7eff9b46f6bee87ac3d9d2ee0",
+          "cells": [
+            "Integration authorization missing/expired",
+            "accept",
+            "pending CAS receipt сначала resolved; новый signed record связывает current target, completed prefix, remaining transitions, final tree и current heads"
+          ]
+        },
+        {
+          "covers": [
+            "integration_obstruction"
+          ],
+          "binds": "215c871d1d9638f688c275c2d3956845dbfa5068527251c49ccd2be47eea586c",
+          "cells": [
+            "Integration obstruction",
+            "integrate",
+            "помеха перемещена восстанавливаемо и записано доказательство"
+          ]
+        },
+        {
+          "covers": [
+            "integration_precondition"
+          ],
+          "binds": "6121283c5abed7b57ae739d36f05ee54b0c100d09f0c6637061905be0eaef0d6",
+          "cells": [
+            "Integration precondition",
+            "integrate",
+            "предусловие устранено, base/tree повторно записаны и доказательство приложено"
+          ]
+        },
+        {
+          "covers": [
+            "foreign_movement"
+          ],
+          "binds": "e6382e3f1828ee2d9e703792510d4eb56ea0c55721c6f1212297c59f3a12bf66",
+          "cells": [
+            "Foreign movement / indeterminate",
+            "integration_recovery",
+            "явное решение после расследования; cancel выполняется отдельной status-операцией, обычный retry запрещён"
+          ]
+        }
+      ]
+    }
+  ],
+  "canonical_digest": "2e7e6b62603d8944c1eaa54bcb9d3b570ef2d878ea7340def7e9c9931cf362d1"
 }
