@@ -90,6 +90,22 @@
       "occurrences": 1
     },
     {
+      "id": "definition_carries_document_digest",
+      "requires": "a workflow definition can carry the digest of the graph document it was built from",
+      "why": "The declared shape covers steps and hook names and can cover nothing else: a transition, a guard, a cap and a resume target have no place in a declaration. Without this field the four components criterion 2 names are unreachable from the identity a task is pinned to, however faithfully the document declares them.",
+      "introduced_by": "patches/0032-graph-document-in-shape.patch",
+      "added_line": "  graphDigest?: string;",
+      "occurrences": 1
+    },
+    {
+      "id": "document_digest_in_shape",
+      "requires": "the canonical shape serialises that digest, and serialises its absence too",
+      "why": "Carrying the field without serialising it would leave the four components as far outside the identity as before. Writing a marker for absence is what makes adding the field to a workflow that had no document a change of shape rather than a silent no-op.",
+      "introduced_by": "patches/0032-graph-document-in-shape.patch",
+      "added_line": "    `graph ${wf.graphDigest === undefined ? \"-\" : b64(wf.graphDigest)}`,",
+      "occurrences": 1
+    },
+    {
       "id": "canonical_sorts_steps",
       "requires": "the canonical serialization sorts the steps",
       "why": "Step order carries no meaning to the engine, and `Object.entries` would not report the author's order for integer-like names in any case. Without the sort the digest would promise an order it cannot keep, holding for `intake`/`review` and quietly failing for `1`/`2`.",
@@ -98,5 +114,5 @@
       "occurrences": 1
     }
   ],
-  "lock_digest": "ab15e3859e1de7dbb015ae71a3ccffc0e80347584ef580fb65db499b4591c94e"
+  "lock_digest": "e5d3c39e4d1489acda3ea2bde951fb7712a90b3fa1933368b330a67b04a4683e"
 }

@@ -16,7 +16,9 @@ What was missing is on this side. Nothing in this repository noticed if a later 
 
 This contract does not define the lock, the engine, or the refusal. Those are the patch series, and the manifest already pins their bytes.
 
-It also does not claim the lock satisfies criterion 2 of issue #10. The shape digest covers the steps a workflow declared and the agent hooks each step has, and patch `0005` says so in as many words: transitions, guards, caps and recovery targets are not in it. The document that does cover all five is `resources/workflow-graph/workflow-graph.v1.json`, and nothing reads it at runtime until the factory of slice 5. Until then this contract checks that what exists keeps existing, and says plainly that it is two of the five.
+It also does not claim the lock satisfies criterion 2 of issue #10. What a declaration can express is the steps a workflow declared and the agent hooks each step has, and patch `0005` says so in as many words: transitions, guards, caps and recovery targets are not in it.
+
+Patch `0032` closes the gap without widening the declaration: a definition may carry the digest of the graph document it was built from, and the canonical shape serialises that digest and serialises its absence too. So the other three components reach the pinned identity through one field rather than through the declaration, and they reach it only for a workflow that was in fact built from the document — `docs/contracts/workflow-factory.md` is where that link is specified and `test/runtime-workflow-factory.test.mjs` is where it is checked. Two of these fourteen requirements hold that field in place; none of them proves any particular workflow used it.
 
 ## 3. How the check is anchored
 
@@ -45,6 +47,8 @@ Two consequences are deliberate. A requirement can be met by a line inside a com
 | `absent_shape_is_not_covered` | A pin carrying no shape where the registry has one is refused rather than treated as covered. |
 | `shape_digest_declared` | The declared shape has a digest of its own. |
 | `shape_digest_is_canonical` | The shape digest is computed from the canonical serialization, not merely alongside a function that could produce one. |
+| `definition_carries_document_digest` | A workflow definition can carry the digest of the graph document it was built from. |
+| `document_digest_in_shape` | The canonical shape serialises that digest, and serialises its absence too. |
 | `canonical_sorts_steps` | The canonical serialization sorts the steps. |
 
 Each carries, in the resource, what goes wrong when it stops holding. A requirement whose cost nobody can state is one nobody will defend when it becomes inconvenient.
@@ -67,6 +71,8 @@ graph_digest_compared	1	  if (current.graph !== pinned.pin.graph) {
 absent_shape_is_not_covered	1	  if (pinned.pin.graph === undefined) {
 shape_digest_declared	1	export function workflowGraphDigest(wf: WorkflowDefinition): string {
 shape_digest_is_canonical	1	  return createHash("sha256").update(canonicalWorkflowGraph(wf), "utf8").digest("hex");
+definition_carries_document_digest	1	  graphDigest?: string;
+document_digest_in_shape	1	    `graph ${wf.graphDigest === undefined ? "-" : b64(wf.graphDigest)}`,
 canonical_sorts_steps	1	  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
 ```
 
@@ -82,4 +88,4 @@ Closed set: `lock_digest_stale`, `lock_duplicate_id`, `lock_not_json`, `lock_pat
 
 That the code is correct, that the upstream tests pass, or that the lock covers what criterion 2 asks. Correctness of the patched engine is proven by the upstream suite, which the compatibility workflow runs on every pull request; `daemon/core/test/engine.runtime-identity.test.ts` is where a reader should look for it.
 
-A green result here means the series still carries the ten properties above. It means nothing else, and reading it as more would be the failure this contract exists to prevent one level up.
+A green result here means the series still carries every property in the table above — the count is whatever that table holds, and the validator prints it. The earlier writing of this sentence said "ten" while the table held twelve, which is the same habit this slice was about: a number in the shape of a measurement, kept by hand beside the thing it counts. It means nothing else, and reading it as more would be the failure this contract exists to prevent one level up.

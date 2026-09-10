@@ -1,0 +1,71 @@
+diff --git a/daemon/core/src/extensions/graph.ts b/daemon/core/src/extensions/graph.ts
+index fb90ee0..c6278c2 100644
+--- a/daemon/core/src/extensions/graph.ts
++++ b/daemon/core/src/extensions/graph.ts
+@@ -47,6 +47,13 @@ export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {
+     `workflow ${b64(wf.name)}`,
+     `first ${b64(wf.firstStep)}`,
+     `ontransit ${typeof wf.onTransit === "function" ? "1" : "0"}`,
++    // A workflow built from a declarative graph document carries that document's
++    // digest, and it belongs in the shape because it is the only way the four
++    // components a declaration cannot express — transitions, guards, caps and
++    // resume targets — reach the identity a task is pinned to. A hand-written
++    // workflow has none and its line says so, so adding the field to a workflow
++    // that had no document is itself a change of shape.
++    `graph ${wf.graphDigest === undefined ? "-" : b64(wf.graphDigest)}`,
+   ];
+   const steps = Object.entries(wf.steps).sort(([a], [b]) =>
+     Buffer.compare(Buffer.from(a, "utf16le"), Buffer.from(b, "utf16le")),
+diff --git a/daemon/core/test/extensions.graph.test.ts b/daemon/core/test/extensions.graph.test.ts
+index 87e6202..2c4d9a8 100644
+--- a/daemon/core/test/extensions.graph.test.ts
++++ b/daemon/core/test/extensions.graph.test.ts
+@@ -88,6 +88,27 @@ describe("workflow graph digest", () => {
+     expect(workflowGraphDigest(lone)).not.toBe(workflowGraphDigest(replacement));
+   });
+ 
++  test("a graph document's digest is part of the shape, and its absence is too", () => {
++    // The declared shape covers steps and hooks and cannot cover a transition, a
++    // guard, a cap or a resume target. A workflow built from a declarative graph
++    // document carries that document's digest, which is how those four reach the
++    // identity a task is pinned to (issue #10, criterion 2).
++    const base = workflowGraphDigest(wf());
++    const withDoc = workflowGraphDigest({ ...wf(), graphDigest: "a".repeat(64) });
++    expect(withDoc).not.toBe(base);
++
++    // A different document is a different workflow, however identical the steps.
++    const other = workflowGraphDigest({ ...wf(), graphDigest: "b".repeat(64) });
++    expect(other).not.toBe(withDoc);
++
++    // And the same document twice is the same shape.
++    expect(workflowGraphDigest({ ...wf(), graphDigest: "a".repeat(64) })).toBe(withDoc);
++
++    // An explicit undefined is the same as having none: a workflow written by
++    // hand is covered exactly as it was before this field existed.
++    expect(workflowGraphDigest({ ...wf(), graphDigest: undefined })).toBe(base);
++  });
++
+   test("the description is not part of the shape", () => {
+     // It changes nothing the engine drives, and moving the digest for it would
+     // park tasks over an edited sentence.
+diff --git a/daemon/sdk/src/workflow.ts b/daemon/sdk/src/workflow.ts
+index 23b9d6b..fd404d2 100644
+--- a/daemon/sdk/src/workflow.ts
++++ b/daemon/sdk/src/workflow.ts
+@@ -82,4 +82,16 @@ export interface WorkflowDefinition {
+   /** Step name → definition. */
+   steps: Record<string, StepDef>;
+   onTransit?(ctx: TransitContext, to: StepTarget): void | Promise<void>;
++  /**
++   * The digest of the declarative graph document this workflow was built from,
++   * when it was built from one (issue #10, criterion 2).
++   *
++   * The declared shape covers the steps and the hooks each one has, and that is
++   * all it can cover: a transition, a guard, a cap and a resume target have no
++   * place in a declaration. A workflow assembled from a document carries the
++   * document's digest here, so the identity the engine pins covers the four
++   * components the shape cannot reach. A workflow written by hand omits it and
++   * is covered exactly as before.
++   */
++  graphDigest?: string;
+ }

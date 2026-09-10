@@ -24,7 +24,11 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "c9fa1515f8b560bae7f507e1e5465e1e717ce30622ce448522701908943a3bf3"
+      "sha256": "1caf90dcc92fa7d5240224c6cc605e81118af96909efdea2fc153579b77c92ff"
+    },
+    {
+      "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
+      "sha256": "28cdf414fadb563d6911eacfca71b5bd0e4c970b67cb6ea61ecc896139fee195"
     },
     {
       "path": "docs/contracts/approved-delta.md",
@@ -152,7 +156,7 @@
     },
     {
       "path": "docs/contracts/runtime-identity-lock.md",
-      "sha256": "6de8123a10033b0a8865b11a3b09bafaa8e30cb854c851a0879a0aead224cc2a"
+      "sha256": "f9c1512a506c8a5fb53041fefabd251e18ea13d49b236e7be6f5622dc632f514"
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
@@ -183,8 +187,12 @@
       "sha256": "826328a122d924e2b8371b5c99de029a5cf26080f960f0c4e624ec290682ec72"
     },
     {
+      "path": "docs/contracts/workflow-factory.md",
+      "sha256": "1f1133e4783bb9bef1f92fcbae5b04ccaa849f6af13a33121897043ce6c50497"
+    },
+    {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "740e6eee95065188e654c127422cb07b6e43366daacf98d9a2ad5df0b9c98a62"
+      "sha256": "9611e04b8325fe0db7d7c245309ce9cd8abea8f11f05fdb86b6121c1aaf8648d"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -208,7 +216,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "89db9336ff1ecd3d404a93647c581fe21088f27b26890fe02e01cecf8005602d"
+      "sha256": "e0aecda19e763d2dd172699f61dce074216d55b6762424e4faa427d573512958"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -324,7 +332,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "b300008d81e25e45dba03faad92542c02141836e8b7ad33a4de91d09addf3778"
+      "sha256": "1af390c5dd4cfb68bc14c7c8d8135c7ecf587e6ccd7ab643c8bb32c9180e8b65"
     },
     {
       "path": "resources/planning-publication/audit-candidate-housekeeping-operation.schema.json",
@@ -499,7 +507,7 @@
       "sha256": "bbed49fd84156a8ade7e2ba7b3f46dcb3b2a98e6ff3778fc391a77c6b0898e0a"
     }
   ],
-  "candidate_digest": "7269881070dc67fac0f8132096fc63394159a861a75e5fd3cd0fa705b25f0d30",
+  "candidate_digest": "9fbb8ccd81dc40425c012a479a7fd79c2daa3616263c0d66a6ed765d1ccecc61",
   "dispositions": [
     {
       "issue": 3,

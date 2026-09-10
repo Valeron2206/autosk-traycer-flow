@@ -397,6 +397,7 @@
         "docs/contracts/verify-doc.md",
         "docs/contracts/walkthrough.md",
         "docs/contracts/work-type-gates.md",
+        "docs/contracts/workflow-factory.md",
         "docs/contracts/workflow-graph.md"
       ],
       "review": {
@@ -2017,5 +2018,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "2943078de580c90b877f9dd689458e7126bc369b4f9b8e5e9fe4a0d151852ea1"
+  "registry_digest": "3e31bf8dd2427bf0c53c1048b800e66b23a446feaca3c4b60eeee7ff95cdb41f"
 }
