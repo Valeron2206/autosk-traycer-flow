@@ -788,10 +788,22 @@ test("an exit taken from a chain names the workflow whose chain draws it", () =>
     [],
     "every chain-derived exit states which workflow's chain draws it",
   );
-  assert.equal(
-    new Set(named.map((entry) => entry.workflow)).size,
-    named.length,
-    `the exits must not share a workflow: ${named.map((e) => `${e.to}=${e.workflow}`).join(", ")}`,
+
+  // Distinct workflow strings are not the property that matters. Two registered
+  // workflows draw `emit_blocked_anchor -> validate_verdict`, and a chain reader
+  // keyed on the pair alone kept only the later one — so autosk-code-review had
+  // no exit from this step at all while the graph still looked consistent. What
+  // must hold is that every workflow/destination pair section 2 draws is present.
+  assert.deepEqual(
+    named.map((entry) => `${entry.workflow} -> ${entry.to}`).sort(),
+    [
+      "autosk-arena-candidate -> done",
+      "autosk-arena-judge -> validate_judgment",
+      "autosk-code-review -> validate_verdict",
+      "autosk-contest-seat -> validate_disposition",
+      "autosk-panel-seat -> validate_verdict",
+    ],
+    "section 2 draws one exit per registered workflow whose chain leaves this step",
   );
 });
 

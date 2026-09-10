@@ -3118,10 +3118,18 @@
         "workflow",
         "task_record"
       ],
-      "description": "Section 2's tables declare no exit from emit_blocked_anchor; the chain for registered workflow autosk-panel-seat draws this one and states no further condition."
+      "description": "Section 2's tables declare no exit from emit_blocked_anchor; the chain for registered workflow autosk-code-review draws this one and states no further condition."
     },
     {
       "id": "cond_401",
+      "reads": [
+        "workflow",
+        "task_record"
+      ],
+      "description": "Section 2's tables declare no exit from emit_blocked_anchor; the chain for registered workflow autosk-panel-seat draws this one and states no further condition."
+    },
+    {
+      "id": "cond_402",
       "reads": [
         "workflow",
         "task_record"
@@ -7751,6 +7759,14 @@
     {
       "id": "guard_527",
       "predicate": "cond_401",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "project_boundary_invalid"
+    },
+    {
+      "id": "guard_528",
+      "predicate": "cond_402",
       "authority": {
         "actor": "agent"
       },
@@ -12406,11 +12422,20 @@
     },
     {
       "id": "t_516",
+      "from": "emit_blocked_anchor",
+      "to": "validate_verdict",
+      "priority": 4,
+      "guards": [
+        "guard_527"
+      ]
+    },
+    {
+      "id": "t_517",
       "from": "repair_anchor_handoff",
       "to": "human",
       "priority": 0,
       "guards": [
-        "guard_527"
+        "guard_528"
       ]
     }
   ],
@@ -13864,5 +13889,5 @@
       "required_state": "Section 2 parks with this reason at rebuild_code_anchor, repair_anchor_handoff: идемпотентно подтвердить human park, exact unblock parent, receipt phase=edge_suspended, park.reason=waiting_parent_anchor"
     }
   ],
-  "canonical_digest": "6180ee433e00c13c06f7d8bba06472b3f53eb7c0acebd3d383c6be9373286e5d"
+  "canonical_digest": "6db525203b43583e5034a626fd20ac5df0ebdde442218b3a3ececab7e237a907"
 }

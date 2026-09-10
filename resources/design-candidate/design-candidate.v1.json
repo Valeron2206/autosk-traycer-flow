@@ -484,10 +484,10 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "5036ee9c2b2da2a12bb59807d012891a7ed8b9d003ada0e6e63f7b2ce90fca99"
+      "sha256": "47e31077a22ecd038e1ce45461754a992e8862b9709af9d4c332938ed87edfe0"
     }
   ],
-  "candidate_digest": "e9b854ba96dfa1e1a8f57540e4db0bfd1064041327ccd431698379c447dcf950",
+  "candidate_digest": "e834622cefb15c5502bb90528eb448a6b671b13846c24555e60e85e89a761238",
   "dispositions": [
     {
       "issue": 3,
