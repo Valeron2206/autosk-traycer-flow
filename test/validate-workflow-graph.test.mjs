@@ -18,6 +18,7 @@ import test from "node:test";
 
 import {
   CONTRACT_PATH,
+  DOCUMENT_PATH,
   EXAMPLE_PATH,
   GRAPH_PARK_REASONS,
   REFERENCE_PATH,
@@ -525,4 +526,110 @@ test("ASTRA-R2-01: a cap cannot carry one either", () => {
 test("ASTRA-R2-01: the workflow vocabulary is what an ordinary field may name", () => {
   assert.equal(parkReasons().has("no_transition_reason"), false, "a reserved code is not a workflow park reason");
   assert.equal(parkReasons().has("core_flow_decision_required"), true, "the workflow vocabulary is still the source");
+});
+
+// --- the shipped document --------------------------------------------------
+//
+// Slice 2 put the real autosk-flow graph at DOCUMENT_PATH. These check the four
+// properties its ticket makes observable, plus the one the document forced into
+// the contract: a graph is entered at more than one step, and measuring
+// reachability from `first_step` alone called seven registered workflows dead.
+
+const document = () => parseStrict(files[DOCUMENT_PATH]);
+
+test("the shipped document validates against the shipped schema", () => {
+  assert.deepEqual(validateGraph(document(), schema), []);
+});
+
+test("the shipped document's digest recomputes from its own bytes", () => {
+  const { canonical_digest: recorded, ...rest } = document();
+  assert.equal(graphDigest(rest), recorded);
+});
+
+test("every park reason the document declares has a resume target that is a declared step", () => {
+  const graph = document();
+  const steps = new Set(graph.steps.map((step) => step.name));
+  const missing = [];
+  for (const row of graph.recovery) {
+    if (row.resume_targets.length === 0) missing.push(`${row.reason}: no resume target`);
+    for (const target of row.resume_targets) {
+      if (!steps.has(target)) missing.push(`${row.reason}: ${target} is not a declared step`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("every resume target is reachable by a declared edge from the reason's own parks_at", () => {
+  const graph = document();
+  const outgoing = new Map();
+  for (const edge of graph.transitions) {
+    outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
+  }
+  const unreachable = [];
+  for (const row of graph.recovery) {
+    const declared = new Set(row.parks_at.flatMap((step) => outgoing.get(step) ?? []));
+    for (const target of row.resume_targets) {
+      if (!declared.has(target)) unreachable.push(`${row.reason}: ${target} leaves none of its parks_at steps`);
+    }
+  }
+  assert.deepEqual(unreachable, []);
+});
+
+test("no two edges out of one step share a priority", () => {
+  const graph = document();
+  const seen = new Map();
+  const clashes = [];
+  for (const edge of graph.transitions) {
+    const key = `${edge.from}@${edge.priority}`;
+    if (seen.has(key)) clashes.push(`${key}: ${seen.get(key)} and ${edge.id}`);
+    seen.set(key, edge.id);
+  }
+  assert.deepEqual(clashes, []);
+});
+
+test("every cap names a cycle, a counted transition that exists, a limit and a park reason", () => {
+  const graph = document();
+  const transitions = new Set(graph.transitions.map((edge) => edge.id));
+  const vocabulary = parkReasons();
+  assert.ok(graph.caps.length > 0, "the document declares at least one cap");
+  for (const cap of graph.caps) {
+    assert.ok(cap.cycle.length > 0, "a cap names its cycle");
+    assert.ok(transitions.has(cap.counted_transition), `${cap.cycle} counts a transition that exists`);
+    assert.ok(Number.isInteger(cap.limit) && cap.limit >= 1, `${cap.cycle} carries a limit`);
+    assert.ok(vocabulary.has(cap.park_reason), `${cap.cycle} parks with a workflow reason`);
+  }
+});
+
+test("entry_steps is what makes the other registered workflows reachable", () => {
+  const graph = document();
+  assert.ok(graph.entry_steps.length > 0, "the document declares entries beyond first_step");
+  const withoutEntries = { ...graph, entry_steps: [] };
+  withoutEntries.canonical_digest = graphDigest(withoutEntries);
+  const errors = validateGraph(withoutEntries, schema);
+  assert.ok(
+    errors.some((message) => message.startsWith("graph_step_unreachable")),
+    `dropping the entries should orphan steps, got:\n${errors.join("\n") || "(no findings)"}`,
+  );
+  for (const entry of graph.entry_steps) {
+    assert.ok(entry.reason.length > 0, `${entry.step} says why it is entered`);
+  }
+});
+
+test("an entry naming a step the document never declares is refused", () => {
+  assertRefuses(
+    mutated((graph) => {
+      graph.entry_steps = [{ step: "not_a_step", reason: "an entry the graph cannot be at" }];
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("a reason may park at a whole step class without exceeding the schema's bound", () => {
+  const graph = document();
+  const widest = graph.recovery.reduce((a, b) => (a.parks_at.length >= b.parks_at.length ? a : b));
+  assert.ok(
+    widest.parks_at.length > 32,
+    `expected a class-wide reason above the previous bound, widest was ${widest.reason} at ${widest.parks_at.length}`,
+  );
+  assert.deepEqual(validateGraph(graph, schema), []);
 });

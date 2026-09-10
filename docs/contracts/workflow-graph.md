@@ -27,6 +27,7 @@ A workflow graph is one JSON document. Every field is closed: an unknown field, 
 | Component | Where it lives | What it decides |
 | --- | --- | --- |
 | Steps | `steps[]` | The states the flow can be at. A step is `agent`, which runs and declares which hooks it has, or `status`, which drives a task status and runs nothing. |
+| Entries | `first_step`, `entry_steps[]` | Where the graph may be entered. `first_step` is mandatory and is the only entry a single-workflow graph needs; `entry_steps` names the rest, each with the reason it is entered. |
 | Transitions | `transitions[]` | The edges. Each names `from`, `to`, a `priority` and the guards bound to it. |
 | Guards | `guards[]`, referenced by id | The conditions. A guard names a predicate from a closed enumeration and the authority entitled to satisfy it. |
 | Caps | `caps[]` | The bound on a named cycle, counted by the taking of one named transition. |
@@ -37,6 +38,8 @@ Two design choices are load-bearing and are recorded here rather than left to a 
 **A guard is the condition; there is no second mechanism.** A transition names the guards bound to it and their conjunction is what must hold. Two alternative ways to reach one step are two edges, not a disjunction inside one edge. This is what makes "the first false guard in canonical id order" a well-defined refusal rather than a description of some implementation's evaluation order.
 
 **Predicates are enumerated, not expressed.** An expression language would need its own specification, its own parser and its own mutation coverage, and the cost of an error in it is a silently permitted transition. A guard names a predicate id and the enumeration says what state that predicate reads.
+
+**A graph has as many entries as it is entered ways.** Reachability is judged from `first_step` together with every `entry_steps[].step`, and a step reachable from none of them is refused as orphaned. One entry was assumed when this contract was written; the autosk-flow graph registers eight workflows, seven of which start somewhere other than `first_step`, and its daemon also enters two repair steps out of band. Measured from `first_step` alone, fourteen live steps read as dead, so each entry states the reason it is entered and an entry naming an undeclared step is refused with `graph_entry_step_unknown`.
 
 ## 4. Canonical serialization
 
@@ -103,7 +106,7 @@ Every park reason a document can produce — from a step's `no_transition_reason
 
 ## 9. Refusal classes
 
-Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
+Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_entry_step_unknown`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
 
 The set holds two kinds, because one contract owns both. The prefixed codes are design-time: the validator refuses a document. The three without the prefix are runtime park reasons the graph itself issues, which no edge and no step can carry — an undeclared pair has no edge, and therefore no guard on which to hang a reason.
 

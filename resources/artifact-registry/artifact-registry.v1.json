@@ -1955,7 +1955,37 @@
       "model_execution_allowed": false,
       "retention": "durable",
       "human_approval": "required"
+    },
+    {
+      "class": "workflow_graph_document",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "design_schema",
+        "canonicalization_reference"
+      ],
+      "paths": [
+        "resources/workflow-graph/workflow-graph.v1.json"
+      ],
+      "review": {
+        "mode": "full_panel",
+        "condition": "editing this document is a change of graph identity rather than a change to a file about the graph: its canonical digest is what a daemon binds to, so every step, guard, cap and resume path in the product moves with it. The canonicalization reference is reviewed narrowly because it decides what canonical means and nothing else; this decides what the product does."
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/workflow-graph/workflow-graph.schema.json",
+      "validator": "scripts/validate-workflow-graph.mjs",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "required"
     }
   ],
-  "registry_digest": "29bd3f92e6a12656df4a7586f8754eb17f0be1202f59e151bd3acaae3d240fd5"
+  "registry_digest": "c7800aee198fa6d03ae9380394b4982e6dd856019e328c83a2d8090388235f9a"
 }
