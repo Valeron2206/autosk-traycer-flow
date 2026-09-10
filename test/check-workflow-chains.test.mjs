@@ -187,3 +187,73 @@ test("a step standing alone on a line is the source of the line below it", () =>
     assert.ok(edges.some((edge) => edge.workflow === workflow), `${workflow} contributes edges`);
   }
 });
+
+test("a typo in the one label that names sources is caught too", () => {
+  const graph = document();
+  // The same absence-blindness as the arrow branch, in the branch beside it: the
+  // label's sources were filtered to declared names, so a misspelling silently
+  // removed a source and the edge it carried, and nothing failed.
+  const typo = plan().replace(
+    "reclassification from intake/implement/verify/fix/",
+    "reclassification from intake/implement/verfy/fix/",
+  );
+  assert.notEqual(typo, plan(), "the label the test edits still exists");
+  const errors = chainErrors(graph, { read: servingPlan(typo) });
+  assert.ok(
+    errors.some((message) => message.includes("chain_step_unknown") && message.includes("verfy")),
+    `a typo in the label must fail, got: ${errors.join("\n") || "(nothing)"}`,
+  );
+
+  // And the edge it carried is what would otherwise have gone missing quietly.
+  const declared = new Set(graph.steps.map((step) => step.name));
+  const before = readChains(plan(), declared).edges;
+  assert.ok(
+    before.some((edge) => edge.from === "verify" && edge.to === "invalidate_quick_classification"),
+    "the label carries verify as a source",
+  );
+});
+
+test("a prose label names no sources, however many step names it contains", () => {
+  const graph = document();
+  const declared = new Set(graph.steps.map((step) => step.name));
+  const { edges } = readChains(plan(), declared);
+  // `human alignment before normative planning:` is a heading, and `human` is a
+  // step. Filtering the label for declared words made it a source of whatever
+  // followed. What separates a source list from a heading is the slash run.
+  assert.deepEqual(
+    edges.filter((edge) => edge.from === "human"),
+    [],
+    "a heading that happens to contain a step name is not a source",
+  );
+  assert.equal(
+    edges.filter((edge) => edge.to === "invalidate_quick_classification").length,
+    8,
+    "the one label that does carry sources still carries all eight",
+  );
+});
+
+test("no branch of the reader drops a name-shaped token without saying so", () => {
+  const graph = document();
+  // Four defects in this file were the same shape: a filter that silently kept
+  // only what it recognised. Each branch that reads a name is exercised here with
+  // a token that looks like a step and is not one.
+  const cases = [
+    ["an arrow chain", "build_candidate -> verify_candidate", "build_candidate -> verfy_candidate", "verfy_candidate"],
+    [
+      "a source label",
+      "reclassification from intake/implement/verify/fix/",
+      "reclassification from intake/implement/verfy/fix/",
+      "verfy",
+    ],
+    ["a lone opening step", "\n~~~text\nintake\n", "\n~~~text\nintaek\n", "intaek"],
+  ];
+  for (const [where, from, to, name] of cases) {
+    const text = plan().replace(from, to);
+    assert.notEqual(text, plan(), `${where}: the text the test edits still exists`);
+    const errors = chainErrors(graph, { read: servingPlan(text) });
+    assert.ok(
+      errors.some((message) => message.startsWith("chain_step_unknown") && message.includes(name)),
+      `${where}: ${name} must be reported, got: ${errors.join("\n") || "(nothing)"}`,
+    );
+  }
+});

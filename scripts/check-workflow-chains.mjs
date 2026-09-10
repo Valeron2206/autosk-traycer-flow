@@ -78,6 +78,33 @@ function stepsIn(segment, declared) {
   return { steps, unknown };
 }
 
+/**
+ * The sources a label names, and the names in it that have gone wrong.
+ *
+ * Exactly one label carries sources — `reclassification from
+ * intake/implement/.../integrate-prologue:` — and the rest are prose. What tells
+ * them apart is the slash run, not the words: filtering the whole label for
+ * declared names made `human alignment before normative planning:` name `human`
+ * as a source, and dropped a misspelled step in the one label that does carry
+ * them. A typo there deleted an edge and reported nothing.
+ *
+ * Within the run, a part's last word is the name: the first part carries the
+ * prefix `reclassification from`. A hyphenated token like `integrate-prologue` is
+ * notation rather than a step name and is neither a source nor a mistake.
+ */
+function labelSources(label, declared) {
+  if (!label.includes("/")) return { steps: [], unknown: [] };
+  const steps = [];
+  const unknown = [];
+  for (const part of label.split("/")) {
+    const word = part.trim().split(/\s+/u).at(-1) ?? "";
+    if (word === "") continue;
+    if (declared.has(word)) steps.push(word);
+    else if (NAME.test(word)) unknown.push(word);
+  }
+  return { steps, unknown };
+}
+
 /** Which step on the previous line starts at or before this column. */
 function anchorAt(previous, column) {
   let best = null;
@@ -120,7 +147,12 @@ export function readChains(plan, declared) {
     for (const raw of block.text.split("\n")) {
       if (raw.trim() === "") continue;
       for (const match of raw.matchAll(/([a-z][a-z0-9_]*)\s*\(human\)/gu)) {
+        // The last silent filter in this reader. A mark's name also appears in the
+        // chain, so today an undeclared one is caught there anyway — but a filter
+        // that drops what it does not recognise is the shape that hid four defects
+        // in this file already, and it is cheaper to remove than to reason about.
         if (declared.has(match[1])) marks.push({ step: match[1], workflow: block.workflow });
+        else if (NAME.test(match[1])) unknown.push({ name: match[1], workflow: block.workflow });
       }
       const arrow = raw.indexOf("->");
       if (arrow < 0) {
@@ -130,7 +162,9 @@ export function readChains(plan, declared) {
         // lost the Planned flow's first transition entirely.
         const label = /^([^:]*):\s*$/u.exec(raw.trim());
         if (label) {
-          previousEnds = label[1].split(/[\s/]+/u).filter((word) => declared.has(word));
+          const named = labelSources(label[1], declared);
+          unknown.push(...named.unknown.map((name) => ({ name, workflow: block.workflow })));
+          previousEnds = named.steps;
         } else {
           const alone = stepsIn(raw, declared);
           unknown.push(...alone.unknown.map((name) => ({ name, workflow: block.workflow })));
