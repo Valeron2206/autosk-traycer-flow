@@ -115,7 +115,27 @@ The rendered unit is the row, not the reason. A row can stand for several reason
 
 Coverage is declared, not inferred. A `complete` view must explain every reason `recovery` declares. A `partial` view must name every reason it leaves out, and covered plus omitted must be exactly what the graph declares. That is what stops a reason from quietly ceasing to be explained: dropping one takes an edit to `omits` that a reviewer reads. A view is checked in both directions, because text equality alone would pass a document and a table that agree with each other and disagree with the vocabulary, and coverage alone would pass a table whose cells had been rewritten.
 
+A view row also binds to what it explains. `binds` is a sha256 over the canonical form of the recovery entries the row covers, so rewriting a reason's `resume_targets` or its `required_state` obliges a look at the sentence explaining it. Reason names alone were not enough: they stayed valid while the rule underneath them was rewritten, and nothing refused.
+
+The shipped graph must carry both views, `park_table` rendered into `03-technical-plan.md` and `core_flows_resume` rendered into `01-core-flows.md`. Naming them here is what stops a view from being deleted out of the check's sight: with the roster gone, deleting one left the coverage and render checks with nothing to disagree with, and the table it renders stopped being checked at all.
+
 `scripts/render-workflow-views.mjs` renders and checks; `--write` puts a view back in place. It fails when a rendered table is edited where it lands, and when this document is edited without re-rendering.
+
+## 8b. Chains
+
+Section 2's eight arrow-chain blocks are not rendered from this document and cannot be: it carries no chain layout, and there the indentation is load-bearing, because a continuation line attaches to the step whose part starts at or before its arrow column. They stay hand-drawn and are checked instead, by `scripts/check-workflow-chains.mjs`.
+
+What is checked is reachability, not adjacency. The notation summarises paths — a chain drawing `select_next -> record_alignment` means the flow gets there, not that the graph declares that edge — so demanding adjacency fails on pairs that are the chains abbreviating rather than disagreeing. What a summary must not do is draw a step the flow cannot get to at all.
+
+Three drawn paths the graph cannot walk are tolerated by name, because settling them is a normative edit to the plan's prose rather than a checker's decision:
+
+- `autosk-planned: resume_repaired_tickets -> ticket_join`
+- `autosk-quick: intake -> implement`
+- `autosk-quick: invalidate_quick_classification -> done`
+
+A divergence that is not named fails, and a name that no longer diverges fails too, so the list cannot become a place a real one hides behind a settled entry.
+
+The `(human)` marks are checked as themselves. They are the only thing the chains state that the transition tables never do, so nothing else could catch a mark that has drifted from the step it marks.
 
 ## 9. Refusal classes
 

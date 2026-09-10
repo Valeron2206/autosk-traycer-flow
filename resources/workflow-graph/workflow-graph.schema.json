@@ -417,6 +417,7 @@
               "additionalProperties": false,
               "required": [
                 "covers",
+                "binds",
                 "cells"
               ],
               "properties": {
@@ -428,6 +429,11 @@
                   "items": {
                     "$ref": "#/$defs/park_reason"
                   }
+                },
+                "binds": {
+                  "description": "sha256 over the canonical form of the recovery entries this row explains, sorted by reason. Covering the whole entry rather than the reason names is what makes a changed resume rule oblige a look at the sentence explaining it: the names alone stayed valid while the rule underneath them was rewritten.",
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
                 },
                 "cells": {
                   "type": "array",

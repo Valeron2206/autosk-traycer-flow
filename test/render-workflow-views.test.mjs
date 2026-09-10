@@ -21,11 +21,14 @@ import test from "node:test";
 import { DOCUMENT_PATH, parseStrict } from "../scripts/validate-workflow-graph.mjs";
 import { ROOT } from "../scripts/validate-refusal-vocabulary.mjs";
 import {
+  REQUIRED_VIEWS,
+  bindingErrors,
   coverageErrors,
   locate,
   renderErrors,
   renderRow,
   renderView,
+  rosterErrors,
 } from "../scripts/render-workflow-views.mjs";
 
 const document = () => parseStrict(readFileSync(path.join(ROOT, DOCUMENT_PATH), "utf8"));
@@ -159,4 +162,52 @@ test("a row renders as the file writes it", () => {
   const graph = document();
   const view = graph.views[0];
   assert.deepEqual(renderView(view).slice(0, 2), [view.header, view.rule]);
+});
+
+test("a required view cannot be deleted out of the check's sight", () => {
+  const graph = document();
+  assert.deepEqual(rosterErrors(graph), []);
+  for (const required of REQUIRED_VIEWS) {
+    // Deleting a view used to leave the coverage and render checks with nothing
+    // to disagree with, so the table it renders stopped being checked and the
+    // gate still passed.
+    const without = { ...graph, views: graph.views.filter((view) => view.id !== required.id) };
+    assert.deepEqual(coverageErrors(without), [], "the remaining checks are the ones that fell silent");
+    assert.deepEqual(renderErrors(without), []);
+    assert.deepEqual(rosterErrors(without), [
+      `view_missing: the graph must carry ${required.id}, rendered into ${required.renders_into}`,
+    ]);
+  }
+});
+
+test("a required view cannot be pointed at another file either", () => {
+  const graph = document();
+  const view = graph.views.find((entry) => entry.id === REQUIRED_VIEWS[0].id);
+  const moved = { ...graph, views: graph.views.map((entry) => (entry === view ? { ...entry, renders_into: "README.md" } : entry)) };
+  assert.ok(rosterErrors(moved).some((message) => message.startsWith("view_misplaced")));
+});
+
+test("changing a resume rule obliges a look at the row explaining it", () => {
+  const graph = document();
+  assert.deepEqual(bindingErrors(graph), []);
+
+  // The row's text and its `covers` are untouched, so coverage and render both
+  // still pass; the rule underneath the sentence is what moved.
+  const rewired = document();
+  const rule = rewired.recovery.find((row) => row.resume_targets.length > 1);
+  rule.resume_targets = [rule.resume_targets[0]];
+  assert.deepEqual(coverageErrors(rewired), []);
+  assert.deepEqual(renderErrors(rewired), []);
+  const stale = bindingErrors(rewired);
+  assert.ok(stale.length > 0, "a rewritten resume rule must not leave every check silent");
+  for (const message of stale) assert.match(message, /^view_binding_stale: /u);
+});
+
+test("a required_state rewritten in place is caught too", () => {
+  const rewired = document();
+  rewired.recovery[0].required_state = "something else entirely";
+  assert.ok(
+    bindingErrors(rewired).some((message) => message.includes(rewired.recovery[0].reason)),
+    "the binding covers the whole recovery entry, not only its targets",
+  );
 });

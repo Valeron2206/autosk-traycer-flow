@@ -22,9 +22,68 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DOCUMENT_PATH, parseStrict } from "./validate-workflow-graph.mjs";
+import { createHash } from "node:crypto";
+
+import { DOCUMENT_PATH, canonicalText, parseStrict } from "./validate-workflow-graph.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * The views the shipped graph must carry.
+ *
+ * Without this the check trusts whatever views the document happens to declare:
+ * deleting `park_table` from the JSON left the coverage and render checks with
+ * nothing to disagree with, so the plan's table stopped being checked at all and
+ * everything still passed. A required view has to be named somewhere that
+ * deleting it cannot also delete, and the contract closes this list.
+ */
+export const REQUIRED_VIEWS = Object.freeze([
+  { id: "park_table", renders_into: "03-technical-plan.md" },
+  { id: "core_flows_resume", renders_into: "01-core-flows.md" },
+]);
+
+/**
+ * What a view row is bound to in `recovery`.
+ *
+ * Names alone were not enough: rewriting a reason's `resume_targets` changed the
+ * rule while the row explaining it stayed as written, and nothing refused. The
+ * digest covers the whole recovery entry, so changing any part of the rule
+ * obliges whoever changed it to revisit the sentence that explains it.
+ */
+export function bindingDigest(document, covers) {
+  const byReason = new Map(document.recovery.map((row) => [row.reason, row]));
+  const bound = [...covers].sort().map((reason) => byReason.get(reason) ?? null);
+  return createHash("sha256").update(canonicalText(bound), "utf8").digest("hex");
+}
+
+/** Every required view the document fails to carry, or carries somewhere else. */
+export function rosterErrors(document) {
+  const errors = [];
+  const declared = new Map((document.views ?? []).map((view) => [view.id, view]));
+  for (const required of REQUIRED_VIEWS) {
+    const view = declared.get(required.id);
+    if (!view) {
+      errors.push(`view_missing: the graph must carry ${required.id}, rendered into ${required.renders_into}`);
+    } else if (view.renders_into !== required.renders_into) {
+      errors.push(`view_misplaced: ${required.id} must render into ${required.renders_into}, not ${view.renders_into}`);
+    }
+  }
+  return errors.sort();
+}
+
+/** Every row whose binding no longer matches the recovery it explains. */
+export function bindingErrors(document) {
+  const errors = [];
+  for (const view of document.views ?? []) {
+    for (const [index, row] of view.rows.entries()) {
+      const expected = bindingDigest(document, row.covers);
+      if (row.binds !== expected) {
+        errors.push(`view_binding_stale: ${view.id} row ${index + 1} explains ${row.covers.join(", ") || "nothing"} and its binding no longer matches`);
+      }
+    }
+  }
+  return errors.sort();
+}
 
 /** One rendered row: the cells joined the way the file writes them. */
 export function renderRow(cells) {
@@ -125,7 +184,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (process.argv.includes("--write")) {
     for (const line of writeViews(document)) console.log(`wrote ${line}`);
   } else {
-    const errors = [...coverageErrors(document), ...renderErrors(document)];
+    const errors = [...rosterErrors(document), ...coverageErrors(document), ...bindingErrors(document), ...renderErrors(document)];
     if (errors.length > 0) {
       console.error(errors.join("\n"));
       process.exitCode = 1;

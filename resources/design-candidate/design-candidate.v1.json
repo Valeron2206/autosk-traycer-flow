@@ -180,7 +180,7 @@
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "9e49204631db10f46106a97e4c3a1ccda6b53de57809dd1c6e9c94ed0c101919"
+      "sha256": "ed2a08ac2b7988b19f7ef16b34304bb7a497371b877a45c70c24d26e2b64db88"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -480,14 +480,14 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "84f2dd1f0bde59359d2d53fe06b792ae9511288ae13a1486d8e7061045a042bd"
+      "sha256": "94a41e409743c4e6d7000148eb1ecb6b50849e37a40e7b5adf385346641debc0"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "9b465cdeac0c1f8602bfcb2036e414a6288b9ddb6581a88593bcda2086a3e01b"
+      "sha256": "2de320574c820172c661c5b6959f347fedc34ab5cd9ff9054f537260ced4bcdc"
     }
   ],
-  "candidate_digest": "da6e3ca85b1716c69078f23240c69b6111a06894ddbcda992696c10a7f53eb2b",
+  "candidate_digest": "a705bed9151ac66363246be9866d436fae5ecb9413ef3c8f5b50c82bb5d1f5fb",
   "dispositions": [
     {
       "issue": 3,
