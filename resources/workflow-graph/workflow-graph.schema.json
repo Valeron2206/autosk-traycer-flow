@@ -28,6 +28,30 @@
     "first_step": {
       "$ref": "#/$defs/name"
     },
+    "entry_steps": {
+      "description": "Every other step the graph may be entered at, and why. A graph that registers one workflow entered one way needs only first_step; the autosk-flow graph registers eight workflows, and its daemon also enters two repair steps out of band when a snapshot or the authority journal fails revalidation. Reachability is judged from first_step together with these, because a step entered this way is not orphaned.",
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step",
+          "reason"
+        ],
+        "properties": {
+          "step": {
+            "$ref": "#/$defs/name"
+          },
+          "reason": {
+            "description": "Why the graph is entered here, stated so an entry cannot be added without saying what enters it.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      }
+    },
     "graph_reasons": {
       "description": "Refusals the graph itself issues, which no edge or step can carry: an undeclared pair has no edge and therefore no guard.",
       "type": "object",
@@ -183,9 +207,9 @@
       }
     },
     "guards": {
-      "description": "A guard is the condition. There is no second mechanism: a transition names the guards bound to it, and their conjunction is what must hold. Two alternative paths are two edges, not a disjunction.",
+      "description": "A guard is the condition. There is no second mechanism: a transition names the guards bound to it, and their conjunction is what must hold. Two alternative paths are two edges, not a disjunction. Bounded by the transition count rather than by the predicate count, because that rule is what makes guards multiply: one guard exists per alternative per edge, so a graph may declare more guards than it declares distinct conditions.",
       "type": "array",
-      "maxItems": 512,
+      "maxItems": 2048,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -305,20 +329,21 @@
             "$ref": "#/$defs/park_reason"
           },
           "parks_at": {
+            "description": "Bounded by the step count rather than by a smaller guess: the refusal vocabulary parks a reason at a whole step class, and project_boundary_invalid reaches all 68 deterministic steps, so a tighter cap cannot express the real graph.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "maxItems": 32,
+            "maxItems": 512,
             "items": {
               "$ref": "#/$defs/name"
             }
           },
           "resume_targets": {
-            "description": "Every entry must be a declared edge from one of this reason's parks_at steps. A target outside this list is refused with graph_reasons.resume_target_not_permitted.",
+            "description": "Every entry must be a declared edge from one of this reason's parks_at steps. A target outside this list is refused with graph_reasons.resume_target_not_permitted. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "maxItems": 32,
+            "maxItems": 512,
             "items": {
               "$ref": "#/$defs/name"
             }

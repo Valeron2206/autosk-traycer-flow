@@ -18,6 +18,7 @@ import test from "node:test";
 
 import {
   CONTRACT_PATH,
+  DOCUMENT_PATH,
   EXAMPLE_PATH,
   GRAPH_PARK_REASONS,
   REFERENCE_PATH,
@@ -525,4 +526,301 @@ test("ASTRA-R2-01: a cap cannot carry one either", () => {
 test("ASTRA-R2-01: the workflow vocabulary is what an ordinary field may name", () => {
   assert.equal(parkReasons().has("no_transition_reason"), false, "a reserved code is not a workflow park reason");
   assert.equal(parkReasons().has("core_flow_decision_required"), true, "the workflow vocabulary is still the source");
+});
+
+// --- the shipped document --------------------------------------------------
+//
+// Slice 2 put the real autosk-flow graph at DOCUMENT_PATH. These check the four
+// properties its ticket makes observable, plus the one the document forced into
+// the contract: a graph is entered at more than one step, and measuring
+// reachability from `first_step` alone called seven registered workflows dead.
+
+const document = () => parseStrict(files[DOCUMENT_PATH]);
+
+test("the shipped document validates against the shipped schema", () => {
+  assert.deepEqual(validateGraph(document(), schema), []);
+});
+
+test("the shipped document's digest recomputes from its own bytes", () => {
+  const { canonical_digest: recorded, ...rest } = document();
+  assert.equal(graphDigest(rest), recorded);
+});
+
+test("every park reason the document declares has a resume target that is a declared step", () => {
+  const graph = document();
+  const steps = new Set(graph.steps.map((step) => step.name));
+  const missing = [];
+  for (const row of graph.recovery) {
+    if (row.resume_targets.length === 0) missing.push(`${row.reason}: no resume target`);
+    for (const target of row.resume_targets) {
+      if (!steps.has(target)) missing.push(`${row.reason}: ${target} is not a declared step`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("every resume target is reachable by a declared edge from the reason's own parks_at", () => {
+  const graph = document();
+  const outgoing = new Map();
+  for (const edge of graph.transitions) {
+    outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
+  }
+  const unreachable = [];
+  for (const row of graph.recovery) {
+    const declared = new Set(row.parks_at.flatMap((step) => outgoing.get(step) ?? []));
+    for (const target of row.resume_targets) {
+      if (!declared.has(target)) unreachable.push(`${row.reason}: ${target} leaves none of its parks_at steps`);
+    }
+  }
+  assert.deepEqual(unreachable, []);
+});
+
+test("no two edges out of one step share a priority", () => {
+  const graph = document();
+  const seen = new Map();
+  const clashes = [];
+  for (const edge of graph.transitions) {
+    const key = `${edge.from}@${edge.priority}`;
+    if (seen.has(key)) clashes.push(`${key}: ${seen.get(key)} and ${edge.id}`);
+    seen.set(key, edge.id);
+  }
+  assert.deepEqual(clashes, []);
+});
+
+test("every cap counts the transition that spends a round, not merely one that exists", () => {
+  const graph = document();
+  const transitions = new Map(graph.transitions.map((edge) => [edge.id, edge]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const vocabulary = parkReasons();
+  assert.ok(graph.caps.length > 0, "the document declares at least one cap");
+  for (const cap of graph.caps) {
+    assert.ok(cap.cycle.length > 0, "a cap names its cycle");
+    assert.ok(Number.isInteger(cap.limit) && cap.limit >= 1, `${cap.cycle} carries a limit`);
+    assert.ok(vocabulary.has(cap.park_reason), `${cap.cycle} parks with a workflow reason`);
+
+    const counted = transitions.get(cap.counted_transition);
+    assert.ok(counted, `${cap.cycle} counts a transition that exists`);
+    // Endpoints alone let a cap latch onto a repair edge that happens to share
+    // them, which is what it did: the counter then never moved on a real round
+    // and moved on something else. The condition is what makes it the round.
+    const says = counted.guards.map((id) => predicates.get(guards.get(id).predicate) ?? "");
+    assert.ok(
+      says.some((description) => /round\s*<\s*cap/u.test(description)),
+      `${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), whose conditions are:\n${says.join("\n")}`,
+    );
+  }
+});
+
+test("a step name used as a word does not become an edge to that step", () => {
+  const graph = document();
+  // Eleven step names are also ordinary words, and section 2 uses them as words.
+  // Each pair below was built once from a sentence that mentions the step without
+  // sending the flow there: a prohibition (`cleanup side effects absent`,
+  // `freeze_artifact напрямую запрещён`), a verb (`or verify identical ref`), and
+  // a hyphenated verb whose tail passed the end-of-clause test (`final-verify;`).
+  const notEdges = [
+    ["init_planning_ref", "cleanup"],
+    ["present_tickets_breakdown", "freeze_artifact"],
+    ["narrow_review_join", "verify"],
+    ["rebuild_anchor", "verify"],
+    ["record_artifact_pass", "verify"],
+    ["freeze_artifact", "verify"],
+  ];
+  const built = notEdges
+    .filter(([from, to]) => graph.transitions.some((edge) => edge.from === from && edge.to === to))
+    .map(([from, to]) => `${from} -> ${to}`);
+  assert.deepEqual(built, [], "these names are used as words, not as destinations");
+
+  // The rule must not have cost the real ones: `implement -> verify` is the code
+  // flow, and section 2 writes `transit verify` for the anchor rebuild.
+  for (const [from, to] of [
+    ["implement", "verify"],
+    ["rebuild_code_anchor", "verify"],
+  ]) {
+    assert.ok(
+      graph.transitions.some((edge) => edge.from === from && edge.to === to),
+      `${from} -> ${to} is a real edge and must survive the rule`,
+    );
+  }
+});
+
+test("every step the tables leave without an exit is given the one its chain draws", () => {
+  const graph = document();
+  const leaves = new Set(graph.transitions.map((edge) => edge.from));
+  const terminal = new Set(["done", "ticket_done", "human"]);
+  const stranded = graph.steps
+    .map((step) => step.name)
+    .filter((name) => !leaves.has(name) && !terminal.has(name));
+  assert.deepEqual(stranded, [], "a step that can only ever park is a flow with nowhere to go");
+});
+
+test("a step section 2 calls a human status step is a status step, and its exits are told apart", () => {
+  const graph = document();
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  for (const name of ["await_alignment", "await_anchor_impact_approval"]) {
+    const step = steps.get(name);
+    assert.equal(step.kind, "status", `${name} drives a task status rather than running`);
+    assert.equal(step.status, "human", `${name} is the human status`);
+    assert.equal(step.no_transition_reason, undefined, `${name} carries no reason to fail to leave`);
+  }
+
+  // Exits to different steps sharing one condition are candidates at once, and
+  // priority then decides every time — so all but the first are unreachable
+  // however the flow arrived. Two edges to the SAME step under one condition are
+  // fine and expected: that is how one clause offering two authorities is drawn.
+  const exits = graph.transitions.filter((edge) => edge.from === "await_alignment");
+  assert.ok(exits.length >= 3, "await_alignment offers the alternatives section 2 lists");
+  const targetsByCondition = new Map();
+  for (const edge of exits) {
+    const condition = guards.get(edge.guards[0]).predicate;
+    targetsByCondition.set(condition, (targetsByCondition.get(condition) ?? new Set()).add(edge.to));
+  }
+  const ambiguous = [...targetsByCondition]
+    .filter(([, targets]) => targets.size > 1)
+    .map(([condition, targets]) => `${condition} -> ${[...targets].join(", ")}`);
+  assert.deepEqual(ambiguous, [], "one condition offering several destinations makes all but the first unreachable");
+
+  // Distinct ids are not distinct conditions. Section 2 hangs both branches off
+  // one premise — a subject or scope change — and separates them by artifact
+  // kind, so each branch must carry the premise and the kind must exclude the
+  // other. Without that, a Tickets subject change satisfied both and the lower
+  // priority won, sending Tickets to a step section 2 says never takes them.
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const branch = (to) =>
+    predicates.get(guards.get(exits.find((edge) => edge.to === to).guards[0]).predicate) ?? "";
+  const clarify = branch("clarify_alignment");
+  const tickets = branch("present_tickets_breakdown");
+  assert.match(clarify, /subject\/scope/u, "the clarify branch keeps the shared premise");
+  assert.match(tickets, /subject\/scope/u, "the tickets branch keeps the shared premise");
+  assert.match(clarify, /kind\s*!=\s*tickets/u, "the clarify branch excludes the kind the other branch claims");
+  assert.match(tickets, /kind=tickets/u, "the tickets branch names the kind it claims");
+});
+
+test("an alternative offering either a signed decision or a policy is two edges, not one", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const toRecord = graph.transitions.filter(
+    (edge) => edge.from === "await_alignment" && edge.to === "record_alignment",
+  );
+  const actors = new Set(toRecord.map((edge) => guards.get(edge.guards[0]).authority.actor));
+  assert.deepEqual(
+    [...actors].sort(),
+    ["human", "policy"],
+    "section 2 allows a new daemon decision or a current policy; collapsing them left a signed decision unable to satisfy the guard",
+  );
+});
+
+test("entry_steps is what makes the other registered workflows reachable", () => {
+  const graph = document();
+  assert.ok(graph.entry_steps.length > 0, "the document declares entries beyond first_step");
+  const withoutEntries = { ...graph, entry_steps: [] };
+  withoutEntries.canonical_digest = graphDigest(withoutEntries);
+  const errors = validateGraph(withoutEntries, schema);
+  assert.ok(
+    errors.some((message) => message.startsWith("graph_step_unreachable")),
+    `dropping the entries should orphan steps, got:\n${errors.join("\n") || "(no findings)"}`,
+  );
+  for (const entry of graph.entry_steps) {
+    assert.ok(entry.reason.length > 0, `${entry.step} says why it is entered`);
+  }
+});
+
+test("an entry naming a step the document never declares is refused", () => {
+  assertRefuses(
+    mutated((graph) => {
+      graph.entry_steps = [{ step: "not_a_step", reason: "an entry the graph cannot be at" }];
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("a reason may park at a whole step class without exceeding the schema's bound", () => {
+  const graph = document();
+  const widest = graph.recovery.reduce((a, b) => (a.parks_at.length >= b.parks_at.length ? a : b));
+  assert.ok(
+    widest.parks_at.length > 32,
+    `expected a class-wide reason above the previous bound, widest was ${widest.reason} at ${widest.parks_at.length}`,
+  );
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("a phase sequence that works and stays put is carried as a self-loop", () => {
+  const graph = document();
+  const descriptions = graph.predicates.map((entry) => entry.description);
+  // Section 2 gives the candidate audit transfer a phase per row, each doing its
+  // work and repeating. It says "repeat" three of those times with the bare word,
+  // and matching only the longer phrasings dropped the rows entirely — the step
+  // could reach the phase and never act on it.
+  for (const phase of ["phase=prepared", "phase=audit_ref_verified", "phase=live_ref_deleted"]) {
+    assert.ok(
+      descriptions.some((text) => text.includes(`candidate_audit_transfer_op ${phase}`)),
+      `no predicate carries the audit transfer's ${phase}`,
+    );
+  }
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const staysPut = graph.transitions.filter(
+    (edge) =>
+      edge.from === edge.to &&
+      edge.guards.some((id) => (predicates.get(guards.get(id).predicate) ?? "").includes("candidate_audit_transfer_op")),
+  );
+  assert.ok(staysPut.length > 0, "the phases advance in place rather than moving the flow");
+});
+
+test("an exit taken from a chain names the workflow whose chain draws it", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const exits = graph.transitions.filter((edge) => edge.from === "emit_blocked_anchor");
+  assert.ok(exits.length > 1, "the step leaves to a different validation in each workflow");
+
+  // One shared condition over several destinations lets priority decide for every
+  // workflow at once: a contest seat would have gone to `done` rather than to
+  // `validate_disposition`, skipping the validation it exists for.
+  const named = exits.map((edge) => {
+    const description = predicates.get(guards.get(edge.guards[0]).predicate) ?? "";
+    return { to: edge.to, workflow: /registered workflow (\S+)/u.exec(description)?.[1] ?? null };
+  });
+  assert.deepEqual(
+    named.filter((entry) => entry.workflow === null),
+    [],
+    "every chain-derived exit states which workflow's chain draws it",
+  );
+
+  // Distinct workflow strings are not the property that matters. Two registered
+  // workflows draw `emit_blocked_anchor -> validate_verdict`, and a chain reader
+  // keyed on the pair alone kept only the later one — so autosk-code-review had
+  // no exit from this step at all while the graph still looked consistent. What
+  // must hold is that every workflow/destination pair section 2 draws is present.
+  assert.deepEqual(
+    named.map((entry) => `${entry.workflow} -> ${entry.to}`).sort(),
+    [
+      "autosk-arena-candidate -> done",
+      "autosk-arena-judge -> validate_judgment",
+      "autosk-code-review -> validate_verdict",
+      "autosk-contest-seat -> validate_disposition",
+      "autosk-panel-seat -> validate_verdict",
+    ],
+    "section 2 draws one exit per registered workflow whose chain leaves this step",
+  );
+});
+
+test("what a predicate reads is state, never a destination or a refusal code", () => {
+  const graph = document();
+  const steps = new Set(graph.steps.map((step) => step.name));
+  const codes = parkReasons();
+  // `reads` exists so a guard cannot quietly widen what it looks at. Deriving it
+  // from the outcome put destination names in it — `clarify_alignment` as an
+  // input to the condition that sends the flow there — which both misstates the
+  // inputs and hides how many conditions have no named state at all.
+  const wrong = [];
+  for (const entry of graph.predicates) {
+    for (const name of entry.reads) {
+      if (steps.has(name)) wrong.push(`${entry.id} reads step ${name}`);
+      if (codes.has(name)) wrong.push(`${entry.id} reads refusal code ${name}`);
+    }
+  }
+  assert.deepEqual(wrong, []);
 });

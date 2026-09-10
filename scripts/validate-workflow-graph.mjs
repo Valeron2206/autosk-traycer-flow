@@ -27,6 +27,7 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 export const CONTRACT_PATH = "docs/contracts/workflow-graph.md";
 export const SCHEMA_PATH = "resources/workflow-graph/workflow-graph.schema.json";
 export const EXAMPLE_PATH = "resources/workflow-graph/workflow-graph.example.json";
+export const DOCUMENT_PATH = "resources/workflow-graph/workflow-graph.v1.json";
 export const REFUSED_PATH = "resources/workflow-graph/workflow-graph.refused.example.json";
 export const REFERENCE_PATH = "resources/workflow-graph/canonical-reference.json";
 export const VOCABULARY_PATH = "resources/refusal-vocabulary/refusal-vocabulary.v1.json";
@@ -46,6 +47,7 @@ export const REFUSALS = Object.freeze([
   "graph_digest_stale",
   "graph_duplicate_key",
   "graph_duplicate_name",
+  "graph_entry_step_unknown",
   "graph_first_step_unknown",
   "graph_guard_unknown",
   "graph_lone_surrogate",
@@ -548,8 +550,22 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     }
   }
 
+  // A graph is entered at first_step and at every step entry_steps declares: the
+  // other registered workflows start elsewhere, and the daemon enters its repair
+  // steps out of band. Reachability from that whole set is what makes a step
+  // orphaned or not; measuring from first_step alone called eight workflows dead.
+  const entries = [document.first_step];
+  for (const entry of document.entry_steps ?? []) {
+    if (!steps.has(entry.step)) {
+      errors.push(`graph_entry_step_unknown: ${entry.step} is not a declared step`);
+      continue;
+    }
+    entries.push(entry.step);
+  }
+
   const reached = new Set();
-  const queue = steps.has(document.first_step) ? [document.first_step] : [];
+  const queue = entries.filter((name) => steps.has(name));
+  const entered = queue.join(", ");
   while (queue.length > 0) {
     const current = queue.shift();
     if (reached.has(current)) continue;
@@ -557,7 +573,7 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     for (const edge of outgoing.get(current) ?? []) if (steps.has(edge.to)) queue.push(edge.to);
   }
   for (const name of steps.keys()) {
-    if (!reached.has(name)) errors.push(`graph_step_unreachable: ${name} is not reachable from ${document.first_step}`);
+    if (!reached.has(name)) errors.push(`graph_step_unreachable: ${name} is not reachable from ${entered}`);
   }
 
   // Every reason the graph can park with, except the two the graph issues about
@@ -704,7 +720,7 @@ export function validateReference(reference) {
 
 export function loadFiles(root = ROOT) {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, REFUSED_PATH, REFERENCE_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, DOCUMENT_PATH, REFUSED_PATH, REFERENCE_PATH]) {
     files[relative] = readFileSync(path.join(root, relative), "utf8");
   }
   return files;
@@ -738,7 +754,7 @@ export function validateWorkflowGraphDesign(files) {
     return [...errors, `${SCHEMA_PATH}: ${error.message}`];
   }
 
-  for (const relative of [EXAMPLE_PATH, REFUSED_PATH]) {
+  for (const relative of [EXAMPLE_PATH, DOCUMENT_PATH, REFUSED_PATH]) {
     let document;
     try {
       document = parseStrict(files[relative]);
@@ -747,10 +763,10 @@ export function validateWorkflowGraphDesign(files) {
       continue;
     }
     const found = validateGraph(document, schema);
-    if (relative === EXAMPLE_PATH) {
+    if (relative === REFUSED_PATH) {
+      if (found.length === 0) errors.push(`${relative}: accepted, and it exists to be refused`);
+    } else {
       errors.push(...found.map((message) => `${relative}: ${message}`));
-    } else if (found.length === 0) {
-      errors.push(`${relative}: accepted, and it exists to be refused`);
     }
   }
 
