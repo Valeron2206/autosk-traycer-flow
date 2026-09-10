@@ -612,19 +612,47 @@ test("every cap counts the transition that spends a round, not merely one that e
   }
 });
 
-test("a clause that forbids a step does not become an edge to it", () => {
+test("a step name used as a word does not become an edge to that step", () => {
   const graph = document();
-  // Section 2 answers a ref-custody failure with `human` and says in the same
-  // breath that cleanup side effects are absent; reading names out of the whole
-  // outcome turned that prohibition into a permitted transition.
-  const forbidden = [
+  // Eleven step names are also ordinary words, and section 2 uses them as words.
+  // Each pair below was built once from a sentence that mentions the step without
+  // sending the flow there: a prohibition (`cleanup side effects absent`,
+  // `freeze_artifact напрямую запрещён`), a verb (`or verify identical ref`), and
+  // a hyphenated verb whose tail passed the end-of-clause test (`final-verify;`).
+  const notEdges = [
     ["init_planning_ref", "cleanup"],
     ["present_tickets_breakdown", "freeze_artifact"],
+    ["narrow_review_join", "verify"],
+    ["rebuild_anchor", "verify"],
+    ["record_artifact_pass", "verify"],
+    ["freeze_artifact", "verify"],
   ];
-  const built = forbidden.filter(([from, to]) =>
-    graph.transitions.some((edge) => edge.from === from && edge.to === to),
-  );
-  assert.deepEqual(built, [], "a forbidding clause named these, and the graph must not carry them as edges");
+  const built = notEdges
+    .filter(([from, to]) => graph.transitions.some((edge) => edge.from === from && edge.to === to))
+    .map(([from, to]) => `${from} -> ${to}`);
+  assert.deepEqual(built, [], "these names are used as words, not as destinations");
+
+  // The rule must not have cost the real ones: `implement -> verify` is the code
+  // flow, and section 2 writes `transit verify` for the anchor rebuild.
+  for (const [from, to] of [
+    ["implement", "verify"],
+    ["rebuild_code_anchor", "verify"],
+  ]) {
+    assert.ok(
+      graph.transitions.some((edge) => edge.from === from && edge.to === to),
+      `${from} -> ${to} is a real edge and must survive the rule`,
+    );
+  }
+});
+
+test("every step the tables leave without an exit is given the one its chain draws", () => {
+  const graph = document();
+  const leaves = new Set(graph.transitions.map((edge) => edge.from));
+  const terminal = new Set(["done", "ticket_done", "human"]);
+  const stranded = graph.steps
+    .map((step) => step.name)
+    .filter((name) => !leaves.has(name) && !terminal.has(name));
+  assert.deepEqual(stranded, [], "a step that can only ever park is a flow with nowhere to go");
 });
 
 test("a step section 2 calls a human status step is a status step, and its exits are told apart", () => {
@@ -653,6 +681,21 @@ test("a step section 2 calls a human status step is a status step, and its exits
     .filter(([, targets]) => targets.size > 1)
     .map(([condition, targets]) => `${condition} -> ${[...targets].join(", ")}`);
   assert.deepEqual(ambiguous, [], "one condition offering several destinations makes all but the first unreachable");
+
+  // Distinct ids are not distinct conditions. Section 2 hangs both branches off
+  // one premise — a subject or scope change — and separates them by artifact
+  // kind, so each branch must carry the premise and the kind must exclude the
+  // other. Without that, a Tickets subject change satisfied both and the lower
+  // priority won, sending Tickets to a step section 2 says never takes them.
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const branch = (to) =>
+    predicates.get(guards.get(exits.find((edge) => edge.to === to).guards[0]).predicate) ?? "";
+  const clarify = branch("clarify_alignment");
+  const tickets = branch("present_tickets_breakdown");
+  assert.match(clarify, /subject\/scope/u, "the clarify branch keeps the shared premise");
+  assert.match(tickets, /subject\/scope/u, "the tickets branch keeps the shared premise");
+  assert.match(clarify, /kind\s*!=\s*tickets/u, "the clarify branch excludes the kind the other branch claims");
+  assert.match(tickets, /kind=tickets/u, "the tickets branch names the kind it claims");
 });
 
 test("an alternative offering either a signed decision or a policy is two edges, not one", () => {
