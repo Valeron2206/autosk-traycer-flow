@@ -207,9 +207,9 @@
       }
     },
     "guards": {
-      "description": "A guard is the condition. There is no second mechanism: a transition names the guards bound to it, and their conjunction is what must hold. Two alternative paths are two edges, not a disjunction.",
+      "description": "A guard is the condition. There is no second mechanism: a transition names the guards bound to it, and their conjunction is what must hold. Two alternative paths are two edges, not a disjunction. Bounded by the transition count rather than by the predicate count, because that rule is what makes guards multiply: one guard exists per alternative per edge, so a graph may declare more guards than it declares distinct conditions.",
       "type": "array",
-      "maxItems": 512,
+      "maxItems": 2048,
       "items": {
         "type": "object",
         "additionalProperties": false,

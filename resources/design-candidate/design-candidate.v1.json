@@ -480,14 +480,14 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "729fdecdd66f1b72a5877b4dafb642d4d965f10b2cc86572db61eed1098e05e8"
+      "sha256": "caaa29f1bbb6a90777bb499e2ab8f3a7f47f79a547eb7b4f020cdc41277df139"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "49830b708cdcbff41ea083e416b40d6dcffc6d7a2f982fd2c7d19ab21fa1ded9"
+      "sha256": "057cb47cfaa60cca7d6eb3011b7edfec01ad07a425a15efa8a2e3fff17a87cd3"
     }
   ],
-  "candidate_digest": "9a579829c1af350b88c55932642ae6733537bcd95841f9fd661bcc0398725d5f",
+  "candidate_digest": "19234b786f93dcd91bd9f93aa54e0720e2d64c9882ffcde5bb625c8e3027f7e7",
   "dispositions": [
     {
       "issue": 3,

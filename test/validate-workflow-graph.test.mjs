@@ -587,17 +587,86 @@ test("no two edges out of one step share a priority", () => {
   assert.deepEqual(clashes, []);
 });
 
-test("every cap names a cycle, a counted transition that exists, a limit and a park reason", () => {
+test("every cap counts the transition that spends a round, not merely one that exists", () => {
   const graph = document();
-  const transitions = new Set(graph.transitions.map((edge) => edge.id));
+  const transitions = new Map(graph.transitions.map((edge) => [edge.id, edge]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
   const vocabulary = parkReasons();
   assert.ok(graph.caps.length > 0, "the document declares at least one cap");
   for (const cap of graph.caps) {
     assert.ok(cap.cycle.length > 0, "a cap names its cycle");
-    assert.ok(transitions.has(cap.counted_transition), `${cap.cycle} counts a transition that exists`);
     assert.ok(Number.isInteger(cap.limit) && cap.limit >= 1, `${cap.cycle} carries a limit`);
     assert.ok(vocabulary.has(cap.park_reason), `${cap.cycle} parks with a workflow reason`);
+
+    const counted = transitions.get(cap.counted_transition);
+    assert.ok(counted, `${cap.cycle} counts a transition that exists`);
+    // Endpoints alone let a cap latch onto a repair edge that happens to share
+    // them, which is what it did: the counter then never moved on a real round
+    // and moved on something else. The condition is what makes it the round.
+    const says = counted.guards.map((id) => predicates.get(guards.get(id).predicate) ?? "");
+    assert.ok(
+      says.some((description) => /round\s*<\s*cap/u.test(description)),
+      `${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), whose conditions are:\n${says.join("\n")}`,
+    );
   }
+});
+
+test("a clause that forbids a step does not become an edge to it", () => {
+  const graph = document();
+  // Section 2 answers a ref-custody failure with `human` and says in the same
+  // breath that cleanup side effects are absent; reading names out of the whole
+  // outcome turned that prohibition into a permitted transition.
+  const forbidden = [
+    ["init_planning_ref", "cleanup"],
+    ["present_tickets_breakdown", "freeze_artifact"],
+  ];
+  const built = forbidden.filter(([from, to]) =>
+    graph.transitions.some((edge) => edge.from === from && edge.to === to),
+  );
+  assert.deepEqual(built, [], "a forbidding clause named these, and the graph must not carry them as edges");
+});
+
+test("a step section 2 calls a human status step is a status step, and its exits are told apart", () => {
+  const graph = document();
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  for (const name of ["await_alignment", "await_anchor_impact_approval"]) {
+    const step = steps.get(name);
+    assert.equal(step.kind, "status", `${name} drives a task status rather than running`);
+    assert.equal(step.status, "human", `${name} is the human status`);
+    assert.equal(step.no_transition_reason, undefined, `${name} carries no reason to fail to leave`);
+  }
+
+  // Exits to different steps sharing one condition are candidates at once, and
+  // priority then decides every time — so all but the first are unreachable
+  // however the flow arrived. Two edges to the SAME step under one condition are
+  // fine and expected: that is how one clause offering two authorities is drawn.
+  const exits = graph.transitions.filter((edge) => edge.from === "await_alignment");
+  assert.ok(exits.length >= 3, "await_alignment offers the alternatives section 2 lists");
+  const targetsByCondition = new Map();
+  for (const edge of exits) {
+    const condition = guards.get(edge.guards[0]).predicate;
+    targetsByCondition.set(condition, (targetsByCondition.get(condition) ?? new Set()).add(edge.to));
+  }
+  const ambiguous = [...targetsByCondition]
+    .filter(([, targets]) => targets.size > 1)
+    .map(([condition, targets]) => `${condition} -> ${[...targets].join(", ")}`);
+  assert.deepEqual(ambiguous, [], "one condition offering several destinations makes all but the first unreachable");
+});
+
+test("an alternative offering either a signed decision or a policy is two edges, not one", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const toRecord = graph.transitions.filter(
+    (edge) => edge.from === "await_alignment" && edge.to === "record_alignment",
+  );
+  const actors = new Set(toRecord.map((edge) => guards.get(edge.guards[0]).authority.actor));
+  assert.deepEqual(
+    [...actors].sort(),
+    ["human", "policy"],
+    "section 2 allows a new daemon decision or a current policy; collapsing them left a signed decision unable to satisfy the guard",
+  );
 });
 
 test("entry_steps is what makes the other registered workflows reachable", () => {
