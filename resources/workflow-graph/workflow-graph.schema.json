@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autosk-flow.local/schemas/workflow-graph.v1.json",
+  "title": "Declarative workflow graph v1",
+  "description": "The workflow as data: steps, transitions, guards with their authority, caps and recovery targets. Closed: unknown fields and unknown versions fail. Duplicate keys are refused by the parser before this schema runs, because a parsed object no longer carries them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow",
+    "first_step",
+    "graph_reasons",
+    "predicates",
+    "steps",
+    "guards",
+    "transitions",
+    "caps",
+    "recovery",
+    "canonical_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workflow": {
+      "$ref": "#/$defs/name"
+    },
+    "first_step": {
+      "$ref": "#/$defs/name"
+    },
+    "graph_reasons": {
+      "description": "Refusals the graph itself issues, which no edge or step can carry: an undeclared pair has no edge and therefore no guard.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transition_not_declared",
+        "resume_target_not_permitted"
+      ],
+      "properties": {
+        "transition_not_declared": {
+          "description": "Pinned to its own code: this contract owns it, so a document that renamed it would be naming a refusal nothing closes.",
+          "const": "transition_not_declared"
+        },
+        "resume_target_not_permitted": {
+          "description": "Pinned to its own code, for the same reason.",
+          "const": "resume_target_not_permitted"
+        }
+      }
+    },
+    "predicates": {
+      "description": "The closed enumeration a guard may reference. An expression language was rejected: it would need its own specification, parser and mutation coverage, and the cost of an error here is a silently permitted transition.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "reads",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "reads": {
+            "description": "The recorded state this predicate inspects. Named so that a predicate cannot quietly widen what it looks at.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/name"
+          },
+          "kind": {
+            "enum": [
+              "agent",
+              "status"
+            ]
+          },
+          "status": {
+            "description": "Present exactly when kind is status: the task status this terminal or parking step drives.",
+            "enum": [
+              "human",
+              "done",
+              "cancel"
+            ]
+          },
+          "hooks": {
+            "description": "Which optional agent hooks the step declares. Hook presence is declared structure; hook bodies are code and belong to the distribution digest.",
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 4,
+            "items": {
+              "enum": [
+                "onRun",
+                "onSteer",
+                "onFollowup",
+                "onAbort"
+              ]
+            }
+          },
+          "no_transition_reason": {
+            "description": "The reason the flow parks at this step when no outgoing edge is a candidate. Required for a non-terminal step; a step that can neither leave nor say why it did not leave is refused.",
+            "$ref": "#/$defs/park_reason"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "status"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "description": "A status step neither runs nor explains a failure to leave, so it carries no hooks and no no_transition_reason. Written as a narrowed property set rather than a negation: the shared Schema engine implements the positive keywords only.",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "name": {},
+                "kind": {},
+                "status": {}
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "agent"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "description": "An agent step drives no task status of its own, so status is absent and the reason for parking is mandatory.",
+              "required": [
+                "no_transition_reason"
+              ],
+              "properties": {
+                "name": {},
+                "kind": {},
+                "hooks": {},
+                "no_transition_reason": {}
+              },
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    },
+    "guards": {
+      "description": "A guard is the condition. There is no second mechanism: a transition names the guards bound to it, and their conjunction is what must hold. Two alternative paths are two edges, not a disjunction.",
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "predicate",
+          "authority",
+          "park_reason"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "predicate": {
+            "description": "An id from the predicates enumeration. An unknown id fails closed.",
+            "$ref": "#/$defs/id"
+          },
+          "authority": {
+            "$ref": "#/$defs/authority"
+          },
+          "park_reason": {
+            "description": "The reason named when this guard refuses an explicitly requested target. Selection does not park on a false guard; it disqualifies the edge.",
+            "$ref": "#/$defs/park_reason"
+          }
+        }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "from",
+          "to",
+          "priority",
+          "guards"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "from": {
+            "$ref": "#/$defs/name"
+          },
+          "to": {
+            "$ref": "#/$defs/name"
+          },
+          "priority": {
+            "description": "Among candidate edges out of one step the lowest priority wins. Two edges leaving one step with equal priority is a schema error rather than a runtime choice, so the outcome is decided by data and not by enumeration order.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4096
+          },
+          "guards": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        }
+      }
+    },
+    "caps": {
+      "description": "A cap counts the taking of one named transition and nothing else, so a retry after a tool or provider failure is not a round.",
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cycle",
+          "counted_transition",
+          "limit",
+          "park_reason"
+        ],
+        "properties": {
+          "cycle": {
+            "$ref": "#/$defs/id"
+          },
+          "counted_transition": {
+            "description": "The transition id whose taking increments the counter.",
+            "$ref": "#/$defs/id"
+          },
+          "limit": {
+            "description": "The shipped limit. A user decision may authorise exceeding it for one epic and scope; that authorisation is a decision record and not an edit here, so it does not move the digest.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "park_reason": {
+            "$ref": "#/$defs/park_reason"
+          }
+        }
+      }
+    },
+    "recovery": {
+      "description": "One row per park reason. The column that used to do two jobs is split: parks_at is where the flow stops, resume_targets is where the user may resume.",
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "parks_at",
+          "resume_targets",
+          "required_state"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/$defs/park_reason"
+          },
+          "parks_at": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "resume_targets": {
+            "description": "Every entry must be a declared edge from one of this reason's parks_at steps. A target outside this list is refused with graph_reasons.resume_target_not_permitted.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required_state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "canonical_digest": {
+      "description": "sha256 over the canonical serialization of this document with this field removed, not over the committed file bytes.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "name": {
+      "description": "A step or workflow name. Compared against the daemon under its own rule, so the character set is deliberately narrow.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "park_reason": {
+      "description": "A code the refusal vocabulary owns. A guard naming a code outside it is refused by the validator.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"
+    },
+    "authority": {
+      "description": "Who may take the transition. Criterion 2 names five components and none of them says who is entitled to act; this is where that lives, inside guards rather than as a sixth component.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor"
+      ],
+      "properties": {
+        "actor": {
+          "enum": [
+            "human",
+            "agent",
+            "policy"
+          ]
+        },
+        "policy_rules": {
+          "description": "Present exactly when actor is policy: the classifier rule ids the authorisation is bound to.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "policy_scope": {
+          "description": "Present exactly when actor is policy: the recorded bounds the authorisation may not exceed.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "policy"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "required": [
+              "policy_rules",
+              "policy_scope"
+            ]
+          },
+          "else": {
+            "description": "A human or agent authority carries no policy binding, so both policy fields are absent. Narrowed property set for the same reason as the step branches above.",
+            "properties": {
+              "actor": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  }
+}

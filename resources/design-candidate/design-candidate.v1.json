@@ -16,7 +16,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "bcb83523d5e8e94a24117040c2babda027e7a75cd24093355b723b1577b34ee5"
+      "sha256": "d33fbff327e637be70d3be68886cb26f7dea2cab59eb09ad0ae82b54d788a377"
     },
     {
       "path": "README.md",
@@ -179,6 +179,10 @@
       "sha256": "826328a122d924e2b8371b5c99de029a5cf26080f960f0c4e624ec290682ec72"
     },
     {
+      "path": "docs/contracts/workflow-graph.md",
+      "sha256": "9c98f59f3aa9b003232a0e23aa836aacf370e5de25803c466852b95a23ac3fa0"
+    },
+    {
       "path": "resources/approved-delta/approved-delta.schema.json",
       "sha256": "aefe32f650e86c2ea63bb0c75cc667a3fd086c9e26aae9b8bff7f9129e59523a"
     },
@@ -200,7 +204,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "a113f86ec5b98062024b31d6e40d1ce1c0689f068499c139acf371ba84ef3b3a"
+      "sha256": "f81e0a9e2cda71960b319b6e3994ebcc32e553f25d1c5a894aca4ffd379313f9"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -461,9 +465,25 @@
     {
       "path": "resources/walkthrough/walkthrough.schema.json",
       "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
+    },
+    {
+      "path": "resources/workflow-graph/canonical-reference.json",
+      "sha256": "a33fd029bb6cc75807e1c56df80c360935cebed41693be60e6c4b6a5ce7a519e"
+    },
+    {
+      "path": "resources/workflow-graph/workflow-graph.example.json",
+      "sha256": "f73b6cf3217f56f7405f3d0593e25be0a160eae1123ea3cc2b8bc516a2246ddb"
+    },
+    {
+      "path": "resources/workflow-graph/workflow-graph.refused.example.json",
+      "sha256": "3d1102e2dc5b067b8a8561cfd5e6aa9cbe09cc369e4423fd3a2de888d9143b4f"
+    },
+    {
+      "path": "resources/workflow-graph/workflow-graph.schema.json",
+      "sha256": "536d050db7b903c5e5f8ac678d5eef1f4f1c6b292472436cd150b217b1556b00"
     }
   ],
-  "candidate_digest": "cefb3ec2520ddffedbdc077a349979fe5c06a126295289a7e0b63306f2123c5d",
+  "candidate_digest": "34731971fed9afcf863b97076eccfb3dd6d2cacdf6d976b62564c4be3251e1fa",
   "dispositions": [
     {
       "issue": 3,

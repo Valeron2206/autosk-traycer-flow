@@ -242,6 +242,34 @@
       "model_family_policy": "cross_family_required"
     },
     {
+      "class": "canonicalization_reference",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "design_schema"
+      ],
+      "paths": [
+        "resources/workflow-graph/canonical-reference.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the file decides what canonical means, so two implementations agree or disagree by these bytes rather than by the prose; it is reviewed with the contract whose serialization it pins"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "validator": "scripts/validate-workflow-graph.mjs",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "changeset_walkthrough",
       "category": "explanatory",
       "author_roles": [
@@ -367,7 +395,8 @@
         "docs/contracts/tickets-manifest.md",
         "docs/contracts/verify-doc.md",
         "docs/contracts/walkthrough.md",
-        "docs/contracts/work-type-gates.md"
+        "docs/contracts/work-type-gates.md",
+        "docs/contracts/workflow-graph.md"
       ],
       "review": {
         "mode": "full_panel"
@@ -1928,5 +1957,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "f7a0089f28635d8256fb2ce7071f5e82221950215c59e7b221afc9da157f201a"
+  "registry_digest": "29bd3f92e6a12656df4a7586f8754eb17f0be1202f59e151bd3acaae3d240fd5"
 }

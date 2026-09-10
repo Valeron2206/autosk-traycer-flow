@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "workflow": "example_flow",
+  "first_step": "intake",
+  "graph_reasons": {
+    "transition_not_declared": "transition_not_declared",
+    "resume_target_not_permitted": "resume_target_not_permitted"
+  },
+  "predicates": [
+    {
+      "id": "alignment_recorded",
+      "reads": [
+        "authority_record_id"
+      ],
+      "description": "A daemon decision record closes every material decision of the current manifest."
+    },
+    {
+      "id": "candidate_frozen",
+      "reads": [
+        "candidate_tree_oid"
+      ],
+      "description": "A candidate tree has been minted and nothing has edited the worktree since."
+    },
+    {
+      "id": "review_passed",
+      "reads": [
+        "review_disposition"
+      ],
+      "description": "The current review disposition for this candidate is pass or waived."
+    }
+  ],
+  "steps": [
+    {
+      "name": "intake",
+      "kind": "agent",
+      "hooks": [
+        "onRun"
+      ],
+      "no_transition_reason": "quick_classification_invalid"
+    },
+    {
+      "name": "await_alignment",
+      "kind": "status",
+      "status": "human"
+    },
+    {
+      "name": "record_alignment",
+      "kind": "agent",
+      "hooks": [
+        "onRun",
+        "onAbort"
+      ],
+      "no_transition_reason": "alignment_record_stale"
+    },
+    {
+      "name": "freeze_artifact",
+      "kind": "agent",
+      "hooks": [
+        "onRun"
+      ],
+      "no_transition_reason": "artifact_freeze_invalid"
+    },
+    {
+      "name": "record_artifact_pass",
+      "kind": "agent",
+      "hooks": [
+        "onRun"
+      ],
+      "no_transition_reason": "artifact_pass_invalid"
+    },
+    {
+      "name": "done",
+      "kind": "status",
+      "status": "done"
+    }
+  ],
+  "guards": [
+    {
+      "id": "alignment_closed_by_user",
+      "predicate": "alignment_recorded",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "core_flow_decision_required"
+    },
+    {
+      "id": "readiness_closed_by_policy",
+      "predicate": "alignment_recorded",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "reversible_non_product_rule"
+        ],
+        "policy_scope": "local reversible implementation choices for this project and run, never a product, architecture, security, destructive, scope-reduction, waiver or integration decision"
+      },
+      "park_reason": "alignment_policy_out_of_scope"
+    },
+    {
+      "id": "candidate_is_frozen",
+      "predicate": "candidate_frozen",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "artifact_freeze_invalid"
+    },
+    {
+      "id": "review_is_passed",
+      "predicate": "review_passed",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "artifact_pass_invalid"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "intake_to_await",
+      "from": "intake",
+      "to": "await_alignment",
+      "priority": 0,
+      "guards": []
+    },
+    {
+      "id": "await_to_record_by_user",
+      "from": "await_alignment",
+      "to": "record_alignment",
+      "priority": 0,
+      "guards": [
+        "alignment_closed_by_user"
+      ]
+    },
+    {
+      "id": "await_to_record_by_policy",
+      "from": "await_alignment",
+      "to": "record_alignment",
+      "priority": 1,
+      "guards": [
+        "readiness_closed_by_policy"
+      ]
+    },
+    {
+      "id": "record_to_freeze",
+      "from": "record_alignment",
+      "to": "freeze_artifact",
+      "priority": 0,
+      "guards": []
+    },
+    {
+      "id": "freeze_to_pass",
+      "from": "freeze_artifact",
+      "to": "record_artifact_pass",
+      "priority": 0,
+      "guards": [
+        "candidate_is_frozen"
+      ]
+    },
+    {
+      "id": "freeze_retry",
+      "from": "freeze_artifact",
+      "to": "freeze_artifact",
+      "priority": 1,
+      "guards": []
+    },
+    {
+      "id": "pass_to_done",
+      "from": "record_artifact_pass",
+      "to": "done",
+      "priority": 0,
+      "guards": [
+        "review_is_passed"
+      ]
+    },
+    {
+      "id": "pass_to_freeze",
+      "from": "record_artifact_pass",
+      "to": "freeze_artifact",
+      "priority": 1,
+      "guards": []
+    }
+  ],
+  "caps": [
+    {
+      "cycle": "artifact_review_cycle",
+      "counted_transition": "freeze_retry",
+      "limit": 10,
+      "park_reason": "review_cap"
+    }
+  ],
+  "recovery": [
+    {
+      "reason": "core_flow_decision_required",
+      "parks_at": [
+        "await_alignment"
+      ],
+      "resume_targets": [
+        "record_alignment"
+      ],
+      "required_state": "every material product decision of the current manifest is closed by a daemon UserDecisionRecord; model self-approval is refused"
+    },
+    {
+      "reason": "alignment_policy_out_of_scope",
+      "parks_at": [
+        "await_alignment"
+      ],
+      "resume_targets": [
+        "record_alignment"
+      ],
+      "required_state": "the trusted client signed the exact nonce challenge and the daemon issued a fresh authorisation from it; the previous projection does not carry over"
+    },
+    {
+      "reason": "artifact_freeze_invalid",
+      "parks_at": [
+        "freeze_artifact"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "the recorded base, pathspec and tree oid are re-established and the worktree is clean under the declared pathspec"
+    },
+    {
+      "reason": "artifact_pass_invalid",
+      "parks_at": [
+        "record_artifact_pass"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "the previous bindings are void, the attempt counter advanced, and the full or narrow mode of the superseded review is preserved"
+    },
+    {
+      "reason": "review_cap",
+      "parks_at": [
+        "freeze_artifact"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "a daemon decision names a new finite limit; without a limit is not a decision and the schema does not accept it"
+    },
+    {
+      "reason": "quick_classification_invalid",
+      "parks_at": [
+        "intake"
+      ],
+      "resume_targets": [
+        "await_alignment"
+      ],
+      "required_state": "a schema-valid planned trigger, the original base and worktree receipt, and the idempotent binding of the Planned replacement"
+    },
+    {
+      "reason": "alignment_record_stale",
+      "parks_at": [
+        "record_alignment"
+      ],
+      "resume_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "a new anchor version, a daemon impact disposition, and current authority, alignment and classifier hashes"
+    }
+  ],
+  "canonical_digest": "51c273e183b0562325c8468c95c8e94d2e2b4c5965a3b27044c3ec31ed2140c3"
+}
