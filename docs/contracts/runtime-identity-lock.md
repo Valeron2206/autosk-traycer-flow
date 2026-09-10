@@ -34,18 +34,43 @@ Two consequences are deliberate. A requirement can be met by a line inside a com
 
 | Requirement | What must hold |
 | --- | --- |
-| `refusal_declared` | The engine declares one refusal for an identity that no longer matches the pin. |
+| `refusal_declared` | The engine declares one refusal for a runtime identity that no longer matches the task's pin. |
 | `decision_is_one_function` | One function decides whether a task may proceed on the identity it is pinned to. |
-| `malformed_pin_refused` | A pin that cannot be read is refused, not repaired and not dropped. |
-| `checked_between_steps` | The identity is re-checked when the flow moves between two steps, not only at enroll and resume. |
-| `distribution_digest_compared` | The distribution digest the task was admitted under is compared against the one served now. |
+| `malformed_pin_refused` | A pin that cannot be read is refused rather than repaired or dropped. |
+| `checked_at_enroll` | The decision runs when a task is enrolled. |
+| `checked_at_resume` | The decision runs when a task is resumed. |
+| `checked_between_steps` | The decision runs when the flow moves between two steps, and not only at enroll and resume. |
+| `distribution_digest_compared` | The distribution digest the task was admitted under is compared against the one the registry serves now. |
 | `graph_digest_compared` | The declared workflow shape is compared as well as the distribution. |
-| `absent_shape_is_not_covered` | A pin carrying no shape where the registry has one is refused, not read as agreement. |
+| `absent_shape_is_not_covered` | A pin carrying no shape where the registry has one is refused rather than treated as covered. |
 | `shape_digest_declared` | The declared shape has a digest of its own. |
-| `shape_digest_is_canonical` | That digest is over a canonical serialization, not over an incidental writing. |
-| `canonical_sorts_steps` | The canonical serialization sorts the steps, because their order carries no meaning and `Object.entries` would not report the author's order for integer-like names anyway. |
+| `shape_digest_is_canonical` | The shape digest is computed from the canonical serialization, not merely alongside a function that could produce one. |
+| `canonical_sorts_steps` | The canonical serialization sorts the steps. |
 
 Each carries, in the resource, what goes wrong when it stops holding. A requirement whose cost nobody can state is one nobody will defend when it becomes inconvenient.
+
+### The anchors
+
+This document carries them, not only the names, and the validator requires the resource to agree with it line for line. Name equality alone was not enough: a requirement kept its id, its prose and its row above while its anchor was swapped for another requirement's, which gutted the check and moved nothing under full panel review.
+
+Each row is the requirement id, the count the series must leave, and the line, separated by tabs.
+
+```text
+refusal_declared	1	export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";
+decision_is_one_function	1	export function runtimeIdentityDecision(
+malformed_pin_refused	1	    if (pinned.state === "malformed") {
+checked_at_enroll	1	      restarting ? { state: "absent" } : pinned,
+checked_at_resume	1	      readRuntimeIdentityPin(view.metadata),
+checked_between_steps	1	      project.store.runtimeIdentityPin(taskId),
+distribution_digest_compared	1	  if (current.distribution.digest !== pinned.pin.digest) {
+graph_digest_compared	1	  if (current.graph !== pinned.pin.graph) {
+absent_shape_is_not_covered	1	  if (pinned.pin.graph === undefined) {
+shape_digest_declared	1	export function workflowGraphDigest(wf: WorkflowDefinition): string {
+shape_digest_is_canonical	1	  return createHash("sha256").update(canonicalWorkflowGraph(wf), "utf8").digest("hex");
+canonical_sorts_steps	1	  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
+```
+
+Three of these anchor to a call rather than to a declaration, and the distinction is what the first two rounds of this slice were about. A patch can leave `canonicalWorkflowGraph` standing and stop calling it; it can leave a comment saying the identity is re-checked between steps and delete the check. What must survive is the use.
 
 ## 5. Refusal classes
 

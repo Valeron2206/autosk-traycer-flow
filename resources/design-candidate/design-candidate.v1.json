@@ -152,7 +152,7 @@
     },
     {
       "path": "docs/contracts/runtime-identity-lock.md",
-      "sha256": "9345268c32bc1c423217c15bd4f3ebaab1733e577da507ba19e65b31601ed2dd"
+      "sha256": "6de8123a10033b0a8865b11a3b09bafaa8e30cb854c851a0879a0aead224cc2a"
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "b4e31faa228651c45a2b320c6bd9a93662da6b04b5e6d7076fef437f47d0ce88"
+      "sha256": "89db9336ff1ecd3d404a93647c581fe21088f27b26890fe02e01cecf8005602d"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -424,7 +424,7 @@
     },
     {
       "path": "resources/runtime-identity-lock/runtime-identity-lock.refused.example.json",
-      "sha256": "a250e67a656e8573001bde97cee4cbbbc1e43ede6913ed4d83e2065847de0332"
+      "sha256": "7b40cb08ac80a7668bd89604b44201a8d4b7911c5e70449ce1b35998f5f496f0"
     },
     {
       "path": "resources/runtime-identity-lock/runtime-identity-lock.schema.json",
@@ -499,7 +499,7 @@
       "sha256": "bbed49fd84156a8ade7e2ba7b3f46dcb3b2a98e6ff3778fc391a77c6b0898e0a"
     }
   ],
-  "candidate_digest": "7a4bcb1fbc2baf2f1a1e6370a38901ab01f5499fda57dec55f16774ab0ee44bb",
+  "candidate_digest": "7269881070dc67fac0f8132096fc63394159a861a75e5fd3cd0fa705b25f0d30",
   "dispositions": [
     {
       "issue": 3,

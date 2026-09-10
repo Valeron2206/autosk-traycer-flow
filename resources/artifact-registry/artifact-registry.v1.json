@@ -1664,7 +1664,7 @@
       ],
       "review": {
         "mode": "narrow_review",
-        "condition": "each requirement is anchored to a line the pinned patch series must leave in place, and the requirement set and its contract are checked as one set in both directions. Removing a guarantee therefore has to remove it from the contract as well, which is a contract_document under full_panel; this file is reviewed narrowly with that contract rather than gated twice. The one-directional check that preceded this did not close that argument, and the condition said so before the check did."
+        "condition": "the checked condition itself — the anchored line and its count — lives in the contract, which is a contract_document under full_panel, and the validator requires this resource to agree with it line for line. Two earlier writings of this condition claimed the argument closed when it did not: the first checked that a declared requirement was named, the second compared names alone, and both left a guarantee removable without touching anything under panel review."
       },
       "identity_fields": [
         "project_identity",
@@ -2017,5 +2017,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "b5e0dcc1752180bcce6a19f72743ca32c37391111a1f12d7d441ff6774c750b7"
+  "registry_digest": "2943078de580c90b877f9dd689458e7126bc369b4f9b8e5e9fe4a0d151852ea1"
 }

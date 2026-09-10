@@ -35,10 +35,10 @@
     },
     {
       "id": "counted_wrong",
-      "requires": "the identity is re-checked when the flow moves between two steps, and not only at enroll and resume",
-      "why": "A registry can be swapped mid-session by an extension reload. A check at the two entry points alone lets a task that was admitted on one distribution finish on another, one step at a time.",
+      "requires": "the decision runs when a task is enrolled",
+      "why": "Enrolling is where a pin is written or honoured. Without the check here a task can be admitted onto code it was never pinned to, and every later check compares against that wrong pin.",
       "introduced_by": "patches/0003-runtime-identity-admission.patch",
-      "added_line": "    // admitted identity is re-checked here and not only at enroll/resume.",
+      "added_line": "      restarting ? { state: \"absent\" } : pinned,",
       "occurrences": 7
     }
   ],

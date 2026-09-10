@@ -26,11 +26,27 @@
       "occurrences": 1
     },
     {
-      "id": "checked_between_steps",
-      "requires": "the identity is re-checked when the flow moves between two steps, and not only at enroll and resume",
-      "why": "A registry can be swapped mid-session by an extension reload. A check at the two entry points alone lets a task that was admitted on one distribution finish on another, one step at a time.",
+      "id": "checked_at_enroll",
+      "requires": "the decision runs when a task is enrolled",
+      "why": "Enrolling is where a pin is written or honoured. Without the check here a task can be admitted onto code it was never pinned to, and every later check compares against that wrong pin.",
       "introduced_by": "patches/0003-runtime-identity-admission.patch",
-      "added_line": "    // admitted identity is re-checked here and not only at enroll/resume.",
+      "added_line": "      restarting ? { state: \"absent\" } : pinned,",
+      "occurrences": 1
+    },
+    {
+      "id": "checked_at_resume",
+      "requires": "the decision runs when a task is resumed",
+      "why": "A parked task resumes on whatever the registry now holds. This is the moment a refused identity would otherwise be laundered by waiting.",
+      "introduced_by": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "      readRuntimeIdentityPin(view.metadata),",
+      "occurrences": 1
+    },
+    {
+      "id": "checked_between_steps",
+      "requires": "the decision runs when the flow moves between two steps, and not only at enroll and resume",
+      "why": "A registry can be swapped mid-session by an extension reload. A check at the two entry points alone lets a task admitted on one distribution finish on another, one step at a time. Anchored to the call rather than to the comment beside it, because a comment survives the deletion of the code it describes.",
+      "introduced_by": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "      project.store.runtimeIdentityPin(taskId),",
       "occurrences": 1
     },
     {
@@ -67,10 +83,10 @@
     },
     {
       "id": "shape_digest_is_canonical",
-      "requires": "the shape digest is taken over a canonical serialization rather than over whatever the declaration happened to look like",
-      "why": "A digest over an incidental writing parks a good runtime as incompatible the first time a declaration is reformatted. The canonical form is what makes two writings of one shape one identity.",
+      "requires": "the shape digest is computed from the canonical serialization, not merely alongside a function that could produce one",
+      "why": "A digest over an incidental writing parks a good runtime as incompatible the first time a declaration is reformatted. Anchoring this to the declaration was the defect: a patch can leave `canonicalWorkflowGraph` standing and stop calling it, and the digest becomes whatever the new body returns while the declaration goes on satisfying the requirement.",
       "introduced_by": "patches/0005-workflow-shape-identity.patch",
-      "added_line": "export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {",
+      "added_line": "  return createHash(\"sha256\").update(canonicalWorkflowGraph(wf), \"utf8\").digest(\"hex\");",
       "occurrences": 1
     },
     {
@@ -82,5 +98,5 @@
       "occurrences": 1
     }
   ],
-  "lock_digest": "9775283489c2fe255cd42832a14de3b3142026f99c19e801b855e4f1b7308c1d"
+  "lock_digest": "ab15e3859e1de7dbb015ae71a3ccffc0e80347584ef580fb65db499b4591c94e"
 }

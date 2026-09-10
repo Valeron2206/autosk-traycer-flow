@@ -213,18 +213,27 @@ export function validateShape(value, schema, at = "$") {
 }
 
 /**
- * The requirement ids the contract promises a reader.
+ * The anchors the contract promises a reader: id, count and line.
  *
- * Read from the leading cell of its requirement table rather than from anywhere
- * the id happens to appear, so a mention in prose cannot stand in for a promise.
+ * Read from the fenced block rather than from the prose table, because the block
+ * is where the checked condition lives. Names alone were not enough: a
+ * requirement kept its id, its prose and its table row while its anchor was
+ * swapped for another requirement's, so the canonicality check became a second
+ * copy of the refusal-constant check and nothing under full panel review moved.
  */
-export function contractRequirements(contract) {
-  const ids = new Set();
-  for (const line of contract.split("\n")) {
-    const cell = /^\|\s*`([a-z][a-z0-9_]*)`\s*\|/u.exec(line);
-    if (cell) ids.add(cell[1]);
+export function contractAnchors(contract) {
+  const anchors = new Map();
+  const block = /```text\n([\s\S]*?)\n```/gu;
+  for (const [, body] of contract.matchAll(block)) {
+    for (const line of body.split("\n")) {
+      const parts = line.split("\t");
+      if (parts.length < 3) continue;
+      const [id, occurrences, ...rest] = parts;
+      if (!/^[a-z][a-z0-9_]*$/u.test(id) || !/^\d+$/u.test(occurrences)) continue;
+      anchors.set(id, { occurrences: Number(occurrences), added_line: rest.join("\t") });
+    }
   }
-  return ids;
+  return anchors;
 }
 
 export function loadFiles(root = ROOT) {
@@ -282,12 +291,25 @@ export function validateDesign(files, { readPatch = patchReader() } = {}) {
   // the whole argument for reviewing this resource narrowly.
   try {
     const lock = JSON.parse(files[LOCK_PATH]);
-    const declared = new Set(lock.requirements.map((entry) => entry.id));
-    const promised = contractRequirements(contract);
-    for (const id of declared) {
-      if (!promised.has(id)) errors.push(`${CONTRACT_PATH}: does not name the requirement ${id}`);
+    const declared = new Map(lock.requirements.map((entry) => [entry.id, entry]));
+    const promised = contractAnchors(contract);
+    for (const [id, requirement] of declared) {
+      const anchor = promised.get(id);
+      if (!anchor) {
+        errors.push(`${CONTRACT_PATH}: does not name the requirement ${id}`);
+        continue;
+      }
+      // The anchor is the checked condition, so it has to live in the document
+      // that is under full panel review. Comparing only the names let the check
+      // be gutted while every name and every paragraph stayed as written.
+      if (anchor.added_line !== requirement.added_line) {
+        errors.push(`${CONTRACT_PATH}: anchors ${id} to a different line than ${LOCK_PATH} does`);
+      }
+      if (anchor.occurrences !== requirement.occurrences) {
+        errors.push(`${CONTRACT_PATH}: anchors ${id} at ${anchor.occurrences} and ${LOCK_PATH} at ${requirement.occurrences}`);
+      }
     }
-    for (const id of promised) {
+    for (const id of promised.keys()) {
       if (!declared.has(id)) errors.push(`${LOCK_PATH}: does not require ${id}, which ${CONTRACT_PATH} promises`);
     }
   } catch {

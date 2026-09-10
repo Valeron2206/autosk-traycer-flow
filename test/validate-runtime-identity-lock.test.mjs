@@ -23,7 +23,7 @@ import {
   REFUSED_PATH,
   SCHEMA_PATH,
   addedLines,
-  contractRequirements,
+  contractAnchors,
   countAdded,
   loadFiles,
   lockDigest,
@@ -182,9 +182,12 @@ test("the requirements cover both halves of the lock and all three moments", () 
   for (const id of [
     "distribution_digest_compared",
     "graph_digest_compared",
+    "checked_at_enroll",
+    "checked_at_resume",
     "checked_between_steps",
     "absent_shape_is_not_covered",
     "canonical_sorts_steps",
+    "shape_digest_is_canonical",
   ]) {
     assert.ok(declared.has(id), `${id} is what the lock is for and the set no longer requires it`);
   }
@@ -217,19 +220,19 @@ test("the lock digest is over the document and not over itself", () => {
 
 // --- the two the first round got wrong ------------------------------------
 
-test("a later patch that removes the line fails the requirement it belonged to", () => {
+test("a later patch that removes a required line fails the requirement it belonged to", () => {
   // The first writing of this check counted the additions of the patch that
   // introduced a line. That asks what the series once did. A patch appended after
   // it could delete the guarantee and nothing failed, which is the one thing the
   // check exists to catch.
   const removal = [
-    "--- a/daemon/core/src/extensions/graph.ts",
-    "+++ b/daemon/core/src/extensions/graph.ts",
-    "-export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {",
-    '+const canonicalWorkflowGraph = () => "";',
+    "--- a/daemon/core/src/engine/runtimeIdentity.ts",
+    "+++ b/daemon/core/src/engine/runtimeIdentity.ts",
+    '-export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";',
+    '+const EXTENSION_VERSION_MISMATCH = "mismatch";',
     "",
   ].join("\n");
-  const file = "patches/0032-remove-canonical.patch";
+  const file = "patches/0032-rename-the-refusal.patch";
   const later = {
     ...manifest,
     patches: [...manifest.patches, { file, sha256: createHash("sha256").update(removal).digest("hex") }],
@@ -237,7 +240,7 @@ test("a later patch that removes the line fails the requirement it belonged to",
   const reader = (relative) => (relative === file ? Buffer.from(removal) : readPatch(relative));
   const errors = validateLock(lock(), schema, { manifest: later, readPatch: reader });
   assert.ok(
-    errors.some((message) => message.startsWith("lock_requirement_unmet") && message.includes("shape_digest_is_canonical")),
+    errors.some((message) => message.startsWith("lock_requirement_unmet") && message.includes("refusal_declared")),
     `a later removal must fail, got:\n${errors.join("\n") || "(nothing)"}`,
   );
   // And it must say who took it, or the failure sends a reader through 31 patches.
@@ -261,17 +264,101 @@ test("a requirement removed from the resource fails against the contract that st
   }
 });
 
-test("the contract's promises and the resource's requirements are the same set", () => {
-  const promised = contractRequirements(files[CONTRACT_PATH]);
-  const declared = new Set(lock().requirements.map((entry) => entry.id));
-  assert.deepEqual([...promised].sort(), [...declared].sort());
+test("the contract and the resource agree on every anchor, not only on names", () => {
+  const promised = contractAnchors(files[CONTRACT_PATH]);
+  const declared = lock().requirements;
+  assert.equal(promised.size, declared.length);
+  for (const requirement of declared) {
+    const anchor = promised.get(requirement.id);
+    assert.ok(anchor, `${requirement.id} is not in the contract's anchor block`);
+    assert.equal(anchor.added_line, requirement.added_line, requirement.id);
+    assert.equal(anchor.occurrences, requirement.occurrences, requirement.id);
+  }
 });
 
-test("a promise is read from the requirement table, not from prose that mentions an id", () => {
-  // Otherwise a paragraph naming a requirement in passing would count as promising
-  // it, and the two sets would agree by accident.
-  const prose = "The requirement `refusal_declared` is discussed here.\n| `only_this_one` | a row |\n";
-  assert.deepEqual([...contractRequirements(prose)], ["only_this_one"]);
+test("an anchor swapped in the resource fails against the contract that still carries the old one", () => {
+  // Every name, every paragraph and every table row stays as written; only the
+  // checked condition moves. This is the bypass that made the narrow-review
+  // argument false, because nothing under full panel review had to change.
+  const swapped = lock();
+  const canonical = swapped.requirements.find((entry) => entry.id === "shape_digest_is_canonical");
+  const refusal = swapped.requirements.find((entry) => entry.id === "refusal_declared");
+  canonical.added_line = refusal.added_line;
+  swapped.lock_digest = lockDigest(swapped);
+  const errors = validateDesign({ ...files, [LOCK_PATH]: JSON.stringify(swapped) });
+  assert.ok(
+    errors.some((message) => message.includes("anchors shape_digest_is_canonical to a different line")),
+    `a swapped anchor must fail, got:\n${errors.join("\n") || "(nothing)"}`,
+  );
+});
+
+test("a count changed in the resource fails against the contract too", () => {
+  const changed = lock();
+  changed.requirements[0].occurrences = 2;
+  changed.lock_digest = lockDigest(changed);
+  const errors = validateDesign({ ...files, [LOCK_PATH]: JSON.stringify(changed) });
+  assert.ok(errors.some((message) => message.includes("anchors")), errors.join("\n"));
+});
+
+test("anchors are read from the fenced block, not from prose that mentions an id", () => {
+  const prose = "The requirement `refusal_declared` is discussed here.\n| `in_a_table` | a row |\n";
+  assert.equal(contractAnchors(prose).size, 0);
+  const block = "```text\nonly_this_one\t1\tthe line\n```\n";
+  assert.deepEqual([...contractAnchors(block)], [["only_this_one", { occurrences: 1, added_line: "the line" }]]);
+});
+
+test("a requirement anchored to a declaration is not enough, and the shipped set knows it", () => {
+  // The canonical digest requirement anchors to the line that computes the digest
+  // from the canonical form. Anchored to the declaration, a patch could leave
+  // `canonicalWorkflowGraph` standing, stop calling it, and pass.
+  const canonical = lock().requirements.find((entry) => entry.id === "shape_digest_is_canonical");
+  assert.match(canonical.added_line, /canonicalWorkflowGraph\(wf\)/u, "it anchors to the call");
+  assert.doesNotMatch(canonical.added_line, /^export function/u, "and not to the declaration");
+
+  const between = lock().requirements.find((entry) => entry.id === "checked_between_steps");
+  assert.doesNotMatch(between.added_line, /^\s*\/\//u, "the between-steps check does not anchor to a comment");
+});
+
+test("gutting the digest while keeping the declaration fails", () => {
+  const gut = [
+    "--- a/daemon/core/src/extensions/graph.ts",
+    "+++ b/daemon/core/src/extensions/graph.ts",
+    '-  return createHash("sha256").update(canonicalWorkflowGraph(wf), "utf8").digest("hex");',
+    '+  return "0".repeat(64);',
+    "",
+  ].join("\n");
+  const file = "patches/0032-gut-the-digest.patch";
+  const later = {
+    ...manifest,
+    patches: [...manifest.patches, { file, sha256: createHash("sha256").update(gut).digest("hex") }],
+  };
+  const reader = (relative) => (relative === file ? Buffer.from(gut) : readPatch(relative));
+  const errors = validateLock(lock(), schema, { manifest: later, readPatch: reader });
+  assert.ok(
+    errors.some((message) => message.includes("shape_digest_is_canonical")),
+    `got:\n${errors.join("\n") || "(nothing)"}`,
+  );
+});
+
+test("dropping the between-steps check fails even though its comment survives", () => {
+  const drop = [
+    "--- a/daemon/core/src/engine/engine.ts",
+    "+++ b/daemon/core/src/engine/engine.ts",
+    "-      project.store.runtimeIdentityPin(taskId),",
+    "+      undefined,",
+    "",
+  ].join("\n");
+  const file = "patches/0033-drop-dispatch-check.patch";
+  const later = {
+    ...manifest,
+    patches: [...manifest.patches, { file, sha256: createHash("sha256").update(drop).digest("hex") }],
+  };
+  const reader = (relative) => (relative === file ? Buffer.from(drop) : readPatch(relative));
+  const errors = validateLock(lock(), schema, { manifest: later, readPatch: reader });
+  assert.ok(
+    errors.some((message) => message.includes("checked_between_steps")),
+    `got:\n${errors.join("\n") || "(nothing)"}`,
+  );
 });
 
 test("a line added and later removed leaves nothing behind", () => {
