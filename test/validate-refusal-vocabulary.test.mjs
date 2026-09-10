@@ -16,6 +16,7 @@ import {
   CONTRACT_MARKER,
   CONTRACT_PATH,
   FLOWS_PATH,
+  GRAPH_PATH,
   PLAN_PATH,
   REFUSALS,
   REFUSED_PATH,
@@ -44,8 +45,9 @@ const files = Object.fromEntries(
   [CONTRACT_PATH, SCHEMA_PATH, VOCABULARY_PATH, REFUSED_PATH].map((relative) => [relative, read(relative)]),
 );
 const plan = read(PLAN_PATH);
+const graph = JSON.parse(read(GRAPH_PATH));
 const flows = read(FLOWS_PATH);
-const context = { plan, flows, sources: readSources(), contracts: readContracts() };
+const context = { plan, graph, flows, sources: readSources(), contracts: readContracts() };
 const vocabulary = () => JSON.parse(files[VOCABULARY_PATH]);
 const reasons = (list) => [...new Set(list.map((entry) => entry.reason))].sort();
 
@@ -53,15 +55,17 @@ test("the shipped design validates", () => {
   assert.deepEqual(validateDesign(files, context), []);
 });
 
-test("the steps come from the registered workflow graphs, not from a list", () => {
-  // A hand-kept list of steps is a second place for the truth to live.
-  const steps = registeredSteps(plan);
+test("the steps come from the graph document, not from a scrape of the prose", () => {
+  // A hand-kept list of steps is a second place for the truth to live, and so is
+  // a regular expression over prose: it saw a step wherever a token matched the
+  // name pattern, so a rename stayed registered until someone noticed.
+  const steps = registeredSteps(graph);
   for (const step of ["implement", "verify", "freeze", "record_alignment", "init_planning_ref", "rebuild_code_anchor"]) {
     assert.ok(steps.includes(step), step);
   }
-  assert.ok(!steps.includes("recovery: rebuild_code_anchor"));
-  assert.ok(!steps.includes("human alignment before normative planning"));
-  assert.equal(registeredSteps("## 2. x\n## 3. y\n").length, 0);
+  assert.deepEqual(steps, [...steps].sort(), "the steps come back in one order");
+  assert.equal(new Set(steps).size, steps.length, "the document declares each step once");
+  assert.throws(() => registeredSteps("## 2. x\n## 3. y\n"), TypeError, "the plan text is no longer a source of steps");
 });
 
 test("one table owns the vocabulary", () => {
@@ -76,14 +80,14 @@ test("a misspelled step is not accepted quietly; the row parks nowhere", () => {
   // not, because a reason with no step and no class is refused.
   const broken = plan.replace("| code_verdict_invalid | freeze |", "| code_verdict_invalid | freze |");
   assert.notEqual(broken, plan);
-  const entry = extractVocabulary(broken).find((candidate) => candidate.code === "code_verdict_invalid");
+  const entry = extractVocabulary(broken, graph).find((candidate) => candidate.code === "code_verdict_invalid");
   assert.deepEqual(entry.parks_at, []);
   const claimed = { ...vocabulary(), park_reasons: [{ ...entry, producer: "daemon", producer_files: [] }] };
-  assert.ok(reasons(stepErrors(claimed, registeredSteps(plan))).includes("refusal_vocabulary_unknown_step"));
+  assert.ok(reasons(stepErrors(claimed, registeredSteps(graph))).includes("refusal_vocabulary_unknown_step"));
 });
 
 test("the resource never wins an argument with the table", () => {
-  const extracted = extractVocabulary(plan);
+  const extracted = extractVocabulary(plan, graph);
   assert.deepEqual(driftErrors(vocabulary(), extracted), []);
 
   const invented = vocabulary();
@@ -107,7 +111,7 @@ test("the resource never wins an argument with the table", () => {
 });
 
 test("a class defined as everything else is recomputed, not trusted", () => {
-  const steps = registeredSteps(plan);
+  const steps = registeredSteps(graph);
   assert.deepEqual(stepErrors(vocabulary(), steps), []);
 
   const edited = vocabulary();

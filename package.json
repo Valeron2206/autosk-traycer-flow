@@ -54,7 +54,9 @@
     "validate:static-analysis": "node scripts/validate-static-analysis.mjs",
     "validate:sdk-write-api": "node scripts/validate-sdk-write-api.mjs",
     "validate:design-candidate": "node scripts/validate-design-candidate.mjs",
-    "validate:workflow-graph": "node scripts/validate-workflow-graph.mjs"
+    "validate:workflow-graph": "node scripts/validate-workflow-graph.mjs",
+    "validate:workflow-views": "node scripts/render-workflow-views.mjs",
+    "render:workflow-views": "node scripts/render-workflow-views.mjs --write"
   },
   "engines": {
     "node": ">=24"
