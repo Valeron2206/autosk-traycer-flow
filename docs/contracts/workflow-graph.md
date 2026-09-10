@@ -127,13 +127,9 @@ Section 2's eight arrow-chain blocks are not rendered from this document and can
 
 What is checked is reachability, not adjacency. The notation summarises paths — a chain drawing `select_next -> record_alignment` means the flow gets there, not that the graph declares that edge — so demanding adjacency fails on pairs that are the chains abbreviating rather than disagreeing. What a summary must not do is draw a step the flow cannot get to at all.
 
-Three drawn paths the graph cannot walk are tolerated by name, because settling them is a normative edit to the plan's prose rather than a checker's decision:
+A drawn path the graph cannot walk is tolerated only by name, and the list is empty. Three entries lived in it while the owner decided what they were: each was a table row that states a success condition and what to record, then stops without saying where the flow goes, with the chain drawing the destination — `resume_repaired_tickets -> ticket_join`, `intake -> implement` in autosk-quick, and `invalidate_quick_classification -> done`. Read as an omission in the tables rather than as two statements disagreeing, so those three transitions are in the graph and nothing remains to tolerate.
 
-- `autosk-planned: resume_repaired_tickets -> ticket_join`
-- `autosk-quick: intake -> implement`
-- `autosk-quick: invalidate_quick_classification -> done`
-
-A divergence that is not named fails, and a name that no longer diverges fails too, so the list cannot become a place a real one hides behind a settled entry.
+The mechanism stays for the next such gap, which should not be settled by whoever finds it. Tolerating a divergence takes an owner decision and an entry in the list; a divergence that is not named fails, a name with no divergence behind it fails too, and this contract names whatever the list holds.
 
 The `(human)` marks are checked as themselves. They are the only thing the chains state that the transition tables never do, so nothing else could catch a mark that has drifted from the step it marks.
 

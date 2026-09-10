@@ -3135,6 +3135,33 @@
         "task_record"
       ],
       "description": "Section 2's tables declare no exit from repair_anchor_handoff; the chain for registered workflow autosk-ticket draws this one and states no further condition."
+    },
+    {
+      "id": "cond_403",
+      "reads": [
+        "replacement_blockers",
+        "replacement_phase",
+        "semantic_writes",
+        "ticket_repair_op"
+      ],
+      "description": "repair op валидна, every replacement phase=`replacement_ready|replacement_enrolled`, parent не имеет premature replacement blockers, semantic writes sealed — the row records the daemon authority guard and the phases it performs, and section 2 draws the flow on to ticket_join"
+    },
+    {
+      "id": "cond_404",
+      "reads": [
+        "quick_handoff",
+        "replacement_binding",
+        "worktree_ownership_receipt"
+      ],
+      "description": "binding валиден — the row records the handoff op, the commit and integrate prohibition, the Planned replacement and the worktree ownership receipt, then `superseded_by` with outcome=reclassified and phase=complete, and section 2 draws the flow on to done"
+    },
+    {
+      "id": "cond_405",
+      "reads": [
+        "classification",
+        "workflow"
+      ],
+      "description": "Section 2's tables carry one `intake` row and it is the autosk-planned one; the autosk-quick chain is the only place this transition is stated, and it states no condition for it"
     }
   ],
   "steps": [
@@ -7771,6 +7798,30 @@
         "actor": "agent"
       },
       "park_reason": "waiting_parent_anchor"
+    },
+    {
+      "id": "guard_529",
+      "predicate": "cond_403",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "ticket_repair_state_invalid"
+    },
+    {
+      "id": "guard_530",
+      "predicate": "cond_404",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "quick_classification_invalid"
+    },
+    {
+      "id": "guard_531",
+      "predicate": "cond_405",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "quick_classification_invalid"
     }
   ],
   "transitions": [
@@ -12437,6 +12488,33 @@
       "guards": [
         "guard_528"
       ]
+    },
+    {
+      "id": "t_518",
+      "from": "resume_repaired_tickets",
+      "to": "ticket_join",
+      "priority": 5,
+      "guards": [
+        "guard_529"
+      ]
+    },
+    {
+      "id": "t_519",
+      "from": "invalidate_quick_classification",
+      "to": "done",
+      "priority": 1,
+      "guards": [
+        "guard_530"
+      ]
+    },
+    {
+      "id": "t_520",
+      "from": "intake",
+      "to": "implement",
+      "priority": 2,
+      "guards": [
+        "guard_531"
+      ]
     }
   ],
   "caps": [
@@ -12795,6 +12873,7 @@
       ],
       "resume_targets": [
         "await_alignment",
+        "done",
         "draft_artifact",
         "human",
         "record_alignment",
@@ -13167,6 +13246,7 @@
         "invalidate_quick_classification"
       ],
       "resume_targets": [
+        "done",
         "human",
         "invalidate_quick_classification",
         "rebuild_code_anchor",
@@ -13608,6 +13688,7 @@
         "freeze_artifact",
         "freeze_candidate",
         "human",
+        "implement",
         "init_planning_ref",
         "integrate",
         "integration_recovery",
@@ -13663,6 +13744,7 @@
         "invalidate_quick_classification"
       ],
       "resume_targets": [
+        "done",
         "human"
       ],
       "required_state": "Section 2 parks with this reason at invalidate_quick_classification: human с park.reason=quick_classification_invalid; Quick commit/integrate запрещены"
@@ -13783,7 +13865,8 @@
       "resume_targets": [
         "dispatch_ticket_dag",
         "human",
-        "resume_repaired_tickets"
+        "resume_repaired_tickets",
+        "ticket_join"
       ],
       "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, resume_repaired_tickets: human с park.reason=ticket_repair_state_invalid; op остаётся открытой, mutation запрещена"
     },
@@ -13988,7 +14071,7 @@
           "covers": [
             "artifact_mapping_required"
           ],
-          "binds": "3bb11632ceb86c8776af34235efd19c5980e4152e5540e73013c2e1cd6201f9a",
+          "binds": "ac5c296b99ddac9e92311ceabe5a2f8d2293316a00eb4479f4de96a8f34d6841",
           "cells": [
             "artifact_mapping_required",
             "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick",
@@ -13999,7 +14082,7 @@
           "covers": [
             "quick_classification_invalid"
           ],
-          "binds": "083bd0299448f29906ff8eb6cb4ac07489c1b9ab0c24d1dba45cd2c77ad42fda",
+          "binds": "dcfa8ac1219ca4715e9d1677ba6a62e9b1eea0e936fcab567870ac8ddc8a351a",
           "cells": [
             "quick_classification_invalid",
             "invalidate_quick_classification",
@@ -14079,7 +14162,7 @@
           "covers": [
             "project_boundary_invalid"
           ],
-          "binds": "eebd350d0e42959acad1bd4c601c77ac4996376f495e09900cc031c692149b91",
+          "binds": "4d35218951aaf78b0963be51840672de8ca25459a8e25a0c562726ef24ea4160",
           "cells": [
             "project_boundary_invalid",
             "`<deterministic_step>`",
@@ -14310,7 +14393,7 @@
           "covers": [
             "ticket_repair_state_invalid"
           ],
-          "binds": "fbbe7304ac2c87e24afc28fb9b12051be1e22538ba808b3a26cff14ce2713c61",
+          "binds": "dbad3b92b28399231006325bdaef28a320d8e7bd13cd222172309cb59b299197",
           "cells": [
             "ticket_repair_state_invalid",
             "recorded source step `dispatch_ticket_dag` или `resume_repaired_tickets`",
@@ -14475,7 +14558,7 @@
           "covers": [
             "implementation_scope_invalid"
           ],
-          "binds": "2029bbcdd3a5071d2c0adbec9a7145ebf5bc21af9e7a4fb356f4588e1efa003b",
+          "binds": "6a4de8ce3843b61685411bf6938197500986fca969e3f99f2335aa4e3a03f612",
           "cells": [
             "implementation_scope_invalid",
             "implement либо invalidate_quick_classification",
@@ -15001,7 +15084,7 @@
           "covers": [
             "quick_classification_invalid"
           ],
-          "binds": "083bd0299448f29906ff8eb6cb4ac07489c1b9ab0c24d1dba45cd2c77ad42fda",
+          "binds": "dcfa8ac1219ca4715e9d1677ba6a62e9b1eea0e936fcab567870ac8ddc8a351a",
           "cells": [
             "Quick classification invalid, Planned handoff не завершён",
             "invalidate_quick_classification",
@@ -15203,7 +15286,7 @@
             "ticket_repair_op_invalid",
             "ticket_repair_state_invalid"
           ],
-          "binds": "dd3c5440251371c7078f771c5a89eded9068dea7b20399d11149421f6ebcf7d3",
+          "binds": "b20498dff3322b6b2609a0dee404534ac1d272aff90523e84ae0fdccee0399ad",
           "cells": [
             "Invalid/open duplicate Ticket repair operation",
             "dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind",
@@ -15423,5 +15506,5 @@
       ]
     }
   ],
-  "canonical_digest": "98b6ac891a25ebee0c8cf3ee54b7376eda0052c10fb1a227d8477e5888afe9cc"
+  "canonical_digest": "2e7e6b62603d8944c1eaa54bcb9d3b570ef2d878ea7340def7e9c9931cf362d1"
 }

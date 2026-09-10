@@ -88,32 +88,51 @@ test("a divergence that is not named fails", () => {
   );
 });
 
-test("a name that no longer diverges fails, so the list cannot go stale", () => {
-  // Every named divergence must still be one. A settled entry left in the list is
-  // a place a real divergence could later hide.
-  const graph = document();
-  const declared = new Set(graph.steps.map((step) => step.name));
-  const { edges } = readChains(plan(), declared);
-  const drawn = new Set(edges.map((edge) => `${edge.workflow}: ${edge.from} -> ${edge.to}`));
-  for (const named of KNOWN_CHAIN_DIVERGENCES) {
-    assert.ok(drawn.has(named), `${named} is named as known and section 2 does not draw it`);
-  }
+test("nothing is tolerated today, and the shipped chains need no tolerance", () => {
+  assert.deepEqual([...KNOWN_CHAIN_DIVERGENCES], [], "a divergence is settled, not tolerated indefinitely");
+  assert.deepEqual(chainErrors(document()), []);
+});
 
-  const reachable = { ...graph, transitions: [...graph.transitions] };
-  for (const named of KNOWN_CHAIN_DIVERGENCES) {
-    const [, pair] = named.split(": ");
-    const [from, to] = pair.split(" -> ");
-    reachable.transitions.push({ id: `t_settled_${reachable.transitions.length}`, from, to, priority: 9000 + reachable.transitions.length, guards: [] });
-  }
-  const errors = chainErrors(reachable);
-  assert.equal(errors.length, KNOWN_CHAIN_DIVERGENCES.length, errors.join("\n"));
-  for (const message of errors) assert.match(message, /^chain_divergence_stale: /u);
+test("a tolerated divergence passes and an unsettled one still fails beside it", () => {
+  // Exercised with a list of its own rather than the shipped one, which is empty:
+  // the mechanism has to keep working for the next gap, and a vacuous loop over an
+  // empty list would prove nothing about it.
+  const graph = document();
+  const blocks = chainBlocks(plan());
+  const text = plan().replace(blocks[0].text, `${blocks[0].text}\ndone -> intake\ndone -> select_next`);
+  const read = servingPlan(text);
+  assert.equal(chainErrors(graph, { read, tolerated: [] }).length, 2, "both are divergences to begin with");
+  const errors = chainErrors(graph, { read, tolerated: ["autosk-planned: done -> intake"] });
+  assert.equal(errors.length, 1, errors.join("\n"));
+  assert.ok(errors[0].includes("done -> select_next"), "only the named one is tolerated");
+});
+
+test("a name with no divergence behind it fails, so the list cannot go stale", () => {
+  const graph = document();
+  const errors = chainErrors(graph, { tolerated: ["autosk-planned: intake -> done"] });
+  assert.deepEqual(errors, [
+    "chain_divergence_stale: autosk-planned: intake -> done is named as known and no longer diverges",
+  ]);
 });
 
 test("the contract names every divergence the checker tolerates", () => {
   const contract = readFileSync(path.join(ROOT, CONTRACT_PATH), "utf8");
   for (const named of KNOWN_CHAIN_DIVERGENCES) {
     assert.ok(contract.includes(named), `${named} is tolerated and the contract does not name it`);
+  }
+});
+
+test("the three the owner settled are edges now, not exceptions", () => {
+  const graph = document();
+  for (const [from, to] of [
+    ["resume_repaired_tickets", "ticket_join"],
+    ["intake", "implement"],
+    ["invalidate_quick_classification", "done"],
+  ]) {
+    assert.ok(
+      graph.transitions.some((edge) => edge.from === from && edge.to === to),
+      `${from} -> ${to} was read as an omission in the tables and belongs in the graph`,
+    );
   }
 });
 

@@ -27,21 +27,19 @@ export const PLAN_PATH = "03-technical-plan.md";
 /**
  * The paths section 2 draws that its own transition tables do not support.
  *
- * The tables govern, because only they carry conditions. Where a table declares
- * no exit from a step at all the chain supplies one, but these three leave steps
- * the tables do describe leaving — to `human` in every case — so the drawing and
- * the specification disagree rather than one filling the other's silence.
+ * Empty, and meant to stay that way. Three entries lived here while the owner
+ * decided what they were: each was a table row that states a success condition
+ * and what to record, then stops without saying where the flow goes, with the
+ * chain drawing the destination. Read as an omission in the tables rather than as
+ * two statements disagreeing, so the three transitions were added to the graph
+ * and there is nothing left to tolerate.
  *
- * Editing section 2's prose to settle them is a normative change to what the plan
- * says the flow is, and that is the plan author's call, not this checker's. So
- * they are named here and closed by the contract: a divergence has to be written
- * down to be tolerated, and one that is not written down fails.
+ * The mechanism stays because the next such gap should not be settled by whoever
+ * happens to find it: tolerating a divergence takes an owner decision and an
+ * entry here, an entry with no divergence behind it fails, and the contract names
+ * whatever the list holds.
  */
-export const KNOWN_CHAIN_DIVERGENCES = Object.freeze([
-  "autosk-planned: resume_repaired_tickets -> ticket_join",
-  "autosk-quick: intake -> implement",
-  "autosk-quick: invalidate_quick_classification -> done",
-]);
+export const KNOWN_CHAIN_DIVERGENCES = Object.freeze([]);
 
 /** Section 2's fenced blocks and the workflow each belongs to, in file order. */
 export function chainBlocks(plan) {
@@ -191,14 +189,14 @@ export function reachableFrom(document, origin) {
  * chains state that the transition tables never do, so nothing else can catch a
  * mark that has drifted from the step it marks.
  */
-export function chainErrors(document, { root = ROOT, read = readFileSync } = {}) {
+export function chainErrors(document, { root = ROOT, read = readFileSync, tolerated = KNOWN_CHAIN_DIVERGENCES } = {}) {
   const declared = new Set(document.steps.map((step) => step.name));
   const humanSteps = new Set(
     document.steps.filter((step) => step.kind === "status" && step.status === "human").map((step) => step.name),
   );
 
   const { edges, marks, unknown } = readChains(read(path.join(root, PLAN_PATH), "utf8"), declared);
-  const known = new Set(KNOWN_CHAIN_DIVERGENCES);
+  const known = new Set(tolerated);
   const reach = new Map();
   const errors = [];
   const seen = new Set();
