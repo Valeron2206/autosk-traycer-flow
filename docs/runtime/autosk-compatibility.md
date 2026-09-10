@@ -52,7 +52,8 @@ apply in the listed order, each producing the tree beside it:
 | `0028-session-bound-create.patch` | `b83fa230dde4795ac082a75b41b6965cac577a2b` |
 | `0029-helper-in-identity.patch` | `b0357eda7b3ee4d8b5589f1d0b4fa248bf664d91` |
 | `0030-artifact-write-adapter.patch` | `dc2e2c02a954579b8552848761edeb9800302d1b` |
-| `0031-partial-frame-race.patch` | `9f52d343ff42ee495f9caa408ef7e7564d878516` — the current `result_tree` |
+| `0031-partial-frame-race.patch` | `9f52d343ff42ee495f9caa408ef7e7564d878516` |
+| `0032-graph-document-in-shape.patch` | `13d51252539262e0dbea0f2527c41a57e4674e43` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be
