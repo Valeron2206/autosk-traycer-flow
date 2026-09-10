@@ -745,3 +745,70 @@ test("a reason may park at a whole step class without exceeding the schema's bou
   );
   assert.deepEqual(validateGraph(graph, schema), []);
 });
+
+test("a phase sequence that works and stays put is carried as a self-loop", () => {
+  const graph = document();
+  const descriptions = graph.predicates.map((entry) => entry.description);
+  // Section 2 gives the candidate audit transfer a phase per row, each doing its
+  // work and repeating. It says "repeat" three of those times with the bare word,
+  // and matching only the longer phrasings dropped the rows entirely — the step
+  // could reach the phase and never act on it.
+  for (const phase of ["phase=prepared", "phase=audit_ref_verified", "phase=live_ref_deleted"]) {
+    assert.ok(
+      descriptions.some((text) => text.includes(`candidate_audit_transfer_op ${phase}`)),
+      `no predicate carries the audit transfer's ${phase}`,
+    );
+  }
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const staysPut = graph.transitions.filter(
+    (edge) =>
+      edge.from === edge.to &&
+      edge.guards.some((id) => (predicates.get(guards.get(id).predicate) ?? "").includes("candidate_audit_transfer_op")),
+  );
+  assert.ok(staysPut.length > 0, "the phases advance in place rather than moving the flow");
+});
+
+test("an exit taken from a chain names the workflow whose chain draws it", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry.description]));
+  const exits = graph.transitions.filter((edge) => edge.from === "emit_blocked_anchor");
+  assert.ok(exits.length > 1, "the step leaves to a different validation in each workflow");
+
+  // One shared condition over several destinations lets priority decide for every
+  // workflow at once: a contest seat would have gone to `done` rather than to
+  // `validate_disposition`, skipping the validation it exists for.
+  const named = exits.map((edge) => {
+    const description = predicates.get(guards.get(edge.guards[0]).predicate) ?? "";
+    return { to: edge.to, workflow: /registered workflow (\S+)/u.exec(description)?.[1] ?? null };
+  });
+  assert.deepEqual(
+    named.filter((entry) => entry.workflow === null),
+    [],
+    "every chain-derived exit states which workflow's chain draws it",
+  );
+  assert.equal(
+    new Set(named.map((entry) => entry.workflow)).size,
+    named.length,
+    `the exits must not share a workflow: ${named.map((e) => `${e.to}=${e.workflow}`).join(", ")}`,
+  );
+});
+
+test("what a predicate reads is state, never a destination or a refusal code", () => {
+  const graph = document();
+  const steps = new Set(graph.steps.map((step) => step.name));
+  const codes = parkReasons();
+  // `reads` exists so a guard cannot quietly widen what it looks at. Deriving it
+  // from the outcome put destination names in it — `clarify_alignment` as an
+  // input to the condition that sends the flow there — which both misstates the
+  // inputs and hides how many conditions have no named state at all.
+  const wrong = [];
+  for (const entry of graph.predicates) {
+    for (const name of entry.reads) {
+      if (steps.has(name)) wrong.push(`${entry.id} reads step ${name}`);
+      if (codes.has(name)) wrong.push(`${entry.id} reads refusal code ${name}`);
+    }
+  }
+  assert.deepEqual(wrong, []);
+});
