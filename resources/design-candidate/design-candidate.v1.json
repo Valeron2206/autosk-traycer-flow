@@ -152,7 +152,7 @@
     },
     {
       "path": "docs/contracts/runtime-identity-lock.md",
-      "sha256": "234d07ff18dc4292b1567b5cbe69caed469906e956cfbe7bc6e83bb87a719250"
+      "sha256": "9345268c32bc1c423217c15bd4f3ebaab1733e577da507ba19e65b31601ed2dd"
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "29029628bf2f076a24f3e66b7774d30eb6e2d9805d3a0c77c63b504278d30a8c"
+      "sha256": "b4e31faa228651c45a2b320c6bd9a93662da6b04b5e6d7076fef437f47d0ce88"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -424,11 +424,11 @@
     },
     {
       "path": "resources/runtime-identity-lock/runtime-identity-lock.refused.example.json",
-      "sha256": "65f81757c7250b07eba07e7f95103384d48f5b9e73a4f9d18a8b9e19ac5a1296"
+      "sha256": "a250e67a656e8573001bde97cee4cbbbc1e43ede6913ed4d83e2065847de0332"
     },
     {
       "path": "resources/runtime-identity-lock/runtime-identity-lock.schema.json",
-      "sha256": "931dcbdb953e9063879f91da8348efd2dc3201aac9763d0cb700578b79c9041f"
+      "sha256": "8781f88c43c9a9b64869e6ec23983935c34b2be0d7ccffe354455775b6495c15"
     },
     {
       "path": "resources/sdk-write-api/capability-token.schema.json",
@@ -499,7 +499,7 @@
       "sha256": "bbed49fd84156a8ade7e2ba7b3f46dcb3b2a98e6ff3778fc391a77c6b0898e0a"
     }
   ],
-  "candidate_digest": "3769be81644d129a08a5761b0bc86df504b7f3f4fc9d9676a3caafde4906f517",
+  "candidate_digest": "7a4bcb1fbc2baf2f1a1e6370a38901ab01f5499fda57dec55f16774ab0ee44bb",
   "dispositions": [
     {
       "issue": 3,

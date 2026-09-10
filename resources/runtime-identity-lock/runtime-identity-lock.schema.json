@@ -25,7 +25,7 @@
           "id",
           "requires",
           "why",
-          "patch",
+          "introduced_by",
           "added_line",
           "occurrences"
         ],
@@ -49,8 +49,8 @@
             "minLength": 1,
             "maxLength": 1024
           },
-          "patch": {
-            "description": "The patch file, as the manifest names it. The manifest pins its bytes, and this check verifies that pin before reading the line.",
+          "introduced_by": {
+            "description": "The patch that introduced the line, as the manifest names it. Provenance, not the scope of the check: the line is counted across the whole series in manifest order, because a guarantee introduced by one patch and deleted by a later one is a guarantee the code does not have.",
             "type": "string",
             "minLength": 1,
             "maxLength": 256
@@ -62,7 +62,7 @@
             "maxLength": 512
           },
           "occurrences": {
-            "description": "How many times that patch adds exactly this line. A count rather than a presence test: a line that appears twice where one was expected is a copy someone made, and the requirement stops describing what it checks.",
+            "description": "How many of this line the whole series leaves in place. A count rather than a presence test: a line that appears twice where one was expected is a copy someone made, and the requirement stops describing what it checks.",
             "type": "integer",
             "minimum": 1
           }

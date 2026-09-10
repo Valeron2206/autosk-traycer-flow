@@ -23,10 +23,13 @@ import {
   REFUSED_PATH,
   SCHEMA_PATH,
   addedLines,
+  contractRequirements,
   countAdded,
   loadFiles,
   lockDigest,
   patchReader,
+  removedLines,
+  surviving,
   validateDesign,
   validateLock,
 } from "../scripts/validate-runtime-identity-lock.mjs";
@@ -113,7 +116,7 @@ test("lock_requirement_count: the line is there and the count is not", () => {
 test("lock_patch_unknown: a requirement names a patch the manifest does not carry", () => {
   assertRefuses(
     mutated((document) => {
-      document.requirements[0].patch = "patches/9999-invented.patch";
+      document.requirements[0].introduced_by = "patches/9999-invented.patch";
     }),
     "lock_patch_unknown",
   );
@@ -209,4 +212,78 @@ test("the lock digest is over the document and not over itself", () => {
   const recorded = document.lock_digest;
   document.lock_digest = createHash("sha256").update("something else").digest("hex");
   assert.equal(lockDigest(document), recorded, "changing the recorded digest must not change what it should be");
+});
+
+
+// --- the two the first round got wrong ------------------------------------
+
+test("a later patch that removes the line fails the requirement it belonged to", () => {
+  // The first writing of this check counted the additions of the patch that
+  // introduced a line. That asks what the series once did. A patch appended after
+  // it could delete the guarantee and nothing failed, which is the one thing the
+  // check exists to catch.
+  const removal = [
+    "--- a/daemon/core/src/extensions/graph.ts",
+    "+++ b/daemon/core/src/extensions/graph.ts",
+    "-export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {",
+    '+const canonicalWorkflowGraph = () => "";',
+    "",
+  ].join("\n");
+  const file = "patches/0032-remove-canonical.patch";
+  const later = {
+    ...manifest,
+    patches: [...manifest.patches, { file, sha256: createHash("sha256").update(removal).digest("hex") }],
+  };
+  const reader = (relative) => (relative === file ? Buffer.from(removal) : readPatch(relative));
+  const errors = validateLock(lock(), schema, { manifest: later, readPatch: reader });
+  assert.ok(
+    errors.some((message) => message.startsWith("lock_requirement_unmet") && message.includes("shape_digest_is_canonical")),
+    `a later removal must fail, got:\n${errors.join("\n") || "(nothing)"}`,
+  );
+  // And it must say who took it, or the failure sends a reader through 31 patches.
+  assert.ok(errors.some((message) => message.includes(file)), "the failure names the patch that last touched the line");
+});
+
+test("a requirement removed from the resource fails against the contract that still promises it", () => {
+  // One direction was not enough. Checking only that a declared requirement is
+  // named let the requirement be deleted and resealed while the contract kept
+  // promising it — so the guarantee left without touching the document under full
+  // panel review, which was the whole argument for reviewing this file narrowly.
+  for (const requirement of lock().requirements) {
+    const shortened = lock();
+    shortened.requirements = shortened.requirements.filter((entry) => entry.id !== requirement.id);
+    shortened.lock_digest = lockDigest(shortened);
+    const errors = validateDesign({ ...files, [LOCK_PATH]: JSON.stringify(shortened) });
+    assert.ok(
+      errors.some((message) => message.includes(`does not require ${requirement.id}`)),
+      `removing ${requirement.id} must fail, got:\n${errors.join("\n") || "(nothing)"}`,
+    );
+  }
+});
+
+test("the contract's promises and the resource's requirements are the same set", () => {
+  const promised = contractRequirements(files[CONTRACT_PATH]);
+  const declared = new Set(lock().requirements.map((entry) => entry.id));
+  assert.deepEqual([...promised].sort(), [...declared].sort());
+});
+
+test("a promise is read from the requirement table, not from prose that mentions an id", () => {
+  // Otherwise a paragraph naming a requirement in passing would count as promising
+  // it, and the two sets would agree by accident.
+  const prose = "The requirement `refusal_declared` is discussed here.\n| `only_this_one` | a row |\n";
+  assert.deepEqual([...contractRequirements(prose)], ["only_this_one"]);
+});
+
+test("a line added and later removed leaves nothing behind", () => {
+  const series = [
+    { file: "a", text: "+the line\n" },
+    { file: "b", text: "-the line\n" },
+  ];
+  assert.deepEqual(surviving(series, "the line"), { count: 0, lastTouched: "b" });
+  assert.deepEqual(surviving([series[0]], "the line"), { count: 1, lastTouched: "a" });
+});
+
+test("a file header is not a removed line either", () => {
+  // `--- a/path` opens every file in a unified diff, the mirror of `+++`.
+  assert.deepEqual(removedLines("--- a/x\n-real\n+added\n context"), ["real"]);
 });

@@ -20,11 +20,15 @@ It also does not claim the lock satisfies criterion 2 of issue #10. The shape di
 
 ## 3. How the check is anchored
 
-Each requirement names one line a named patch must add, verbatim, and how many times. It is met when that patch — verified against the digest the manifest pins — adds exactly that line exactly that many times.
+Each requirement names one line, verbatim, and how many of it the series must leave in place. It is met when the whole series — every patch the manifest pins, each verified against its digest — leaves exactly that many.
 
-The alternative was to parse the TypeScript. This repository has twice paid for reading a source with regular expressions and calling the result a specification: once reading the plan's arrow chains, once reading its transition tables. A patch is bytes the manifest already covers, so anchoring to a line it adds makes a requirement either met by covered bytes or failed.
+**Counted across the series, not inside one patch.** The first writing of this check counted the additions of the patch that introduced a line, which asked what the series once did rather than what it now says: a later patch could replace the canonical serialization with a constant and the check would stay green, which is the one thing it exists to catch. A requirement still records which patch introduced it, as provenance, and that field decides nothing.
+
+The alternative was to parse the TypeScript. This repository has twice paid for reading a source with regular expressions and calling the result a specification: once reading the plan's arrow chains, once reading its transition tables. A patch is bytes the manifest already covers, so anchoring to a line it leaves in place makes a requirement either met by covered bytes or failed.
 
 Two consequences are deliberate. A requirement can be met by a line inside a comment, because a comment that stops being true is a change worth noticing. And the count matters: a line appearing twice where one was expected is a copy someone made, and the requirement has stopped describing what it checks.
+
+**The requirement set and this contract are one set.** Every requirement here must be in the resource, and every requirement in the resource must be here. One direction was not enough: requiring only that a declared requirement is named let a requirement be deleted from the resource and resealed while this document kept promising it, so a guarantee could leave without touching the document that is under full panel review. That was also the whole argument for reviewing the resource narrowly, and it did not hold until both directions did.
 
 ## 4. What is required
 

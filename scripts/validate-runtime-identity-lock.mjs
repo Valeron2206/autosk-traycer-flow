@@ -12,8 +12,14 @@
  * The check is anchored rather than parsed. Reading TypeScript with regular
  * expressions is the same mistake as reading a plan's prose with them, and this
  * repository has paid for that twice. Instead each requirement names one line the
- * series must add, the patch that adds it, and how many times — so a requirement
- * is either met by bytes the manifest already pins, or it fails.
+ * series must leave in place, and how many times — so a requirement is either met
+ * by bytes the manifest already pins, or it fails.
+ *
+ * The line is counted across the whole series, in manifest order, not inside the
+ * patch that introduced it. Counting one patch's additions asked what the series
+ * once did rather than what it now says: a later patch could replace the canonical
+ * serialization with a constant and this check would stay green, which is the one
+ * thing it exists to catch.
  *
  * What it therefore does NOT claim: that the code is correct, that the tests
  * pass, or that the lock covers what criterion 2 asks a graph digest to cover.
@@ -80,6 +86,35 @@ export function countAdded(patch, line) {
   return addedLines(patch).filter((added) => added === line).length;
 }
 
+/** The lines a patch removes, read the same way and for the same reason. */
+export function removedLines(patch) {
+  return patch
+    .split("\n")
+    .filter((line) => line.startsWith("-") && !line.startsWith("---"))
+    .map((line) => line.slice(1));
+}
+
+/**
+ * How many of this line the series leaves behind, and who last touched it.
+ *
+ * Walked in manifest order: a patch that adds it raises the count, one that
+ * removes it lowers it. What matters is the state after the last patch, because
+ * a guarantee introduced by `0003` and deleted by `0032` is a guarantee the code
+ * does not have, however faithfully `0003` still adds it.
+ */
+export function surviving(series, line) {
+  let count = 0;
+  let lastTouched = null;
+  for (const patch of series) {
+    const added = countAdded(patch.text, line);
+    const removed = removedLines(patch.text).filter((gone) => gone === line).length;
+    if (added === 0 && removed === 0) continue;
+    count += added - removed;
+    lastTouched = patch.file;
+  }
+  return { count: Math.max(count, 0), lastTouched };
+}
+
 export function validateLock(lock, schema, { manifest, readPatch }) {
   const errors = validateShape(lock, schema).map((message) => `lock_schema: ${message}`);
   if (errors.length > 0) return errors;
@@ -94,33 +129,41 @@ export function validateLock(lock, schema, { manifest, readPatch }) {
     seen.add(requirement.id);
   }
 
-  const pinned = new Map((manifest.patches ?? []).map((entry) => [entry.file, entry.sha256]));
-  for (const requirement of lock.requirements) {
-    const digest = pinned.get(requirement.patch);
-    if (digest === undefined) {
-      errors.push(`lock_patch_unknown: ${requirement.id} names ${requirement.patch}, which the manifest does not carry`);
-      continue;
-    }
+  const series = [];
+  for (const entry of manifest.patches ?? []) {
     let bytes;
     try {
-      bytes = readPatch(requirement.patch);
+      bytes = readPatch(entry.file);
     } catch (error) {
-      errors.push(`lock_patch_unknown: ${requirement.id} names ${requirement.patch}, which is not on disk (${error.message})`);
+      errors.push(`lock_patch_unknown: ${entry.file} is in the manifest and not on disk (${error.message})`);
       continue;
     }
-    // The manifest already pins these bytes, so a changed patch is caught there
-    // too — but a requirement anchored to bytes nobody verified would be an
-    // assertion about a file this check never read.
-    if (sha256(bytes) !== digest) {
-      errors.push(`lock_patch_digest_stale: ${requirement.patch} is not the bytes the manifest pins`);
+    // The manifest pins these bytes, so a changed patch is caught there too — but
+    // a requirement anchored to bytes nobody verified would be an assertion about
+    // a file this check never opened.
+    if (sha256(bytes) !== entry.sha256) {
+      errors.push(`lock_patch_digest_stale: ${entry.file} is not the bytes the manifest pins`);
       continue;
     }
-    const found = countAdded(bytes.toString("utf8"), requirement.added_line);
-    if (found === 0) {
-      errors.push(`lock_requirement_unmet: ${requirement.id} is not met; ${requirement.patch} no longer adds its line`);
-    } else if (found !== requirement.occurrences) {
+    series.push({ file: entry.file, text: bytes.toString("utf8") });
+  }
+
+  const known = new Set(series.map((entry) => entry.file));
+  for (const requirement of lock.requirements) {
+    if (!known.has(requirement.introduced_by)) {
       errors.push(
-        `lock_requirement_count: ${requirement.id} expects ${requirement.occurrences} and ${requirement.patch} adds ${found}`,
+        `lock_patch_unknown: ${requirement.id} says ${requirement.introduced_by} introduced it, and the manifest does not carry that patch`,
+      );
+      continue;
+    }
+    const { count, lastTouched } = surviving(series, requirement.added_line);
+    if (count === 0) {
+      errors.push(
+        `lock_requirement_unmet: ${requirement.id} is not met; the series no longer leaves its line in place${lastTouched ? ` (last touched by ${lastTouched})` : ""}`,
+      );
+    } else if (count !== requirement.occurrences) {
+      errors.push(
+        `lock_requirement_count: ${requirement.id} expects ${requirement.occurrences} and the series leaves ${count}`,
       );
     }
   }
@@ -167,6 +210,21 @@ export function validateShape(value, schema, at = "$") {
     if (schema.pattern !== undefined && !new RegExp(schema.pattern, "u").test(value)) errors.push(`${at} does not match`);
   }
   return errors;
+}
+
+/**
+ * The requirement ids the contract promises a reader.
+ *
+ * Read from the leading cell of its requirement table rather than from anywhere
+ * the id happens to appear, so a mention in prose cannot stand in for a promise.
+ */
+export function contractRequirements(contract) {
+  const ids = new Set();
+  for (const line of contract.split("\n")) {
+    const cell = /^\|\s*`([a-z][a-z0-9_]*)`\s*\|/u.exec(line);
+    if (cell) ids.add(cell[1]);
+  }
+  return ids;
 }
 
 export function loadFiles(root = ROOT) {
@@ -217,14 +275,20 @@ export function validateDesign(files, { readPatch = patchReader() } = {}) {
     }
   }
 
-  // Every requirement must name a line the contract also explains, so the
-  // requirement set cannot grow past what a reader was told it guarantees.
+  // The two sets must be equal, and one direction was not enough. Requiring only
+  // that every declared requirement is named let a requirement be deleted from
+  // the resource and resealed while the contract kept naming it: the guarantee
+  // left without touching the document that is under full panel review, which was
+  // the whole argument for reviewing this resource narrowly.
   try {
     const lock = JSON.parse(files[LOCK_PATH]);
-    for (const requirement of lock.requirements) {
-      if (!contract.includes(requirement.id)) {
-        errors.push(`${CONTRACT_PATH}: does not name the requirement ${requirement.id}`);
-      }
+    const declared = new Set(lock.requirements.map((entry) => entry.id));
+    const promised = contractRequirements(contract);
+    for (const id of declared) {
+      if (!promised.has(id)) errors.push(`${CONTRACT_PATH}: does not name the requirement ${id}`);
+    }
+    for (const id of promised) {
+      if (!declared.has(id)) errors.push(`${LOCK_PATH}: does not require ${id}, which ${CONTRACT_PATH} promises`);
     }
   } catch {
     // already reported above
@@ -240,9 +304,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exitCode = 1;
   } else {
     const lock = JSON.parse(files[LOCK_PATH]);
-    const patches = new Set(lock.requirements.map((entry) => entry.patch));
+    const manifest = JSON.parse(files[MANIFEST_PATH]);
+    const introduced = new Set(lock.requirements.map((entry) => entry.introduced_by));
     console.log("Runtime identity lock validation PASS");
-    console.log(`requirements=${lock.requirements.length} patches=${patches.size}`);
+    console.log(
+      `requirements=${lock.requirements.length} introduced_by=${introduced.size} counted_across=${(manifest.patches ?? []).length}`,
+    );
     console.log(`lock_digest=${lock.lock_digest}`);
   }
 }
