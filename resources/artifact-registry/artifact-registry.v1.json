@@ -389,6 +389,7 @@
         "docs/contracts/reflect-cost-watch.md",
         "docs/contracts/refusal-vocabulary.md",
         "docs/contracts/requirement-revision.md",
+        "docs/contracts/runtime-identity-lock.md",
         "docs/contracts/sdk-write-api.md",
         "docs/contracts/stage-carriers.md",
         "docs/contracts/static-analysis.md",
@@ -1650,6 +1651,35 @@
       "human_approval": "not_required"
     },
     {
+      "class": "runtime_identity_lock",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "design_schema"
+      ],
+      "paths": [
+        "resources/runtime-identity-lock/runtime-identity-lock.v1.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "the checked condition itself — the anchored line and its count — lives in the contract, which is a contract_document under full_panel, and the validator requires this resource to agree with it line for line. Two earlier writings of this condition claimed the argument closed when it did not: the first checked that a declared requirement was named, the second compared names alone, and both left a guarantee removable without touching anything under panel review."
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/runtime-identity-lock/runtime-identity-lock.schema.json",
+      "validator": "scripts/validate-runtime-identity-lock.mjs",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "sdk_write_operation",
       "category": "runtime_evidence",
       "author_roles": [
@@ -1987,5 +2017,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "c7800aee198fa6d03ae9380394b4982e6dd856019e328c83a2d8090388235f9a"
+  "registry_digest": "2943078de580c90b877f9dd689458e7126bc369b4f9b8e5e9fe4a0d151852ea1"
 }

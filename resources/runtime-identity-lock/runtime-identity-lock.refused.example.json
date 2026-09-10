@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "requirements": [
+    {
+      "id": "refusal_declared",
+      "requires": "the engine declares one refusal for a runtime identity that no longer matches the task's pin",
+      "why": "Without a named refusal the mismatch has to be reported as something else, and a reader cannot tell a task parked for this reason from a task parked for any other. It is also the reason the plan's acceptance criteria name, so a rename here silently unmeets them.",
+      "introduced_by": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "export const EXTENSION_VERSION_MISMATCH = \"extension_version_mismatch\";",
+      "occurrences": 1
+    },
+    {
+      "id": "refusal_declared",
+      "requires": "the engine declares one refusal for a runtime identity that no longer matches the task's pin",
+      "why": "Without a named refusal the mismatch has to be reported as something else, and a reader cannot tell a task parked for this reason from a task parked for any other. It is also the reason the plan's acceptance criteria name, so a rename here silently unmeets them.",
+      "introduced_by": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "export const EXTENSION_VERSION_MISMATCH = \"extension_version_mismatch\";",
+      "occurrences": 1
+    },
+    {
+      "id": "names_a_patch_nobody_pins",
+      "requires": "one function decides whether a task may proceed on the identity it is pinned to",
+      "why": "Three call sites deciding this separately would drift: the fix that lands at enroll and not at dispatch is exactly the gap a task slips through, and it would look correct at each site read alone.",
+      "introduced_by": "patches/9999-not-a-patch.patch",
+      "added_line": "export function runtimeIdentityDecision(",
+      "occurrences": 1
+    },
+    {
+      "id": "line_the_patch_never_adds",
+      "requires": "a pin that cannot be read is refused rather than repaired or dropped",
+      "why": "Repairing an unreadable pin re-admits the task on whatever the registry now holds, which is the outcome the pin exists to prevent. Dropping it is the same thing said more quietly.",
+      "introduced_by": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "export const NOTHING_ADDS_THIS = 1;",
+      "occurrences": 1
+    },
+    {
+      "id": "counted_wrong",
+      "requires": "the decision runs when a task is enrolled",
+      "why": "Enrolling is where a pin is written or honoured. Without the check here a task can be admitted onto code it was never pinned to, and every later check compares against that wrong pin.",
+      "introduced_by": "patches/0003-runtime-identity-admission.patch",
+      "added_line": "      restarting ? { state: \"absent\" } : pinned,",
+      "occurrences": 7
+    }
+  ],
+  "lock_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+}
