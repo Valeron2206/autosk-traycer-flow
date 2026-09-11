@@ -13,6 +13,13 @@
         "authority_record_id"
       ],
       "description": "A daemon decision record closes every material decision of the current manifest."
+    },
+    {
+      "id": "classification_is_planned",
+      "reads": [
+        "classification"
+      ],
+      "description": "The quick classification resolved to the planned workflow and its receipt is current."
     }
   ],
   "steps": [
@@ -67,6 +74,14 @@
         "actor": "agent"
       },
       "park_reason": "artifact_freeze_invalid"
+    },
+    {
+      "id": "classified_as_planned",
+      "predicate": "classification_is_planned",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "quick_classification_invalid"
     }
   ],
   "transitions": [
@@ -75,7 +90,9 @@
       "from": "intake",
       "to": "await_alignment",
       "priority": 0,
-      "guards": []
+      "guards": [
+        "classified_as_planned"
+      ]
     },
     {
       "id": "await_to_record",
@@ -184,5 +201,5 @@
       "required_state": "well formed; the cap that names it is the defect, not this row"
     }
   ],
-  "canonical_digest": "a6f36494e1af76ebf5200e0ea8b98ddd70e89e96eb0efad6542f9f39565d3ec4"
+  "canonical_digest": "4f8b0d8174dd88fac516d817222408447fed6e9226157b5c59cde975df34aa9a"
 }

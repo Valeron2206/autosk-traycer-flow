@@ -31,7 +31,7 @@ A workflow graph is one JSON document. Every field is closed: an unknown field, 
 | Transitions | `transitions[]` | The edges. Each names `from`, `to`, a `priority` and the guards bound to it. |
 | Guards | `guards[]`, referenced by id | The conditions. A guard names a predicate from a closed enumeration and the authority entitled to satisfy it. |
 | Caps | `caps[]` | The bound on a named cycle, counted by the taking of one named transition. |
-| Recovery | `recovery[]` | For each park reason, where the flow stops and where a user may resume it. |
+| Recovery | `recovery[]` | For each park reason, the steps it stops the flow from and where a user may resume it. |
 | Views | `views[]` | The rendered tables this document is the source of: where each goes, its header, its rows, and which park reasons each row explains. |
 
 Two design choices are load-bearing and are recorded here rather than left to a reader.
@@ -101,7 +101,9 @@ A cap counts the taking of one named transition and nothing else, so a retry aft
 
 ## 8. Recovery
 
-The recovery column that used to do two jobs is split. `parks_at` is where the flow stops; `resume_targets` is where a user may resume it. Every entry in `resume_targets` must be a declared edge out of one of that reason's `parks_at` steps — a resume that is not an edge is a transition the graph never declared, and permitting it would make the graph a description rather than the thing that decides.
+The recovery column that used to do two jobs is split. `parks_at` is the steps FROM which the flow stops for this reason — the step whose edge parked it, or whose own `no_transition_reason` did — and not where the record then says the task is: an edge into a step that stops for a person moves the task there, and 204 of the 221 such edges move it to `human`, which declares no edges at all. `resume_targets` is where a user may resume it.
+
+Every entry in `resume_targets` must be a declared edge out of **one of** that reason's `parks_at` steps, and all 538 of them are — that is what the validator enforces. The permission is that union and not the step the flow is at: a reason parking at nine steps permits the edges leaving all nine, so a flow parked at one may resume into a step reachable only from another. Measured on this document, 262 of the 538 are an edge out of EVERY step in their reason's `parks_at` and 276 are not, and a live daemon was observed taking one of the 276. That is the rule, not a gap in it — a narrower one would strip those targets, which is a rewrite of the recovery table rather than a repair, and `the union is deliberate` in the test suite is what makes an attempt to tighten it fail loudly.
 
 Every park reason a document can produce — from a step's `no_transition_reason`, from a guard's `park_reason`, from a cap's `park_reason` — must have exactly one recovery row, and a row whose reason nothing produces is refused. The two graph-level reasons are the exception and carry no row: they park the flow wherever it already stands, so no single row could say where they resume from.
 
@@ -135,7 +137,7 @@ The `(human)` marks are checked as themselves. They are the only thing the chain
 
 ## 9. Refusal classes
 
-Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_entry_step_unknown`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
+Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_entry_step_unknown`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_ambiguous`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_missing`, `graph_recovery_reason_unknown`, `graph_schema`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
 
 The set holds two kinds, because one contract owns both. The prefixed codes are design-time: the validator refuses a document. The three without the prefix are runtime park reasons the graph itself issues, which no edge and no step can carry — an undeclared pair has no edge, and therefore no guard on which to hang a reason.
 
@@ -164,7 +166,8 @@ Slice 5 built that runtime, and `docs/contracts/workflow-factory.md` is where it
 - a park reason no vocabulary owns is refused, and the two graph-level codes cannot be renamed
 - each reserved graph-level code is refused on a step, a guard and a cap, with a matching recovery row present, so the refusal is not a missing row wearing another name
 - the canonical reference reproduces byte for byte, and each of its four forks is exercised
-- a resume target that is not a declared edge out of its `parks_at` step is refused
+- a resume target that is not a declared edge out of ANY of its reason's `parks_at` steps is refused, and one that is an edge out of one of them but not another is accepted, which pins the union
+- a parking edge whose guards name two reasons, and one whose guards name none, are both refused at design time and not only at build
 - two edges leaving one step at equal priority are refused
 
 ## 11. Acceptance mapping
@@ -175,6 +178,6 @@ Slice 5 built that runtime, and `docs/contracts/workflow-factory.md` is where it
 | transitions | `transitions[]` | every `from` and `to` names a declared step; priorities out of one step are distinct |
 | guards | `guards[]` and the `guards` of each transition | every referenced guard exists and names a declared predicate |
 | caps | `caps[]` | every `counted_transition` names a declared transition |
-| recovery targets | `recovery[]` | every produced reason has one row; every resume target is a declared edge |
+| recovery targets | `recovery[]` | every produced reason has one row; every resume target is an edge out of one of that reason's `parks_at` steps |
 | subject and authority | `guards[].authority` | schema: `policy` carries rules and scope, and nothing else may |
 | the digest itself | `canonical_digest` | recomputed over the canonical serialization, with the reference pinning what canonical means |

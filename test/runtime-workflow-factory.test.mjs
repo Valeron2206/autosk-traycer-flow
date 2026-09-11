@@ -48,36 +48,6 @@ const resealed = (mutate) => {
   return graph;
 };
 
-/**
- * The shipped document with the nine parking edges the owner routed to a
- * build-time refusal repaired, so the rest of the semantics can be exercised.
- *
- * Each of those nine is guarded by two or three guards that name ONE predicate
- * and different park reasons: the condition is single and the reason is not
- * determined. Keeping the first guard therefore changes no condition — the
- * predicate is identical on all of them — and picks a reason so the document
- * becomes executable. It is a repair the document itself owes; the test below
- * asserts the shipped bytes are refused exactly as they are.
- */
-const repair = (graph) => {
-  const by = new Map(graph.guards.map((guard) => [guard.id, guard]));
-  const status = new Map(graph.steps.map((step) => [step.name, step]));
-  for (const edge of graph.transitions) {
-    const to = status.get(edge.to);
-    if (to?.kind !== "status" || to.status !== "human") continue;
-    if (new Set(edge.guards.map((id) => by.get(id).park_reason)).size > 1) edge.guards = [edge.guards[0]];
-  }
-};
-
-const executable = () => resealed(repair);
-
-/** The repaired document, mutated further and resealed. */
-const repaired = (mutate) =>
-  resealed((graph) => {
-    repair(graph);
-    mutate(graph);
-  });
-
 const refusalOf = (fn) => {
   try {
     fn();
@@ -91,7 +61,7 @@ const refusalOf = (fn) => {
 // --- the declared shape is a function of the document -----------------------
 
 test("the workflow is built from the document and carries its digest", () => {
-  const graph = executable();
+  const graph = document();
   const workflow = buildWorkflow(graph, { evaluate: always });
   assert.equal(workflow.name, graph.workflow);
   assert.equal(workflow.firstStep, graph.first_step);
@@ -101,7 +71,7 @@ test("the workflow is built from the document and carries its digest", () => {
 });
 
 test("a status step declares its status and runs nothing", () => {
-  const graph = executable();
+  const graph = document();
   const workflow = buildWorkflow(graph, { evaluate: always });
   for (const step of graph.steps) {
     const built = workflow.steps[step.name];
@@ -124,7 +94,7 @@ test("the declared shape is a function of the document and not of the bodies", (
         .map(([name, step]) => [name, step.status ?? Object.keys(step).sort().join(",")])
         .sort(),
     );
-  const graph = executable();
+  const graph = document();
   const bare = buildWorkflow(graph, { evaluate: always });
   const bodied = buildWorkflow(graph, {
     evaluate: always,
@@ -132,7 +102,7 @@ test("the declared shape is a function of the document and not of the bodies", (
   });
   assert.equal(shape(bodied), shape(bare));
   assert.equal(bodied.graphDigest, bare.graphDigest);
-  assert.equal(shape(buildWorkflow(executable(), { evaluate: always })), shape(bare));
+  assert.equal(shape(buildWorkflow(document(), { evaluate: always })), shape(bare));
 });
 
 test("a document declaring hooks this factory does not build is refused, not built without them", () => {
@@ -142,7 +112,7 @@ test("a document declaring hooks this factory does not build is refused, not bui
   // whose own digest describes different bytes, so a mutated fixture has to say
   // what it now is.
   const named = document().steps.find((entry) => entry.kind === "agent").name;
-  const withHooks = (hooks) => repaired((graph) => {
+  const withHooks = (hooks) => resealed((graph) => {
     graph.steps.find((entry) => entry.name === named).hooks = hooks;
   });
   assert.throws(() => buildWorkflow(withHooks(["onRun", "onAbort"]), { evaluate: always }), TypeError);
@@ -158,8 +128,8 @@ test("a document declaring hooks this factory does not build is refused, not bui
 
 test("a factory with no evaluator refuses to build rather than assuming a predicate holds", () => {
   // Assuming true would make every guard vacuous and every first edge the winner.
-  assert.throws(() => buildWorkflow(executable(), {}), TypeError);
-  assert.throws(() => buildWorkflow(executable(), { evaluate: null }), TypeError);
+  assert.throws(() => buildWorkflow(document(), {}), TypeError);
+  assert.throws(() => buildWorkflow(document(), { evaluate: null }), TypeError);
 });
 
 // --- criterion 2's five components all reach the digest ----------------------
@@ -199,7 +169,7 @@ test("and each of the five therefore moves the digest the workflow carries", () 
   // canonical shape and `validate:runtime-identity-lock` holding the line across
   // the series. The whole of it is measured against a real daemon by
   // `scripts/verify-autosk-graph-digest.mjs`; this is what localises a break.
-  const base = buildWorkflow(executable(), { evaluate: always }).graphDigest;
+  const base = buildWorkflow(document(), { evaluate: always }).graphDigest;
   const changes = [
     (graph) => {
       graph.steps.find((step) => step.kind === "agent").no_transition_reason = "review_cap";
@@ -217,7 +187,7 @@ test("and each of the five therefore moves the digest the workflow carries", () 
       graph.recovery[0].resume_targets = [graph.recovery[0].resume_targets[0]];
     },
   ];
-  const digests = changes.map((change) => buildWorkflow(repaired(change), { evaluate: always }).graphDigest);
+  const digests = changes.map((change) => buildWorkflow(resealed(change), { evaluate: always }).graphDigest);
   for (const digest of digests) assert.notEqual(digest, base);
   assert.equal(new Set(digests).size, 5);
 });
@@ -486,7 +456,7 @@ test("so operation 2 cannot admit a resume under a document naming one", () => {
   // out of the parking step, with the document's digest correctly recomputed so
   // the stale-digest refusal is not what answers. Before closure moved, the
   // parked branch admitted the target because it never evaluated a guard.
-  const graph = repaired((entry) => {
+  const graph = resealed((entry) => {
     const route = entry.transitions.find((edge) => edge.from === "clarify_alignment" && edge.to === "await_alignment");
     entry.guards.find((guard) => guard.id === route.guards[0]).predicate = "never_declared_predicate";
   });
@@ -525,11 +495,17 @@ test("every refusal this factory declares is one it produces", () => {
   delete orphan.no_transition_reason;
   reasonless.transitions = reasonless.transitions.filter((entry) => entry.from !== orphan.name);
 
-  // The edge the shipped document guards with several reasons at once, which is
-  // the case where it parks the task and says nothing about which reason applies.
-  const ambiguous = [...state.outgoing.values()]
-    .flat()
-    .find((entry) => new Set(entry.guards.map((id) => state.guards.get(id).park_reason)).size > 1);
+  // An edge guarded by two reasons at once, which is the case where it parks
+  // the task and says nothing about which reason applies. The shipped document
+  // no longer has one — that is what the repair did — so the case is built, and
+  // built out of the document's own guards rather than invented.
+  const ambiguous = (() => {
+    const edges = [...state.outgoing.values()].flat();
+    const parking = edges.find((entry) => parks(state, entry.to));
+    const carried = state.guards.get(parking.guards[0]).park_reason;
+    const other = [...state.guards.values()].find((guard) => guard.park_reason !== carried);
+    return { ...parking, guards: [...parking.guards, other.id] };
+  })();
 
   for (const attempt of [
     () => select(state, "no_such_step", always),
@@ -612,7 +588,7 @@ const context = (task, { code = 0 } = {}) => {
 };
 
 test("the built onTransit reads whether the flow is parked, and answers accordingly", async () => {
-  const graph = executable();
+  const graph = document();
   const workflow = buildWorkflow(graph, { evaluate: always });
   const row = graph.recovery.find((entry) => entry.resume_targets.length < graph.steps.length - 1);
   const forbidden = graph.steps.map((step) => step.name).find((name) => !row.resume_targets.includes(name));
@@ -642,7 +618,7 @@ test("the built onTransit reads whether the flow is parked, and answers accordin
 });
 
 test("the built onRun goes where the graph says, and records why when it parks", async () => {
-  const graph = executable();
+  const graph = document();
   const edge = graph.transitions[0];
   const workflow = buildWorkflow(graph, { evaluate: always });
   const moving = context({ id: "t-1", step: edge.from, status: "work", metadata: {} });
@@ -654,7 +630,7 @@ test("the built onRun goes where the graph says, and records why when it parks",
   // before the park does: operation 2 reads it from there and from nowhere else.
   const stranded = graph.steps.find((step) => step.kind === "agent");
   const cornered = buildWorkflow(
-    repaired((entry) => {
+    resealed((entry) => {
       entry.transitions = entry.transitions.filter((edge) => edge.from !== stranded.name);
     }),
     { evaluate: always },
@@ -672,7 +648,7 @@ test("a park whose reason could not be recorded refuses rather than parking anyw
   // so the write failing has to stop the park rather than be swallowed.
   const stranded = document().steps.find((step) => step.kind === "agent");
   const workflow = buildWorkflow(
-    repaired((entry) => {
+    resealed((entry) => {
       entry.transitions = entry.transitions.filter((edge) => edge.from !== stranded.name);
     }),
     { evaluate: always },
@@ -685,11 +661,11 @@ test("a park whose reason could not be recorded refuses rather than parking anyw
 // --- what round 1 of the review found, each with the case it was found by ----
 
 test("a declared edge into a parking step records the reason the document names", async () => {
-  // S5-R1-F1. The shipped graph draws 202 edges into a human step and they are
+  // S5-R1-F1. The shipped graph draws 221 edges into a human step and they are
   // how a flow ordinarily stops; only the no-candidate path recorded a reason,
   // so an ordinary park left `park.reason` at whatever the PREVIOUS park had
   // written, or absent — and operation 2 then refused a resume the reason allows.
-  const graph = executable();
+  const graph = document();
   const state = index(graph);
   const edge = state.outgoing.get("init_planning_ref").find((entry) => entry.to === "human");
   const guard = state.guards.get(edge.guards[0]);
@@ -716,16 +692,21 @@ test("a declared edge into a parking step records the reason the document names"
 });
 
 test("an edge that parks with more than one reason refuses rather than choosing", () => {
-  // Nine of the 202 are guarded by guards naming different reasons. An edge is
-  // taken when all its guards hold, so every one of those reasons is true at
-  // once and the document does not say which to record. Picking one would hand
-  // the next resume the permissions of a reason nobody chose.
+  // An edge is taken when all its guards hold, so if they name different
+  // reasons every one of them is true at once and the document does not say
+  // which to record. Picking one would hand the next resume the permissions of
+  // a reason nobody chose.
+  //
+  // The shipped document had nine such edges and now has none, so the property
+  // is asserted against an edge made ambiguous here. That both states are
+  // exercised is the point: the repair removed the instances, not the rule.
   const state = index(document());
-  const ambiguous = [...state.outgoing.values()]
-    .flat()
-    .filter((edge) => new Set(edge.guards.map((id) => state.guards.get(id).park_reason)).size > 1);
-  assert.ok(ambiguous.length > 0, "the shipped graph has such edges and this test is about them");
-  assert.equal(refusalOf(() => parkReasonFor(state, ambiguous[0])).reason, "park_reason_ambiguous");
+  const parking = [...state.outgoing.values()].flat().find((edge) => parks(state, edge.to));
+  const carried = state.guards.get(parking.guards[0]).park_reason;
+  const other = [...state.guards.values()].find((guard) => guard.park_reason !== carried);
+  const ambiguous = { ...parking, guards: [...parking.guards, other.id] };
+
+  assert.equal(refusalOf(() => parkReasonFor(state, ambiguous)).reason, "park_reason_ambiguous");
   assert.equal(refusalOf(() => parkReasonFor(state, { id: "t_none", guards: [] })).reason, "park_reason_ambiguous");
 });
 
@@ -753,8 +734,8 @@ test("a document whose digest does not describe it is refused", () => {
   // S5-R1-F4. Six documents differing in a component were accepted with one
   // stale digest and the daemon pinned one identity for all six, because the
   // factory carried the field over instead of computing it.
-  const graph = executable();
-  const stale = repaired((entry) => {
+  const graph = document();
+  const stale = resealed((entry) => {
     entry.caps[0].limit = 9;
   });
   stale.canonical_digest = graph.canonical_digest;
@@ -772,7 +753,7 @@ test("a step is asked for a park reason only when arriving there stops the task"
   // could be widened to `||` and nothing noticed, because no test took an edge
   // into a terminal step. `done` is a status step and is not a park: a closed
   // task is not waiting for a reason, and demanding one would refuse the move.
-  const graph = executable();
+  const graph = document();
   const state = index(graph);
   const closing = [...state.outgoing].flatMap(([, edges]) => edges).find((edge) => edge.to === "done");
   assert.ok(closing, "the shipped graph closes flows through a done step");
@@ -790,46 +771,43 @@ test("an edge with no reason and an edge with several are refused for different 
   // names too many are distinguishable, and a caller reading the message is told
   // which of the two it is looking at.
   const state = index(document());
-  const several = [...state.outgoing.values()]
-    .flat()
-    .find((edge) => new Set(edge.guards.map((id) => state.guards.get(id).park_reason)).size > 1);
+  const parking = [...state.outgoing.values()].flat().find((edge) => parks(state, edge.to));
+  const carried = state.guards.get(parking.guards[0]).park_reason;
+  const other = [...state.guards.values()].find((guard) => guard.park_reason !== carried);
+  const several = { ...parking, guards: [...parking.guards, other.id] };
   assert.match(refusalOf(() => parkReasonFor(state, several)).detail, /guards name \d+ reasons/u);
   assert.match(refusalOf(() => parkReasonFor(state, { id: "t_none", guards: [] })).detail, /no guard names a reason/u);
 });
 
-test("the shipped document is refused because nine of its parks cannot say why", () => {
-  // Round 1 attempt 3, and the route the owner chose. A runtime refusal could
-  // not close this: it fails the session, the engine then parks the task, and
-  // the reason an earlier park recorded is still there — the review resumed a
-  // task to a step only that stale reason allows. Clearing it first moved the
-  // hole onto the clearing's own error path, which the review measured too.
-  // Nothing inside a running step closes it, because the engine parks the task
-  // after the step gives up and the factory has no write that lands with the
-  // position. So the document is refused before anything runs.
+test("the shipped document builds, and every park in it says why", () => {
+  // This test used to assert the opposite. Slice 5 refused the shipped bytes
+  // because nine of their parking edges named two or three reasons for one
+  // condition, and the owner routed that to a build-time refusal rather than
+  // let a runtime pick. The refusal was right and is still here for a document
+  // that earns it; what changed is the document, which now says which.
+  //
+  // Nine were refused. Five more were not, because a single wrong reason is not
+  // ambiguous — four parked with `alignment_policy_out_of_scope` where the plan
+  // offers only a kind-specific reason, and one picked one of the two its row
+  // offers. Those the build could never have caught, which is why the design
+  // validator now carries the check too.
   const graph = document();
   const state = index(graph);
   const ambiguous = [...state.outgoing.values()]
     .flat()
     .filter((edge) => parks(state, edge.to) && !nameable(state, edge));
-  assert.equal(ambiguous.length, 9, "measured rather than remembered");
+  assert.deepEqual(ambiguous.map((edge) => edge.id), [], "every parking edge names exactly one reason");
 
-  const refusal = refusalOf(() => buildWorkflow(graph, { evaluate: always }));
-  assert.equal(refusal.reason, "park_reason_ambiguous");
-  for (const edge of ambiguous) assert.match(refusal.detail, new RegExp(edge.id, "u"));
+  const workflow = buildWorkflow(graph, { evaluate: always });
+  assert.equal(workflow.name, graph.workflow);
+  assert.equal(workflow.firstStep, graph.first_step);
 
-  // Each of the nine is ONE condition with several candidate reasons: every
-  // guard on it names the same predicate. So these are not several conditions a
-  // rule could tell apart — the document carries no discriminator, and nothing
-  // here could invent one.
-  for (const edge of ambiguous) {
-    const predicates = new Set(edge.guards.map((id) => state.guards.get(id).predicate));
-    assert.equal(predicates.size, 1, `${edge.id} names ${predicates.size} predicates`);
-    assert.ok(new Set(edge.guards.map((id) => state.guards.get(id).park_reason)).size > 1);
-  }
-
-  // And that is why the repair this suite uses changes no condition: it keeps
-  // one guard of the several that share the predicate. What the other tests
-  // exercise is the shipped graph minus an ambiguity the document owes, not a
-  // fixture invented here.
-  assert.equal(buildWorkflow(executable(), { evaluate: always }).name, graph.workflow);
+  // The refusal still fires for a document that cannot say why: keeping two
+  // guards with different reasons on one edge is the shipped state restored.
+  const restored = resealed((entry) => {
+    const edge = entry.transitions.find((candidate) => candidate.id === "t_121");
+    const other = entry.guards.find((guard) => guard.park_reason === "core_flow_decision_required");
+    edge.guards = [...edge.guards, other.id];
+  });
+  assert.equal(refusalOf(() => buildWorkflow(restored, { evaluate: always })).reason, "park_reason_ambiguous");
 });

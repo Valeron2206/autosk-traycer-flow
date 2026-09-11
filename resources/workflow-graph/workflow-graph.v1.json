@@ -333,20 +333,6 @@
       "description": "daemon decision отсутствует; unresolved assumption отсутствует; classifier доказал policy-eligible classes и current project policy projection active с exact binding/rule/scope/constraints — record_alignment с source=project_policy"
     },
     {
-      "id": "cond_037",
-      "reads": [
-        "human_required"
-      ],
-      "description": "daemon decision отсутствует; classifier выдаёт human_required/forbidden/unknown/ambiguous либо packet содержит unresolved assumption — записать subject/scope/classifier proof, await_alignment и human с kind-specific `brief_alignment_required`, `core_flow_decision_required` или `tech_plan_readiness_required`"
-    },
-    {
-      "id": "cond_038",
-      "reads": [
-        "human_required"
-      ],
-      "description": "daemon decision отсутствует; classifier выдаёт human_required/forbidden/unknown/ambiguous либо packet содержит unresolved assumption — записать subject/scope/classifier proof, await_alignment и human с kind-specific `brief_alignment_required`, `core_flow_decision_required` или `tech_plan_readiness_required`"
-    },
-    {
       "id": "cond_039",
       "reads": [
         "task_record"
@@ -359,20 +345,6 @@
         "task_record"
       ],
       "description": "daemon decision отсутствует; classifier policy-eligible; policy candidate указан, но missing/revoked/expired/replaced/hash-mismatched либо не покрывает derived rules — await_alignment и human с park.reason=alignment_policy_out_of_scope"
-    },
-    {
-      "id": "cond_041",
-      "reads": [
-        "task_record"
-      ],
-      "description": "daemon decision и policy candidate отсутствуют — await_alignment и human с kind-specific alignment reason"
-    },
-    {
-      "id": "cond_042",
-      "reads": [
-        "task_record"
-      ],
-      "description": "daemon decision и policy candidate отсутствуют — await_alignment и human с kind-specific alignment reason"
     },
     {
       "id": "cond_043",
@@ -401,7 +373,7 @@
         "project_policy",
         "user_decision"
       ],
-      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает — human с kind-specific reason"
+      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает — human с kind-specific reason либо park.reason=alignment_policy_out_of_scope; record не создаётся"
     },
     {
       "id": "cond_047",
@@ -456,13 +428,6 @@
       "description": "kind=tickets, daemon-attributed breakdown approval либо re-resolved policy валидны для той же proposal/classifier identity — atomically записать alignment_records.tickets, current_alignment=null, validate_tickets_manifest"
     },
     {
-      "id": "cond_053",
-      "reads": [
-        "task_record"
-      ],
-      "description": "kind!=tickets либо manifest/path set отсутствует, path ancestor is symlink/non-directory, pre-read byte bound exceeded, unsupported/noncanonical/schema-invalid (including malformed nested shapes), semantic/DAG/case-collision path-overlap/lineage/prior-ID/limit/ref validation fails, rendered path/bytes/structure drift or multiline goal injection, or alignment/planning/runtime/protocol/instruction identity stale — human с park.reason=tickets_manifest_invalid"
-    },
-    {
       "id": "cond_054",
       "reads": [
         "task_record"
@@ -490,13 +455,6 @@
         "task_record"
       ],
       "description": "provider/model недоступен после retry — human с park.reason=artifact_draft_provider_unavailable"
-    },
-    {
-      "id": "cond_058",
-      "reads": [
-        "task_record"
-      ],
-      "description": "output missing/invalid или out-of-scope mutation — human с park.reason=artifact_draft_result_invalid"
     },
     {
       "id": "cond_059",
@@ -659,15 +617,6 @@
         "task_record"
       ],
       "description": "scope/pathspec/tree identity mint invalid или changed during mint — human с park.reason=artifact_freeze_invalid"
-    },
-    {
-      "id": "cond_080",
-      "reads": [
-        "candidate_tree_oid",
-        "kind",
-        "tickets_validation_receipt"
-      ],
-      "description": "kind=tickets, pending validation proof absent/stale, exact frozen tree reread fails, or current `tickets_validation_receipt.candidate_tree_oid` differs from the minted candidate tree — human с park.reason=tickets_manifest_stale"
     },
     {
       "id": "cond_081",
@@ -2983,13 +2932,6 @@
       "description": "snapshot/immutable creation-session binding изменён либо обнаружена non-custody store mutation — human с park.reason=gate_snapshot_mutated"
     },
     {
-      "id": "cond_382",
-      "reads": [
-        "task_record"
-      ],
-      "description": "provider недоступен после retry либо submit отсутствует — human с gate_provider_unavailable или gate_result_missing"
-    },
-    {
       "id": "cond_383",
       "reads": [
         "task_record"
@@ -3004,20 +2946,6 @@
       "description": "finding/originating-seat/identity binding валиден и snapshot/store неизменны — done"
     },
     {
-      "id": "cond_385",
-      "reads": [
-        "task_record"
-      ],
-      "description": "binding/record невалиден либо обнаружена mutation — human с gate_result_invalid или gate_snapshot_mutated"
-    },
-    {
-      "id": "cond_386",
-      "reads": [
-        "task_record"
-      ],
-      "description": "provider недоступен после retry либо submit отсутствует — human с gate_provider_unavailable или gate_result_missing"
-    },
-    {
       "id": "cond_387",
       "reads": [
         "task_record"
@@ -3030,13 +2958,6 @@
         "task_record"
       ],
       "description": "anonymous roster/rubric/evidence/identity binding валиден и store неизменён — done"
-    },
-    {
-      "id": "cond_389",
-      "reads": [
-        "task_record"
-      ],
-      "description": "binding/record невалиден либо обнаружена mutation — human с gate_result_invalid или gate_snapshot_mutated"
     },
     {
       "id": "cond_390",
@@ -3162,6 +3083,100 @@
         "workflow"
       ],
       "description": "Section 2's tables carry one `intake` row and it is the autosk-planned one; the autosk-quick chain is the only place this transition is stated, and it states no condition for it"
+    },
+    {
+      "id": "cond_406",
+      "reads": [
+        "human_required",
+        "kind"
+      ],
+      "description": "daemon decision отсутствует; classifier выдаёт human_required/forbidden/unknown/ambiguous либо packet содержит unresolved assumption; kind=brief — записать subject/scope/classifier proof, await_alignment и human с park.reason=brief_alignment_required"
+    },
+    {
+      "id": "cond_407",
+      "reads": [
+        "human_required",
+        "kind"
+      ],
+      "description": "daemon decision отсутствует; classifier выдаёт human_required/forbidden/unknown/ambiguous либо packet содержит unresolved assumption; kind=core_flow — записать subject/scope/classifier proof, await_alignment и human с park.reason=core_flow_decision_required"
+    },
+    {
+      "id": "cond_408",
+      "reads": [
+        "human_required",
+        "kind"
+      ],
+      "description": "daemon decision отсутствует; classifier выдаёт human_required/forbidden/unknown/ambiguous либо packet содержит unresolved assumption; kind=tech_plan — записать subject/scope/classifier proof, await_alignment и human с park.reason=tech_plan_readiness_required"
+    },
+    {
+      "id": "cond_409",
+      "reads": [
+        "kind",
+        "task_record"
+      ],
+      "description": "daemon decision и policy candidate отсутствуют; kind=brief — await_alignment и human с park.reason=brief_alignment_required"
+    },
+    {
+      "id": "cond_410",
+      "reads": [
+        "kind",
+        "task_record"
+      ],
+      "description": "daemon decision и policy candidate отсутствуют; kind=core_flow — await_alignment и human с park.reason=core_flow_decision_required"
+    },
+    {
+      "id": "cond_411",
+      "reads": [
+        "kind",
+        "task_record"
+      ],
+      "description": "daemon decision и policy candidate отсутствуют; kind=tech_plan — await_alignment и human с park.reason=tech_plan_readiness_required"
+    },
+    {
+      "id": "cond_412",
+      "reads": [
+        "task_record"
+      ],
+      "description": "kind!=tickets либо manifest/path set отсутствует, path ancestor is symlink/non-directory, pre-read byte bound exceeded, unsupported/noncanonical/schema-invalid (including malformed nested shapes), semantic/DAG/case-collision path-overlap/lineage/prior-ID/limit/ref validation fails, or rendered path/bytes/structure drift or multiline goal injection — human с park.reason=tickets_manifest_invalid"
+    },
+    {
+      "id": "cond_413",
+      "reads": [
+        "task_record"
+      ],
+      "description": "alignment/planning/runtime/protocol/instruction identity stale — human с park.reason=tickets_manifest_stale"
+    },
+    {
+      "id": "cond_414",
+      "reads": [
+        "task_record"
+      ],
+      "description": "output missing/invalid — human с park.reason=artifact_draft_result_invalid"
+    },
+    {
+      "id": "cond_415",
+      "reads": [
+        "task_record"
+      ],
+      "description": "out-of-scope mutation — human с park.reason=artifact_draft_scope_invalid"
+    },
+    {
+      "id": "cond_416",
+      "reads": [
+        "candidate_tree_oid",
+        "kind",
+        "tickets_validation_receipt"
+      ],
+      "description": "kind=tickets, pending validation proof absent/stale, or current `tickets_validation_receipt.candidate_tree_oid` differs from the minted candidate tree — human с park.reason=tickets_manifest_stale"
+    },
+    {
+      "id": "cond_417",
+      "reads": [
+        "candidate_tree_oid",
+        "kind",
+        "tickets_validation_receipt"
+      ],
+      "description": "kind=tickets, exact frozen tree reread fails — human с park.reason=tickets_manifest_invalid"
     }
   ],
   "steps": [
@@ -4493,7 +4508,7 @@
     },
     {
       "id": "guard_121",
-      "predicate": "cond_037",
+      "predicate": "cond_406",
       "authority": {
         "actor": "human"
       },
@@ -4501,7 +4516,7 @@
     },
     {
       "id": "guard_122",
-      "predicate": "cond_037",
+      "predicate": "cond_407",
       "authority": {
         "actor": "human"
       },
@@ -4509,7 +4524,7 @@
     },
     {
       "id": "guard_123",
-      "predicate": "cond_037",
+      "predicate": "cond_408",
       "authority": {
         "actor": "human"
       },
@@ -4517,7 +4532,7 @@
     },
     {
       "id": "guard_124",
-      "predicate": "cond_038",
+      "predicate": "cond_406",
       "authority": {
         "actor": "human"
       },
@@ -4525,7 +4540,7 @@
     },
     {
       "id": "guard_125",
-      "predicate": "cond_038",
+      "predicate": "cond_407",
       "authority": {
         "actor": "human"
       },
@@ -4533,7 +4548,7 @@
     },
     {
       "id": "guard_126",
-      "predicate": "cond_038",
+      "predicate": "cond_408",
       "authority": {
         "actor": "human"
       },
@@ -4570,46 +4585,6 @@
     {
       "id": "guard_130",
       "predicate": "cond_040",
-      "authority": {
-        "actor": "policy",
-        "policy_rules": [
-          "derived_rules"
-        ],
-        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
-      },
-      "park_reason": "alignment_policy_out_of_scope"
-    },
-    {
-      "id": "guard_131",
-      "predicate": "cond_041",
-      "authority": {
-        "actor": "human"
-      },
-      "park_reason": "alignment_policy_out_of_scope"
-    },
-    {
-      "id": "guard_132",
-      "predicate": "cond_041",
-      "authority": {
-        "actor": "policy",
-        "policy_rules": [
-          "derived_rules"
-        ],
-        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
-      },
-      "park_reason": "alignment_policy_out_of_scope"
-    },
-    {
-      "id": "guard_133",
-      "predicate": "cond_042",
-      "authority": {
-        "actor": "human"
-      },
-      "park_reason": "alignment_policy_out_of_scope"
-    },
-    {
-      "id": "guard_134",
-      "predicate": "cond_042",
       "authority": {
         "actor": "policy",
         "policy_rules": [
@@ -4725,7 +4700,7 @@
     },
     {
       "id": "guard_147",
-      "predicate": "cond_053",
+      "predicate": "cond_412",
       "authority": {
         "actor": "agent"
       },
@@ -4733,7 +4708,7 @@
     },
     {
       "id": "guard_148",
-      "predicate": "cond_053",
+      "predicate": "cond_413",
       "authority": {
         "actor": "agent"
       },
@@ -4773,7 +4748,7 @@
     },
     {
       "id": "guard_153",
-      "predicate": "cond_058",
+      "predicate": "cond_414",
       "authority": {
         "actor": "agent"
       },
@@ -4781,7 +4756,7 @@
     },
     {
       "id": "guard_154",
-      "predicate": "cond_058",
+      "predicate": "cond_415",
       "authority": {
         "actor": "agent"
       },
@@ -5017,7 +4992,7 @@
     },
     {
       "id": "guard_181",
-      "predicate": "cond_080",
+      "predicate": "cond_416",
       "authority": {
         "actor": "agent"
       },
@@ -5025,7 +5000,7 @@
     },
     {
       "id": "guard_182",
-      "predicate": "cond_080",
+      "predicate": "cond_417",
       "authority": {
         "actor": "agent"
       },
@@ -7601,7 +7576,7 @@
     },
     {
       "id": "guard_504",
-      "predicate": "cond_382",
+      "predicate": "cond_376",
       "authority": {
         "actor": "agent"
       },
@@ -7609,7 +7584,7 @@
     },
     {
       "id": "guard_505",
-      "predicate": "cond_382",
+      "predicate": "cond_377",
       "authority": {
         "actor": "agent"
       },
@@ -7633,7 +7608,7 @@
     },
     {
       "id": "guard_508",
-      "predicate": "cond_385",
+      "predicate": "cond_380",
       "authority": {
         "actor": "agent"
       },
@@ -7641,7 +7616,7 @@
     },
     {
       "id": "guard_509",
-      "predicate": "cond_385",
+      "predicate": "cond_381",
       "authority": {
         "actor": "agent"
       },
@@ -7649,7 +7624,7 @@
     },
     {
       "id": "guard_510",
-      "predicate": "cond_386",
+      "predicate": "cond_376",
       "authority": {
         "actor": "agent"
       },
@@ -7657,7 +7632,7 @@
     },
     {
       "id": "guard_511",
-      "predicate": "cond_386",
+      "predicate": "cond_377",
       "authority": {
         "actor": "agent"
       },
@@ -7681,7 +7656,7 @@
     },
     {
       "id": "guard_514",
-      "predicate": "cond_389",
+      "predicate": "cond_380",
       "authority": {
         "actor": "agent"
       },
@@ -7689,7 +7664,7 @@
     },
     {
       "id": "guard_515",
-      "predicate": "cond_389",
+      "predicate": "cond_381",
       "authority": {
         "actor": "agent"
       },
@@ -7822,6 +7797,126 @@
         "actor": "agent"
       },
       "park_reason": "quick_classification_invalid"
+    },
+    {
+      "id": "guard_532",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "brief_alignment_required",
+      "predicate": "cond_409"
+    },
+    {
+      "id": "guard_533",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "core_flow_decision_required",
+      "predicate": "cond_410"
+    },
+    {
+      "id": "guard_534",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "tech_plan_readiness_required",
+      "predicate": "cond_411"
+    },
+    {
+      "id": "guard_535",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "derived_rules"
+        ],
+        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
+      },
+      "park_reason": "brief_alignment_required",
+      "predicate": "cond_409"
+    },
+    {
+      "id": "guard_536",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "derived_rules"
+        ],
+        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
+      },
+      "park_reason": "core_flow_decision_required",
+      "predicate": "cond_410"
+    },
+    {
+      "id": "guard_537",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "derived_rules"
+        ],
+        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
+      },
+      "park_reason": "tech_plan_readiness_required",
+      "predicate": "cond_411"
+    },
+    {
+      "id": "guard_538",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "brief_alignment_required",
+      "predicate": "cond_409"
+    },
+    {
+      "id": "guard_539",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "core_flow_decision_required",
+      "predicate": "cond_410"
+    },
+    {
+      "id": "guard_540",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "tech_plan_readiness_required",
+      "predicate": "cond_411"
+    },
+    {
+      "id": "guard_541",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "derived_rules"
+        ],
+        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
+      },
+      "park_reason": "brief_alignment_required",
+      "predicate": "cond_409"
+    },
+    {
+      "id": "guard_542",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "derived_rules"
+        ],
+        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
+      },
+      "park_reason": "core_flow_decision_required",
+      "predicate": "cond_410"
+    },
+    {
+      "id": "guard_543",
+      "authority": {
+        "actor": "policy",
+        "policy_rules": [
+          "derived_rules"
+        ],
+        "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
+      },
+      "park_reason": "tech_plan_readiness_required",
+      "predicate": "cond_411"
     }
   ],
   "transitions": [
@@ -8911,8 +9006,24 @@
       "to": "await_alignment",
       "priority": 3,
       "guards": [
-        "guard_121",
-        "guard_122",
+        "guard_121"
+      ]
+    },
+    {
+      "id": "t_521",
+      "from": "clarify_alignment",
+      "to": "await_alignment",
+      "priority": 4,
+      "guards": [
+        "guard_122"
+      ]
+    },
+    {
+      "id": "t_522",
+      "from": "clarify_alignment",
+      "to": "await_alignment",
+      "priority": 5,
+      "guards": [
         "guard_123"
       ]
     },
@@ -8920,10 +9031,26 @@
       "id": "t_122",
       "from": "clarify_alignment",
       "to": "human",
-      "priority": 4,
+      "priority": 6,
       "guards": [
-        "guard_124",
-        "guard_125",
+        "guard_124"
+      ]
+    },
+    {
+      "id": "t_523",
+      "from": "clarify_alignment",
+      "to": "human",
+      "priority": 7,
+      "guards": [
+        "guard_125"
+      ]
+    },
+    {
+      "id": "t_524",
+      "from": "clarify_alignment",
+      "to": "human",
+      "priority": 8,
+      "guards": [
         "guard_126"
       ]
     },
@@ -8931,7 +9058,7 @@
       "id": "t_123",
       "from": "clarify_alignment",
       "to": "await_alignment",
-      "priority": 5,
+      "priority": 9,
       "guards": [
         "guard_127"
       ]
@@ -8940,7 +9067,7 @@
       "id": "t_124",
       "from": "clarify_alignment",
       "to": "await_alignment",
-      "priority": 6,
+      "priority": 10,
       "guards": [
         "guard_128"
       ]
@@ -8949,7 +9076,7 @@
       "id": "t_125",
       "from": "clarify_alignment",
       "to": "human",
-      "priority": 7,
+      "priority": 11,
       "guards": [
         "guard_129"
       ]
@@ -8958,7 +9085,7 @@
       "id": "t_126",
       "from": "clarify_alignment",
       "to": "human",
-      "priority": 8,
+      "priority": 12,
       "guards": [
         "guard_130"
       ]
@@ -8967,36 +9094,108 @@
       "id": "t_127",
       "from": "clarify_alignment",
       "to": "await_alignment",
-      "priority": 9,
+      "priority": 13,
       "guards": [
-        "guard_131"
+        "guard_532"
+      ]
+    },
+    {
+      "id": "t_525",
+      "from": "clarify_alignment",
+      "to": "await_alignment",
+      "priority": 14,
+      "guards": [
+        "guard_533"
+      ]
+    },
+    {
+      "id": "t_526",
+      "from": "clarify_alignment",
+      "to": "await_alignment",
+      "priority": 15,
+      "guards": [
+        "guard_534"
       ]
     },
     {
       "id": "t_128",
       "from": "clarify_alignment",
       "to": "await_alignment",
-      "priority": 10,
+      "priority": 16,
       "guards": [
-        "guard_132"
+        "guard_535"
+      ]
+    },
+    {
+      "id": "t_527",
+      "from": "clarify_alignment",
+      "to": "await_alignment",
+      "priority": 17,
+      "guards": [
+        "guard_536"
+      ]
+    },
+    {
+      "id": "t_528",
+      "from": "clarify_alignment",
+      "to": "await_alignment",
+      "priority": 18,
+      "guards": [
+        "guard_537"
       ]
     },
     {
       "id": "t_129",
       "from": "clarify_alignment",
       "to": "human",
-      "priority": 11,
+      "priority": 19,
       "guards": [
-        "guard_133"
+        "guard_538"
+      ]
+    },
+    {
+      "id": "t_529",
+      "from": "clarify_alignment",
+      "to": "human",
+      "priority": 20,
+      "guards": [
+        "guard_539"
+      ]
+    },
+    {
+      "id": "t_530",
+      "from": "clarify_alignment",
+      "to": "human",
+      "priority": 21,
+      "guards": [
+        "guard_540"
       ]
     },
     {
       "id": "t_130",
       "from": "clarify_alignment",
       "to": "human",
-      "priority": 12,
+      "priority": 22,
       "guards": [
-        "guard_134"
+        "guard_541"
+      ]
+    },
+    {
+      "id": "t_531",
+      "from": "clarify_alignment",
+      "to": "human",
+      "priority": 23,
+      "guards": [
+        "guard_542"
+      ]
+    },
+    {
+      "id": "t_532",
+      "from": "clarify_alignment",
+      "to": "human",
+      "priority": 24,
+      "guards": [
+        "guard_543"
       ]
     },
     {
@@ -9113,7 +9312,15 @@
       "to": "human",
       "priority": 0,
       "guards": [
-        "guard_147",
+        "guard_147"
+      ]
+    },
+    {
+      "id": "t_533",
+      "from": "validate_tickets_manifest",
+      "to": "human",
+      "priority": 1,
+      "guards": [
         "guard_148"
       ]
     },
@@ -9121,7 +9328,7 @@
       "id": "t_144",
       "from": "validate_tickets_manifest",
       "to": "freeze_artifact",
-      "priority": 1,
+      "priority": 2,
       "guards": [
         "guard_149"
       ]
@@ -9130,7 +9337,7 @@
       "id": "t_145",
       "from": "validate_tickets_manifest",
       "to": "freeze_artifact",
-      "priority": 2,
+      "priority": 3,
       "guards": [
         "guard_150"
       ]
@@ -9159,7 +9366,15 @@
       "to": "human",
       "priority": 2,
       "guards": [
-        "guard_153",
+        "guard_153"
+      ]
+    },
+    {
+      "id": "t_534",
+      "from": "draft_artifact",
+      "to": "human",
+      "priority": 3,
+      "guards": [
         "guard_154"
       ]
     },
@@ -9167,7 +9382,7 @@
       "id": "t_149",
       "from": "draft_artifact",
       "to": "human",
-      "priority": 3,
+      "priority": 4,
       "guards": [
         "guard_155"
       ]
@@ -9176,7 +9391,7 @@
       "id": "t_150",
       "from": "draft_artifact",
       "to": "present_tickets_breakdown",
-      "priority": 4,
+      "priority": 5,
       "guards": [
         "guard_156"
       ]
@@ -9185,7 +9400,7 @@
       "id": "t_151",
       "from": "draft_artifact",
       "to": "present_tickets_breakdown",
-      "priority": 5,
+      "priority": 6,
       "guards": [
         "guard_157"
       ]
@@ -9194,7 +9409,7 @@
       "id": "t_152",
       "from": "draft_artifact",
       "to": "present_tickets_breakdown",
-      "priority": 6,
+      "priority": 7,
       "guards": [
         "guard_158"
       ]
@@ -9203,7 +9418,7 @@
       "id": "t_153",
       "from": "draft_artifact",
       "to": "draft_artifact",
-      "priority": 7,
+      "priority": 8,
       "guards": [
         "guard_159"
       ]
@@ -9212,7 +9427,7 @@
       "id": "t_154",
       "from": "draft_artifact",
       "to": "clarify_alignment",
-      "priority": 8,
+      "priority": 9,
       "guards": [
         "guard_160"
       ]
@@ -9221,7 +9436,7 @@
       "id": "t_155",
       "from": "draft_artifact",
       "to": "freeze_artifact",
-      "priority": 9,
+      "priority": 10,
       "guards": [
         "guard_161"
       ]
@@ -9403,7 +9618,15 @@
       "to": "human",
       "priority": 21,
       "guards": [
-        "guard_181",
+        "guard_181"
+      ]
+    },
+    {
+      "id": "t_535",
+      "from": "freeze_artifact",
+      "to": "human",
+      "priority": 22,
+      "guards": [
         "guard_182"
       ]
     },
@@ -9411,7 +9634,7 @@
       "id": "t_176",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 22,
+      "priority": 23,
       "guards": [
         "guard_183"
       ]
@@ -9420,7 +9643,7 @@
       "id": "t_177",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 23,
+      "priority": 24,
       "guards": [
         "guard_184"
       ]
@@ -9429,7 +9652,7 @@
       "id": "t_178",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 24,
+      "priority": 25,
       "guards": [
         "guard_185"
       ]
@@ -9438,7 +9661,7 @@
       "id": "t_179",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 25,
+      "priority": 26,
       "guards": [
         "guard_186"
       ]
@@ -9447,7 +9670,7 @@
       "id": "t_180",
       "from": "freeze_artifact",
       "to": "human",
-      "priority": 26,
+      "priority": 27,
       "guards": [
         "guard_187"
       ]
@@ -9456,7 +9679,7 @@
       "id": "t_181",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 27,
+      "priority": 28,
       "guards": [
         "guard_188"
       ]
@@ -9465,7 +9688,7 @@
       "id": "t_182",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 28,
+      "priority": 29,
       "guards": [
         "guard_189"
       ]
@@ -9474,7 +9697,7 @@
       "id": "t_183",
       "from": "freeze_artifact",
       "to": "freeze_artifact",
-      "priority": 29,
+      "priority": 30,
       "guards": [
         "guard_190"
       ]
@@ -9483,7 +9706,7 @@
       "id": "t_184",
       "from": "freeze_artifact",
       "to": "human",
-      "priority": 30,
+      "priority": 31,
       "guards": [
         "guard_191"
       ]
@@ -9492,7 +9715,7 @@
       "id": "t_185",
       "from": "freeze_artifact",
       "to": "human",
-      "priority": 31,
+      "priority": 32,
       "guards": [
         "guard_192"
       ]
@@ -9501,7 +9724,7 @@
       "id": "t_186",
       "from": "freeze_artifact",
       "to": "record_artifact_pass",
-      "priority": 32,
+      "priority": 33,
       "guards": [
         "guard_193"
       ]
@@ -9510,7 +9733,7 @@
       "id": "t_187",
       "from": "freeze_artifact",
       "to": "dispatch_panel",
-      "priority": 33,
+      "priority": 34,
       "guards": [
         "guard_194"
       ]
@@ -9519,7 +9742,7 @@
       "id": "t_188",
       "from": "freeze_artifact",
       "to": "dispatch_panel",
-      "priority": 34,
+      "priority": 35,
       "guards": [
         "guard_195"
       ]
@@ -9528,7 +9751,7 @@
       "id": "t_189",
       "from": "freeze_artifact",
       "to": "dispatch_narrow_review",
-      "priority": 35,
+      "priority": 36,
       "guards": [
         "guard_196"
       ]
@@ -12302,7 +12525,15 @@
       "to": "human",
       "priority": 0,
       "guards": [
-        "guard_504",
+        "guard_504"
+      ]
+    },
+    {
+      "id": "t_536",
+      "from": "review_disposition",
+      "to": "human",
+      "priority": 1,
+      "guards": [
         "guard_505"
       ]
     },
@@ -12310,7 +12541,7 @@
       "id": "t_498",
       "from": "review_disposition",
       "to": "validate_disposition",
-      "priority": 1,
+      "priority": 2,
       "guards": [
         "guard_506"
       ]
@@ -12330,7 +12561,15 @@
       "to": "human",
       "priority": 2,
       "guards": [
-        "guard_508",
+        "guard_508"
+      ]
+    },
+    {
+      "id": "t_538",
+      "from": "validate_disposition",
+      "to": "human",
+      "priority": 3,
+      "guards": [
         "guard_509"
       ]
     },
@@ -12340,7 +12579,15 @@
       "to": "human",
       "priority": 0,
       "guards": [
-        "guard_510",
+        "guard_510"
+      ]
+    },
+    {
+      "id": "t_537",
+      "from": "judge",
+      "to": "human",
+      "priority": 1,
+      "guards": [
         "guard_511"
       ]
     },
@@ -12348,7 +12595,7 @@
       "id": "t_502",
       "from": "judge",
       "to": "validate_judgment",
-      "priority": 1,
+      "priority": 2,
       "guards": [
         "guard_512"
       ]
@@ -12368,7 +12615,15 @@
       "to": "human",
       "priority": 2,
       "guards": [
-        "guard_514",
+        "guard_514"
+      ]
+    },
+    {
+      "id": "t_539",
+      "from": "validate_judgment",
+      "to": "human",
+      "priority": 3,
+      "guards": [
         "guard_515"
       ]
     },
@@ -15506,5 +15761,5 @@
       ]
     }
   ],
-  "canonical_digest": "2e7e6b62603d8944c1eaa54bcb9d3b570ef2d878ea7340def7e9c9931cf362d1"
+  "canonical_digest": "a9b6e187de632fce3324ee9111672de6fd7b75dbb826ea978bb9962989ca3c87"
 }
