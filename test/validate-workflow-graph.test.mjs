@@ -386,6 +386,10 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     (document) => { document.unexpected = true; },
     (document) => { document.guards[0].park_reason = "totally_unknown_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason"; },
     (document) => { document.guards[0].park_reason = "no_transition_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "no_transition_reason"; },
+    // The parks_at check belongs in the battery and not only in its own test:
+    // this is the list that notices a code reachable and undeclared, and a code
+    // it never provokes is one it cannot speak for.
+    (document) => { document.steps.find((step) => step.name === "freeze_artifact").no_transition_reason = "alignment_record_stale"; },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
