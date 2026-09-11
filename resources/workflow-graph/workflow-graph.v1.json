@@ -368,14 +368,6 @@
       "description": "statusStep human — после смены subject/scope — для kind=tickets — `present_tickets_breakdown`"
     },
     {
-      "id": "cond_046",
-      "reads": [
-        "project_policy",
-        "user_decision"
-      ],
-      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает — human с kind-specific reason либо park.reason=alignment_policy_out_of_scope; record не создаётся"
-    },
-    {
       "id": "cond_047",
       "reads": [
         "task_record"
@@ -3177,6 +3169,42 @@
         "tickets_validation_receipt"
       ],
       "description": "kind=tickets, exact frozen tree reread fails — human с park.reason=tickets_manifest_invalid"
+    },
+    {
+      "id": "cond_418",
+      "reads": [
+        "kind",
+        "project_policy",
+        "user_decision"
+      ],
+      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает; kind=brief — human с park.reason=brief_alignment_required; record не создаётся"
+    },
+    {
+      "id": "cond_419",
+      "reads": [
+        "kind",
+        "project_policy",
+        "user_decision"
+      ],
+      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает; kind=core_flow — human с park.reason=core_flow_decision_required; record не создаётся"
+    },
+    {
+      "id": "cond_420",
+      "reads": [
+        "kind",
+        "project_policy",
+        "user_decision"
+      ],
+      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает; kind=tech_plan — human с park.reason=tech_plan_readiness_required; record не создаётся"
+    },
+    {
+      "id": "cond_421",
+      "reads": [
+        "kind",
+        "project_policy",
+        "user_decision"
+      ],
+      "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает; kind=tickets — human с park.reason=tickets_breakdown_alignment_required; record не создаётся"
     }
   ],
   "steps": [
@@ -4632,11 +4660,11 @@
     },
     {
       "id": "guard_139",
-      "predicate": "cond_046",
+      "predicate": "cond_418",
       "authority": {
         "actor": "human"
       },
-      "park_reason": "alignment_policy_out_of_scope"
+      "park_reason": "brief_alignment_required"
     },
     {
       "id": "guard_140",
@@ -7252,7 +7280,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "anchor_resume_intent_invalid"
+      "park_reason": "waiting_parent_anchor"
     },
     {
       "id": "guard_464",
@@ -7917,6 +7945,30 @@
       },
       "park_reason": "tech_plan_readiness_required",
       "predicate": "cond_411"
+    },
+    {
+      "id": "guard_544",
+      "predicate": "cond_419",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "core_flow_decision_required"
+    },
+    {
+      "id": "guard_545",
+      "predicate": "cond_420",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "tech_plan_readiness_required"
+    },
+    {
+      "id": "guard_546",
+      "predicate": "cond_421",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "tickets_breakdown_alignment_required"
     }
   ],
   "transitions": [
@@ -9244,10 +9296,37 @@
       ]
     },
     {
-      "id": "t_136",
+      "id": "t_540",
       "from": "record_alignment",
       "to": "human",
       "priority": 2,
+      "guards": [
+        "guard_544"
+      ]
+    },
+    {
+      "id": "t_541",
+      "from": "record_alignment",
+      "to": "human",
+      "priority": 3,
+      "guards": [
+        "guard_545"
+      ]
+    },
+    {
+      "id": "t_542",
+      "from": "record_alignment",
+      "to": "human",
+      "priority": 4,
+      "guards": [
+        "guard_546"
+      ]
+    },
+    {
+      "id": "t_136",
+      "from": "record_alignment",
+      "to": "human",
+      "priority": 5,
       "guards": [
         "guard_140"
       ]
@@ -9256,7 +9335,7 @@
       "id": "t_137",
       "from": "record_alignment",
       "to": "draft_artifact",
-      "priority": 3,
+      "priority": 6,
       "guards": [
         "guard_141"
       ]
@@ -9265,7 +9344,7 @@
       "id": "t_138",
       "from": "record_alignment",
       "to": "draft_artifact",
-      "priority": 4,
+      "priority": 7,
       "guards": [
         "guard_142"
       ]
@@ -9274,7 +9353,7 @@
       "id": "t_139",
       "from": "record_alignment",
       "to": "draft_artifact",
-      "priority": 5,
+      "priority": 8,
       "guards": [
         "guard_143"
       ]
@@ -9283,7 +9362,7 @@
       "id": "t_140",
       "from": "record_alignment",
       "to": "draft_artifact",
-      "priority": 6,
+      "priority": 9,
       "guards": [
         "guard_144"
       ]
@@ -9292,7 +9371,7 @@
       "id": "t_141",
       "from": "record_alignment",
       "to": "draft_artifact",
-      "priority": 7,
+      "priority": 10,
       "guards": [
         "guard_145"
       ]
@@ -9301,7 +9380,7 @@
       "id": "t_142",
       "from": "record_alignment",
       "to": "validate_tickets_manifest",
-      "priority": 8,
+      "priority": 11,
       "guards": [
         "guard_146"
       ]
@@ -12790,6 +12869,7 @@
     {
       "reason": "aggregate_remediation_required",
       "parks_at": [
+        "dispatch_ticket_dag",
         "record_aggregate_remediation"
       ],
       "resume_targets": [
@@ -12805,6 +12885,7 @@
     {
       "reason": "aggregate_verify_failed",
       "parks_at": [
+        "aggregate_verify",
         "record_aggregate_remediation"
       ],
       "resume_targets": [
@@ -12836,7 +12917,12 @@
       "reason": "alignment_record_stale",
       "parks_at": [
         "clarify_alignment",
-        "present_tickets_breakdown"
+        "dispatch_panel",
+        "dispatch_ticket_dag",
+        "freeze_artifact",
+        "present_tickets_breakdown",
+        "record_alignment",
+        "record_artifact_pass"
       ],
       "resume_targets": [
         "await_alignment",
@@ -12860,6 +12946,8 @@
     {
       "reason": "anchor_impact_approval_required",
       "parks_at": [
+        "prepare_anchor_impact",
+        "rebuild_anchor",
         "record_anchor_impact_approval"
       ],
       "resume_targets": [
@@ -12872,7 +12960,8 @@
     {
       "reason": "anchor_impact_invalid",
       "parks_at": [
-        "prepare_anchor_impact"
+        "prepare_anchor_impact",
+        "rebuild_anchor"
       ],
       "resume_targets": [
         "await_anchor_impact_approval",
@@ -12969,7 +13058,8 @@
     {
       "reason": "arena_contract_invalid",
       "parks_at": [
-        "fix_artifact"
+        "fix_artifact",
+        "record_artifact_pass"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -12984,7 +13074,8 @@
     {
       "reason": "arena_fallback_required",
       "parks_at": [
-        "apply_arena_decision"
+        "apply_arena_decision",
+        "arena_join"
       ],
       "resume_targets": [
         "clarify_alignment"
@@ -12994,6 +13085,7 @@
     {
       "reason": "arena_join_invalid",
       "parks_at": [
+        "arena_join",
         "dispatch_arena"
       ],
       "resume_targets": [
@@ -13123,6 +13215,8 @@
       "reason": "artifact_mapping_required",
       "parks_at": [
         "clarify_alignment",
+        "freeze",
+        "freeze_artifact",
         "invalidate_quick_classification",
         "present_tickets_breakdown"
       ],
@@ -13139,7 +13233,8 @@
     {
       "reason": "artifact_pass_invalid",
       "parks_at": [
-        "freeze_artifact"
+        "freeze_artifact",
+        "record_artifact_pass"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -13168,14 +13263,24 @@
     {
       "reason": "blocked_anchor",
       "parks_at": [
+        "accept",
+        "aggregate_verify",
         "arena_join",
+        "commit_on_pass",
         "contest_join",
+        "dispatch_ticket_dag",
         "done",
+        "freeze",
+        "integrate",
         "narrow_review_join",
         "panel_join",
         "prepare_anchor_impact",
         "rebuild_code_anchor",
-        "review_join"
+        "record_artifact_pass",
+        "record_code_verdict",
+        "record_editorial_exemption",
+        "review_join",
+        "ticket_join"
       ],
       "resume_targets": [
         "apply_arena_decision",
@@ -13199,6 +13304,7 @@
     {
       "reason": "brief_alignment_required",
       "parks_at": [
+        "clarify_alignment",
         "record_alignment"
       ],
       "resume_targets": [
@@ -13211,6 +13317,7 @@
     {
       "reason": "candidate_changed",
       "parks_at": [
+        "commit_on_pass",
         "fix"
       ],
       "resume_targets": [
@@ -13259,7 +13366,8 @@
     {
       "reason": "code_verdict_invalid",
       "parks_at": [
-        "freeze"
+        "freeze",
+        "record_code_verdict"
       ],
       "resume_targets": [
         "dispatch_narrow_review",
@@ -13300,6 +13408,7 @@
     {
       "reason": "contest_join_invalid",
       "parks_at": [
+        "contest_join",
         "dispatch_contest"
       ],
       "resume_targets": [
@@ -13311,6 +13420,7 @@
     {
       "reason": "core_flow_decision_required",
       "parks_at": [
+        "clarify_alignment",
         "record_alignment"
       ],
       "resume_targets": [
@@ -13426,7 +13536,10 @@
         "judge",
         "review_artifact",
         "review_candidate",
-        "review_disposition"
+        "review_disposition",
+        "validate_disposition",
+        "validate_judgment",
+        "validate_verdict"
       ],
       "resume_targets": [
         "human",
@@ -13458,7 +13571,10 @@
         "judge",
         "review_artifact",
         "review_candidate",
-        "review_disposition"
+        "review_disposition",
+        "validate_disposition",
+        "validate_judgment",
+        "validate_verdict"
       ],
       "resume_targets": [
         "human",
@@ -13556,7 +13672,8 @@
     {
       "reason": "narrow_join_invalid",
       "parks_at": [
-        "dispatch_narrow_review"
+        "dispatch_narrow_review",
+        "narrow_review_join"
       ],
       "resume_targets": [
         "human",
@@ -13568,6 +13685,7 @@
     {
       "reason": "no_external_panel_lead",
       "parks_at": [
+        "dispatch_narrow_review",
         "dispatch_panel",
         "freeze_artifact",
         "human"
@@ -13588,6 +13706,7 @@
     {
       "reason": "no_external_reviewer",
       "parks_at": [
+        "dispatch_narrow_review",
         "dispatch_review",
         "freeze",
         "human"
@@ -13608,7 +13727,8 @@
     {
       "reason": "panel_join_invalid",
       "parks_at": [
-        "dispatch_panel"
+        "dispatch_panel",
+        "panel_join"
       ],
       "resume_targets": [
         "human",
@@ -13621,7 +13741,8 @@
       "parks_at": [
         "dispatch_panel",
         "freeze_artifact",
-        "panel_join"
+        "panel_join",
+        "record_artifact_pass"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -13642,6 +13763,7 @@
       "reason": "planning_candidate_base_stale",
       "parks_at": [
         "draft_artifact",
+        "freeze_artifact",
         "present_tickets_breakdown"
       ],
       "resume_targets": [
@@ -13714,6 +13836,8 @@
     {
       "reason": "planning_publication_invalid",
       "parks_at": [
+        "publish_artifact_pass",
+        "publish_planning_invalidation",
         "rebuild_anchor",
         "record_artifact_pass"
       ],
@@ -14008,7 +14132,9 @@
       "reason": "review_cap",
       "parks_at": [
         "fix",
-        "fix_artifact"
+        "fix_artifact",
+        "narrow_review_join",
+        "record_code_verdict"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -14027,7 +14153,8 @@
       "reason": "review_join_invalid",
       "parks_at": [
         "dispatch_narrow_review",
-        "dispatch_review"
+        "dispatch_review",
+        "review_join"
       ],
       "resume_targets": [
         "human",
@@ -14040,7 +14167,8 @@
     {
       "reason": "review_waiver_invalid",
       "parks_at": [
-        "freeze"
+        "freeze",
+        "record_code_verdict"
       ],
       "resume_targets": [
         "dispatch_narrow_review",
@@ -14057,6 +14185,7 @@
     {
       "reason": "tech_plan_readiness_required",
       "parks_at": [
+        "clarify_alignment",
         "record_alignment"
       ],
       "resume_targets": [
@@ -14081,7 +14210,8 @@
     {
       "reason": "ticket_join_invalid",
       "parks_at": [
-        "dispatch_ticket_dag"
+        "dispatch_ticket_dag",
+        "ticket_join"
       ],
       "resume_targets": [
         "dispatch_ticket_dag",
@@ -14094,7 +14224,8 @@
       "reason": "ticket_repair_op_invalid",
       "parks_at": [
         "dispatch_ticket_dag",
-        "rebuild_anchor"
+        "rebuild_anchor",
+        "resume_repaired_tickets"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -14128,6 +14259,7 @@
     {
       "reason": "tickets_breakdown_alignment_required",
       "parks_at": [
+        "present_tickets_breakdown",
         "record_alignment"
       ],
       "resume_targets": [
@@ -14140,8 +14272,11 @@
     {
       "reason": "tickets_manifest_invalid",
       "parks_at": [
+        "dispatch_ticket_dag",
         "freeze",
-        "present_tickets_breakdown"
+        "freeze_artifact",
+        "present_tickets_breakdown",
+        "validate_tickets_manifest"
       ],
       "resume_targets": [
         "await_alignment",
@@ -14162,7 +14297,10 @@
     {
       "reason": "tickets_manifest_stale",
       "parks_at": [
-        "present_tickets_breakdown"
+        "dispatch_ticket_dag",
+        "freeze_artifact",
+        "present_tickets_breakdown",
+        "validate_tickets_manifest"
       ],
       "resume_targets": [
         "await_alignment",
@@ -14176,7 +14314,8 @@
     {
       "reason": "verification_cap",
       "parks_at": [
-        "fix"
+        "fix",
+        "verify"
       ],
       "resume_targets": [
         "human",
@@ -14238,10 +14377,10 @@
           "covers": [
             "brief_alignment_required"
           ],
-          "binds": "220e6a93908c5cc6d2633f824815997242137c4a6b100609246531910562f8dd",
+          "binds": "d1d0c9cdcfd03c291ebdaa99dac53ad9c77bfc07ca0164cf1ecc7fc63f1649bc",
           "cells": [
             "brief_alignment_required",
-            "record_alignment",
+            "clarify_alignment, record_alignment",
             "current framing packet и matching daemon `UserDecisionRecord` либо re-resolved exact active policy"
           ]
         },
@@ -14249,10 +14388,10 @@
           "covers": [
             "core_flow_decision_required"
           ],
-          "binds": "f325f9799511a17841e7b09d2e8f2e7f2cba6a580e5a66d3ab84d64ea2cd0cb4",
+          "binds": "f6ef16f52615f1bb0aeefc5d026bd08ae0de2a431bc7d99bfddcb8364ca70c35",
           "cells": [
             "core_flow_decision_required",
-            "record_alignment",
+            "clarify_alignment, record_alignment",
             "каждое material behavior decision закрыто daemon record; model self-approval отсутствует"
           ]
         },
@@ -14260,10 +14399,10 @@
           "covers": [
             "tech_plan_readiness_required"
           ],
-          "binds": "e53dee285dd329679ff820589db90145c3a41b205f21247b8731858e6aa8fcf7",
+          "binds": "682af014fdc1f27daa28f9cf24b943b692d99096e4b2e26d28ebd8a626935cd1",
           "cells": [
             "tech_plan_readiness_required",
-            "record_alignment",
+            "clarify_alignment, record_alignment",
             "current readiness record, classifier proof и daemon decision/current policy совпадают"
           ]
         },
@@ -14271,10 +14410,10 @@
           "covers": [
             "tickets_breakdown_alignment_required"
           ],
-          "binds": "fa0a4dc8c8e68131f8517820bc5a1218b939a79e277513d66c0fd34519d575f2",
+          "binds": "e57d606546d8b15b92dbbbd369610d037ca8c6e0563dc7e223a44ccb8f417d94",
           "cells": [
             "tickets_breakdown_alignment_required",
-            "record_alignment",
+            "present_tickets_breakdown, record_alignment",
             "current Ticket set/DAG/scopes/outcomes/order/exclusions показаны и daemon approval subject hash совпадает"
           ]
         },
@@ -14293,10 +14432,10 @@
           "covers": [
             "alignment_record_stale"
           ],
-          "binds": "8ac8fbc5bc88a6a9eefcdaef4148aae9ef801735b9dde3a97cdee667e148021b",
+          "binds": "8897d872b012e40705caa9b55a47a9da46c859b6cdb8abf9741c1fad81945a09",
           "cells": [
             "alignment_record_stale",
-            "clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets",
+            "clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
             "новая anchor version/daemon impact disposition и current authority/alignment/classifier record; старые candidate/verdict/PASS bindings void или явно re-bound как unchanged"
           ]
         },
@@ -14304,10 +14443,10 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "059d78b1a57e9291192b57de785e72fbf39b153a533dfc3d20247298b82f1c01",
+          "binds": "4096cc519c35022bf00d08287854e72e18d8ed2b85b0f693ef582c82bc3cc9e3",
           "cells": [
             "tickets_manifest_invalid",
-            "present_tickets_breakdown before freeze and after publication",
+            "present_tickets_breakdown before freeze and after publication; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "old Tickets candidate/receipt/PASS bindings are voided and retained when present; corrected manifest/views pass fresh alignment, validation, freeze, full Panel and replacement publication before dispatch_ticket_dag; child/blocker/enrollment side effects remain absent"
           ]
         },
@@ -14315,10 +14454,10 @@
           "covers": [
             "tickets_manifest_stale"
           ],
-          "binds": "af5c46b67a45ff381979edda6960d7ae280d9b0af7b67c048226f1096f895500",
+          "binds": "21142300a3669fb4adccea04256e043975708993fda6ba5963fec3d693fb136d",
           "cells": [
             "tickets_manifest_stale",
-            "recorded owning recovery step, then present_tickets_breakdown",
+            "recorded owning recovery step, then present_tickets_breakdown; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "protocol/runtime/project-instruction lock drift first runs repair_protocol_snapshot and any other stale binding runs its recorded owning repair; old Tickets candidate/receipt/PASS records are voided and retained; then present_tickets_breakdown -> record_alignment -> validate_tickets_manifest creates fresh identity-bound proof, freeze creates a new immutable receipt, and full Panel/replacement publication complete before dispatch"
           ]
         },
@@ -14326,10 +14465,10 @@
           "covers": [
             "artifact_mapping_required"
           ],
-          "binds": "ac5c296b99ddac9e92311ceabe5a2f8d2293316a00eb4479f4de96a8f34d6841",
+          "binds": "2a38d53ee847d79958f53b86b6dbdc94c4082bc378e24d1d9a16127c2ec6195a",
           "cells": [
             "artifact_mapping_required",
-            "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick",
+            "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick; also freeze, freeze_artifact",
             "decision expressed in named manifest and aligned; external document reduced to verified non-normative mirror with current mapping proof, or removed from behavior-defining scope"
           ]
         },
@@ -14348,10 +14487,10 @@
           "covers": [
             "panel_join_invalid"
           ],
-          "binds": "30e7589d7525677ad0e4d852c4c808f9c93fbe0a809359bc23bd8ec0003edba2",
+          "binds": "cecd565003cb2fa2e48c4a87f791a41519e0eb561519cfd49e5139b9d50c668f",
           "cells": [
             "panel_join_invalid",
-            "dispatch_panel",
+            "dispatch_panel, panel_join",
             "invalid child IDs записаны, attempt+1; старые bindings void"
           ]
         },
@@ -14371,10 +14510,10 @@
             "gate_result_missing",
             "gate_result_invalid"
           ],
-          "binds": "73f3b4d5e46e4cece6e98e3bce377145c675e8a03aadc38996bb970fa66e8f46",
+          "binds": "620f4448aa7a480e0a81b047852852f0d2b474ce32dc1d70b2f1a85a5dbd0574",
           "cells": [
             "gate_result_missing / gate_result_invalid",
-            "`<gate_model_step>`",
+            "`<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict",
             "invalid/nonexistent result не принят; attempt+1 и та же logical reviewer session с явным reminder схемы"
           ]
         },
@@ -14382,10 +14521,10 @@
           "covers": [
             "gate_snapshot_mutated"
           ],
-          "binds": "7d2385620856b05cc78faf5f56b29ea7525b420e16ff6f8cbb67c28989da649d",
+          "binds": "f0c9a67c2b1f315d2fef8fd7bba5e45310cad43cf4b75ef54b6e9417fd89183e",
           "cells": [
             "gate_snapshot_mutated",
-            "`<gate_model_step>`",
+            "`<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict",
             "новый immutable pinned snapshot того же candidate identity создан, pre-hashes совпадают, прежний response остаётся non-verdict"
           ]
         },
@@ -14393,7 +14532,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "blocked_anchor, gate child",
             "`<gate_join_step>` после child done",
@@ -14472,10 +14611,10 @@
           "covers": [
             "planning_candidate_base_stale"
           ],
-          "binds": "0532099c8b216c605011be94164f91ac2a156de984579510a4c5f131b6941579",
+          "binds": "0261cfbdff2ec7b5e0ca1f5b1159ace32a184824d617aa4e8c92117e81a40af8",
           "cells": [
             "planning_candidate_base_stale",
-            "draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets",
+            "draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets; also freeze_artifact",
             "old candidate/verdict absent or void; new author base equals current verified planning head and pathspec identity is re-minted"
           ]
         },
@@ -14483,10 +14622,10 @@
           "covers": [
             "planning_publication_invalid"
           ],
-          "binds": "e52396886cbe70e81cc6f857ef5fdf97a00579fadeb6e5d050b6e35b86971c0b",
+          "binds": "390e96b842fa44480c464dd65cf0ff8a9b5232cb7b2d77e149013eb46056fd38",
           "cells": [
             "planning_publication_invalid",
-            "record_artifact_pass or rebuild_anchor recorded pre-failure step",
+            "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
             "exact no-ref-side-effect proof and missing operation rebuilt only from committed bytes, or conflicting operation explicitly voided; otherwise remain human"
           ]
         },
@@ -14538,10 +14677,10 @@
           "covers": [
             "panel_waiver_required"
           ],
-          "binds": "5641cc88144add47aa23638c72c7ca33bd6180c5f88cb4d674130a49e5d171e5",
+          "binds": "f8b6bebd981abea3ffb97a35e18530b6ab9754058f492e1ffa5da24b208d21d9",
           "cells": [
             "panel_waiver_required",
-            "freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster",
+            "freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster; также record_artifact_pass",
             "retry route либо daemon-attributed waiver current identity; reduced roster также фиксирует actual roster/external Lead"
           ]
         },
@@ -14549,10 +14688,10 @@
           "covers": [
             "review_waiver_invalid"
           ],
-          "binds": "bfabd414e82403b69ea26c56796f952a8c4a90f50ac5cf20b7e86dc7551b709f",
+          "binds": "9db400852c321bff03db7bbee87d187a8270c6e72660f7e343225a558df0293a",
           "cells": [
             "review_waiver_invalid",
-            "freeze",
+            "freeze, record_code_verdict",
             "новый signed daemon review waiver exact current candidate identity либо обычный dispatch_review; stale waiver сохранён"
           ]
         },
@@ -14560,10 +14699,10 @@
           "covers": [
             "contest_join_invalid"
           ],
-          "binds": "08bd18d46ea8e2f0f84f0a0b4d9de3d8688b16c2e99966f9ede7a20098603952",
+          "binds": "b9b853c1e19e37e118aa45c28b94a03467c61aa9af5f4cd21922d9bec39b2957",
           "cells": [
             "contest_join_invalid",
-            "dispatch_contest",
+            "contest_join, dispatch_contest",
             "invalid disposition tasks записаны, attempt+1"
           ]
         },
@@ -14571,10 +14710,10 @@
           "covers": [
             "narrow_join_invalid"
           ],
-          "binds": "70ddd7d7b2a4088a6f6da265fe6ec72cc40ace0c6eafe13f86e6382c961922b0",
+          "binds": "1aceec11fa1107664d7f3edf1b9a8e9c5096e67914476418b75a0e6976908566",
           "cells": [
             "narrow_join_invalid",
-            "dispatch_narrow_review",
+            "dispatch_narrow_review, narrow_review_join",
             "прежний Lead child закрыт, новый attempt"
           ]
         },
@@ -14582,10 +14721,10 @@
           "covers": [
             "review_join_invalid"
           ],
-          "binds": "8739a70d96cdd03b5ebbdcc52237f4f6289344a4a646c129e1f1f7b333405887",
+          "binds": "ddd475ae3f8d044175609c7668756ad6260f759e5d9c352e94335bca43db57af",
           "cells": [
             "review_join_invalid",
-            "dispatch_review или dispatch_narrow_review",
+            "dispatch_review или dispatch_narrow_review; также review_join",
             "invalid review child закрыт, новый attempt и сохранён narrow/full mode"
           ]
         },
@@ -14593,10 +14732,10 @@
           "covers": [
             "code_verdict_invalid"
           ],
-          "binds": "b002759ca0e9a315a6c8a361d04be0d3927806d802ed286b10eae67001208964",
+          "binds": "0ed6e2a5f3b63e4db0f5081baf79682b5920b3386cfbd6b773a21071721ecc12",
           "cells": [
             "code_verdict_invalid",
-            "freeze",
+            "freeze, record_code_verdict",
             "старый review binding void, новый candidate/review attempt"
           ]
         },
@@ -14637,10 +14776,10 @@
           "covers": [
             "ticket_repair_op_invalid"
           ],
-          "binds": "a383506d47aec3d883861e6094370b3cc08241804c0f7b10786c0a0852d31177",
+          "binds": "37c479f108db23ce64e2c1f04f11a83cdc55e662a092a767b2a8cc2d6e71a409",
           "cells": [
             "ticket_repair_op_invalid",
-            "dispatch_ticket_dag for fresh/current/planning/aggregate_unchanged or rebuild_anchor code_only",
+            "dispatch_ticket_dag for fresh/current/planning/aggregate_unchanged or rebuild_anchor code_only; also resume_repaired_tickets",
             "exact single op/source/binding required; conflicting op voided without child effects"
           ]
         },
@@ -14659,7 +14798,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "blocked_anchor, autosk-planned",
             "prepare_anchor_impact",
@@ -14670,10 +14809,10 @@
           "covers": [
             "anchor_impact_approval_required"
           ],
-          "binds": "456b4bd86acbfa72f5fe69984360a888e9ff7387ebdfc0939bfc3b8528d90716",
+          "binds": "97d42fa7c178fa08163cf96e9485b530b164a1eda510fe5accd33ebf4b109c2d",
           "cells": [
             "anchor_impact_approval_required",
-            "record_anchor_impact_approval",
+            "prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval",
             "signed daemon `UserDecisionRecord` exact staged proposal hash; step atomically records approved status только при unchanged snapshot/watermark"
           ]
         },
@@ -14681,10 +14820,10 @@
           "covers": [
             "anchor_impact_invalid"
           ],
-          "binds": "dee8899837a0a161decc5cd69aeda969619e885f6ff968dc14ae5ff89062f762",
+          "binds": "1b8ab1c9a9523207b0eef83cc377e127398e7778c9a7f84a8eda3d9e4f29df00",
           "cells": [
             "anchor_impact_invalid",
-            "prepare_anchor_impact",
+            "prepare_anchor_impact, rebuild_anchor",
             "malformed/stale proposal сохраняется как evidence; новая полная map вычисляется deterministic step, не пользователем"
           ]
         },
@@ -14725,7 +14864,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "blocked_anchor, standalone Quick",
             "rebuild_code_anchor",
@@ -14736,7 +14875,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "blocked_anchor, Ticket with parent",
             "rebuild_code_anchor",
@@ -14780,7 +14919,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "blocked_anchor, Ticket pending already absorbed by parent",
             "rebuild_code_anchor",
@@ -14896,10 +15035,10 @@
           "covers": [
             "verification_cap"
           ],
-          "binds": "efcf3f03849c181f4eeb3e29ba253cc0f55f27a8262fd44872f415372f18520b",
+          "binds": "2d2ceff570ab3d6527e667f0a643dcc81deec41c9d093aa886b1fe05d9d5a061",
           "cells": [
             "verification_cap",
-            "fix",
+            "fix, verify",
             "новый daemon-attributed cap decision и verification findings сохранены"
           ]
         },
@@ -14918,10 +15057,10 @@
           "covers": [
             "artifact_pass_invalid"
           ],
-          "binds": "7f7b11e27ba36e33eafc1b8179982ef72a730e90158526ba31d1ffcce042623c",
+          "binds": "9d9d6b3524b8f60fc32b93868f1f3a708097a91ff8f94237bf78ca05f118d042",
           "cells": [
             "artifact_pass_invalid",
-            "freeze_artifact",
+            "freeze_artifact, record_artifact_pass",
             "старые bindings void, attempt+1, сохранённый full/narrow mode"
           ]
         },
@@ -14929,10 +15068,10 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "ef096b934cbcab5afa183b2ca0f6c662f1f441256e8a63fcf37e20b503f12921",
+          "binds": "ff727687bf2ea6643af6219041c60d8bf31d8368d3a2f8698a1b14c711f5fcd9",
           "cells": [
             "review_cap",
-            "fix_artifact для Planned; fix для Quick/Ticket",
+            "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
             "новый daemon-attributed cap decision, сохранённые findings и identity"
           ]
         },
@@ -14940,10 +15079,10 @@
           "covers": [
             "arena_join_invalid"
           ],
-          "binds": "56e6026572c1f3d1e76509af815d8dd82ff4975159325d0b8fa5f4642cce464f",
+          "binds": "a660e903a626d41e93712d9313726755d3c2f8d7a3f0872c1b9b0c515cd91849",
           "cells": [
             "arena_join_invalid",
-            "dispatch_arena",
+            "arena_join, dispatch_arena",
             "новый arena attempt; старые judgments void"
           ]
         },
@@ -14951,10 +15090,10 @@
           "covers": [
             "arena_fallback_required"
           ],
-          "binds": "15df7bd51890bdc00654e7db5073292f46e995af8e7db92483c226f4e5730f78",
+          "binds": "28623fd3ce6c32e87e586ace7c25e2998cceef97def8c1ba5ee044e60e0a37a0",
           "cells": [
             "arena_fallback_required",
-            "apply_arena_decision",
+            "apply_arena_decision, arena_join",
             "daemon `UserDecisionRecord` выбрал fallback; review_cycles.tech_plan narrow=false/full required"
           ]
         },
@@ -14962,10 +15101,10 @@
           "covers": [
             "arena_contract_invalid"
           ],
-          "binds": "312f7c55ee8d9574492e88476a0a59c2e826e62f9c1343b48bdfd7322061b4c6",
+          "binds": "5a4213561e25bc4245e320872ff18a2cd938337180c46a0eb16ba7a310606d49",
           "cells": [
             "arena_contract_invalid",
-            "fix_artifact",
+            "fix_artifact, record_artifact_pass",
             "исправленный autosk-arena block, review_cycles.tech_plan.narrow=false/full_panel_required=true"
           ]
         },
@@ -14973,10 +15112,10 @@
           "covers": [
             "ticket_join_invalid"
           ],
-          "binds": "d95407cc1beb8f364e574beb57cee59c74f41c3dadb3cd3b206165e22dfbe81c",
+          "binds": "0504c4a118004b595efd0d3136ac4e732001e76c7426bc9331918ab983456115",
           "cells": [
             "ticket_join_invalid",
-            "dispatch_ticket_dag",
+            "dispatch_ticket_dag, ticket_join",
             "repair map для missing/cancelled/unbound Tickets"
           ]
         },
@@ -14995,10 +15134,10 @@
           "covers": [
             "candidate_changed"
           ],
-          "binds": "09f73b047567af31394cda2f79ef9ca2f5e36173ff77967f34ba32d0cefebc25",
+          "binds": "98385e458859659aee5ae6171fdf047a7717213f0b94691f395301b9ed2a3197",
           "cells": [
             "candidate_changed",
-            "fix",
+            "commit_on_pass, fix",
             "approved findings/identity сохранены, новый candidate attempt"
           ]
         },
@@ -15029,10 +15168,10 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "6d9092c09b02b16b03720d79fc59ee9ceb2d01ef0cd04f0768118978a3e7213f",
+          "binds": "096391c5faaf5e0747da3e5ca938b12a1e2184700c60ea667989b03967ead571",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
-            "record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
             "resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel"
           ]
         },
@@ -15040,10 +15179,10 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "60d41c6e11d2e36b00a32a89038eaec014640623457cd967d7552773ef0c2e22",
+          "binds": "39c868f31dbdfe7803d798dc645192357b0d0cfbd4d37764b149eae16da3aaa1",
           "cells": [
             "no_external_reviewer",
-            "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression",
+            "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
             "waiver resume обязательно проходит freeze consumer; режим сохраняется"
           ]
         },
@@ -15051,10 +15190,10 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "607b0770a6fecf538a1ce9ca8f3a4c3d93819645c278660816a7143127f3338f",
+          "binds": "71dedf52cd93092d2396c47bb218015730984d4013b9f1c549896856764f3eeb",
           "cells": [
             "no_external_panel_lead",
-            "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead",
+            "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
             "waiver resume обязательно проходит freeze_artifact consumer; full/narrow сохраняется"
           ]
         },
@@ -15163,10 +15302,10 @@
           "covers": [
             "brief_alignment_required"
           ],
-          "binds": "220e6a93908c5cc6d2633f824815997242137c4a6b100609246531910562f8dd",
+          "binds": "d1d0c9cdcfd03c291ebdaa99dac53ad9c77bfc07ca0164cf1ecc7fc63f1649bc",
           "cells": [
             "Brief framing не согласован",
-            "record_alignment",
+            "clarify_alignment, record_alignment",
             "полный daemon `UserDecisionRecord` framing; policy не подходит: §2 запрещает ей утверждать product framing Brief"
           ]
         },
@@ -15174,10 +15313,10 @@
           "covers": [
             "core_flow_decision_required"
           ],
-          "binds": "f325f9799511a17841e7b09d2e8f2e7f2cba6a580e5a66d3ab84d64ea2cd0cb4",
+          "binds": "f6ef16f52615f1bb0aeefc5d026bd08ae0de2a431bc7d99bfddcb8364ca70c35",
           "cells": [
             "Core Flow содержит открытое решение поведения",
-            "record_alignment",
+            "clarify_alignment, record_alignment",
             "daemon record закрыл каждое material решение; model self-approval запрещён"
           ]
         },
@@ -15185,10 +15324,10 @@
           "covers": [
             "tech_plan_readiness_required"
           ],
-          "binds": "e53dee285dd329679ff820589db90145c3a41b205f21247b8731858e6aa8fcf7",
+          "binds": "682af014fdc1f27daa28f9cf24b943b692d99096e4b2e26d28ebd8a626935cd1",
           "cells": [
             "Tech Plan не готов из-за open question или silent inference",
-            "record_alignment",
+            "clarify_alignment, record_alignment",
             "readiness/classifier proof подтверждены daemon record либо current exact policy"
           ]
         },
@@ -15196,10 +15335,10 @@
           "covers": [
             "tickets_breakdown_alignment_required"
           ],
-          "binds": "fa0a4dc8c8e68131f8517820bc5a1218b939a79e277513d66c0fd34519d575f2",
+          "binds": "e57d606546d8b15b92dbbbd369610d037ca8c6e0563dc7e223a44ccb8f417d94",
           "cells": [
             "Ticket breakdown не согласован",
-            "record_alignment",
+            "present_tickets_breakdown, record_alignment",
             "показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает"
           ]
         },
@@ -15218,10 +15357,10 @@
           "covers": [
             "alignment_record_stale"
           ],
-          "binds": "8ac8fbc5bc88a6a9eefcdaef4148aae9ef801735b9dde3a97cdee667e148021b",
+          "binds": "8897d872b012e40705caa9b55a47a9da46c859b6cdb8abf9741c1fad81945a09",
           "cells": [
             "Alignment record устарел",
-            "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets",
+            "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
             "новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes"
           ]
         },
@@ -15229,10 +15368,10 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "059d78b1a57e9291192b57de785e72fbf39b153a533dfc3d20247298b82f1c01",
+          "binds": "4096cc519c35022bf00d08287854e72e18d8ed2b85b0f693ef582c82bc3cc9e3",
           "cells": [
             "tickets_manifest_invalid",
-            "present_tickets_breakdown до freeze и после publication",
+            "present_tickets_breakdown до freeze и после publication; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "old Tickets candidate/receipt/PASS bindings voided and retained when present; corrected manifest/views проходят новый alignment, validation, freeze, full Panel и replacement publication до dispatch_ticket_dag; child/blocker/enrollment side effects до этого отсутствуют"
           ]
         },
@@ -15240,10 +15379,10 @@
           "covers": [
             "tickets_manifest_stale"
           ],
-          "binds": "af5c46b67a45ff381979edda6960d7ae280d9b0af7b67c048226f1096f895500",
+          "binds": "21142300a3669fb4adccea04256e043975708993fda6ba5963fec3d693fb136d",
           "cells": [
             "tickets_manifest_stale",
-            "owning recovery step, затем present_tickets_breakdown",
+            "owning recovery step, затем present_tickets_breakdown; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "protocol/runtime/project-instruction lock drift сначала проходит repair_protocol_snapshot, а другой stale binding — его recorded owning repair; old Tickets candidate/receipt/PASS records voided and retained; затем present_tickets_breakdown -> record_alignment -> validate_tickets_manifest создаёт fresh identity-bound proof, freeze создаёт новый immutable receipt, full Panel и replacement publication завершаются до dispatch"
           ]
         },
@@ -15295,10 +15434,10 @@
           "covers": [
             "planning_candidate_base_stale"
           ],
-          "binds": "0532099c8b216c605011be94164f91ac2a156de984579510a4c5f131b6941579",
+          "binds": "0261cfbdff2ec7b5e0ca1f5b1159ace32a184824d617aa4e8c92117e81a40af8",
           "cells": [
             "planning_candidate_base_stale",
-            "draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets",
+            "draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets; also freeze_artifact",
             "stale candidate/verdict absent or void; author base re-minted from current verified planning head"
           ]
         },
@@ -15306,10 +15445,10 @@
           "covers": [
             "planning_publication_invalid"
           ],
-          "binds": "e52396886cbe70e81cc6f857ef5fdf97a00579fadeb6e5d050b6e35b86971c0b",
+          "binds": "390e96b842fa44480c464dd65cf0ff8a9b5232cb7b2d77e149013eb46056fd38",
           "cells": [
             "planning_publication_invalid",
-            "record_artifact_pass or rebuild_anchor recorded pre-failure step",
+            "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
             "no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human"
           ]
         },
@@ -15368,10 +15507,10 @@
           "covers": [
             "panel_join_invalid"
           ],
-          "binds": "30e7589d7525677ad0e4d852c4c808f9c93fbe0a809359bc23bd8ec0003edba2",
+          "binds": "cecd565003cb2fa2e48c4a87f791a41519e0eb561519cfd49e5139b9d50c668f",
           "cells": [
             "Invalid/cancelled panel child",
-            "dispatch_panel",
+            "dispatch_panel, panel_join",
             "invalid child IDs, attempt+1"
           ]
         },
@@ -15379,10 +15518,10 @@
           "covers": [
             "panel_waiver_required"
           ],
-          "binds": "5641cc88144add47aa23638c72c7ca33bd6180c5f88cb4d674130a49e5d171e5",
+          "binds": "f8b6bebd981abea3ffb97a35e18530b6ab9754058f492e1ffa5da24b208d21d9",
           "cells": [
             "Сокращённая панель",
-            "dispatch_panel или panel_join",
+            "dispatch_panel или panel_join; также freeze_artifact, record_artifact_pass",
             "retry отсутствующего route либо waiver с artifact identity и фактическим roster"
           ]
         },
@@ -15390,10 +15529,10 @@
           "covers": [
             "contest_join_invalid"
           ],
-          "binds": "08bd18d46ea8e2f0f84f0a0b4d9de3d8688b16c2e99966f9ede7a20098603952",
+          "binds": "b9b853c1e19e37e118aa45c28b94a03467c61aa9af5f4cd21922d9bec39b2957",
           "cells": [
             "Invalid contest disposition",
-            "dispatch_contest",
+            "contest_join, dispatch_contest",
             "invalid child IDs, attempt+1"
           ]
         },
@@ -15401,10 +15540,10 @@
           "covers": [
             "narrow_join_invalid"
           ],
-          "binds": "70ddd7d7b2a4088a6f6da265fe6ec72cc40ace0c6eafe13f86e6382c961922b0",
+          "binds": "1aceec11fa1107664d7f3edf1b9a8e9c5096e67914476418b75a0e6976908566",
           "cells": [
             "Invalid narrow-review child",
-            "dispatch_narrow_review",
+            "dispatch_narrow_review, narrow_review_join",
             "новый Lead child и attempt"
           ]
         },
@@ -15412,10 +15551,10 @@
           "covers": [
             "review_join_invalid"
           ],
-          "binds": "8739a70d96cdd03b5ebbdcc52237f4f6289344a4a646c129e1f1f7b333405887",
+          "binds": "ddd475ae3f8d044175609c7668756ad6260f759e5d9c352e94335bca43db57af",
           "cells": [
             "Invalid code-review child",
-            "dispatch_review или dispatch_narrow_review",
+            "dispatch_review или dispatch_narrow_review; также review_join",
             "новый review child, сохранённый режим и attempt"
           ]
         },
@@ -15423,10 +15562,10 @@
           "covers": [
             "code_verdict_invalid"
           ],
-          "binds": "b002759ca0e9a315a6c8a361d04be0d3927806d802ed286b10eae67001208964",
+          "binds": "0ed6e2a5f3b63e4db0f5081baf79682b5920b3386cfbd6b773a21071721ecc12",
           "cells": [
             "Code verdict revalidation failed",
-            "freeze",
+            "freeze, record_code_verdict",
             "старый review binding void, новый candidate/review attempt"
           ]
         },
@@ -15434,7 +15573,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "BLOCKED_ANCHOR, Planned",
             "prepare_anchor_impact",
@@ -15445,10 +15584,10 @@
           "covers": [
             "anchor_impact_approval_required"
           ],
-          "binds": "456b4bd86acbfa72f5fe69984360a888e9ff7387ebdfc0939bfc3b8528d90716",
+          "binds": "97d42fa7c178fa08163cf96e9485b530b164a1eda510fe5accd33ebf4b109c2d",
           "cells": [
             "Anchor impact ждёт approval",
-            "record_anchor_impact_approval",
+            "prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval",
             "daemon `UserDecisionRecord` подписал exact staged proposal; step record'ит approved только при unchanged status/watermark"
           ]
         },
@@ -15456,10 +15595,10 @@
           "covers": [
             "anchor_impact_invalid"
           ],
-          "binds": "dee8899837a0a161decc5cd69aeda969619e885f6ff968dc14ae5ff89062f762",
+          "binds": "1b8ab1c9a9523207b0eef83cc377e127398e7778c9a7f84a8eda3d9e4f29df00",
           "cells": [
             "Invalid/stale anchor impact map",
-            "prepare_anchor_impact",
+            "prepare_anchor_impact, rebuild_anchor",
             "новая карта вычисляется step; пользователь не hand-author'ит dispositions"
           ]
         },
@@ -15467,7 +15606,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "BLOCKED_ANCHOR, standalone Quick",
             "rebuild_code_anchor",
@@ -15478,7 +15617,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "BLOCKED_ANCHOR, Ticket with parent",
             "rebuild_code_anchor",
@@ -15492,7 +15631,7 @@
           "binds": "85c856f2aacc17751fca2855b32f16ff8d6a8e4edca5718cd08e53a216bbadd1",
           "cells": [
             "Waiting for parent anchor",
-            "rebuild_code_anchor",
+            "rebuild_code_anchor, repair_anchor_handoff",
             "parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен"
           ]
         },
@@ -15511,7 +15650,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "954d4f88a3ed58301a9ffbbd9b383d2de2210cf28115eb61a8b9020ead1466d6",
+          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
           "cells": [
             "Parent absorbed live Ticket anchor before suspension",
             "rebuild_code_anchor",
@@ -15541,7 +15680,7 @@
             "ticket_repair_op_invalid",
             "ticket_repair_state_invalid"
           ],
-          "binds": "b20498dff3322b6b2609a0dee404534ac1d272aff90523e84ae0fdccee0399ad",
+          "binds": "330149c8395876de31197ed08d19bbba0769b7a5e602de1407103b6b3de84616",
           "cells": [
             "Invalid/open duplicate Ticket repair operation",
             "dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind",
@@ -15563,10 +15702,10 @@
           "covers": [
             "artifact_pass_invalid"
           ],
-          "binds": "7f7b11e27ba36e33eafc1b8179982ef72a730e90158526ba31d1ffcce042623c",
+          "binds": "9d9d6b3524b8f60fc32b93868f1f3a708097a91ff8f94237bf78ca05f118d042",
           "cells": [
             "Artifact PASS revalidation failed",
-            "freeze_artifact",
+            "freeze_artifact, record_artifact_pass",
             "старые bindings void, attempt+1, сохранённый full/narrow mode"
           ]
         },
@@ -15574,10 +15713,10 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "ef096b934cbcab5afa183b2ca0f6c662f1f441256e8a63fcf37e20b503f12921",
+          "binds": "ff727687bf2ea6643af6219041c60d8bf31d8368d3a2f8698a1b14c711f5fcd9",
           "cells": [
             "Лимит review",
-            "fix_artifact для Planned; fix для Quick/Ticket",
+            "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
             "новый daemon-attributed cap decision, сохранённые findings и identity"
           ]
         },
@@ -15585,10 +15724,10 @@
           "covers": [
             "arena_join_invalid"
           ],
-          "binds": "56e6026572c1f3d1e76509af815d8dd82ff4975159325d0b8fa5f4642cce464f",
+          "binds": "a660e903a626d41e93712d9313726755d3c2f8d7a3f0872c1b9b0c515cd91849",
           "cells": [
             "Invalid Arena/Judge",
-            "dispatch_arena",
+            "arena_join, dispatch_arena",
             "новый arena attempt"
           ]
         },
@@ -15596,10 +15735,10 @@
           "covers": [
             "arena_fallback_required"
           ],
-          "binds": "15df7bd51890bdc00654e7db5073292f46e995af8e7db92483c226f4e5730f78",
+          "binds": "28623fd3ce6c32e87e586ace7c25e2998cceef97def8c1ba5ee044e60e0a37a0",
           "cells": [
             "Arena fallback",
-            "apply_arena_decision",
+            "apply_arena_decision, arena_join",
             "пользователь выбрал fallback; следующая панель полная"
           ]
         },
@@ -15607,10 +15746,10 @@
           "covers": [
             "arena_contract_invalid"
           ],
-          "binds": "312f7c55ee8d9574492e88476a0a59c2e826e62f9c1343b48bdfd7322061b4c6",
+          "binds": "5a4213561e25bc4245e320872ff18a2cd938337180c46a0eb16ba7a310606d49",
           "cells": [
             "Invalid autosk-arena block",
-            "fix_artifact",
+            "fix_artifact, record_artifact_pass",
             "исправленный block, narrow=false и новая полная panel"
           ]
         },
@@ -15618,10 +15757,10 @@
           "covers": [
             "ticket_join_invalid"
           ],
-          "binds": "d95407cc1beb8f364e574beb57cee59c74f41c3dadb3cd3b206165e22dfbe81c",
+          "binds": "0504c4a118004b595efd0d3136ac4e732001e76c7426bc9331918ab983456115",
           "cells": [
             "Invalid Ticket set execution",
-            "dispatch_ticket_dag",
+            "dispatch_ticket_dag, ticket_join",
             "repair map для конкретных Tickets"
           ]
         },
@@ -15640,10 +15779,10 @@
           "covers": [
             "candidate_changed"
           ],
-          "binds": "09f73b047567af31394cda2f79ef9ca2f5e36173ff77967f34ba32d0cefebc25",
+          "binds": "98385e458859659aee5ae6171fdf047a7717213f0b94691f395301b9ed2a3197",
           "cells": [
             "Candidate changed before commit",
-            "fix",
+            "commit_on_pass, fix",
             "approved findings/identity сохранены, новый candidate attempt"
           ]
         },
@@ -15674,10 +15813,10 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "6d9092c09b02b16b03720d79fc59ee9ceb2d01ef0cd04f0768118978a3e7213f",
+          "binds": "096391c5faaf5e0747da3e5ca938b12a1e2184700c60ea667989b03967ead571",
           "cells": [
             "Aggregate verification failed",
-            "record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
             "external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel"
           ]
         },
@@ -15685,10 +15824,10 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "60d41c6e11d2e36b00a32a89038eaec014640623457cd967d7552773ef0c2e22",
+          "binds": "39c868f31dbdfe7803d798dc645192357b0d0cfbd4d37764b149eae16da3aaa1",
           "cells": [
             "Нет внешней code-review family",
-            "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression",
+            "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
             "recovery возвращается к реальному waiver consumer, режим сохраняется"
           ]
         },
@@ -15696,10 +15835,10 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "607b0770a6fecf538a1ce9ca8f3a4c3d93819645c278660816a7143127f3338f",
+          "binds": "71dedf52cd93092d2396c47bb218015730984d4013b9f1c549896856764f3eeb",
           "cells": [
             "Нет внешней panel Lead family",
-            "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead",
+            "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
             "recovery возвращается к waiver consumer, full/narrow сохраняется"
           ]
         },
@@ -15761,5 +15900,5 @@
       ]
     }
   ],
-  "canonical_digest": "a9b6e187de632fce3324ee9111672de6fd7b75dbb826ea978bb9962989ca3c87"
+  "canonical_digest": "2dbbc0efc3b1315e274201486864a82e213b8ef76c2a27040c0e3aa42c109b09"
 }

@@ -386,6 +386,10 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     (document) => { document.unexpected = true; },
     (document) => { document.guards[0].park_reason = "totally_unknown_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason"; },
     (document) => { document.guards[0].park_reason = "no_transition_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "no_transition_reason"; },
+    // The parks_at check belongs in the battery and not only in its own test:
+    // this is the list that notices a code reachable and undeclared, and a code
+    // it never provokes is one it cannot speak for.
+    (document) => { document.steps.find((step) => step.name === "freeze_artifact").no_transition_reason = "alignment_record_stale"; },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -949,4 +953,111 @@ test("a parking edge carries the reason its own row names", () => {
   }
   assert.deepEqual(wrong, [], `parking edges carrying a reason their row does not name:\n${wrong.join("\n")}`);
   assert.deepEqual([...new Set(silent)].sort(), [...PARKS_WITHOUT_A_NAMED_REASON].sort());
+});
+
+// --- parks_at is checked against where the graph actually parks -------------
+
+/**
+ * `resume_targets` is bound to the edges leaving a reason's `parks_at` steps,
+ * and until now nothing defended that set. A row could omit the very step whose
+ * guard names the reason, and the union would then be computed over steps the
+ * flow never stops at.
+ *
+ * The check is ONE directional, and that is not a simplification. A row may
+ * list more than the graph produces, because a reason can also be produced
+ * outside the graph: `project_boundary_invalid` lists 68 steps while the graph
+ * parks it at 18, which is the daemon's own boundary check stopping a task
+ * wherever it stands. Demanding equality would call that a defect, so the
+ * second test below is as load-bearing as the first.
+ */
+
+test("graph_recovery_parks_at_incomplete: a guard names a reason at a step its row omits", () => {
+  assertRefuses(
+    mutated((graph) => {
+      graph.guards.push({
+        id: "stale_at_freeze",
+        predicate: "alignment_recorded",
+        authority: { actor: "agent" },
+        park_reason: "alignment_record_stale",
+      });
+      // freeze_artifact, because alignment_record_stale's row lists only
+      // record_alignment: a park at a step the row DOES list is exactly what
+      // this check must not refuse.
+      graph.transitions.push({
+        id: "freeze_to_await",
+        from: "freeze_artifact",
+        to: "await_alignment",
+        priority: 2,
+        guards: ["stale_at_freeze"],
+      });
+    }),
+    "graph_recovery_parks_at_incomplete",
+  );
+});
+
+test("graph_recovery_parks_at_incomplete: a step's own no_transition_reason counts as parking there", () => {
+  assertRefuses(
+    mutated((graph) => {
+      graph.steps.find((step) => step.name === "freeze_artifact").no_transition_reason = "alignment_record_stale";
+    }),
+    "graph_recovery_parks_at_incomplete",
+  );
+});
+
+test("a parks_at wider than the graph produces is accepted, because a reason can be produced outside it", () => {
+  const graph = mutated((entry) => {
+    entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "record_artifact_pass"];
+  });
+  // Nothing in this document parks artifact_freeze_invalid at record_artifact_pass.
+  const produced = graph.guards.filter((guard) => guard.park_reason === "artifact_freeze_invalid");
+  assert.ok(produced.length > 0 && !graph.steps.some((step) => step.no_transition_reason === "artifact_freeze_invalid" && step.name === "record_artifact_pass"));
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("the shipped document lists every step the graph parks a reason at", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const parks = (name) => steps.get(name)?.kind === "status" && steps.get(name).status === "human";
+  const where = new Map();
+  const add = (reason, name) => {
+    if (!where.has(reason)) where.set(reason, new Set());
+    where.get(reason).add(name);
+  };
+  for (const edge of graph.transitions) {
+    if (!parks(edge.to)) continue;
+    for (const id of edge.guards) add(guards.get(id).park_reason, edge.from);
+  }
+  for (const step of graph.steps) if (step.no_transition_reason) add(step.no_transition_reason, step.name);
+  for (const cap of graph.caps) {
+    const counted = graph.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (counted) add(cap.park_reason, counted.from);
+  }
+  const missing = [];
+  for (const row of graph.recovery) {
+    for (const name of [...(where.get(row.reason) ?? [])].sort()) {
+      if (!row.parks_at.includes(name)) missing.push(`${row.reason} parks at ${name}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("graph_recovery_parks_at_incomplete: a cap counts an edge whose reason its row does not list there", () => {
+  // The third producer. Deleting the cap loop from `producedAt` left every test
+  // in this file green, which is the shape this epic keeps producing: a branch
+  // whose absence nothing notices. The example's own cap already parks
+  // `review_cap` at `freeze_artifact`, which its row lists — so the case is
+  // built from a second cap on the same counted transition with a reason whose
+  // row names a different step.
+  assertRefuses(
+    mutated((graph) => {
+      graph.caps.push({
+        cycle: "isolated_cap",
+        counted_transition: "freeze_retry",
+        limit: 3,
+        park_reason: "alignment_record_stale",
+      });
+    }),
+    "graph_recovery_parks_at_incomplete",
+  );
 });

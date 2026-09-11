@@ -315,56 +315,56 @@ Bare resume запрещён для эскалаций, где требуетс�
 
 | Причина | Реальный workflow step | Обязательное состояние |
 | --- | --- | --- |
-| Brief framing не согласован | record_alignment | полный daemon `UserDecisionRecord` framing; policy не подходит: §2 запрещает ей утверждать product framing Brief |
-| Core Flow содержит открытое решение поведения | record_alignment | daemon record закрыл каждое material решение; model self-approval запрещён |
-| Tech Plan не готов из-за open question или silent inference | record_alignment | readiness/classifier proof подтверждены daemon record либо current exact policy |
-| Ticket breakdown не согласован | record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
+| Brief framing не согласован | clarify_alignment, record_alignment | полный daemon `UserDecisionRecord` framing; policy не подходит: §2 запрещает ей утверждать product framing Brief |
+| Core Flow содержит открытое решение поведения | clarify_alignment, record_alignment | daemon record закрыл каждое material решение; model self-approval запрещён |
+| Tech Plan не готов из-за open question или silent inference | clarify_alignment, record_alignment | readiness/classifier proof подтверждены daemon record либо current exact policy |
+| Ticket breakdown не согласован | present_tickets_breakdown, record_alignment | показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает |
 | Alignment policy не покрывает решение | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection |
-| Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
-| tickets_manifest_invalid | present_tickets_breakdown до freeze и после publication | old Tickets candidate/receipt/PASS bindings voided and retained when present; corrected manifest/views проходят новый alignment, validation, freeze, full Panel и replacement publication до dispatch_ticket_dag; child/blocker/enrollment side effects до этого отсутствуют |
-| tickets_manifest_stale | owning recovery step, затем present_tickets_breakdown | protocol/runtime/project-instruction lock drift сначала проходит repair_protocol_snapshot, а другой stale binding — его recorded owning repair; old Tickets candidate/receipt/PASS records voided and retained; затем present_tickets_breakdown -> record_alignment -> validate_tickets_manifest создаёт fresh identity-bound proof, freeze создаёт новый immutable receipt, full Panel и replacement publication завершаются до dispatch |
+| Alignment record устарел | clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass | новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes |
+| tickets_manifest_invalid | present_tickets_breakdown до freeze и после publication; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest | old Tickets candidate/receipt/PASS bindings voided and retained when present; corrected manifest/views проходят новый alignment, validation, freeze, full Panel и replacement publication до dispatch_ticket_dag; child/blocker/enrollment side effects до этого отсутствуют |
+| tickets_manifest_stale | owning recovery step, затем present_tickets_breakdown; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest | protocol/runtime/project-instruction lock drift сначала проходит repair_protocol_snapshot, а другой stale binding — его recorded owning repair; old Tickets candidate/receipt/PASS records voided and retained; затем present_tickets_breakdown -> record_alignment -> validate_tickets_manifest создаёт fresh identity-bound proof, freeze создаёт новый immutable receipt, full Panel и replacement publication завершаются до dispatch |
 | planning_ref_init_invalid | init_planning_ref | corruption with otherwise valid base restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and a fresh init operation while preserving prior audit evidence; no adopt/reset |
 | planning_ref_capability_missing | recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup | pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged |
 | planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition | exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation |
 | planning_candidate_keepalive_invalid | freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state | exact candidate keepalive ref/create or audit/release receipt and complete object closure restored or candidate explicitly superseded; cleanup and publication remain blocked until namespace inventory matches metadata/history |
-| planning_candidate_base_stale | draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets | stale candidate/verdict absent or void; author base re-minted from current verified planning head |
-| planning_publication_invalid | record_artifact_pass or rebuild_anchor recorded pre-failure step | no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human |
+| planning_candidate_base_stale | draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets; also freeze_artifact | stale candidate/verdict absent or void; author base re-minted from current verified planning head |
+| planning_publication_invalid | record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation | no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human |
 | planning_publication_corrupt | publish_artifact_pass or publish_planning_invalidation recorded operation kind | committed recipe/receipt restored, or missing pre-CAS object rewritten from exact persisted bytes with unchanged checkpoint |
 | planning_signing_unavailable | record_artifact_pass | trusted signer produced exact replayable signature bytes under current locked policy before PASS/operation/object/ref side effects |
 | Quick classification invalid, Planned handoff не завершён | invalidate_quick_classification | schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена |
 | Недоступная panel child | review_artifact | тот же route, новый attempt; parent остаётся blocked |
 | Недоступная code-review child | review_candidate | тот же route, новый attempt; parent остаётся blocked |
-| Invalid/cancelled panel child | dispatch_panel | invalid child IDs, attempt+1 |
-| Сокращённая панель | dispatch_panel или panel_join | retry отсутствующего route либо waiver с artifact identity и фактическим roster |
-| Invalid contest disposition | dispatch_contest | invalid child IDs, attempt+1 |
-| Invalid narrow-review child | dispatch_narrow_review | новый Lead child и attempt |
-| Invalid code-review child | dispatch_review или dispatch_narrow_review | новый review child, сохранённый режим и attempt |
-| Code verdict revalidation failed | freeze | старый review binding void, новый candidate/review attempt |
+| Invalid/cancelled panel child | dispatch_panel, panel_join | invalid child IDs, attempt+1 |
+| Сокращённая панель | dispatch_panel или panel_join; также freeze_artifact, record_artifact_pass | retry отсутствующего route либо waiver с artifact identity и фактическим roster |
+| Invalid contest disposition | contest_join, dispatch_contest | invalid child IDs, attempt+1 |
+| Invalid narrow-review child | dispatch_narrow_review, narrow_review_join | новый Lead child и attempt |
+| Invalid code-review child | dispatch_review или dispatch_narrow_review; также review_join | новый review child, сохранённый режим и attempt |
+| Code verdict revalidation failed | freeze, record_code_verdict | старый review binding void, новый candidate/review attempt |
 | BLOCKED_ANCHOR, Planned | prepare_anchor_impact | deterministic step строит/stages full map + status/cascade hashes без side effects |
-| Anchor impact ждёт approval | record_anchor_impact_approval | daemon `UserDecisionRecord` подписал exact staged proposal; step record'ит approved только при unchanged status/watermark |
-| Invalid/stale anchor impact map | prepare_anchor_impact | новая карта вычисляется step; пользователь не hand-author'ит dispositions |
+| Anchor impact ждёт approval | prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval | daemon `UserDecisionRecord` подписал exact staged proposal; step record'ит approved только при unchanged status/watermark |
+| Invalid/stale anchor impact map | prepare_anchor_impact, rebuild_anchor | новая карта вычисляется step; пользователь не hand-author'ит dispositions |
 | BLOCKED_ANCHOR, standalone Quick | rebuild_code_anchor | own anchor bump, затем verify/freeze/full review |
 | BLOCKED_ANCHOR, Ticket with parent | rebuild_code_anchor | propagate pending в parent, suspend blocker с receipt, ждать parent rebuild_anchor |
-| Waiting for parent anchor | rebuild_code_anchor | parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен |
+| Waiting for parent anchor | rebuild_code_anchor, repair_anchor_handoff | parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен |
 | Anchor resume pending | rebuild_code_anchor | exact parent edge active; pending resume_intent совпадает с op/anchor/receipt/target и child остаётся human |
 | Parent absorbed live Ticket anchor before suspension | rebuild_code_anchor | Ticket anchor=parent, local pending=null, matching parent_rebuild_receipt, active blocker edge добавлен |
 | Affected done/cancel/new/missing Ticket, code-only repair | rebuild_anchor | consume correction events; old task исключить, superseded_by записать, replacement только создать/configure; после resume human Tickets следующий step enroll'ит replacement и ставит blockers |
 | Affected done/cancel/new/missing Ticket, planning repair | dispatch_ticket_dag | создать отдельную ticket_repair_op и подготовить replacements без enroll/blockers; затем resume human Tickets, после чего enroll/block replacements |
 | Invalid/open duplicate Ticket repair operation | dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind | human выбирает одну exact op; premature blockers сняты, immutable phases не понижены |
 | Любой expected work Ticket, включая claimed-unaffected (anchor_repair_ticket_live) | rebuild_anchor после завершения live run | все expected Tickets human/terminal; status/impact перечитаны; pending_anchor сохранён; parent metadata write/cancel live Ticket запрещены |
-| Artifact PASS revalidation failed | freeze_artifact | старые bindings void, attempt+1, сохранённый full/narrow mode |
-| Лимит review | fix_artifact для Planned; fix для Quick/Ticket | новый daemon-attributed cap decision, сохранённые findings и identity |
-| Invalid Arena/Judge | dispatch_arena | новый arena attempt |
-| Arena fallback | apply_arena_decision | пользователь выбрал fallback; следующая панель полная |
-| Invalid autosk-arena block | fix_artifact | исправленный block, narrow=false и новая полная panel |
-| Invalid Ticket set execution | dispatch_ticket_dag | repair map для конкретных Tickets |
+| Artifact PASS revalidation failed | freeze_artifact, record_artifact_pass | старые bindings void, attempt+1, сохранённый full/narrow mode |
+| Лимит review | fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict | новый daemon-attributed cap decision, сохранённые findings и identity |
+| Invalid Arena/Judge | arena_join, dispatch_arena | новый arena attempt |
+| Arena fallback | apply_arena_decision, arena_join | пользователь выбрал fallback; следующая панель полная |
+| Invalid autosk-arena block | fix_artifact, record_artifact_pass | исправленный block, narrow=false и новая полная panel |
+| Invalid Ticket set execution | dispatch_ticket_dag, ticket_join | repair map для конкретных Tickets |
 | Lost suspended Ticket receipt | dispatch_ticket_dag | receipt сопоставлен live Ticket или valid superseded_by, старый sandbox учтён |
-| Candidate changed before commit | fix | approved findings/identity сохранены, новый candidate attempt |
+| Candidate changed before commit | commit_on_pass, fix | approved findings/identity сохранены, новый candidate attempt |
 | Commit CAS failed without movement | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | Private ticket branch moved | commit_on_pass | branch снова однозначен после расследования; cancel — отдельная status-операция |
-| Aggregate verification failed | record_aggregate_remediation | external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel |
-| Нет внешней code-review family | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression | recovery возвращается к реальному waiver consumer, режим сохраняется |
-| Нет внешней panel Lead family | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead | recovery возвращается к waiver consumer, full/narrow сохраняется |
+| Aggregate verification failed | aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation | external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel |
+| Нет внешней code-review family | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review | recovery возвращается к реальному waiver consumer, режим сохраняется |
+| Нет внешней panel Lead family | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review | recovery возвращается к waiver consumer, full/narrow сохраняется |
 | Dirty cleanup | cleanup | явное force-разрешение либо сохранённое восстановимое состояние |
 | Integration authorization missing/expired | accept | pending CAS receipt сначала resolved; новый signed record связывает current target, completed prefix, remaining transitions, final tree и current heads |
 | Integration obstruction | integrate | помеха перемещена восстанавливаемо и записано доказательство |

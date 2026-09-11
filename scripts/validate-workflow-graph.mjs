@@ -72,6 +72,7 @@ export const REFUSALS = Object.freeze([
   "graph_predicate_unknown",
   "graph_priority_ambiguous",
   "graph_recovery_missing",
+  "graph_recovery_parks_at_incomplete",
   "graph_recovery_reason_unknown",
   "graph_schema",
   "graph_step_unknown",
@@ -357,6 +358,38 @@ export function encodeName(name) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Where the graph itself parks each reason, keyed by reason.
+ *
+ * Three producers, and the step is a different field in each: a guard on an
+ * edge into a step that stops for a person parks at the step the edge LEAVES,
+ * not at the one it enters — the flow got there by taking that edge. A step's
+ * own `no_transition_reason` parks where the step is. A cap parks where its
+ * counted transition leaves.
+ */
+export function producedAt(document, steps = new Map(document.steps.map((step) => [step.name, step]))) {
+  const where = new Map();
+  const add = (reason, name) => {
+    if (!where.has(reason)) where.set(reason, new Set());
+    where.get(reason).add(name);
+  };
+  const guards = new Map(document.guards.map((guard) => [guard.id, guard]));
+  for (const edge of document.transitions) {
+    const to = steps.get(edge.to);
+    if (to?.kind !== "status" || to.status !== "human") continue;
+    for (const id of edge.guards) {
+      const reason = guards.get(id)?.park_reason;
+      if (reason !== undefined) add(reason, edge.from);
+    }
+  }
+  for (const step of document.steps) if (step.no_transition_reason) add(step.no_transition_reason, step.name);
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (counted) add(cap.park_reason, counted.from);
+  }
+  return where;
+}
+
+/**
  * Whether a document could be the graph it claims to be.
  *
  * The schema decides shape; everything below decides whether the shape refers
@@ -529,6 +562,28 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
             `which is not a declared edge from ${row.parks_at.join(" or ")}`,
         );
       }
+    }
+  }
+
+  // Where the graph itself produces a reason must be in that reason's
+  // `parks_at`, because `resume_targets` is bound to the edges leaving those
+  // steps and nothing else defended the set it is bound to. Before this, a row
+  // could omit the very step whose guard names the reason and the union would
+  // be computed over steps the flow never stops at.
+  //
+  // One directional on purpose. A row may list MORE, since a reason can also be
+  // produced outside the graph: the daemon's own boundary check stops a task
+  // wherever it stands, and its row lists 68 steps while the graph parks it at
+  // 18. Demanding equality would call that a defect. The code is not spelled
+  // here because the vocabulary's producer scan reads a mention as a claim to
+  // produce it — which is how this comment failed the gate the first time.
+  for (const [reason, where] of producedAt(document, steps)) {
+    const row = rows.get(reason);
+    if (!row) continue;
+    const listed = new Set(row.parks_at);
+    for (const name of [...where].sort()) {
+      if (listed.has(name)) continue;
+      errors.push(`graph_recovery_parks_at_incomplete: ${reason} parks at ${name}, which its row does not list`);
     }
   }
 

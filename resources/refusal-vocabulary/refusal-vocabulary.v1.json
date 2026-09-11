@@ -113,6 +113,8 @@
     {
       "code": "aggregate_remediation_required",
       "parks_at": [
+        "aggregate_verify",
+        "dispatch_ticket_dag",
         "record_aggregate_remediation"
       ],
       "parks_at_classes": [],
@@ -123,6 +125,8 @@
     {
       "code": "aggregate_verify_failed",
       "parks_at": [
+        "aggregate_verify",
+        "dispatch_ticket_dag",
         "record_aggregate_remediation"
       ],
       "parks_at_classes": [],
@@ -145,7 +149,12 @@
       "code": "alignment_record_stale",
       "parks_at": [
         "clarify_alignment",
-        "present_tickets_breakdown"
+        "dispatch_panel",
+        "dispatch_ticket_dag",
+        "freeze_artifact",
+        "present_tickets_breakdown",
+        "record_alignment",
+        "record_artifact_pass"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -165,6 +174,8 @@
     {
       "code": "anchor_impact_approval_required",
       "parks_at": [
+        "prepare_anchor_impact",
+        "rebuild_anchor",
         "record_anchor_impact_approval"
       ],
       "parks_at_classes": [],
@@ -175,7 +186,8 @@
     {
       "code": "anchor_impact_invalid",
       "parks_at": [
-        "prepare_anchor_impact"
+        "prepare_anchor_impact",
+        "rebuild_anchor"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -251,7 +263,8 @@
     {
       "code": "arena_contract_invalid",
       "parks_at": [
-        "fix_artifact"
+        "fix_artifact",
+        "record_artifact_pass"
       ],
       "parks_at_classes": [],
       "closed_by": "docs/contracts/arena.md",
@@ -263,7 +276,8 @@
     {
       "code": "arena_fallback_required",
       "parks_at": [
-        "apply_arena_decision"
+        "apply_arena_decision",
+        "arena_join"
       ],
       "parks_at_classes": [],
       "closed_by": "docs/contracts/arena.md",
@@ -275,6 +289,7 @@
     {
       "code": "arena_join_invalid",
       "parks_at": [
+        "arena_join",
         "dispatch_arena"
       ],
       "parks_at_classes": [],
@@ -368,6 +383,8 @@
       "code": "artifact_mapping_required",
       "parks_at": [
         "clarify_alignment",
+        "freeze",
+        "freeze_artifact",
         "invalidate_quick_classification",
         "present_tickets_breakdown"
       ],
@@ -379,7 +396,8 @@
     {
       "code": "artifact_pass_invalid",
       "parks_at": [
-        "freeze_artifact"
+        "freeze_artifact",
+        "record_artifact_pass"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -413,6 +431,7 @@
     {
       "code": "brief_alignment_required",
       "parks_at": [
+        "clarify_alignment",
         "record_alignment"
       ],
       "parks_at_classes": [],
@@ -423,6 +442,7 @@
     {
       "code": "candidate_changed",
       "parks_at": [
+        "commit_on_pass",
         "fix"
       ],
       "parks_at_classes": [],
@@ -453,7 +473,8 @@
     {
       "code": "code_verdict_invalid",
       "parks_at": [
-        "freeze"
+        "freeze",
+        "record_code_verdict"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -483,6 +504,7 @@
     {
       "code": "contest_join_invalid",
       "parks_at": [
+        "contest_join",
         "dispatch_contest"
       ],
       "parks_at_classes": [],
@@ -493,6 +515,7 @@
     {
       "code": "core_flow_decision_required",
       "parks_at": [
+        "clarify_alignment",
         "record_alignment"
       ],
       "parks_at_classes": [],
@@ -572,7 +595,11 @@
     },
     {
       "code": "gate_result_invalid",
-      "parks_at": [],
+      "parks_at": [
+        "validate_disposition",
+        "validate_judgment",
+        "validate_verdict"
+      ],
       "parks_at_classes": [
         "gate_model_step"
       ],
@@ -582,7 +609,11 @@
     },
     {
       "code": "gate_result_missing",
-      "parks_at": [],
+      "parks_at": [
+        "validate_disposition",
+        "validate_judgment",
+        "validate_verdict"
+      ],
       "parks_at_classes": [
         "gate_model_step"
       ],
@@ -592,7 +623,11 @@
     },
     {
       "code": "gate_snapshot_mutated",
-      "parks_at": [],
+      "parks_at": [
+        "validate_disposition",
+        "validate_judgment",
+        "validate_verdict"
+      ],
       "parks_at_classes": [
         "gate_model_step"
       ],
@@ -668,7 +703,8 @@
     {
       "code": "narrow_join_invalid",
       "parks_at": [
-        "dispatch_narrow_review"
+        "dispatch_narrow_review",
+        "narrow_review_join"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -678,6 +714,7 @@
     {
       "code": "no_external_panel_lead",
       "parks_at": [
+        "dispatch_narrow_review",
         "dispatch_panel",
         "freeze_artifact",
         "human"
@@ -690,6 +727,7 @@
     {
       "code": "no_external_reviewer",
       "parks_at": [
+        "dispatch_narrow_review",
         "dispatch_review",
         "freeze",
         "human"
@@ -702,7 +740,8 @@
     {
       "code": "panel_join_invalid",
       "parks_at": [
-        "dispatch_panel"
+        "dispatch_panel",
+        "panel_join"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -714,7 +753,8 @@
       "parks_at": [
         "dispatch_panel",
         "freeze_artifact",
-        "panel_join"
+        "panel_join",
+        "record_artifact_pass"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -725,6 +765,7 @@
       "code": "planning_candidate_base_stale",
       "parks_at": [
         "draft_artifact",
+        "freeze_artifact",
         "present_tickets_breakdown"
       ],
       "parks_at_classes": [],
@@ -774,6 +815,8 @@
     {
       "code": "planning_publication_invalid",
       "parks_at": [
+        "publish_artifact_pass",
+        "publish_planning_invalidation",
         "rebuild_anchor",
         "record_artifact_pass"
       ],
@@ -887,7 +930,9 @@
       "code": "review_cap",
       "parks_at": [
         "fix",
-        "fix_artifact"
+        "fix_artifact",
+        "narrow_review_join",
+        "record_code_verdict"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -898,7 +943,8 @@
       "code": "review_join_invalid",
       "parks_at": [
         "dispatch_narrow_review",
-        "dispatch_review"
+        "dispatch_review",
+        "review_join"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -908,7 +954,8 @@
     {
       "code": "review_waiver_invalid",
       "parks_at": [
-        "freeze"
+        "freeze",
+        "record_code_verdict"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -918,6 +965,7 @@
     {
       "code": "tech_plan_readiness_required",
       "parks_at": [
+        "clarify_alignment",
         "record_alignment"
       ],
       "parks_at_classes": [],
@@ -938,7 +986,8 @@
     {
       "code": "ticket_join_invalid",
       "parks_at": [
-        "dispatch_ticket_dag"
+        "dispatch_ticket_dag",
+        "ticket_join"
       ],
       "parks_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
@@ -949,7 +998,8 @@
       "code": "ticket_repair_op_invalid",
       "parks_at": [
         "dispatch_ticket_dag",
-        "rebuild_anchor"
+        "rebuild_anchor",
+        "resume_repaired_tickets"
       ],
       "parks_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
@@ -970,6 +1020,7 @@
     {
       "code": "tickets_breakdown_alignment_required",
       "parks_at": [
+        "present_tickets_breakdown",
         "record_alignment"
       ],
       "parks_at_classes": [],
@@ -980,8 +1031,11 @@
     {
       "code": "tickets_manifest_invalid",
       "parks_at": [
+        "dispatch_ticket_dag",
         "freeze",
-        "present_tickets_breakdown"
+        "freeze_artifact",
+        "present_tickets_breakdown",
+        "validate_tickets_manifest"
       ],
       "parks_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
@@ -993,7 +1047,10 @@
     {
       "code": "tickets_manifest_stale",
       "parks_at": [
-        "present_tickets_breakdown"
+        "dispatch_ticket_dag",
+        "freeze_artifact",
+        "present_tickets_breakdown",
+        "validate_tickets_manifest"
       ],
       "parks_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
@@ -1005,7 +1062,8 @@
     {
       "code": "verification_cap",
       "parks_at": [
-        "fix"
+        "fix",
+        "verify"
       ],
       "parks_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -1044,5 +1102,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "fee392f5c098e4ea747990f43e89c586e4ebe3bcd261cff6728a0fd82d5812b3"
+  "vocabulary_digest": "983f240dd179fdb7fdbf7c77e1c0594a0c85af0b734c56711ab09654eb8293df"
 }
