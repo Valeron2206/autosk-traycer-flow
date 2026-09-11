@@ -192,7 +192,7 @@
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "4c1960eb19802d5533a2fef2433b89dc779c296288021e32fe8ce777e3a81a77"
+      "sha256": "4be676a9090dcf492c8cc31a679024031783dd378571cdf6d225367d5d731156"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -507,7 +507,7 @@
       "sha256": "5b02ed5de9e74e30037e3500b6bc62ec9b2ec0735f05d49504bccf8dafc1bbfe"
     }
   ],
-  "candidate_digest": "28e56735a27c57764bc2209ad0c4cbf94fdd6df86da34f277ada031aa3f6d06f",
+  "candidate_digest": "53cd77c9fdf30ed47643763127d61d316f6b955c02f689b8d901109ef0f09fc9",
   "dispositions": [
     {
       "issue": 3,

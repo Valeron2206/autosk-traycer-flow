@@ -71,6 +71,8 @@ export const REFUSALS = Object.freeze([
   "graph_park_reason_unknown",
   "graph_predicate_unknown",
   "graph_priority_ambiguous",
+  "graph_recovery_handled_at_parks",
+  "graph_recovery_lists_overlap",
   "graph_recovery_missing",
   "graph_recovery_parks_at_incomplete",
   "graph_recovery_parks_at_unproduced",
@@ -579,13 +581,16 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   // with rather than raised belongs in `handled_at`, which the resume rule reads
   // as well — so the second direction moves a step, it does not delete it.
   //
-  // The exemption is structural, not a list of names: a status step is where a
-  // parked task STANDS, and standing there is what this field records. What the
-  // graph produces is the step an edge LEAVES, so it names a park's origin and
-  // never its landing — it cannot say this for them however the document is
-  // written. The codes are not spelled in these comments because the vocabulary's
-  // producer scan reads a mention as a claim to produce it, which is how this
-  // block failed the gate the first time.
+  // The exemption is keyed on the kind and nothing else: a status step is where a
+  // parked task STANDS, and standing there is what this field records, while what
+  // `producedAt` reports is the step an edge LEAVES — so a status step can never
+  // appear there however the document is written. That is the whole claim. It is a
+  // boundary of the check and not a proof that a given reason lands on a given
+  // status step: `edge.to` is readable, but no one rule over the edges covers all
+  // seven references the document makes, since `done` is the landing of no parking
+  // edge at all and is named by two rows anyway. The codes are not spelled in these
+  // comments because the vocabulary's producer scan reads a mention as a claim to
+  // produce it, which is how this block failed the gate the first time.
   const producedFor = producedAt(document, steps);
   for (const [reason, where] of producedFor) {
     const row = rows.get(reason);
@@ -596,6 +601,16 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
       errors.push(`graph_recovery_parks_at_incomplete: ${reason} parks at ${name}, which its row does not list`);
     }
   }
+  // Both fields are checked against the graph, because each makes a statement the
+  // other does not. One says the flow stops here, the other says the reason never
+  // arises here, and a field whose negative statement nothing enforces is a field
+  // that can be written either way: before this, one step could be claimed as both
+  // a place the reason is produced and a place it is not.
+  //
+  // The overlap check is not implied by the other two. A step the graph parks at is
+  // caught by the second loop and a step it does not by the first, but a status step
+  // is exempt from the first and absent from what the graph produces, so it could
+  // sit in both lists with each saying the opposite of the other.
   for (const row of document.recovery) {
     const where = producedFor.get(row.reason) ?? new Set();
     for (const name of [...row.parks_at].sort()) {
@@ -604,6 +619,18 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
         `graph_recovery_parks_at_unproduced: ${row.reason} lists ${name}, ` +
           "where nothing in the graph parks it; a step that only handles it belongs in the other list",
       );
+    }
+    const parking = new Set(row.parks_at);
+    for (const name of [...(row.handled_at ?? [])].sort()) {
+      if (where.has(name)) {
+        errors.push(
+          `graph_recovery_handled_at_parks: ${row.reason} calls ${name} a step that only handles it, ` +
+            "and the graph parks it there",
+        );
+      }
+      if (parking.has(name)) {
+        errors.push(`graph_recovery_lists_overlap: ${row.reason} names ${name} in both of its lists`);
+      }
     }
   }
 

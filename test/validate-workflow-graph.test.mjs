@@ -396,6 +396,12 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     // neither can be deleted without this list going quiet about it.
     (document) => { document.steps.find((step) => step.name === "freeze_artifact").no_transition_reason = "alignment_record_stale"; },
     (document) => { document.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "record_artifact_pass"]; },
+    (document) => { document.recovery.find((row) => row.reason === "artifact_freeze_invalid").handled_at = ["freeze_artifact"]; },
+    (document) => {
+      const row = document.recovery.find((entry) => entry.reason === "artifact_freeze_invalid");
+      row.parks_at = ["freeze_artifact", "await_alignment"];
+      row.handled_at = ["await_alignment"];
+    },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -988,12 +994,15 @@ test("a parking edge carries the reason its own row names", () => {
  * the check closes in both directions, and the pin is deliberately inverted:
  * what was accepted is now refused, with the surplus moved rather than deleted.
  *
- * One structural exemption survives, and it is not a list of names: a status step
- * is a place a parked task STANDS, and standing there is exactly what `parks_at`
- * records. A park into a human status step moves the task onto it, measured on a
- * running daemon, so `human` in a `parks_at` is that fact and not a stale entry.
- * The graph cannot say it for them — what it produces is the step an edge LEAVES,
- * and a step is only ever named there as a park's origin, never as its landing.
+ * One exemption survives, keyed on the kind: a status step is a place a parked task
+ * STANDS, and standing there is exactly what `parks_at` records. A park into a human
+ * status step moves the task onto it, measured on a running daemon, so `human` in a
+ * `parks_at` is that fact and not a stale entry. `producedAt` reports the step an
+ * edge LEAVES, so a status step never appears there whatever the document says —
+ * which is why the check must exempt it, and also all the exemption claims. It does
+ * not establish that a given reason lands on a given status step: `edge.to` is there
+ * to be read, but `done` is named by two rows and is the landing of no parking edge,
+ * so no single rule over the edges covers all seven of the document's references.
  */
 
 test("graph_recovery_parks_at_incomplete: a guard names a reason at a step its row omits", () => {
@@ -1056,11 +1065,40 @@ test("a status step in parks_at is accepted: it is where a parked task stands", 
   });
   // The exemption is keyed on the kind and nothing else. `await_alignment` has
   // outgoing edges, so "a status step has none" would be the wrong reason to give:
-  // what makes it exempt is that a parked task stands on it, which is a landing and
-  // the graph only ever names origins.
+  // what makes it exempt is that a parked task stands on it, and `producedAt` reports
+  // only the steps parking edges leave.
   assert.equal(graph.steps.find((step) => step.name === "await_alignment").kind, "status");
   assert.ok(graph.transitions.some((edge) => edge.from === "await_alignment"));
   assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("graph_recovery_handled_at_parks: a handled_at step where the graph does park the reason", () => {
+  // ASTRA-PH-01. `handled_at` is defined as the steps the graph NEVER parks the
+  // reason at, and until this check nothing said so: the field's names were checked
+  // for existence and their outgoing edges were unioned into the resume permission,
+  // and the negative statement the field makes was enforced nowhere. One step could
+  // be claimed as both a place the reason is produced and a place it is not.
+  assertRefuses(
+    mutated((entry) => {
+      entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").handled_at = ["freeze_artifact"];
+    }),
+    "graph_recovery_handled_at_parks",
+  );
+});
+
+test("graph_recovery_lists_overlap: one step in both lists at once", () => {
+  // The check above catches an overlap on a step the graph parks the reason at, and
+  // the completeness check catches one it does not — except for a status step, which
+  // both of them exempt. So a status step could sit in both lists, one saying a
+  // parked task stands there and the other saying the reason never arises there.
+  assertRefuses(
+    mutated((entry) => {
+      const row = entry.recovery.find((candidate) => candidate.reason === "artifact_freeze_invalid");
+      row.parks_at = ["freeze_artifact", "await_alignment"];
+      row.handled_at = ["await_alignment"];
+    }),
+    "graph_recovery_lists_overlap",
+  );
 });
 
 test("handled_at is checked for unknown step names the same way parks_at is", () => {
