@@ -78,7 +78,18 @@ test("one table owns the vocabulary", () => {
 test("a misspelled step is not accepted quietly; the row parks nowhere", () => {
   // Filtering the step column to registered steps could hide a typo. It does
   // not, because a reason with no step and no class is refused.
-  const broken = plan.replace("| code_verdict_invalid | freeze |", "| code_verdict_invalid | freze |");
+  // The misspelling is applied to whatever step the row currently names, rather
+  // than to a step name written here: the second column is `parks_at` rendered,
+  // so pinning its text would make this test fail whenever that column widens
+  // — which is what it did the first time a reason gained a step.
+  const row = plan.split("\n").find((line) => line.startsWith("| code_verdict_invalid |"));
+  assert.ok(row, "the park table still has a row for this reason");
+  // Every step the cell names, not just the first: the column widened to two
+  // and misspelling one left the other standing, so the row still parked
+  // somewhere and the assertion below no longer measured anything.
+  const steps = row.split("|")[2].trim().split(",").map((name) => name.trim());
+  assert.ok(steps.length > 0);
+  const broken = plan.replace(row, steps.reduce((line, name) => line.replace(name, name.replace(/[aeiou]/u, "")), row));
   assert.notEqual(broken, plan);
   const entry = extractVocabulary(broken, graph).find((candidate) => candidate.code === "code_verdict_invalid");
   assert.deepEqual(entry.parks_at, []);
