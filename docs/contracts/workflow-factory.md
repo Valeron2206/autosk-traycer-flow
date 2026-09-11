@@ -62,11 +62,11 @@ Three of them come from the document and are relayed unchanged:
 
 The second is the one this slice found a reader for, and round 1 of the review found the half that was still missing.
 
-The schema wrote the field as "the reason named when this guard refuses an explicitly requested target", and the veto is the only place a target is requested by name. But a flow also stops by TAKING a declared edge into a step whose status is `human`, and the shipped graph draws 202 of those — that is how a flow ordinarily stops, not an edge case. The first writing recorded a reason only when selection found no candidate, so an ordinary park wrote nothing, and operation 2 then refused a resume the reason permits. Worse: a `park.reason` left by an EARLIER park stayed, so the next resume's permissions came from a stop that was already over.
+The schema wrote the field as "the reason named when this guard refuses an explicitly requested target", and the veto is the only place a target is requested by name. But a flow also stops by TAKING a declared edge into a step whose status is `human`, and the shipped graph draws 221 of those — that is how a flow ordinarily stops, not an edge case. The first writing recorded a reason only when selection found no candidate, so an ordinary park wrote nothing, and operation 2 then refused a resume the reason permits. Worse: a `park.reason` left by an EARLIER park stayed, so the next resume's permissions came from a stop that was already over.
 
-The document does name the reason for those edges, and says so in the plan's own notation: `cond_002` ends "human с park.reason=planning_ref_capability_missing" and `guard_002`, the guard on `init_planning_ref -> human`, carries exactly that reason. 193 of the 202 are guarded by a single guard, so the answer is unambiguous.
+The document does name the reason for those edges, and says so in the plan's own notation: `cond_002` ends "human с park.reason=planning_ref_capability_missing" and `guard_002`, the guard on `init_planning_ref -> human`, carries exactly that reason. Every one of the 221 parking edges is now guarded by guards naming one reason, so the answer is unambiguous.
 
-Nine are guarded by several guards naming DIFFERENT reasons, and each of those nine is ONE condition with several candidate reasons: every guard on such an edge names the same predicate. The document says "when this holds, park here" and does not say which of two or three reasons applies. It carries no discriminator, so nothing here can supply one.
+Nine of them were not. Each was ONE condition with two or three candidate reasons: every guard on such an edge named the same predicate, so the document said "when this holds, park here" without saying which reason applied. Splitting the edge in the graph would have produced indistinguishable copies, because the predicate was the same on all of them — the discriminator was in the PLAN and not in the graph, which is what the repair carried across.
 
 **Such a document is refused when the workflow is built, before anything runs.** Two weaker answers were tried and both were measured failing, which is why the refusal sits where it does.
 
@@ -74,9 +74,9 @@ Refusing when the edge is TAKEN does not work: the refusal fails the session, th
 
 Clearing the stale reason before refusing does not work either: round 1 attempt 3 injected a failure into that write and the hole came straight back, with the old reason surviving and the resume passing. Nothing inside a running step can close this, because the engine parks the task after the step gives up and the factory has no write that lands together with the position.
 
-So the executable is refused at the point where it would be produced. The consequence is stated rather than softened: **the shipped `autosk_flow` document is not executable as it stands.** Nine of its parks must say which reason they carry before a runtime can honour them, and that is a change to the document — the owner's, not this factory's. The suite asserts the refusal on the shipped bytes and names all nine.
+So the executable is refused at the point where it would be produced, and that refusal did its work: **the shipped `autosk_flow` document was not executable, and now is.** The nine were repaired in the document, by the rules the plan itself carries — four of them transcription of a split the plan already writes as separate rows. The refusal stays for the next document that cannot say why it stops, and the suite exercises it against an edge made ambiguous on purpose rather than against bytes that no longer are.
 
-What the rest of the suite exercises is the shipped graph with those nine repaired by keeping one guard of the several that share a predicate — which changes no condition, only picks a reason. That repair is a test fixture and says so; it is not applied to the document.
+The design validator carries the same refusal now, as `graph_park_reason_ambiguous`. Refusing only at build was refusing after the document had already been shipped, pinned and digested — and the example in this repository proved the gap was not theoretical: it shipped with a parking edge carrying no guard at all, and the validator accepted it for as long as the check lived only here.
 
 These reasons belong to the park vocabulary, which `resources/refusal-vocabulary/refusal-vocabulary.v1.json` enumerates and `03-technical-plan.md` §7 owns. They are not this contract's, and putting them in its closed set would make it look like the owner of eighty-four codes it merely passes on.
 
@@ -157,7 +157,7 @@ An undeclared predicate fails closed in both operations rather than reading as f
 - the built `onTransit` answers a parked task and a working one differently, and the built `onRun` moves where selection says or records its park reason before parking
 - a park whose metadata write fails refuses instead of parking a task nothing could resume
 - a declared edge into a parking step records the reason its guard names, replacing whatever an earlier park left, and that reason permits a resume at the step it stopped at
-- the shipped document is refused at build, naming all nine edges, and each of the nine is shown to be one predicate with several reasons rather than several conditions
+- the shipped document builds and every one of its parks names exactly one reason, while an edge made ambiguous is still refused and an edge with no reason at all is refused with a different detail
 - a recorded reason refuses re-entry into a step it does not permit, while a park with no reason still admits it
 - a document naming an undeclared predicate is refused when it is read, so no operation can be reached under it
 - a document whose digest describes different bytes is refused, and one carrying no digest is computed rather than refused

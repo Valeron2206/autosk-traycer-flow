@@ -66,6 +66,7 @@ export const REFUSALS = Object.freeze([
   "graph_lone_surrogate",
   "graph_not_json",
   "graph_number_not_canonical",
+  "graph_park_reason_ambiguous",
   "graph_park_reason_reserved",
   "graph_park_reason_unknown",
   "graph_predicate_unknown",
@@ -485,6 +486,27 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     } else if (!allowed.has(reason)) {
       errors.push(`graph_park_reason_unknown: ${named} names ${reason}`);
     }
+  }
+
+  // A declared edge into a step that stops the flow for a person stops it just
+  // as surely as finding no candidate does, and the reason recorded there is
+  // what operation 2 reads permission off. So the edge has to say which reason,
+  // and exactly one guard's worth of it.
+  //
+  // The runtime refuses this too, and refusing it only there was not enough: a
+  // build happens after the document is shipped, pinned and digested, and the
+  // example in this repository is the proof — the validator accepted it while
+  // the factory could not build it at all.
+  for (const edge of document.transitions) {
+    const to = steps.get(edge.to);
+    if (to?.kind !== "status" || to.status !== "human") continue;
+    const named = new Set(edge.guards.map((id) => guards.get(id)?.park_reason).filter((reason) => reason !== undefined));
+    if (named.size === 1) continue;
+    errors.push(
+      named.size === 0
+        ? `graph_park_reason_ambiguous: ${edge.id} parks the task and no guard names a reason`
+        : `graph_park_reason_ambiguous: ${edge.id} parks the task and its guards name ${[...named].sort().join(", ")}`,
+    );
   }
 
   const rows = new Map(document.recovery.map((row) => [row.reason, row]));

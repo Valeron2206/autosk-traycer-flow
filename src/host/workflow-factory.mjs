@@ -392,9 +392,10 @@ async function run(state, step, work, evaluate, ctx) {
     // A declared edge into a parking step stops the task just as surely as
     // finding no candidate does, and operation 2 reads permission off the reason.
     // The first writing recorded a reason only on the second of those, so the
-    // 202 edges the shipped graph draws into a human step parked with whatever
-    // reason the PREVIOUS park had left behind, or with none at all — and a
-    // resume the reason permits was refused because no reason was there.
+    // edges the shipped graph draws into a human step — 221 of them — parked
+    // with whatever reason the PREVIOUS park had left behind, or with none at
+    // all, and a resume the reason permits was refused because no reason was
+    // there.
     if (parks(state, decision.take.to)) await recordPark(ctx, parkReasonFor(state, decision.take));
     await ctx.transit({ step: decision.take.to });
     return;
@@ -415,14 +416,15 @@ export function parks(state, name) {
  * It is the `park_reason` of the guards that admitted it. The plan writes the
  * pairing into the predicate descriptions themselves — `cond_002` ends "human с
  * park.reason=planning_ref_capability_missing" and `guard_002` carries exactly
- * that reason — and 193 of the 202 edges into a human step are guarded by one
- * guard, so the document answers.
+ * that reason — and every one of the 221 edges into a human step is now guarded
+ * by guards naming ONE reason, so the document answers.
  *
- * Nine are guarded by several guards naming DIFFERENT reasons. An edge is taken
- * when all its guards hold, so at that moment every one of those reasons is
- * true and the document does not say which to record. Picking one would give the
- * next resume the permissions of a reason nobody chose, so this refuses instead
- * and the choice stays with whoever writes the document.
+ * Nine of them named two or three. An edge is taken when all its guards hold,
+ * so at that moment every one of those reasons was true and the document did
+ * not say which to record; picking one would have given the next resume the
+ * permissions of a reason nobody chose. The refusal below is what made that
+ * visible, and the document was repaired rather than the rule relaxed — so the
+ * refusal stays, for the next document that cannot say why it stops.
  */
 export function parkReasonFor(state, edge) {
   const reasons = reasonsOn(state, edge);

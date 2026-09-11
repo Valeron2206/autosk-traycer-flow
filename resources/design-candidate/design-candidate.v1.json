@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "1f1133e4783bb9bef1f92fcbae5b04ccaa849f6af13a33121897043ce6c50497"
+      "sha256": "536a0e6cebd6a2e705856a2ccab0c68f552415fee01f474502887e067772312f"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "9611e04b8325fe0db7d7c245309ce9cd8abea8f11f05fdb86b6121c1aaf8648d"
+      "sha256": "c9b1e89d1bae0b07adcbd6ebab6b3544b33715bfac29b9878634859bcb142fb3"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -488,15 +488,15 @@
     },
     {
       "path": "resources/workflow-graph/canonical-reference.json",
-      "sha256": "a33fd029bb6cc75807e1c56df80c360935cebed41693be60e6c4b6a5ce7a519e"
+      "sha256": "a54fd5f2c7319888e29fd853d1f6de06af96043bf32f3f71cdc28bdaf7a23ce6"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.example.json",
-      "sha256": "f73b6cf3217f56f7405f3d0593e25be0a160eae1123ea3cc2b8bc516a2246ddb"
+      "sha256": "1569e66db2dd4386747ec6924bb0fff54b9b849c3d869361724b88d17b0f1e8a"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.refused.example.json",
-      "sha256": "3d1102e2dc5b067b8a8561cfd5e6aa9cbe09cc369e4423fd3a2de888d9143b4f"
+      "sha256": "e3b7fd3e1712e8cf334152f2192102f54252d7b444e45e84744e606f45ad4b3b"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
@@ -504,10 +504,10 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "bbed49fd84156a8ade7e2ba7b3f46dcb3b2a98e6ff3778fc391a77c6b0898e0a"
+      "sha256": "03facca2906f4e5f9ab45ad75aadae9b60d0c5eb94c05640894bdf332aae589b"
     }
   ],
-  "candidate_digest": "9fbb8ccd81dc40425c012a479a7fd79c2daa3616263c0d66a6ed765d1ccecc61",
+  "candidate_digest": "75074a3e53287e27eafd85c824fb9fd0003241a9697de6f20493249512ae7bf3",
   "dispositions": [
     {
       "issue": 3,

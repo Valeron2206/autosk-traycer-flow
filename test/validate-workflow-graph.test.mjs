@@ -824,3 +824,129 @@ test("what a predicate reads is state, never a destination or a refusal code", (
   }
   assert.deepEqual(wrong, []);
 });
+
+// --- the document says why it parks, and where the reason comes from --------
+
+/**
+ * Two checks the runtime already made and the design did not.
+ *
+ * Slice 5 built the workflow from this document and refused one whose park
+ * could not say why — but only at build, which is after the document has been
+ * shipped, pinned and digested. The example in this very directory is the proof
+ * that design-time silence is not harmless: the validator accepts it and the
+ * factory refuses it, so the file the contract offers as a well-formed graph
+ * cannot be built.
+ */
+
+test("graph_park_reason_ambiguous: a parking edge whose guards name two reasons", () => {
+  assertRefuses(
+    mutated((graph) => {
+      graph.transitions.find((edge) => edge.id === "intake_to_await").guards = [
+        "alignment_closed_by_user",
+        "readiness_closed_by_policy",
+      ];
+    }),
+    "graph_park_reason_ambiguous",
+  );
+});
+
+test("graph_park_reason_ambiguous: a parking edge no guard gives a reason", () => {
+  // The example ships in exactly this state, which is why the factory refuses
+  // it. The mutation is the repair removed again.
+  assertRefuses(
+    mutated((graph) => {
+      graph.transitions.find((edge) => edge.id === "intake_to_await").guards = [];
+    }),
+    "graph_park_reason_ambiguous",
+  );
+});
+
+/**
+ * The union is the rule, and this pins it.
+ *
+ * `resume_targets` is bound to the edges leaving ANY of a reason's `parks_at`
+ * steps, which the contract states deliberately: a flow parked at one of them
+ * may resume into a step reachable only from another. All 538 targets are an
+ * edge out of at least one such step, which is what the validator enforces;
+ * 262 are an edge out of every one of them and 276 are not, and a live daemon
+ * was observed taking one of the 276. Narrowing the check to the step the flow
+ * is at would strip them, so it is not a tightening anyone may do quietly — it
+ * is a rewrite of the recovery table, and this test is what makes it loud.
+ */
+test("the union is deliberate: a target reachable from one parks_at step and not another is accepted", () => {
+  const graph = mutated((entry) => {
+    const row = entry.recovery.find((candidate) => candidate.reason === "quick_classification_invalid");
+    row.parks_at = ["intake", "record_alignment"];
+  });
+  // await_alignment leaves intake and does not leave record_alignment.
+  const leaving = (name) => graph.transitions.filter((edge) => edge.from === name).map((edge) => edge.to);
+  assert.ok(leaving("intake").includes("await_alignment"));
+  assert.ok(!leaving("record_alignment").includes("await_alignment"));
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("no edge in the working example parks without saying why", async () => {
+  // The example shipped with `intake_to_await` carrying no guard at all, so the
+  // factory refused it — the file this contract offers as a well-formed graph
+  // could not be built. It is still not buildable by THIS factory, for an
+  // unrelated and deliberate reason: `record_alignment` declares `onAbort`,
+  // which the factory does not build. So what is asserted is the defect that
+  // was fixed, not a property the example was never meant to have.
+  const { index, nameable, parks } = await import("../src/host/workflow-factory.mjs");
+  const state = index(example());
+  const silent = [...state.outgoing.values()].flat().filter((edge) => parks(state, edge.to) && !nameable(state, edge));
+  assert.deepEqual(silent.map((edge) => edge.id), []);
+});
+
+/**
+ * Every parking edge whose row names a reason names the one its guard carries.
+ *
+ * The predicate descriptions are the rows of section 2 as extracted, so a guard
+ * whose reason the description does not name is a reason nobody wrote down.
+ * Seven edges are named here because their rows name no reason at all: two are
+ * drawn by a chain the tables give no condition for, four state a destination
+ * chosen "by classification" without saying what the stop is called, and
+ * `t_456` is a SUCCESS path — row 504 ends "park human" and names nothing —
+ * carrying `anchor_resume_intent_invalid`, which row 510 gives to a different
+ * condition. That one is the open question this ticket does not close; it is
+ * named here so it stays visible rather than passing as silence.
+ */
+const PARKS_WITHOUT_A_NAMED_REASON = Object.freeze([
+  "t_366", "t_367", "t_456", "t_478", "t_481", "t_511", "t_517",
+]);
+
+/**
+ * Whether a row names this code as the reason, rather than reading the field of
+ * the same name.
+ *
+ * Several codes are also metadata field names: `cond_346` says
+ * `waiting_parent_anchor=false`, which is a condition on state and not a stop
+ * called `waiting_parent_anchor`. A bare substring match read it as the latter
+ * and reported a row that says nothing of the kind.
+ */
+const namesReason = (described, code) =>
+  new RegExp(`\`?${code}\`?(?![\\w=])`, "u").test(described.replace(new RegExp(`${code}\\s*=`, "gu"), ""));
+
+test("a parking edge carries the reason its own row names", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const codes = parkReasons();
+  const parks = (name) => steps.get(name)?.kind === "status" && steps.get(name).status === "human";
+
+  const silent = [];
+  const wrong = [];
+  for (const edge of graph.transitions) {
+    if (!parks(edge.to)) continue;
+    for (const id of edge.guards) {
+      const guard = guards.get(id);
+      const described = predicates.get(guard.predicate).description;
+      const named = [...codes].filter((code) => namesReason(described, code));
+      if (named.length === 0) silent.push(edge.id);
+      else if (!named.includes(guard.park_reason)) wrong.push(`${edge.id} carries ${guard.park_reason}, its row names ${named.join(" or ")}`);
+    }
+  }
+  assert.deepEqual(wrong, [], `parking edges carrying a reason their row does not name:\n${wrong.join("\n")}`);
+  assert.deepEqual([...new Set(silent)].sort(), [...PARKS_WITHOUT_A_NAMED_REASON].sort());
+});
