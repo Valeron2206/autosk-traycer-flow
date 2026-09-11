@@ -582,15 +582,18 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   // as well — so the second direction moves a step, it does not delete it.
   //
   // The exemption is keyed on the kind and nothing else: a status step is where a
-  // parked task STANDS, and standing there is what this field records, while what
-  // `producedAt` reports is the step an edge LEAVES — so a status step can never
-  // appear there however the document is written. That is the whole claim. It is a
-  // boundary of the check and not a proof that a given reason lands on a given
-  // status step: `edge.to` is readable, but no one rule over the edges covers all
-  // seven references the document makes, since `done` is the landing of no parking
-  // edge at all and is named by two rows anyway. The codes are not spelled in these
-  // comments because the vocabulary's producer scan reads a mention as a claim to
-  // produce it, which is how this block failed the gate the first time.
+  // parked task STANDS, and standing there is what this field records, so one is
+  // accepted here WITHOUT the graph having to park the reason from it. That is a
+  // boundary of the check, not a proof about any one reference — and not the claim
+  // that a status step can never be produced: an edge out of a status step into a
+  // human status step puts it there, and such a document is legal. What holds of
+  // the shipped document is that none of its seven status references is produced,
+  // so each rests on this line. Requiring the step to be the LANDING of an edge
+  // carrying the reason was measured instead and rejected: four of the seven pass
+  // and three do not, all under the reason the daemon raises outside the graph
+  // wherever a task stands. The codes are not spelled in these comments because the
+  // vocabulary's producer scan reads a mention as a claim to produce it, which is
+  // how this block failed the gate the first time.
   const producedFor = producedAt(document, steps);
   for (const [reason, where] of producedFor) {
     const row = rows.get(reason);

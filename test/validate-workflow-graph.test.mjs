@@ -33,6 +33,7 @@ import {
   parkReasons,
   loadFiles,
   parseStrict,
+  producedAt,
   validateGraph,
   validateReference,
   validateWorkflowGraphDesign,
@@ -997,12 +998,13 @@ test("a parking edge carries the reason its own row names", () => {
  * One exemption survives, keyed on the kind: a status step is a place a parked task
  * STANDS, and standing there is exactly what `parks_at` records. A park into a human
  * status step moves the task onto it, measured on a running daemon, so `human` in a
- * `parks_at` is that fact and not a stale entry. `producedAt` reports the step an
- * edge LEAVES, so a status step never appears there whatever the document says —
- * which is why the check must exempt it, and also all the exemption claims. It does
- * not establish that a given reason lands on a given status step: `edge.to` is there
- * to be read, but `done` is named by two rows and is the landing of no parking edge,
- * so no single rule over the edges covers all seven of the document's references.
+ * `parks_at` is that fact and not a stale entry. The exemption accepts such a step
+ * WITHOUT the graph having to park the reason from it, and that is all it claims: a
+ * status step CAN be one the graph parks from, since an edge out of it into a human
+ * status step puts it there, and that document is legal. Of the shipped document's
+ * seven status references, none is produced. Demanding evidence instead — that the
+ * step be the landing of an edge carrying the reason — accepts four of the seven,
+ * so it would refuse three references the owner's frame keeps.
  */
 
 test("graph_recovery_parks_at_incomplete: a guard names a reason at a step its row omits", () => {
@@ -1063,10 +1065,12 @@ test("a status step in parks_at is accepted: it is where a parked task stands", 
   const graph = mutated((entry) => {
     entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "await_alignment"];
   });
-  // The exemption is keyed on the kind and nothing else. `await_alignment` has
-  // outgoing edges, so "a status step has none" would be the wrong reason to give:
-  // what makes it exempt is that a parked task stands on it, and `producedAt` reports
-  // only the steps parking edges leave.
+  // The exemption is keyed on the kind and nothing else. Two wrong reasons were
+  // given for it before this one: that a status step has no outgoing edges, which
+  // `await_alignment` disproves, and that a status step can never be produced, which
+  // an edge from `await_alignment` into `human` disproves. What it rests on is that a
+  // parked task stands on such a step, and no check can tell a right reference from a
+  // wrong one there.
   assert.equal(graph.steps.find((step) => step.name === "await_alignment").kind, "status");
   assert.ok(graph.transitions.some((edge) => edge.from === "await_alignment"));
   assert.deepEqual(validateGraph(graph, schema), []);
@@ -1120,6 +1124,26 @@ test("resume is permitted out of a handled_at step, not only out of a parks_at s
     row.resume_targets = [edge.to];
   });
   assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("every status step the shipped document names in a parks_at rests on the exemption", () => {
+  const graph = document();
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const produced = producedAt(graph);
+  const references = [];
+  for (const row of graph.recovery) {
+    for (const name of row.parks_at) {
+      if (steps.get(name)?.kind !== "status") continue;
+      references.push(`${row.reason} -> ${name}`);
+      assert.ok(
+        !produced.get(row.reason)?.has(name),
+        `${row.reason} at ${name} is produced, so it does not need the exemption and the comment that says otherwise is stale`,
+      );
+    }
+  }
+  // Seven, and the count is asserted so that the claim "none of the seven is
+  // produced" cannot quietly become a claim about some other number.
+  assert.equal(references.length, 7, references.join(", "));
 });
 
 test("the shipped document lists every step the graph parks a reason at", () => {
