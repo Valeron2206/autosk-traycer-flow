@@ -1126,6 +1126,38 @@ test("resume is permitted out of a handled_at step, not only out of a parks_at s
   assert.deepEqual(validateGraph(graph, schema), []);
 });
 
+test("every edge into done carries a park reason, and none of them is a park", () => {
+  // Three rounds of review caught three hand-counted claims of mine about this
+  // document, this one twice: "no parking edge lands on done" and then "six of the
+  // eleven carry a reason", when all eleven do. A number in a contract that nothing
+  // recomputes is a number that rots, so the claim is asserted here instead.
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const into = graph.transitions.filter((edge) => edge.to === "done");
+  assert.equal(into.length, 11);
+  for (const edge of into) {
+    assert.ok(
+      edge.guards.some((id) => guards.get(id)?.park_reason !== undefined),
+      `${edge.id} lands on done carrying no park reason`,
+    );
+  }
+  const named = new Set(
+    graph.recovery.filter((row) => row.parks_at.includes("done")).map((row) => row.reason),
+  );
+  const under = into.filter((edge) => edge.guards.some((id) => named.has(guards.get(id)?.park_reason)));
+  assert.equal(under.length, 7, [...named].join(", "));
+
+  // And none of it is a park, which is the whole point: the landing has to be a
+  // human status step, and this one is `done`. That is the open debt, stated as a
+  // property of the document rather than as a sentence somebody has to trust.
+  assert.equal(steps.get("done").status, "done");
+  const produced = producedAt(graph);
+  for (const reason of named) {
+    assert.ok(!produced.get(reason)?.has("done"), `${reason} is produced at done after all`);
+  }
+});
+
 test("every status step the shipped document names in a parks_at rests on the exemption", () => {
   const graph = document();
   const steps = new Map(graph.steps.map((step) => [step.name, step]));
