@@ -79,7 +79,7 @@ test("a misspelled step is not accepted quietly; the row parks nowhere", () => {
   // Filtering the step column to registered steps could hide a typo. It does
   // not, because a reason with no step and no class is refused.
   // The misspelling is applied to whatever step the row currently names, rather
-  // than to a step name written here: the second column is `parks_at` rendered,
+  // than to a step name written here: the second column is `named_at` rendered,
   // so pinning its text would make this test fail whenever that column widens
   // — which is what it did the first time a reason gained a step.
   const row = plan.split("\n").find((line) => line.startsWith("| code_verdict_invalid |"));
@@ -92,7 +92,7 @@ test("a misspelled step is not accepted quietly; the row parks nowhere", () => {
   const broken = plan.replace(row, steps.reduce((line, name) => line.replace(name, name.replace(/[aeiou]/u, "")), row));
   assert.notEqual(broken, plan);
   const entry = extractVocabulary(broken, graph).find((candidate) => candidate.code === "code_verdict_invalid");
-  assert.deepEqual(entry.parks_at, []);
+  assert.deepEqual(entry.named_at, []);
   const claimed = { ...vocabulary(), park_reasons: [{ ...entry, producer: "daemon", producer_files: [] }] };
   assert.ok(reasons(stepErrors(claimed, registeredSteps(graph))).includes("refusal_vocabulary_unknown_step"));
 });
@@ -104,8 +104,8 @@ test("the resource never wins an argument with the table", () => {
   const invented = vocabulary();
   invented.park_reasons = [...invented.park_reasons, {
     code: "park_reason_nobody_declared",
-    parks_at: ["freeze"],
-    parks_at_classes: [],
+    named_at: ["freeze"],
+    named_at_classes: [],
     producer: "daemon",
     producer_files: [],
   }];
@@ -117,7 +117,7 @@ test("the resource never wins an argument with the table", () => {
 
   const moved = vocabulary();
   moved.park_reasons = moved.park_reasons.map((entry, index) =>
-    index === 0 ? { ...entry, parks_at: ["cleanup"] } : entry);
+    index === 0 ? { ...entry, named_at: ["cleanup"] } : entry);
   assert.deepEqual(reasons(driftErrors(moved, extracted)), ["refusal_vocabulary_drift"]);
 });
 
@@ -137,14 +137,14 @@ test("a class defined as everything else is recomputed, not trusted", () => {
 
   const unknownClass = vocabulary();
   unknownClass.park_reasons = unknownClass.park_reasons.map((entry, index) =>
-    index === 0 ? { ...entry, parks_at_classes: ["class_nobody_declared"] } : entry);
+    index === 0 ? { ...entry, named_at_classes: ["class_nobody_declared"] } : entry);
   assert.ok(reasons(stepErrors(unknownClass, steps)).includes("refusal_vocabulary_unknown_class"));
 });
 
 test("a producer claim the repository contradicts is refused", () => {
   const sources = { "src/host/a.mjs": "throw new FlowError('cleanup_dirty')" };
   const daemonClaim = {
-    park_reasons: [{ code: "cleanup_dirty", parks_at: ["cleanup"], parks_at_classes: [], producer: "daemon", producer_files: [] }],
+    park_reasons: [{ code: "cleanup_dirty", named_at: ["cleanup"], named_at_classes: [], producer: "daemon", producer_files: [] }],
   };
   assert.deepEqual(reasons(producerErrors(daemonClaim, sources)), ["refusal_vocabulary_producer_misdeclared"]);
   assert.deepEqual(
@@ -178,7 +178,7 @@ test("a short code is not produced by a file that only writes a longer one", () 
   // `foreign movement` is a suffix of the planning-ref reason, and a substring
   // match would have credited the wrong file with producing it.
   const sources = { "src/host/a.mjs": "'planning_ref_foreign_movement'" };
-  const entry = { code: "foreign_movement", parks_at: ["integration_recovery"], parks_at_classes: [], producer: "daemon", producer_files: [] };
+  const entry = { code: "foreign_movement", named_at: ["integration_recovery"], named_at_classes: [], producer: "daemon", producer_files: [] };
   assert.deepEqual(producerErrors({ park_reasons: [entry] }, sources), []);
 });
 
@@ -186,7 +186,7 @@ test("a park reason with no recorded owner, or the wrong one, is refused", () =>
   // "Somebody must have closed this somewhere" is how a code with no owner
   // survives, so the owner is a field rather than an inference.
   const contracts = { "a.md": "Closed set: `alpha_beta`, `gamma_delta`.\n" };
-  const entry = { code: "alpha_beta", parks_at: ["freeze"], parks_at_classes: [], producer: "daemon", producer_files: [] };
+  const entry = { code: "alpha_beta", named_at: ["freeze"], named_at_classes: [], producer: "daemon", producer_files: [] };
   assert.deepEqual(ownerErrors({ park_reasons: [{ ...entry, closed_by: "docs/contracts/a.md" }] }, contracts), []);
   assert.deepEqual(
     reasons(ownerErrors({ park_reasons: [{ ...entry, closed_by: undefined }] }, contracts)),

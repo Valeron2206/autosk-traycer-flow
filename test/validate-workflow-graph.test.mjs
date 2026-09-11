@@ -33,6 +33,7 @@ import {
   parkReasons,
   loadFiles,
   parseStrict,
+  producedAt,
   validateGraph,
   validateReference,
   validateWorkflowGraphDesign,
@@ -68,13 +69,17 @@ test("the working example is accepted", () => {
   assert.deepEqual(validateGraph(example(), schema), []);
 });
 
-test("the refused example is refused, by the five defects it advertises", () => {
+test("the refused example is refused, by the six defects it advertises", () => {
   const errors = validateGraph(parseStrict(files[REFUSED_PATH]), schema);
   const codes = errors.map((message) => message.split(":")[0]).sort();
+  // The sixth is a cascade and the example says so: the cap counts a transition
+  // that does not exist, so nothing can attribute the cap's reason to a step, and
+  // the row naming that step is then a row the graph does not park there.
   assert.deepEqual(codes, [
     "graph_cap_transition_unknown",
     "graph_predicate_unknown",
     "graph_priority_ambiguous",
+    "graph_recovery_parks_at_unproduced",
     "graph_step_unknown",
     "resume_target_not_permitted",
   ]);
@@ -386,10 +391,18 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     (document) => { document.unexpected = true; },
     (document) => { document.guards[0].park_reason = "totally_unknown_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "totally_unknown_reason"; },
     (document) => { document.guards[0].park_reason = "no_transition_reason"; document.recovery.find((row) => row.reason === "core_flow_decision_required").reason = "no_transition_reason"; },
-    // The parks_at check belongs in the battery and not only in its own test:
-    // this is the list that notices a code reachable and undeclared, and a code
-    // it never provokes is one it cannot speak for.
+    // The parks_at checks belong in the battery and not only in their own tests:
+    // this is the list that notices a code reachable and undeclared, and a code it
+    // never provokes is one it cannot speak for. Both directions are provoked, so
+    // neither can be deleted without this list going quiet about it.
     (document) => { document.steps.find((step) => step.name === "freeze_artifact").no_transition_reason = "alignment_record_stale"; },
+    (document) => { document.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "record_artifact_pass"]; },
+    (document) => { document.recovery.find((row) => row.reason === "artifact_freeze_invalid").handled_at = ["freeze_artifact"]; },
+    (document) => {
+      const row = document.recovery.find((entry) => entry.reason === "artifact_freeze_invalid");
+      row.parks_at = ["freeze_artifact", "await_alignment"];
+      row.handled_at = ["await_alignment"];
+    },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -563,7 +576,7 @@ test("every park reason the document declares has a resume target that is a decl
   assert.deepEqual(missing, []);
 });
 
-test("every resume target is reachable by a declared edge from the reason's own parks_at", () => {
+test("every resume target is reachable by a declared edge from a step its own row names", () => {
   const graph = document();
   const outgoing = new Map();
   for (const edge of graph.transitions) {
@@ -571,9 +584,10 @@ test("every resume target is reachable by a declared edge from the reason's own 
   }
   const unreachable = [];
   for (const row of graph.recovery) {
-    const declared = new Set(row.parks_at.flatMap((step) => outgoing.get(step) ?? []));
+    const named = [...row.parks_at, ...(row.handled_at ?? [])];
+    const declared = new Set(named.flatMap((step) => outgoing.get(step) ?? []));
     for (const target of row.resume_targets) {
-      if (!declared.has(target)) unreachable.push(`${row.reason}: ${target} leaves none of its parks_at steps`);
+      if (!declared.has(target)) unreachable.push(`${row.reason}: ${target} leaves none of the steps its row names`);
     }
   }
   assert.deepEqual(unreachable, []);
@@ -740,12 +754,16 @@ test("an entry naming a step the document never declares is refused", () => {
   );
 });
 
-test("a reason may park at a whole step class without exceeding the schema's bound", () => {
+test("a reason may name a whole step class without exceeding the schema's bound", () => {
   const graph = document();
-  const widest = graph.recovery.reduce((a, b) => (a.parks_at.length >= b.parks_at.length ? a : b));
+  // The bound is on each field, and what has to fit is how many steps one reason
+  // names between them: the split moved 46 of `project_boundary_invalid`'s 68 into
+  // `handled_at` without any of them ceasing to be a step the row is about.
+  const width = (row) => row.parks_at.length + (row.handled_at?.length ?? 0);
+  const widest = graph.recovery.reduce((a, b) => (width(a) >= width(b) ? a : b));
   assert.ok(
-    widest.parks_at.length > 32,
-    `expected a class-wide reason above the previous bound, widest was ${widest.reason} at ${widest.parks_at.length}`,
+    width(widest) > 32,
+    `expected a class-wide reason above the previous bound, widest was ${widest.reason} at ${width(widest)}`,
   );
   assert.deepEqual(validateGraph(graph, schema), []);
 });
@@ -872,15 +890,20 @@ test("graph_park_reason_ambiguous: a parking edge no guard gives a reason", () =
  * steps, which the contract states deliberately: a flow parked at one of them
  * may resume into a step reachable only from another. All 538 targets are an
  * edge out of at least one such step, which is what the validator enforces;
- * 262 are an edge out of every one of them and 276 are not, and a live daemon
- * was observed taking one of the 276. Narrowing the check to the step the flow
+ * 207 are an edge out of every one of them and 331 are not, and a live daemon
+ * was observed taking one of the 331. Narrowing the check to the step the flow
  * is at would strip them, so it is not a tightening anyone may do quietly — it
  * is a rewrite of the recovery table, and this test is what makes it loud.
+ *
+ * The union now spans both of a row's lists, so the mutation spells it that way:
+ * `record_alignment` is where the reason is handled, not where the graph parks it,
+ * and putting it back in `parks_at` is refused by a different check entirely.
  */
-test("the union is deliberate: a target reachable from one parks_at step and not another is accepted", () => {
+test("the union is deliberate: a target reachable from one named step and not another is accepted", () => {
   const graph = mutated((entry) => {
     const row = entry.recovery.find((candidate) => candidate.reason === "quick_classification_invalid");
-    row.parks_at = ["intake", "record_alignment"];
+    row.parks_at = ["intake"];
+    row.handled_at = ["record_alignment"];
   });
   // await_alignment leaves intake and does not leave record_alignment.
   const leaving = (name) => graph.transitions.filter((edge) => edge.from === name).map((edge) => edge.to);
@@ -958,17 +981,30 @@ test("a parking edge carries the reason its own row names", () => {
 // --- parks_at is checked against where the graph actually parks -------------
 
 /**
- * `resume_targets` is bound to the edges leaving a reason's `parks_at` steps,
- * and until now nothing defended that set. A row could omit the very step whose
- * guard names the reason, and the union would then be computed over steps the
- * flow never stops at.
+ * `resume_targets` is bound to the edges leaving a reason's `parks_at` and
+ * `handled_at` steps, and until these checks nothing defended that set. A row
+ * could omit the very step whose guard names the reason, and the union would
+ * then be computed over steps the flow never stops at.
  *
- * The check is ONE directional, and that is not a simplification. A row may
- * list more than the graph produces, because a reason can also be produced
- * outside the graph: `project_boundary_invalid` lists 68 steps while the graph
- * parks it at 18, which is the daemon's own boundary check stopping a task
- * wherever it stands. Demanding equality would call that a defect, so the
- * second test below is as load-bearing as the first.
+ * The check used to be ONE directional, and the test below it used to pin that:
+ * a row could list more than the graph produces, because `parks_at` was doing
+ * two jobs at once. `project_boundary_invalid` listed 68 steps while the graph
+ * parks it at 18, and demanding equality would have called that a defect. The
+ * fifty extra were not parks — they are where the reason is handled and where
+ * resume leaves from, which is now `handled_at`. With the two jobs named apart
+ * the check closes in both directions, and the pin is deliberately inverted:
+ * what was accepted is now refused, with the surplus moved rather than deleted.
+ *
+ * One exemption survives, keyed on the kind: a status step is a place a parked task
+ * STANDS, and standing there is exactly what `parks_at` records. A park into a human
+ * status step moves the task onto it, measured on a running daemon, so `human` in a
+ * `parks_at` is that fact and not a stale entry. The exemption accepts such a step
+ * WITHOUT the graph having to park the reason from it, and that is all it claims: a
+ * status step CAN be one the graph parks from, since an edge out of it into a human
+ * status step puts it there, and that document is legal. Of the shipped document's
+ * seven status references, none is produced. Demanding evidence instead — that the
+ * step be the landing of an edge carrying the reason — accepts four of the seven,
+ * so it would refuse three references the owner's frame keeps.
  */
 
 test("graph_recovery_parks_at_incomplete: a guard names a reason at a step its row omits", () => {
@@ -1004,14 +1040,142 @@ test("graph_recovery_parks_at_incomplete: a step's own no_transition_reason coun
   );
 });
 
-test("a parks_at wider than the graph produces is accepted, because a reason can be produced outside it", () => {
+test("graph_recovery_parks_at_unproduced: a parks_at wider than the graph produces is refused", () => {
+  assertRefuses(
+    mutated((entry) => {
+      entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "record_artifact_pass"];
+    }),
+    "graph_recovery_parks_at_unproduced",
+  );
+});
+
+test("the same step in handled_at is accepted: the check offers a place to move to, not only a refusal", () => {
   const graph = mutated((entry) => {
-    entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "record_artifact_pass"];
+    const row = entry.recovery.find((r) => r.reason === "artifact_freeze_invalid");
+    row.parks_at = ["freeze_artifact"];
+    row.handled_at = ["record_artifact_pass"];
   });
   // Nothing in this document parks artifact_freeze_invalid at record_artifact_pass.
   const produced = graph.guards.filter((guard) => guard.park_reason === "artifact_freeze_invalid");
   assert.ok(produced.length > 0 && !graph.steps.some((step) => step.no_transition_reason === "artifact_freeze_invalid" && step.name === "record_artifact_pass"));
   assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("a status step in parks_at is accepted: it is where a parked task stands", () => {
+  const graph = mutated((entry) => {
+    entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").parks_at = ["freeze_artifact", "await_alignment"];
+  });
+  // The exemption is keyed on the kind and nothing else. Two wrong reasons were
+  // given for it before this one: that a status step has no outgoing edges, which
+  // `await_alignment` disproves, and that a status step can never be produced, which
+  // an edge from `await_alignment` into `human` disproves. What it rests on is that a
+  // parked task stands on such a step, and no check can tell a right reference from a
+  // wrong one there.
+  assert.equal(graph.steps.find((step) => step.name === "await_alignment").kind, "status");
+  assert.ok(graph.transitions.some((edge) => edge.from === "await_alignment"));
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("graph_recovery_handled_at_parks: a handled_at step where the graph does park the reason", () => {
+  // ASTRA-PH-01. `handled_at` is defined as the steps the graph NEVER parks the
+  // reason at, and until this check nothing said so: the field's names were checked
+  // for existence and their outgoing edges were unioned into the resume permission,
+  // and the negative statement the field makes was enforced nowhere. One step could
+  // be claimed as both a place the reason is produced and a place it is not.
+  assertRefuses(
+    mutated((entry) => {
+      entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").handled_at = ["freeze_artifact"];
+    }),
+    "graph_recovery_handled_at_parks",
+  );
+});
+
+test("graph_recovery_lists_overlap: one step in both lists at once", () => {
+  // The check above catches an overlap on a step the graph parks the reason at, and
+  // the completeness check catches one it does not — except for a status step, which
+  // both of them exempt. So a status step could sit in both lists, one saying a
+  // parked task stands there and the other saying the reason never arises there.
+  assertRefuses(
+    mutated((entry) => {
+      const row = entry.recovery.find((candidate) => candidate.reason === "artifact_freeze_invalid");
+      row.parks_at = ["freeze_artifact", "await_alignment"];
+      row.handled_at = ["await_alignment"];
+    }),
+    "graph_recovery_lists_overlap",
+  );
+});
+
+test("handled_at is checked for unknown step names the same way parks_at is", () => {
+  assertRefuses(
+    mutated((entry) => {
+      entry.recovery.find((row) => row.reason === "artifact_freeze_invalid").handled_at = ["no_such_step"];
+    }),
+    "graph_step_unknown",
+  );
+});
+
+test("resume is permitted out of a handled_at step, not only out of a parks_at step", () => {
+  const graph = mutated((entry) => {
+    const row = entry.recovery.find((r) => r.reason === "artifact_freeze_invalid");
+    row.handled_at = ["record_artifact_pass"];
+    // An edge leaving record_artifact_pass and nothing else: without the union the
+    // target is unreachable and `resume_target_not_permitted` fires.
+    const edge = entry.transitions.find((t) => t.from === "record_artifact_pass");
+    row.resume_targets = [edge.to];
+  });
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("every edge into done carries a park reason, and none of them is a park", () => {
+  // Three rounds of review caught three hand-counted claims of mine about this
+  // document, this one twice: "no parking edge lands on done" and then "six of the
+  // eleven carry a reason", when all eleven do. A number in a contract that nothing
+  // recomputes is a number that rots, so the claim is asserted here instead.
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const into = graph.transitions.filter((edge) => edge.to === "done");
+  assert.equal(into.length, 11);
+  for (const edge of into) {
+    assert.ok(
+      edge.guards.some((id) => guards.get(id)?.park_reason !== undefined),
+      `${edge.id} lands on done carrying no park reason`,
+    );
+  }
+  const named = new Set(
+    graph.recovery.filter((row) => row.parks_at.includes("done")).map((row) => row.reason),
+  );
+  const under = into.filter((edge) => edge.guards.some((id) => named.has(guards.get(id)?.park_reason)));
+  assert.equal(under.length, 7, [...named].join(", "));
+
+  // And none of it is a park, which is the whole point: the landing has to be a
+  // human status step, and this one is `done`. That is the open debt, stated as a
+  // property of the document rather than as a sentence somebody has to trust.
+  assert.equal(steps.get("done").status, "done");
+  const produced = producedAt(graph);
+  for (const reason of named) {
+    assert.ok(!produced.get(reason)?.has("done"), `${reason} is produced at done after all`);
+  }
+});
+
+test("every status step the shipped document names in a parks_at rests on the exemption", () => {
+  const graph = document();
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const produced = producedAt(graph);
+  const references = [];
+  for (const row of graph.recovery) {
+    for (const name of row.parks_at) {
+      if (steps.get(name)?.kind !== "status") continue;
+      references.push(`${row.reason} -> ${name}`);
+      assert.ok(
+        !produced.get(row.reason)?.has(name),
+        `${row.reason} at ${name} is produced, so it does not need the exemption and the comment that says otherwise is stale`,
+      );
+    }
+  }
+  // Seven, and the count is asserted so that the claim "none of the seven is
+  // produced" cannot quietly become a claim about some other number.
+  assert.equal(references.length, 7, references.join(", "));
 });
 
 test("the shipped document lists every step the graph parks a reason at", () => {

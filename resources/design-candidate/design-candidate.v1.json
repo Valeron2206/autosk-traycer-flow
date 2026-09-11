@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "be8912ea81e7aba7b8414e05139cdbad1938d42a7ab37fb2d054fee60e566fee"
+      "sha256": "1c945d5559158abeac121bb7421aeefd35127037e8d689f362f32d206496c1c8"
     },
     {
       "path": "04-decisions.md",
@@ -148,7 +148,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "7d39b97a582057565451dc82a180c97c1c01aca388bcd71232d9cbbcbdd24ec3"
+      "sha256": "bd98681fa3cbee4daba7df10e830910138fbf1009f7e58d0412a5045a65bf180"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "536a0e6cebd6a2e705856a2ccab0c68f552415fee01f474502887e067772312f"
+      "sha256": "0778fd1684e4bddd6adeb58c0b8a8ead4cb263ac5ce5ea58e12974debfa5f860"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "ac89055d0545f7332e5f9b963802374709764c00e241bcef96009acaafb84270"
+      "sha256": "9c651fce73597c8c270c3184d549ce1826ef15ae88e6aacc40a17c7c73b2231e"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -416,15 +416,15 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.refused.example.json",
-      "sha256": "1bf3ef5fb596097b83241903425b23b191476b98f12ef113d4ae9a54fe16643a"
+      "sha256": "4b15af60ead2daa7a0bc0e6e0a40cc14e9e9c2cea64de974884183575c5546be"
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.schema.json",
-      "sha256": "6768b61d6efe56d0a277a8437a35cf927836f23a986bce961e86af194946c397"
+      "sha256": "cc307b6b058d62cd9e5cdbb813521bc61f56403568d512a0e11f2f509b91394b"
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "b438ff1ddce4aeece7323b1e5b9f91dc42daf3ecbf044889aeabbd17f1db862f"
+      "sha256": "4a699decc3ad706a798db0394142945afa812176ee6fda1a912b9cba6a06c195"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -496,18 +496,18 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.refused.example.json",
-      "sha256": "e3b7fd3e1712e8cf334152f2192102f54252d7b444e45e84744e606f45ad4b3b"
+      "sha256": "3bb914f3a979af9005378ba966deab3b9d4bec79b69f5e6c6c1d4d2b881f56bb"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "94a41e409743c4e6d7000148eb1ecb6b50849e37a40e7b5adf385346641debc0"
+      "sha256": "183e685ad00b0c56dc345ee7a2010da66e7046e9be864c10326c3373efbc56e9"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "1b48414e7b5f9d64561aff605ce4c0bd74c08547689684ac0c264ed2e2cb4c73"
+      "sha256": "5b02ed5de9e74e30037e3500b6bc62ec9b2ec0735f05d49504bccf8dafc1bbfe"
     }
   ],
-  "candidate_digest": "421694137eb400a48346a4deb44558e87b176e678cddccf2713e4a133c6f7576",
+  "candidate_digest": "8cda95a0c427a6d5e8283253ba406535f39ab0256abf340f98bae48cba8214e8",
   "dispositions": [
     {
       "issue": 3,

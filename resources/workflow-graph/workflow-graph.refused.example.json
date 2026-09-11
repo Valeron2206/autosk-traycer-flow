@@ -198,8 +198,8 @@
       "resume_targets": [
         "freeze_artifact"
       ],
-      "required_state": "well formed; the cap that names it is the defect, not this row"
+      "required_state": "the cap that names it is the defect, and this row is refused by the cascade: with the counted transition missing, nothing attributes the cap's reason to freeze_artifact, so the row names a step the graph does not park it at"
     }
   ],
-  "canonical_digest": "4f8b0d8174dd88fac516d817222408447fed6e9226157b5c59cde975df34aa9a"
+  "canonical_digest": "6c7f51761a2e84a3a12a240d43e3111d7da740fc9f2efdad9cdcd6796ecb86e9"
 }

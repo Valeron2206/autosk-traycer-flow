@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 
 import { createHash } from "node:crypto";
 
-import { DOCUMENT_PATH, canonicalText, parseStrict } from "./validate-workflow-graph.mjs";
+import { DOCUMENT_PATH, canonicalText, parseStrict, producedAt } from "./validate-workflow-graph.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -140,6 +140,62 @@ export function coverageErrors(document) {
   return [...new Set(errors)].sort();
 }
 
+/**
+ * The step classes the park table's cells may name, read from the vocabulary.
+ *
+ * Not a list kept here. The park table's own extraction resolves class references
+ * against this resource, so a second copy would be a second place for the members
+ * of a class to live — which is the failure this whole family of checks exists to
+ * prevent.
+ */
+function stepClasses({ root = ROOT, read = readFileSync } = {}) {
+  const file = path.join(root, "resources/refusal-vocabulary/refusal-vocabulary.v1.json");
+  const vocabulary = JSON.parse(read(file, "utf8"));
+  return new Map((vocabulary.step_classes ?? []).map((entry) => [entry.class, entry.members]));
+}
+
+/**
+ * Every step the graph parks a reason at that no row of the park table names.
+ *
+ * `coverageErrors` above asks about reasons, and a reason can be covered by rows
+ * that between them name only some of the steps it parks at. The shipped document
+ * had ten such steps under one reason: five of its fifteen were covered by the row
+ * written for gate children, and the other ten are deterministic steps with no gate
+ * child, which that row cannot reach. Nothing refused, because nothing asked.
+ *
+ * A cell may name a step outright or name a class, and a class counts for the
+ * members it declares. A reason a view omits is not asked anything — omission is
+ * already a decision the view states and `coverageErrors` already checks it.
+ */
+export function stepCoverageErrors(document, options = {}) {
+  const classes = stepClasses(options);
+  const registered = new Set(document.steps.map((step) => step.name));
+  const errors = [];
+  for (const view of document.views ?? []) {
+    if (view.id !== "park_table") continue;
+    const omitted = new Set(view.omits ?? []);
+    const named = new Map();
+    for (const row of view.rows) {
+      const cell = row.cells[1] ?? "";
+      const steps = new Set();
+      for (const [, name] of cell.matchAll(/<([a-z_]+)>/g)) for (const step of classes.get(name) ?? []) steps.add(step);
+      for (const token of cell.split(/[^a-z0-9_]+/)) if (registered.has(token)) steps.add(token);
+      for (const reason of row.covers) {
+        if (!named.has(reason)) named.set(reason, new Set());
+        for (const step of steps) named.get(reason).add(step);
+      }
+    }
+    for (const [reason, where] of producedAt(document)) {
+      if (omitted.has(reason)) continue;
+      for (const step of [...where].sort()) {
+        if (named.get(reason)?.has(step)) continue;
+        errors.push(`view_park_step_unexplained: ${view.id} leaves ${reason} at ${step} with no row that names it`);
+      }
+    }
+  }
+  return errors.sort();
+}
+
 export function renderErrors(document, { root = ROOT, read = readFileSync } = {}) {
   const errors = [];
   for (const view of document.views ?? []) {
@@ -184,7 +240,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (process.argv.includes("--write")) {
     for (const line of writeViews(document)) console.log(`wrote ${line}`);
   } else {
-    const errors = [...rosterErrors(document), ...coverageErrors(document), ...bindingErrors(document), ...renderErrors(document)];
+    const errors = [
+      ...rosterErrors(document),
+      ...coverageErrors(document),
+      ...stepCoverageErrors(document),
+      ...bindingErrors(document),
+      ...renderErrors(document),
+    ];
     if (errors.length > 0) {
       console.error(errors.join("\n"));
       process.exitCode = 1;

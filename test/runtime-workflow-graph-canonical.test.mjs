@@ -113,7 +113,7 @@ const graph = () => ({
     { id: "t1", from: "a", to: "b", priority: 0, guards: ["g1"] },
   ],
   caps: [{ cycle: "c2", counted_transition: "t2", limit: 1, park_reason: "r" }],
-  recovery: [{ reason: "r", parks_at: ["b", "a"], resume_targets: ["b", "a"], required_state: "n/a" }],
+  recovery: [{ reason: "r", parks_at: ["b", "a"], handled_at: ["b", "a"], resume_targets: ["b", "a"], required_state: "n/a" }],
 });
 
 test("a set reshuffled is the same document and an order-carrying array is not", () => {
@@ -123,6 +123,7 @@ test("a set reshuffled is the same document and an order-carrying array is not",
   shuffled.steps.reverse();
   shuffled.guards.reverse();
   shuffled.caps = [...shuffled.caps];
+  shuffled.recovery[0].handled_at.reverse();
   assert.equal(graphDigest(shuffled), graphDigest(written), "sets are sets however they were typed");
 
   // `transitions` and `resume_targets` are declared order-carrying by the plan,
@@ -145,6 +146,10 @@ test("the members a set holds are sorted too", () => {
   assert.deepEqual(normalized.transitions[0].guards, ["g1", "g2"], "an edge's guards are a set");
   assert.deepEqual(normalized.transitions.map((entry) => entry.id), ["t2", "t1"], "the edges themselves are not");
   assert.deepEqual(normalized.recovery[0].parks_at, ["a", "b"]);
+  // `handled_at` is a set for the same reason `parks_at` is, and it says so here
+  // rather than only in the contract: a field that reaches the digest unsorted
+  // makes the order somebody typed it in part of the graph's identity.
+  assert.deepEqual(normalized.recovery[0].handled_at, ["a", "b"]);
   assert.deepEqual(normalized.recovery[0].resume_targets, ["b", "a"], "and neither are resume targets");
 });
 

@@ -312,7 +312,7 @@
       }
     },
     "recovery": {
-      "description": "One row per park reason. The column that used to do two jobs is split: parks_at is where the flow stops, resume_targets is where the user may resume.",
+      "description": "One row per park reason. parks_at is where the flow stops with it: the steps the graph parks it from, plus the status step a parked task stands on. handled_at is the rest of the steps the row names, where the reason is dealt with and where resume leaves from but where the graph never raises it. resume_targets is where the user may resume.",
       "type": "array",
       "maxItems": 512,
       "items": {
@@ -329,7 +329,17 @@
             "$ref": "#/$defs/park_reason"
           },
           "parks_at": {
-            "description": "Bounded by the step count rather than by a smaller guess: the refusal vocabulary parks a reason at a whole step class, and project_boundary_invalid reaches all 68 deterministic steps, so a tighter cap cannot express the real graph.",
+            "description": "Exactly where the graph parks this reason, plus any status step a parked task stands on. What the graph produces is the step an edge leaves, so it names a park's origin and never its landing, which is the one thing it cannot check here. Everything else is checked in both directions. Bounded by the step count rather than by a smaller guess: one reason can name 68 steps across this field and handled_at together.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "maxItems": 512,
+            "items": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "handled_at": {
+            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 61 of the 84 rows name none, and the widest holds 46 of project_boundary_invalid's 68. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
@@ -339,7 +349,7 @@
             }
           },
           "resume_targets": {
-            "description": "Every entry must be a declared edge from one of this reason's parks_at steps. A target outside this list is refused with graph_reasons.resume_target_not_permitted. Bounded by the step count for the same reason as parks_at.",
+            "description": "Every entry must be a declared edge from one of this reason's parks_at or handled_at steps. A target outside that union is refused with graph_reasons.resume_target_not_permitted. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,

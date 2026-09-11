@@ -114,6 +114,7 @@ export function normalizeGraph(document) {
     normalized.recovery = byKey(document.recovery, "reason").map((entry) => ({
       ...entry,
       parks_at: [...entry.parks_at].sort(),
+      ...(entry.handled_at ? { handled_at: [...entry.handled_at].sort() } : {}),
     }));
   }
   return normalized;

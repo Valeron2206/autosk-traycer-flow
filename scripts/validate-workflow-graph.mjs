@@ -71,8 +71,11 @@ export const REFUSALS = Object.freeze([
   "graph_park_reason_unknown",
   "graph_predicate_unknown",
   "graph_priority_ambiguous",
+  "graph_recovery_handled_at_parks",
+  "graph_recovery_lists_overlap",
   "graph_recovery_missing",
   "graph_recovery_parks_at_incomplete",
+  "graph_recovery_parks_at_unproduced",
   "graph_recovery_reason_unknown",
   "graph_schema",
   "graph_step_unknown",
@@ -550,8 +553,13 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     if (!produced.has(row.reason)) {
       errors.push(`graph_recovery_reason_unknown: no step, guard or cap produces ${row.reason}`);
     }
+    // Resume is permitted out of either list. `parks_at` says where the flow stops
+    // with the reason, `handled_at` says where the reason is dealt with, and 114 of
+    // the document's targets are an edge out of the second only — reading the rule
+    // over `parks_at` alone would refuse the resume paths the plan describes.
+    const named = [...row.parks_at, ...(row.handled_at ?? [])];
     const permitted = new Set();
-    for (const name of row.parks_at) {
+    for (const name of named) {
       if (!steps.has(name)) errors.push(`graph_step_unknown: recovery row ${row.reason} parks at ${name}`);
       for (const edge of outgoing.get(name) ?? []) permitted.add(edge.to);
     }
@@ -559,31 +567,73 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
       if (!permitted.has(target)) {
         errors.push(
           `resume_target_not_permitted: ${row.reason} resumes at ${target}, ` +
-            `which is not a declared edge from ${row.parks_at.join(" or ")}`,
+            `which is not a declared edge from ${named.join(" or ")}`,
         );
       }
     }
   }
 
-  // Where the graph itself produces a reason must be in that reason's
-  // `parks_at`, because `resume_targets` is bound to the edges leaving those
-  // steps and nothing else defended the set it is bound to. Before this, a row
-  // could omit the very step whose guard names the reason and the union would
-  // be computed over steps the flow never stops at.
+  // `parks_at` is checked against the graph in BOTH directions, because it says
+  // one thing now. Where the graph produces a reason must be listed, or the union
+  // `resume_targets` is bound to is computed over steps the flow never stops at;
+  // and what is listed must be where the graph produces it, or the field is back
+  // to doing two jobs and neither is checkable. A step where the reason is dealt
+  // with rather than raised belongs in `handled_at`, which the resume rule reads
+  // as well — so the second direction moves a step, it does not delete it.
   //
-  // One directional on purpose. A row may list MORE, since a reason can also be
-  // produced outside the graph: the daemon's own boundary check stops a task
-  // wherever it stands, and its row lists 68 steps while the graph parks it at
-  // 18. Demanding equality would call that a defect. The code is not spelled
-  // here because the vocabulary's producer scan reads a mention as a claim to
-  // produce it — which is how this comment failed the gate the first time.
-  for (const [reason, where] of producedAt(document, steps)) {
+  // The exemption is keyed on the kind and nothing else: a status step is where a
+  // parked task STANDS, and standing there is what this field records, so one is
+  // accepted here WITHOUT the graph having to park the reason from it. That is a
+  // boundary of the check, not a proof about any one reference — and not the claim
+  // that a status step can never be produced: an edge out of a status step into a
+  // human status step puts it there, and such a document is legal. What holds of
+  // the shipped document is that none of its seven status references is produced,
+  // so each rests on this line. Requiring the step to be the LANDING of an edge
+  // carrying the reason was measured instead and rejected: four of the seven pass
+  // and three do not, all under the reason the daemon raises outside the graph
+  // wherever a task stands. The codes are not spelled in these comments because the
+  // vocabulary's producer scan reads a mention as a claim to produce it, which is
+  // how this block failed the gate the first time.
+  const producedFor = producedAt(document, steps);
+  for (const [reason, where] of producedFor) {
     const row = rows.get(reason);
     if (!row) continue;
     const listed = new Set(row.parks_at);
     for (const name of [...where].sort()) {
       if (listed.has(name)) continue;
       errors.push(`graph_recovery_parks_at_incomplete: ${reason} parks at ${name}, which its row does not list`);
+    }
+  }
+  // Both fields are checked against the graph, because each makes a statement the
+  // other does not. One says the flow stops here, the other says the reason never
+  // arises here, and a field whose negative statement nothing enforces is a field
+  // that can be written either way: before this, one step could be claimed as both
+  // a place the reason is produced and a place it is not.
+  //
+  // The overlap check is not implied by the other two. A step the graph parks at is
+  // caught by the second loop and a step it does not by the first, but a status step
+  // is exempt from the first and absent from what the graph produces, so it could
+  // sit in both lists with each saying the opposite of the other.
+  for (const row of document.recovery) {
+    const where = producedFor.get(row.reason) ?? new Set();
+    for (const name of [...row.parks_at].sort()) {
+      if (where.has(name) || steps.get(name)?.kind === "status") continue;
+      errors.push(
+        `graph_recovery_parks_at_unproduced: ${row.reason} lists ${name}, ` +
+          "where nothing in the graph parks it; a step that only handles it belongs in the other list",
+      );
+    }
+    const parking = new Set(row.parks_at);
+    for (const name of [...(row.handled_at ?? [])].sort()) {
+      if (where.has(name)) {
+        errors.push(
+          `graph_recovery_handled_at_parks: ${row.reason} calls ${name} a step that only handles it, ` +
+            "and the graph parks it there",
+        );
+      }
+      if (parking.has(name)) {
+        errors.push(`graph_recovery_lists_overlap: ${row.reason} names ${name} in both of its lists`);
+      }
     }
   }
 

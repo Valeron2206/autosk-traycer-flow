@@ -102,17 +102,17 @@ export function extractVocabulary(plan, graph) {
     const classes = all(CLASS_REF, row.step);
     const steps = all(TOKEN, row.step.replace(CLASS_REF, " ")).filter((token) => registered.has(token));
     for (const code of all(CODE, row.reason)) {
-      const entry = byCode.get(code) ?? { code, parks_at: new Set(), parks_at_classes: new Set() };
-      for (const step of steps) entry.parks_at.add(step);
-      for (const name of classes) entry.parks_at_classes.add(name);
+      const entry = byCode.get(code) ?? { code, named_at: new Set(), named_at_classes: new Set() };
+      for (const step of steps) entry.named_at.add(step);
+      for (const name of classes) entry.named_at_classes.add(name);
       byCode.set(code, entry);
     }
   }
   return [...byCode.values()]
     .map((entry) => ({
       code: entry.code,
-      parks_at: [...entry.parks_at].sort(),
-      parks_at_classes: [...entry.parks_at_classes].sort(),
+      named_at: [...entry.named_at].sort(),
+      named_at_classes: [...entry.named_at_classes].sort(),
     }))
     .sort((a, b) => (a.code < b.code ? -1 : 1));
 }
@@ -135,7 +135,7 @@ export function driftErrors(vocabulary, extracted) {
     }
     // Only the fields the table decides are compared; the producer is curated.
     const same = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
-    if (!same(found.parks_at, entry.parks_at) || !same(found.parks_at_classes, entry.parks_at_classes)) {
+    if (!same(found.named_at, entry.named_at) || !same(found.named_at_classes, entry.named_at_classes)) {
       errors.push({ reason: "refusal_vocabulary_drift", detail: `${entry.code} parks elsewhere than the table says` });
     }
   }
@@ -171,17 +171,17 @@ export function stepErrors(vocabulary, steps) {
     }
   }
   for (const entry of vocabulary.park_reasons) {
-    for (const step of entry.parks_at) {
+    for (const step of entry.named_at) {
       if (!registered.has(step)) {
         errors.push({ reason: "refusal_vocabulary_unknown_step", detail: `${entry.code}: ${step}` });
       }
     }
-    for (const name of entry.parks_at_classes) {
+    for (const name of entry.named_at_classes) {
       if (!classes.has(name)) {
         errors.push({ reason: "refusal_vocabulary_unknown_class", detail: `${entry.code}: ${name}` });
       }
     }
-    if (entry.parks_at.length === 0 && entry.parks_at_classes.length === 0) {
+    if (entry.named_at.length === 0 && entry.named_at_classes.length === 0) {
       errors.push({ reason: "refusal_vocabulary_unknown_step", detail: `${entry.code} parks nowhere` });
     }
   }
