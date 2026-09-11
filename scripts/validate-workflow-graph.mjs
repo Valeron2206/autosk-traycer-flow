@@ -73,6 +73,7 @@ export const REFUSALS = Object.freeze([
   "graph_priority_ambiguous",
   "graph_recovery_missing",
   "graph_recovery_parks_at_incomplete",
+  "graph_recovery_parks_at_unproduced",
   "graph_recovery_reason_unknown",
   "graph_schema",
   "graph_step_unknown",
@@ -550,8 +551,13 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     if (!produced.has(row.reason)) {
       errors.push(`graph_recovery_reason_unknown: no step, guard or cap produces ${row.reason}`);
     }
+    // Resume is permitted out of either list. `parks_at` says where the flow stops
+    // with the reason, `handled_at` says where the reason is dealt with, and 114 of
+    // the document's targets are an edge out of the second only — reading the rule
+    // over `parks_at` alone would refuse the resume paths the plan describes.
+    const named = [...row.parks_at, ...(row.handled_at ?? [])];
     const permitted = new Set();
-    for (const name of row.parks_at) {
+    for (const name of named) {
       if (!steps.has(name)) errors.push(`graph_step_unknown: recovery row ${row.reason} parks at ${name}`);
       for (const edge of outgoing.get(name) ?? []) permitted.add(edge.to);
     }
@@ -559,31 +565,45 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
       if (!permitted.has(target)) {
         errors.push(
           `resume_target_not_permitted: ${row.reason} resumes at ${target}, ` +
-            `which is not a declared edge from ${row.parks_at.join(" or ")}`,
+            `which is not a declared edge from ${named.join(" or ")}`,
         );
       }
     }
   }
 
-  // Where the graph itself produces a reason must be in that reason's
-  // `parks_at`, because `resume_targets` is bound to the edges leaving those
-  // steps and nothing else defended the set it is bound to. Before this, a row
-  // could omit the very step whose guard names the reason and the union would
-  // be computed over steps the flow never stops at.
+  // `parks_at` is checked against the graph in BOTH directions, because it says
+  // one thing now. Where the graph produces a reason must be listed, or the union
+  // `resume_targets` is bound to is computed over steps the flow never stops at;
+  // and what is listed must be where the graph produces it, or the field is back
+  // to doing two jobs and neither is checkable. A step where the reason is dealt
+  // with rather than raised belongs in `handled_at`, which the resume rule reads
+  // as well — so the second direction moves a step, it does not delete it.
   //
-  // One directional on purpose. A row may list MORE, since a reason can also be
-  // produced outside the graph: the daemon's own boundary check stops a task
-  // wherever it stands, and its row lists 68 steps while the graph parks it at
-  // 18. Demanding equality would call that a defect. The code is not spelled
-  // here because the vocabulary's producer scan reads a mention as a claim to
-  // produce it — which is how this comment failed the gate the first time.
-  for (const [reason, where] of producedAt(document, steps)) {
+  // The exemption is structural, not a list of names: a status step is where a
+  // parked task STANDS, and standing there is what this field records. What the
+  // graph produces is the step an edge LEAVES, so it names a park's origin and
+  // never its landing — it cannot say this for them however the document is
+  // written. The codes are not spelled in these comments because the vocabulary's
+  // producer scan reads a mention as a claim to produce it, which is how this
+  // block failed the gate the first time.
+  const producedFor = producedAt(document, steps);
+  for (const [reason, where] of producedFor) {
     const row = rows.get(reason);
     if (!row) continue;
     const listed = new Set(row.parks_at);
     for (const name of [...where].sort()) {
       if (listed.has(name)) continue;
       errors.push(`graph_recovery_parks_at_incomplete: ${reason} parks at ${name}, which its row does not list`);
+    }
+  }
+  for (const row of document.recovery) {
+    const where = producedFor.get(row.reason) ?? new Set();
+    for (const name of [...row.parks_at].sort()) {
+      if (where.has(name) || steps.get(name)?.kind === "status") continue;
+      errors.push(
+        `graph_recovery_parks_at_unproduced: ${row.reason} lists ${name}, ` +
+          "where nothing in the graph parks it; a step that only handles it belongs in the other list",
+      );
     }
   }
 

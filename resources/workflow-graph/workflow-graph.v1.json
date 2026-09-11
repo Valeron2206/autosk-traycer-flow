@@ -12885,7 +12885,9 @@
     {
       "reason": "aggregate_verify_failed",
       "parks_at": [
-        "aggregate_verify",
+        "aggregate_verify"
+      ],
+      "handled_at": [
         "record_aggregate_remediation"
       ],
       "resume_targets": [
@@ -12916,13 +12918,15 @@
     {
       "reason": "alignment_record_stale",
       "parks_at": [
-        "clarify_alignment",
         "dispatch_panel",
         "dispatch_ticket_dag",
         "freeze_artifact",
-        "present_tickets_breakdown",
         "record_alignment",
         "record_artifact_pass"
+      ],
+      "handled_at": [
+        "clarify_alignment",
+        "present_tickets_breakdown"
       ],
       "resume_targets": [
         "await_alignment",
@@ -13028,8 +13032,10 @@
     {
       "reason": "arena_candidate_freeze_invalid",
       "parks_at": [
+        "freeze_candidate"
+      ],
+      "handled_at": [
         "build_candidate",
-        "freeze_candidate",
         "verify_candidate"
       ],
       "resume_targets": [
@@ -13043,9 +13049,11 @@
     {
       "reason": "arena_candidate_verify_failed",
       "parks_at": [
-        "build_candidate",
-        "freeze_candidate",
         "verify_candidate"
+      ],
+      "handled_at": [
+        "build_candidate",
+        "freeze_candidate"
       ],
       "resume_targets": [
         "done",
@@ -13085,7 +13093,9 @@
     {
       "reason": "arena_join_invalid",
       "parks_at": [
-        "arena_join",
+        "arena_join"
+      ],
+      "handled_at": [
         "dispatch_arena"
       ],
       "resume_targets": [
@@ -13214,9 +13224,11 @@
     {
       "reason": "artifact_mapping_required",
       "parks_at": [
-        "clarify_alignment",
         "freeze",
-        "freeze_artifact",
+        "freeze_artifact"
+      ],
+      "handled_at": [
+        "clarify_alignment",
         "invalidate_quick_classification",
         "present_tickets_breakdown"
       ],
@@ -13233,8 +13245,10 @@
     {
       "reason": "artifact_pass_invalid",
       "parks_at": [
-        "freeze_artifact",
         "record_artifact_pass"
+      ],
+      "handled_at": [
+        "freeze_artifact"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -13274,13 +13288,15 @@
         "integrate",
         "narrow_review_join",
         "panel_join",
-        "prepare_anchor_impact",
-        "rebuild_code_anchor",
         "record_artifact_pass",
         "record_code_verdict",
         "record_editorial_exemption",
         "review_join",
         "ticket_join"
+      ],
+      "handled_at": [
+        "prepare_anchor_impact",
+        "rebuild_code_anchor"
       ],
       "resume_targets": [
         "apply_arena_decision",
@@ -13331,7 +13347,9 @@
     {
       "reason": "child_creation_key_invalid",
       "parks_at": [
-        "dispatch_arena",
+        "dispatch_arena"
+      ],
+      "handled_at": [
         "dispatch_contest",
         "dispatch_narrow_review",
         "dispatch_panel",
@@ -13533,13 +13551,15 @@
     {
       "reason": "gate_result_invalid",
       "parks_at": [
-        "judge",
-        "review_artifact",
-        "review_candidate",
-        "review_disposition",
         "validate_disposition",
         "validate_judgment",
         "validate_verdict"
+      ],
+      "handled_at": [
+        "judge",
+        "review_artifact",
+        "review_candidate",
+        "review_disposition"
       ],
       "resume_targets": [
         "human",
@@ -13568,13 +13588,15 @@
     {
       "reason": "gate_snapshot_mutated",
       "parks_at": [
-        "judge",
-        "review_artifact",
-        "review_candidate",
-        "review_disposition",
         "validate_disposition",
         "validate_judgment",
         "validate_verdict"
+      ],
+      "handled_at": [
+        "judge",
+        "review_artifact",
+        "review_candidate",
+        "review_disposition"
       ],
       "resume_targets": [
         "human",
@@ -13613,7 +13635,9 @@
     {
       "reason": "implementation_scope_invalid",
       "parks_at": [
-        "implement",
+        "implement"
+      ],
+      "handled_at": [
         "invalidate_quick_classification"
       ],
       "resume_targets": [
@@ -13687,8 +13711,10 @@
       "parks_at": [
         "dispatch_narrow_review",
         "dispatch_panel",
-        "freeze_artifact",
         "human"
+      ],
+      "handled_at": [
+        "freeze_artifact"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -13708,8 +13734,10 @@
       "parks_at": [
         "dispatch_narrow_review",
         "dispatch_review",
-        "freeze",
         "human"
+      ],
+      "handled_at": [
+        "freeze"
       ],
       "resume_targets": [
         "dispatch_narrow_review",
@@ -13763,7 +13791,9 @@
       "reason": "planning_candidate_base_stale",
       "parks_at": [
         "draft_artifact",
-        "freeze_artifact",
+        "freeze_artifact"
+      ],
+      "handled_at": [
         "present_tickets_breakdown"
       ],
       "resume_targets": [
@@ -13837,7 +13867,9 @@
       "reason": "planning_publication_invalid",
       "parks_at": [
         "publish_artifact_pass",
-        "publish_planning_invalidation",
+        "publish_planning_invalidation"
+      ],
+      "handled_at": [
         "rebuild_anchor",
         "record_artifact_pass"
       ],
@@ -13903,15 +13935,17 @@
       "reason": "planning_ref_foreign_movement",
       "parks_at": [
         "cleanup",
-        "fix_artifact",
         "freeze_artifact",
         "init_planning_ref",
         "narrow_review_join",
         "publish_artifact_pass",
         "publish_planning_invalidation",
         "rebuild_anchor",
-        "record_artifact_pass",
         "synthesize_panel"
+      ],
+      "handled_at": [
+        "fix_artifact",
+        "record_artifact_pass"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -13969,46 +14003,59 @@
     {
       "reason": "project_boundary_invalid",
       "parks_at": [
-        "accept",
         "aggregate_verify",
-        "apply_arena_decision",
-        "arena_join",
         "arena_join_wait",
-        "authority_recovery",
         "await_alignment",
         "await_anchor_impact_approval",
+        "contest_join_wait",
+        "done",
+        "emit_blocked_anchor",
+        "human",
+        "intake",
+        "narrow_review_join_wait",
+        "panel_join_wait",
+        "record_code_verdict",
+        "record_editorial_exemption",
+        "review_join_wait",
+        "select_next",
+        "ticket_done",
+        "ticket_join",
+        "ticket_join_wait",
+        "validate_disposition",
+        "validate_judgment",
+        "validate_tickets_manifest",
+        "validate_verdict"
+      ],
+      "handled_at": [
+        "accept",
+        "apply_arena_decision",
+        "arena_join",
+        "authority_recovery",
         "build_candidate",
         "clarify_alignment",
         "cleanup",
         "commit_on_pass",
         "complete_anchor_handoff",
         "contest_join",
-        "contest_join_wait",
         "dispatch_arena",
         "dispatch_contest",
         "dispatch_narrow_review",
         "dispatch_panel",
         "dispatch_review",
         "dispatch_ticket_dag",
-        "done",
         "draft_artifact",
-        "emit_blocked_anchor",
         "fix",
         "fix_artifact",
         "freeze",
         "freeze_artifact",
         "freeze_candidate",
-        "human",
         "implement",
         "init_planning_ref",
-        "intake",
         "integrate",
         "integration_recovery",
         "invalidate_quick_classification",
         "narrow_review_join",
-        "narrow_review_join_wait",
         "panel_join",
-        "panel_join_wait",
         "prepare_anchor_impact",
         "present_tickets_breakdown",
         "publish_artifact_pass",
@@ -14019,22 +14066,11 @@
         "record_alignment",
         "record_anchor_impact_approval",
         "record_artifact_pass",
-        "record_code_verdict",
-        "record_editorial_exemption",
         "repair_anchor_handoff",
         "repair_protocol_snapshot",
         "resume_repaired_tickets",
         "review_join",
-        "review_join_wait",
-        "select_next",
         "synthesize_panel",
-        "ticket_done",
-        "ticket_join",
-        "ticket_join_wait",
-        "validate_disposition",
-        "validate_judgment",
-        "validate_tickets_manifest",
-        "validate_verdict",
         "verify",
         "verify_candidate"
       ],
@@ -14131,10 +14167,12 @@
     {
       "reason": "review_cap",
       "parks_at": [
-        "fix",
-        "fix_artifact",
         "narrow_review_join",
         "record_code_verdict"
+      ],
+      "handled_at": [
+        "fix",
+        "fix_artifact"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -14152,9 +14190,11 @@
     {
       "reason": "review_join_invalid",
       "parks_at": [
-        "dispatch_narrow_review",
         "dispatch_review",
         "review_join"
+      ],
+      "handled_at": [
+        "dispatch_narrow_review"
       ],
       "resume_targets": [
         "human",
@@ -14224,8 +14264,10 @@
       "reason": "ticket_repair_op_invalid",
       "parks_at": [
         "dispatch_ticket_dag",
-        "rebuild_anchor",
         "resume_repaired_tickets"
+      ],
+      "handled_at": [
+        "rebuild_anchor"
       ],
       "resume_targets": [
         "clarify_alignment",
@@ -14273,10 +14315,12 @@
       "reason": "tickets_manifest_invalid",
       "parks_at": [
         "dispatch_ticket_dag",
-        "freeze",
         "freeze_artifact",
-        "present_tickets_breakdown",
         "validate_tickets_manifest"
+      ],
+      "handled_at": [
+        "freeze",
+        "present_tickets_breakdown"
       ],
       "resume_targets": [
         "await_alignment",
@@ -14314,8 +14358,10 @@
     {
       "reason": "verification_cap",
       "parks_at": [
-        "fix",
         "verify"
+      ],
+      "handled_at": [
+        "fix"
       ],
       "resume_targets": [
         "human",
@@ -14432,7 +14478,7 @@
           "covers": [
             "alignment_record_stale"
           ],
-          "binds": "8897d872b012e40705caa9b55a47a9da46c859b6cdb8abf9741c1fad81945a09",
+          "binds": "19e73342a59b6c9ddb498f11240d75fa4561d78d9c0704aeaddc2c32f7c023d3",
           "cells": [
             "alignment_record_stale",
             "clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
@@ -14443,7 +14489,7 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "4096cc519c35022bf00d08287854e72e18d8ed2b85b0f693ef582c82bc3cc9e3",
+          "binds": "5306baee443df1bc367d039bc1bdf36db02d819da3631f41bf15f78175c4617e",
           "cells": [
             "tickets_manifest_invalid",
             "present_tickets_breakdown before freeze and after publication; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -14465,7 +14511,7 @@
           "covers": [
             "artifact_mapping_required"
           ],
-          "binds": "2a38d53ee847d79958f53b86b6dbdc94c4082bc378e24d1d9a16127c2ec6195a",
+          "binds": "532a062bfc877e38711c1ce7b27f84b35b7db11cbe1ec65567a9df02caedc71b",
           "cells": [
             "artifact_mapping_required",
             "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick; also freeze, freeze_artifact",
@@ -14510,7 +14556,7 @@
             "gate_result_missing",
             "gate_result_invalid"
           ],
-          "binds": "620f4448aa7a480e0a81b047852852f0d2b474ce32dc1d70b2f1a85a5dbd0574",
+          "binds": "21c715c4846fabed99c421dd8bbe0a961a4441e83d403f8a157af8b768407b66",
           "cells": [
             "gate_result_missing / gate_result_invalid",
             "`<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict",
@@ -14521,7 +14567,7 @@
           "covers": [
             "gate_snapshot_mutated"
           ],
-          "binds": "f0c9a67c2b1f315d2fef8fd7bba5e45310cad43cf4b75ef54b6e9417fd89183e",
+          "binds": "db9d31be7cb1f6001f0a7b65a4225a2ed74499eb0839abf22a2cddf170c9c610",
           "cells": [
             "gate_snapshot_mutated",
             "`<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict",
@@ -14532,7 +14578,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "blocked_anchor, gate child",
             "`<gate_join_step>` после child done",
@@ -14541,11 +14587,22 @@
         },
         {
           "covers": [
+            "blocked_anchor"
+          ],
+          "cells": [
+            "blocked_anchor, нет gate-ребёнка",
+            "`accept`, `aggregate_verify`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join`",
+            "шаг сам atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor: gate-ребёнка, который бы это сделал, у него нет"
+          ],
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a"
+        },
+        {
+          "covers": [
             "arena_candidate_failed",
             "arena_candidate_verify_failed",
             "arena_candidate_freeze_invalid"
           ],
-          "binds": "f8393357119918659b5198172ff940b771702841bbde25c1e759e39a958a5d3e",
+          "binds": "57f5080a3c505198ae084f0de9c71a074f173434181cda7975689113c06f051b",
           "cells": [
             "arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid",
             "build_candidate, verify_candidate или freeze_candidate",
@@ -14556,7 +14613,7 @@
           "covers": [
             "project_boundary_invalid"
           ],
-          "binds": "4d35218951aaf78b0963be51840672de8ca25459a8e25a0c562726ef24ea4160",
+          "binds": "9075ba885dc5024e5840f216d7cdc0a640201b3759107e72323bf6355152196e",
           "cells": [
             "project_boundary_invalid",
             "`<deterministic_step>`",
@@ -14589,7 +14646,7 @@
           "covers": [
             "planning_ref_foreign_movement"
           ],
-          "binds": "68276a5054cec973fc00d88721e3bd1990ba0f5fbcb78dabe4fa1db65f9784fe",
+          "binds": "cf4e71cf36e6858ee8cf493e8c7ddf92684413ba1ad6fd79b5d018ea19def125",
           "cells": [
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
@@ -14611,7 +14668,7 @@
           "covers": [
             "planning_candidate_base_stale"
           ],
-          "binds": "0261cfbdff2ec7b5e0ca1f5b1159ace32a184824d617aa4e8c92117e81a40af8",
+          "binds": "2fc6d2e2946f99f9fcf4daf278e711a58a6b659c0fd475b957e51efc6a48f505",
           "cells": [
             "planning_candidate_base_stale",
             "draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets; also freeze_artifact",
@@ -14622,7 +14679,7 @@
           "covers": [
             "planning_publication_invalid"
           ],
-          "binds": "390e96b842fa44480c464dd65cf0ff8a9b5232cb7b2d77e149013eb46056fd38",
+          "binds": "077d760f57e7a9a04fefe96332136d11e308f85e580feaf2f94afd11e0f2826a",
           "cells": [
             "planning_publication_invalid",
             "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
@@ -14666,7 +14723,7 @@
           "covers": [
             "child_creation_key_invalid"
           ],
-          "binds": "c4804d3e751694cb1fee6188d659eb14eebb9ded90a562e57dc9b71a2e333eba",
+          "binds": "aea9364de6ec7a5ac676595e7eec71459d3e826d51b3eb28a9d54d4d4ae2bca5",
           "cells": [
             "child_creation_key_invalid",
             "`<dispatch_step>`",
@@ -14721,7 +14778,7 @@
           "covers": [
             "review_join_invalid"
           ],
-          "binds": "ddd475ae3f8d044175609c7668756ad6260f759e5d9c352e94335bca43db57af",
+          "binds": "08718a5bef2e0b437877c4bf5d987684e5ea2b040d65d29cb8d74aed3dfe1305",
           "cells": [
             "review_join_invalid",
             "dispatch_review или dispatch_narrow_review; также review_join",
@@ -14776,7 +14833,7 @@
           "covers": [
             "ticket_repair_op_invalid"
           ],
-          "binds": "37c479f108db23ce64e2c1f04f11a83cdc55e662a092a767b2a8cc2d6e71a409",
+          "binds": "8aec60a8bc253d0cef5a62d16669dc098e6110fa2810dbd8385b841c995dae31",
           "cells": [
             "ticket_repair_op_invalid",
             "dispatch_ticket_dag for fresh/current/planning/aggregate_unchanged or rebuild_anchor code_only; also resume_repaired_tickets",
@@ -14798,7 +14855,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "blocked_anchor, autosk-planned",
             "prepare_anchor_impact",
@@ -14864,7 +14921,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "blocked_anchor, standalone Quick",
             "rebuild_code_anchor",
@@ -14875,7 +14932,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "blocked_anchor, Ticket with parent",
             "rebuild_code_anchor",
@@ -14919,7 +14976,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "blocked_anchor, Ticket pending already absorbed by parent",
             "rebuild_code_anchor",
@@ -14952,7 +15009,7 @@
           "covers": [
             "implementation_scope_invalid"
           ],
-          "binds": "6a4de8ce3843b61685411bf6938197500986fca969e3f99f2335aa4e3a03f612",
+          "binds": "9e9ec1364893b746664f2fd3dbb13bbdf6c773883ae01135615085a3c9d1a00b",
           "cells": [
             "implementation_scope_invalid",
             "implement либо invalidate_quick_classification",
@@ -15035,7 +15092,7 @@
           "covers": [
             "verification_cap"
           ],
-          "binds": "2d2ceff570ab3d6527e667f0a643dcc81deec41c9d093aa886b1fe05d9d5a061",
+          "binds": "5fe7c5a47eaa1ea1966ec52d864bd4106737c33713feb4a3e5c253f9526700e5",
           "cells": [
             "verification_cap",
             "fix, verify",
@@ -15057,7 +15114,7 @@
           "covers": [
             "artifact_pass_invalid"
           ],
-          "binds": "9d9d6b3524b8f60fc32b93868f1f3a708097a91ff8f94237bf78ca05f118d042",
+          "binds": "f5026914851263e6a2fd11f7e9689b3496c1e40c093076ad625754924af10529",
           "cells": [
             "artifact_pass_invalid",
             "freeze_artifact, record_artifact_pass",
@@ -15068,7 +15125,7 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "ff727687bf2ea6643af6219041c60d8bf31d8368d3a2f8698a1b14c711f5fcd9",
+          "binds": "29e427c42397554e251e1bf3579982826273ef73c352d9a3cd7287c243894ced",
           "cells": [
             "review_cap",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
@@ -15079,7 +15136,7 @@
           "covers": [
             "arena_join_invalid"
           ],
-          "binds": "a660e903a626d41e93712d9313726755d3c2f8d7a3f0872c1b9b0c515cd91849",
+          "binds": "6044a446c822513690eaa161aa334fb7db75a1d2dd5321b8331332066c3143a0",
           "cells": [
             "arena_join_invalid",
             "arena_join, dispatch_arena",
@@ -15168,7 +15225,7 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "096391c5faaf5e0747da3e5ca938b12a1e2184700c60ea667989b03967ead571",
+          "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
@@ -15179,7 +15236,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "39c868f31dbdfe7803d798dc645192357b0d0cfbd4d37764b149eae16da3aaa1",
+          "binds": "bbedc21a49c44626843ff9409226a22379aef504169f108b72cc1167b9613fb1",
           "cells": [
             "no_external_reviewer",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -15190,7 +15247,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "71dedf52cd93092d2396c47bb218015730984d4013b9f1c549896856764f3eeb",
+          "binds": "3d8d4bb8e6067acd4c9c8e46289a4acc6178f3361fab5fdc74d082e60e8ab7d1",
           "cells": [
             "no_external_panel_lead",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -15357,7 +15414,7 @@
           "covers": [
             "alignment_record_stale"
           ],
-          "binds": "8897d872b012e40705caa9b55a47a9da46c859b6cdb8abf9741c1fad81945a09",
+          "binds": "19e73342a59b6c9ddb498f11240d75fa4561d78d9c0704aeaddc2c32f7c023d3",
           "cells": [
             "Alignment record устарел",
             "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
@@ -15368,7 +15425,7 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "4096cc519c35022bf00d08287854e72e18d8ed2b85b0f693ef582c82bc3cc9e3",
+          "binds": "5306baee443df1bc367d039bc1bdf36db02d819da3631f41bf15f78175c4617e",
           "cells": [
             "tickets_manifest_invalid",
             "present_tickets_breakdown до freeze и после publication; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -15412,7 +15469,7 @@
           "covers": [
             "planning_ref_foreign_movement"
           ],
-          "binds": "68276a5054cec973fc00d88721e3bd1990ba0f5fbcb78dabe4fa1db65f9784fe",
+          "binds": "cf4e71cf36e6858ee8cf493e8c7ddf92684413ba1ad6fd79b5d018ea19def125",
           "cells": [
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
@@ -15434,7 +15491,7 @@
           "covers": [
             "planning_candidate_base_stale"
           ],
-          "binds": "0261cfbdff2ec7b5e0ca1f5b1159ace32a184824d617aa4e8c92117e81a40af8",
+          "binds": "2fc6d2e2946f99f9fcf4daf278e711a58a6b659c0fd475b957e51efc6a48f505",
           "cells": [
             "planning_candidate_base_stale",
             "draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets; also freeze_artifact",
@@ -15445,7 +15502,7 @@
           "covers": [
             "planning_publication_invalid"
           ],
-          "binds": "390e96b842fa44480c464dd65cf0ff8a9b5232cb7b2d77e149013eb46056fd38",
+          "binds": "077d760f57e7a9a04fefe96332136d11e308f85e580feaf2f94afd11e0f2826a",
           "cells": [
             "planning_publication_invalid",
             "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
@@ -15551,7 +15608,7 @@
           "covers": [
             "review_join_invalid"
           ],
-          "binds": "ddd475ae3f8d044175609c7668756ad6260f759e5d9c352e94335bca43db57af",
+          "binds": "08718a5bef2e0b437877c4bf5d987684e5ea2b040d65d29cb8d74aed3dfe1305",
           "cells": [
             "Invalid code-review child",
             "dispatch_review или dispatch_narrow_review; также review_join",
@@ -15573,7 +15630,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "BLOCKED_ANCHOR, Planned",
             "prepare_anchor_impact",
@@ -15606,7 +15663,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "BLOCKED_ANCHOR, standalone Quick",
             "rebuild_code_anchor",
@@ -15617,7 +15674,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "BLOCKED_ANCHOR, Ticket with parent",
             "rebuild_code_anchor",
@@ -15650,7 +15707,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "254bb8ddd04bef365c290e0e88cebeae77e34080c919e99b800e34f437faffe2",
+          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
           "cells": [
             "Parent absorbed live Ticket anchor before suspension",
             "rebuild_code_anchor",
@@ -15680,7 +15737,7 @@
             "ticket_repair_op_invalid",
             "ticket_repair_state_invalid"
           ],
-          "binds": "330149c8395876de31197ed08d19bbba0769b7a5e602de1407103b6b3de84616",
+          "binds": "5473796fedf617a80fbfc917135fd3f7f0437c2ca668157915ea0f0630ead242",
           "cells": [
             "Invalid/open duplicate Ticket repair operation",
             "dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind",
@@ -15702,7 +15759,7 @@
           "covers": [
             "artifact_pass_invalid"
           ],
-          "binds": "9d9d6b3524b8f60fc32b93868f1f3a708097a91ff8f94237bf78ca05f118d042",
+          "binds": "f5026914851263e6a2fd11f7e9689b3496c1e40c093076ad625754924af10529",
           "cells": [
             "Artifact PASS revalidation failed",
             "freeze_artifact, record_artifact_pass",
@@ -15713,7 +15770,7 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "ff727687bf2ea6643af6219041c60d8bf31d8368d3a2f8698a1b14c711f5fcd9",
+          "binds": "29e427c42397554e251e1bf3579982826273ef73c352d9a3cd7287c243894ced",
           "cells": [
             "Лимит review",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
@@ -15724,7 +15781,7 @@
           "covers": [
             "arena_join_invalid"
           ],
-          "binds": "a660e903a626d41e93712d9313726755d3c2f8d7a3f0872c1b9b0c515cd91849",
+          "binds": "6044a446c822513690eaa161aa334fb7db75a1d2dd5321b8331332066c3143a0",
           "cells": [
             "Invalid Arena/Judge",
             "arena_join, dispatch_arena",
@@ -15813,7 +15870,7 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "096391c5faaf5e0747da3e5ca938b12a1e2184700c60ea667989b03967ead571",
+          "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "Aggregate verification failed",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
@@ -15824,7 +15881,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "39c868f31dbdfe7803d798dc645192357b0d0cfbd4d37764b149eae16da3aaa1",
+          "binds": "bbedc21a49c44626843ff9409226a22379aef504169f108b72cc1167b9613fb1",
           "cells": [
             "Нет внешней code-review family",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -15835,7 +15892,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "71dedf52cd93092d2396c47bb218015730984d4013b9f1c549896856764f3eeb",
+          "binds": "3d8d4bb8e6067acd4c9c8e46289a4acc6178f3361fab5fdc74d082e60e8ab7d1",
           "cells": [
             "Нет внешней panel Lead family",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -15900,5 +15957,5 @@
       ]
     }
   ],
-  "canonical_digest": "2dbbc0efc3b1315e274201486864a82e213b8ef76c2a27040c0e3aa42c109b09"
+  "canonical_digest": "f41e58dece66dc392ffeca335a66cc1886acbc80608101d599ab87530b51ccc7"
 }

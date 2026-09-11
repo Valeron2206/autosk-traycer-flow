@@ -29,6 +29,7 @@ import {
   renderRow,
   renderView,
   rosterErrors,
+  stepCoverageErrors,
 } from "../scripts/render-workflow-views.mjs";
 
 const document = () => parseStrict(readFileSync(path.join(ROOT, DOCUMENT_PATH), "utf8"));
@@ -210,4 +211,54 @@ test("a required_state rewritten in place is caught too", () => {
     bindingErrors(rewired).some((message) => message.includes(rewired.recovery[0].reason)),
     "the binding covers the whole recovery entry, not only its targets",
   );
+});
+
+/**
+ * Coverage at step granularity, which is what the reason-level check above cannot
+ * see. A reason may be covered by rows that name only some of the steps the graph
+ * parks it at, and then a reader of the table is never told about the rest: the
+ * shipped document had ten such steps under one reason, all of them deterministic
+ * steps with no gate child, so the row written for gate children did not reach
+ * them. Nothing refused, because every check in place asked about reasons.
+ *
+ * A class reference in a step cell counts for the members it declares, and the
+ * classes come from the vocabulary rather than from a list kept here — that is
+ * the same resource the park table's own extraction reads.
+ */
+
+test("the shipped park table names every step the graph parks a reason at", () => {
+  assert.deepEqual(stepCoverageErrors(document()), []);
+});
+
+test("view_park_step_unexplained: a parked step no row of its reason names", () => {
+  const graph = document();
+  const row = graph.views
+    .find((view) => view.id === "park_table")
+    .rows.find((candidate) => candidate.covers.includes("blocked_anchor") && candidate.cells[1].includes("accept"));
+  // The row added for the ten steps with no gate child, minus one of its steps: the
+  // graph still parks blocked_anchor at `accept` and now no row says so.
+  row.cells[1] = row.cells[1].replace(/\baccept\b/, "");
+  const errors = stepCoverageErrors(graph);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^view_park_step_unexplained: park_table leaves blocked_anchor at accept/);
+});
+
+test("a step cell naming a class counts for that class's declared members", () => {
+  const graph = document();
+  const row = graph.views
+    .find((view) => view.id === "park_table")
+    .rows.find((candidate) => candidate.cells[1].includes("<gate_join_step>"));
+  assert.ok(row, "the park table names a step class");
+  // Spelled out, the same five steps are covered and the check is silent either way.
+  row.cells[1] = row.cells[1].replace("<gate_join_step>", "arena_join contest_join narrow_review_join panel_join review_join");
+  assert.deepEqual(stepCoverageErrors(graph), []);
+});
+
+test("a reason a view omits is not asked to name its steps", () => {
+  const graph = document();
+  const view = graph.views.find((entry) => entry.id === "park_table");
+  const omitted = "blocked_anchor";
+  view.rows = view.rows.filter((row) => !row.covers.includes(omitted));
+  view.omits = [...(view.omits ?? []), omitted];
+  assert.deepEqual(stepCoverageErrors(graph), []);
 });

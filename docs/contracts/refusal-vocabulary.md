@@ -20,7 +20,9 @@ The closed JSON Schema is `resources/refusal-vocabulary/refusal-vocabulary.schem
 
 Every entry comes from a row of the resume contract. The checked-in resource is the enumeration a reviewer reads, and a difference between it and the table is `refusal_vocabulary_drift` — not a merge. A second list that can quietly disagree with the first is the failure this contract exists to prevent, so the resource never wins an argument with the table.
 
-The step column of that table is written for a person and carries qualifying prose, so only tokens naming a registered step are taken from it. A misspelled step is therefore not accepted quietly: its row ends up naming no step at all, and a reason that parks nowhere is `refusal_vocabulary_unknown_step`.
+The step column of that table is written for a person and carries qualifying prose, so only tokens naming a registered step are taken from it. A misspelled step is therefore not accepted quietly: its row ends up naming no step at all, and a reason that names nowhere is `refusal_vocabulary_unknown_step`.
+
+The fields holding them are `named_at` and `named_at_classes`, and the name is the point: what the table names for a reason is not the same statement as where the graph parks it. The graph document splits those two — `parks_at` for where it stops, `handled_at` for where the reason is dealt with — and a class the table names can straddle the split, so this resource carries what it actually extracted and lets the graph contract own the other statement.
 
 ## 4. A park reason parks at a step that exists
 
