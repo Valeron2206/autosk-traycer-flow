@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -18,6 +18,8 @@ import {
   ROOT,
   GROUP_A,
   GROUP_B,
+  PANEL_BY_ROUND,
+  PANEL_DIR,
   REQUIRED_PANEL,
   SCHEMA_PATH,
   candidateDigest,
@@ -25,6 +27,7 @@ import {
   loadFiles,
   validateCandidate,
   validateDesignCandidate,
+  validatePanelRound,
 } from "../scripts/validate-design-candidate.mjs";
 
 const files = loadFiles();
@@ -32,6 +35,10 @@ const schema = JSON.parse(files[SCHEMA_PATH]);
 
 function candidate() {
   return JSON.parse(files[CANDIDATE_PATH]);
+}
+
+function readRound(round) {
+  return JSON.parse(readFileSync(path.join(ROOT, PANEL_DIR, `round-${round}.json`), "utf8"));
 }
 
 function mutated(mutate, { reseal = true } = {}) {
@@ -79,18 +86,114 @@ test("the shipped attestation is what the verdicts compute", () => {
 test("a round that ran is kept with the candidate it was about", () => {
   // A PASS — or a fail — is about bytes. Round 1's record names the digest it
   // reviewed, and that digest is not this one.
-  const round = JSON.parse(readFileSync(path.join(ROOT, "resources/design-candidate/panel/round-1.json"), "utf8"));
+  const round = readRound(1);
   assert.equal(round.candidate_digest.length, 64);
   assert.notEqual(round.candidate_digest, candidate().candidate_digest);
-  assert.equal(round.seats.length, 4);
-  for (const required of REQUIRED_PANEL) {
-    const seat = round.seats.find((entry) => entry.seat === required.seat);
-    assert.equal(seat.route, required.route);
-    assert.equal(seat.effort, required.effort);
-    assert.equal(seat.verdict, "fail");
-    assert.ok(seat.session_id.length > 0, required.seat);
-    assert.ok(seat.findings.length > 0, required.seat);
+  for (const seat of round.seats) assert.equal(seat.verdict, "fail");
+});
+
+test("every recorded round is checked against the roster it ran under", () => {
+  // This assertion compared the recorded seats with `REQUIRED_PANEL` until the
+  // roster was amended, which made a record of what happened fail because what
+  // is required next had changed. The requirement is pinned per round instead —
+  // and the two are genuinely different now, which is what the coupling hid.
+  assert.notDeepEqual(PANEL_BY_ROUND[1], REQUIRED_PANEL);
+  const recorded = readdirSync(path.join(ROOT, PANEL_DIR)).filter((name) => name.endsWith(".json")).sort();
+  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json"]);
+  for (const name of recorded) {
+    const round = JSON.parse(readFileSync(path.join(ROOT, PANEL_DIR, name), "utf8"));
+    assert.deepEqual(validatePanelRound(round), [], name);
   }
+});
+
+test("a round recorded with a roster nobody required is refused", () => {
+  // Decoupling the archive from today's constant is right; leaving it checked
+  // against nothing is not. Replacing all four of round 1's seats with a roster
+  // that never sat went unnoticed once the comparison was dropped, and nothing
+  // else in the tree reads these files.
+  const substituted = readRound(1);
+  substituted.seats = substituted.seats.map((seat) => ({
+    ...seat,
+    seat: "never-required",
+    route: "invented/model",
+    effort: "arbitrary",
+  }));
+  assert.notDeepEqual(validatePanelRound(substituted), []);
+
+  // One seat standing in for another is the same defect, one quarter the size.
+  const swapped = readRound(1);
+  swapped.seats[3] = { ...swapped.seats[3], route: "meta/muse-spark-1.3-lead", effort: "max" };
+  assert.deepEqual(validatePanelRound(swapped), [
+    "round 1 muse: meta/muse-spark-1.3-lead/max is not meta/muse-spark-1.3-contributor/max",
+  ]);
+});
+
+test("a round that records one seat twice is refused", () => {
+  // Four entries is not four seats. Duplicating one hides the omission of
+  // another, and the count alone would still read as a full panel.
+  const duplicated = readRound(1);
+  duplicated.seats[3] = { ...duplicated.seats[0] };
+  assert.deepEqual(validatePanelRound(duplicated), [
+    "round 1: seat opus is recorded twice",
+    "round 1: omits muse",
+  ]);
+});
+
+test("a panel that found nothing can still be recorded", () => {
+  // Requiring findings from every seat made a clean PASS unrecordable: the
+  // archive check would have refused the very result the panel exists to reach,
+  // or forced somebody to invent findings to get it archived. A refusal still
+  // has to say why; a pass does not.
+  const seats = REQUIRED_PANEL.map((seat, index) => ({
+    ...seat,
+    verdict: "pass",
+    session_id: `session-${index + 1}`,
+    findings: [],
+  }));
+  assert.deepEqual(validatePanelRound({ round: 4, seats }, REQUIRED_PANEL), []);
+
+  const refused = seats.map((seat) => ({ ...seat, verdict: "fail" }));
+  assert.deepEqual(
+    validatePanelRound({ round: 4, seats: refused }, REQUIRED_PANEL),
+    REQUIRED_PANEL.map((seat) => `round 4 ${seat.seat}: records a fail with no findings`),
+  );
+
+  // The field itself is still required: a seat with no findings array recorded
+  // nothing about findings, which is not the same as having found nothing.
+  const absent = seats.map(({ findings, ...seat }) => seat);
+  assert.deepEqual(
+    validatePanelRound({ round: 4, seats: absent }, REQUIRED_PANEL),
+    REQUIRED_PANEL.map((seat) => `round 4 ${seat.seat}: records no findings array`),
+  );
+});
+
+test("a round that records no decision is refused", () => {
+  // The record exists to preserve a decision, and the verdict was only looked at
+  // when findings were empty — so a seat with no verdict at all, or a verdict
+  // misspelled `paas` alongside real findings, validated. The vocabulary is the
+  // schema's: a round's verdict and an attestation's verdict are the same thing.
+  const absent = readRound(2);
+  absent.seats = absent.seats.map(({ verdict, ...seat }) => seat);
+  assert.deepEqual(
+    validatePanelRound(absent),
+    PANEL_BY_ROUND[2].map((seat) => `round 2 ${seat.seat}: records no verdict`),
+  );
+
+  const misspelled = readRound(2);
+  misspelled.seats = misspelled.seats.map((seat) => ({ ...seat, verdict: "paas" }));
+  assert.deepEqual(
+    validatePanelRound(misspelled),
+    PANEL_BY_ROUND[2].map((seat) => `round 2 ${seat.seat}: records paas, which is not a verdict`),
+  );
+});
+
+test("a round with no pinned roster cannot be validated", () => {
+  // A round file can only be checked against what was required when it ran, so a
+  // round whose requirement was never pinned is refused rather than waved
+  // through. Recording round 4 means pinning the roster it ran under.
+  assert.deepEqual(validatePanelRound({ round: 4, seats: [] }), [
+    "round 4: no roster is pinned for it, so what it ran under is unknown",
+  ]);
 });
 
 test("a candidate that drifted from disk is refused", () => {
@@ -234,9 +337,9 @@ test("a rejection or a deferral must be justified", () => {
 test("the declared panel is the owner's, exactly", () => {
   assertRejects(
     mutated((value) => {
-      value.required_panel.find((entry) => entry.seat === "opus").effort = "high";
+      value.required_panel.find((entry) => entry.seat === "astra").effort = "high";
     }),
-    /is not anthropic\/claude-opus-5\/max/u,
+    /is not openai-codex\/gpt-6-astra\/low/u,
   );
 });
 

@@ -6,6 +6,8 @@
  * same intent. And the CAS uses an exact expected-old value: no fetch-and-retry
  * against a new parent, no force update, no rebase, merge, cherry-pick or
  * branch-name inference.
+ *
+ * Implements: docs/contracts/epic-planning-ref.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

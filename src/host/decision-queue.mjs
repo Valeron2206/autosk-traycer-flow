@@ -8,6 +8,8 @@
  * no second effect, and the status is a view of records rather than a ledger.
  *
  * Storage is injected. Nothing here decides anything on the user's behalf.
+ *
+ * Implements: docs/contracts/human-decision.md
  */
 import { createHash } from 'node:crypto';
 

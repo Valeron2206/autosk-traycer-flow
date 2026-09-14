@@ -6,6 +6,8 @@
  * of checks may start. The probes that produce the results live in
  * `doctor-checks.mjs`, and the workflow preflight uses these same functions —
  * two implementations of one check agree until they do not.
+ *
+ * Implements: docs/contracts/doctor-report.md
  */
 import { createHash } from 'node:crypto';
 

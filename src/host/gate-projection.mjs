@@ -9,6 +9,8 @@
  *
  * So the comparison is over a declared projection, plus a provenance check on
  * everything outside it. Both halves are here; neither is sufficient alone.
+ *
+ * Implements: docs/contracts/gate-store-projection.md
  */
 import { createHash } from 'node:crypto';
 

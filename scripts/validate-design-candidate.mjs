@@ -28,11 +28,97 @@ export const CANDIDATE_PATH = "resources/design-candidate/design-candidate.v1.js
  * about a question nobody asked.
  */
 export const REQUIRED_PANEL = Object.freeze([
+  { seat: "astra", route: "openai-codex/gpt-6-astra", effort: "low" },
+  { seat: "grok", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
+  { seat: "muse", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
+  { seat: "deepseek", route: "deepseek/deepseek-flash", effort: "max" },
+]);
+
+export const PANEL_DIR = "resources/design-candidate/panel";
+
+/**
+ * The roster each recorded round actually ran under.
+ *
+ * A round file is a record of what happened, so it is checked against the panel
+ * required when it ran and never against the panel required now. Rounds 1 to 3
+ * ran on the roster the owner named before the pinned guide's critique routes
+ * replaced it; checking them against `REQUIRED_PANEL` made a record of the past
+ * fail the moment a requirement about the next panel changed. These entries are
+ * history and do not move. A round is added here when it is recorded, with the
+ * roster it sat — copying `REQUIRED_PANEL` in would restore exactly the coupling
+ * this replaced.
+ */
+const OWNER_PANEL = Object.freeze([
   { seat: "opus", route: "anthropic/claude-opus-5", effort: "max" },
   { seat: "astra", route: "openai-codex/gpt-6-astra", effort: "high" },
   { seat: "grok", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
   { seat: "muse", route: "meta/muse-spark-1.3-contributor", effort: "max" },
 ]);
+
+export const PANEL_BY_ROUND = Object.freeze({ 1: OWNER_PANEL, 2: OWNER_PANEL, 3: OWNER_PANEL });
+
+/**
+ * The verdicts a seat may record, read from the schema rather than respelled.
+ *
+ * A round's verdict and an attestation's verdict are the same thing, so a second
+ * list of the allowed values would be a second thing to keep in sync — and the
+ * one that drifted would be the one nothing validates.
+ */
+export function panelVerdicts(schema = JSON.parse(loadFiles()[SCHEMA_PATH])) {
+  return schema.properties.attestation.properties.verdicts.items.properties.verdict.enum;
+}
+
+/**
+ * A recorded round, against the roster pinned for it.
+ *
+ * The attestation check reads the candidate's own verdicts, so it says nothing
+ * about the archive. Without this, an archived round could name any four seats —
+ * including a roster nobody ever required — and no shipped check would notice.
+ */
+export function validatePanelRound(round, required = PANEL_BY_ROUND[round.round], verdicts = panelVerdicts()) {
+  if (!required) return [`round ${round.round}: no roster is pinned for it, so what it ran under is unknown`];
+  const errors = [];
+  const seen = new Set();
+  for (const seat of round.seats) {
+    if (seen.has(seat.seat)) errors.push(`round ${round.round}: seat ${seat.seat} is recorded twice`);
+    seen.add(seat.seat);
+  }
+  if (round.seats.length !== required.length) {
+    errors.push(`round ${round.round}: ${round.seats.length} seats recorded, ${required.length} required`);
+  }
+  for (const wanted of required) {
+    const seat = round.seats.find((entry) => entry.seat === wanted.seat);
+    if (!seat) {
+      errors.push(`round ${round.round}: omits ${wanted.seat}`);
+      continue;
+    }
+    if (seat.route !== wanted.route || seat.effort !== wanted.effort) {
+      errors.push(
+        `round ${round.round} ${wanted.seat}: ${seat.route}/${seat.effort} is not ${wanted.route}/${wanted.effort}`,
+      );
+    }
+    // A record with no session is a claim that a seat sat. The verdict is what
+    // the record exists to preserve, so it is checked before anything is derived
+    // from it — an absent one left the archive holding a seat with no decision,
+    // and a misspelled one was read as a refusal.
+    if (!seat.session_id) errors.push(`round ${round.round} ${wanted.seat}: records no session id`);
+    if (seat.verdict === undefined) {
+      errors.push(`round ${round.round} ${wanted.seat}: records no verdict`);
+    } else if (!verdicts.includes(seat.verdict)) {
+      errors.push(`round ${round.round} ${wanted.seat}: records ${seat.verdict}, which is not a verdict`);
+    }
+    // Findings have to be recorded as a list, but an empty one is the whole point
+    // of a panel: a seat that found nothing says so, and demanding otherwise
+    // would make the result this panel exists to reach the one result it cannot
+    // archive. A refusal is the case that owes a reason.
+    if (!Array.isArray(seat.findings)) {
+      errors.push(`round ${round.round} ${wanted.seat}: records no findings array`);
+    } else if (seat.verdict !== "pass" && seat.findings.length === 0) {
+      errors.push(`round ${round.round} ${wanted.seat}: records a ${seat.verdict} with no findings`);
+    }
+  }
+  return errors;
+}
 
 /** Group A of #39: every one needs a closed design disposition. */
 export const GROUP_A = Object.freeze([3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 17, 18]);

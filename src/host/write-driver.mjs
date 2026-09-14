@@ -13,6 +13,8 @@
  * Injected: `readFile(path)`, `writeFile(path, bytes)`, `rename(from, to)`,
  * `lstat(path)` returning `{ isFile, isSymbolicLink, size, nlink, mode }`,
  * `mkdir(path)`, `realpath(path)`.
+ *
+ * Implements: docs/contracts/artifact-write-receipt.md
  */
 import { createHash } from 'node:crypto';
 

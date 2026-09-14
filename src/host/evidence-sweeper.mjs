@@ -12,6 +12,8 @@
  *
  * Injected: `readdir(path)` returning names, `lstat(path)`, `readFile(path)`,
  * `rm(path)`.
+ *
+ * Implements: docs/contracts/evidence-manifest.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

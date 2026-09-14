@@ -106,7 +106,8 @@
               "opus",
               "astra",
               "grok",
-              "muse"
+              "muse",
+              "deepseek"
             ]
           },
           "route": {
@@ -114,14 +115,16 @@
               "anthropic/claude-opus-5",
               "openai-codex/gpt-6-astra",
               "cursor/cursor-grok-4.6",
-              "meta/muse-spark-1.3-contributor"
+              "meta/muse-spark-1.3-contributor",
+              "deepseek/deepseek-flash"
             ]
           },
           "effort": {
             "enum": [
               "max",
               "high",
-              "xhigh"
+              "xhigh",
+              "low"
             ]
           }
         }
@@ -163,7 +166,8 @@
                   "opus",
                   "astra",
                   "grok",
-                  "muse"
+                  "muse",
+                  "deepseek"
                 ]
               },
               "route": {
@@ -171,14 +175,16 @@
                   "anthropic/claude-opus-5",
                   "openai-codex/gpt-6-astra",
                   "cursor/cursor-grok-4.6",
-                  "meta/muse-spark-1.3-contributor"
+                  "meta/muse-spark-1.3-contributor",
+                  "deepseek/deepseek-flash"
                 ]
               },
               "effort": {
                 "enum": [
                   "max",
                   "high",
-                  "xhigh"
+                  "xhigh",
+                  "low"
                 ]
               },
               "candidate_digest": {
