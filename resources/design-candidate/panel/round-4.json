@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "round": 4,
+  "attempt": 2,
+  "anchor_version": 2,
+  "candidate_digest": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+  "frozen_commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+  "frozen_tree": "601be0f4d6b9362896379c48297af9b46798bba2",
+  "package_sha256": "22f07e1a0a3dbb5d913a2bdd24e7f3e0dfac058b293c916501009f108677474b",
+  "system_prompt_sha256": "35a244c64f5d2d728498ecd3b6cb70d48965723b880c18f90be536bfc7285fc1",
+  "scope_identity": "c611a46b08f5a27323a2418206e616532d4c66f9dd535349f5332795726bd134",
+  "runner": "Traycer child agents, one per seat, each bound read-only to the snapshot pack; six pack files, non-git scope identity verified 6/6 by the carried instrument",
+  "attempt_1_void": "Attempt 1 was dispatched on a package that called its own subject deferred and absent, against a declared roster no dispatch could satisfy. Three of its four seats found the same defect. Its verdicts are annulled; its findings transferred into anchor version 2 §10 and are answered per seat below.",
+  "anchor_corrections": [
+    "Anchor version 2 §5 claimed nine transitions park with a reason the flow cannot explain and that buildWorkflow refuses autosk_flow over them. Both halves are false on the frozen document: each of the nine carries exactly one guard naming exactly one park reason, and buildWorkflow(document, {evaluate}) resolves. The claim was copied from a slice-5 planning artifact without re-measuring. The astra seat challenged it, the orchestrator measured it, and the bullet was withdrawn by an identical message to the three seats still working. The pack was not modified, so the scope identity above still holds over the bytes every seat verified.",
+    "Anchor version 2 §5 called `done` and `ticket_done` terminal by design. True in transition space only: the muse seat showed the `project_boundary_invalid` row lists both in `parks_at` and in `resume_targets`, so resume permits movement between two steps with zero outgoing transitions."
+  ],
+  "seats": [
+    {
+      "seat": "astra",
+      "route": "openai-codex/gpt-6-astra",
+      "effort": "low",
+      "harness": "codex",
+      "observed_model": "gpt-6-astra",
+      "session_id": "1ec97e2c-cd52-4823-972c-f5390c5448d8",
+      "verdict": "non_verdict",
+      "candidate_digest_echoed": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+      "blocking_reason": "BLOCKED_ANCHOR: the canonical serialization rules are docs/contracts/workflow-graph.md §4 and the two-digest identity is §5, and the pack shipped only §§6-8. Anchor §9 promised canonical_digest could be recomputed; it could not. The seat refused to invent a rule rather than verify one it had guessed.",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "panel-package.md Core Flows against the technical-plan resume table; workflow-graph.v1.json views, brief_alignment_required",
+          "what": "Core Flows forbids policy from asserting Brief framing and requires a daemon UserDecisionRecord; the resume table permits 'UserDecisionRecord or a re-resolved exact active policy'. Both texts are inside the graph document with the same binds value, so a Brief stopped without a human decision but with an active policy may be resumed by one text and may not by the other."
+        },
+        {
+          "severity": "high",
+          "where": "anchor version 2 §5 against normative-workflow-factory-2-8.md §5 and the shipped document",
+          "what": "The anchor's nine-transitions claim is false in both halves. Each named transition carries one guard and one reason. Separately, the factory contract states 221 parking edges where the document has 224."
+        },
+        {
+          "severity": "high",
+          "where": "panel-package.md Core Flows §6/§9 and Architecture §2; normative-workflow-factory-2-8.md §6; graph caps",
+          "what": "The promised transition to a human after ten rounds has no described durable mechanism: the factory contract defers enforcement and rejects both proposed counters, while the graph declares limit 10 on two transitions. Step entries are not equivalent to rounds."
+        }
+      ],
+      "read": "HANDOFF; anchor whole before the package; package sections 1-7 including both reproduced planning documents; all three normative extracts; the graph document parsed programmatically across every array plus the targeted view rows.",
+      "not_read": "The prose of all 409 predicates and all 135 view rows in sequence; the absent full contracts, schema, canonical reference, implementation, tests and reports; nothing outside the pack."
+    },
+    {
+      "seat": "grok",
+      "route": "cursor/cursor-grok-4.6",
+      "effort": "xhigh",
+      "harness": "cursor",
+      "observed_model": "grok-4.6",
+      "session_id": "e71bde05-645b-4344-8cd8-f176560d6de5",
+      "verdict": "fail",
+      "candidate_digest_echoed": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "docs/contracts/workflow-factory.md §6 and the graph's caps",
+          "what": "The two caps count transition takings on t_231 and t_443 with park review_cap, and the factory contract states the engine's only durable counter is step visits, that this is the wrong count, and that the slice ships neither. The eleventh taking does not park, so a cap that is in the digest and in the resume table is a rule nothing fires."
+        },
+        {
+          "severity": "high",
+          "where": "panel-package.md section 4, row docs/contracts/tickets-manifest.md",
+          "what": "The linked module names zero of the contract's seven closed classes while the mutation table reports 70 of 73 killed for it, so a reader concludes the implementation is well tested. All seven exist as recovery rows on the document. The table cannot support the claim that this contract's refusals run."
+        },
+        {
+          "severity": "high",
+          "where": "panel-package.md section 4, row docs/contracts/workflow-graph.md",
+          "what": "2 of 28 names the serializer, not the 26 recovery, cap, resume and park-ambiguity classes. The criterion-2 measurer scripts/verify-autosk-graph-digest.mjs appears in no evidence band, so 'criterion 2 is in this candidate' plus a green clean-room reads as a measured pin that was not measured here."
+        },
+        {
+          "severity": "high",
+          "where": "panel-package.md section 4, the 16 rows with no measured link",
+          "what": "176 of 428 classes have no measured host module, and two of them carry this round: runtime-identity-lock, whose 24-requirement count is a count of lock entries and not an evaluator of lock_requirement_unmet on a live pin, and refusal-vocabulary, whose ten meta-classes are shown producible by no host path. The pack forbids reading the code the table says to read."
+        },
+        {
+          "severity": "high",
+          "where": "panel-package.md section 5, the producibility sentence",
+          "what": "'Each contract carries its own every-refusal-class-can-be-produced test' bounds the mutation number and is not a reported result: no count of classes instantiated, no pass, and several contracts in the inventory have no such section. A reader concludes 428 classes are producible because the suite is green."
+        },
+        {
+          "severity": "medium",
+          "where": "normative-workflow-factory-2-8.md §5, the integer 221",
+          "what": "Parking edges by the contract's own definition are 224 and all carry one reason; the contract states 221 twice, and 221 matches no definitional subset. The property the number supports holds, so the defect is that a normative contract publishes a measurement nothing in the reported suite re-binds."
+        }
+      ],
+      "read": "HANDOFF; anchor whole; package sections 1-5 and 7 whole plus the identity, roster and family-partition passages of section 6; all three normative extracts whole; the graph document targeted across steps, transitions, guards, recovery, caps, views, the nine ids, parking by status and the resume union. Candidate digest recomputed from the 126 rows.",
+      "not_read": "The graph contract's §§1-5, absent from the pack, so canonical_digest was not recomputed; the technical plan outside §7; the 41 contract bodies beyond the section-4 inventory; schemas; report bodies; predicate and guard bodies; any repository, transcript or artifact."
+    },
+    {
+      "seat": "muse",
+      "route": "meta/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "harness": "pi",
+      "observed_model": "muse-spark-1.3-contributor",
+      "session_id": "b247eb11-bac3-4247-a632-3fd4b6671a4f",
+      "verdict": "fail",
+      "candidate_digest_echoed": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "graph recovery row project_boundary_invalid; transitions t_463 and t_464; steps done and ticket_done",
+          "what": "The row names done and ticket_done in parks_at and lists both in resume_targets, and both have zero outgoing transitions. A completed ticket parks with project_boundary_invalid and may then resume ticket_done to done and done to ticket_done, re-running terminal bodies each hop, so the two steps the anchor calls terminal by design are not terminal in resume space."
+        },
+        {
+          "severity": "medium",
+          "where": "graph recovery row aggregate_verify_failed against the technical plan's resume contract",
+          "what": "The row parks at one step, handles at another and permits six targets where the plan names three. Resuming straight to draft_artifact skips the remediation record and the choice_recorded chain the plan mandates, so a re-draft proceeds as if the aggregate failure had been triaged."
+        },
+        {
+          "severity": "medium",
+          "where": "graph caps against guards cond_135 and cond_332 and factory §6",
+          "what": "The declared unit is transition takings while the only durable counter is step entries. Either the round value is entries, and the nine-edge fan-in into fix_artifact trips review_cap after about two real rounds, or it is body-kept takings, and the enforcement-critical count lives where the factory says the digest does not reach."
+        },
+        {
+          "severity": "medium",
+          "where": "graph recovery for the fallback reason no_transition_reason; the four status steps lacking the field",
+          "what": "No recovery row bears the literal reason no_transition_reason, so a task parked under it at a wait step has no permitted target, and the one permissionless move is barred because a reason is recorded. With no operator migrate path on this build the task stands unresumable."
+        }
+      ],
+      "read": "HANDOFF and anchor fully; both contract extracts fully; the plan extract's resume table by row scan; package section 7 fully and sections 2, 4 and 5 plus the caps, resume and verdict passages; the graph document programmatically in full with every statistic recomputed from the bytes.",
+      "not_read": "The remainder of the package prose; the bulk of the predicate descriptions, guard texts and required_state notes; the canonical serialization rules, not carried; anything outside the pack."
+    },
+    {
+      "seat": "deepseek",
+      "route": "deepseek/deepseek-flash",
+      "effort": "max",
+      "harness": "pi",
+      "observed_model": "deepseek-flash",
+      "session_id": "74beeafe-2ca9-4097-b3ae-fca6d74f8efc",
+      "verdict": "fail",
+      "candidate_digest_echoed": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "panel-package.md section 3 against the anchor's membership rule",
+          "what": "The 126 files are not the closure of the rule. resources/panel-roster/family-partition.v1.json is named by the in-candidate core flows and read by a validator; the runtime-identity-lock instance exists and is read at 24 requirements; resources/governance/bundles/autosk-v1 is the tree the architecture fixes and the governance contract inventories. The class each belongs to is already carried by listed siblings, so a change to any of them annuls no PASS."
+        },
+        {
+          "severity": "high",
+          "where": "the anchor's membership rule against package sections 1, 3, 4 and 5",
+          "what": "The rule's class clause is defined nowhere and computed by nothing, and the list carries no code path while the package names about 145 of them. Editing src/host/workflow-graph-canonical.mjs, the single canonical-form implementation the criterion rests on, changes no listed path and annuls nothing."
+        },
+        {
+          "severity": "high",
+          "where": "panel-package.md section 5; docs/contracts/sdk-write-api.md §7; the technical plan §7",
+          "what": "The migration seam has no evidence band: no fault group, no mutation module and no recovery row covers it, sdk-write-api is one of the unlinked rows, and the package names neither the operator nor applyMigration. A migrated task whose pin loses helper stops resuming with no row, no table entry and no CLI word for the state."
+        },
+        {
+          "severity": "high",
+          "where": "technical plan §7 foreign-movement rows; graph recovery; core flows §8",
+          "what": "The sanctioned cancel exit has no carrier: no step, no edge and no reason expresses cancellation, while the rows end at it and the shipped CLI cannot name it. A parked foreign-movement task has no documented way out."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/workflow-factory.md §§7-8 against section 5's bands",
+          "what": "Criterion 2's runtime legs run in no reported band, so the claim that a daemon pins the document digest into task identity rests on a contract sentence and a script the package never runs."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/runtime-identity-lock.md against section 3",
+          "what": "The lock is a ratchet with a pinned count and no budget, and its instance is in no candidate file, so its growth and its coverage are invisible to the verdict while every daemon repair adds to it."
+        },
+        {
+          "severity": "medium",
+          "where": "core flows §2; architecture §§5-7",
+          "what": "No named slot carries the anchor pack's bytes. The identity names a version and a parent-derived digest where the protocol and the bundle each name a path, a lock and a digest, so what a candidate was judged against cannot be recomputed later."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/workflow-factory.md §4, operation 2",
+          "what": "The no-permission resume exemption is defined over park.reason and no clearing of that field on a successful transit is stated anywhere, so a factory park, a resume, then a daemon-side park leaves a stale reason that refuses the one move the design says must never be refused."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/workflow-factory.md §6; graph caps with cond_135, cond_136, cond_332, cond_333",
+          "what": "The caps and their review_cap sink are inside the digest and in the recovery and waiver tables while the round counter they read is asserted durable nowhere and is covered by no evidence group."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/workflow-factory.md §5 against docs/contracts/workflow-graph.md §8",
+          "what": "The rendered tables are bound and recompute 135 of 135, and every counts-bearing sentence recomputes except one, which drifted twice in a paragraph that justifies a refusal. Drift control covers what is rendered and leaves measurements quoted in normative prose to hand-copying."
+        },
+        {
+          "severity": "low",
+          "where": "anchor §9's check row; section 3's digest-only treatment of the graph contract",
+          "what": "The canonical rules are §§4-5, which the pack does not carry, so canonical_digest cannot be recomputed from the pack. About 100k serializations were attempted and none reproduced it."
+        }
+      ],
+      "read": "HANDOFF; anchor; the package whole including both reproduced planning texts; all three normative extracts whole; identity.rows; operations.json; the graph document parsed whole and measured programmatically across all twelve sections.",
+      "not_read": "The contents of the 124 digest-only files; the graph contract's §§4-5; the refusal vocabulary instance; the runtime-identity-lock instance; the canonical reference; every path under the live worktree that operations.json names."
+    }
+  ]
+}
