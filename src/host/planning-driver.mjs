@@ -11,6 +11,8 @@
  *
  * The injected `git(args, { env, stdin } = {})` runs one command and returns
  * `{ code, stdout, stderr }`.
+ *
+ * Implements: docs/contracts/epic-planning-ref.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

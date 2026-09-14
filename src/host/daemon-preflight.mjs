@@ -2,6 +2,8 @@
  * This decides admission from an observed capability report; it performs no I/O
  * and grants nothing. The report itself is the daemon's, derived there from its
  * live handler table.
+ *
+ * Implements: docs/contracts/creation-grant.md
  */
 import { closedRecord, demand, immutable, compareCodePoints } from '../runtime/contracts.mjs';
 import { types } from 'node:util';

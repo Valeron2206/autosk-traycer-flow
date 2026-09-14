@@ -14,7 +14,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { FULL_TEXT, ROOT, buildPackage, contractOutline } from "../scripts/build-panel-package.mjs";
+import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal } from "../scripts/build-panel-package.mjs";
+import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
 
@@ -89,6 +90,33 @@ test("a closed refusal set is read in both forms a contract may use", () => {
   assert.deepEqual(bulleted.refusals, ["alpha_one", "beta_two"]);
   assert.equal(bulleted.form, "section");
 
+  // The inline reader took everything up to the end of the paragraph, so a name
+  // mentioned in a bullet's explanation became a tenth class in a set of nine —
+  // `docs/contracts/artifact-write-receipt.md` declares nine and the row said
+  // ten. Only the enumeration itself is the declaration.
+  const explained = contractOutline(
+    "## 8. Refusal classes\n\nClosed set, so a caller may branch on them:\n\n- `alpha_one` — the destination is not what `expected_previous` says;\n- `beta_two` — another.\n",
+  );
+  assert.deepEqual(explained.refusals, ["alpha_one", "beta_two"]);
+  assert.equal(explained.form, "section");
+
+  // An enumeration that wraps across lines is still one enumeration, and the
+  // sentence after it is not part of it.
+  const wrapped = contractOutline(
+    'Closed set, each carrying the file:\n`alpha_one`, `beta_two`,\n`gamma_three`. "Not resolved" is not one of them, nor is `delta_four`.\n',
+  );
+  assert.deepEqual(wrapped.refusals, ["alpha_one", "beta_two", "gamma_three"]);
+  assert.equal(wrapped.form, "inline");
+
+  // The line may wrap before the joining word as well as after the comma. An
+  // editor's reflow is not a change to the declared set.
+  const beforeAnd = contractOutline("Closed set: `alpha_one`\nand `beta_two`.\n");
+  assert.deepEqual(beforeAnd.refusals, ["alpha_one", "beta_two"]);
+
+  // But a blank line ends it: the next paragraph is prose, whatever it opens with.
+  const paragraph = contractOutline("Closed set: `alpha_one`,\n\nand `beta_two` is something else entirely.\n");
+  assert.deepEqual(paragraph.refusals, ["alpha_one"]);
+
   const section = contractOutline("## 6. Refusal classes\n\n- `alpha_one`;\n- `beta_two`;\n");
   assert.deepEqual(section.refusals, ["alpha_one", "beta_two"]);
   assert.equal(section.form, "section");
@@ -155,12 +183,188 @@ test("a reason owned by the workflow is shown as owned, not as missing", async (
   assert.match(text, /alignment park\s*\n?reasons appear in no contract's closed set/u);
 });
 
-test("a contract with no host module says so", async () => {
-  // A closed rule set with nothing that runs it is a design obligation, not an
-  // implemented one, and the difference belongs on the row.
+test("a contract with no measured link says that, not that nothing runs", async () => {
+  // The cell read "none — design only in this version", which is a claim the
+  // measurement cannot support: `src/host/gate-projection.mjs` evaluates
+  // `gate-store-projection.md` and every heuristic missed it, so the row denied
+  // an implementation that exists. The absence of a link is now reported as the
+  // absence of a link.
   const { text } = await build();
   assert.match(text, /Where each contract's rules are evaluated/u);
-  assert.match(text, /none — design only in this version/u);
+  assert.match(text, /no link measured/u);
+  assert.doesNotMatch(text, /design only in this version/u);
+  assert.match(text, /\*\*not\*\* that nothing evaluates the contract/u);
+});
+
+test("a contract is linked to the module that evaluates it, whatever the module is called", async () => {
+  // The row was computed by a filename guess: `docs/contracts/<stem>.md` had to
+  // meet `src/host/<stem>.mjs`. So the workflow-graph contract printed "design
+  // only" while `src/host/workflow-graph-canonical.mjs` evaluated its canonical
+  // form, and no stem can ever reach that name. The link is measured instead,
+  // and each one says which measurement carried it.
+  const measured = await measureContracts();
+  const graph = measured.find((entry) => entry.path === "docs/contracts/workflow-graph.md");
+  assert.deepEqual(graph.evaluators, [
+    {
+      module: "src/host/workflow-graph-canonical.mjs",
+      link: "import",
+      via: ["scripts/validate-workflow-graph.mjs"],
+    },
+  ]);
+
+  // And the case no heuristic could reach: the name differs from the stem, the
+  // document validator does not import it, and nothing in it names the contract.
+  // `src/host/gate-projection.mjs` evaluates `gate-store-projection.md` — the
+  // whole closed park set is in it — and the row said "design only". It is found
+  // now because the module declares what it implements.
+  const projection = measured.find((entry) => entry.path === "docs/contracts/gate-store-projection.md");
+  assert.deepEqual(
+    projection.evaluators.map((entry) => [entry.module, entry.link]),
+    [["src/host/gate-projection.mjs", "implements"]],
+  );
+  assert.equal(projection.refusals_named, projection.refusals.length);
+
+  const doctor = measured.find((entry) => entry.path === "docs/contracts/doctor-report.md");
+  assert.deepEqual(
+    doctor.evaluators.map((entry) => [entry.module, entry.link]),
+    [["src/host/doctor.mjs", "implements"]],
+  );
+
+  // A stem that happens to match is still reported, and reported as what it is.
+  const gates = measured.find((entry) => entry.path === "docs/contracts/work-type-gates.md");
+  assert.deepEqual(
+    gates.evaluators.map((entry) => [entry.module, entry.link]),
+    [["src/host/work-type-gates.mjs", "name"]],
+  );
+
+  for (const entry of measured) {
+    for (const evaluator of entry.evaluators) {
+      assert.ok(["import", "implements", "name"].includes(evaluator.link), `${entry.path}: ${evaluator.link}`);
+    }
+  }
+});
+
+test("a declared link is checked against the contract it claims", async () => {
+  // A declaration nobody verifies is the hand-kept list it replaced. Every
+  // `Implements:` marker has to name a contract that exists and a refusal class
+  // that contract declares, or the marker is a claim and not a measurement.
+  const measured = await measureContracts();
+  const byPath = new Map(measured.map((entry) => [entry.path, entry]));
+  const declared = [];
+  for (const name of readdirSync(path.join(ROOT, "src/host")).sort()) {
+    if (!name.endsWith(".mjs")) continue;
+    const module = `src/host/${name}`;
+    const text = read(module);
+    for (const match of text.matchAll(/\bImplements:\s*(\S+)/gu)) {
+      const contract = byPath.get(match[1]);
+      assert.ok(contract, `${module} declares ${match[1]}, which is not a contract`);
+      assert.ok(
+        contract.refusals.some((code) => namesRefusal(text, code)),
+        `${module} declares ${match[1]} and names none of its refusal classes`,
+      );
+      assert.ok(
+        contract.evaluators.some((entry) => entry.module === module),
+        `${module} declares ${match[1]} and is not linked to it`,
+      );
+      declared.push(module);
+    }
+  }
+  // The declarations are the point of the mechanism; an empty set would make
+  // every assertion above vacuous.
+  assert.ok(declared.length >= 16, `${declared.length} declarations`);
+});
+
+test("the count is over whole names from the declared set, not substrings of them", async () => {
+  // Two ways the number lied about `artifact-write-receipt.md`. Its set is nine
+  // classes; the parser read the field name `expected_previous` out of a bullet's
+  // explanation as a tenth, and then `includes` found that name inside
+  // `expected_previous_sha256` in `src/host/write-driver.mjs`. The row printed
+  // `10 of 10` for a contract that declares nine.
+  const measured = await measureContracts();
+  const receipt = measured.find((entry) => entry.path === "docs/contracts/artifact-write-receipt.md");
+  assert.equal(receipt.refusals.length, 9);
+  assert.ok(!receipt.refusals.includes("expected_previous"), receipt.refusals.join(","));
+  assert.equal(receipt.refusals_named, 9);
+
+  // The helper itself, both directions: a class name is not named by an
+  // identifier that merely contains it, at either end.
+  assert.ok(namesRefusal("if (!expected_previous) return;", "expected_previous"));
+  assert.ok(!namesRefusal("const expected_previous_sha256 = x;", "expected_previous"));
+  assert.ok(!namesRefusal("const prefix_expected_previous = x;", "expected_previous"));
+  assert.ok(namesRefusal("throw new Error('expected_previous');", "expected_previous"));
+
+  // And a class that only occurs inside a longer identifier is not named.
+  const { text } = await build({
+    contracts: [
+      {
+        path: "docs/contracts/one.md",
+        readers: [],
+        evaluators: [{ module: "src/host/only.mjs", link: "implements" }],
+        headings: ["1. Rules"],
+        form: "inline",
+        refusals: ["alpha_one", "beta_two"],
+        refusals_named: 1,
+      },
+    ],
+    mutation: { ...mutation, modules: [{ module: "src/host/only.mjs", test: "t", mutants: 3, killed: 3 }] },
+  });
+  assert.match(text, /\| `docs\/contracts\/one\.md` \| `src\/host\/only\.mjs` \(3\/3, declared\) \| 1 of 2 \|/u);
+});
+
+test("the row counts how many of a contract's refusal classes the code names", async () => {
+  // The links say where to look. This is the only column that says what is
+  // there — and it makes a partial implementation a number instead of an
+  // adjective: the creation-grant contract's signing half is simply absent.
+  const measured = await measureContracts();
+  const grant = measured.find((entry) => entry.path === "docs/contracts/creation-grant.md");
+  assert.equal(grant.refusals.length, 9);
+  assert.equal(grant.refusals_named, 3);
+
+  const { text } = await build({ contracts: measured });
+  assert.match(text, /\| `docs\/contracts\/creation-grant\.md` \| [^|]*\| 3 of 9 \|/u);
+  assert.match(text, /\| `docs\/contracts\/gate-store-projection\.md` \| [^|]*\| 8 of 8 \|/u);
+  // A contract with no module linked has nothing to count, and says so rather
+  // than printing a zero that reads as a measurement.
+  assert.match(text, /\| `docs\/contracts\/debate\.md` \| no link measured \| not measured — no module linked \|/u);
+});
+
+test("the row separates reading the contract from evaluating its rules", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const { text } = await build({
+    contracts: [
+      {
+        path: graph,
+        readers: ["scripts/validate-workflow-graph.mjs"],
+        evaluators: [
+          { module: "src/host/absent.mjs", link: "implements" },
+          { module: "src/host/workflow-graph-canonical.mjs", link: "import", via: ["scripts/validate-workflow-graph.mjs"] },
+          { module: "src/host/workflow-preflight.mjs", link: "name" },
+        ],
+        refusals_named: 2,
+        ...contractOutline(read(graph)),
+      },
+    ],
+    mutation: {
+      ...mutation,
+      modules: [
+        { module: "src/host/workflow-graph-canonical.mjs", test: "test/workflow-graph.test.mjs", mutants: 19, killed: 18 },
+        { module: "src/host/workflow-preflight.mjs", test: "test/workflow-preflight.test.mjs", mutants: 0, killed: 0 },
+      ],
+    },
+  });
+  // Reading the document and scoring the guards are two different facts, and a
+  // module the mutation table never scored is a third. Each is on the row.
+  const outline = contractOutline(read(graph));
+  assert.match(
+    text,
+    new RegExp(
+      "\\| `docs/contracts/workflow-graph\\.md` \\| `src/host/absent\\.mjs` \\(not in the mutation table, declared\\); " +
+        "`src/host/workflow-graph-canonical\\.mjs` \\(18/19, imported by `scripts/validate-workflow-graph\\.mjs`\\); " +
+        `\`src/host/workflow-preflight\\.mjs\` \\(no mutable guard, name match only\\) \\| 2 of ${outline.refusals.length} \\| ` +
+        "`scripts/validate-workflow-graph\\.mjs` \\|",
+      "u",
+    ),
+  );
 });
 
 test("the evidence is given as rows, not only as counts", async () => {
@@ -193,6 +397,53 @@ test("the mutation claim carries its own numbers and its own rules", async () =>
   assert.match(text, /node scripts\/mutation-report\.mjs/u);
   // And it does not quietly borrow the broader hand-run counts.
   assert.match(text, /the two are not the same number/u);
+});
+
+test("every verdict the package asks for is one the archive accepts", async () => {
+  // The block asked for `blocking_non_verdict` — the runtime's word for a seat
+  // that could not answer — while the archive reads the attestation vocabulary,
+  // which spells that `non_verdict`. A seat following the instruction exactly
+  // produced a record the archive refused, which is this ticket's own defect
+  // arriving from the other end. The producer and the consumer read one list.
+  const { text } = await build();
+  const block = /"verdict": "([^"]+)"/u.exec(text);
+  assert.ok(block, "the verdict block must state which verdicts it accepts");
+  const offered = block[1].split("|").map((name) => name.trim());
+  assert.deepEqual(offered, panelVerdicts());
+
+  for (const verdict of offered) {
+    const seats = PANEL_BY_ROUND[1].map((seat, index) => ({
+      ...seat,
+      verdict,
+      session_id: `session-${index + 1}`,
+      findings: verdict === "pass" ? [] : [{ severity: "high", where: "x", what: "y" }],
+    }));
+    assert.deepEqual(validatePanelRound({ round: 1, seats }, PANEL_BY_ROUND[1]), [], verdict);
+  }
+
+  // And a word the package does not offer is still refused.
+  const seats = PANEL_BY_ROUND[1].map((seat, index) => ({
+    ...seat,
+    verdict: "blocking_non_verdict",
+    session_id: `session-${index + 1}`,
+    findings: [{ severity: "high", where: "x", what: "y" }],
+  }));
+  assert.equal(validatePanelRound({ round: 1, seats }, PANEL_BY_ROUND[1]).length, 4);
+});
+
+test("the verdict block asks for the seats this candidate requires", async () => {
+  // The block spelled its seats by hand, so amending the roster left it asking
+  // for a seat that no longer sits and never offering the one that does: the
+  // deepseek panelist would have had to break the stated format or answer under
+  // another seat's name, and `computeAttestationState` then finds no deepseek
+  // verdict and holds the candidate at `pending_final_panel` forever.
+  const { text } = await build();
+  const block = /"seat": "<([^>]+)>"/u.exec(text);
+  assert.ok(block, "the verdict block must state which seats it accepts");
+  assert.deepEqual(
+    block[1].split("|").sort(),
+    candidate.required_panel.map((entry) => entry.seat).sort(),
+  );
 });
 
 test("the package is deterministic and names what it left out", async () => {

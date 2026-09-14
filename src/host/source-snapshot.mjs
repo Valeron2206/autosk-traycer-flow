@@ -9,6 +9,8 @@
  * transient evidence root, because #27's retention would delete the only copy
  * of a normative input; and a corrupt snapshot is repaired from the recorded
  * digest, never re-minted from whatever the live source says now.
+ *
+ * Implements: docs/contracts/external-source-snapshot.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

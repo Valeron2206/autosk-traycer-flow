@@ -14,6 +14,8 @@
  * Injected `send(payload, { timeoutMs })` returns `{ code, stdout, stderr }`.
  * `envelope` builds the transmitted payload; a transport with its own format
  * supplies its own, and is held to the same check as the built-in one.
+ *
+ * Implements: docs/contracts/stage-carriers.md
  */
 import { createHash } from 'node:crypto';
 

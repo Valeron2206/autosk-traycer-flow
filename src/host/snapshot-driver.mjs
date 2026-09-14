@@ -12,6 +12,8 @@
  * Injected: `readFile(path)` returning bytes, `writeFile(path, bytes)`,
  * `lstat(path)` returning `{ isFile, isSymbolicLink, size }`, `mkdir(path)` and
  * `realpath(path)`.
+ *
+ * Implements: docs/contracts/external-source-snapshot.md
  */
 import { createHash } from 'node:crypto';
 

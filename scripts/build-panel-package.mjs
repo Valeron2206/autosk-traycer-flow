@@ -17,12 +17,13 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
+import { panelVerdicts } from './validate-design-candidate.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -42,6 +43,34 @@ async function read(relative) {
 }
 
 /**
+ * The names a `Closed set:` sentence enumerates, and nothing after them.
+ *
+ * The enumeration is backticked names joined by commas or `and`, and it may wrap
+ * across lines on either side of the joining word — reflowing a paragraph is not
+ * a change to the declared set. It ends at the first thing that is not one of
+ * those: a full stop, a word, or a bullet, which is how the bulleted form
+ * declines this reader and leaves the section to the other one. A blank line ends
+ * it too, so it cannot run on into the next paragraph.
+ */
+function inlineEnumeration(text) {
+  const lead = /Closed set[^:]*:/u.exec(text);
+  if (!lead) return null;
+  // One line break, not a paragraph break: `[ \t]*\n?[ \t]*` on both sides of a
+  // name lets the list wrap while stopping at a blank line.
+  const step = /^[ \t]*\n?[ \t]*(?:and[ \t]*\n?[ \t]*)?`([a-z][a-z0-9_]{4,})`[ \t]*\n?[ \t]*(,|and\b)?/u;
+  let rest = text.slice(lead.index + lead[0].length);
+  const names = [];
+  for (;;) {
+    const found = step.exec(rest);
+    if (!found) break;
+    names.push(found[1]);
+    rest = rest.slice(found[0].length);
+    if (!found[2]) break;
+  }
+  return names.length > 0 ? names : null;
+}
+
+/**
  * The headings and refusal classes of one contract, without its whole body.
  *
  * Contracts close their sets in two forms — an inline `Closed set:` sentence
@@ -49,6 +78,11 @@ async function read(relative) {
  * a package tells a panel that twenty-two contracts declare no closed set when
  * every one of them does. Round 1 found exactly that, so both forms are read
  * and the form is reported.
+ *
+ * The inline reader takes the enumeration and stops: it used to take the rest of
+ * the paragraph, so a field name a bullet mentioned while explaining a class
+ * became a class of its own — `artifact-write-receipt.md` declares nine and the
+ * package said ten.
  */
 export function contractOutline(text) {
   const headings = [];
@@ -56,10 +90,8 @@ export function contractOutline(text) {
     if (/^##\s/u.test(line)) headings.push(line.replace(/^##\s*/u, '').trim());
   }
   const refusals = new Set();
-  const inline = /Closed set[^:]*:\s*([\s\S]+?)(?:\n\n|\.\s*\n)/u.exec(text);
-  if (inline) {
-    for (const match of inline[1].matchAll(/`([a-z][a-z0-9_]{4,})`/gu)) refusals.add(match[1]);
-  }
+  const inline = inlineEnumeration(text);
+  for (const name of inline ?? []) refusals.add(name);
   const section = /(?:^|\n)##\s*\d+\.\s*(?:Refusal classes|What a refusal looks like)\s*\n([\s\S]*?)(?=\n##\s|$)/u.exec(text);
   if (section) {
     for (const match of section[1].matchAll(/^-\s*`([a-z][a-z0-9_]{4,})`/gmu)) refusals.add(match[1]);
@@ -68,8 +100,115 @@ export function contractOutline(text) {
   return { headings, refusals: [...refusals].sort(), form };
 }
 
+/** Where the host modules the mutation table scores live. */
+const HOST_DIR = 'src/host';
+
+/** How a module declares the contract it implements, next to the code. */
+const IMPLEMENTS = /\bImplements:\s*(docs\/contracts\/[a-z0-9-]+\.md)\b/gu;
+
+/**
+ * Whether a module names a refusal class, as that whole name.
+ *
+ * `expected_previous` occurs inside `expected_previous_sha256`, so a substring
+ * test counts a class as named by a field that merely starts the same way.
+ */
+export function namesRefusal(text, code) {
+  return new RegExp(`(?<![A-Za-z0-9_])${code}(?![A-Za-z0-9_])`, 'u').test(text);
+}
+
+/**
+ * Each contract, with what reads it and what evaluates it, measured.
+ *
+ * The enforcement column was computed from a filename: `docs/contracts/<stem>.md`
+ * had to meet `src/host/<stem>.mjs`. That printed "design only" twice over a real
+ * implementation — `src/host/workflow-graph-canonical.mjs` evaluates the graph
+ * contract's canonical form, and `src/host/gate-projection.mjs` evaluates
+ * `gate-store-projection.md` — and neither name is reachable from a stem. Worse,
+ * the cell turned a measurement that found nothing into a claim that nothing
+ * exists. Three links are measured instead:
+ *
+ * - `import` — a script that names the contract imports the module. The chain is
+ *   complete: the document is read, and that reader runs this code.
+ * - `implements` — the module declares the contract, in the `Implements:` line
+ *   above its own code. A declaration beside what it describes moves with a
+ *   rename and dies with a deletion; the same fact in a central list does not.
+ * - `name` — only the filename convention matches. Kept, because dropping it
+ *   would deny twelve contracts a module that plainly evaluates them, and
+ *   labelled, because a convention is not a declaration.
+ *
+ * A module found by more than one link is reported under the strongest. None of
+ * the three proves the rules are evaluated, and a row with none of them reports
+ * that nothing was measured, not that nothing runs.
+ */
+export async function measureContracts() {
+  const scriptText = new Map();
+  for (const name of (await readdir(path.join(ROOT, 'scripts'))).sort()) {
+    if (name.endsWith('.mjs')) scriptText.set(`scripts/${name}`, await read(`scripts/${name}`));
+  }
+  const hostText = new Map();
+  for (const name of (await readdir(path.join(ROOT, HOST_DIR))).sort()) {
+    if (name.endsWith('.mjs')) hostText.set(`${HOST_DIR}/${name}`, await read(`${HOST_DIR}/${name}`));
+  }
+
+  const declarations = new Map();
+  for (const [module, text] of hostText) {
+    declarations.set(module, new Set([...text.matchAll(IMPLEMENTS)].map((match) => match[1])));
+  }
+
+  const importsOf = new Map();
+  for (const [script, text] of scriptText) {
+    const modules = new Set();
+    for (const match of text.matchAll(/from\s+'([^']+)'|from\s+"([^"]+)"/gu)) {
+      const specifier = match[1] ?? match[2];
+      if (!specifier.startsWith('.')) continue;
+      const target = path.posix.join(path.posix.dirname(script), specifier);
+      if (hostText.has(target)) modules.add(target);
+    }
+    importsOf.set(script, modules);
+  }
+
+  const contracts = [];
+  for (const name of (await readdir(path.join(ROOT, CONTRACT_GLOB))).sort()) {
+    if (!name.endsWith('.md')) continue;
+    const contractPath = `${CONTRACT_GLOB}/${name}`;
+    // Which scripts name this contract's path. Measured, not declared: a list a
+    // human keeps is the second place for this truth to live.
+    const readers = [...scriptText].filter(([, text]) => text.includes(contractPath)).map(([script]) => script);
+    const links = new Map();
+    const stem = `${HOST_DIR}/${name.replace(/\.md$/u, '')}.mjs`;
+    if (hostText.has(stem)) links.set(stem, { module: stem, link: 'name' });
+    for (const [module, declared] of declarations) {
+      if (declared.has(contractPath)) links.set(module, { module, link: 'implements' });
+    }
+    for (const reader of readers) {
+      for (const module of importsOf.get(reader)) {
+        const via = links.get(module)?.link === 'import' ? links.get(module).via : [];
+        links.set(module, { module, link: 'import', via: [...via, reader] });
+      }
+    }
+    const outline = contractOutline(await read(contractPath));
+    // What the column exists to answer, as far as it can be answered by
+    // measurement: how many of the refusals this contract declares are named in
+    // the code linked to it. A link says where to look; this says what was found
+    // there, and a partial implementation shows as a number rather than as an
+    // adjective somebody chose.
+    const evaluators = [...links.values()].sort((left, right) => (left.module < right.module ? -1 : 1));
+    const named = outline.refusals.filter((code) =>
+      evaluators.some((evaluator) => namesRefusal(hostText.get(evaluator.module), code)),
+    );
+    contracts.push({
+      path: contractPath,
+      readers,
+      evaluators,
+      refusals_named: named.length,
+      ...outline,
+    });
+  }
+  return contracts;
+}
+
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts() }) {
   const sections = [];
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
   const open = contracts.filter((entry) => entry.refusals.length === 0);
@@ -182,14 +321,46 @@ patch series in section 1 and is not in the mutation table.
 
 **Where each contract's rules are evaluated.** A closed rule set with nothing
 that runs it is a design obligation, not an implemented one, and the difference
-belongs on the row rather than in a reader's inference:
+belongs on the row rather than in a reader's inference. Three facts are kept
+apart. A script that reads the contract document is not a module whose guards the
+mutation table scored. Each module says **how** it was linked, because the three
+links are not equal evidence: \`imported by\` follows a reader into the code it
+runs, \`declared\` is the module's own \`Implements:\` line, and \`name match only\`
+is this repository's filename convention and nothing more. And the last column is
+the only measurement here about the rules themselves — how many of the refusal
+classes the contract declares are named in the modules linked to it.
 
-| contract | host module in the mutation table |
-| --- | --- |
+Read the limits of this table exactly. A link is where to look, not proof that
+the rules run, and a refusal class named in a module may still be produced on a
+path nothing reaches. \`no link measured\` means these three measurements found
+nothing — **not** that nothing evaluates the contract. Two implementations whose
+names no convention could reach were missed exactly that way before the links
+were measured.
+
+| contract | rules evaluated in | refusal classes named there | document read by |
+| --- | --- | --- | --- |
 ${contracts.map((entry) => {
-    const stem = entry.path.replace(/^docs\/contracts\//u, '').replace(/\.md$/u, '');
-    const module = mutation.modules.find((row) => row.module === `src/host/${stem}.mjs`);
-    return `| \`${entry.path}\` | ${module ? `\`${module.module}\` (${module.killed}/${module.mutants})` : 'none — design only in this version'} |`;
+    const readers = entry.readers ?? [];
+    const evaluators = entry.evaluators ?? [];
+    const evaluated = evaluators.map((evaluator) => {
+      const scored = mutation.modules.find((row) => row.module === evaluator.module);
+      const score = !scored
+        ? 'not in the mutation table'
+        : scored.mutants === 0
+          ? 'no mutable guard'
+          : `${scored.killed}/${scored.mutants}`;
+      const link =
+        evaluator.link === 'import'
+          ? `imported by ${evaluator.via.map((name) => `\`${name}\``).join(', ')}`
+          : evaluator.link === 'implements'
+            ? 'declared'
+            : 'name match only';
+      return `\`${evaluator.module}\` (${score}, ${link})`;
+    });
+    const named = evaluators.length === 0
+      ? 'not measured — no module linked'
+      : `${entry.refusals_named ?? 0} of ${entry.refusals.length}`;
+    return `| \`${entry.path}\` | ${evaluated.join('; ') || 'no link measured'} | ${named} | ${readers.map((name) => `\`${name}\``).join(', ') || 'nothing in `scripts/` names it'} |`;
   }).join('\n')}
 
 ${contracts.map((entry) => `### ${entry.path}
@@ -295,22 +466,30 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
 
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
-- Issue #10's criterion 2 (the declarative workflow graph) is deferred. No
-  artifact in section 3 is that graph, and this panel is **not** being asked to
-  accept it as delivered — only to say whether deferring it is a defect in the
-  design under review.
+- Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries
+  the graph document, its schema, the canonical reference, both contracts and the
+  patches that put the document's digest inside the identity a task is pinned to.
+  What is not claimed is the daemon that executes it — that code lives outside
+  this repository, so nothing here is evidence about its runtime behaviour. This
+  paragraph said the opposite until the work landed and the sentence was not
+  rewritten; a panel was dispatched on the stale text and three of its four seats
+  found it independently.
 - ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the
   reproducible mutation command. The daemon is not in this repository and its
   guards are not mutated by it, so nothing here is evidence about them.
-- A contract whose row in section 4 says **design only in this version** has a
-  closed rule set and nothing in this repository that evaluates it. That is a
-  design obligation, not an implemented one, and it is listed rather than left
-  to be inferred from the mutation table.
+- ${contracts.filter((entry) => (entry.evaluators ?? []).length === 0).length} of the ${contracts.length} contracts say **no link measured** in section 4. That
+  means the three measurements on that row found no module, and it is **not** a
+  claim that nothing evaluates them. This row asserted "design only in this
+  version" over two implementations whose names no convention could reach, until
+  the links were measured; whether the remaining ones are unimplemented or only
+  unlinked is open, and a seat that wants to know has to read the code.
 - There is no mapping from a refusal class to a killed mutant. The command shows
   that each module's guards are exercised by its own tests; it does not show
   that every one of the ${contracts.reduce((sum, entry) => sum + entry.refusals.length, 0)} declared classes is reachable. Each contract
   carries its own "every refusal class can be produced" test, which is a
-  different and narrower claim.
+  different and narrower claim. Section 4's refusal-class count is not that
+  mapping either: it counts the classes named in the linked modules, which is a
+  measurement over text and not a proof that any of them can be reached.
 - \`npm test\` is reported as a pass/fail total with no coverage figure. Read it
   as "the suite is green", not as "the suite is adequate".
 - No deployment to real users has been performed, and none is claimed.`);
@@ -341,9 +520,9 @@ Reply with exactly one JSON object and nothing else:
 
 \`\`\`json
 {
-  "seat": "<opus|astra|grok|muse>",
+  "seat": "<${candidate.required_panel.map((entry) => entry.seat).join('|')}>",
   "candidate_digest": "${candidate.candidate_digest}",
-  "verdict": "pass | fail | blocking_non_verdict",
+  "verdict": "${verdicts.join(' | ')}",
   "findings": [
     { "severity": "critical|high|medium|low", "where": "<path or section>", "what": "<one sentence>" }
   ],
@@ -354,7 +533,12 @@ Reply with exactly one JSON object and nothing else:
 
 \`pass\` means: the design is internally consistent, nothing load-bearing is
 missing, and the evidence says what it claims. Anything else is \`fail\` with
-findings, or \`blocking_non_verdict\` if you could not review it.`);
+findings, or \`${verdicts[verdicts.length - 1]}\` if you could not review it.
+
+These are the only three values, and they are the attestation's own — the list
+above is read from the schema the verdict is recorded against, so an answer that
+follows this instruction is an answer the archive accepts. A different word for
+the third case, however reasonable, is refused rather than translated.`);
 
   const text = `${sections.join('\n\n')}\n`;
   return Object.freeze({ text, digest: sha256(text), bytes: Buffer.byteLength(text, 'utf8') });
@@ -380,13 +564,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     report_digest: reportDigest(mutationReport),
   };
 
-  const { readdir } = await import('node:fs/promises');
-  const contracts = [];
-  for (const name of (await readdir(path.join(ROOT, CONTRACT_GLOB))).sort()) {
-    if (!name.endsWith('.md')) continue;
-    const text = await read(`${CONTRACT_GLOB}/${name}`);
-    contracts.push({ path: `${CONTRACT_GLOB}/${name}`, ...contractOutline(text) });
-  }
+  const contracts = await measureContracts();
 
   const built = await buildPackage({
     commit,

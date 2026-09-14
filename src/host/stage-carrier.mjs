@@ -8,6 +8,8 @@
  * The compiler reads the pinned bundle and never live protocol: an Epic that
  * silently upgraded its rules mid-flight has changed the question it is
  * answering.
+ *
+ * Implements: docs/contracts/stage-carriers.md
  */
 import { createHash } from 'node:crypto';
 

@@ -8,6 +8,8 @@
  *
  * A report that lists only the odd one out cannot be checked by a reader who
  * does not already know the answer.
+ *
+ * Implements: docs/contracts/artifact-write-receipt.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

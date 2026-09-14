@@ -5,6 +5,8 @@
  * assert about a class the policy says is transient. And a record that was cut
  * to fit and does not say so is a diagnostic that reads as complete, which is
  * worse than a missing one — the reader has no reason to doubt it.
+ *
+ * Implements: docs/contracts/evidence-manifest.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

@@ -6,6 +6,8 @@
  * fit, which is how an artifact acquires the cheapest lifecycle by accident.
  *
  * Reads the registry it is given; performs no I/O of its own.
+ *
+ * Implements: docs/contracts/artifact-registry.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 

@@ -8,6 +8,8 @@
  * The scanner's own failure is never read as a pass, and the send layer checks
  * the digest again immediately before the call — the window between clearing
  * bytes and sending them is exactly where a source mutation lands.
+ *
+ * Implements: docs/contracts/clearance-manifest.md
  */
 import { createHash } from 'node:crypto';
 
