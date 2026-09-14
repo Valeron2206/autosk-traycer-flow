@@ -49,6 +49,16 @@ Two consequences are deliberate. A requirement can be met by a line inside a com
 | `shape_digest_is_canonical` | The shape digest is computed from the canonical serialization, not merely alongside a function that could produce one. |
 | `definition_carries_document_digest` | A workflow definition can carry the digest of the graph document it was built from. |
 | `document_digest_in_shape` | The canonical shape serialises that digest, and serialises its absence too. |
+| `document_digest_supplied_from_definition` | The admission record takes the document digest off the definition instead of recomputing it. |
+| `document_digest_persisted` | Writing a pin persists the document digest when the pin carries one. |
+| `document_digest_reaches_the_pin` | The admission's document digest is handed to the pin that gets written. |
+| `document_digest_read_separately` | Reading a pin surfaces the document digest as its own field, not folded into the shape. |
+| `malformed_document_digest_refused` | A document digest that is not a lowercase sha256 makes the pin malformed rather than tolerated. |
+| `document_digest_reaches_every_admission_path` | Every re-admit branch that builds a pin passes the document, not only the last one. |
+| `document_moves_with_the_migration` | Applying a migration writes the target document into the pin it moves. |
+| `migrated_document_read_back` | The migration read-back compares the document as well as the shape. |
+| `reopen_refuses_a_different_pair` | Reopening a migration whose plan matches but whose documents differ is refused. |
+| `source_document_verified_before_moving` | The claimed source document is compared with the task's own before the move. |
 | `canonical_sorts_steps` | The canonical serialization sorts the steps. |
 
 Each carries, in the resource, what goes wrong when it stops holding. A requirement whose cost nobody can state is one nobody will defend when it becomes inconvenient.
@@ -73,6 +83,16 @@ shape_digest_declared	1	export function workflowGraphDigest(wf: WorkflowDefiniti
 shape_digest_is_canonical	1	  return createHash("sha256").update(canonicalWorkflowGraph(wf), "utf8").digest("hex");
 definition_carries_document_digest	1	  graphDigest?: string;
 document_digest_in_shape	1	    `graph ${wf.graphDigest === undefined ? "-" : b64(wf.graphDigest)}`,
+document_digest_supplied_from_definition	1	      if (workflow.graphDigest !== undefined) admission.document = workflow.graphDigest;
+document_digest_reaches_the_pin	1	    admitted: makePin(workflowName, current.distribution.digest, current.graph, helper, current.document),
+document_digest_persisted	1	  if (pin.document !== undefined) record.document = pin.document;
+document_digest_read_separately	2	  if (document !== undefined) pin.document = document;
+malformed_document_digest_refused	1	    return { state: "malformed", reason: "runtime identity pin document is not a lowercase sha256" };
+document_digest_reaches_every_admission_path	3	      admitted: makePin(workflowName, current.distribution.digest, current.graph, helper, current.document),
+document_moves_with_the_migration	1	        if (opened.to_document !== undefined) pin.document = opened.to_document;
+migrated_document_read_back	1	      if (after.pin.document !== opened.to_document) {
+reopen_refuses_a_different_pair	1	              `migration ${id} was opened with ${name} ${was ?? "absent"} and is now asked for ${now ?? "absent"}`,
+source_document_verified_before_moving	1	        if (opened.from_document !== undefined && current.pin.document !== opened.from_document) {
 canonical_sorts_steps	1	  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
 ```
 
