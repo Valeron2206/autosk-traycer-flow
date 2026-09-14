@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "13d51252539262e0dbea0f2527c41a57e4674e43",
+  "result_tree": "f166bec8ffb5223aa9eb41a45667c07990b55e57",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -134,6 +134,10 @@
     {
       "file": "patches/0032-graph-document-in-shape.patch",
       "sha256": "28cdf414fadb563d6911eacfca71b5bd0e4c970b67cb6ea61ecc896139fee195"
+    },
+    {
+      "file": "patches/0033-document-digest-in-pin.patch",
+      "sha256": "4e2f9344ca0b39cf6316eb5d37dd1e5201ba7904f3c478199b4caec74463f142"
     }
   ],
   "license": {

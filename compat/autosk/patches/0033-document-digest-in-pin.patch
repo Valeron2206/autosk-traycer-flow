@@ -1,0 +1,724 @@
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+index 4961029..1e7d6f7 100644
+--- a/daemon/core/src/engine/runtimeIdentity.ts
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -96,7 +96,10 @@ export function runtimeIdentityDecision(
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded runtime identity for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
++    return {
++      ok: true,
++      admitted: makePin(workflowName, current.distribution.digest, current.graph, helper, current.document),
++    };
+   }
+   if (pinned.pin.workflow !== workflowName) {
+     return {
+@@ -129,7 +132,10 @@ export function runtimeIdentityDecision(
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded workflow shape for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
++    return {
++      ok: true,
++      admitted: makePin(workflowName, current.distribution.digest, current.graph, helper, current.document),
++    };
+   }
+   if (current.graph !== pinned.pin.graph) {
+     return {
+@@ -150,7 +156,10 @@ export function runtimeIdentityDecision(
+         reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} has no recorded store helper for this task${remedyFor(registry, workflowName)}`,
+       };
+     }
+-    return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
++    return {
++      ok: true,
++      admitted: makePin(workflowName, current.distribution.digest, current.graph, helper, current.document),
++    };
+   }
+   if (helper !== pinned.pin.helper) {
+     return {
+@@ -160,12 +169,30 @@ export function runtimeIdentityDecision(
+   }
+   // Built from `current`, whose two halves this function has just compared with the
+   // pin's, so it is the verified lookup and not a second read of the registry.
+-  return { ok: true, admitted: makePin(workflowName, current.distribution.digest, current.graph, helper) };
++  return {
++    ok: true,
++    admitted: makePin(workflowName, current.distribution.digest, current.graph, helper, current.document),
++  };
+ }
+ 
+-/** The pin to write: a workflow with a distribution always has a shape and a helper. */
+-function makePin(workflow: string, digest: string, graph: string, helper: string): RuntimeIdentityPin {
+-  return { workflow, digest, graph, helper };
++/**
++ * The pin to write: a workflow with a distribution always has a shape and a helper.
++ *
++ * The document is the one optional half. A hand-written workflow has none, and the
++ * field is omitted rather than written empty, because the read distinguishes an
++ * absent field from a present one and a forged empty string would claim a document
++ * that does not exist.
++ */
++function makePin(
++  workflow: string,
++  digest: string,
++  graph: string,
++  helper: string,
++  document?: string,
++): RuntimeIdentityPin {
++  const pin: RuntimeIdentityPin = { workflow, digest, graph, helper };
++  if (document !== undefined) pin.document = document;
++  return pin;
+ }
+ 
+ /** The actionable half of a refusal: which step re-admits the task. */
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index f1fa98b..1a7023f 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -42,6 +42,13 @@ export interface WorkflowAdmission {
+   distribution: DistributionIdentity;
+   /** The digest of the declared shape; see `extensions/graph.ts`. */
+   graph: string;
++  /**
++   * The digest of the graph document the workflow was built from, when it was
++   * built from one. Read straight off the definition rather than recomputed: the
++   * shape digest above already covers it, and recomputing would make two answers
++   * possible where the definition has one.
++   */
++  document?: string;
+ }
+ 
+ /** The result of validating a `(workflow, step)` position against the registry. */
+@@ -172,10 +179,14 @@ export class ExtensionRegistry {
+     }
+     this.workflows.set(name, workflow);
+     if (identity) {
+-      this.workflowIdentities.set(name, {
++      // Both digests come from this one site, because they are two projections of
++      // the same definition and a second write site is how they would drift apart.
++      const admission: WorkflowAdmission = {
+         distribution: identity,
+         graph: workflowGraphDigest(workflow),
+-      });
++      };
++      if (workflow.graphDigest !== undefined) admission.document = workflow.graphDigest;
++      this.workflowIdentities.set(name, admission);
+     }
+   }
+ 
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+index cce2e18..cc530fe 100644
+--- a/daemon/core/src/store/distributions.ts
++++ b/daemon/core/src/store/distributions.ts
+@@ -129,6 +129,21 @@ export interface MigrationReceipt {
+    * bytes.
+    */
+   to_graph: string;
++  /**
++   * The graph documents the pair is between, when the workflow was built from one.
++   *
++   * The shape digest above cannot name them: a document's digest is one line inside
++   * the bytes that shape is hashed over, so `to_graph` moving says a document
++   * changed and never says to what. A receipt that cannot name either document
++   * cannot describe a migration between two documents afterwards, which is what
++   * "supported pair" has to mean for a declarative graph.
++   *
++   * Deliberately outside {@link migrationId}: the id is derived from the contents,
++   * so folding these in would give every already-sealed receipt a different id and
++   * make the index unreadable. They are recorded, not identifying.
++   */
++  from_document?: string;
++  to_document?: string;
+   workflow: string;
+   /** The exact tasks the plan named, sorted. */
+   tasks: string[];
+@@ -306,6 +321,8 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     "started_at",
+     "completed_at",
+     "reverses",
++    "from_document",
++    "to_document",
+   ]);
+   const extra = Object.keys(item).filter((k) => !allowed.has(k));
+   if (extra.length > 0) {
+@@ -321,6 +338,8 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     started_at: startedAt,
+     completed_at: completedAt,
+     reverses,
++    from_document: fromDocument,
++    to_document: toDocument,
+   } = item;
+   for (const [name, value] of [["from", from], ["to", to], ["to_graph", toGraph], ["id", id]] as const) {
+     if (typeof value !== "string" || !DIGEST_PATTERN.test(value)) {
+@@ -350,6 +369,11 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+   if (reverses !== undefined && (typeof reverses !== "string" || !DIGEST_PATTERN.test(reverses))) {
+     throw new DistributionIndexError("migration receipt reverses is not a lowercase sha256");
+   }
++  for (const [name, value] of [["from_document", fromDocument], ["to_document", toDocument]] as const) {
++    if (value !== undefined && (typeof value !== "string" || !DIGEST_PATTERN.test(value))) {
++      throw new DistributionIndexError(`migration receipt ${name} is not a lowercase sha256`);
++    }
++  }
+   // The id is derived from the contents, so a receipt whose id does not match
+   // describes a different migration than the one it claims to be.
+   const expected = migrationId(
+@@ -372,6 +396,8 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     tasks: [...(tasks as string[])].sort(),
+     started_at: startedAt,
+   };
++  if (fromDocument !== undefined) receipt.from_document = fromDocument as string;
++  if (toDocument !== undefined) receipt.to_document = toDocument as string;
+   if (completedAt !== undefined) receipt.completed_at = completedAt;
+   if (reverses !== undefined) receipt.reverses = reverses as string;
+   return receipt;
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 0d3ee07..50623b6 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -235,12 +235,13 @@ export function readRuntimeIdentityPin(
+   }
+   const record = raw as Record<string, unknown>;
+   const extra = Object.keys(record).filter(
+-    (key) => key !== "workflow" && key !== "digest" && key !== "graph" && key !== "helper",
++    (key) =>
++      key !== "workflow" && key !== "digest" && key !== "graph" && key !== "document" && key !== "helper",
+   );
+   if (extra.length > 0) {
+     return { state: "malformed", reason: `runtime identity pin has unexpected keys: ${extra.sort().join(", ")}` };
+   }
+-  const { workflow, digest, graph, helper } = record;
++  const { workflow, digest, graph, document, helper } = record;
+   if (typeof workflow !== "string" || workflow.length === 0) {
+     return { state: "malformed", reason: "runtime identity pin has no workflow name" };
+   }
+@@ -250,11 +251,15 @@ export function readRuntimeIdentityPin(
+   if (graph !== undefined && (typeof graph !== "string" || !DIGEST_PATTERN.test(graph))) {
+     return { state: "malformed", reason: "runtime identity pin graph is not a lowercase sha256" };
+   }
++  if (document !== undefined && (typeof document !== "string" || !DIGEST_PATTERN.test(document))) {
++    return { state: "malformed", reason: "runtime identity pin document is not a lowercase sha256" };
++  }
+   if (helper !== undefined && (typeof helper !== "string" || !DIGEST_PATTERN.test(helper))) {
+     return { state: "malformed", reason: "runtime identity pin helper is not a lowercase sha256" };
+   }
+   const pin: RuntimeIdentityPin = { workflow, digest };
+   if (graph !== undefined) pin.graph = graph;
++  if (document !== undefined) pin.document = document;
+   if (helper !== undefined) pin.helper = helper;
+   return { state: "pinned", pin };
+ }
+@@ -266,6 +271,7 @@ export function setRuntimeIdentityPin(meta: Record<string, unknown>, pin: Runtim
+   // the read above distinguishes the two.
+   const record: Record<string, unknown> = { workflow: pin.workflow, digest: pin.digest };
+   if (pin.graph !== undefined) record.graph = pin.graph;
++  if (pin.document !== undefined) record.document = pin.document;
+   if (pin.helper !== undefined) record.helper = pin.helper;
+   meta[RUNTIME_IDENTITY_KEY] = record;
+ }
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 45c2b25..a66f6e9 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -1541,6 +1541,7 @@ export class Store {
+     workflow: string,
+     tasks: readonly string[],
+     reverses?: string,
++    documents?: { from?: string; to?: string },
+   ): Promise<MigrationReceipt> {
+     // Validated here rather than only on read. A receipt the parser will refuse is
+     // not merely a bad record: it is written into the one index every distribution
+@@ -1556,6 +1557,15 @@ export class Store {
+     if (reverses !== undefined && !/^[0-9a-f]{64}$/.test(reverses)) {
+       throw new Error("migration reverses is not a lowercase sha256");
+     }
++    // Validated here for the same reason the digests above are: a receipt the
++    // parser will refuse is written into the one index every distribution
++    // operation reads. They are recorded and never identifying — `migrationId`
++    // does not see them, so a sealed receipt keeps the id it already had.
++    for (const [name, value] of [["from_document", documents?.from], ["to_document", documents?.to]] as const) {
++      if (value !== undefined && !/^[0-9a-f]{64}$/.test(value)) {
++        throw new Error(`migration ${name} is not a lowercase sha256`);
++      }
++    }
+     const id = migrationId(from, to, toGraph, workflow, unique, reverses);
+     let receipt: MigrationReceipt | undefined;
+     await withCreationLock(this.paths, async (io) => {
+@@ -1573,6 +1583,24 @@ export class Store {
+       }
+       const existing = index.migrations.find((m) => m.id === id);
+       if (existing) {
++        // The documents are recorded and not identifying, so a second call with the
++        // same plan and DIFFERENT documents lands on this same receipt. Returning it
++        // unchecked would answer a request about one pair with a receipt describing
++        // another, and the apply that follows would move tasks onto the recorded
++        // document while the caller believed it asked for the other one. Keeping the
++        // id stable does not license accepting an incompatible argument: the conflict
++        // is refused instead, presence against absence included, because a receipt
++        // opened before this field existed cannot be retrofitted by a later caller.
++        for (const [name, was, now] of [
++          ["from_document", existing.from_document, documents?.from],
++          ["to_document", existing.to_document, documents?.to],
++        ] as const) {
++          if (was !== now) {
++            throw new Error(
++              `migration ${id} was opened with ${name} ${was ?? "absent"} and is now asked for ${now ?? "absent"}`,
++            );
++          }
++        }
+         receipt = existing;
+         return;
+       }
+@@ -1586,6 +1614,8 @@ export class Store {
+         started_at: this.clock(),
+       };
+       if (reverses !== undefined) opened.reverses = reverses;
++      if (documents?.from !== undefined) opened.from_document = documents.from;
++      if (documents?.to !== undefined) opened.to_document = documents.to;
+       index.migrations.push(opened);
+       receipt = opened;
+       await io.writeRuntimeIndex(expectedIndexDigest(raw), serializeDistributionIndex(index));
+@@ -1627,15 +1657,39 @@ export class Store {
+             `migration ${id}: ${taskId} is no longer pinned to ${opened.from}, refusing to continue`,
+           );
+         }
++        // The source document is verified, not assumed. The digest check above cannot
++        // see it: a document can change inside one distribution, so a task whose
++        // document moved after the plan was opened passes that check while the
++        // receipt's claim about where it came from is already false. Once the move
++        // has happened the true source is unrecoverable — read-back compares only the
++        // target — so this is the last point at which the claim can be tested at all.
++        //
++        // A receipt naming no source document makes no claim to check: it was opened
++        // before the field existed, or the workflow was built from no document, and
++        // refusing those would refuse every migration older than this patch.
++        if (opened.from_document !== undefined && current.pin.document !== opened.from_document) {
++          throw new Error(
++            `migration ${id}: ${taskId} came from document ${current.pin.document ?? "none"}, ` +
++              `and the receipt claims ${opened.from_document}`,
++          );
++        }
+         // BOTH identity components move. A pin carries a distribution digest and a
+         // declared shape, and admission refuses on either — moving only the digest
+         // would seal a receipt while leaving the task parked, the operation claiming
+         // success and achieving nothing.
+-        setRuntimeIdentityPin(t.metadata, {
++        //
++        // The document moves with them when the receipt names one: a pin whose shape
++        // advanced while its document stayed behind would name a pair that never
++        // existed. `helper` is deliberately still absent here — losing it is a
++        // separate defect recorded as its own debt, and fixing it is not this
++        // change's work type.
++        const pin: RuntimeIdentityPin = {
+           workflow: current.pin.workflow,
+           digest: opened.to,
+           graph: opened.to_graph,
+-        });
++        };
++        if (opened.to_document !== undefined) pin.document = opened.to_document;
++        setRuntimeIdentityPin(t.metadata, pin);
+         moved = true;
+       });
+       if (moved) this.notifyTaskChange(taskId);
+@@ -1684,6 +1738,13 @@ export class Store {
+       if (after.state !== "pinned" || after.pin.digest !== opened.to) {
+         throw new Error(`migration ${id}: ${taskId} did not read back on ${opened.to}`);
+       }
++      if (after.pin.document !== opened.to_document) {
++        throw new Error(
++          `migration ${id}: ${taskId} read back on document ${after.pin.document ?? "none"}, expected ${
++            opened.to_document ?? "none"
++          }`,
++        );
++      }
+       if (after.pin.graph !== opened.to_graph) {
+         throw new Error(
+           `migration ${id}: ${taskId} read back on shape ${after.pin.graph ?? "none"}, expected ${opened.to_graph}`,
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index da06a46..eb006d6 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -1267,6 +1267,67 @@ describe("the store helper is part of the identity", () => {
+     expect(moved.reason).toMatch(/the store helper is now/u);
+   });
+ 
++  test("every branch that writes a pin carries the document, not just the last one", () => {
++    // Review finding F1. The document was threaded through one of the four pin-building
++    // call sites, so first enroll and both re-admit branches wrote a pin without it —
++    // the field existed and the paths that actually create pins lost it. Exercised
++    // through the admission decision rather than a hand-written pin, because a manual
++    // `setRuntimeIdentityPin` round-trip is exactly what missed this.
++    const registry = new ExtensionRegistry();
++    const digest = "a".repeat(64);
++    const helper = "c".repeat(64);
++    const document = "e".repeat(64);
++    const wf = { name: "wf", firstStep: "do", steps: { do: { onRun: async () => {} } }, graphDigest: document };
++    registry.addWorkflow("test", wf, { root: "/dist", entry: "i.js", entries: [], bytes: 0, digest });
++    const admitted = registry.workflowAdmission("wf")!;
++    expect(admitted.document).toBe(document);
++
++    const branches = [
++      { label: "absent pin", pinned: pinnedRead(undefined) },
++      {
++        label: "pin with no shape",
++        pinned: pinnedRead({ workflow: "wf", digest: admitted.distribution.digest, helper }),
++      },
++      {
++        label: "pin with no helper",
++        pinned: pinnedRead({ workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph }),
++      },
++    ];
++    for (const { label, pinned } of branches) {
++      const decision = runtimeIdentityDecision(registry, pinned, "wf", "adopt", helper);
++      if (!decision.ok) throw new Error(`${String(label)} refused: ${decision.reason}`);
++      expect(decision.admitted?.document).toBe(document);
++    }
++
++    // And the branch that already carried it still does, so the fix added paths
++    // rather than moving the one that worked.
++    const steady = runtimeIdentityDecision(
++      registry,
++      pinnedRead({ workflow: "wf", digest: admitted.distribution.digest, graph: admitted.graph, helper }),
++      "wf",
++      "refuse",
++      helper,
++    );
++    expect(steady.ok).toBe(true);
++    if (!steady.ok) throw new Error("unreachable");
++    expect(steady.admitted?.document).toBe(document);
++  });
++
++  test("a workflow built from no document admits a pin with no document field", () => {
++    const registry = new ExtensionRegistry();
++    const digest = "a".repeat(64);
++    const helper = "c".repeat(64);
++    registry.addWorkflow(
++      "test",
++      { name: "wf", firstStep: "do", steps: { do: { onRun: async () => {} } } },
++      { root: "/dist", entry: "i.js", entries: [], bytes: 0, digest },
++    );
++    const decision = runtimeIdentityDecision(registry, { state: "absent" }, "wf", "adopt", helper);
++    expect(decision.ok).toBe(true);
++    if (!decision.ok) throw new Error("unreachable");
++    expect(decision.admitted && "document" in decision.admitted).toBe(false);
++  });
++
+   test("a pin with no helper is answered like a pin with no graph", () => {
+     // Predating the check and having the field removed are indistinguishable on
+     // a task that already carries a workflow, so a restart re-admits it and
+diff --git a/daemon/core/test/metadata.test.ts b/daemon/core/test/metadata.test.ts
+index 18b27ae..8620a95 100644
+--- a/daemon/core/test/metadata.test.ts
++++ b/daemon/core/test/metadata.test.ts
+@@ -7,14 +7,66 @@
+ import { describe, expect, test } from "bun:test";
+ 
+ import {
++  RUNTIME_IDENTITY_KEY,
+   STEP_VISITS_KEY,
+   applyMetadataPatch,
+   applyMetadataUnset,
+   bumpStepVisit,
+   getStepVisits,
+   isEmptyMetadata,
++  readRuntimeIdentityPin,
++  setRuntimeIdentityPin,
+ } from "../src/index.ts";
+ 
++describe("runtime identity pin — the document digest", () => {
++  // The shape digest already covers the document: the document's own digest is one
++  // line inside the bytes the shape is hashed over. That makes a change detectable
++  // and leaves it unnameable — a holder of `graph` cannot say which document
++  // produced it. These tests pin the separate field that closes the second half.
++  const GRAPH = "a".repeat(64);
++  const DOCUMENT = "b".repeat(64);
++
++  test("a pinned document reads back, and is not the shape digest", () => {
++    const meta: Record<string, unknown> = {};
++    setRuntimeIdentityPin(meta, { workflow: "wf", digest: "c".repeat(64), graph: GRAPH, document: DOCUMENT });
++    const read = readRuntimeIdentityPin(meta);
++    expect(read.state).toBe("pinned");
++    if (read.state !== "pinned") throw new Error("unreachable");
++    expect(read.pin.document).toBe(DOCUMENT);
++    expect(read.pin.document).not.toBe(read.pin.graph);
++  });
++
++  test("a workflow with no document leaves the field absent, not present-and-undefined", () => {
++    const meta: Record<string, unknown> = {};
++    setRuntimeIdentityPin(meta, { workflow: "wf", digest: "c".repeat(64), graph: GRAPH });
++    expect(Object.keys(meta[RUNTIME_IDENTITY_KEY] as object)).not.toContain("document");
++    const read = readRuntimeIdentityPin(meta);
++    if (read.state !== "pinned") throw new Error("unreachable");
++    expect("document" in read.pin).toBe(false);
++  });
++
++  test("a document that is not a lowercase sha256 is refused, not tolerated", () => {
++    const meta = { [RUNTIME_IDENTITY_KEY]: { workflow: "wf", digest: "c".repeat(64), document: "nope" } };
++    const read = readRuntimeIdentityPin(meta);
++    expect(read.state).toBe("malformed");
++    if (read.state !== "malformed") throw new Error("unreachable");
++    expect(read.reason).toBe("runtime identity pin document is not a lowercase sha256");
++  });
++
++  test("document joins the closed key set rather than tripping the unexpected-key refusal", () => {
++    const meta = {
++      [RUNTIME_IDENTITY_KEY]: {
++        workflow: "wf",
++        digest: "c".repeat(64),
++        graph: GRAPH,
++        document: DOCUMENT,
++        helper: "d".repeat(64),
++      },
++    };
++    expect(readRuntimeIdentityPin(meta).state).toBe("pinned");
++  });
++});
++
+ describe("isEmptyMetadata", () => {
+   test("treats null/undefined/{} as empty, a populated bag as non-empty", () => {
+     expect(isEmptyMetadata(undefined)).toBe(true);
+diff --git a/daemon/core/test/store.distributions.test.ts b/daemon/core/test/store.distributions.test.ts
+index 2c85701..4f90cf8 100644
+--- a/daemon/core/test/store.distributions.test.ts
++++ b/daemon/core/test/store.distributions.test.ts
+@@ -11,7 +11,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ 
+ import { Store } from "../src/index.ts";
+-import { parseDistributionIndex, DistributionIndexError } from "../src/store/distributions.ts";
++import {
++  DistributionIndexError,
++  migrationId,
++  parseDistributionIndex,
++  serializeDistributionIndex,
++} from "../src/store/distributions.ts";
+ import { withCreationLock } from "../src/store/creation.ts";
+ import { ProjectPaths } from "../src/store/paths.ts";
+ import { tempDir } from "./helpers.ts";
+@@ -24,6 +29,67 @@ const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
+ const A = sha(ENTRIES_A);
+ const B = sha(ENTRIES_B);
+ 
++describe("migration receipt — the documents the pair is between", () => {
++  // Review finding F2. The ticket asked the receipt to be able to name both graph
++  // documents, and the first attempt added the pin field without touching the
++  // receipt at all: a completed migration between two documents could name neither.
++  const FROM = "a".repeat(64);
++  const TO = "b".repeat(64);
++  const TO_GRAPH = "c".repeat(64);
++  const FROM_DOC = "d".repeat(64);
++  const TO_DOC = "e".repeat(64);
++  const TASKS = ["ask-1"];
++
++  const receipt = (extra: Record<string, unknown> = {}) => ({
++    id: migrationId(FROM, TO, TO_GRAPH, "wf", TASKS, undefined),
++    from: FROM,
++    to: TO,
++    to_graph: TO_GRAPH,
++    workflow: "wf",
++    tasks: TASKS,
++    started_at: "2026-01-01T00:00:00.000Z",
++    ...extra,
++  });
++  const index = (r: Record<string, unknown>) => ({ schema_version: 1, distributions: [], migrations: [r] });
++
++  test("both documents survive a write and a read", () => {
++    const parsed = parseDistributionIndex(
++      serializeDistributionIndex(index(receipt({ from_document: FROM_DOC, to_document: TO_DOC })) as never),
++    );
++    expect(parsed.migrations[0]!.from_document).toBe(FROM_DOC);
++    expect(parsed.migrations[0]!.to_document).toBe(TO_DOC);
++  });
++
++  test("the documents are recorded, never identifying: the id does not move", () => {
++    // Folding them into the id would give every already-sealed receipt a different
++    // id and make the index unreadable, so the pair is named without being hashed.
++    const bare = parseDistributionIndex(serializeDistributionIndex(index(receipt()) as never));
++    const named = parseDistributionIndex(
++      serializeDistributionIndex(index(receipt({ from_document: FROM_DOC, to_document: TO_DOC })) as never),
++    );
++    expect(named.migrations[0]!.id).toBe(bare.migrations[0]!.id);
++  });
++
++  test("a receipt with no documents reads back with neither field present", () => {
++    const parsed = parseDistributionIndex(serializeDistributionIndex(index(receipt()) as never));
++    expect("from_document" in parsed.migrations[0]!).toBe(false);
++    expect("to_document" in parsed.migrations[0]!).toBe(false);
++  });
++
++  test("a document that is not a lowercase sha256 is refused, not tolerated", () => {
++    // Built through the serializer so the envelope is the real one, then the single
++    // field is corrupted — a hand-rolled envelope fails on its own version line and
++    // would have proved nothing about the document check.
++    const wire = JSON.parse(
++      serializeDistributionIndex(index(receipt({ to_document: TO_DOC })) as never),
++    ) as { migrations: Array<Record<string, unknown>> };
++    wire.migrations[0]!.to_document = "nope";
++    expect(() => parseDistributionIndex(JSON.stringify(wire))).toThrow(
++      /migration receipt to_document is not a lowercase sha256/u,
++    );
++  });
++});
++
+ describe("distribution reference accounting", () => {
+   const cleanups: (() => void)[] = [];
+   const stores: Store[] = [];
+diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
+index c53c02e..b9276c4 100644
+--- a/daemon/core/test/store.migration.test.ts
++++ b/daemon/core/test/store.migration.test.ts
+@@ -210,6 +210,132 @@ describe("applying a migration", () => {
+     })();
+   });
+ 
++  // Review findings F4 and F5. The documents are recorded and not identifying, which
++  // keeps sealed receipt ids stable and opens two ways for a receipt to describe a
++  // pair it did not migrate: a second call with different documents landing on the
++  // same id, and a source document nobody checked against the tasks.
++  const DOC_A = "a".repeat(64);
++  const DOC_B = "b".repeat(64);
++  const DOC_C = "c".repeat(64);
++
++  async function pinnedWithDocument(store: Store, digest: string, document: string): Promise<string> {
++    const task = await store.createTask({ title: "migrating" });
++    await store.setPosition(
++      task.id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest, graph: GRAPH, document } },
++    );
++    return task.id;
++  }
++
++  test("reopening the same plan with a different document is refused, not answered with the old pair", () => {
++    return (async () => {
++      const { store } = await project();
++      const a = await pinnedWithDocument(store, OLD, DOC_A);
++      const first = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, {
++        from: DOC_A,
++        to: DOC_B,
++      });
++      expect(first.to_document).toBe(DOC_B);
++      await expect(
++        store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, { from: DOC_A, to: DOC_C }),
++      ).rejects.toThrow(/was opened with to_document .* and is now asked for/);
++      // Reopening with the SAME documents is still the idempotent path it was.
++      const again = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, {
++        from: DOC_A,
++        to: DOC_B,
++      });
++      expect(again.id).toBe(first.id);
++      expect(again.to_document).toBe(DOC_B);
++    })();
++  });
++
++  test("a receipt opened before the documents existed cannot be retrofitted by a later caller", () => {
++    return (async () => {
++      const { store } = await project();
++      const a = await pinnedWithDocument(store, OLD, DOC_A);
++      const bare = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++      expect(bare.to_document).toBeUndefined();
++      await expect(
++        store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, { from: DOC_A, to: DOC_B }),
++      ).rejects.toThrow(/was opened with from_document absent and is now asked for/);
++    })();
++  });
++
++  test("a receipt claiming a source document the task never had seals nothing", () => {
++    return (async () => {
++      const { store } = await project();
++      const a = await pinnedWithDocument(store, OLD, DOC_A);
++      const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, {
++        from: DOC_C,
++        to: DOC_B,
++      });
++      await expect(store.applyMigration(receipt.id)).rejects.toThrow(
++        /came from document .* and the receipt claims/,
++      );
++      expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++      // The task is untouched: a refused apply moves nothing.
++      expect(await digestOf(store, a)).toBe(OLD);
++    })();
++  });
++
++  test("a task whose document changed inside one distribution stops the migration", () => {
++    // The distribution digest check cannot see this: the bytes are the same and only
++    // the document moved, which is exactly the case a declarative graph makes possible.
++    return (async () => {
++      const { store } = await project();
++      const a = await pinnedWithDocument(store, OLD, DOC_A);
++      const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, {
++        from: DOC_A,
++        to: DOC_B,
++      });
++      await store.setPosition(
++        a,
++        { status: "human", workflow: "wf", step: "review" },
++        { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH, document: DOC_C } },
++      );
++      await expect(store.applyMigration(receipt.id)).rejects.toThrow(/and the receipt claims/);
++      expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++    })();
++  });
++
++  test("a receipt naming both documents moves the pair and reads it back", () => {
++    return (async () => {
++      const { store } = await project();
++      const a = await pinnedWithDocument(store, OLD, DOC_A);
++      const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, {
++        from: DOC_A,
++        to: DOC_B,
++      });
++      const sealed = await store.applyMigration(receipt.id);
++      expect(sealed.completed_at).toBeDefined();
++      expect(sealed.from_document).toBe(DOC_A);
++      expect(sealed.to_document).toBe(DOC_B);
++      const pin = readRuntimeIdentityPin((await store.taskView(a)).metadata);
++      if (pin.state !== "pinned") throw new Error("unreachable");
++      expect(pin.pin.document).toBe(DOC_B);
++    })();
++  });
++
++  test("a receipt naming no source document still applies, so older plans keep working", () => {
++    return (async () => {
++      const { store } = await project();
++      const a = await pinnedWithDocument(store, OLD, DOC_A);
++      const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++      const sealed = await store.applyMigration(receipt.id);
++      expect(sealed.completed_at).toBeDefined();
++      const pin = readRuntimeIdentityPin((await store.taskView(a)).metadata);
++      if (pin.state !== "pinned") throw new Error("unreachable");
++      // And the old document does NOT survive the move. Carrying it forward would
++      // leave the pin claiming a document that produced neither the distribution nor
++      // the shape it now runs — a false statement is worse than an absent one, and
++      // admission does not compare the document, so absence costs nameability rather
++      // than admission. This assertion was written the other way round first, and the
++      // test is what showed the pin would then be lying.
++      expect("document" in pin.pin).toBe(false);
++    })();
++  });
++
+   test("a distribution record whose listing does not hash to its digest is never written", () => {
+     return (async () => {
+       const { store } = await project();
+diff --git a/daemon/sdk/src/types.ts b/daemon/sdk/src/types.ts
+index 6b38773..064148d 100644
+--- a/daemon/sdk/src/types.ts
++++ b/daemon/sdk/src/types.ts
+@@ -188,6 +188,16 @@ export interface RuntimeIdentityPin {
+    * missing one means rather than having it forged here.
+    */
+   graph?: string;
++  /**
++   * The digest of the declarative graph document the workflow was built from, as
++   * the document itself records it. Optional for the same reason `graph` is, and
++   * separate from it on purpose: `graph` covers the declared shape, and this
++   * document's digest is one line INSIDE the bytes that shape is hashed over, so
++   * a holder of `graph` alone cannot say which document produced it. Naming a
++   * supported pair of documents needs the document, not the shape it is folded
++   * into.
++   */
++  document?: string;
+   /**
+    * The digest of the store helper binary in place at admission (issue #13,
+    * criterion 5).
