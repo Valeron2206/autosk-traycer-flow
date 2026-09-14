@@ -55,7 +55,25 @@ const OWNER_PANEL = Object.freeze([
   { seat: "muse", route: "meta/muse-spark-1.3-contributor", effort: "max" },
 ]);
 
-export const PANEL_BY_ROUND = Object.freeze({ 1: OWNER_PANEL, 2: OWNER_PANEL, 3: OWNER_PANEL });
+/**
+ * Round 4 ran on the pinned guide's artifact-critique roster, which replaced the
+ * owner's original one between round 3 and round 4. Spelled out rather than
+ * pointing at `REQUIRED_PANEL`: the moment this points at the live requirement,
+ * a later amendment breaks the record of a round that already ran.
+ */
+const GUIDE_PANEL = Object.freeze([
+  { seat: "astra", route: "openai-codex/gpt-6-astra", effort: "low" },
+  { seat: "grok", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
+  { seat: "muse", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
+  { seat: "deepseek", route: "deepseek/deepseek-flash", effort: "max" },
+]);
+
+export const PANEL_BY_ROUND = Object.freeze({
+  1: OWNER_PANEL,
+  2: OWNER_PANEL,
+  3: OWNER_PANEL,
+  4: GUIDE_PANEL,
+});
 
 /**
  * The verdicts a seat may record, read from the schema rather than respelled.

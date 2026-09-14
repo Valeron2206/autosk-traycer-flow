@@ -99,11 +99,32 @@ test("every recorded round is checked against the roster it ran under", () => {
   // and the two are genuinely different now, which is what the coupling hid.
   assert.notDeepEqual(PANEL_BY_ROUND[1], REQUIRED_PANEL);
   const recorded = readdirSync(path.join(ROOT, PANEL_DIR)).filter((name) => name.endsWith(".json")).sort();
-  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json"]);
+  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json", "round-4.json"]);
   for (const name of recorded) {
     const round = JSON.parse(readFileSync(path.join(ROOT, PANEL_DIR, name), "utf8"));
     assert.deepEqual(validatePanelRound(round), [], name);
   }
+});
+
+test("round 4 is the first recorded under a different roster, and the first without four verdicts", () => {
+  // The pin per round exists for exactly this: round 4 sat the guide's critique
+  // roster, rounds 1 to 3 sat the owner's, and both records stay valid.
+  const round = readRound(4);
+  assert.deepEqual(validatePanelRound(round), []);
+  assert.notDeepEqual(PANEL_BY_ROUND[4], PANEL_BY_ROUND[1]);
+  // The digest round 4 reviewed, spelled out. Comparing it with the candidate's
+  // current digest would recouple the archive to the live state — the defect the
+  // per-round pin exists to prevent, and one this test carried until a reviewer
+  // reproduced it by adding a newline to a member and resealing.
+  assert.equal(round.candidate_digest, "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5");
+  // One seat could not review and said so; the archive records that as a verdict
+  // in the vocabulary rather than as a missing seat.
+  assert.deepEqual(
+    round.seats.map((seat) => seat.verdict).sort(),
+    ["fail", "fail", "fail", "non_verdict"],
+  );
+  // And the anchor the round ran under carried two statements the seats falsified.
+  assert.equal(round.anchor_corrections.length, 2);
 });
 
 test("a round recorded with a roster nobody required is refused", () => {
@@ -190,9 +211,10 @@ test("a round that records no decision is refused", () => {
 test("a round with no pinned roster cannot be validated", () => {
   // A round file can only be checked against what was required when it ran, so a
   // round whose requirement was never pinned is refused rather than waved
-  // through. Recording round 4 means pinning the roster it ran under.
-  assert.deepEqual(validatePanelRound({ round: 4, seats: [] }), [
-    "round 4: no roster is pinned for it, so what it ran under is unknown",
+  // through. Recording round 4 meant pinning the roster it ran under; round 5 is
+  // not pinned because it has not run.
+  assert.deepEqual(validatePanelRound({ round: 5, seats: [] }), [
+    "round 5: no roster is pinned for it, so what it ran under is unknown",
   ]);
 });
 
