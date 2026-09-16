@@ -58,6 +58,26 @@ const refusalOf = (fn) => {
   return assert.fail("expected a refusal and got none");
 };
 
+/**
+ * The watermark a completion receipt carries: the reason and the visit counts
+ * of its parks_at steps, in row order. A receipt matches while none of those
+ * steps has been re-entered since — re-entry is how another episode of the
+ * reason begins, and the daemon's counter records it in the same write as the
+ * position, so no write of the factory's has to land for the match to break.
+ */
+const watermarkOf = (row, visits) =>
+  `${row.reason}@${row.parks_at.map((name) => `${name}:${visits[name] ?? 0}`).join(",")}`;
+
+/**
+ * A park record with every step the row's handling runs at receipted under the
+ * episode `visits` describes — the state a resume out of this park is in once
+ * all of the reason's handling has completed and nothing has re-entered a step
+ * that could produce the reason since.
+ */
+const receipted = (row, visits = {}) => ({
+  receipts: Object.fromEntries((row.handled_at ?? []).map((name) => [name, watermarkOf(row, visits)])),
+});
+
 // --- the declared shape is a function of the document -----------------------
 
 test("the workflow is built from the document and carries its digest", () => {
@@ -275,7 +295,7 @@ test("a target outside the reason's resume targets is refused", () => {
   const row = graph.recovery.find((entry) => entry.resume_targets.length < graph.steps.length - 1);
   const forbidden = graph.steps.map((step) => step.name).find((name) => !row.resume_targets.includes(name));
   assert.equal(refusalOf(() => permitsResume(state, row.reason, forbidden)).reason, "resume_target_not_permitted");
-  assert.equal(permitsResume(state, row.reason, row.resume_targets[0]), true);
+  assert.equal(permitsResume(state, row.reason, row.resume_targets[0], receipted(row)), true);
 });
 
 test("permission is read off the reason and not off the step it parked at", () => {
@@ -305,11 +325,140 @@ test("permission is read off the reason and not off the step it parked at", () =
   assert.ok(pairs.length > 0, "the shipped graph has such a pair, and this test is about it");
 
   for (const pair of pairs.slice(0, 6)) {
-    assert.equal(permitsResume(state, pair.a.reason, pair.onlyA[0]), true);
-    assert.equal(refusalOf(() => permitsResume(state, pair.b.reason, pair.onlyA[0])).reason, "resume_target_not_permitted");
-    assert.equal(permitsResume(state, pair.b.reason, pair.onlyB[0]), true);
-    assert.equal(refusalOf(() => permitsResume(state, pair.a.reason, pair.onlyB[0])).reason, "resume_target_not_permitted");
+    // The park records say every step the reason's handling runs at completed
+    // under the current park, so a target lent through a handled_at edge is
+    // measured as permitted — the pair is about which REASON permits, not
+    // about the receipt condition that operation 2 adds on top.
+    assert.equal(permitsResume(state, pair.a.reason, pair.onlyA[0], receipted(pair.a)), true);
+    assert.equal(refusalOf(() => permitsResume(state, pair.b.reason, pair.onlyA[0], receipted(pair.b))).reason, "resume_target_not_permitted");
+    assert.equal(permitsResume(state, pair.b.reason, pair.onlyB[0], receipted(pair.b)), true);
+    assert.equal(refusalOf(() => permitsResume(state, pair.a.reason, pair.onlyB[0], receipted(pair.a))).reason, "resume_target_not_permitted");
   }
+});
+
+test("a resume along a handled_at step's edges needs a completion receipted under this park episode", () => {
+  // The shipped defect, in the three rows it was measured on. A target outside
+  // the row's own steps is permitted through an edge out of one of them, and an
+  // edge out of a handled_at step lends the permission only once the step's
+  // handling has completed under THIS episode of the reason — a visit cannot
+  // be the evidence, because step_visits is bumped on entry and a handler that
+  // threw still counts as entered, and a stored park identity cannot be the
+  // evidence either, because the write that would move it can fail. The
+  // receipt instead carries the visit counts of the reason's parks_at steps as
+  // they stood at completion, and the gate recomputes that watermark off the
+  // daemon's counter: a new episode of the reason cannot begin without
+  // re-entering a step that produces it, so the watermark moves by itself.
+  const graph = document();
+  const state = index(graph);
+
+  // aggregate_verify_failed parks at aggregate_verify alone, and five of its
+  // six targets are edges out of record_aggregate_remediation — the step that
+  // writes the remediation record. Four states, one row: the step never
+  // entered, entered but never completed, completed under an earlier episode
+  // of the same reason, completed under this one.
+  const avf = "aggregate_verify_failed";
+  assert.equal(
+    refusalOf(() => permitsResume(state, avf, "draft_artifact", {}, { aggregate_verify: 1 })).reason,
+    "resume_target_not_permitted",
+  );
+  assert.equal(
+    refusalOf(() =>
+      permitsResume(state, avf, "draft_artifact", {}, { aggregate_verify: 1, record_aggregate_remediation: 1 }),
+    ).reason,
+    "resume_target_not_permitted",
+    "entry is counted and proves nothing — a handler that threw leaves no receipt",
+  );
+  assert.equal(
+    refusalOf(() =>
+      permitsResume(state, avf, "draft_artifact", {
+        receipts: { record_aggregate_remediation: `${avf}@aggregate_verify:1` },
+      }, { aggregate_verify: 2 }),
+    ).reason,
+    "resume_target_not_permitted",
+    "a receipt from an earlier episode satisfies no later one — the producing step was re-entered, same reason included",
+  );
+  assert.equal(
+    permitsResume(state, avf, "draft_artifact", {
+      receipts: { record_aggregate_remediation: `${avf}@aggregate_verify:1` },
+    }, { aggregate_verify: 1 }),
+    true,
+    "the receipt matches while every step that could produce the reason stands unmoved",
+  );
+  // The union is untouched: the row's own steps stay reachable — resuming INTO
+  // record_aggregate_remediation is how the remediation happens at all — and
+  // human, an edge out of the parks_at step itself, needs no receipt.
+  assert.equal(permitsResume(state, avf, "record_aggregate_remediation", {}, {}), true);
+  assert.equal(permitsResume(state, avf, "human", {}, {}), true);
+  // The control the document already carries: the sibling reason permits the
+  // same six targets but parks at the record step, so each is lent by an edge
+  // out of a parks_at step and all are legitimate there.
+  assert.equal(permitsResume(state, "aggregate_remediation_required", "draft_artifact", {}, {}), true);
+
+  // blocked_anchor parks at sixteen steps, and verify is reachable only from
+  // implement, fix and rebuild_code_anchor — of which the row names only the
+  // last, in handled_at. Resuming into verify with no rebuild receipted
+  // verifies on an anchor that was never rebuilt.
+  const anchorRow = graph.recovery.find((entry) => entry.reason === "blocked_anchor");
+  const anchorVisits = { record_code_verdict: 4 };
+  assert.equal(
+    refusalOf(() => permitsResume(state, "blocked_anchor", "verify", {}, anchorVisits)).reason,
+    "resume_target_not_permitted",
+  );
+  assert.equal(
+    refusalOf(() =>
+      permitsResume(state, "blocked_anchor", "verify", receipted(anchorRow, { record_code_verdict: 3 }), anchorVisits),
+    ).reason,
+    "resume_target_not_permitted",
+    "the receipt names an earlier episode — a parks_at step was entered since",
+  );
+  assert.equal(
+    permitsResume(state, "blocked_anchor", "verify", receipted(anchorRow, anchorVisits), anchorVisits),
+    true,
+    "once the rebuild's completion is receipted under this episode, verification may resume",
+  );
+  // Resuming INTO the rebuild step stays permitted — that is how the anchor
+  // gets rebuilt.
+  assert.equal(permitsResume(state, "blocked_anchor", "rebuild_code_anchor", {}, {}), true);
+
+  // child_creation_key_invalid parks only at dispatch_arena, whose one outgoing
+  // edge reaches arena_join — a lawful direct target. contest_join hangs on
+  // dispatch_contest, a handled_at step: without the repaired dispatch's
+  // completion receipted, resuming there would join a contest for children it
+  // never enrolled.
+  const contestRow = graph.recovery.find((entry) => entry.reason === "child_creation_key_invalid");
+  assert.equal(permitsResume(state, "child_creation_key_invalid", "arena_join", {}, {}), true);
+  assert.equal(
+    refusalOf(() => permitsResume(state, "child_creation_key_invalid", "contest_join", {}, { dispatch_arena: 1 }))
+      .reason,
+    "resume_target_not_permitted",
+  );
+  assert.equal(
+    permitsResume(
+      state,
+      "child_creation_key_invalid",
+      "contest_join",
+      receipted(contestRow, { dispatch_arena: 1 }),
+      { dispatch_arena: 1 },
+    ),
+    true,
+    "once the contest dispatch's completion is receipted under this episode, joining it is permitted",
+  );
+
+  // And the veto carries the record: admit reads the park bag and the visit
+  // counter the same way onTransit hands them off the task record.
+  const parked = { step: "aggregate_verify", parked: true, parkedWith: "aggregate_verify_failed" };
+  assert.equal(
+    refusalOf(() => admit(state, parked, { step: "draft_artifact" }, always)).reason,
+    "resume_target_not_permitted",
+  );
+  assert.equal(
+    admit(state, {
+      ...parked,
+      park: { receipts: { record_aggregate_remediation: "aggregate_verify_failed@aggregate_verify:1" } },
+      visits: { aggregate_verify: 1 },
+    }, { step: "draft_artifact" }, always),
+    undefined,
+  );
 });
 
 test("a reason with no recovery row refuses the resume rather than allowing it", () => {
@@ -409,7 +558,7 @@ test("a parked flow moves by its reason and by no other route", () => {
   const state = index(graph);
   const row = graph.recovery.find((entry) => entry.resume_targets.length < graph.steps.length - 1);
   const forbidden = graph.steps.map((step) => step.name).find((name) => !row.resume_targets.includes(name));
-  const context = { step: row.parks_at[0], parked: true, parkedWith: row.reason };
+  const context = { step: row.parks_at[0], parked: true, parkedWith: row.reason, park: receipted(row) };
 
   assert.equal(admit(state, context, { step: row.resume_targets[0] }, never), undefined);
   // A target the reason forbids stays forbidden however the guards would vote,
@@ -603,8 +752,19 @@ test("a relayed park reason is the document's and not this factory's", () => {
  * record its reason before it parks — had no test at all and three mutants
  * survived in it.
  */
-const context = (task, { code = 0 } = {}) => {
+const context = (task, { code = 0, failLeaf, crashLeaf } = {}) => {
   const calls = { transits: [], execs: [] };
+  // What the daemon does with the two effects a run can emit: `metadata set`
+  // lands the leaf in the task's bag, and a transit moves the position and
+  // bumps that step's own counter in the same write (section 8). A step move
+  // into the human status step is where a graph park lands, and a status move
+  // parks the task standing where it is.
+  const setLeaf = (dotPath, value) => {
+    const keys = dotPath.split(".");
+    let bag = (task.metadata ??= {});
+    while (keys.length > 1) bag = bag[keys.shift()] ??= {};
+    bag[keys[0]] = value;
+  };
   return {
     calls,
     ctx: {
@@ -612,10 +772,28 @@ const context = (task, { code = 0 } = {}) => {
       projectRoot: "/nowhere",
       sessionToken: "token",
       tasks: { currentId: task.id ?? "task-1", current: async () => task },
-      transit: async (to) => calls.transits.push(to),
+      transit: async (to) => {
+        calls.transits.push(to);
+        if ("status" in to) {
+          task.status = to.status;
+          return;
+        }
+        task.step = to.step;
+        task.status = to.step === "human" ? "human" : "work";
+        const visits = ((task.metadata ??= {}).step_visits ??= {});
+        visits[to.step] = (visits[to.step] ?? 0) + 1;
+      },
       exec: async (argv) => {
         calls.execs.push(argv);
-        return { code, stdout: "", stderr: code === 0 ? "" : "refused" };
+        // `code` refuses every write; `failLeaf` refuses only the write of the
+        // leaf it names and `crashLeaf` never returns from it — the two shapes
+        // a lost record write can take, which "fail all" cannot express.
+        if (argv[4] === crashLeaf) throw new Error("daemon died mid-write");
+        const refused = code !== 0 || argv[4] === failLeaf;
+        if (!refused && argv[0] === "autosk" && argv[1] === "metadata" && argv[2] === "set") {
+          setLeaf(argv[4], argv[5]);
+        }
+        return { code: refused ? 1 : 0, stdout: "", stderr: refused ? "refused" : "" };
       },
     },
   };
@@ -630,7 +808,12 @@ test("the built onTransit reads whether the flow is parked, and answers accordin
     id: "t-1",
     step: row.parks_at[0],
     status: "human",
-    metadata: { park: { reason: row.reason } },
+    metadata: {
+      // What the park record holds once every step the row's handling runs at
+      // has completed under the episode the visit counter still describes.
+      step_visits: Object.fromEntries(row.parks_at.map((name) => [name, 1])),
+      park: { reason: row.reason, ...receipted(row, Object.fromEntries(row.parks_at.map((name) => [name, 1]))) },
+    },
   };
 
   // Parked: operation 2 decides, so a target the reason forbids is refused even
@@ -649,6 +832,237 @@ test("the built onTransit reads whether the flow is parked, and answers accordin
     .then(() => null, (error) => error);
   assert.ok(refusal, "a status the factory reads as parked and one it does not must not answer alike");
   assert.notEqual(refusal.reason, "resume_target_not_permitted");
+});
+
+test("the completion receipt is written by the run and answers to the episode the counter still describes", async () => {
+  // F164-T02-01, driven end to end so the receipt is the code's own write and
+  // not an injected fixture: the resume into record_aggregate_remediation
+  // bumps step_visits on ENTRY, the handler then throws, and the counter reads
+  // as though the record had been written when nothing was. What the gate asks
+  // for instead is the receipt the run leaves behind only when the body
+  // succeeds — the visit counts of the reason's parks_at steps at completion,
+  // so a later episode of the reason, same reason included, moves the
+  // watermark with no write of ours needing to land.
+  const graph = document();
+  let failHandler = true;
+  let routeToDraft = false;
+  const workflow = buildWorkflow(graph, {
+    // cond_276 is t_371's guard — the edge out of aggregate_verify that parks
+    // with aggregate_verify_failed — and cond_281 is t_376's, the
+    // record_aggregate_remediation edge that moves the flow on to
+    // draft_artifact without re-entering the step that produced the reason.
+    evaluate: (predicate) => predicate === "cond_276" || (routeToDraft && predicate === "cond_281"),
+    agents: {
+      record_aggregate_remediation: async () => {
+        if (failHandler) throw new Error("remediation write failed");
+      },
+    },
+  });
+  const task = {
+    id: "t-1",
+    step: "aggregate_verify",
+    status: "work",
+    metadata: { step_visits: { aggregate_verify: 1 } },
+  };
+
+  // The veto only answers; the engine commits the move, and the commit is what
+  // moves the position and bumps the counter.
+  const resume = async (step) => {
+    const ctx = context(task).ctx;
+    await workflow.onTransit(ctx, { step });
+    await ctx.transit({ step });
+  };
+
+  // The graph park records its reason — one write, because the identity that
+  // scopes the receipts is derived, never written.
+  await workflow.steps.aggregate_verify.onRun(context(task).ctx);
+  assert.equal(task.step, "human");
+  assert.equal(task.status, "human");
+  assert.equal(task.metadata.park.reason, "aggregate_verify_failed");
+
+  // Entered but not completed: the resume lands, the counter rises, the body
+  // throws — and the lent target stays refused.
+  await resume("record_aggregate_remediation");
+  await assert.rejects(() => workflow.steps.record_aggregate_remediation.onRun(context(task).ctx));
+  task.status = "human"; // the engine parks a failed run and writes nothing
+  assert.equal(task.metadata.step_visits.record_aggregate_remediation, 1, "entry is counted and proves nothing");
+  assert.equal(task.metadata.park.receipts?.record_aggregate_remediation, undefined);
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+
+  // Completed: the receipt lands carrying the producing step's count — the
+  // run's own exec, applied to the record by the fixture the way the daemon
+  // applies it. The flow then moves on to draft_artifact without re-entering
+  // aggregate_verify, so the episode the receipt answers is still the one the
+  // counter describes, and the sibling target the same handler lends is
+  // permitted from the engine-side stop.
+  failHandler = false;
+  routeToDraft = true;
+  await resume("record_aggregate_remediation");
+  await workflow.steps.record_aggregate_remediation.onRun(context(task).ctx);
+  assert.equal(
+    task.metadata.park.receipts.record_aggregate_remediation,
+    "aggregate_verify_failed@aggregate_verify:1",
+  );
+  assert.equal(task.step, "draft_artifact", "t_376 moved the flow on without re-entering the producing step");
+  task.status = "human"; // an engine-side park writes nothing into park.*
+  await resume("present_tickets_breakdown");
+
+  // And a later episode re-scopes it with no write involved: resuming back
+  // into aggregate_verify re-enters the step that produces the reason — the
+  // daemon's counter moves — so when the same failure parks again, the receipt
+  // the earlier episode earned satisfies it no longer, whether or not the
+  // park's own write landed.
+  task.status = "human";
+  await resume("aggregate_verify");
+  await assert.rejects(
+    () => workflow.steps.aggregate_verify.onRun(context(task, { failLeaf: "park.reason" }).ctx),
+    /park reason/u,
+  );
+  task.status = "human"; // the reason write was refused; the engine parks where it stood
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+});
+
+test("a handled_at step with no registered handler completes nothing and leaves no receipt", async () => {
+  // F164-T02-03: `agents` defaults to {}, so `work` is undefined for a step
+  // with no handler and its body is skipped — a receipt written anyway would
+  // be a completion receipt for a completion that never happened. The drive
+  // is the reviewer's: park at aggregate_verify, resume into
+  // record_aggregate_remediation, run it with nothing registered.
+  const graph = document();
+  const workflow = buildWorkflow(graph, {
+    evaluate: (predicate) => predicate === "cond_276" || predicate === "cond_278",
+  });
+  const task = {
+    id: "t-1",
+    step: "aggregate_verify",
+    status: "work",
+    metadata: { step_visits: { aggregate_verify: 1 } },
+  };
+  const resume = async (step) => {
+    const ctx = context(task).ctx;
+    await workflow.onTransit(ctx, { step });
+    await ctx.transit({ step });
+  };
+
+  await workflow.steps.aggregate_verify.onRun(context(task).ctx);
+  assert.equal(task.metadata.park.reason, "aggregate_verify_failed");
+  await resume("record_aggregate_remediation");
+
+  // The run succeeds as a run — no handler means nothing to fail — and the
+  // graph's own edge sends the flow back to aggregate_verify, but no receipt
+  // may have been written: there was no work to complete.
+  const ran = context(task);
+  await workflow.steps.record_aggregate_remediation.onRun(ran.ctx);
+  assert.equal(task.step, "aggregate_verify");
+  assert.equal(
+    ran.calls.execs.some((argv) => argv[4] === "park.receipts.record_aggregate_remediation"),
+    false,
+    "no handler ran, so no receipt may be written",
+  );
+  assert.equal(task.metadata.park.receipts?.record_aggregate_remediation, undefined);
+
+  task.status = "human";
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+});
+
+test("a repeated park invalidates the earlier episode's receipts without any write landing", async () => {
+  // F164-T02-02, the surviving half of it: when reason and step both repeat,
+  // every written identity is indistinguishable from the old one — the reason
+  // write stores the same value and any other leaf can fail — so the
+  // discriminator cannot be written. It is the daemon's own counter instead:
+  // the second failure could only be produced by re-entering
+  // aggregate_verify, which bumped step_visits.aggregate_verify from 1 to 2,
+  // and the receipt the first episode earned watermarks 1. The drive earns
+  // the receipt under the first park, returns to aggregate_verify, and lets
+  // the second failure's reason write go all three ways — succeeding,
+  // refused, never returning. The record it leaves is the same either way,
+  // and the gate refuses all three.
+  const driveToSecondFailure = async (execOptions) => {
+    const graph = document();
+    const workflow = buildWorkflow(graph, {
+      evaluate: (predicate) => predicate === "cond_276" || predicate === "cond_278",
+      agents: { record_aggregate_remediation: async () => {} },
+    });
+    const task = {
+      id: "t-1",
+      step: "aggregate_verify",
+      status: "work",
+      metadata: { step_visits: { aggregate_verify: 1 } },
+    };
+    const resume = async (step) => {
+      const ctx = context(task).ctx;
+      await workflow.onTransit(ctx, { step });
+      await ctx.transit({ step });
+    };
+    // First park: the reason lands, the receipt is earned, t_373 returns the
+    // flow to the producing step — the counter now reads 2 there.
+    await workflow.steps.aggregate_verify.onRun(context(task).ctx);
+    await resume("record_aggregate_remediation");
+    await workflow.steps.record_aggregate_remediation.onRun(context(task).ctx);
+    assert.equal(
+      task.metadata.park.receipts.record_aggregate_remediation,
+      "aggregate_verify_failed@aggregate_verify:1",
+    );
+    assert.equal(task.step, "aggregate_verify", "t_373 returned the flow to the producing step");
+    assert.equal(task.metadata.step_visits.aggregate_verify, 2);
+    // The second failure of the same reason: the run decides to park, the
+    // record's reason write gets whichever outcome the caller chose.
+    const run = context(task, execOptions);
+    return { workflow, task, run };
+  };
+
+  // The write is refused: the record keeps the first park whole — same
+  // reason, same receipts — and it still cannot satisfy the gate, because the
+  // producing step's count moved when the second failure re-entered it.
+  {
+    const { workflow, task, run } = await driveToSecondFailure({ failLeaf: "park.reason" });
+    await assert.rejects(() => workflow.steps.aggregate_verify.onRun(run.ctx), /park reason/u);
+    assert.equal(task.metadata.park.reason, "aggregate_verify_failed");
+    assert.equal(
+      task.metadata.park.receipts.record_aggregate_remediation,
+      "aggregate_verify_failed@aggregate_verify:1",
+      "the record is the first park's, unchanged",
+    );
+    task.status = "human"; // the engine infra-parks a run whose write threw
+    await assert.rejects(
+      () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
+      (error) => error.reason === "resume_target_not_permitted",
+    );
+  }
+
+  // The write never returns — a death mid-command leaves the same record,
+  // and the refusal is the same.
+  {
+    const { workflow, task, run } = await driveToSecondFailure({ crashLeaf: "park.reason" });
+    await assert.rejects(() => workflow.steps.aggregate_verify.onRun(run.ctx), /mid-write/u);
+    task.status = "human";
+    await assert.rejects(
+      () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
+      (error) => error.reason === "resume_target_not_permitted",
+    );
+  }
+
+  // And the write succeeding changes nothing either: the same reason value
+  // over the same leaf is the same record — the counter is what says the
+  // episode moved.
+  {
+    const { workflow, task, run } = await driveToSecondFailure();
+    await workflow.steps.aggregate_verify.onRun(run.ctx);
+    assert.equal(task.step, "human");
+    await assert.rejects(
+      () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
+      (error) => error.reason === "resume_target_not_permitted",
+    );
+  }
 });
 
 test("the built onRun goes where the graph says, and records why when it parks", async () => {
@@ -679,17 +1093,29 @@ test("the built onRun goes where the graph says, and records why when it parks",
 
 test("a park whose reason could not be recorded refuses rather than parking anyway", async () => {
   // A parked task whose reason was lost is a task operation 2 can never move,
-  // so the write failing has to stop the park rather than be swallowed.
+  // so the write failing has to stop the park rather than be swallowed. It is
+  // the park record's only write — the record it leaves is no record at all,
+  // and that is fail-closed: `parkedWith` reads undefined and operation 2
+  // refuses every target.
   const stranded = document().steps.find((step) => step.kind === "agent");
-  const workflow = buildWorkflow(
-    resealed((entry) => {
-      entry.transitions = entry.transitions.filter((edge) => edge.from !== stranded.name);
-    }),
-    { evaluate: always },
-  );
-  const failing = context({ id: "t-9", step: stranded.name, status: "work", metadata: {} }, { code: 1 });
+  const graph = resealed((entry) => {
+    entry.transitions = entry.transitions.filter((edge) => edge.from !== stranded.name);
+  });
+  const workflow = buildWorkflow(graph, { evaluate: always });
+  const task = { id: "t-9", step: stranded.name, status: "work", metadata: {} };
+  const failing = context(task, { failLeaf: "park.reason" });
   await assert.rejects(() => workflow.steps[stranded.name].onRun(failing.ctx), /park reason/u);
   assert.deepEqual(failing.calls.transits, [], "and the flow must not have parked");
+
+  // The unwritten record fails closed: the engine infra-parks the task, and
+  // operation 2 refuses every target but the step the flow stands at, because
+  // parkedWith reads undefined.
+  assert.equal(task.metadata.park?.reason, undefined);
+  task.status = "human";
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "done" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
 });
 
 // --- what round 1 of the review found, each with the case it was found by ----

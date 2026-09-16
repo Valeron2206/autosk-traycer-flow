@@ -175,9 +175,11 @@ export function select(state, from, evaluate) {
  * Operation 2: whether a parked flow may resume at `target`.
  *
  * Permission is read off the reason the flow parked with, never off the step it
- * parked at.
+ * parked at. `park` is the task's park record — `park.receipts` names the
+ * handling steps completed under it — and `visits` is the daemon's
+ * `step_visits` counter, which the receipts are checked against.
  */
-export function permitsResume(state, reason, target) {
+export function permitsResume(state, reason, target, park = {}, visits = {}) {
   if (reason === undefined) {
     throw new GraphRefusal(
       "resume_target_not_permitted",
@@ -193,7 +195,39 @@ export function permitsResume(state, reason, target) {
       `${reason} permits ${row.resume_targets.join(", ")} and not ${target}`,
     );
   }
-  return true;
+  // A target the row names among its own steps is the recovery surface itself —
+  // resuming INTO a handled_at step is how the reason gets dealt with — so it
+  // owes no further evidence. Anything else is permitted through an edge out of
+  // one of them, and the two kinds of edge lend the permission differently. An
+  // edge out of a parks_at step needs nothing more: the park on this reason is
+  // the evidence the reason's stop was reached. An edge out of a handled_at
+  // step lends it only once the step's handling has COMPLETED under this park
+  // — and "this park" is derived, never written: the receipt records the visit
+  // counts of the reason's parks_at steps as they stood at completion, and the
+  // gate compares them to the counter the daemon bumps on every entry. Another
+  // episode of the reason cannot begin without re-entering a step that can
+  // produce it, so the watermark moves on its own and a receipt written under
+  // an earlier episode stops matching — the same reason included, and however
+  // the park record's own writes went. Without the check a task parked at
+  // aggregate_verify resumes at draft_artifact on edges that are
+  // record_aggregate_remediation's alone, and the artifact is redrawn with no
+  // remediation record behind it.
+  const named = new Set([...row.parks_at, ...(row.handled_at ?? [])]);
+  if (named.has(target)) return true;
+  const reaches = (name) => (state.outgoing.get(name) ?? []).some((edge) => edge.to === target);
+  if (row.parks_at.some(reaches)) return true;
+  const lending = (row.handled_at ?? []).filter(reaches);
+  const receipts = park.receipts ?? {};
+  const watermark = `${reason}@${row.parks_at.map((name) => `${name}:${visits[name] ?? 0}`).join(",")}`;
+  if (lending.some((name) => receipts[name] === watermark)) {
+    return true;
+  }
+  throw new GraphRefusal(
+    "resume_target_not_permitted",
+    lending.length === 0
+      ? `${reason} declares no edge out of a step it names that reaches ${target}`
+      : `${reason} reaches ${target} only through ${lending.join(", ")}, whose completion this park does not record`,
+  );
 }
 
 /**
@@ -203,8 +237,10 @@ export function permitsResume(state, reason, target) {
  * is the shape `onTransit` is specified in — the engine rejects the transition
  * on a throw and commits it otherwise.
  *
- * `context` is `{ step, parked, parkedWith }`: the step being left (empty on
- * enroll), whether the task is parked, and the reason it parked with.
+ * `context` is `{ step, parked, parkedWith, park, visits }`: the step being
+ * left (empty on enroll), whether the task is parked, the reason it parked
+ * with, the park record itself, and the daemon's visit counter — the record
+ * and the counter are what operation 2's completion receipts answer to.
  */
 export function admit(state, context, to, evaluate) {
   const { step, parked, parkedWith } = context;
@@ -224,7 +260,7 @@ export function admit(state, context, to, evaluate) {
     // five targets and not this step admitted it anyway: re-entry runs the step's
     // body and its effects again, so "it grants nothing new" was not true either.
     if (parkedWith === undefined && to.step === step) return;
-    permitsResume(state, parkedWith, to.step);
+    permitsResume(state, parkedWith, to.step, context.park, context.visits);
     return;
   }
 
@@ -368,6 +404,11 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
         step: ctx.step,
         parked: task.status === "human",
         parkedWith: parkReasonOf(task.metadata),
+        // The whole park record and the daemon's own visit counter: operation
+        // 2 reads its lent permissions off the receipts under the record, and
+        // the receipts are watermarks over this counter.
+        park: task.metadata?.park,
+        visits: task.metadata?.step_visits,
       };
       admit(state, context, to, (predicate, guard) => evaluate(predicate, guard, task));
     },
@@ -387,6 +428,21 @@ async function run(state, step, work, evaluate, ctx) {
   // Read after the work, not before: the predicates read the task record, and
   // what the step just recorded is exactly what the next decision is about.
   const task = await ctx.tasks.current();
+  // A handled_at step's completion under the current park is the receipt
+  // operation 2 asks for, and `work` is in the condition because nothing else
+  // may produce one: a step with no registered handler completes nothing and
+  // a handler that threw completes nothing, so neither leaves a receipt. The
+  // write happens after the work resolves — never on entry — while the park
+  // record still names the reason the completion answers. park.reason is not
+  // cleared by this change; the receipt re-scopes itself instead, carrying the
+  // counts the reason's parks_at steps stood at, so a later episode of the
+  // reason — same reason included — moves the watermark without any write of
+  // ours needing to land.
+  const park = task.metadata?.park;
+  const row = state.recovery.get(park?.reason);
+  if (work && row && (row.handled_at ?? []).includes(step.name)) {
+    await recordReceipt(ctx, step.name, park.reason, row, task);
+  }
   const decision = select(state, step.name, (predicate, guard) => evaluate(predicate, guard, task));
   if (decision.take) {
     // A declared edge into a parking step stops the task just as surely as
@@ -462,5 +518,34 @@ async function recordPark(ctx, reason) {
   });
   if (result.code !== 0) {
     throw new Error(`recording park reason ${reason} failed with ${result.code}: ${result.stderr}`);
+  }
+}
+
+/**
+ * Records that a handled_at step's work completed under the current park.
+ *
+ * `park.receipts.<step>` carries the reason and a watermark — the visit counts
+ * of that reason's parks_at steps as they stand at completion, in row order.
+ * Producing the reason again requires entering one of those steps, which the
+ * daemon's own counter records in the same write as the position, so a receipt
+ * earned under an earlier episode stops matching the moment a later one is
+ * attempted — nothing about the discrimination depends on a factory write
+ * landing. The leaf write survives a later `park.reason` write, which is why
+ * the watermark and not a clearing re-scopes it. A failed write throws for the
+ * same reason recordPark's does: a completion nobody recorded is one the gate
+ * must refuse.
+ */
+async function recordReceipt(ctx, stepName, reason, row, task) {
+  const visits = task?.metadata?.step_visits ?? {};
+  const watermark = `${reason}@${row.parks_at.map((name) => `${name}:${visits[name] ?? 0}`).join(",")}`;
+  const result = await ctx.exec(
+    ["autosk", "metadata", "set", ctx.tasks.currentId, `park.receipts.${stepName}`, watermark],
+    {
+      cwd: ctx.projectRoot,
+      env: { ...process.env, AUTOSK_CWD: ctx.projectRoot, AUTOSK_SESSION_TOKEN: ctx.sessionToken },
+    },
+  );
+  if (result.code !== 0) {
+    throw new Error(`recording completion receipt for ${stepName} failed with ${result.code}: ${result.stderr}`);
   }
 }

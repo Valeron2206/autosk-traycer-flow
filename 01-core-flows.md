@@ -362,7 +362,7 @@ Bare resume запрещён для эскалаций, где требуетс�
 | Candidate changed before commit | commit_on_pass, fix | approved findings/identity сохранены, новый candidate attempt |
 | Commit CAS failed without movement | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | Private ticket branch moved | commit_on_pass | branch снова однозначен после расследования; cancel — отдельная status-операция |
-| Aggregate verification failed | aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation | external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel |
+| Aggregate verification failed | aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human | external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel |
 | Нет внешней code-review family | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review | recovery возвращается к реальному waiver consumer, режим сохраняется |
 | Нет внешней panel Lead family | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review | recovery возвращается к waiver consumer, full/narrow сохраняется |
 | Dirty cleanup | cleanup | явное force-разрешение либо сохранённое восстановимое состояние |

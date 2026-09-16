@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "a76923d8cb51d0e10f980c6909f126445528c922e94f77bfe3c60c13af888e30"
+      "sha256": "4e5035a93a2bdbc70e9fc86b12d8b9680142452c6e81ceece8c0ff20b99f5d6f"
     },
     {
       "path": "02-architecture.md",
@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "1c945d5559158abeac121bb7421aeefd35127037e8d689f362f32d206496c1c8"
+      "sha256": "c87705d30cb3893099fcf1ca540b0466b3ed00650a2fec3d7b89a77e959ed372"
     },
     {
       "path": "04-decisions.md",
@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "355e62eacbc063b54318bd922f58d11924d8c9b4122a01e4e37069fa08a86b2f"
+      "sha256": "950c51d669c3ba3534a6d047f046f240caf654676f7425cbd7ac78938dfe0add"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "97d3e18e53fec86db7891fb5907ed2b21c2fe1df04ac8800b016c7cc5e59c133"
+      "sha256": "e7cef42546ac17629ceefd13bb8862490384ae2f2229ca4fdf670e5b9505a05c"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -424,7 +424,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "4a699decc3ad706a798db0394142945afa812176ee6fda1a912b9cba6a06c195"
+      "sha256": "b06049dab05d33c21c9a1f7fd0749d431cd98ec661a64024a905c8d9ef79b7f5"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -504,10 +504,10 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "08346a6ef7e3483f2ce254cceb507834351afe0d183e69eee1e5d5fdb9e2b03c"
+      "sha256": "d445618ca199d4d14ee6199d2a0f34a6ed38ba4966c903497b77f0b2b52d8a91"
     }
   ],
-  "candidate_digest": "53a9dc21391591d42fc898a1619da17db8a3f2e73bfaadcd4945f2cf46922650",
+  "candidate_digest": "aabe6a61015f5ded6ae8f2ee7dc881622e46e57475d260d85e283a028ae3ee35",
   "dispositions": [
     {
       "issue": 3,

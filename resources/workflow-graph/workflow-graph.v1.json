@@ -15223,7 +15223,7 @@
           "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
-            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel"
           ]
         },
@@ -15868,7 +15868,7 @@
           "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "Aggregate verification failed",
-            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel"
           ]
         },
@@ -15952,5 +15952,5 @@
       ]
     }
   ],
-  "canonical_digest": "3e079f3048742d04b4d3fa3851d969c82273122763379d0fb199b6338513b5b7"
+  "canonical_digest": "68fec0070cd24e8a1f8491a138eb2888c3efaf0a158501c2f35608a3faf35114"
 }

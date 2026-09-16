@@ -115,6 +115,9 @@
       "named_at": [
         "aggregate_verify",
         "dispatch_ticket_dag",
+        "draft_artifact",
+        "human",
+        "present_tickets_breakdown",
         "record_aggregate_remediation"
       ],
       "named_at_classes": [],
@@ -127,6 +130,9 @@
       "named_at": [
         "aggregate_verify",
         "dispatch_ticket_dag",
+        "draft_artifact",
+        "human",
+        "present_tickets_breakdown",
         "record_aggregate_remediation"
       ],
       "named_at_classes": [],
@@ -1112,5 +1118,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "bdb6488c210890381ecf4b7853bb673d9e8e54a0590b557f48701e2c532f8c35"
+  "vocabulary_digest": "a5eca65047f22fb490a91335dddaf0be83d39fd41dd52c9f921be4e879f49045"
 }
