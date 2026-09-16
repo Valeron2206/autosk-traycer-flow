@@ -144,6 +144,19 @@ test("graph_terminal_step_leaves: a step that ends the flow and continues it", (
   );
 });
 
+test("graph_step_stranded: an agent step with no way out can only ever park", () => {
+  // The mirror of the rule above, on the other kind. The shipped document
+  // carried exactly one — ticket_done, whose only answer was a park — and the
+  // rule exists so the next one is refused rather than named by hand.
+  const graph = mutated((document) => {
+    document.transitions = document.transitions.filter((edge) => edge.from !== "freeze_artifact");
+  });
+  assert.deepEqual(
+    validateGraph(graph, schema).filter((message) => message.startsWith("graph_step_stranded")),
+    ["graph_step_stranded: freeze_artifact is an agent step and declares no way out"],
+  );
+});
+
 // --- parking and resuming --------------------------------------------------
 
 test("graph_recovery_missing: a reason the graph can park with and nothing says how to leave", () => {
@@ -416,6 +429,10 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     // And the uncarried outcome, for the same reason: dropping the register leaves
     // `cancel` a status the document may name with nothing to perform it.
     (document) => { delete document.external_operations; },
+    // And the stranded agent step, for the same reason: the `orphan` push above
+    // provokes it incidentally, but the defect it exists for was a reachable step
+    // with no exit, so the battery provokes it that way too.
+    (document) => { document.transitions = document.transitions.filter((edge) => edge.from !== "record_alignment"); },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -679,7 +696,7 @@ test("a step name used as a word does not become an edge to that step", () => {
 test("every step the tables leave without an exit is given the one its chain draws", () => {
   const graph = document();
   const leaves = new Set(graph.transitions.map((edge) => edge.from));
-  const terminal = new Set(["done", "ticket_done", "human"]);
+  const terminal = new Set(["done", "human"]);
   const stranded = graph.steps
     .map((step) => step.name)
     .filter((name) => !leaves.has(name) && !terminal.has(name));
@@ -1155,7 +1172,7 @@ test("graph_recovery_terminal_resume: a step with no way out may not stand in bo
 
 test("a step with no way out may still be a park or a target, just never both", () => {
   // The two legal halves the rule must not touch: `done` as a resume target of
-  // a row that never parks there — the shape the shipped document's seventy-nine
+  // a row that never parks there — the shape the shipped document's eighty
   // references to `human` take — and `done` as a place a row parks without
   // resuming into it, which is how blocked_anchor names it.
   for (const [parksAt, resumeTargets] of [
@@ -1198,13 +1215,14 @@ test("resume is permitted out of a handled_at step, not only out of a parks_at s
 test("every edge into done carries a park reason, and none of them is a park", () => {
   // Three rounds of review caught three hand-counted claims of mine about this
   // document, this one twice: "no parking edge lands on done" and then "six of the
-  // eleven carry a reason", when all eleven do. A number in a contract that nothing
-  // recomputes is a number that rots, so the claim is asserted here instead.
+  // eleven carry a reason", when all eleven did. A number in a contract that nothing
+  // recomputes is a number that rots, so the claim is asserted here instead — and
+  // it is twelve now, the twelfth being ticket_done's declared exit.
   const graph = document();
   const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
   const steps = new Map(graph.steps.map((step) => [step.name, step]));
   const into = graph.transitions.filter((edge) => edge.to === "done");
-  assert.equal(into.length, 11);
+  assert.equal(into.length, 12);
   for (const edge of into) {
     assert.ok(
       edge.guards.some((id) => guards.get(id)?.park_reason !== undefined),
@@ -1215,11 +1233,12 @@ test("every edge into done carries a park reason, and none of them is a park", (
     graph.recovery.filter((row) => row.parks_at.includes("done")).map((row) => row.reason),
   );
   const under = into.filter((edge) => edge.guards.some((id) => named.has(guards.get(id)?.park_reason)));
-  assert.equal(under.length, 7, [...named].join(", "));
+  assert.equal(under.length, 8, [...named].join(", "));
 
   // And none of it is a park, which is the whole point: the landing has to be a
-  // human status step, and this one is `done`. That is the open debt, stated as a
-  // property of the document rather than as a sentence somebody has to trust.
+  // human status step, and this one is `done`. The stop is expressed by the edge
+  // rather than by a park record, stated as a property of the document rather
+  // than as a sentence somebody has to trust.
   assert.equal(steps.get("done").status, "done");
   const produced = producedAt(graph);
   for (const reason of named) {
@@ -1242,9 +1261,9 @@ test("every status step the shipped document names in a parks_at rests on the ex
       );
     }
   }
-  // Seven, and the count is asserted so that the claim "none of the seven is
+  // Eight, and the count is asserted so that the claim "none of the eight is
   // produced" cannot quietly become a claim about some other number.
-  assert.equal(references.length, 7, references.join(", "));
+  assert.equal(references.length, 8, references.join(", "));
 });
 
 test("the shipped document lists every step the graph parks a reason at", () => {
@@ -1373,7 +1392,8 @@ test("graph_external_outcome_uncarried: a status the document may name and nothi
 test("a terminal step stays a lawful resume target of every row that does not park there", () => {
   // The fix removed the intersection, not the union: `done` is still a resume
   // target of the rows that never park at it (ten, measured when it landed),
-  // `ticket_done` of the two commit rows, and `human` of every row whose park
+  // `ticket_done` of the two commit rows — now under the ordinary rule, since
+  // it gained the exit to `done` — and `human` of every row whose park
   // is an ordinary stop for a person. A row in that shape is legitimate; a row
   // in the forbidden shape is the defect.
   const graph = document();
@@ -1391,5 +1411,5 @@ test("a terminal step stays a lawful resume target of every row that does not pa
   for (const reason of ["commit_cas_failed", "commit_foreign_movement"]) {
     assert.ok(targeting("ticket_done").includes(reason), `${reason} no longer resumes into ticket_done`);
   }
-  assert.ok(targeting("human").length >= 79, `human stopped being a target of ordinary parking: ${targeting("human").length}`);
+  assert.ok(targeting("human").length >= 80, `human stopped being a target of ordinary parking: ${targeting("human").length}`);
 });

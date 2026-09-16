@@ -80,6 +80,7 @@ export const REFUSALS = Object.freeze([
   "graph_recovery_reason_unknown",
   "graph_recovery_terminal_resume",
   "graph_schema",
+  "graph_step_stranded",
   "graph_step_unknown",
   "graph_step_unreachable",
   "graph_terminal_step_leaves",
@@ -507,6 +508,17 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     }
   }
 
+  // The mirror image: a status step may end the flow because ending is what it
+  // is for, but an agent step may not — one with no outgoing edge can only ever
+  // park, and a flow that can only park has nowhere to go. The shipped document
+  // carried exactly one for a release; the rule keys on the kind rather than on
+  // a list so the next one is refused instead of named.
+  for (const step of document.steps) {
+    if (step.kind === "agent" && (outgoing.get(step.name) ?? []).length === 0) {
+      errors.push(`graph_step_stranded: ${step.name} is an agent step and declares no way out`);
+    }
+  }
+
   for (const cap of document.caps) {
     if (!transitions.has(cap.counted_transition)) {
       errors.push(`graph_cap_transition_unknown: cap ${cap.cycle} counts ${cap.counted_transition}`);
@@ -643,9 +655,9 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   // boundary of the check, not a proof about any one reference — and not the claim
   // that a status step can never be produced: an edge out of a status step into a
   // human status step puts it there, and such a document is legal. What holds of
-  // the shipped document is that none of its seven status references is produced,
+  // the shipped document is that none of its eight status references is produced,
   // so each rests on this line. Requiring the step to be the LANDING of an edge
-  // carrying the reason was measured instead and rejected: four of the seven pass
+  // carrying the reason was measured instead and rejected: five of the eight pass
   // and three do not, all under the reason the daemon raises outside the graph
   // wherever a task stands. The codes are not spelled in these comments because the
   // vocabulary's producer scan reads a mention as a claim to produce it, which is

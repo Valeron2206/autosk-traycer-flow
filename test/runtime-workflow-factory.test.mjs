@@ -251,18 +251,19 @@ test("a step nothing leaves parks rather than throwing", () => {
   graph.transitions = graph.transitions.filter((edge) => edge.from !== stranded.name);
   assert.equal(select(index(graph), stranded.name, always).park, stranded.no_transition_reason);
 
-  // And what the shipped graph actually does, named rather than assumed. One
-  // agent step has nowhere to go: `ticket_done`, whose only reason is the
-  // daemon's generic boundary check, so a flow that reaches the end of a ticket
-  // parks with a code that says nothing about tickets. That is a gap in the
-  // document, not in this projection, and it is written down here so that the
-  // next step added with no way out fails this line instead of joining it.
+  // And what the shipped graph actually does, named rather than assumed. Every
+  // agent step has a way out — the one that did not, `ticket_done`, now leaves
+  // to `done`, which is the stop the plan describes at the end of a ticket. The
+  // empty list is what keeps it so: a step added with no way out fails this
+  // line instead of joining it.
   const shipped = index(document());
   const orphans = document()
     .steps.filter((step) => step.kind === "agent" && (shipped.outgoing.get(step.name) ?? []).length === 0)
     .map((step) => step.name);
-  assert.deepEqual(orphans, ["ticket_done"]);
-  assert.equal(select(shipped, "ticket_done", always).park, "project_boundary_invalid");
+  assert.deepEqual(orphans, []);
+  const taken = select(shipped, "ticket_done", always);
+  assert.equal(taken.park, undefined, "a completed ticket does not park");
+  assert.equal(taken.take.to, "done");
 });
 
 test("a step that cannot leave and names no reason parks with the code for that", () => {
@@ -573,11 +574,12 @@ test("a parked flow moves by its reason and by no other route", () => {
 });
 
 test("a flow parked on a step with no way out cannot resume into one", () => {
-  // The shipped defect, reproduced where it bites: a ticket that finishes
-  // stands at ticket_done — the only agent step with no outgoing edge — parked
-  // with its no_transition_reason, and the row used to permit resume into
-  // done, human and ticket_done itself. Every arrival replays the step's body,
-  // so the reason now permits none of them while still permitting the rest.
+  // The shipped defect, reproduced where it bit: a ticket that finished stood
+  // at ticket_done parked with its no_transition_reason, and the row used to
+  // permit resume into done, human and ticket_done itself. Every arrival
+  // replays the step's body, so the reason now permits none of them while
+  // still permitting the rest. ticket_done has an exit now — to done — and the
+  // narrowing holds under the ordinary rule, which this keeps pinned.
   const graph = document();
   const state = index(graph);
   const context = { step: "ticket_done", parked: true, parkedWith: "project_boundary_invalid" };
@@ -735,7 +737,7 @@ test("and every refusal it produces is one some contract closes", () => {
 test("a relayed park reason is the document's and not this factory's", () => {
   // The reasons a flow parks with come from the park vocabulary through the
   // document. Keeping them out of REFUSALS is what stops this factory from
-  // looking like the owner of eighty-four codes it merely passes on.
+  // looking like the owner of eighty-five codes it merely passes on.
   const graph = document();
   const state = index(graph);
   const declared = new Set(graph.recovery.map((row) => row.reason));

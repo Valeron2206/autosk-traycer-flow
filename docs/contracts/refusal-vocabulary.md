@@ -41,7 +41,7 @@ Matching is whole-word: a short code is a suffix of longer ones, and a file that
 
 ## 6. Every park reason has one owner
 
-Most of these reasons are the workflow's own vocabulary: they belong to the resume contract in `03-technical-plan.md` §7 and to no artifact. Seventeen of the eighty-four are additionally closed by the artifact contract they belong to.
+Most of these reasons are the workflow's own vocabulary: they belong to the resume contract in `03-technical-plan.md` §7 and to no artifact. Seventeen of the eighty-five are additionally closed by the artifact contract they belong to.
 
 Either way the owner is a recorded field, not something a reader infers. "Somebody must have closed this somewhere" is exactly how a code with no owner survives, so an entry with no `closed_by`, or one naming a document that does not close it, is `refusal_vocabulary_owner_missing`.
 

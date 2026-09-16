@@ -990,6 +990,16 @@
       "producer_files": []
     },
     {
+      "code": "ticket_completed",
+      "named_at": [
+        "ticket_done"
+      ],
+      "named_at_classes": [],
+      "closed_by": "03-technical-plan.md",
+      "producer": "daemon",
+      "producer_files": []
+    },
+    {
       "code": "ticket_edge_receipt_lost",
       "named_at": [
         "dispatch_ticket_dag"
@@ -1118,5 +1128,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "a5eca65047f22fb490a91335dddaf0be83d39fd41dd52c9f921be4e879f49045"
+  "vocabulary_digest": "301e57e270756c099c275a63c10959e703354568e1658b8a624e56b2e07ef007"
 }

@@ -42,7 +42,7 @@ Parking happens only when no edge is a candidate, and then the step's own `no_tr
 
 A parked flow may be resumed only at a target the PARK REASON permits, never at one the step permits. Two reasons can park at the same step and allow different targets, so reading permission off the step would let a resume that one reason forbids be laundered through another that was never the reason for this park. The shipped graph has such pairs, and a test walks them.
 
-Permission is not additionally checked against the edges out of the step the flow stands at. That is deliberate and measured: of the 6033 `(named step, resume target)` pairs the document declares — a step being one its row names in `parks_at` or in `handled_at` — 5166 are not a declared edge out of that particular step. The rule the graph contract states, and that `scripts/validate-workflow-graph.mjs` enforces, is that a target is an edge out of ONE of them, so requiring an edge out of the current one would refuse most of the resumes the document sanctions.
+Permission is not additionally checked against the edges out of the step the flow stands at. That is deliberate and measured: of the 6035 `(named step, resume target)` pairs the document declares — a step being one its row names in `parks_at` or in `handled_at` — 5167 are not a declared edge out of that particular step. The rule the graph contract states, and that `scripts/validate-workflow-graph.mjs` enforces, is that a target is an edge out of ONE of them, so requiring an edge out of the current one would refuse most of the resumes the document sanctions.
 
 What the union lends is conditioned once more on what the park record shows. A target the row names among its own steps owes no evidence beyond the reason: reaching a `parks_at` stop or a `handled_at` surface is the recovery happening. Any other target is permitted through an edge out of one of them, and the two kinds of edge lend the permission differently. An edge out of a `parks_at` step lends it unconditionally — the park on this reason is the evidence the reason's stop was reached. An edge out of a `handled_at` step lends it only once that step's handling has COMPLETED under this park — `handled_at`'s own description is "where resume leaves from", and a resume cannot leave from a step whose handling never finished.
 
@@ -90,7 +90,7 @@ So the executable is refused at the point where it would be produced, and that r
 
 The design validator carries the same refusal now, as `graph_park_reason_ambiguous`. Refusing only at build was refusing after the document had already been shipped, pinned and digested — and the example in this repository proved the gap was not theoretical: it shipped with a parking edge carrying no guard at all, and the validator accepted it for as long as the check lived only here.
 
-These reasons belong to the park vocabulary, which `resources/refusal-vocabulary/refusal-vocabulary.v1.json` enumerates and `03-technical-plan.md` §7 owns. They are not this contract's, and putting them in its closed set would make it look like the owner of eighty-four codes it merely passes on.
+These reasons belong to the park vocabulary, which `resources/refusal-vocabulary/refusal-vocabulary.v1.json` enumerates and `03-technical-plan.md` §7 owns. They are not this contract's, and putting them in its closed set would make it look like the owner of eighty-five codes it merely passes on.
 
 ## 6. Caps are not enforced here, and the reason is measurable
 
@@ -188,7 +188,7 @@ That the predicates are answered correctly: the document says what state each re
 
 That the graph is the right graph. It proves the runtime obeys the document, not that the document describes the product. That is what the views of slice 3 and the chain check are for.
 
-Building the runtime did surface one thing about the document, and it is recorded rather than repaired here. Exactly one agent step has no outgoing edge — `ticket_done`, entered from `commit_on_pass` — so a flow that reaches the end of a ticket parks, and the reason it parks with is `project_boundary_invalid`, the daemon's generic boundary check. Nothing in the graph validator asks an agent step where it goes, so nothing refused it. The suite names the step, so a second one added with no way out fails rather than joining it quietly; whether `ticket_done` should be a status step or lead to one is a change to the document and an owner's to make.
+Building the runtime did surface one thing about the document, and it is repaired rather than merely recorded. Exactly one agent step had no outgoing edge — `ticket_done`, entered from `commit_on_pass` — so a flow that reached the end of a ticket parked, and the reason it parked with was `project_boundary_invalid`, the daemon's generic boundary check. Nothing in the graph validator asked an agent step where it goes, so nothing refused it. The document now declares the exit — `ticket_done` leads to `done`, carrying `ticket_completed` — and `graph_step_stranded` refuses the next agent step declared with no way out, so it fails rather than joining quietly.
 
 That caps hold. Section 6 says why, with the numbers.
 

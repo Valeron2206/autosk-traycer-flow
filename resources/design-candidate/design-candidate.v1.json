@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "c87705d30cb3893099fcf1ca540b0466b3ed00650a2fec3d7b89a77e959ed372"
+      "sha256": "0d4c625b332d3cb8413dcba41999bdf9676f04e823aefda7961d11029d6e4353"
     },
     {
       "path": "04-decisions.md",
@@ -148,7 +148,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "bd98681fa3cbee4daba7df10e830910138fbf1009f7e58d0412a5045a65bf180"
+      "sha256": "1d35e6ec537acf5dc60ce040950ec581c956e57a78f5b616bcd0252ab8a4ef71"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "a709099a36e2f67a4e36749e80f889c7d8480ee4b071a97dee4fbc1939c691b8"
+      "sha256": "7eea43d46e91ee7c0bf3fdc2c4d585008f5acb3252101cfef8d97e88eb9b2be0"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "dd77aa72698b58737eb949bc97cd9218fefda9f4271fc9fe449649771523b1f0"
+      "sha256": "49f0df197b35f9af30a98d61a31876758d713647add1f0558c11639c7a1f6661"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -424,7 +424,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "b06049dab05d33c21c9a1f7fd0749d431cd98ec661a64024a905c8d9ef79b7f5"
+      "sha256": "10404b762f2534bf4a4522e8f04270d052e5a70a077257ba8927d3b61b601f31"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -500,14 +500,14 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "69910bc649487ecdbe7288c1e01d5b78de000b8b7b7a5848d2b69ad63a2c3925"
+      "sha256": "78a2ce6400a6e4befffb957c4d0eea91500857caa0271a1d9282c867b67651d0"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "ca8c6b420b76fd5efd6b1be0284aa9aa62ed8fd0fdb40d30b755ff52be4eae13"
+      "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
     }
   ],
-  "candidate_digest": "e5bdfa1267fa26d869ea2227e7794103a8dc430a6fc82715b3dc3282a2c35429",
+  "candidate_digest": "e93eafa3d650479a442385454b0330ca822ddd81aee7fed21814249bde5e8643",
   "dispositions": [
     {
       "issue": 3,

@@ -423,7 +423,7 @@ Workflow одной реализации из утверждённого ком�
 ~~~text
 implement -> verify -> freeze -> dispatch_review -> review_join -> record_code_verdict
           -> fix -> verify -> freeze -> dispatch_narrow_review -> review_join -> record_code_verdict
-          -> commit_on_pass -> ticket_done
+          -> commit_on_pass -> ticket_done -> done
 recovery: rebuild_code_anchor -> verify
           complete_anchor_handoff -> human
           repair_anchor_handoff -> human
@@ -515,7 +515,7 @@ Parent Ticket блокируется review child и после разблоки
 | commit_on_pass | private branch на recorded base, exact expected commit object создан и CAS success | записать expected commit OID/recipe hash, ticket_done |
 | commit_on_pass | private branch на recorded base, CAS failed и ref всё ещё на base | human с park.reason=commit_cas_failed |
 | commit_on_pass | private branch на любом другом OID, включая same approved tree с другим parent/recipe | human с park.reason=commit_foreign_movement |
-| ticket_done | terminal | нет переходов |
+| ticket_done | все ticket work items terminal | done |
 
 Quick `integrate` prologue до любого чтения target ref или другого Git side effect заново запускает тот же closed classifier, что implement completion: normalized latest user request/instructions, project identity, original base, declared scope, actual changed paths/bytes, completion evidence, rules version и protected intent head. Это не чтение сохранённого `planned_triggers`. Новый trigger сначала выполняет `invalidate_quick_classification`; prepared handoff уже void'ит review/accept/waiver/integration authorization и запрещает Git reads, поэтому old Quick не продолжает.
 
@@ -1532,6 +1532,7 @@ Resume contract:
 | candidate_changed | commit_on_pass, fix | approved findings/identity сохранены, новый candidate attempt |
 | commit_cas_failed | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | commit_foreign_movement | commit_on_pass | private branch снова однозначен после расследования; cancel — отдельная status-операция |
+| ticket_completed | ticket_done | нет — фабрика никогда не записывает эту причину (парк возможен только на human); строка обязана биекцией причина↔строка |
 | aggregate_verify_failed / aggregate_remediation_required | aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human | resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel |
 | no_external_reviewer | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review | waiver resume обязательно проходит freeze consumer; режим сохраняется |
 | no_external_panel_lead | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review | waiver resume обязательно проходит freeze_artifact consumer; full/narrow сохраняется |

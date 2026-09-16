@@ -273,7 +273,7 @@ export function admit(state, context, to, evaluate) {
   // where a flow starts, and starting is not continuing.
   //
   // Measured rather than assumed, because admitting entries could have re-opened the
-  // bypass: of the eighty-four recovery rows exactly one names an entry step among
+  // bypass: of the eighty-five recovery rows exactly one names an entry step among
   // its targets — one row names `implement` — and that row permits
   // it while the task is parked anyway, so nothing is reachable here that was not
   // reachable before.

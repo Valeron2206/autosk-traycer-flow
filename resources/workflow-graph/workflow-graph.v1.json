@@ -3205,6 +3205,13 @@
         "user_decision"
       ],
       "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает; kind=tickets — human с park.reason=tickets_breakdown_alignment_required; record не создаётся"
+    },
+    {
+      "id": "cond_422",
+      "reads": [
+        "task_record"
+      ],
+      "description": "все ticket work items terminal — done"
     }
   ],
   "steps": [
@@ -7969,6 +7976,14 @@
         "actor": "human"
       },
       "park_reason": "tickets_breakdown_alignment_required"
+    },
+    {
+      "id": "guard_547",
+      "predicate": "cond_422",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "ticket_completed"
     }
   ],
   "transitions": [
@@ -12849,6 +12864,15 @@
       "guards": [
         "guard_531"
       ]
+    },
+    {
+      "id": "t_543",
+      "from": "ticket_done",
+      "to": "done",
+      "priority": 0,
+      "guards": [
+        "guard_547"
+      ]
     }
   ],
   "caps": [
@@ -14231,6 +14255,19 @@
       "required_state": "Recorded by daemon at record_alignment; a resume requires the identity the park recorded to still be current."
     },
     {
+      "reason": "ticket_completed",
+      "parks_at": [
+        "done"
+      ],
+      "handled_at": [
+        "commit_on_pass"
+      ],
+      "resume_targets": [
+        "human"
+      ],
+      "required_state": "The factory never records this reason: it annotates the exit edge the way the reasons on the other eleven edges into done annotate theirs, and the factory parks a task only on a human status. The row exists because every produced reason requires one; done declares no edges, so some handled_at step must lend the resume target — commit_on_pass is the choice, as the step the flow arrived from — and the named target is one of three the schema and the terminal-resume rule admit, not a live route"
+    },
+    {
       "reason": "ticket_edge_receipt_lost",
       "parks_at": [
         "dispatch_ticket_dag"
@@ -15217,6 +15254,17 @@
         },
         {
           "covers": [
+            "ticket_completed"
+          ],
+          "binds": "165bb3ca16736fda115411bb83463e48112635c2e3ecb932b4c89936032c4171",
+          "cells": [
+            "ticket_completed",
+            "ticket_done",
+            "нет — фабрика никогда не записывает эту причину (парк возможен только на human); строка обязана биекцией причина↔строка"
+          ]
+        },
+        {
+          "covers": [
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
@@ -15345,6 +15393,7 @@
         "project_boundary_invalid",
         "protocol_lock_invalid",
         "review_waiver_invalid",
+        "ticket_completed",
         "verification_cap",
         "verification_environment_failed",
         "verification_record_invalid"
@@ -15952,7 +16001,7 @@
       ]
     }
   ],
-  "canonical_digest": "18c7396e96f3f24978f99f5ab2d0622b8e26302a9ae3f3f86c4f84d054f9df24",
+  "canonical_digest": "7294aefc28bb27cdd2bac1659643a709ea8392c934b3aa28fe7acff582e05319",
   "external_operations": [
     {
       "status": "cancel",

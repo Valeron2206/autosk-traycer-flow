@@ -339,7 +339,7 @@
             }
           },
           "handled_at": {
-            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 61 of the 84 rows name none, and the widest holds 46 of project_boundary_invalid's 68. Bounded by the step count for the same reason as parks_at.",
+            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 61 of the 85 rows name none, and the widest holds 46 of project_boundary_invalid's 68. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
