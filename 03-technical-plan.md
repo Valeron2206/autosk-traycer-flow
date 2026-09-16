@@ -1532,7 +1532,7 @@ Resume contract:
 | candidate_changed | commit_on_pass, fix | approved findings/identity сохранены, новый candidate attempt |
 | commit_cas_failed | commit_on_pass | ref всё ещё на recorded base, причина lock/storage устранена |
 | commit_foreign_movement | commit_on_pass | private branch снова однозначен после расследования; cancel — отдельная status-операция |
-| aggregate_verify_failed / aggregate_remediation_required | aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation | resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel |
+| aggregate_verify_failed / aggregate_remediation_required | aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human | resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel |
 | no_external_reviewer | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review | waiver resume обязательно проходит freeze consumer; режим сохраняется |
 | no_external_panel_lead | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review | waiver resume обязательно проходит freeze_artifact consumer; full/narrow сохраняется |
 | cleanup_dirty | cleanup | force=true разрешён явно или состояние сохранено |

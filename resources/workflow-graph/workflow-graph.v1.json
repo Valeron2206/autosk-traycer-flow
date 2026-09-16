@@ -13722,7 +13722,6 @@
         "dispatch_panel",
         "draft_artifact",
         "freeze_artifact",
-        "human",
         "panel_join",
         "present_tickets_breakdown",
         "record_artifact_pass"
@@ -13743,7 +13742,6 @@
         "dispatch_narrow_review",
         "dispatch_review",
         "freeze",
-        "human",
         "invalidate_quick_classification",
         "rebuild_code_anchor",
         "record_code_verdict",
@@ -14094,7 +14092,6 @@
         "dispatch_panel",
         "dispatch_review",
         "dispatch_ticket_dag",
-        "done",
         "draft_artifact",
         "emit_blocked_anchor",
         "fix",
@@ -14102,7 +14099,6 @@
         "freeze",
         "freeze_artifact",
         "freeze_candidate",
-        "human",
         "implement",
         "init_planning_ref",
         "integrate",
@@ -14130,7 +14126,6 @@
         "review_join_wait",
         "select_next",
         "synthesize_panel",
-        "ticket_done",
         "ticket_join",
         "ticket_join_wait",
         "validate_disposition",
@@ -14613,7 +14608,7 @@
           "covers": [
             "project_boundary_invalid"
           ],
-          "binds": "9075ba885dc5024e5840f216d7cdc0a640201b3759107e72323bf6355152196e",
+          "binds": "ee75994d60d87f4a00794718bc58cc9c33f9305eb1e9c3ec8b1e65c567819843",
           "cells": [
             "project_boundary_invalid",
             "`<deterministic_step>`",
@@ -15228,7 +15223,7 @@
           "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
-            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel"
           ]
         },
@@ -15236,7 +15231,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "bbedc21a49c44626843ff9409226a22379aef504169f108b72cc1167b9613fb1",
+          "binds": "09d6ceedfd7d873f6329d282f852ca7bd2bdd3e457addf4a494fe4f9459a0dd6",
           "cells": [
             "no_external_reviewer",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -15247,7 +15242,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "3d8d4bb8e6067acd4c9c8e46289a4acc6178f3361fab5fdc74d082e60e8ab7d1",
+          "binds": "5912f0bb2a839496b23df932e738029553d6cfbb5892ff0571c31a9991f448a6",
           "cells": [
             "no_external_panel_lead",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -15873,7 +15868,7 @@
           "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "Aggregate verification failed",
-            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel"
           ]
         },
@@ -15881,7 +15876,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "bbedc21a49c44626843ff9409226a22379aef504169f108b72cc1167b9613fb1",
+          "binds": "09d6ceedfd7d873f6329d282f852ca7bd2bdd3e457addf4a494fe4f9459a0dd6",
           "cells": [
             "Нет внешней code-review family",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -15892,7 +15887,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "3d8d4bb8e6067acd4c9c8e46289a4acc6178f3361fab5fdc74d082e60e8ab7d1",
+          "binds": "5912f0bb2a839496b23df932e738029553d6cfbb5892ff0571c31a9991f448a6",
           "cells": [
             "Нет внешней panel Lead family",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -15957,5 +15952,11 @@
       ]
     }
   ],
-  "canonical_digest": "f41e58dece66dc392ffeca335a66cc1886acbc80608101d599ab87530b51ccc7"
+  "canonical_digest": "18c7396e96f3f24978f99f5ab2d0622b8e26302a9ae3f3f86c4f84d054f9df24",
+  "external_operations": [
+    {
+      "status": "cancel",
+      "executor": "autosk resume <id> --to cancel"
+    }
+  ]
 }

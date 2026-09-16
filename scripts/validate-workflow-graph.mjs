@@ -61,6 +61,7 @@ export const REFUSALS = Object.freeze([
   "graph_duplicate_key",
   "graph_duplicate_name",
   "graph_entry_step_unknown",
+  "graph_external_outcome_uncarried",
   "graph_first_step_unknown",
   "graph_guard_unknown",
   "graph_lone_surrogate",
@@ -77,6 +78,7 @@ export const REFUSALS = Object.freeze([
   "graph_recovery_parks_at_incomplete",
   "graph_recovery_parks_at_unproduced",
   "graph_recovery_reason_unknown",
+  "graph_recovery_terminal_resume",
   "graph_schema",
   "graph_step_unknown",
   "graph_step_unreachable",
@@ -433,6 +435,45 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     }
   }
 
+  // Every status this document can drive must have something that performs it. The question
+  // is who executes, not where the outcome is mentioned: the statuses come from the step
+  // schema's own enum rather than from a list here, so the rule cannot drift from what a
+  // document is allowed to say, and it reads no prose, so it cannot be argued with.
+  //
+  // A status is carried by a step that drives it or by an entry in `external_operations`,
+  // and never by both. `human` and `done` are carried by steps. `cancel` was carried by
+  // nothing: `cond_272` said the outcome of an unresolved foreign movement is "human or
+  // cancel", the graph drew the human half as `t_367` and the cancel half as nothing at
+  // all, and the views described a status operation without naming what performs it — so a
+  // task under that reason stood with an exit the document promised and could not
+  // execute. Both halves are refused here because either one alone is a document that
+  // contradicts itself: a status with no carrier promises what nothing performs, and a
+  // status with two says it is outside the workflow while an edge inside carries it.
+  const admittedStatuses = schema?.properties?.steps?.items?.properties?.status?.enum ?? [];
+  const operations = new Map((document.external_operations ?? []).map((op) => [op.status, op]));
+  for (const status of [...admittedStatuses].sort()) {
+    const steppedBy = document.steps.filter((step) => step.status === status).map((step) => step.name);
+    const external = operations.has(status);
+    if (steppedBy.length === 0 && !external) {
+      errors.push(
+        `graph_external_outcome_uncarried: nothing carries ${status} — no step drives it and no ` +
+          "external operation executes it, so a document may name that outcome and nothing performs it",
+      );
+    }
+    if (steppedBy.length > 0 && external) {
+      errors.push(
+        `graph_external_outcome_uncarried: ${status} is declared an operation outside the ` +
+          `workflow and ${steppedBy.sort().join(", ")} drives it as a step`,
+      );
+    }
+  }
+  if (operations.size !== (document.external_operations ?? []).length) {
+    errors.push(
+      "graph_external_outcome_uncarried: two entries declare an executor for one status, " +
+        "so which operation performs it is not decided",
+    );
+  }
+
   const outgoing = new Map();
   for (const edge of document.transitions) {
     if (!steps.has(edge.from)) errors.push(`graph_step_unknown: transition ${edge.id} leaves ${edge.from}`);
@@ -568,6 +609,21 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
         errors.push(
           `resume_target_not_permitted: ${row.reason} resumes at ${target}, ` +
             `which is not a declared edge from ${named.join(" or ")}`,
+        );
+      }
+    }
+    // A step with no outgoing edge may be where a row's tasks stand or where a
+    // resume lands, but never both in one row. `parks_at` records where the flow
+    // stops with the reason; `resume_targets` is what a task parked there may
+    // move to — and a task parked on the step resuming INTO it arrives again,
+    // and every arrival replays the step's body. The union is untouched: the
+    // step stays a lawful target of every other row that does not park there.
+    for (const name of row.parks_at) {
+      if ((outgoing.get(name) ?? []).length > 0) continue;
+      if (row.resume_targets.includes(name)) {
+        errors.push(
+          `graph_recovery_terminal_resume: ${row.reason} parks at ${name} ` +
+            "and permits resume into it, a step with no way out",
         );
       }
     }

@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "a76923d8cb51d0e10f980c6909f126445528c922e94f77bfe3c60c13af888e30"
+      "sha256": "4e5035a93a2bdbc70e9fc86b12d8b9680142452c6e81ceece8c0ff20b99f5d6f"
     },
     {
       "path": "02-architecture.md",
@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "1c945d5559158abeac121bb7421aeefd35127037e8d689f362f32d206496c1c8"
+      "sha256": "c87705d30cb3893099fcf1ca540b0466b3ed00650a2fec3d7b89a77e959ed372"
     },
     {
       "path": "04-decisions.md",
@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "0778fd1684e4bddd6adeb58c0b8a8ead4cb263ac5ce5ea58e12974debfa5f860"
+      "sha256": "a709099a36e2f67a4e36749e80f889c7d8480ee4b071a97dee4fbc1939c691b8"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "9c651fce73597c8c270c3184d549ce1826ef15ae88e6aacc40a17c7c73b2231e"
+      "sha256": "dd77aa72698b58737eb949bc97cd9218fefda9f4271fc9fe449649771523b1f0"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -424,7 +424,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "4a699decc3ad706a798db0394142945afa812176ee6fda1a912b9cba6a06c195"
+      "sha256": "b06049dab05d33c21c9a1f7fd0749d431cd98ec661a64024a905c8d9ef79b7f5"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -488,26 +488,26 @@
     },
     {
       "path": "resources/workflow-graph/canonical-reference.json",
-      "sha256": "a54fd5f2c7319888e29fd853d1f6de06af96043bf32f3f71cdc28bdaf7a23ce6"
+      "sha256": "e81104de8fc4964e59e76d3526819033b74c09f7f1b1358e5962aeffcaf05276"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.example.json",
-      "sha256": "1569e66db2dd4386747ec6924bb0fff54b9b849c3d869361724b88d17b0f1e8a"
+      "sha256": "ea369d94cfb4e5f1c64fe697f530263beced2119e45e8c49e300507711b71fcb"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.refused.example.json",
-      "sha256": "3bb914f3a979af9005378ba966deab3b9d4bec79b69f5e6c6c1d4d2b881f56bb"
+      "sha256": "b616fb3afa346d148677feb41704fd49304afcef9ef9607f055529051419f0a5"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "183e685ad00b0c56dc345ee7a2010da66e7046e9be864c10326c3373efbc56e9"
+      "sha256": "69910bc649487ecdbe7288c1e01d5b78de000b8b7b7a5848d2b69ad63a2c3925"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "5b02ed5de9e74e30037e3500b6bc62ec9b2ec0735f05d49504bccf8dafc1bbfe"
+      "sha256": "ca8c6b420b76fd5efd6b1be0284aa9aa62ed8fd0fdb40d30b755ff52be4eae13"
     }
   ],
-  "candidate_digest": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+  "candidate_digest": "e5bdfa1267fa26d869ea2227e7794103a8dc430a6fc82715b3dc3282a2c35429",
   "dispositions": [
     {
       "issue": 3,
