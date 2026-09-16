@@ -188,7 +188,7 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "950c51d669c3ba3534a6d047f046f240caf654676f7425cbd7ac78938dfe0add"
+      "sha256": "a709099a36e2f67a4e36749e80f889c7d8480ee4b071a97dee4fbc1939c691b8"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
@@ -507,7 +507,7 @@
       "sha256": "d445618ca199d4d14ee6199d2a0f34a6ed38ba4966c903497b77f0b2b52d8a91"
     }
   ],
-  "candidate_digest": "aabe6a61015f5ded6ae8f2ee7dc881622e46e57475d260d85e283a028ae3ee35",
+  "candidate_digest": "3160dc040cc004cb49967b723cb46c5551b0ac12dd30281dcd9d960e2c4e026f",
   "dispositions": [
     {
       "issue": 3,

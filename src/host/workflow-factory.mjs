@@ -433,8 +433,8 @@ async function run(state, step, work, evaluate, ctx) {
   // may produce one: a step with no registered handler completes nothing and
   // a handler that threw completes nothing, so neither leaves a receipt. The
   // write happens after the work resolves — never on entry — while the park
-  // record still names the reason the completion answers. park.reason is not
-  // cleared by this change; the receipt re-scopes itself instead, carrying the
+  // record still names the reason the completion answers. The receipt does not
+  // depend on the reason's lifecycle: it re-scopes itself instead, carrying the
   // counts the reason's parks_at steps stood at, so a later episode of the
   // reason — same reason included — moves the watermark without any write of
   // ours needing to land.
@@ -452,7 +452,24 @@ async function run(state, step, work, evaluate, ctx) {
     // with whatever reason the PREVIOUS park had left behind, or with none at
     // all, and a resume the reason permits was refused because no reason was
     // there.
-    if (parks(state, decision.take.to)) await recordPark(ctx, parkReasonFor(state, decision.take));
+    if (parks(state, decision.take.to)) {
+      await recordPark(ctx, parkReasonFor(state, decision.take));
+    } else if (park?.reason !== undefined && !rowNames(row, decision.take.to)) {
+      // A take to a step the reason's row does not name leaves the park
+      // behind, and the reason that described it has to leave with it: until
+      // this ran, the record kept saying why a stop that is over happened, and
+      // a later engine-side park — which writes no reason of its own — found
+      // one already recorded, closing the no-permission re-entry operation 2
+      // keeps open for exactly that case. A take inside the row's own surface
+      // keeps the reason instead: the step the flow lands on is one this
+      // episode's recovery may still be running at, so an engine-side park
+      // there is still this park, and a completion still owed its receipt.
+      // The clearing cannot live in the veto: the transit ctx carries no exec
+      // to write through. It lands here, after the receipt write above and
+      // before the position moves, so a record whose write fails leaves the
+      // task where it stood rather than mid-move.
+      await clearParkReason(ctx);
+    }
     await ctx.transit({ step: decision.take.to });
     return;
   }
@@ -464,6 +481,16 @@ async function run(state, step, work, evaluate, ctx) {
 export function parks(state, name) {
   const step = state.steps.get(name);
   return step.kind === "status" && step.status === "human";
+}
+
+/**
+ * Whether `name` is a step the recovery row names — the surface the reason's
+ * episode runs on, `parks_at` and `handled_at` together, the same union
+ * operation 2 reads as `named`. The row may be absent: a reason with no
+ * recovery row names no surface at all.
+ */
+function rowNames(row, name) {
+  return row !== undefined && (row.parks_at.includes(name) || (row.handled_at ?? []).includes(name));
 }
 
 /**
@@ -518,6 +545,27 @@ async function recordPark(ctx, reason) {
   });
   if (result.code !== 0) {
     throw new Error(`recording park reason ${reason} failed with ${result.code}: ${result.stderr}`);
+  }
+}
+
+/**
+ * Removes the reason once the flow has left the park it described.
+ *
+ * `metadata unset` deletes the leaf and prunes the parents it leaves empty, so
+ * `park.receipts` — the sibling the receipt write lives under — is untouched:
+ * the receipts carry their own watermark and re-scope themselves, which is why
+ * they can outlive the reason. A failed write throws for the same reason
+ * recordPark's does: a reason that could not be cleared is a stop the record
+ * still describes, and moving anyway would park the next stop under a reason
+ * that is not its own.
+ */
+async function clearParkReason(ctx) {
+  const result = await ctx.exec(["autosk", "metadata", "unset", ctx.tasks.currentId, "park.reason"], {
+    cwd: ctx.projectRoot,
+    env: { ...process.env, AUTOSK_CWD: ctx.projectRoot, AUTOSK_SESSION_TOKEN: ctx.sessionToken },
+  });
+  if (result.code !== 0) {
+    throw new Error(`clearing park reason failed with ${result.code}: ${result.stderr}`);
   }
 }
 

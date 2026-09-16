@@ -280,6 +280,11 @@ test("a status step is answered by its status and asked for no reason", () => {
   const state = index(document());
   assert.deepEqual(select(state, "done", always), { park: null, status: "done" });
   assert.deepEqual(select(state, "human", never), { park: null, status: "human" });
+  // await_alignment is the status step the graph draws five guarded edges out
+  // of: selection never runs on a status step, so even with every one of their
+  // predicates refuted the answer is the status and not the fallback literal —
+  // which is why no state can park such a step with `no_transition_reason`.
+  assert.deepEqual(select(state, "await_alignment", never), { park: null, status: "human" });
 });
 
 test("a step the document never declares is refused, not treated as terminal", () => {
@@ -765,6 +770,19 @@ const context = (task, { code = 0, failLeaf, crashLeaf } = {}) => {
     while (keys.length > 1) bag = bag[keys.shift()] ??= {};
     bag[keys[0]] = value;
   };
+  // `metadata unset` removes the leaf and prunes the parents it leaves empty.
+  const unsetLeaf = (dotPath) => {
+    const keys = dotPath.split(".");
+    const parents = [];
+    let bag = task.metadata ?? {};
+    for (const key of keys.slice(0, -1)) {
+      parents.push([bag, key]);
+      if (typeof bag[key] !== "object" || bag[key] === null) return;
+      bag = bag[key];
+    }
+    delete bag[keys.at(-1)];
+    for (const [bag_, key] of parents.reverse()) if (Object.keys(bag_[key]).length === 0) delete bag_[key];
+  };
   return {
     calls,
     ctx: {
@@ -792,6 +810,9 @@ const context = (task, { code = 0, failLeaf, crashLeaf } = {}) => {
         const refused = code !== 0 || argv[4] === failLeaf;
         if (!refused && argv[0] === "autosk" && argv[1] === "metadata" && argv[2] === "set") {
           setLeaf(argv[4], argv[5]);
+        }
+        if (!refused && argv[0] === "autosk" && argv[1] === "metadata" && argv[2] === "unset") {
+          for (const leaf of argv.slice(4)) unsetLeaf(leaf);
         }
         return { code: refused ? 1 : 0, stdout: "", stderr: refused ? "refused" : "" };
       },
@@ -845,13 +866,13 @@ test("the completion receipt is written by the run and answers to the episode th
   // watermark with no write of ours needing to land.
   const graph = document();
   let failHandler = true;
-  let routeToDraft = false;
+  let routeBack = false;
   const workflow = buildWorkflow(graph, {
     // cond_276 is t_371's guard — the edge out of aggregate_verify that parks
-    // with aggregate_verify_failed — and cond_281 is t_376's, the
-    // record_aggregate_remediation edge that moves the flow on to
-    // draft_artifact without re-entering the step that produced the reason.
-    evaluate: (predicate) => predicate === "cond_276" || (routeToDraft && predicate === "cond_281"),
+    // with aggregate_verify_failed — and cond_278 is t_373's, the
+    // record_aggregate_remediation edge that returns the flow to the step that
+    // produced the reason.
+    evaluate: (predicate) => predicate === "cond_276" || (routeBack && predicate === "cond_278"),
     agents: {
       record_aggregate_remediation: async () => {
         if (failHandler) throw new Error("remediation write failed");
@@ -894,38 +915,32 @@ test("the completion receipt is written by the run and answers to the episode th
 
   // Completed: the receipt lands carrying the producing step's count — the
   // run's own exec, applied to the record by the fixture the way the daemon
-  // applies it. The flow then moves on to draft_artifact without re-entering
-  // aggregate_verify, so the episode the receipt answers is still the one the
-  // counter describes, and the sibling target the same handler lends is
-  // permitted from the engine-side stop.
+  // applies it. The take that follows re-enters the producing step — a move
+  // inside the reason's own surface, so the record still carries it — and the
+  // daemon's counter moved on the entry, which is what a new episode of the
+  // reason is.
   failHandler = false;
-  routeToDraft = true;
+  routeBack = true;
   await resume("record_aggregate_remediation");
   await workflow.steps.record_aggregate_remediation.onRun(context(task).ctx);
   assert.equal(
     task.metadata.park.receipts.record_aggregate_remediation,
     "aggregate_verify_failed@aggregate_verify:1",
   );
-  assert.equal(task.step, "draft_artifact", "t_376 moved the flow on without re-entering the producing step");
-  task.status = "human"; // an engine-side park writes nothing into park.*
-  await resume("present_tickets_breakdown");
+  assert.equal(task.step, "aggregate_verify", "t_373 returned the flow to the producing step");
+  assert.equal(task.metadata.step_visits.aggregate_verify, 2);
+  assert.equal(task.metadata.park.reason, "aggregate_verify_failed");
 
-  // And a later episode re-scopes it with no write involved: resuming back
-  // into aggregate_verify re-enters the step that produces the reason — the
-  // daemon's counter moves — so when the same failure parks again, the receipt
-  // the earlier episode earned satisfies it no longer, whether or not the
-  // park's own write landed.
-  task.status = "human";
-  await resume("aggregate_verify");
-  await assert.rejects(
-    () => workflow.steps.aggregate_verify.onRun(context(task, { failLeaf: "park.reason" }).ctx),
-    /park reason/u,
-  );
-  task.status = "human"; // the reason write was refused; the engine parks where it stood
+  // An engine-side park now reads that record against the moved counter: the
+  // receipt names the visit the earlier episode completed under, so the target
+  // it used to lend is refused — while the row's own parks_at step still
+  // admits re-entry on no receipt at all.
+  task.status = "human"; // an engine-side park writes nothing into park.*
   await assert.rejects(
     () => workflow.onTransit(context(task).ctx, { step: "draft_artifact" }),
     (error) => error.reason === "resume_target_not_permitted",
   );
+  await resume("aggregate_verify");
 });
 
 test("a handled_at step with no registered handler completes nothing and leaves no receipt", async () => {
@@ -1063,6 +1078,61 @@ test("a repeated park invalidates the earlier episode's receipts without any wri
       (error) => error.reason === "resume_target_not_permitted",
     );
   }
+});
+
+test("a transition out of the park clears the reason it recorded, so an engine-side park re-enters freely", async () => {
+  // Ticket 3, half B — the scenario as it was reproduced. The flow parks at
+  // clarify_alignment with `alignment_policy_out_of_scope`, resumes into a
+  // target the reason's row permits (draft_artifact, via a parks_at edge), and
+  // draft_artifact moves the flow on to freeze_artifact — a step the reason's
+  // row does not permit. The daemon then parks the task itself: it writes the
+  // status and no reason, because it has none of its own. Resuming at the step
+  // the flow stands at is the one move operation 2 defines to need no
+  // permission — provided the record does not still describe the earlier stop.
+  const graph = document();
+  const row = graph.recovery.find((entry) => entry.reason === "alignment_policy_out_of_scope");
+  const edge = graph.transitions.find((entry) => entry.from === "draft_artifact" && entry.to === "freeze_artifact");
+  assert.ok(!row.resume_targets.includes("freeze_artifact"), "the scenario needs a step outside the row");
+  // t_155's guard is the only predicate that holds, so no edge but that one is a
+  // candidate — and at clarify_alignment none is, which is what parks the flow.
+  const workflow = buildWorkflow(graph, {
+    evaluate: (predicate) => predicate === graph.guards.find((guard) => guard.id === edge.guards[0]).predicate,
+  });
+  const task = {
+    id: "t-1",
+    step: "clarify_alignment",
+    status: "work",
+    metadata: { park: { receipts: { earlier_step: "alignment_policy_out_of_scope@clarify_alignment:0" } } },
+  };
+  await workflow.steps.clarify_alignment.onRun(context(task).ctx);
+  assert.equal(task.metadata.park.reason, "alignment_policy_out_of_scope");
+  await workflow.onTransit(context(task).ctx, { step: "draft_artifact" });
+  await context(task).ctx.transit({ step: "draft_artifact" }); // the engine's commit
+
+  // A clear that cannot land must not move the task: the reason the record
+  // still claims is the reason a later engine-side park would find.
+  const refused = context(task, { failLeaf: "park.reason" });
+  await assert.rejects(() => workflow.steps.draft_artifact.onRun(refused.ctx), /clearing park reason/u);
+  assert.deepEqual(refused.calls.transits, [], "a failed clear leaves the position where it stood");
+  assert.equal(task.step, "draft_artifact");
+  assert.equal(task.metadata.park.reason, "alignment_policy_out_of_scope");
+
+  const move = context(task);
+  await workflow.steps.draft_artifact.onRun(move.ctx);
+  assert.equal(task.step, "freeze_artifact");
+  assert.equal(task.metadata.park?.reason, undefined, "the reason described a stop that is over");
+  assert.deepEqual(move.calls.execs, [["autosk", "metadata", "unset", "t-1", "park.reason"]]);
+  // The delete is leaf-level: the sibling receipts the same record carries are
+  // untouched, and re-scope themselves by watermark from there on.
+  assert.equal(
+    task.metadata.park.receipts.earlier_step,
+    "alignment_policy_out_of_scope@clarify_alignment:0",
+  );
+
+  // The daemon's own park writes no reason; with none recorded, operation 2's
+  // no-permission move — re-entering the step the flow stands at — is open.
+  task.status = "human";
+  await workflow.onTransit(context(task).ctx, { step: "freeze_artifact" });
 });
 
 test("the built onRun goes where the graph says, and records why when it parks", async () => {
