@@ -418,6 +418,40 @@ test("a parked flow moves by its reason and by no other route", () => {
   assert.equal(refusalOf(() => admit(state, context, { status: "done" }, always)).reason, "transition_not_declared");
 });
 
+test("a flow parked on a step with no way out cannot resume into one", () => {
+  // The shipped defect, reproduced where it bites: a ticket that finishes
+  // stands at ticket_done — the only agent step with no outgoing edge — parked
+  // with its no_transition_reason, and the row used to permit resume into
+  // done, human and ticket_done itself. Every arrival replays the step's body,
+  // so the reason now permits none of them while still permitting the rest.
+  const graph = document();
+  const state = index(graph);
+  const context = { step: "ticket_done", parked: true, parkedWith: "project_boundary_invalid" };
+  for (const target of ["done", "human", "ticket_done"]) {
+    assert.equal(
+      refusalOf(() => admit(state, context, { step: target }, always)).reason,
+      "resume_target_not_permitted",
+      `resuming a ticket_done park into ${target} must be refused`,
+    );
+  }
+  assert.equal(
+    permitsResume(state, "project_boundary_invalid", "implement"),
+    true,
+    "the reason still permits a target with a way out",
+  );
+  // The other two rows carried the same intersection at human: a task standing
+  // there with the reason resumed into it. That arrival is refused too.
+  for (const reason of ["no_external_panel_lead", "no_external_reviewer"]) {
+    assert.equal(
+      refusalOf(() =>
+        admit(state, { step: "human", parked: true, parkedWith: reason }, { step: "human" }, always),
+      ).reason,
+      "resume_target_not_permitted",
+      `resuming a ${reason} park into human must be refused`,
+    );
+  }
+});
+
 test("re-entering the step it stands at needs no permission, and only that step", () => {
   // The default `autosk resume` target, and the only way back for a task the
   // daemon parked itself: no park reason was recorded, because the graph did not

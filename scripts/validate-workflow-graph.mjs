@@ -77,6 +77,7 @@ export const REFUSALS = Object.freeze([
   "graph_recovery_parks_at_incomplete",
   "graph_recovery_parks_at_unproduced",
   "graph_recovery_reason_unknown",
+  "graph_recovery_terminal_resume",
   "graph_schema",
   "graph_step_unknown",
   "graph_step_unreachable",
@@ -568,6 +569,21 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
         errors.push(
           `resume_target_not_permitted: ${row.reason} resumes at ${target}, ` +
             `which is not a declared edge from ${named.join(" or ")}`,
+        );
+      }
+    }
+    // A step with no outgoing edge may be where a row's tasks stand or where a
+    // resume lands, but never both in one row. `parks_at` records where the flow
+    // stops with the reason; `resume_targets` is what a task parked there may
+    // move to — and a task parked on the step resuming INTO it arrives again,
+    // and every arrival replays the step's body. The union is untouched: the
+    // step stays a lawful target of every other row that does not park there.
+    for (const name of row.parks_at) {
+      if ((outgoing.get(name) ?? []).length > 0) continue;
+      if (row.resume_targets.includes(name)) {
+        errors.push(
+          `graph_recovery_terminal_resume: ${row.reason} parks at ${name} ` +
+            "and permits resume into it, a step with no way out",
         );
       }
     }
