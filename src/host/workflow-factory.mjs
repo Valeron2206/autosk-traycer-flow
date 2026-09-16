@@ -117,7 +117,19 @@ export function index(document) {
   }
 
   const recovery = new Map(document.recovery.map((row) => [row.reason, row]));
-  return { steps, guards, predicates, outgoing, recovery, document };
+  // The statuses the document says are driven by an operation outside the workflow.
+  // Read here, once, for the same reason every other reference is: the veto must be
+  // able to tell an operator flipping a status from an operation the document names.
+  const externalOperations = new Map(
+    (document.external_operations ?? []).map((operation) => [operation.status, operation]),
+  );
+  // Where a flow may start: the first step and the steps the other registered
+  // workflows enter at. The veto needs it to tell an entry from a continuation.
+  const entries = new Set([
+    document.first_step,
+    ...(document.entry_steps ?? []).map((entry) => entry.step),
+  ]);
+  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, document };
 }
 
 /** A refusal carrying the code the graph names for it. */
@@ -243,13 +255,48 @@ export function permitsResume(state, reason, target, park = {}, visits = {}) {
  * and the counter are what operation 2's completion receipts answer to.
  */
 export function admit(state, context, to, evaluate) {
-  const { step, parked, parkedWith } = context;
+  const { step, parked, parkedWith, status } = context;
 
-  // A parked flow moves by operation 2 and by nothing else. A status target here
-  // would be an operator flipping a status rather than the graph moving, and the
-  // graph has nothing to say about it, so it is refused rather than waved past.
+  // A task the operation already took out of the workflow is not moved by the graph.
+  // The relocation is terminal by declaration — upstream calls the cancel status
+  // abandoned, and the way back in is an enroll rather than a transit. Without this
+  // the relocation LAUNDERS the park reason: `parked` is the human status alone, so a
+  // relocated task reads as running, operation 2 never looks, and the reason still in
+  // the record governs nothing. Measured on this document: a task parked at
+  // `dispatch_panel` was refused `panel_join` by its row, and after the relocation the
+  // same move was admitted as an ordinary edge.
+  // The exception is the way back IN. Upstream's enrol admits a task at the cancel
+  // status and always targets a step — the workflow's first step unless one is named
+  // — and it keeps the old step as the one being left when the workflow does not
+  // change, so an enrol and a resume of a cancelled task arrive here in the same
+  // shape. The step being left cannot tell them apart; the TARGET can. An entry is
+  // where a flow starts, and starting is not continuing.
+  //
+  // Measured rather than assumed, because admitting entries could have re-opened the
+  // bypass: of the eighty-four recovery rows exactly one names an entry step among
+  // its targets — one row names `implement` — and that row permits
+  // it while the task is parked anyway, so nothing is reachable here that was not
+  // reachable before.
+  if (typeof status === "string" && state.externalOperations.has(status) && !state.entries.has(to.step)) {
+    throw new GraphRefusal(
+      "transition_not_declared",
+      `${status} is driven by an operation outside the workflow, so the graph continues no task that stands at it`,
+    );
+  }
+
+  // A parked flow moves by operation 2 and by nothing else. A status target is an
+  // operator flipping a status rather than the graph moving, so it is refused —
+  // EXCEPT where the document declares that the status is driven by an operation
+  // outside the workflow, because then the graph does have something to say about
+  // it and what it says is that this is how the outcome is performed. Three rows of
+  // the resume contract end in an exit of exactly that kind; before this the
+  // document could name the executor and the veto refused it before it could act,
+  // which is a carrier on paper and none in the run. A status the document does not
+  // declare that way is refused as it always was: `done` is driven by a step, and a
+  // relocation to it is still an operator moving a task the graph is holding.
   if (parked) {
     if (!("step" in to)) {
+      if (typeof to.status === "string" && state.externalOperations.has(to.status)) return;
       throw new GraphRefusal("transition_not_declared", "a parked flow resumes at a step, and the graph declares no status move");
     }
     // Re-entering the step it already stands at needs no permission ONLY when
@@ -403,6 +450,11 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
       const context = {
         step: ctx.step,
         parked: task.status === "human",
+        // The status itself, because `parked` answers one question about it and the
+        // veto has a second: a task standing at a status an operation drives is out
+        // of the workflow, and reading only `parked` classified such a task as
+        // running.
+        status: task.status,
         parkedWith: parkReasonOf(task.metadata),
         // The whole park record and the daemon's own visit counter: operation
         // 2 reads its lent permissions off the receipts under the record, and

@@ -15952,5 +15952,11 @@
       ]
     }
   ],
-  "canonical_digest": "68fec0070cd24e8a1f8491a138eb2888c3efaf0a158501c2f35608a3faf35114"
+  "canonical_digest": "18c7396e96f3f24978f99f5ab2d0622b8e26302a9ae3f3f86c4f84d054f9df24",
+  "external_operations": [
+    {
+      "status": "cancel",
+      "executor": "autosk resume <id> --to cancel"
+    }
+  ]
 }

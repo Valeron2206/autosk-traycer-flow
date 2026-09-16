@@ -1341,3 +1341,137 @@ test("the shipped document builds, and every park in it says why", () => {
   });
   assert.equal(refusalOf(() => buildWorkflow(restored, { evaluate: always })).reason, "park_reason_ambiguous");
 });
+
+test("a status the document declares an operation outside the workflow is the exit it promised", () => {
+  // Three rows of the resume contract end in an exit the graph does not draw, and
+  // the document names what performs it: `external_operations` says `cancel` is
+  // driven by a status operation and not by a step. The veto refused every status
+  // target of a parked task unconditionally, so the executor the document named
+  // was refused before it could act — a carrier on paper and none in the run. The
+  // review found that by driving this consumer, not by reading the document.
+  const state = index(document());
+  for (const [reason, step, forbidden] of [
+    ["planning_ref_foreign_movement", "cleanup", "verify"],
+    ["commit_foreign_movement", "commit_on_pass", "draft_artifact"],
+    ["foreign_movement", "integration_recovery", "draft_artifact"],
+  ]) {
+    assert.ok(
+      !state.recovery.get(reason).resume_targets.includes(forbidden),
+      `${forbidden} must really be outside ${reason}, or the control proves nothing`,
+    );
+    const parked = { step, parked: true, parkedWith: reason };
+    assert.equal(
+      admit(state, parked, { status: "cancel" }, always),
+      undefined,
+      `${reason} must be able to reach the exit its row promises`,
+    );
+    // A status the document does NOT declare that way stays what it was: an
+    // operator moving a task the graph is holding. This is what keeps the
+    // declaration from being a word anyone can write — `done` is driven by a step.
+    for (const status of ["done", "human"]) {
+      assert.equal(
+        refusalOf(() => admit(state, parked, { status }, always)).reason,
+        "transition_not_declared",
+        `${status} is carried by a step, so a relocation to it is not an operation the graph declared`,
+      );
+    }
+    // And the ordinary resume is untouched: operation 2 still decides step targets.
+    assert.equal(
+      refusalOf(() => admit(state, parked, { step: forbidden }, always)).reason,
+      "resume_target_not_permitted",
+    );
+  }
+
+  // Withdraw the declaration and the exit is refused again, which is the state the
+  // base document was in.
+  const undeclared = document();
+  delete undeclared.external_operations;
+  assert.equal(
+    refusalOf(() =>
+      admit(index(undeclared), { step: "cleanup", parked: true, parkedWith: "planning_ref_foreign_movement" },
+        { status: "cancel" }, always)).reason,
+    "transition_not_declared",
+  );
+});
+
+test("a relocation to a declared operation does not launder the reason it left behind", async () => {
+  // The review's second finding, and it is a two-step path: `parked` is the human
+  // status alone, so a task the operation relocated read as RUNNING, operation 2
+  // never looked, and the reason still sitting in the record governed nothing. The
+  // classification changes between the steps, so the test has to go through
+  // onTransit with a real task status — admit with parked: true cannot see it.
+  const workflow = buildWorkflow(document(), { evaluate: (predicate) => predicate === "cond_098" });
+  const at = (status) => {
+    const task = { id: "t-1", step: "dispatch_panel", status, metadata: { park: { reason: "alignment_record_stale" } } };
+    return { task, ctx: { step: task.step, tasks: { current: async () => task } } };
+  };
+
+  // The row does not permit this target, and the park refuses it.
+  await assert.rejects(
+    () => workflow.onTransit(at("human").ctx, { step: "panel_join" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+  // The exit the document declares is permitted.
+  assert.equal(await workflow.onTransit(at("human").ctx, { status: "cancel" }), undefined);
+  // And the same refused move stays refused after it. Before this it was admitted
+  // as an ordinary edge, which made the relocation a way around the reason.
+  await assert.rejects(
+    () => workflow.onTransit(at("cancel").ctx, { step: "panel_join" }),
+    (error) => error.reason === "transition_not_declared",
+  );
+  // Nor does a target the row DOES permit become available: the graph moves no task
+  // standing at a status an operation drives, whatever the row says.
+  const row = index(document()).recovery.get("alignment_record_stale");
+  await assert.rejects(
+    () => workflow.onTransit(at("cancel").ctx, { step: row.resume_targets[0] }),
+    (error) => error.reason === "transition_not_declared",
+  );
+});
+
+test("the way back in is not the way on: an entry is admitted where a continuation is not", async () => {
+  // The review's third finding. Upstream's enrol admits a task at the cancel status
+  // and always targets a step — the workflow's first step unless one is named — and
+  // it keeps the old step as the one being left when the workflow does not change:
+  //   const leavingStep = view.workflow === workflowName ? (view.step ?? "") : "";
+  // So an enrol and a resume of a cancelled task reach the veto in the same shape and
+  // the step being left cannot tell them apart. The target can: an entry is where a
+  // flow starts, and starting is not continuing.
+  const graph = document();
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => predicate === "cond_098" });
+  const move = (task, step, to) =>
+    workflow.onTransit({ step, tasks: { current: async () => task } }, to);
+  const cancelled = () => ({
+    id: "t-1",
+    step: "dispatch_panel",
+    status: "cancel",
+    metadata: { park: { reason: "alignment_record_stale" } },
+  });
+
+  // Entering counts as starting, and the entry the engine defaults to is the first step.
+  assert.equal(
+    await move({ id: "t-2", step: "old_step", status: "cancel", workflow: "other", metadata: {} }, "", {
+      step: graph.first_step,
+    }),
+    undefined,
+    "a task the operation closed may be enrolled again",
+  );
+
+  // Continuing is still refused, whatever the recovery row says about the target.
+  for (const target of ["panel_join", ...index(graph).recovery.get("alignment_record_stale").resume_targets.slice(0, 1)]) {
+    await assert.rejects(
+      () => move(cancelled(), "dispatch_panel", { step: target }),
+      (error) => error.reason === "transition_not_declared",
+      `${target} is a continuation of a closed task, not an entry`,
+    );
+  }
+
+  // And the entry set is the document's, not a literal: every step the other
+  // registered workflows enter at counts, which is what keeps this from being a
+  // rule about one name.
+  const entries = new Set([graph.first_step, ...(graph.entry_steps ?? []).map((entry) => entry.step)]);
+  assert.ok(entries.size > 1, "the document declares entries beyond its first step");
+  assert.ok(
+    !entries.has("panel_join"),
+    "the bypass target must not be an entry, or the control proves nothing",
+  );
+});

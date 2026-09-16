@@ -413,6 +413,9 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
       row.handled_at = ["record_artifact_pass"];
       row.resume_targets = ["record_alignment", "done"];
     },
+    // And the uncarried outcome, for the same reason: dropping the register leaves
+    // `cancel` a status the document may name with nothing to perform it.
+    (document) => { delete document.external_operations; },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -1310,6 +1313,61 @@ test("no row of the shipped document stands a step with no way out in both of it
     }
   }
   assert.deepEqual(violations, []);
+});
+
+test("graph_external_outcome_uncarried: a status the document may name and nothing performs", () => {
+  // The defect this closed, asked as «who executes» rather than «where is it
+  // mentioned»: `cond_272` said the outcome of an unresolved foreign movement is
+  // human or cancel, the graph drew the human half as `t_367` and the cancel half
+  // as nothing, and the views described a status operation without naming what
+  // performs it. On the base document — both the shipped one and the working
+  // example — this refusal fired once and named `cancel`. The statuses come from
+  // the step schema's own enum, so the question is not which fix was chosen: a
+  // step driving `cancel` would satisfy it as surely as the register does.
+  const graph = mutated((document) => { delete document.external_operations; });
+  assert.ok(
+    validateGraph(graph, schema).some((message) =>
+      message.startsWith("graph_external_outcome_uncarried: nothing carries cancel")),
+    "a status with no carrier must be refused",
+  );
+
+  // And the contradiction the other way. The views say the operation is a status
+  // operation and NOT a workflow step; a document that declares it here and also
+  // drives it from a step states both halves of that at once.
+  const both = mutated((document) => {
+    document.steps.push({ name: "abandon", kind: "status", status: "cancel" });
+    document.transitions.push({
+      id: "t_cancel",
+      from: "record_artifact_pass",
+      to: "abandon",
+      priority: 99,
+      guards: [document.guards[0].id],
+    });
+  });
+  assert.ok(
+    validateGraph(both, schema).some((message) =>
+      message.startsWith("graph_external_outcome_uncarried: cancel is declared an operation")),
+    "one status carried twice must be refused",
+  );
+
+  // Two entries for one status leave it undecided which operation performs it.
+  const twice = mutated((document) => {
+    document.external_operations.push({ status: "cancel", executor: "autosk cancel <id>" });
+  });
+  assert.ok(
+    validateGraph(twice, schema).some((message) => message.includes("two entries declare an executor")),
+    "a status with two executors must be refused",
+  );
+
+  // The positive halves: the shipped document and the working example both carry
+  // every status they may name, so neither is refused for this.
+  for (const carried of [document(), example()]) {
+    assert.deepEqual(
+      validateGraph(carried, schema).filter((message) =>
+        message.startsWith("graph_external_outcome_uncarried")),
+      [],
+    );
+  }
 });
 
 test("a terminal step stays a lawful resume target of every row that does not park there", () => {
