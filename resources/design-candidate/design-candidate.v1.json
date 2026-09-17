@@ -24,7 +24,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "193bafcb1ee2514fe944b1154ff67dbfeef8578614ffa8e9066b5b48d5fe1f34"
+      "sha256": "66beac9758c70f07c839d2d8e8f1bdc45bdd47219a40e7155ca32929cbabca23"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
-      "sha256": "d2f7e054fcb4abb6130bafe1dbd4c63c5eecbe00e28636722683d226bc521293"
+      "sha256": "c112c458dddb0f624364110dce9cdf20043836dab1b3834c5a08da49054c355b"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -507,7 +507,7 @@
       "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
     }
   ],
-  "candidate_digest": "e93eafa3d650479a442385454b0330ca822ddd81aee7fed21814249bde5e8643",
+  "candidate_digest": "372937f08033693b0b62efdf84cc2270d58aa0ee8649ebbb133983d657847bde",
   "dispositions": [
     {
       "issue": 3,

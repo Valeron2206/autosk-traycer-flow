@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "f166bec8ffb5223aa9eb41a45667c07990b55e57",
+  "result_tree": "44da0902ed65746dd76897df6695e27175aedb5b",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -138,6 +138,10 @@
     {
       "file": "patches/0033-document-digest-in-pin.patch",
       "sha256": "4e2f9344ca0b39cf6316eb5d37dd1e5201ba7904f3c478199b4caec74463f142"
+    },
+    {
+      "file": "patches/0037-operator-migrate-path.patch",
+      "sha256": "7b5087ea787c1b8e74a93e3cf63fd9f69c83cefbc1a41ad7fe3bd5d4b450c4db"
     }
   ],
   "license": {

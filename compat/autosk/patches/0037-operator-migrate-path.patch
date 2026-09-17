@@ -1,0 +1,1458 @@
+diff --git a/cmd/autosk/exit.go b/cmd/autosk/exit.go
+index 9a412b3..995cdce 100644
+--- a/cmd/autosk/exit.go
++++ b/cmd/autosk/exit.go
+@@ -7,3 +7,10 @@ import "errors"
+ //
+ // main.go inspects this sentinel before calling os.Exit.
+ var errSilentExit1 = errors.New("silent exit 1")
++
++// errSilentExit2 makes a command exit with status 2 without printing the
++// error message again. Status 2 is reserved for refusals: the daemon answered
++// but declined the operation (a migration that is not supported, cannot
++// apply, or cannot roll back). Scripts can distinguish a refusal (2) from a
++// transport or internal failure (1).
++var errSilentExit2 = errors.New("silent exit 2")
+diff --git a/cmd/autosk/main.go b/cmd/autosk/main.go
+index 2306789..2c4b106 100644
+--- a/cmd/autosk/main.go
++++ b/cmd/autosk/main.go
+@@ -49,6 +49,7 @@ func newRootCmd() *cobra.Command {
+ 		newEnrollCmd(),
+ 		newResumeCmd(),
+ 		newCommentCmd(),
++		newMigrateCmd(),
+ 		newLazyCmd(),
+ 	)
+ 	return root
+@@ -59,6 +60,9 @@ func main() {
+ 		if errors.Is(err, errSilentExit1) {
+ 			os.Exit(1)
+ 		}
++		if errors.Is(err, errSilentExit2) {
++			os.Exit(2)
++		}
+ 		fmt.Fprintln(os.Stderr, "autosk: "+cleanRPCError(err).Error())
+ 		os.Exit(1)
+ 	}
+diff --git a/cmd/autosk/migrate.go b/cmd/autosk/migrate.go
+new file mode 100644
+index 0000000..c7a956d
+--- /dev/null
++++ b/cmd/autosk/migrate.go
+@@ -0,0 +1,210 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++	"text/tabwriter"
++
++	"github.com/spf13/cobra"
++)
++
++// newMigrateCmd is the migration verb (`autosk migrate …`). It gives the
++// operator a direct path to plan, apply, and roll back extension migrations —
++// the mechanism that moves a task's pin from one distribution digest to another.
++//
++// Migrations are per-project: the {cwd} selector resolves to the current
++// project's .autosk/ directory, and the daemon executes the move under the
++// project's creation lock (crash-safe, resumable, receipt-anchored).
++//
++// `autosk migrate plan <workflow>` asks what a migration would do without
++// writing anything. `autosk migrate apply <workflow>` executes it.
++// `autosk migrate rollback <id>` reverses a completed migration (the operator
++// must have restored the previous distribution first). `autosk migrate list`
++// shows the project's migration receipts.
++func newMigrateCmd() *cobra.Command {
++	cmd := &cobra.Command{
++		Use:   "migrate",
++		Short: "Plan, apply, or roll back an extension migration",
++		Long: "Plan, apply, or roll back an extension migration.\n\n" +
++			"A migration moves a task's runtime identity pin from one extension\n" +
++			"distribution digest to another. It is used when an extension update\n" +
++			"lands and the open tasks need to move to the new bytes.\n\n" +
++			"The operator can inspect the plan (no writes), apply it (moves the\n" +
++			"tasks and seals a receipt), or roll it back (reverses a completed\n" +
++			"migration after restoring the previous distribution).",
++	}
++	cmd.AddCommand(newMigratePlanCmd(), newMigrateApplyCmd(), newMigrateRollbackCmd(), newMigrateListCmd())
++	return cmd
++}
++
++func newMigratePlanCmd() *cobra.Command {
++	var from string
++	cmd := &cobra.Command{
++		Use:   "plan <workflow>",
++		Short: "Show what a migration would do (no writes)",
++		Args:  cobra.ExactArgs(1),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			cl, err := cliClient()
++			if err != nil {
++				return err
++			}
++			res, err := cl.PlanMigration(cmd.Context(), args[0], from)
++			if err != nil {
++				return err
++			}
++			if flagJSON {
++				if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
++					return err
++				}
++				if !res.Supported {
++					return errSilentExit2
++				}
++				return nil
++			}
++			if !res.Supported {
++				fmt.Fprintf(os.Stderr, "migration not supported: %s\n", *res.Reason)
++				return errSilentExit2
++			}
++			fmt.Fprintf(os.Stdout, "migration %s → %s (%s)\n", *res.From, *res.To, *res.Workflow)
++			if len(res.Impact) == 0 {
++				fmt.Fprintln(os.Stdout, "  (no tasks to move)")
++			} else {
++				fmt.Fprintf(os.Stdout, "  %d task(s) to move:\n", len(res.Impact))
++				for _, i := range res.Impact {
++					step := "(none)"
++					if i.Step != nil {
++						step = *i.Step
++					}
++					if i.Blocker != nil {
++						fmt.Fprintf(os.Stdout, "    %s [%s] — %s\n", i.TaskID, step, *i.Blocker)
++					} else {
++						fmt.Fprintf(os.Stdout, "    %s [%s]\n", i.TaskID, step)
++					}
++				}
++			}
++			return nil
++		},
++	}
++	cmd.Flags().StringVar(&from, "from", "", "source distribution digest (default: infer from open tasks)")
++	return cmd
++}
++
++func newMigrateApplyCmd() *cobra.Command {
++	var from string
++	cmd := &cobra.Command{
++		Use:   "apply <workflow>",
++		Short: "Apply a migration (moves tasks, seals a receipt)",
++		Args:  cobra.ExactArgs(1),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			cl, err := cliClient()
++			if err != nil {
++				return err
++			}
++			res, err := cl.ApplyMigration(cmd.Context(), args[0], from)
++			if err != nil {
++				return err
++			}
++			if flagJSON {
++				if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
++					return err
++				}
++				if !res.OK {
++					return errSilentExit2
++				}
++				return nil
++			}
++			if !res.OK {
++				fmt.Fprintf(os.Stderr, "migration failed: %s\n", *res.Reason)
++				return errSilentExit2
++			}
++			r := res.Receipt
++			fmt.Fprintf(os.Stdout, "migration %s applied (%d task(s))\n", r.ID[:8], len(r.Tasks))
++			fmt.Fprintf(os.Stdout, "  %s → %s\n", r.From, r.To)
++			if r.CompletedAt != nil {
++				fmt.Fprintf(os.Stdout, "  sealed at %s\n", *r.CompletedAt)
++			}
++			return nil
++		},
++	}
++	cmd.Flags().StringVar(&from, "from", "", "source distribution digest (default: infer from open tasks)")
++	return cmd
++}
++
++func newMigrateRollbackCmd() *cobra.Command {
++	return &cobra.Command{
++		Use:   "rollback <migration-id>",
++		Short: "Roll back a completed migration",
++		Args:  cobra.ExactArgs(1),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			cl, err := cliClient()
++			if err != nil {
++				return err
++			}
++			res, err := cl.RollbackMigration(cmd.Context(), args[0])
++			if err != nil {
++				return err
++			}
++			if flagJSON {
++				if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
++					return err
++				}
++				if !res.OK {
++					return errSilentExit2
++				}
++				return nil
++			}
++			if !res.OK {
++				fmt.Fprintf(os.Stderr, "rollback failed: %s\n", *res.Reason)
++				return errSilentExit2
++			}
++			r := res.Receipt
++			fmt.Fprintf(os.Stdout, "rollback %s applied (%d task(s))\n", r.ID[:8], len(r.Tasks))
++			fmt.Fprintf(os.Stdout, "  %s → %s (reverses %s)\n", r.From, r.To, *r.Reverses)
++			if r.CompletedAt != nil {
++				fmt.Fprintf(os.Stdout, "  sealed at %s\n", *r.CompletedAt)
++			}
++			return nil
++		},
++	}
++}
++
++func newMigrateListCmd() *cobra.Command {
++	return &cobra.Command{
++		Use:   "list",
++		Short: "List the project's migration receipts",
++		Args:  cobra.NoArgs,
++		RunE: func(cmd *cobra.Command, args []string) error {
++			cl, err := cliClient()
++			if err != nil {
++				return err
++			}
++			res, err := cl.ListMigrations(cmd.Context())
++			if err != nil {
++				return err
++			}
++			if flagJSON {
++				return json.NewEncoder(os.Stdout).Encode(res)
++			}
++			if len(res.Migrations) == 0 {
++				fmt.Fprintln(os.Stderr, "(no migrations)")
++				return nil
++			}
++			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
++			fmt.Fprintln(w, "ID\tFROM\tTO\tWORKFLOW\tTASKS\tSEALED\tREVERSING")
++			for _, m := range res.Migrations {
++				sealed := "open"
++				if m.CompletedAt != nil {
++					sealed = *m.CompletedAt
++				}
++				reverses := ""
++				if m.Reverses != nil {
++					reverses = (*m.Reverses)[:8]
++				}
++				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
++					m.ID[:8], m.From[:8], m.To[:8], m.Workflow, len(m.Tasks), sealed, reverses)
++			}
++			return w.Flush()
++		},
++	}
++}
+diff --git a/cmd/autosk/migrate_red_test.go b/cmd/autosk/migrate_red_test.go
+new file mode 100644
+index 0000000..6ddeb1a
+--- /dev/null
++++ b/cmd/autosk/migrate_red_test.go
+@@ -0,0 +1,33 @@
++package main
++
++import (
++	"os/exec"
++	"path/filepath"
++	"testing"
++)
++
++// TestMigrateVerbExecutable proves the operator can invoke `autosk migrate`
++// on the built binary — not just that the code exists, but that it runs.
++//
++// Before the patch, `autosk migrate --help` exits nonzero (unknown command).
++// After the patch, it must exit 0 and print the migrate help.
++//
++// This is the red test: it asks "who can execute it?", not "is it mentioned?".
++// It builds the binary itself into a temp dir, so it cannot pass by skipping
++// and cannot pick up a stale build.
++func TestMigrateVerbExecutable(t *testing.T) {
++	bin := filepath.Join(t.TempDir(), "autosk")
++	build := exec.Command("go", "build", "-o", bin, ".")
++	if out, err := build.CombinedOutput(); err != nil {
++		t.Fatalf("go build ./cmd/autosk failed: %v\n%s", err, out)
++	}
++
++	// `autosk migrate --help` must exit 0 — the operator can invoke the verb.
++	cmd := exec.Command(bin, "migrate", "--help")
++	if err := cmd.Run(); err != nil {
++		if exitErr, ok := err.(*exec.ExitError); ok {
++			t.Fatalf("autosk migrate --help exited with code %d — operator cannot execute migration", exitErr.ExitCode())
++		}
++		t.Fatalf("autosk migrate --help failed: %v", err)
++	}
++}
+diff --git a/cmd/autosk/migrate_test.go b/cmd/autosk/migrate_test.go
+new file mode 100644
+index 0000000..43e9863
+--- /dev/null
++++ b/cmd/autosk/migrate_test.go
+@@ -0,0 +1,49 @@
++package main
++
++import (
++	"testing"
++
++	"github.com/spf13/cobra"
++)
++
++// TestMigrateVerbRegistered proves the operator has a CLI path to migration.
++// Before the patch, `autosk migrate` did not exist — this test fails because
++// newMigrateCmd() returns a nil command (or the function doesn't compile).
++// After the patch, it must return a valid cobra command with plan/apply/rollback.
++func TestMigrateVerbRegistered(t *testing.T) {
++	cmd := newMigrateCmd()
++	if cmd == nil {
++		t.Fatal("autosk migrate verb is not registered")
++	}
++	if cmd.Use != "migrate" {
++		t.Fatalf("expected Use=migrate, got %s", cmd.Use)
++	}
++	// The verb must expose plan, apply, rollback, and list — the three
++	// actions the operator needs to inspect, execute, and reverse a migration.
++	subs := make(map[string]bool)
++	for _, c := range cmd.Commands() {
++		subs[c.Name()] = true
++	}
++	for _, name := range []string{"plan", "apply", "rollback", "list"} {
++		if !subs[name] {
++			t.Errorf("autosk migrate %s subcommand is missing", name)
++		}
++	}
++}
++
++// TestMigrateVerbExecutes proves the migrate verb is wired into the CLI root
++// and reachable by the operator. Before the patch, `migrate` is not in the
++// root command's subcommands — the operator cannot invoke it at all.
++func TestMigrateVerbExecutes(t *testing.T) {
++	root := newRootCmd()
++	var found *cobra.Command
++	for _, c := range root.Commands() {
++		if c.Name() == "migrate" {
++			found = c
++			break
++		}
++	}
++	if found == nil {
++		t.Fatal("autosk migrate is not registered in the CLI root — operator cannot execute it")
++	}
++}
+diff --git a/daemon/core/src/engine/migration-runner.ts b/daemon/core/src/engine/migration-runner.ts
+new file mode 100644
+index 0000000..99dccdd
+--- /dev/null
++++ b/daemon/core/src/engine/migration-runner.ts
+@@ -0,0 +1,321 @@
++/**
++ * Operator-facing migration orchestration (issue #10, criterion 4/5).
++ *
++ * This module wires the three migration primitives together so an RPC handler
++ * does not have to know the order or the arguments. It is deliberately thin:
++ * the planner decides, the store executes, and this module only carries the
++ * inputs from one to the other.
++ */
++
++import type { ExtensionRegistry } from "../extensions/registry.ts";
++import type { Store } from "../store/store.ts";
++import { OPEN_STATUSES, type StoredTask } from "../store/records.ts";
++import type { RuntimeIdentityPin } from "../store/metadata.ts";
++import {
++  planMigration,
++  planRollback,
++  type MigrationImpact,
++  type MigrationPlan,
++} from "./migration.ts";
++
++export interface MigrationPlanResult {
++  supported: boolean;
++  reason?: string;
++  from?: string;
++  to?: string;
++  workflow?: string;
++  impact: MigrationImpact[];
++}
++
++export interface MigrationApplyResult {
++  ok: boolean;
++  reason?: string;
++  receipt?: {
++    id: string;
++    from: string;
++    to: string;
++    workflow: string;
++    tasks: string[];
++    started_at: string;
++    completed_at?: string;
++    reverses?: string;
++  };
++}
++
++/**
++ * Gathers everything the planner needs from the project and returns the plan.
++ * A refused plan is a first-class result, not an error.
++ */
++export async function planProjectMigration(
++  store: Store,
++  registry: ExtensionRegistry,
++  workflow: string,
++  from?: string,
++): Promise<MigrationPlanResult> {
++  const tasks = await store.storedTasks();
++  const recorded = await store.recordedDistributions();
++  const source = from ?? inferSourceDigest(tasks, workflow);
++  if (!source) {
++    const pinned = pinnedDigests(tasks, workflow);
++    return {
++      supported: false,
++      reason:
++        pinned.size === 0
++          ? `no open tasks pinned to a distribution for workflow ${workflow}`
++          : `open tasks are pinned to ${pinned.size} distributions for ${workflow}; name --from`,
++      impact: [],
++    };
++  }
++  const plan = planMigration(registry, recorded, tasks, source, workflow);
++  return planToResult(plan);
++}
++
++/**
++ * Plans + applies a migration in one call. Returns the sealed receipt on
++ * success or the refusal reason on failure.
++ */
++export async function applyProjectMigration(
++  store: Store,
++  registry: ExtensionRegistry,
++  workflow: string,
++  from?: string,
++): Promise<MigrationApplyResult> {
++  // An open receipt is a crash anchor: a migration interrupted mid-move cannot
++  // be found by re-planning (the remaining task set names a different id), so
++  // it must be found by the receipts themselves. Finishing it takes precedence
++  // over planning a new one — `applyMigration` is the resumption primitive and
++  // is safe to call on a half-moved set.
++  const open = await openMigrationsFor(store, workflow);
++  if (open.length > 1) {
++    return {
++      ok: false,
++      reason:
++        `${open.length} migrations are still open for ${workflow} ` +
++        `(${open.map((m) => m.id.slice(0, 8)).join(", ")})`,
++    };
++  }
++  if (open.length === 1) {
++    const receipt = open[0]!;
++    if (from !== undefined && from !== receipt.from) {
++      return {
++        ok: false,
++        reason: `open migration ${receipt.id.slice(0, 8)} moves from ${receipt.from}, not ${from}`,
++      };
++    }
++    return continueMigration(store, registry, receipt);
++  }
++  const plan = await planProjectMigration(store, registry, workflow, from);
++  if (!plan.supported) {
++    return { ok: false, reason: plan.reason };
++  }
++  const admitted = registry.workflowAdmission(plan.workflow!);
++  const receipt = await store.beginMigration(
++    plan.from!,
++    plan.to!,
++    admitted!.graph,
++    plan.workflow!,
++    plan.impact.map((i) => i.taskId),
++    undefined,
++    admitted?.document !== undefined ? { to: admitted.document } : undefined,
++  );
++  const sealed = await store.applyMigration(receipt.id);
++  return { ok: true, receipt: receiptToResult(sealed) };
++}
++
++/**
++ * Plans + applies a rollback of a completed migration. The operator must have
++ * restored the previous distribution first — `planRollback` checks this and
++ * returns the reason if the registry still serves the migrated-to digest.
++ */
++export async function rollbackProjectMigration(
++  store: Store,
++  registry: ExtensionRegistry,
++  migrationId: string,
++): Promise<MigrationApplyResult> {
++  let original = await store.findMigration(migrationId);
++  if (!original) {
++    // `migrate list` shows a truncated id, so the operator will hand back a
++    // prefix: resolve it like a short sha — unique or refused, never guessed.
++    const prefixed = (await store.listMigrations()).filter((m) => m.id.startsWith(migrationId));
++    if (prefixed.length === 1) original = prefixed[0];
++    else if (prefixed.length > 1) {
++      return { ok: false, reason: `migration id ${migrationId} is ambiguous (${prefixed.length} matches)` };
++    }
++  }
++  if (!original) {
++    return { ok: false, reason: `migration ${migrationId} was never opened` };
++  }
++  // A rollback interrupted mid-move leaves an open receipt reversing the
++  // original — re-planning cannot find it (the remaining task set names a
++  // different id), so continue it the same way `apply` continues a forward
++  // migration.
++  const openReversals = (await store.listMigrations()).filter(
++    (m) => m.completed_at === undefined && m.reverses === original.id,
++  );
++  if (openReversals.length > 1) {
++    return {
++      ok: false,
++      reason:
++        `${openReversals.length} rollbacks of ${original.id.slice(0, 8)} are still open ` +
++        `(${openReversals.map((m) => m.id.slice(0, 8)).join(", ")})`,
++    };
++  }
++  if (openReversals.length === 1) {
++    return continueMigration(store, registry, openReversals[0]!);
++  }
++  const tasks = await store.storedTasks();
++  const recorded = await store.recordedDistributions();
++  const plan = planRollback(registry, recorded, tasks, original);
++  if (!plan.supported) {
++    return { ok: false, reason: plan.reason };
++  }
++  const admitted = registry.workflowAdmission(plan.workflow!);
++  const receipt = await store.beginMigration(
++    plan.from!,
++    plan.to!,
++    admitted!.graph,
++    plan.workflow!,
++    plan.impact.map((i) => i.taskId),
++    plan.reverses,
++    admitted?.document !== undefined ? { to: admitted.document } : undefined,
++  );
++  const sealed = await store.applyMigration(receipt.id);
++  return { ok: true, receipt: receiptToResult(sealed) };
++}
++
++/** The migration receipts for a project, newest first. */
++export async function listProjectMigrations(store: Store) {
++  const migrations = await store.listMigrations();
++  return migrations.sort((a, b) => (a.started_at < b.started_at ? 1 : -1));
++}
++
++/**
++ * When the operator does not name a source digest, infer it from the tasks:
++ * the single distribution digest the open tasks of this workflow are pinned to.
++ * If there are several (mid-migration), the caller must name one explicitly.
++ */
++function inferSourceDigest(tasks: StoredTask[], workflow: string): string | undefined {
++  const digests = pinnedDigests(tasks, workflow);
++  return digests.size === 1 ? [...digests][0] : undefined;
++}
++
++function pinnedDigests(tasks: StoredTask[], workflow: string): Set<string> {
++  const digests = new Set<string>();
++  for (const task of tasks) {
++    // Closed tasks keep their last pin but are not moved by a migration —
++    // counting them would report an ambiguity the operator cannot act on.
++    if (!OPEN_STATUSES.has(task.status)) continue;
++    const pin = task.metadata?.runtime_identity as RuntimeIdentityPin | undefined;
++    if (task.workflow === workflow && pin?.digest) {
++      digests.add(pin.digest);
++    }
++  }
++  return digests;
++}
++
++/**
++ * The open (unsealed) migration receipts for a workflow — at most one in a
++ * healthy store, but the list is honest: a second one means something created
++ * a receipt outside this path, and guessing which to finish is worse than
++ * refusing.
++ */
++async function openMigrationsFor(store: Store, workflow: string) {
++  return (await store.listMigrations()).filter(
++    (m) => m.completed_at === undefined && m.workflow === workflow,
++  );
++}
++
++/**
++ * Finishes a receipt that is already open. `applyMigration` moves the tasks
++ * still on `from`, skips the ones already moved, verifies, and seals — the
++ * resumption the receipt was opened for. The run still checks that the
++ * registry serves the receipt's target — ALL THREE recorded components: the
++ * distribution digest, the declared shape, and the target document when the
++ * receipt names one. A digest match with a different graph or document would
++ * seal a receipt that pins tasks to a shape the runtime then refuses to
++ * admit. A receipt that records no `to_document` makes no claim to check —
++ * predating the field is not a contradiction.
++ */
++async function continueMigration(
++  store: Store,
++  registry: ExtensionRegistry,
++  receipt: {
++    id: string;
++    from: string;
++    to: string;
++    to_graph: string;
++    to_document?: string;
++    workflow: string;
++  },
++): Promise<MigrationApplyResult> {
++  const admitted = registry.workflowAdmission(receipt.workflow);
++  if (!admitted) {
++    return {
++      ok: false,
++      reason:
++        `open migration ${receipt.id.slice(0, 8)} cannot continue: ` +
++        `${receipt.workflow} has no identified distribution`,
++    };
++  }
++  if (admitted.distribution.digest !== receipt.to) {
++    return {
++      ok: false,
++      reason:
++        `open migration ${receipt.id.slice(0, 8)} targets ${receipt.to}, ` +
++        `but ${receipt.workflow} serves ${admitted.distribution.digest}`,
++    };
++  }
++  if (admitted.graph !== receipt.to_graph) {
++    return {
++      ok: false,
++      reason:
++        `open migration ${receipt.id.slice(0, 8)} declares graph ${receipt.to_graph}, ` +
++        `but ${receipt.workflow} serves ${admitted.graph}`,
++    };
++  }
++  if (receipt.to_document !== undefined && receipt.to_document !== admitted.document) {
++    return {
++      ok: false,
++      reason:
++        `open migration ${receipt.id.slice(0, 8)} declares document ${receipt.to_document}, ` +
++        `but ${receipt.workflow} serves ${admitted.document ?? "none"}`,
++    };
++  }
++  const sealed = await store.applyMigration(receipt.id);
++  return { ok: true, receipt: receiptToResult(sealed) };
++}
++
++function planToResult(plan: MigrationPlan): MigrationPlanResult {
++  if (!plan.supported) {
++    return { supported: false, reason: plan.reason, impact: plan.impact };
++  }
++  return {
++    supported: true,
++    from: plan.from,
++    to: plan.to,
++    workflow: plan.workflow,
++    impact: plan.impact,
++  };
++}
++
++function receiptToResult(r: {
++  id: string;
++  from: string;
++  to: string;
++  workflow: string;
++  tasks: string[];
++  started_at: string;
++  completed_at?: string;
++  reverses?: string;
++}) {
++  return {
++    id: r.id,
++    from: r.from,
++    to: r.to,
++    workflow: r.workflow,
++    tasks: r.tasks,
++    started_at: r.started_at,
++    completed_at: r.completed_at,
++    reverses: r.reverses,
++  };
++}
+diff --git a/daemon/core/src/rpc/daemon.ts b/daemon/core/src/rpc/daemon.ts
+index 967b637..feeb9a5 100644
+--- a/daemon/core/src/rpc/daemon.ts
++++ b/daemon/core/src/rpc/daemon.ts
+@@ -37,6 +37,12 @@ import {
+ } from "@autosk/sdk";
+ 
+ import { Engine, type EngineEvent } from "../engine/index.ts";
++import {
++  applyProjectMigration,
++  listProjectMigrations,
++  planProjectMigration,
++  rollbackProjectMigration,
++} from "../engine/migration-runner.ts";
+ import { canonicalize, resolveProjectRoot, type ProjectHandle, type ProjectManager } from "../project/index.ts";
+ import { consoleLogger, type Logger } from "../store/index.ts";
+ import type { Store } from "../store/store.ts";
+@@ -702,6 +708,58 @@ export class Daemon {
+         return result;
+       },
+ 
++      // ---- migration (autosk migrate) --------------------------------------
++      "migration.plan": async (params) => {
++        const o = asObj(params);
++        const handle = await this.resolveHandle(reqCwd(o));
++        const plan = await planProjectMigration(
++          handle.store,
++          handle.extensions,
++          reqString(o, "workflow"),
++          optString(o, "from"),
++        );
++        return {
++          supported: plan.supported,
++          reason: plan.reason,
++          from: plan.from,
++          to: plan.to,
++          workflow: plan.workflow,
++          impact: plan.impact.map((i) => ({
++            task_id: i.taskId,
++            workflow: i.workflow,
++            step: i.step,
++            blocker: i.blocker,
++          })),
++        };
++      },
++      "migration.apply": async (params) => {
++        const o = asObj(params);
++        const handle = await this.resolveHandle(reqCwd(o));
++        const result = await applyProjectMigration(
++          handle.store,
++          handle.extensions,
++          reqString(o, "workflow"),
++          optString(o, "from"),
++        );
++        return result;
++      },
++      "migration.rollback": async (params) => {
++        const o = asObj(params);
++        const handle = await this.resolveHandle(reqCwd(o));
++        const result = await rollbackProjectMigration(
++          handle.store,
++          handle.extensions,
++          reqString(o, "id"),
++        );
++        return result;
++      },
++      "migration.list": async (params) => {
++        const o = asObj(params);
++        const handle = await this.resolveHandle(reqCwd(o));
++        const migrations = await listProjectMigrations(handle.store);
++        return { migrations };
++      },
++
+       // ---- session -------------------------------------------------------
+       "session.list": async (params) => {
+         const o = asObj(params);
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index a66f6e9..ff06985 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -1761,6 +1761,27 @@ export class Store {
+     );
+   }
+ 
++  /** All migration receipts for this project (newest first). */
++  async listMigrations(): Promise<MigrationReceipt[]> {
++    return withCreationLock(this.paths, async (io) =>
++      parseDistributionIndex(await io.readRuntimeIndex()).migrations,
++    );
++  }
++
++  /** Every distribution digest recorded in the runtime index. */
++  async recordedDistributions(): Promise<Set<string>> {
++    return withCreationLock(this.paths, async (io) => {
++      const index = parseDistributionIndex(await io.readRuntimeIndex());
++      return new Set(index.distributions.map((d) => d.digest));
++    });
++  }
++
++  /** Every cached task as a stored record (for the migration planner). */
++  async storedTasks(): Promise<StoredTask[]> {
++    const all = await this.snapshotAll();
++    return [...all.values()];
++  }
++
+   private schedulingRowFor(t: StoredTask): SchedulingRow {
+     const blocked = t.blocked_by.some((bid) => {
+       const b = this.tasks.peek(bid);
+diff --git a/daemon/core/test/engine.migration-runner.test.ts b/daemon/core/test/engine.migration-runner.test.ts
+new file mode 100644
+index 0000000..fb6cba8
+--- /dev/null
++++ b/daemon/core/test/engine.migration-runner.test.ts
+@@ -0,0 +1,223 @@
++/**
++ * Operator-facing migration orchestration (issue #10, criterion 4/5) — the
++ * runner half. The planner and the store are tested on their own; what is
++ * under test here is the wiring between them: source inference over open
++ * tasks only, and continuation of a receipt an interruption left open.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { createHash } from "node:crypto";
++import { readFile, writeFile } from "node:fs/promises";
++import { join } from "node:path";
++
++import { ExtensionRegistry, Store } from "../src/index.ts";
++import {
++  applyProjectMigration,
++  planProjectMigration,
++  rollbackProjectMigration,
++} from "../src/engine/migration-runner.ts";
++import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
++import { tempDir } from "./helpers.ts";
++
++const GRAPH = "0".repeat(64);
++const LISTING_OLD = "file abc index.ts\n";
++const LISTING_NEW = "file def index.ts\n";
++const OLD = createHash("sha256").update(LISTING_OLD, "utf8").digest("hex");
++const NEW = createHash("sha256").update(LISTING_NEW, "utf8").digest("hex");
++const ELSEWHERE = "3".repeat(64);
++const steps = { intake: { status: "human" }, review: { status: "human" } };
++
++function registryWithSteps(
++  digest: string,
++  wfSteps: Record<string, unknown>,
++): ExtensionRegistry {
++  const registry = new ExtensionRegistry();
++  registry.addWorkflow(
++    "test",
++    { name: "wf", firstStep: Object.keys(wfSteps)[0]!, steps: wfSteps } as never,
++    { root: "/x", entry: "index.ts", entries: [], bytes: 0, digest } as never,
++  );
++  return registry;
++}
++
++function registryWith(digest: string): ExtensionRegistry {
++  return registryWithSteps(digest, steps);
++}
++
++/** The graph digest a receipt must name to match what this registry serves. */
++function servedGraph(registry: ExtensionRegistry): string {
++  return registry.workflowAdmission("wf")!.graph;
++}
++
++/** The shape digest every registry built from `steps` serves. */
++const SERVED_GRAPH = servedGraph(registryWith(NEW));
++
++describe("migration runner", () => {
++  const cleanups: (() => void)[] = [];
++  const stores: Store[] = [];
++  afterEach(async () => {
++    for (const s of stores.splice(0)) await s.close();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  async function project() {
++    const dir = tempDir();
++    cleanups.push(dir.cleanup);
++    const store = new Store(dir.path, { watch: false });
++    stores.push(store);
++    await store.open();
++    await store.recordDistribution(OLD, LISTING_OLD);
++    await store.recordDistribution(NEW, LISTING_NEW);
++    return { store, root: dir.path };
++  }
++
++  async function pinned(store: Store, digest: string, status = "human"): Promise<string> {
++    const t = await store.createTask({ title: "migrating" });
++    await store.setPosition(
++      t.id,
++      { status, workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest, graph: GRAPH } },
++    );
++    return t.id;
++  }
++
++  async function digestOf(store: Store, id: string): Promise<string | undefined> {
++    const pin = readRuntimeIdentityPin((await store.taskView(id)).metadata);
++    return pin.state === "pinned" ? pin.pin.digest : undefined;
++  }
++
++  test("a closed task pinned elsewhere does not make the source ambiguous", async () => {
++    // The done task keeps its last pin, but a migration will never move it —
++    // counting it would invent an ambiguity the operator cannot act on.
++    const { store } = await project();
++    await pinned(store, OLD);
++    await pinned(store, ELSEWHERE, "done");
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(true);
++    expect(plan.from).toBe(OLD);
++    expect(plan.to).toBe(NEW);
++  });
++
++  test("an open receipt is finished, not re-planned", async () => {
++    // A real interruption, not a narrated one: the second task is made
++    // unreadable so the store's own apply stops after moving the first. The
++    // runner must then find the receipt the crash left open — re-planning
++    // over the remaining tasks names a different id and would strand it.
++    const { store, root } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const [first, second] = ids as [string, string];
++    const receipt = await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", ids);
++
++    const secondFile = join(root, ".autosk", "tasks", second, "task.json");
++    const saved = await readFile(secondFile, "utf8");
++    await writeFile(secondFile, "{ interrupted");
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow();
++    await writeFile(secondFile, saved);
++    expect(await digestOf(store, first)).toBe(NEW);
++    expect(await digestOf(store, second)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(true);
++    expect(result.receipt?.id).toBe(receipt.id);
++    expect(result.receipt?.completed_at).toBeDefined();
++    expect(await digestOf(store, second)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(1);
++  });
++
++  test("an open receipt refuses a --from it does not match", async () => {
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a]);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf", ELSEWHERE);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain("moves from");
++  });
++
++  test("two open receipts refuse rather than guess", async () => {
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a]);
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a, b]);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain("still open");
++  });
++
++  test("an open receipt whose target is no longer served refuses", async () => {
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a]);
++
++    const result = await applyProjectMigration(store, registryWith(ELSEWHERE), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain("targets");
++    expect(result.reason).toContain(NEW);
++  });
++
++  test("an open receipt refuses when the served graph no longer matches", async () => {
++    // Same distribution digest, different declared shape: the receipt's
++    // to_graph no longer describes what the workflow serves, and sealing it
++    // would pin tasks onto a graph the runtime refuses to admit.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a]);
++
++    const narrower = registryWithSteps(NEW, { intake: { status: "human" } });
++    const result = await applyProjectMigration(store, narrower, "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain("declares graph");
++    // The receipt stays open — refusing is not finishing.
++    expect((await store.listMigrations())[0]!.completed_at).toBeUndefined();
++  });
++
++  test("an open receipt refuses when its recorded target document is not served", async () => {
++    // The document is recorded separately from the graph: a receipt that names
++    // a target document the workflow does not serve must not seal — sealing it
++    // would write `pin.document` values that contradict the admission. Receipts
++    // that predate the field carry no `to_document` and are not held to one.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a], undefined, {
++      to: "d".repeat(64),
++    });
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain("declares document");
++    expect((await store.listMigrations())[0]!.completed_at).toBeUndefined();
++  });
++
++  test("an open reversal is finished by rollback, not re-planned", async () => {
++    const { store } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const [first] = ids as [string, string];
++
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(applied.ok).toBe(true);
++    const original = applied.receipt!;
++
++    // The operator has restored the old distribution, the rollback has been
++    // opened, and the run died after moving the first task — the same state
++    // `applyMigration` leaves on a mid-move crash.
++    await store.beginMigration(NEW, OLD, SERVED_GRAPH, "wf", ids, original.id);
++    // Phase 1 writes BOTH halves of the pin, so the simulated dead run must too.
++    await store.setPosition(
++      first,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: SERVED_GRAPH } },
++    );
++
++    // `migrate list` shows a truncated id; the operator hands back the prefix.
++    const result = await rollbackProjectMigration(store, registryWith(OLD), original.id.slice(0, 8));
++    expect(result.ok).toBe(true);
++    expect(result.receipt?.reverses).toBe(original.id);
++    expect(result.receipt?.completed_at).toBeDefined();
++    for (const id of ids) expect(await digestOf(store, id)).toBe(OLD);
++    // One forward receipt and one reversal — no second, mis-named rollback.
++    expect(await store.listMigrations()).toHaveLength(2);
++  });
++});
+diff --git a/daemon/sdk/src/proto.ts b/daemon/sdk/src/proto.ts
+index 36e9f11..8487eab 100644
+--- a/daemon/sdk/src/proto.ts
++++ b/daemon/sdk/src/proto.ts
+@@ -269,6 +269,54 @@ export interface WorkflowGetParams extends ProjectSelector {
+   name: string;
+ }
+ 
++// ---- migration params / results ---------------------------------------------
++
++export interface MigrationPlanParams extends ProjectSelector {
++  workflow: string;
++  from?: string;
++}
++export interface MigrationApplyParams extends ProjectSelector {
++  workflow: string;
++  from?: string;
++}
++export interface MigrationRollbackParams extends ProjectSelector {
++  id: string;
++}
++export interface MigrationListParams extends ProjectSelector {}
++
++export interface MigrationImpactItem {
++  task_id: string;
++  workflow: string;
++  step: string | null;
++  blocker?: string;
++}
++export interface MigrationPlanResult {
++  supported: boolean;
++  reason?: string;
++  from?: string;
++  to?: string;
++  workflow?: string;
++  impact: MigrationImpactItem[];
++}
++export interface MigrationReceiptResult {
++  id: string;
++  from: string;
++  to: string;
++  workflow: string;
++  tasks: string[];
++  started_at: string;
++  completed_at?: string;
++  reverses?: string;
++}
++export interface MigrationApplyResult {
++  ok: boolean;
++  reason?: string;
++  receipt?: MigrationReceiptResult;
++}
++export interface MigrationListResult {
++  migrations: MigrationReceiptResult[];
++}
++
+ // ---- extension management params / results --------------------------------
+ 
+ /** Install an extension (`npm:<spec>` or a local path). `local` → project scope. */
+@@ -477,6 +525,12 @@ export interface RpcMethodMap {
+   "extension.update": { params: ExtensionUpdateParams; result: ExtensionUpdateResult };
+   "extension.reload": { params: ExtensionReloadParams; result: ExtensionReloadResult };
+ 
++  // migration (autosk migrate)
++  "migration.plan": { params: MigrationPlanParams; result: MigrationPlanResult };
++  "migration.apply": { params: MigrationApplyParams; result: MigrationApplyResult };
++  "migration.rollback": { params: MigrationRollbackParams; result: MigrationApplyResult };
++  "migration.list": { params: MigrationListParams; result: MigrationListResult };
++
+   // session
+   "session.list": { params: SessionListParams; result: SessionMeta[] };
+   "session.get": { params: SessionGetParams; result: SessionMeta };
+@@ -548,6 +602,10 @@ export const RPC_METHODS = [
+   "extension.remove",
+   "extension.update",
+   "extension.reload",
++  "migration.plan",
++  "migration.apply",
++  "migration.rollback",
++  "migration.list",
+   "session.list",
+   "session.get",
+   "session.transcript",
+diff --git a/daemon/sdk/test/proto.test.ts b/daemon/sdk/test/proto.test.ts
+index 568908d..7b4bd2f 100644
+--- a/daemon/sdk/test/proto.test.ts
++++ b/daemon/sdk/test/proto.test.ts
+@@ -62,6 +62,11 @@ const PLAN_SECTION_4_METHODS = [
+   "extension.remove",
+   "extension.update",
+   "extension.reload",
++  // migration (autosk migrate)
++  "migration.plan",
++  "migration.apply",
++  "migration.rollback",
++  "migration.list",
+   // session
+   "session.list",
+   "session.get",
+@@ -94,7 +99,7 @@ describe("proto-v2 method manifest", () => {
+   });
+ 
+   test("every method is namespaced under a known domain", () => {
+-    const domains = new Set(["meta", "project", "task", "registry", "extension", "session"]);
++    const domains = new Set(["meta", "project", "task", "registry", "extension", "session", "migration"]);
+     for (const method of RPC_METHODS) {
+       expect(domains.has(method.split(".")[0]!)).toBe(true);
+     }
+diff --git a/docs/cli.md b/docs/cli.md
+index b87951b..ed1b7a3 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -603,6 +603,138 @@ All five honor `--json`. `ext update` **exits non-zero** if any package failed
+ 
+ ---
+ 
++## migrate — extension migrations
++
++```bash
++autosk migrate plan     <workflow> [--from <digest>]
++autosk migrate apply    <workflow> [--from <digest>]
++autosk migrate rollback <migration-id>
++autosk migrate list
++```
++
++Manage extension migrations — the mechanism that moves a task's runtime
++identity pin from one extension distribution digest to another. Use it when an
++extension update lands and the open tasks need to move to the new bytes.
++
++- `plan` — show what a migration would do (no writes). Prints the source and
++  target digests and every task that would move, or the reason it is refused.
++- `apply` — execute the migration. Moves each task's pin and seals a receipt
++  (crash-safe, resumable, read-back verified). Prints the receipt id and the
++  sealed timestamp.
++- `rollback` — reverse a completed migration. The operator must have restored
++  the previous distribution first (e.g. re-installed the old extension); the
++  daemon checks this and returns the reason if the registry still serves the
++  migrated-to digest.
++- `list` — show the project's migration receipts, newest first (`ID FROM TO
++  WORKFLOW TASKS SEALED REVERSING`).
++
++`--from` is optional: when omitted, the daemon infers the single source digest
++from the open tasks of that workflow. If several digests are present
++(mid-migration), it must be named explicitly. Closed tasks keep their last pin
++but never take part in a migration, so they do not count toward that
++ambiguity.
++
++`rollback` accepts a unique id prefix — `migrate list` displays one — and
++refuses an ambiguous or unknown one rather than guessing.
++
++All four honor `--json`. Exit codes:
++
++- `0` — success (an empty `migrate list` is a success with zero rows).
++- `1` — failure: transport or daemon error, or an apply/rollback that started
++  and could not finish (the receipt stays open; see below).
++- `2` — refusal: the daemon answered but declined the operation. In `--json`
++  mode the refusal result is printed to stdout first, so a script can read
++  `supported`/`reason` or `ok`/`reason` and still branch on the code.
++
++**Continuation.** A migration that dies between `apply` and its seal leaves an
++*open receipt* — `migrate list` shows it with `SEALED` = `open`. The next
++`autosk migrate apply <workflow>` does not re-plan: it finds the open receipt
++and finishes exactly that migration (re-planning over the remaining tasks
++would name a different migration). The same holds for an interrupted
++`rollback`. `apply` refuses rather than guess when several receipts are open,
++when `--from` does not match the open receipt's source, or when the workflow
++no longer serves the receipt's target — restore the target distribution or
++resolve the open receipts first.
++
++**Refusals** (exit `2`). `plan` and `apply` decline when:
++
++- no open tasks of the workflow are pinned to a distribution and `--from` is
++  not given — `no open tasks pinned to a distribution for workflow <w>`;
++- the open tasks are pinned to more than one distribution — `open tasks are
++  pinned to N distributions for <w>; name --from`;
++- the source digest is not recorded — `source distribution <d> is not recorded`;
++- the distribution the workflow serves is not recorded — `target distribution
++  <d> is not recorded`;
++- the workflow has no registered distribution — `<w> has no identified
++  distribution to migrate to`, or `<w> is not registered`;
++- the workflow already serves the source — `<w> already serves <d>`;
++- a task's step does not exist in the target — `N task(s) cannot move: <id>:
++  <step> does not exist in the target`;
++- an open task's runtime identity pin is unreadable — `cannot read the pin of
++  N open task(s)`;
++- a task's pin and its position name different workflows — `N open task(s)
++  name different workflows in their pin and their position`;
++- receipts are already open — `N migrations are still open for <w>`;
++- `--from` does not match the open receipt — `open migration <id> moves from
++  <from>, not <f>`;
++- the open receipt's target is not served any more, in any of its three
++  recorded components — `open migration <id> targets <to>, but <w> serves
++  <served>` (distribution), `open migration <id> declares graph <g>, but <w>
++  serves <g'>` (declared shape), or `open migration <id> declares document
++  <d>, but <w> serves <d'>` (target document; checked only when the receipt
++  records one), or `has no identified distribution` when the workflow serves
++  nothing.
++
++`rollback` declines when:
++
++- the id names no migration — `migration <id> was never opened`;
++- the prefix matches several — `migration id <id> is ambiguous (N matches)`;
++- the migration was never sealed — `migration <id> is not completed, there is
++  nothing settled to reverse`;
++- the registry still serves the migrated-to distribution, or serves neither —
++  `rolling back <id> needs <w> to serve <from>; it serves <served>`;
++- several reversals of the same migration are open — `N rollbacks of <id> are
++  still open`;
++- an open reversal cannot continue — the same `cannot continue`, `targets`,
++  `declares graph`, and `declares document` refusals as `apply`;
++- the reverse plan hits any of the planner refusals listed for `plan`/`apply`
++  above, evaluated on the reverse direction (the original's `to` as source,
++  the original's `from` as target) — including unrecorded distributions,
++  stranded or unreadably pinned tasks, and split workflow pins.
++
++**Known limitation.** `resume` on a migrated task fails with
++`extension_version_mismatch: <w> has no recorded store helper for this task` —
++`apply` drops the helper half of the pin (a separate recorded defect, not this
++command's doing). The remedy is `autosk enroll <task> --workflow <w>` (lands
++on the workflow's first step; `--step` names another) and then `resume`; the
++task continues on the migrated distribution.
++
++```text
++$ autosk migrate plan feature-dev
++migration a1b2c3… → d4e5f6… (feature-dev)
++  3 task(s) to move:
++    ask-489315 [review]
++    ask-7a2b1c [dev]
++    ask-f8e3d4 [intake]
++
++$ autosk migrate apply feature-dev
++migration a1b2c3 applied (3 task(s))
++  a1b2c3… → d4e5f6…
++  sealed at 2026-09-17 09:42:11
++
++$ autosk migrate rollback a1b2c3d4e5f6…
++rollback b7c8d9 applied (3 task(s))
++  d4e5f6… → a1b2c3… (reverses a1b2c3…)
++  sealed at 2026-09-17 09:44:03
++```
++
++For the discovery/digest model and what a distribution digest names, see
++[docs/extensions.md](extensions.md). For the write-API design contract that
++keeps the CLI over the same API, see
++[docs/contracts/sdk-write-api.md](../contracts/sdk-write-api.md) §7.
++
++---
++
+ ## version
+ 
+ ```bash
+diff --git a/internal/daemon/api/types.go b/internal/daemon/api/types.go
+index adb614c..a3ba8b1 100644
+--- a/internal/daemon/api/types.go
++++ b/internal/daemon/api/types.go
+@@ -497,3 +497,47 @@ func (m *TranscriptMessage) Text() string {
+ 	}
+ 	return s
+ }
++
++// ---- migration (autosk migrate) ---------------------------------------------
++
++// MigrationImpactItem is one task the migration would move, and whether it can.
++type MigrationImpactItem struct {
++	TaskID   string  `json:"task_id"`
++	Workflow string  `json:"workflow"`
++	Step     *string `json:"step"`
++	Blocker  *string `json:"blocker,omitempty"`
++}
++
++// MigrationPlanResult is the migration.plan result: the plan or the refusal.
++type MigrationPlanResult struct {
++	Supported bool                  `json:"supported"`
++	Reason    *string               `json:"reason,omitempty"`
++	From      *string               `json:"from,omitempty"`
++	To        *string               `json:"to,omitempty"`
++	Workflow  *string               `json:"workflow,omitempty"`
++	Impact    []MigrationImpactItem `json:"impact"`
++}
++
++// MigrationReceiptResult is one migration receipt (open or sealed).
++type MigrationReceiptResult struct {
++	ID          string   `json:"id"`
++	From        string   `json:"from"`
++	To          string   `json:"to"`
++	Workflow    string   `json:"workflow"`
++	Tasks       []string `json:"tasks"`
++	StartedAt   string   `json:"started_at"`
++	CompletedAt *string  `json:"completed_at,omitempty"`
++	Reverses    *string  `json:"reverses,omitempty"`
++}
++
++// MigrationApplyResult is the migration.apply / migration.rollback result.
++type MigrationApplyResult struct {
++	OK      bool                    `json:"ok"`
++	Reason  *string                 `json:"reason,omitempty"`
++	Receipt *MigrationReceiptResult `json:"receipt,omitempty"`
++}
++
++// MigrationListResult is the migration.list result.
++type MigrationListResult struct {
++	Migrations []MigrationReceiptResult `json:"migrations"`
++}
+diff --git a/internal/daemon/rpcclient/types.go b/internal/daemon/rpcclient/types.go
+index d747f2b..7c619f5 100644
+--- a/internal/daemon/rpcclient/types.go
++++ b/internal/daemon/rpcclient/types.go
+@@ -35,6 +35,12 @@ type (
+ 	ExtensionUpdateEntry   = api.ExtensionUpdateEntry
+ 	ExtensionUpdateResult  = api.ExtensionUpdateResult
+ 	ExtensionReloadResult  = api.ExtensionReloadResult
++
++	MigrationImpactItem    = api.MigrationImpactItem
++	MigrationPlanResult    = api.MigrationPlanResult
++	MigrationReceiptResult = api.MigrationReceiptResult
++	MigrationApplyResult   = api.MigrationApplyResult
++	MigrationListResult    = api.MigrationListResult
+ )
+ 
+ const (
+diff --git a/internal/daemon/rpcclient/writes.go b/internal/daemon/rpcclient/writes.go
+index 726a3f8..085b3cf 100644
+--- a/internal/daemon/rpcclient/writes.go
++++ b/internal/daemon/rpcclient/writes.go
+@@ -279,6 +279,47 @@ func (c *Client) ReloadExtensions(ctx context.Context) (ExtensionReloadResult, e
+ 	return out, err
+ }
+ 
++// ---- migration (autosk migrate) ---------------------------------------------
++
++// PlanMigration asks the daemon whether a migration is supported, and what it
++// would do. A refused plan is a first-class result, not an error.
++func (c *Client) PlanMigration(ctx context.Context, workflow, from string) (MigrationPlanResult, error) {
++	extra := map[string]any{"workflow": workflow}
++	if from != "" {
++		extra["from"] = from
++	}
++	var out MigrationPlanResult
++	err := c.call(ctx, "migration.plan", c.selector(extra), &out)
++	return out, err
++}
++
++// ApplyMigration plans + applies a migration in one call. Returns the sealed
++// receipt on success or the refusal reason on failure.
++func (c *Client) ApplyMigration(ctx context.Context, workflow, from string) (MigrationApplyResult, error) {
++	extra := map[string]any{"workflow": workflow}
++	if from != "" {
++		extra["from"] = from
++	}
++	var out MigrationApplyResult
++	err := c.call(ctx, "migration.apply", c.selector(extra), &out)
++	return out, err
++}
++
++// RollbackMigration plans + applies a rollback of a completed migration. The
++// operator must have restored the previous distribution first.
++func (c *Client) RollbackMigration(ctx context.Context, id string) (MigrationApplyResult, error) {
++	var out MigrationApplyResult
++	err := c.call(ctx, "migration.rollback", c.selector(map[string]any{"id": id}), &out)
++	return out, err
++}
++
++// ListMigrations returns the project's migration receipts, newest first.
++func (c *Client) ListMigrations(ctx context.Context) (MigrationListResult, error) {
++	var out MigrationListResult
++	err := c.call(ctx, "migration.list", c.selector(nil), &out)
++	return out, err
++}
++
+ // stepTargetParam renders a StepTarget into its wire object ({step} XOR
+ // {status}).
+ func stepTargetParam(t api.StepTarget) map[string]any {
+diff --git a/scripts/migrate-red-test.sh b/scripts/migrate-red-test.sh
+new file mode 100755
+index 0000000..8d8ab83
+--- /dev/null
++++ b/scripts/migrate-red-test.sh
+@@ -0,0 +1,69 @@
++#!/bin/bash
++# Red/green proof for the operator migrate path.
++#
++# Usage: scripts/migrate-red-test.sh <prefix-tree>
++#
++# <prefix-tree> is a checkout of the autosk tree WITHOUT this patch — the
++# 33-patch tree produced by the compat manifest, or any earlier snapshot.
++#
++# Redness means ONE thing: the test ran and the verb was absent. On the
++# pre-fix tree the test must fail with its own refusal line ("autosk migrate
++# --help exited with code …") — a tree that cannot compile, or a test process
++# that dies any other way, is an error, not evidence. On this tree the test
++# must pass.
++#
++# Neither checkout is modified permanently: the copied test file is removed
++# on exit, the build goes to a private temp dir, and the test builds its
++# binary into another. The script refuses to run against a tree that already
++# contains migrate_red_test.go — copying over it would destroy it.
++set -euo pipefail
++
++cd "$(dirname "$0")/.."
++HERE="$(pwd)"
++PREFIX="${1:?usage: $0 <prefix-tree>}"
++
++if [ ! -f "$PREFIX/go.mod" ] || [ ! -d "$PREFIX/cmd/autosk" ]; then
++  echo "error: $PREFIX does not look like an autosk source tree" >&2
++  exit 2
++fi
++if [ -e "$PREFIX/cmd/autosk/migrate_red_test.go" ]; then
++  echo "error: $PREFIX already has migrate_red_test.go — refusing to overwrite it" >&2
++  exit 2
++fi
++
++TMP="$(mktemp -d)"
++cleanup() {
++  rm -f "$PREFIX/cmd/autosk/migrate_red_test.go"
++  rm -rf "$TMP"
++}
++trap cleanup EXIT
++cp cmd/autosk/migrate_red_test.go "$PREFIX/cmd/autosk/migrate_red_test.go"
++
++run_test() { (cd "$1" && go test ./cmd/autosk/ -run TestMigrateVerbExecutable -count=1); }
++
++echo "=== RED: $PREFIX (pre-fix tree) ==="
++if ! (cd "$PREFIX" && go build -o "$TMP/autosk-prefix" ./cmd/autosk/); then
++  echo "error: pre-fix tree does not compile — nothing about redness is proven" >&2
++  exit 2
++fi
++if run_test "$PREFIX" >"$TMP/red.log" 2>&1; then
++  echo "UNEXPECTED: migrate verb is executable on the pre-fix tree" >&2
++  exit 1
++fi
++if ! grep -q "FAIL: TestMigrateVerbExecutable" "$TMP/red.log" ||
++   ! grep -q "migrate --help exited with code" "$TMP/red.log"; then
++  cat "$TMP/red.log" >&2
++  echo "error: the test never reached the verb check — that is not redness" >&2
++  exit 2
++fi
++echo "CONFIRMED: operator cannot execute migration pre-fix"
++echo
++
++echo "=== GREEN: $HERE (this tree) ==="
++if ! run_test "$HERE"; then
++  echo "UNEXPECTED: migrate verb is not executable on this tree" >&2
++  exit 1
++fi
++echo "CONFIRMED: operator can execute migration"
++echo
++echo "RED/GREEN complete."
