@@ -1,0 +1,738 @@
+diff --git a/cmd/autosk/resume.go b/cmd/autosk/resume.go
+index e5781bc..7618eb8 100644
+--- a/cmd/autosk/resume.go
++++ b/cmd/autosk/resume.go
+@@ -1,6 +1,10 @@
+ package main
+ 
+ import (
++	"fmt"
++	"os"
++	"slices"
++
+ 	"github.com/spf13/cobra"
+ 
+ 	"autosk/internal/daemon/rpcclient"
+@@ -9,7 +13,9 @@ import (
+ // newResumeCmd: `autosk resume <id> [--to STEP]` — move a task out of `human`
+ // back into `work`. A thin client of the daemon's task.resume {to?}. With no
+ // --to the task returns to the step it was waiting in; --to STEP relocates it
+-// to a sibling step (or a terminal/park status: done|cancel|human).
++// to a sibling step, or --to EXIT relocates it to a terminal/park status the
++// workflow declares as an exit (its external-operations register — see
++// `autosk workflow show <name>`).
+ func newResumeCmd() *cobra.Command {
+ 	var toStep string
+ 	cmd := &cobra.Command{
+@@ -17,8 +23,9 @@ func newResumeCmd() *cobra.Command {
+ 		Short: "Resume a task from human back into the workflow",
+ 		Long: "Move a task out of `human` and back into `work`.\n\n" +
+ 			"By default it returns to the step it was waiting in. Use --to STEP\n" +
+-			"to jump to a different step in the same workflow, or --to one of\n" +
+-			"done|cancel|human to relocate to a terminal/park status.",
++			"to jump to a different step in the same workflow, or --to an exit\n" +
++			"the workflow declares (its `exits` in `autosk workflow show`) to\n" +
++			"relocate to a terminal/park status.",
+ 		Args: cobra.ExactArgs(1),
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+ 			cl, err := writeClient(cmd.Context())
+@@ -27,20 +34,39 @@ func newResumeCmd() *cobra.Command {
+ 			}
+ 			var to *rpcclient.StepTarget
+ 			if toStep != "" {
+-				switch toStep {
+-				case "done", "cancel", "human":
++				to = &rpcclient.StepTarget{Step: toStep}
++				// --to shares one namespace between step names and exit
++				// statuses; the task's own workflow register decides which
++				// `toStep` is. When the register does not answer — the lookup
++				// failed, or the daemon predates the field — the union the wire
++				// has always answered stands in, matching what
++				// renderWorkflowInfo reports for a definition that never
++				// declared a subset. What neither names stays a step target and
++				// the daemon answers for it.
++				exits := []string{"done", "cancel", "human"}
++				if task, err := cl.GetTask(cmd.Context(), args[0]); err == nil && task.Workflow != "" {
++					if wf, err := cl.GetWorkflow(cmd.Context(), task.Workflow); err == nil && wf.Exits != nil {
++						exits = wf.Exits
++					}
++				}
++				if slices.Contains(exits, toStep) {
+ 					to = &rpcclient.StepTarget{Status: toStep}
+-				default:
+-					to = &rpcclient.StepTarget{Step: toStep}
+ 				}
+ 			}
+ 			t, err := cl.Resume(cmd.Context(), args[0], to)
+ 			if err != nil {
++				// A declined operation is not a transport failure: the daemon
++				// answered CONFLICT, so this exits 2 — scriptable as a refusal
++				// rather than a crash (the migrate convention).
++				if apiErr, ok := rpcclient.IsAPIError(err); ok && apiErr.Code == rpcclient.CodeConflict {
++					fmt.Fprintln(os.Stderr, "autosk: "+apiErr.Message)
++					return errSilentExit2
++				}
+ 				return err
+ 			}
+ 			return emitTaskWire(t)
+ 		},
+ 	}
+-	cmd.Flags().StringVar(&toStep, "to", "", "step name to resume at (or done|cancel|human); default: current step")
++	cmd.Flags().StringVar(&toStep, "to", "", "step name or declared exit status to resume at; default: current step")
+ 	return cmd
+ }
+diff --git a/cmd/autosk/testdata/extensions/test-flow.js b/cmd/autosk/testdata/extensions/test-flow.js
+index 6bd25b0..6ca884f 100644
+--- a/cmd/autosk/testdata/extensions/test-flow.js
++++ b/cmd/autosk/testdata/extensions/test-flow.js
+@@ -13,6 +13,11 @@
+ //     transcript without needing pi. No other test enrolls into it, so it never
+ //     runs for the human-flow tests.
+ //
++//   - "exit-flow": declares `exits: ["cancel"]` — the register a document-built
++//     workflow projects. Used by the resume-register tests: --to cancel is the
++//     declared status relocation, while --to done / --to human name no exit and
++//     are sent as step targets (which this workflow's steps do not declare).
++//
+ // Agents are inline step values now (the step key IS the agent name): a step is
+ // an agent definition (has `onRun`) or a statusStep (`{ status }`).
+ export default function (autosk) {
+@@ -26,6 +31,17 @@ export default function (autosk) {
+     },
+   });
+ 
++  autosk.registerWorkflow({
++    name: "exit-flow",
++    description: "human-only workflow declaring an exits register",
++    firstStep: "review",
++    exits: ["cancel"],
++    steps: {
++      review: { status: "human" },
++      finish: { status: "done" },
++    },
++  });
++
+   autosk.registerWorkflow({
+     name: "auto-flow",
+     description: "single-step workflow driven by an in-process stub agent",
+diff --git a/cmd/autosk/verbs_test.go b/cmd/autosk/verbs_test.go
+index 0665d83..67bb780 100644
+--- a/cmd/autosk/verbs_test.go
++++ b/cmd/autosk/verbs_test.go
+@@ -2,6 +2,8 @@ package main
+ 
+ import (
+ 	"encoding/json"
++	"errors"
++	"slices"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -405,3 +407,86 @@ func TestResumeFromHuman(t *testing.T) {
+ 		t.Errorf("resume --to accept should relocate the step: %v", tv)
+ 	}
+ }
++
++// TestResumeExitsRegister is the register-driven half of resume: exit-flow
++// declares `exits: ["cancel"]`, so the CLI reads the workflow's register rather
++// than a hard-coded status list — `cancel` is a status relocation, `done` and
++// `human` are not exits for this workflow and go to the daemon as step targets,
++// which it refuses (exit 2), while the declared `cancel` is admitted (exit 0).
++// A workflow that declares no register keeps the union default (human-flow
++// still accepts --to done).
++func TestResumeExitsRegister(t *testing.T) {
++	dir := initProject(t)
++	parked := func() string {
++		id := createTask(t, dir, "exits")
++		if _, err := runRoot(t, dir, "enroll", id, "--workflow", "exit-flow"); err != nil {
++			t.Fatalf("enroll: %v", err)
++		}
++		return id
++	}
++
++	// The register is visible: the workflow names its declared exits.
++	out, err := runRoot(t, dir, "workflow", "show", "exit-flow", "--json")
++	if err != nil {
++		t.Fatalf("workflow show: %v\n%s", err, out)
++	}
++	var wv struct {
++		Exits []string `json:"exits"`
++	}
++	if err := json.Unmarshal([]byte(out), &wv); err != nil {
++		t.Fatalf("workflow show --json did not decode: %v\n%s", err, out)
++	}
++	if !slices.Equal(wv.Exits, []string{"cancel"}) {
++		t.Fatalf("exit-flow exits = %v, want [cancel]", wv.Exits)
++	}
++
++	// The declared exit is accepted as a status relocation.
++	id := parked()
++	out, err = runRoot(t, dir, "resume", id, "--to", "cancel", "--json")
++	if err != nil {
++		t.Fatalf("resume --to cancel (a declared exit) refused: %v\n%s", err, out)
++	}
++	var tv map[string]any
++	if err := json.Unmarshal([]byte(out), &tv); err != nil {
++		t.Fatalf("resume --json did not decode: %v\n%s", err, out)
++	}
++	if tv["status"] != "cancel" {
++		t.Errorf("resume --to cancel should relocate the status: %v", tv)
++	}
++
++	// What the register does not declare is refused — deliberately (exit 2):
++	// `done` and `human` are union members but not exits of this workflow, so
++	// they are sent as step targets and the daemon answers for them.
++	for _, target := range []string{"done", "human", "not-a-step"} {
++		id := parked()
++		out, err := runRoot(t, dir, "resume", id, "--to", target, "--json")
++		if !errors.Is(err, errSilentExit2) {
++			t.Errorf("resume --to %s should refuse with exit 2, got err=%v out=%s", target, err, out)
++		}
++	}
++
++	// A step name still relocates through the step path.
++	id = parked()
++	out, err = runRoot(t, dir, "resume", id, "--to", "finish", "--json")
++	if err != nil {
++		t.Fatalf("resume --to finish (a step) refused: %v\n%s", err, out)
++	}
++	if err := json.Unmarshal([]byte(out), &tv); err != nil {
++		t.Fatalf("resume --json did not decode: %v\n%s", err, out)
++	}
++	if tv["status"] != "done" {
++		t.Errorf("resume --to finish should enter the done status step: %v", tv)
++	}
++
++	// And a workflow declaring no register keeps the union default.
++	out, err = runRoot(t, dir, "workflow", "show", "human-flow", "--json")
++	if err != nil {
++		t.Fatalf("workflow show human-flow: %v\n%s", err, out)
++	}
++	if err := json.Unmarshal([]byte(out), &wv); err != nil {
++		t.Fatalf("workflow show --json did not decode: %v\n%s", err, out)
++	}
++	if !slices.Equal(wv.Exits, []string{"done", "cancel", "human"}) {
++		t.Fatalf("human-flow exits = %v, want [done cancel human]", wv.Exits)
++	}
++}
+diff --git a/cmd/autosk/workflow.go b/cmd/autosk/workflow.go
+index c27ab4e..219f6cc 100644
+--- a/cmd/autosk/workflow.go
++++ b/cmd/autosk/workflow.go
+@@ -51,13 +51,13 @@ func newWorkflowListCmd() *cobra.Command {
+ 				return nil
+ 			}
+ 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+-			fmt.Fprintln(w, "NAME\tFIRST_STEP\tSTEPS")
++			fmt.Fprintln(w, "NAME\tFIRST_STEP\tSTEPS\tEXITS")
+ 			for _, wf := range wfs {
+ 				names := make([]string, 0, len(wf.Steps))
+ 				for _, s := range wf.Steps {
+ 					names = append(names, s.Name)
+ 				}
+-				fmt.Fprintf(w, "%s\t%s\t%s\n", wf.Name, wf.FirstStep, strings.Join(names, ","))
++				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", wf.Name, wf.FirstStep, strings.Join(names, ","), strings.Join(wf.Exits, ","))
+ 			}
+ 			return w.Flush()
+ 		},
+@@ -81,12 +81,13 @@ func newWorkflowShowCmd() *cobra.Command {
+ 			if flagJSON {
+ 				return json.NewEncoder(os.Stdout).Encode(wf)
+ 			}
+-			fmt.Printf("name:       %s\n", wf.Name)
++			fmt.Fprintf(os.Stdout, "name:       %s\n", wf.Name)
+ 			if wf.Description != "" {
+-				fmt.Printf("description: %s\n", wf.Description)
++				fmt.Fprintf(os.Stdout, "description: %s\n", wf.Description)
+ 			}
+-			fmt.Printf("first_step: %s\n", wf.FirstStep)
+-			fmt.Println("steps:")
++			fmt.Fprintf(os.Stdout, "first_step: %s\n", wf.FirstStep)
++			fmt.Fprintf(os.Stdout, "exits:      %s\n", strings.Join(wf.Exits, ", "))
++			fmt.Fprintln(os.Stdout, "steps:")
+ 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+ 			fmt.Fprintln(w, "  STEP\tKIND\tTARGETS")
+ 			for _, s := range wf.Steps {
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index 7534b92..34183e9 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -447,9 +447,27 @@ export class Engine implements SessionHost {
+     );
+     if (!decision.ok) throw EngineError.conflict(`cannot resume ${taskId}: ${decision.reason}`);
+ 
++    // A `{ status }` relocation is admitted only when the workflow declares it
++    // as an exit (its `exits` register). A workflow that declared none keeps
++    // the union default: every `done|cancel|human` target is acceptable, which
++    // is what the wire has always answered.
++    if (to !== undefined && "status" in to && wf.exits !== undefined && !wf.exits.includes(to.status)) {
++      throw EngineError.conflict(
++        `cannot resume ${taskId}: ${to.status} is not a declared exit of ${view.workflow}` +
++          ` (declared: ${wf.exits.length > 0 ? wf.exits.join(", ") : "none"})`,
++      );
++    }
++
+     const target: StepTarget = to ?? { step: view.step };
+-    // `runOnTransit` validates the target before invoking `onTransit`, so no
+-    // separate `validateTarget` call is needed here (ISSUE #9c).
++    // `runOnTransit` repeats this check before `onTransit` (ISSUE #9c); it runs
++    // here too so the refusal is classified: a target the workflow cannot
++    // carry is a declined operation (CONFLICT), while whatever `onTransit`
++    // itself throws propagates exactly as it does on the enroll path.
++    try {
++      validateTarget(wf, target);
++    } catch (e) {
++      throw EngineError.conflict(`cannot resume ${taskId}: ${errMsg(e)}`);
++    }
+     await this.runOnTransit(project, wf, taskId, view.workflow, view.step, target);
+     // Only a `{ step }` resume target counts a visit (entering a named step);
+     // a `{ status }` resume flips status without re-entering a step.
+@@ -858,7 +876,15 @@ export class Engine implements SessionHost {
+       leavingStep,
+       author: ENGINE_COMMENT_AUTHOR,
+     });
+-    await wf.onTransit(tctx, to);
++    try {
++      await wf.onTransit(tctx, to);
++    } catch (e) {
++      // The graph's veto is a named refusal — a declined operation, so it
++      // answers CONFLICT to the operator. Anything else a workflow's hook
++      // throws is its own failure and keeps the plain classification.
++      if (e instanceof Error && e.name === "GraphRefusal") throw EngineError.conflict(errMsg(e));
++      throw e;
++    }
+   }
+ 
+   private requireProject(root: string): EngineProject {
+diff --git a/daemon/core/src/extensions/graph.ts b/daemon/core/src/extensions/graph.ts
+index c6278c2..e4914ff 100644
+--- a/daemon/core/src/extensions/graph.ts
++++ b/daemon/core/src/extensions/graph.ts
+@@ -15,6 +15,13 @@
+  * reads out of `step_visits`, and recovery is engine-wide rather than per
+  * workflow. Their bytes are covered by the distribution digest and nothing here
+  * pretends otherwise.
++ *
++ * `exits` is in the shape for the same reason the steps are: it is a
++ * declaration that changes what the daemon admits (which statuses
++ * `task.resume {to:{status}}` accepts), and it can be computed from data the
++ * distribution digest does not reach — a graph document's `external_operations`
++ * register — so a task pinned to one exits set must not silently run under
++ * another.
+  */
+ 
+ import { createHash } from "node:crypto";
+@@ -54,6 +61,11 @@ export function canonicalWorkflowGraph(wf: WorkflowDefinition): string {
+     // workflow has none and its line says so, so adding the field to a workflow
+     // that had no document is itself a change of shape.
+     `graph ${wf.graphDigest === undefined ? "-" : b64(wf.graphDigest)}`,
++    // Sorted like the steps: the exits are a SET — a register that reorders its
++    // entries declares the same shape. `undefined` is not `[]`: absent means
++    // the union default (every status the target union admits), empty means
++    // none declared, and the two must digest differently.
++    `exits ${exitsLine(wf)}`,
+   ];
+   const steps = Object.entries(wf.steps).sort(([a], [b]) =>
+     Buffer.compare(Buffer.from(a, "utf16le"), Buffer.from(b, "utf16le")),
+@@ -83,6 +95,19 @@ function describeStep(step: StepDef): string {
+   return `agent ${hooks.length > 0 ? hooks : "-"}`;
+ }
+ 
++/**
++ * The `exits` member of the shape, serialised like the step names: sorted on
++ * UTF-16 code units, each base64, so a set — not a sequence — and two different
++ * sets never serialise to one line.
++ */
++function exitsLine(wf: WorkflowDefinition): string {
++  if (wf.exits === undefined) return "-";
++  return [...new Set(wf.exits)]
++    .sort((a, b) => Buffer.compare(Buffer.from(a, "utf16le"), Buffer.from(b, "utf16le")))
++    .map(b64)
++    .join(",");
++}
++
+ function b64(value: string): string {
+   return Buffer.from(value, "utf16le").toString("base64");
+ }
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index 1a7023f..3d53041 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -177,6 +177,24 @@ export class ExtensionRegistry {
+         return;
+       }
+     }
++    // `exits` is the register the CLI reads: the statuses a `task.resume`
++    // `{to:{status}}` may name. The union stays closed — a workflow declaring
++    // one outside it would list an exit nothing can perform, so it is refused
++    // here rather than let the declaration and the wire disagree.
++    if (workflow.exits !== undefined) {
++      const valid =
++        Array.isArray(workflow.exits) &&
++        workflow.exits.every(
++          (status) => status === "done" || status === "cancel" || status === "human",
++        );
++      if (!valid) {
++        this.recordDiagnostic(
++          source,
++          `registerWorkflow: "${name}" status_unknown: exits must be a subset of done|cancel|human`,
++        );
++        return;
++      }
++    }
+     this.workflows.set(name, workflow);
+     if (identity) {
+       // Both digests come from this one site, because they are two projections of
+@@ -336,6 +354,10 @@ export function renderWorkflowInfo(wf: WorkflowDefinition): WorkflowInfo {
+     name: wf.name,
+     first_step: wf.firstStep,
+     steps,
++    // Absent declares no subset: the union default, which is what every
++    // workflow answered before the field existed. Present — even empty — is the
++    // declaration itself, rendered in declaration order like the step names.
++    exits: wf.exits === undefined ? ["done", "cancel", "human"] : [...new Set(wf.exits)],
+   };
+   if (wf.description !== undefined) info.description = wf.description;
+   return info;
+diff --git a/daemon/core/test/engine.migration-runner.test.ts b/daemon/core/test/engine.migration-runner.test.ts
+index fb6cba8..1bdb285 100644
+--- a/daemon/core/test/engine.migration-runner.test.ts
++++ b/daemon/core/test/engine.migration-runner.test.ts
+@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
+ import { readFile, writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ 
++import type { TaskStatus } from "@autosk/sdk";
++
+ import { ExtensionRegistry, Store } from "../src/index.ts";
+ import {
+   applyProjectMigration,
+@@ -71,7 +73,7 @@ describe("migration runner", () => {
+     return { store, root: dir.path };
+   }
+ 
+-  async function pinned(store: Store, digest: string, status = "human"): Promise<string> {
++  async function pinned(store: Store, digest: string, status: TaskStatus = "human"): Promise<string> {
+     const t = await store.createTask({ title: "migrating" });
+     await store.setPosition(
+       t.id,
+diff --git a/daemon/core/test/engine.transitions.test.ts b/daemon/core/test/engine.transitions.test.ts
+index 401074b..75856d9 100644
+--- a/daemon/core/test/engine.transitions.test.ts
++++ b/daemon/core/test/engine.transitions.test.ts
+@@ -5,8 +5,9 @@
+  */
+ 
+ import { afterEach, describe, expect, test } from "bun:test";
+-import { statusStep, type AgentDefinition, type WorkflowDefinition } from "@autosk/sdk";
++import { ErrorCodes, statusStep, type AgentDefinition, type WorkflowDefinition } from "@autosk/sdk";
+ 
++import { EngineError } from "../src/index.ts";
+ import { gate, makeEngine, makeProject, transitAgent, type TestProject } from "./engineHarness.ts";
+ import { waitForComplete } from "./helpers.ts";
+ 
+@@ -210,6 +211,117 @@ describe("engine — enroll / resume / statusStep parking", () => {
+     await expect(engine.resume(p.root, task.id)).rejects.toThrow(/expected human or cancel/);
+   });
+ 
++  test("resume {status} is admitted only for a status the workflow's exits declare", async () => {
++    // Each workflow parks its task at a statusStep firstStep on enroll, so the
++    // probe is `resume` alone: `declared` accepts only `cancel`, `empty`
++    // accepts nothing, and `open` — no register declared — keeps the union.
++    const park = (name: string, extra: Partial<WorkflowDefinition> = {}): WorkflowDefinition => ({
++      name,
++      firstStep: "gate",
++      steps: { gate: statusStep("human") },
++      ...extra,
++    });
++    const p = track(
++      await makeProject({
++        workflows: [
++          park("declared", { exits: ["cancel"] }),
++          park("empty", { exits: [] }),
++          park("open"),
++        ],
++      }),
++    );
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const [tDecl, tEmpty, tOpen] = await Promise.all([
++      p.store.createTask({ title: "declared" }),
++      p.store.createTask({ title: "empty" }),
++      p.store.createTask({ title: "open" }),
++    ]);
++    await engine.enroll(p.root, tDecl.id, { workflow: "declared" });
++    await engine.enroll(p.root, tEmpty.id, { workflow: "empty" });
++    await engine.enroll(p.root, tOpen.id, { workflow: "open" });
++    expect((await p.store.taskView(tDecl.id)).status).toBe("human");
++
++    // `done` is a union member but not a declared exit of this workflow: the
++    // register, not the union, answers.
++    await expect(engine.resume(p.root, tDecl.id, { status: "done" })).rejects.toThrow(
++      /not a declared exit of declared/,
++    );
++    expect((await p.store.taskView(tDecl.id)).status).toBe("human");
++    await engine.resume(p.root, tDecl.id, { status: "cancel" });
++    expect((await p.store.taskView(tDecl.id)).status).toBe("cancel");
++
++    // An empty register admits nothing — not even a union member.
++    await expect(engine.resume(p.root, tEmpty.id, { status: "cancel" })).rejects.toThrow(
++      /not a declared exit of empty/,
++    );
++
++    // And a definition that never declared the field keeps the union, which is
++    // what every workflow answered before the field existed.
++    await engine.resume(p.root, tOpen.id, { status: "done" });
++    expect((await p.store.taskView(tOpen.id)).status).toBe("done");
++  });
++
++  test("a graph refusal from onTransit answers CONFLICT; an arbitrary throw does not", async () => {
++    // The workflow factory's veto carries `name: "GraphRefusal"` — a declined
++    // operation, so the wire answers CONFLICT (CLI exit 2). Any other throw out
++    // of the hook is the workflow's own failure and keeps its classification —
++    // widening the catch to everything is how refusals and crashes blur.
++    const vetoing = (name: string, thrown: () => Error): WorkflowDefinition => ({
++      name,
++      firstStep: "gate",
++      steps: { gate: statusStep("human"), back: statusStep("human") },
++      onTransit(ctx) {
++        // The enroll edge leaves no step; the veto is for resumes only.
++        if (ctx.step !== "") throw thrown();
++      },
++    });
++    const p = track(
++      await makeProject({
++        workflows: [
++          vetoing("veto", () => {
++            const e = new Error("resume_target_not_permitted: the row does not permit gate");
++            e.name = "GraphRefusal";
++            return e;
++          }),
++          vetoing("crash", () => new Error("hook exploded")),
++        ],
++      }),
++    );
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const [tVeto, tCrash] = await Promise.all([
++      p.store.createTask({ title: "vetoed" }),
++      p.store.createTask({ title: "crashed" }),
++    ]);
++    await engine.enroll(p.root, tVeto.id, { workflow: "veto" });
++    await engine.enroll(p.root, tCrash.id, { workflow: "crash" });
++    await waitForComplete(p.store, tVeto.id, "human");
++    await waitForComplete(p.store, tCrash.id, "human");
++
++    const refusal = await engine.resume(p.root, tVeto.id, { step: "gate" }).then(
++      () => new Error("the graph's veto must reject the resume"),
++      (e: unknown) => e,
++    );
++    expect(refusal).toBeInstanceOf(EngineError);
++    expect((refusal as EngineError).code).toBe(ErrorCodes.CONFLICT);
++    // Refused, not moved: the task is still parked at `gate`.
++    expect((await p.store.taskView(tVeto.id)).status).toBe("human");
++
++    // The same shape, but the hook throws its own failure — not a refusal.
++    const failure = await engine.resume(p.root, tCrash.id, { step: "gate" }).then(
++      () => new Error("the hook's own failure must reject the resume"),
++      (e: unknown) => e,
++    );
++    expect(failure).toBeInstanceOf(Error);
++    expect((failure as Error).message).toBe("hook exploded");
++    expect(failure instanceof EngineError && failure.code === ErrorCodes.CONFLICT).toBe(false);
++  });
++
+   test("a workflow can cap re-runs via ctx.visits()", async () => {
+     // The agent always self-loops; onTransit rejects the 3rd entry into "do".
+     const parkReason: { v: string | null } = { v: null };
+diff --git a/daemon/core/test/extensions.graph.test.ts b/daemon/core/test/extensions.graph.test.ts
+index 2c4d9a8..5e0cbb7 100644
+--- a/daemon/core/test/extensions.graph.test.ts
++++ b/daemon/core/test/extensions.graph.test.ts
+@@ -114,4 +114,31 @@ describe("workflow graph digest", () => {
+     // park tasks over an edited sentence.
+     expect(workflowGraphDigest(wf({ description: "a" }))).toBe(workflowGraphDigest(wf()));
+   });
++
++  test("the exits register is part of the shape, and absent is not empty", () => {
++    // `exits` changes what `task.resume {to:{status}}` admits, so it moves the
++    // digest like the steps do — a task pinned to one register must not run
++    // under another.
++    const base = workflowGraphDigest(wf());
++    expect(workflowGraphDigest(wf({ exits: ["cancel"] }))).not.toBe(base);
++    expect(workflowGraphDigest(wf({ exits: ["cancel"] }))).not.toBe(
++      workflowGraphDigest(wf({ exits: ["done"] })),
++    );
++
++    // A set, not a sequence: re-ordering or repeating an entry declares the
++    // same register.
++    expect(workflowGraphDigest(wf({ exits: ["cancel", "done"] }))).toBe(
++      workflowGraphDigest(wf({ exits: ["done", "cancel", "done"] })),
++    );
++
++    // Absent and empty are different declarations: no field means the union
++    // default, an empty list means none declared — the lines must differ.
++    expect(canonicalWorkflowGraph(wf())).toContain("exits -");
++    expect(workflowGraphDigest(wf({ exits: [] }))).not.toBe(base);
++    expect(workflowGraphDigest(wf({ exits: [] }))).not.toBe(
++      workflowGraphDigest(wf({ exits: ["cancel"] })),
++    );
++    // And like `graphDigest`, an explicit undefined is the same as having none.
++    expect(workflowGraphDigest(wf({ exits: undefined }))).toBe(base);
++  });
+ });
+diff --git a/daemon/core/test/extensions.registry.test.ts b/daemon/core/test/extensions.registry.test.ts
+index 193d3da..b5550b2 100644
+--- a/daemon/core/test/extensions.registry.test.ts
++++ b/daemon/core/test/extensions.registry.test.ts
+@@ -116,6 +116,23 @@ describe("ExtensionRegistry registration", () => {
+     ]);
+   });
+ 
++  test("rejects an exits register naming a status outside the union", () => {
++    // The register selects from the closed union a relocation can carry; a
++    // hand-written definition naming anything else would render an exit no
++    // client can perform, so the refusal is named like the factory's.
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", wf("bogus", { exits: ["limbo"] }));
++    r.addWorkflow("ext", wf("junk", { exits: "done" as unknown as string[] }));
++    r.addWorkflow("ext", wf("subset", { exits: ["cancel"] }));
++    r.addWorkflow("ext", wf("empty", { exits: [] }));
++
++    expect(r.workflowNames()).toEqual(["empty", "subset"]);
++    expect(r.diagnostics.map((d) => d.error)).toEqual([
++      'registerWorkflow: "bogus" status_unknown: exits must be a subset of done|cancel|human',
++      'registerWorkflow: "junk" status_unknown: exits must be a subset of done|cancel|human',
++    ]);
++  });
++
+   test("diagnostics getter returns a defensive copy", () => {
+     const r = new ExtensionRegistry();
+     r.recordDiagnostic("a", "boom");
+@@ -188,4 +205,17 @@ describe("renderWorkflowInfo (proto-v2 projection)", () => {
+     const info = renderWorkflowInfo(wf("iso", {}));
+     expect("description" in info).toBe(false);
+   });
++
++  test("exits renders the declared subset in order; absent renders the union", () => {
++    // No `exits` field declares no subset, so the projection keeps what the
++    // wire answered before the field existed — the whole union.
++    expect(renderWorkflowInfo(wf("iso", {})).exits).toEqual(["done", "cancel", "human"]);
++    // Present IS the declaration: order is the author's, duplicates collapse,
++    // and empty stays empty rather than widening to the default.
++    expect(renderWorkflowInfo(wf("iso", { exits: ["cancel", "done", "cancel"] })).exits).toEqual([
++      "cancel",
++      "done",
++    ]);
++    expect(renderWorkflowInfo(wf("iso", { exits: [] })).exits).toEqual([]);
++  });
+ });
+diff --git a/daemon/sdk/src/types.ts b/daemon/sdk/src/types.ts
+index 064148d..5f9a750 100644
+--- a/daemon/sdk/src/types.ts
++++ b/daemon/sdk/src/types.ts
+@@ -285,4 +285,13 @@ export interface WorkflowInfo {
+   /** snake_case on the wire (the `WorkflowDefinition.firstStep` projection). */
+   first_step: string;
+   steps: WorkflowStepInfo[];
++  /**
++   * The statuses `task.resume {to:{status}}` accepts for this workflow — the
++   * external operations it declared (the `WorkflowDefinition.exits`
++   * projection). When the definition declared none, this is the whole
++   * `done|cancel|human` union rather than an empty list: before the field
++   * existed every union member was acceptable, and a workflow that never
++   * declared a subset keeps that.
++   */
++  exits: string[];
+ }
+diff --git a/daemon/sdk/src/workflow.ts b/daemon/sdk/src/workflow.ts
+index fd404d2..79b1e5e 100644
+--- a/daemon/sdk/src/workflow.ts
++++ b/daemon/sdk/src/workflow.ts
+@@ -94,4 +94,17 @@ export interface WorkflowDefinition {
+    * is covered exactly as before.
+    */
+   graphDigest?: string;
++  /**
++   * The statuses an operator may relocate a task of this workflow to through
++   * `task.resume {to:{status}}` — the external operations the workflow declares
++   * (issue #10, `external_operations` in the graph document).
++   *
++   * The union a relocation can name stays closed (`done`/`cancel`/`human`), so
++   * a declaration naming anything else is refused at registration rather than
++   * carried to a CLI that could never perform it. When the field is absent the
++   * workflow declares no subset and every union member remains acceptable —
++   * the behavior hand-written workflows had before the field existed; when it
++   * is present it IS the boundary's answer, and an empty array means none.
++   */
++  exits?: string[];
+ }
+diff --git a/docs/cli.md b/docs/cli.md
+index ed1b7a3..7a8109e 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -313,12 +313,18 @@ autosk resume <id> [--to STEP]
+ 
+ Move a task out of `human` back into `work`. With no `--to`, it re-enters the
+ step it was parked in. `--to STEP` jumps to a sibling step in the same workflow;
+-`--to done|cancel|human` relocates to a terminal/park status instead.
++`--to EXIT` relocates to a terminal/park status instead — but only one the
++task's workflow declares as an exit (its external-operations register, shown as
++`exits` by `autosk workflow show`). A workflow that declares no register keeps
++the `done|cancel|human` union. A move the workflow declines exits 2 — a target
++that names nothing, an exit the register does not declare, or a relocation the
++graph's own rules refuse. A fault inside the workflow's hooks or the transport
++is an internal error and exits 1.
+ 
+ ```bash
+ autosk resume ask-bea935                # back to the parked step
+ autosk resume ask-bea935 --to dev       # jump to the dev step
+-autosk resume ask-bea935 --to cancel    # park-to-terminal
++autosk resume ask-bea935 --to cancel    # park-to-terminal, where declared
+ ```
+ 
+ Prints the updated task (honors `--json` / `--quiet`).
+diff --git a/gui/src/state/selectors.test.ts b/gui/src/state/selectors.test.ts
+index 5792cc9..cf14f08 100644
+--- a/gui/src/state/selectors.test.ts
++++ b/gui/src/state/selectors.test.ts
+@@ -21,6 +21,7 @@ function mkWorkflow(name: string): WorkflowInfo {
+     description: "",
+     first_step: "dev",
+     steps: [{ name: "dev", status: null, targets: [{ status: "done" }] }],
++    exits: ["done", "cancel", "human"],
+   };
+ }
+ 
+diff --git a/gui/src/types.ts b/gui/src/types.ts
+index bf3de98..9658a24 100644
+--- a/gui/src/types.ts
++++ b/gui/src/types.ts
+@@ -134,6 +134,8 @@ export interface WorkflowInfo {
+   /** snake_case on the wire (the `WorkflowDefinition.firstStep` projection). */
+   first_step: string;
+   steps: WorkflowStepInfo[];
++  /** Statuses `task.resume {to:{status}}` accepts — the declared exits register. */
++  exits: string[];
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/internal/daemon/api/types.go b/internal/daemon/api/types.go
+index a3ba8b1..7eefbbd 100644
+--- a/internal/daemon/api/types.go
++++ b/internal/daemon/api/types.go
+@@ -186,6 +186,10 @@ type WorkflowInfo struct {
+ 	Description string             `json:"description,omitempty"`
+ 	FirstStep   string             `json:"first_step"`
+ 	Steps       []WorkflowStepInfo `json:"steps"`
++	// Exits are the statuses `task.resume {to:{status}}` accepts — the external
++	// operations the workflow declared. A definition that declares no subset
++	// renders the whole done|cancel|human union (the pre-field behavior).
++	Exits []string `json:"exits"`
+ }
+ 
+ // ---------------------------------------------------------------------------

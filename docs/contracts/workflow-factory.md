@@ -62,6 +62,8 @@ A RECORDED reason governs every target including the current step. The first wri
 
 The reason itself is read from the task's metadata at `park.reason`. That is the plan's own notation: every recovery row's `required_state` is written `human с park.reason=<code>`. The daemon has no park reason of its own — `metadata` is free-form and opaque to it apart from the `step_visits` counter it maintains — so the factory records the reason with `autosk metadata set` before it parks, and a failed write throws rather than parking a task nothing could resume.
 
+One check runs before any of this, because a task the operation already took out of the workflow is not the graph's to move: a task standing at a status the register carries is the relocation the register declared, so nothing is admitted for it but the way back in — a named entry, which is how an enroll of a relocated task arrives. `parked` is the exemption, and it is load-bearing now that the register may carry `human`: `parked` IS the human status — the graph's own park state — so reading it as the operation's completion would mark every ordinarily-parked task out of the graph and refuse its resume entirely. The review measured exactly that against a register naming `[cancel, human]`: `--to human`, `--to cancel` and a permitted step re-entry all refused before the exemption.
+
 ## 5. What a park reason is, and whose it is
 
 Three of them come from the document and are relayed unchanged:
@@ -122,6 +124,8 @@ The canonical form itself lives in `src/host/workflow-graph-canonical.mjs` for t
 
 Hook presence is part of that shape. No step in the shipped document declares `hooks`, so every agent step is built with `onRun` and nothing else; a document that declares more is refused at build time rather than built without them, because ignoring a declared hook would make the shape a function of this file instead of the document.
 
+The register is part of that shape too, as of the CLI patch that reads it. `external_operations` names the statuses an operation outside the workflow drives, and the built definition projects them as `exits` — the field `registry.workflow.get` renders and `resume --to` reads instead of restating the status union. The register selects from the union a relocation can carry (`done|cancel|human`), so an entry naming a status outside it declares an operation the wire cannot express: the CLI could neither name it nor accept it nor refuse it, which is the drift `status_unknown` refuses at build. The daemon's side checks the same subset at registration, because the field is also writeable by a workflow no document produced. A document without a register builds `exits: []` — declared, and empty — while a workflow definition that omits the field renders the union, which is what the wire answered before the field existed.
+
 ## 8. Counter durability, and the boundary it has
 
 Established from the source before the crash test was written, which is the order the ticket requires.
@@ -136,13 +140,15 @@ The instrument is the window itself. `scripts/verify-autosk-crash.mjs` kills the
 
 ## 9. Refusal classes
 
-Closed set: `guard_unknown`, `park_reason_ambiguous`, `predicate_unknown`, `step_unknown`.
+Closed set: `guard_unknown`, `park_reason_ambiguous`, `predicate_unknown`, `status_unknown`, `step_unknown`.
 
 Three of these are what the factory issues when the document reaches it malformed — a step, a guard or a predicate that nothing declares. Each has a design-time counterpart the graph validator issues over the document (`graph_step_unknown`, `graph_guard_unknown`, `graph_predicate_unknown`), and they are separate codes on purpose: at design time a document is refused, and at runtime a task is. A caller that cannot tell the two apart cannot tell a bad document from a good one loaded wrong.
 
 `park_reason_ambiguous` is the fourth, and it is not about a malformed document but about an under-specified one: an edge that parks the task whose guards name more than one reason, or none. Section 5 says why picking one would be worse than refusing.
 
-Four further codes the factory produces are owned and closed by `docs/contracts/workflow-graph.md`, which owns what the graph says about itself: `graph_digest_stale`, `no_transition_reason`, `resume_target_not_permitted` and `transition_not_declared`. They are produced here and declared there, and the suite asserts that each of the eight is closed by exactly one contract.
+`status_unknown` is the fifth, and it is about a declaration the wire cannot carry: `external_operations` naming a status outside the `done|cancel|human` union (section 7).
+
+Four further codes the factory produces are owned and closed by `docs/contracts/workflow-graph.md`, which owns what the graph says about itself: `graph_digest_stale`, `no_transition_reason`, `resume_target_not_permitted` and `transition_not_declared`. They are produced here and declared there, and the suite asserts that each of the nine is closed by exactly one contract.
 
 An undeclared predicate fails closed in both operations rather than reading as false. False is an answer, and the honest answer to an id nobody declared is that nobody can give one; answering "not a candidate" would look exactly like the edge correctly losing.
 
@@ -165,6 +171,7 @@ An undeclared predicate fails closed in both operations rather than reading as f
 - a status target is admitted exactly when selection parks, and refused when a candidate edge exists
 - a parked flow is refused a status move and a forbidden step, however the guards would vote
 - a parked flow re-enters the step it stands at with no reason recorded, and reaches nothing else that way
+- a task parked at a status the register also carries still moves by its reason — the register's own `human`, a declared `cancel`, a permitted step — while a non-parked task standing at a registered status stays out of the graph
 - an undeclared predicate and an undeclared guard refuse both operations
 - a guard declaring no park reason refuses by name rather than with `undefined` as the code
 - every code in the factory's declared set is produced by running it, and every one is closed by exactly one contract
@@ -177,8 +184,9 @@ An undeclared predicate fails closed in both operations rather than reading as f
 - a recorded reason refuses re-entry into a step it does not permit, while a park with no reason still admits it
 - a document naming an undeclared predicate is refused when it is read, so no operation can be reached under it
 - a document whose digest describes different bytes is refused, and one carrying no digest is computed rather than refused
+- a register entry naming a status outside the union is refused at build, and the register the document does declare reaches `registry.workflow.get` as `exits`
 
-Two of these run against a real daemon rather than in the suite, because what they measure is the daemon's: the six-document digest case is `scripts/verify-autosk-graph-digest.mjs`, for section 7, and the crash case is `scripts/verify-autosk-visits.mjs`, for section 8. The compatibility workflow runs both on every pull request. The rest are `test/runtime-workflow-factory.test.mjs`.
+Two of these run against a real daemon rather than in the suite, because what they measure is the daemon's: the six-document digest case is `scripts/verify-autosk-graph-digest.mjs`, for section 7, and the crash case is `scripts/verify-autosk-visits.mjs`, for section 8. The compatibility workflow runs both on every pull request. The rest are `test/runtime-workflow-factory.test.mjs`. A third real-daemon measurer, `scripts/verify-autosk-exits.mjs`, drives the register itself through the built CLI — names it, accepts the declared status, refuses the undeclared, and watches the out-of-union entry fail at registration — because the register's whole point is what the operator's binary does with it.
 
 Both verifiers install the factory into a real project as an extension, and both must copy `src/host/workflow-graph-canonical.mjs` beside it. Moving that module out of the validator broke exactly this and neither verifier was re-run against the tree that moved it; the extension failed to load with `ERR_MODULE_NOT_FOUND` and both exited 1. A daemon-side test is only evidence when it is run after the change it is evidence for.
 

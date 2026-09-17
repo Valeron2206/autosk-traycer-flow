@@ -24,7 +24,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "66beac9758c70f07c839d2d8e8f1bdc45bdd47219a40e7155ca32929cbabca23"
+      "sha256": "3a97f844af3f2b6177e2f5a4b52a400783861189a9168068bcf30ac868c5c92a"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -188,7 +188,7 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "7eea43d46e91ee7c0bf3fdc2c4d585008f5acb3252101cfef8d97e88eb9b2be0"
+      "sha256": "741e348b1a06b71c783187d5eda80a7b902b5a9a924ea5d05fd985f614d6689b"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
@@ -507,7 +507,7 @@
       "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
     }
   ],
-  "candidate_digest": "372937f08033693b0b62efdf84cc2270d58aa0ee8649ebbb133983d657847bde",
+  "candidate_digest": "ca1052450b796ed4de44b63ce5e14f7cad63b0bc38853a7a988378307bfc6f87",
   "dispositions": [
     {
       "issue": 3,

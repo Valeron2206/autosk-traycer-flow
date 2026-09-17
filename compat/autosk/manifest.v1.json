@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "44da0902ed65746dd76897df6695e27175aedb5b",
+  "result_tree": "cedc6577cb9975f0c942988bd89917ffbfccc699",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -142,6 +142,10 @@
     {
       "file": "patches/0037-operator-migrate-path.patch",
       "sha256": "7b5087ea787c1b8e74a93e3cf63fd9f69c83cefbc1a41ad7fe3bd5d4b450c4db"
+    },
+    {
+      "file": "patches/0038-cli-exits-from-the-register.patch",
+      "sha256": "a1c7d463331f1be6685a5f4bec485180bf394f8cbf5440e94902638bde9023b1"
     }
   ],
   "license": {

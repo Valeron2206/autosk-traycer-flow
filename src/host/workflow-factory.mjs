@@ -64,6 +64,7 @@ export const REFUSALS = Object.freeze([
   "park_reason_ambiguous",
   "predicate_unknown",
   "resume_target_not_permitted",
+  "status_unknown",
   "step_unknown",
   "transition_not_declared",
 ]);
@@ -123,6 +124,21 @@ export function index(document) {
   const externalOperations = new Map(
     (document.external_operations ?? []).map((operation) => [operation.status, operation]),
   );
+  // And the register selects from the union a relocation can carry: a status
+  // outside `done|cancel|human` names an operation the wire cannot express, so
+  // nothing downstream could ever perform it — the CLI would neither name it
+  // nor accept it nor refuse it, which is the silent drift this refuses. The
+  // schema's enum already says it at design time; this is the same check at
+  // build, where the document becomes the boundary the daemon sees.
+  const unperformable = [...externalOperations.keys()].filter(
+    (status) => status !== "done" && status !== "cancel" && status !== "human",
+  );
+  if (unperformable.length > 0) {
+    throw new GraphRefusal(
+      "status_unknown",
+      `external_operations declares ${unperformable.join(", ")}, which no status relocation can carry (done|cancel|human)`,
+    );
+  }
   // Where a flow may start: the first step and the steps the other registered
   // workflows enter at. The veto needs it to tell an entry from a continuation.
   const entries = new Set([
@@ -277,7 +293,11 @@ export function admit(state, context, to, evaluate) {
   // its targets — one row names `implement` — and that row permits
   // it while the task is parked anyway, so nothing is reachable here that was not
   // reachable before.
-  if (typeof status === "string" && state.externalOperations.has(status) && !state.entries.has(to.step)) {
+  // A parked task is exempt: `parked` IS the human status, which is the graph's own
+  // park state, so a task standing at it is governed by the recovery rows below even
+  // when the register also names `human` — otherwise declaring that exit would mark
+  // every ordinarily-parked task out of the graph and refuse its resume entirely.
+  if (!parked && typeof status === "string" && state.externalOperations.has(status) && !state.entries.has(to.step)) {
     throw new GraphRefusal(
       "transition_not_declared",
       `${status} is driven by an operation outside the workflow, so the graph continues no task that stands at it`,
@@ -379,7 +399,9 @@ export function parkReasonOf(metadata) {
  * `graphDigest` travels with it so the daemon can cover what the declared shape
  * cannot: a declaration carries steps and hook names, and the transitions,
  * guards, caps and recovery targets that make this graph what it is are only
- * reachable through the document this was built from.
+ * reachable through the document this was built from. `exits` carries the
+ * `external_operations` register — the statuses an operator may relocate a
+ * parked task to — which the shape digest now covers the same way.
  *
  * `agents` supplies the body of each step's work, keyed by step name. Bodies are
  * code and belong to the distribution digest; which steps exist and which hooks
@@ -442,6 +464,13 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
     firstStep: document.first_step,
     steps,
     graphDigest: digest,
+    // The register crosses the daemon boundary here: `external_operations` is
+    // the only thing in the document the CLI may act on, and until now the
+    // shape carried only a digest of it, so `resume --to` restated the status
+    // union instead of reading the register. `exits` carries the declared
+    // statuses — in the document's own order — and the daemon's shape digest
+    // covers it, so a register that changes re-pins the tasks built under it.
+    exits: [...state.externalOperations.keys()],
     onTransit: async (ctx, to) => {
       // One store read per transition, because `TransitContext` carries the step
       // being left and not the status: whether the flow is parked, and with what

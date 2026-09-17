@@ -573,6 +573,48 @@ test("a parked flow moves by its reason and by no other route", () => {
   assert.equal(refusalOf(() => admit(state, context, { status: "done" }, always)).reason, "transition_not_declared");
 });
 
+test("a task parked at a registered `human` is still the graph's to move", () => {
+  // `parked` IS the human status — the graph's own park state — so a register
+  // naming `human` must not read the task standing at it as already relocated
+  // out of the workflow. Without the exemption every ordinarily-parked task
+  // was out of the graph the moment the document declared the exit: its own
+  // `--to human` refused, `cancel` refused, every step re-entry refused.
+  const graph = resealed((entry) => {
+    entry.external_operations = [
+      ...entry.external_operations,
+      { status: "human", executor: "autosk resume <id> --to human" },
+    ];
+  });
+  const state = index(graph);
+  const row = graph.recovery.find((entry) => entry.resume_targets.length < graph.steps.length - 1);
+  const forbidden = graph.steps.map((step) => step.name).find((name) => !row.resume_targets.includes(name));
+  const context = {
+    step: row.parks_at[0],
+    parked: true,
+    parkedWith: row.reason,
+    status: "human",
+    park: receipted(row),
+  };
+
+  // Everything the parked rules permit still lands: the register's `human` (a
+  // no-op relocation), the register's `cancel`, and the step the row permits.
+  assert.equal(admit(state, context, { status: "human" }, always), undefined);
+  assert.equal(admit(state, context, { status: "cancel" }, always), undefined);
+  assert.equal(admit(state, context, { step: row.resume_targets[0] }, never), undefined);
+  assert.equal(
+    refusalOf(() => admit(state, context, { step: forbidden }, always)).reason,
+    "resume_target_not_permitted",
+  );
+
+  // The guard's other half is unchanged: a task NOT parked but standing at a
+  // registered status is the operation's own completion, still out of the graph.
+  const relocated = { step: row.parks_at[0], parked: false, status: "cancel" };
+  assert.equal(
+    refusalOf(() => admit(state, relocated, { step: row.resume_targets[0] }, always)).reason,
+    "transition_not_declared",
+  );
+});
+
 test("a flow parked on a step with no way out cannot resume into one", () => {
   // The shipped defect, reproduced where it bit: a ticket that finished stood
   // at ticket_done parked with its no_transition_reason, and the row used to
@@ -708,6 +750,7 @@ test("every refusal this factory declares is one it produces", () => {
     () => permitsResume(state, row.reason, forbidden),
     () => parkReasonFor(state, ambiguous),
     () => buildWorkflow({ ...graph, canonical_digest: "0".repeat(64) }, { evaluate: always }),
+    () => index({ ...graph, external_operations: [{ status: "limbo", executor: "x" }] }),
   ]) {
     produced.add(refusalOf(attempt).reason);
   }
@@ -715,6 +758,37 @@ test("every refusal this factory declares is one it produces", () => {
   produced.add(select(index(reasonless), orphan.name, always).park);
 
   assert.deepEqual([...produced].sort(), [...REFUSALS].sort());
+});
+
+test("the register the document declares is the exits the definition carries", () => {
+  // `external_operations` is the document's answer to "which statuses an
+  // operation outside the workflow drives", and the definition carries it as
+  // `exits` so the daemon — and through it the CLI — answers to the register
+  // instead of restating the status union.
+  assert.deepEqual(buildWorkflow(document(), { evaluate: always }).exits, ["cancel"]);
+
+  // A document with no register declares none — an empty list, not an absent
+  // field, because a declared-nothing and a never-asked are different answers
+  // to the daemon.
+  const bare = resealed((entry) => {
+    delete entry.external_operations;
+  });
+  assert.deepEqual(buildWorkflow(bare, { evaluate: always }).exits, []);
+});
+
+test("a register entry outside the status union is refused at build", () => {
+  // `status_unknown`, and it is refused when the document is read rather than
+  // when a task needs it: an entry the wire cannot express would register as
+  // an operation nothing performs — the CLI would neither name it nor accept
+  // it nor refuse it, which is the silent drift this closes.
+  const drifted = document();
+  drifted.external_operations = [
+    ...drifted.external_operations,
+    { status: "limbo", executor: "autosk resume <id> --to limbo" },
+  ];
+  const refusal = refusalOf(() => index(drifted));
+  assert.equal(refusal.reason, "status_unknown");
+  assert.match(refusal.detail, /limbo/u);
 });
 
 test("and every refusal it produces is one some contract closes", () => {
