@@ -196,7 +196,7 @@
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "6a2654ed71deb920eaa08cb61d2a2f130ae481b9155d37c727ebcfb18594e4fd"
+      "sha256": "df65cf169d31cfce2b4d327d5f7dee1fea907ae9ccaf566d1e5caddb99d603fa"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -516,14 +516,14 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "78a2ce6400a6e4befffb957c4d0eea91500857caa0271a1d9282c867b67651d0"
+      "sha256": "674241d16cd468d67c5bcbed3cfff46fcc9e1249e81c241cc0950e0c35594c10"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "106d6188fbca2d631cec225f5cf1e260217c9af1f0364ee4427902199d3f4420"
+      "sha256": "0d0df486faffb1e93d08d8c116c4d0c26dea9793bdd77aeb4a28dc47fdd64125"
     }
   ],
-  "candidate_digest": "502677da32c388cd237c31c800093fcc45fa9238a1e4906f5a54949a78f8619b",
+  "candidate_digest": "bfdddb5069d5f2913395cc28c3c2fe04a0c1c4aaf117debed6cfdbcbbb8b6a79",
   "dispositions": [
     {
       "issue": 3,

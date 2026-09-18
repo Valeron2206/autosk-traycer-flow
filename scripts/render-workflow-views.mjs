@@ -85,6 +85,83 @@ export function bindingErrors(document) {
   return errors.sort();
 }
 
+/**
+ * Every rule annotation that is missing, unregistered or in conflict.
+ *
+ * `binds` proves rows explain the same recovery entries; it cannot prove they
+ * state the same rule, because the digest covers the entries and not the text.
+ * The annotation is the declared half of that proof: a row states which options
+ * its text requires, which it admits as sufficient and which it excludes, over
+ * the `decision_options` vocabulary the document registers once. Rows are
+ * comparable when they share one `binds` over a non-empty `covers` — a group
+ * that binds no recovery entries binds no rule either — and, where the group
+ * declares cases, when they state the rule of the same decision.
+ */
+export function ruleErrors(document) {
+  const options = new Set(document.decision_options ?? []);
+  const used = new Set();
+  const errors = [];
+  const groups = new Map();
+  const whereOf = (member) => `${member.view} row ${member.index + 1}`;
+  const offersOf = (rule) => new Set([...(rule.requires ?? []), ...(rule.admits ?? [])]);
+  for (const view of document.views ?? []) {
+    const cases = new Set(view.cases ?? []);
+    for (const [index, row] of view.rows.entries()) {
+      const member = { view: view.id, index, row };
+      const where = whereOf(member);
+      if (row.case !== undefined && !cases.has(row.case)) {
+        errors.push(`view_case_unknown: ${where} declares case ${row.case}, which ${view.id} does not register`);
+      }
+      if (row.rule !== undefined) {
+        const offers = offersOf(row.rule);
+        for (const option of [...offers, ...(row.rule.excludes ?? [])]) {
+          used.add(option);
+          if (!options.has(option)) {
+            errors.push(`view_option_unknown: ${where} names ${option}, which the graph does not register`);
+          }
+        }
+        for (const option of row.rule.excludes ?? []) {
+          if (offers.has(option)) {
+            errors.push(`view_rule_conflict: ${where} both offers and excludes ${option}`);
+          }
+        }
+      }
+      if (!groups.has(row.binds)) groups.set(row.binds, []);
+      groups.get(row.binds).push(member);
+    }
+  }
+  for (const option of options) {
+    if (!used.has(option)) {
+      errors.push(`view_option_unused: the graph registers ${option}, which no row names`);
+    }
+  }
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    if (members.every((member) => (member.row.covers ?? []).length === 0)) continue;
+    const cased = members.some((member) => member.row.case !== undefined);
+    for (const member of members) {
+      if (member.row.rule === undefined) {
+        errors.push(`view_rule_missing: ${whereOf(member)} shares a binding and declares no rule`);
+      }
+      if (cased && member.row.case === undefined) {
+        errors.push(`view_case_missing: ${whereOf(member)} is bound with rows that declare cases and declares none`);
+      }
+    }
+    for (const [left, right] of members.flatMap((member, at) => members.slice(at + 1).map((other) => [member, other]))) {
+      if (left.row.rule === undefined || right.row.rule === undefined) continue;
+      if (left.row.case !== right.row.case) continue;
+      for (const [offering, other] of [[left, right], [right, left]]) {
+        for (const option of offersOf(offering.row.rule)) {
+          if ((other.row.rule.excludes ?? []).includes(option)) {
+            errors.push(`view_rule_conflict: ${whereOf(offering)} offers ${option}, which ${whereOf(other)} excludes`);
+          }
+        }
+      }
+    }
+  }
+  return errors.sort();
+}
+
 /** One rendered row: the cells joined the way the file writes them. */
 export function renderRow(cells) {
   return `| ${cells.join(" | ")} |`;
@@ -245,6 +322,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...coverageErrors(document),
       ...stepCoverageErrors(document),
       ...bindingErrors(document),
+      ...ruleErrors(document),
       ...renderErrors(document),
     ];
     if (errors.length > 0) {

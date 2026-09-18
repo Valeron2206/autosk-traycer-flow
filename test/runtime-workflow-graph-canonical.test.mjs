@@ -153,6 +153,43 @@ test("the members a set holds are sorted too", () => {
   assert.deepEqual(normalized.recovery[0].resume_targets, ["b", "a"], "and neither are resume targets");
 });
 
+test("a view's cases and a row's rule are sets; the rows themselves are not", () => {
+  const written = graph();
+  written.decision_options = ["b_opt", "a_opt"];
+  written.views = [{
+    id: "v",
+    cases: ["b_case", "a_case"],
+    rows: [
+      { covers: ["r"], binds: "b1", cells: ["x"],
+        rule: { requires: ["b", "a"], admits: ["d", "c"], excludes: ["f", "e"] } },
+      { covers: ["r"], binds: "b2", cells: ["y"] },
+    ],
+  }];
+  const normalized = normalizeGraph(written);
+  assert.deepEqual(normalized.decision_options, ["a_opt", "b_opt"]);
+  assert.deepEqual(normalized.views[0].cases, ["a_case", "b_case"]);
+  assert.deepEqual(normalized.views[0].rows[0].rule.requires, ["a", "b"]);
+  assert.deepEqual(normalized.views[0].rows[0].rule.admits, ["c", "d"]);
+  assert.deepEqual(normalized.views[0].rows[0].rule.excludes, ["e", "f"]);
+  // A row with no rule passes through untouched, and the order of the rows is
+  // the table's: `rows` is order-carrying even where its members hold sets.
+  assert.equal(normalized.views[0].rows[1].rule, undefined);
+  assert.deepEqual(normalized.views[0].rows.map((row) => row.cells[0]), ["x", "y"]);
+  // And a reshuffled annotation is the same document under the digest.
+  const shuffled = graph();
+  shuffled.decision_options = ["a_opt", "b_opt"];
+  shuffled.views = [{
+    id: "v",
+    cases: ["a_case", "b_case"],
+    rows: [
+      { covers: ["r"], binds: "b1", cells: ["x"],
+        rule: { requires: ["a", "b"], admits: ["c", "d"], excludes: ["e", "f"] } },
+      { covers: ["r"], binds: "b2", cells: ["y"] },
+    ],
+  }];
+  assert.equal(graphDigest(shuffled), graphDigest(written));
+});
+
 test("a step with no hooks and a guard with no policy rules pass through", () => {
   // The two conditional branches in `normalizeGraph`: both shapes are legal and
   // the one without the optional member must not acquire one.

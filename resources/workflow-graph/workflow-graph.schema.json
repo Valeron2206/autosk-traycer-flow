@@ -366,6 +366,16 @@
         }
       }
     },
+    "decision_options": {
+      "description": "The closed vocabulary a row's `rule` annotation names. An option id is an opaque token whose meaning is fixed by the cell text of the rows that declare it; a gloss written beside the id would be a second statement free to drift from the first, so none is kept. A rule naming an id outside this set is refused, and an id no rule names is refused, which keeps the set exactly the options in play.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
     "views": {
       "description": "The rendered tables this document is the source of. A view is written here rather than derived from `recovery` because the rendered unit is the row, not the reason: rows group several reasons behind one cell, one reason appears in several rows under different qualifiers, and one view names its reasons in prose rather than in codes. `rows` is order-carrying — the order is the table. Every code a view's rows cover, taken together, must be exactly the set `recovery` declares, which is what makes the two tables one truth rather than two that agree today.",
       "type": "array",
@@ -418,6 +428,15 @@
               "$ref": "#/$defs/park_reason"
             }
           },
+          "cases": {
+            "description": "The decision cases this view's rows may carry. A binds group that names more than one decision splits its rows by `case`, and only rows in one case are compared; a case id means the same decision context in every view that registers it. Closed per view: a row carrying a case its view does not list is refused.",
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          },
           "rows": {
             "type": "array",
             "minItems": 1,
@@ -453,6 +472,46 @@
                     "type": "string",
                     "maxLength": 2048
                   }
+                },
+                "case": {
+                  "description": "Which of the bound group's decisions this row states a rule for, present when the group names more than one. Taken from the view's `cases`.",
+                  "$ref": "#/$defs/id"
+                },
+                "rule": {
+                  "description": "The decision rule this row's text states, over the `decision_options` vocabulary: `requires` names options the text makes necessary, `admits` options it offers as sufficient, and `excludes` options it declares unacceptable or absent. Required on every row of a multi-row binds group whose `covers` is non-empty; two rows in one group and one case conflict when either offers what the other excludes.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "requires",
+                    "admits",
+                    "excludes"
+                  ],
+                  "properties": {
+                    "requires": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "maxItems": 64,
+                      "items": {
+                        "$ref": "#/$defs/id"
+                      }
+                    },
+                    "admits": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "maxItems": 64,
+                      "items": {
+                        "$ref": "#/$defs/id"
+                      }
+                    },
+                    "excludes": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "maxItems": 64,
+                      "items": {
+                        "$ref": "#/$defs/id"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -483,6 +542,7 @@
                 "header": {},
                 "rule": {},
                 "coverage": {},
+                "cases": {},
                 "rows": {}
               },
               "additionalProperties": false
