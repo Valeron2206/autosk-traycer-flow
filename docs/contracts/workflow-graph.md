@@ -154,7 +154,7 @@ The `(human)` marks are checked as themselves. They are the only thing the chain
 
 ## 9. Refusal classes
 
-Closed set: `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_entry_step_unknown`, `graph_external_outcome_uncarried`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_ambiguous`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_handled_at_parks`, `graph_recovery_lists_overlap`, `graph_recovery_missing`, `graph_recovery_parks_at_incomplete`, `graph_recovery_parks_at_unproduced`, `graph_recovery_reason_unknown`, `graph_recovery_terminal_resume`, `graph_schema`, `graph_step_stranded`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
+Closed set: `graph_cap_transition_shared`, `graph_cap_transition_unknown`, `graph_digest_stale`, `graph_duplicate_key`, `graph_duplicate_name`, `graph_entry_step_unknown`, `graph_external_outcome_uncarried`, `graph_first_step_unknown`, `graph_guard_unknown`, `graph_lone_surrogate`, `graph_not_json`, `graph_number_not_canonical`, `graph_park_reason_ambiguous`, `graph_park_reason_reserved`, `graph_park_reason_unknown`, `graph_predicate_unknown`, `graph_priority_ambiguous`, `graph_recovery_handled_at_parks`, `graph_recovery_lists_overlap`, `graph_recovery_missing`, `graph_recovery_parks_at_incomplete`, `graph_recovery_parks_at_unproduced`, `graph_recovery_reason_unknown`, `graph_recovery_terminal_resume`, `graph_schema`, `graph_step_stranded`, `graph_step_unknown`, `graph_step_unreachable`, `graph_terminal_step_leaves`, `no_transition_reason`, `resume_target_not_permitted`, `transition_not_declared`.
 
 The set holds two kinds, because one contract owns both. The prefixed codes are design-time: the validator refuses a document. The three without the prefix are runtime park reasons the graph itself issues, which no edge and no step can carry — an undeclared pair has no edge, and therefore no guard on which to hang a reason.
 
@@ -189,6 +189,7 @@ Slice 5 built that runtime, and `docs/contracts/workflow-factory.md` is where it
 - a status the step schema admits and nothing carries is refused, a status carried by a step and declared an external operation at once is refused, and two entries for one status are refused, while the shipped document and the working example — each of which carries every status it may name — are accepted
 - a `parks_at` naming a step where nothing in the graph parks the reason is refused, and the same step in `handled_at` is accepted, which pins the split as a move rather than a deletion; a status step there is accepted, which pins the one exemption
 - a reason the graph parks at a step its row does not list is refused, whether the producer is a guard, a step's own `no_transition_reason` or a cap — and a row that lists MORE than the graph produces is accepted, because a reason can also be produced outside it
+- a cap whose counted transition shares its `from -> to` pair with another transition is refused, because the runtime counter is keyed by the pair and cannot tell the two edges apart — while the same pair left uncapped, and a cap alone on its pair, are accepted
 - a parking edge whose guards name two reasons, and one whose guards name none, are both refused at design time and not only at build
 - two edges leaving one step at equal priority are refused
 
@@ -199,7 +200,7 @@ Slice 5 built that runtime, and `docs/contracts/workflow-factory.md` is where it
 | steps | `steps[]` | schema, reachability from `first_step`, terminal steps declare no edges, agent steps declare a way out |
 | transitions | `transitions[]` | every `from` and `to` names a declared step; priorities out of one step are distinct |
 | guards | `guards[]` and the `guards` of each transition | every referenced guard exists and names a declared predicate |
-| caps | `caps[]` | every `counted_transition` names a declared transition |
+| caps | `caps[]` | every `counted_transition` names a declared transition, and that transition is the only one on its `from -> to` pair |
 | recovery targets | `recovery[]` | every produced reason has one row; `parks_at` is exactly where the graph parks it, status steps aside; every resume target is an edge out of one of the steps that reason's row names; no step with no way out stands in both of a row's lists |
 | subject and authority | `guards[].authority` | schema: `policy` carries rules and scope, and nothing else may |
 | external operations | `external_operations[]` | one entry per status, the status is one a step may drive, and no step drives a status declared here |

@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "cedc6577cb9975f0c942988bd89917ffbfccc699",
+  "result_tree": "39c6cc16cc9974364667247e9ce9c9d34d32233b",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -146,6 +146,10 @@
     {
       "file": "patches/0038-cli-exits-from-the-register.patch",
       "sha256": "a1c7d463331f1be6685a5f4bec485180bf394f8cbf5440e94902638bde9023b1"
+    },
+    {
+      "file": "patches/0034-transition-takings-counter.patch",
+      "sha256": "af919c63d0cefb35975d70679fe0c57c1488a76ea04d977479933b01ae1aaa06"
     }
   ],
   "license": {

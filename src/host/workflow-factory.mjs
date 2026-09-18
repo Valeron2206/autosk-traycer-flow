@@ -385,7 +385,7 @@ export function admit(state, context, to, evaluate) {
  * `park.reason` is the plan's own notation for it — every recovery row's
  * `required_state` is written as `human с park.reason=<code>` — and the daemon
  * has no park reason of its own: `metadata` is free-form and opaque to it apart
- * from the `step_visits` counter it maintains.
+ * from the `step_visits` and `transition_takings` counters it maintains.
  */
 export function parkReasonOf(metadata) {
   const park = metadata?.park;

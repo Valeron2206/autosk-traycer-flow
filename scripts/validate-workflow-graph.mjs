@@ -56,6 +56,7 @@ export const CONTRACT_MARKER = "<!-- workflow-graph-contract:v1 -->";
  * to hang a reason on.
  */
 export const REFUSALS = Object.freeze([
+  "graph_cap_transition_shared",
   "graph_cap_transition_unknown",
   "graph_digest_stale",
   "graph_duplicate_key",
@@ -522,6 +523,30 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   for (const cap of document.caps) {
     if (!transitions.has(cap.counted_transition)) {
       errors.push(`graph_cap_transition_unknown: cap ${cap.cycle} counts ${cap.counted_transition}`);
+    }
+  }
+
+  // A cap is measured at runtime by the durable transition_takings counter,
+  // which is keyed by the (from, to) pair an edge traverses — the step the flow
+  // leaves and the step it lands on — not by the transition's own id. So the
+  // counted edge must be the only one on its pair: a second transition over
+  // the same pair would have its takings counted toward the cap as well, and
+  // the document would be claiming a precision the counter cannot give. An
+  // uncapped shared pair is fine — nothing reads its count.
+  const byPair = new Map();
+  for (const edge of document.transitions) {
+    const pair = `${edge.from} -> ${edge.to}`;
+    byPair.set(pair, [...(byPair.get(pair) ?? []), edge.id]);
+  }
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (!counted) continue; // already refused as graph_cap_transition_unknown
+    const siblings = (byPair.get(`${counted.from} -> ${counted.to}`) ?? []).filter((id) => id !== counted.id);
+    if (siblings.length > 0) {
+      errors.push(
+        `graph_cap_transition_shared: cap ${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), ` +
+          `which shares its pair with ${siblings.join(", ")}`,
+      );
     }
   }
 

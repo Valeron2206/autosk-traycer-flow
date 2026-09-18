@@ -24,7 +24,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "3a97f844af3f2b6177e2f5a4b52a400783861189a9168068bcf30ac868c5c92a"
+      "sha256": "2a22fd5fac28adeec2bd08a04cbc5fc9bbd4a364c261a8d1144456c18ec90d10"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -192,11 +192,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "3f17fc5b23c002191c704508d59ecf966baa4b641f624e2c92ae53b920528902"
+      "sha256": "d7fcaabc95b361666957203b03eab2e24fa5f3327b8878f32c96eb701bd44a56"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "df65cf169d31cfce2b4d327d5f7dee1fea907ae9ccaf566d1e5caddb99d603fa"
+      "sha256": "cbd3da474058dcf77d71274f6936c50f68006e0de4b9be1d25a936749bf44b34"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -523,7 +523,7 @@
       "sha256": "0d0df486faffb1e93d08d8c116c4d0c26dea9793bdd77aeb4a28dc47fdd64125"
     }
   ],
-  "candidate_digest": "bfdddb5069d5f2913395cc28c3c2fe04a0c1c4aaf117debed6cfdbcbbb8b6a79",
+  "candidate_digest": "887147d131af8e55d3f852203de5db99264fe85ef6f3b5238ed7187d68296d58",
   "dispositions": [
     {
       "issue": 3,

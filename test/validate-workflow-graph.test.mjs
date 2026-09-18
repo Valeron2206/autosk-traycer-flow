@@ -121,6 +121,31 @@ test("graph_cap_transition_unknown: a cap counts an edge that does not exist", (
   assertRefuses(mutated((document) => { document.caps[0].counted_transition = "never_declared"; }), "graph_cap_transition_unknown");
 });
 
+test("graph_cap_transition_shared: a cap counts an edge its pair does not own alone", () => {
+  // The runtime counter is keyed by the (from, to) pair, so a counted edge must
+  // be the only transition on it. `freeze_retry` is a self-loop unique to its
+  // pair; a second freeze_artifact -> freeze_artifact edge makes the cap's
+  // count unattributable to one edge.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions.push({ id: "freeze_retry_bis", from: "freeze_artifact", to: "freeze_artifact", priority: 2, guards: [] });
+    }),
+    "graph_cap_transition_shared",
+  );
+});
+
+test("a shared pair is lawful while no cap counts it (and a cap alone on its pair is lawful)", () => {
+  // The working example ships both halves: `await_alignment -> record_alignment`
+  // carries two transitions and no cap, and `freeze_retry` is counted alone.
+  // Already asserted by the acceptance test — this mutation proves the refusal
+  // is about the CAP sharing a pair, not about the pair being shared: pointing
+  // the cap at a transition unique to its own pair is accepted.
+  const document = mutated((document) => {
+    document.caps[0].counted_transition = "freeze_to_pass";
+  });
+  assert.deepEqual(validateGraph(document, schema), []);
+});
+
 test("graph_step_unreachable: a step no edge can reach", () => {
   assertRefuses(
     mutated((document) => {
