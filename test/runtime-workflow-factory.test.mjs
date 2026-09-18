@@ -467,6 +467,40 @@ test("a resume along a handled_at step's edges needs a completion receipted unde
   );
 });
 
+test("a refused resume's message names the unrecorded lending step or says no named step reaches the target", () => {
+  // The reason is resume_target_not_permitted either way; the DETAIL is the
+  // diagnosis an operator acts on, and it is one of two. A permitted target
+  // that no step the row names reaches is refused as unreachable outright. A
+  // target reachable only through a handled_at step whose completion this park
+  // never recorded is refused with that step named. The mutation run showed
+  // the choice between the two unasserted: every test pinned the reason and
+  // none read the detail, so neutering the condition changed only which
+  // sentence was thrown.
+  const graph = document();
+  const state = index(graph);
+
+  // On the shipped row: draft_artifact hangs on record_aggregate_remediation
+  // alone, so with nothing receipted the refusal names the lending step whose
+  // completion is missing.
+  const lent = refusalOf(() =>
+    permitsResume(state, "aggregate_verify_failed", "draft_artifact", {}, { aggregate_verify: 1 }),
+  );
+  assert.equal(lent.reason, "resume_target_not_permitted");
+  assert.match(lent.detail, /record_aggregate_remediation/u);
+  assert.match(lent.detail, /does not record/u);
+
+  // The other diagnosis needs a permitted target no named step reaches, which
+  // no shipped row carries: intake has no incoming edge anywhere, so adding it
+  // to a row's targets makes the refusal deterministic.
+  const mutated = index(resealed((graph) => {
+    graph.recovery.find((row) => row.reason === "anchor_handoff_incomplete").resume_targets.push("intake");
+  }));
+  const orphan = refusalOf(() => permitsResume(mutated, "anchor_handoff_incomplete", "intake"));
+  assert.equal(orphan.reason, "resume_target_not_permitted");
+  assert.match(orphan.detail, /no edge/u);
+  assert.match(orphan.detail, /intake/u);
+});
+
 test("a reason with no recovery row refuses the resume rather than allowing it", () => {
   const state = index(document());
   assert.equal(
