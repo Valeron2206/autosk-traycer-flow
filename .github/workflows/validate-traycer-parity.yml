@@ -170,6 +170,13 @@ jobs:
       - name: Check the patch series still carries the runtime identity lock
         run: npm run validate:runtime-identity-lock
 
+      # The slot names the round-4 anchor pack's members; this re-reads the
+      # frozen commit and re-hashes the byte-verifiable ones, so a slot or a
+      # round record that drifted from the bytes it claims fails here. The
+      # fetch-depth: 0 checkout is what makes the objects readable.
+      - name: Check the anchor pack slot against the frozen commit
+        run: npm run validate:anchor-pack
+
       # The doctor is read-only, so running it in CI costs nothing and proves the
       # command still produces a schema-valid report on a machine that is not the
       # author's. A `fail` here is expected: the runner has no daemon binaries.

@@ -9,6 +9,8 @@
   "package_sha256": "22f07e1a0a3dbb5d913a2bdd24e7f3e0dfac058b293c916501009f108677474b",
   "system_prompt_sha256": "35a244c64f5d2d728498ecd3b6cb70d48965723b880c18f90be536bfc7285fc1",
   "scope_identity": "c611a46b08f5a27323a2418206e616532d4c66f9dd535349f5332795726bd134",
+  "anchor_pack_slot": "resources/anchor-pack/anchor-pack.v1.json",
+  "anchor_pack_sha256": "330c2dca988f5dd7e1a4e911e5acca44400b0fcf247639130dced1e1320becbf",
   "runner": "Traycer child agents, one per seat, each bound read-only to the snapshot pack; six pack files, non-git scope identity verified 6/6 by the carried instrument",
   "attempt_1_void": "Attempt 1 was dispatched on a package that called its own subject deferred and absent, against a declared roster no dispatch could satisfy. Three of its four seats found the same defect. Its verdicts are annulled; its findings transferred into anchor version 2 §10 and are answered per seat below.",
   "anchor_corrections": [

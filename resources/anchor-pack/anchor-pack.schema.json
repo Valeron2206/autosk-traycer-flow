@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Anchor pack slot (ticket 15)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "anchor_version",
+    "round",
+    "attempt",
+    "frozen_commit",
+    "scope_identity",
+    "candidate_digest",
+    "members",
+    "pack_digest",
+    "canonical_form"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "anchor_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "frozen_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "scope_identity": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "candidate_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size",
+          "source"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "authored",
+                  "built",
+                  "doc_sections",
+                  "repo_file"
+                ]
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+              },
+              "from_heading": {
+                "type": "string",
+                "minLength": 1
+              },
+              "until_heading": {
+                "type": "string",
+                "minLength": 1
+              },
+              "builder": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "pack_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canonical_form": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "line_ending",
+        "path_order",
+        "json_indent",
+        "trailing_newline"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "utf-8"
+        },
+        "line_ending": {
+          "const": "lf"
+        },
+        "path_order": {
+          "const": "raw_bytes"
+        },
+        "json_indent": {
+          "const": 2
+        },
+        "trailing_newline": {
+          "const": true
+        }
+      }
+    }
+  }
+}
