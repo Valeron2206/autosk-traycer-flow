@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "0d4c625b332d3cb8413dcba41999bdf9676f04e823aefda7961d11029d6e4353"
+      "sha256": "8aab471eeb4b185a15ab0afeb4842c9dbb56eeabd16c943d1acecb82d32243eb"
     },
     {
       "path": "04-decisions.md",
@@ -504,10 +504,10 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
+      "sha256": "106d6188fbca2d631cec225f5cf1e260217c9af1f0364ee4427902199d3f4420"
     }
   ],
-  "candidate_digest": "66a1491c5771159ce08fba5a7a440fcfac1504eb8d0ebf09cfdaf4b9eaf6a90c",
+  "candidate_digest": "89e20abfff28c5a3b14cc8bceb5baf0ca670033ec466c27b92e231c61bebf81f",
   "dispositions": [
     {
       "issue": 3,
