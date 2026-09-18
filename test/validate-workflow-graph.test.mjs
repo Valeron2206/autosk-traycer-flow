@@ -918,10 +918,10 @@ test("graph_park_reason_ambiguous: a parking edge no guard gives a reason", () =
  *
  * `resume_targets` is bound to the edges leaving ANY of a reason's `parks_at`
  * steps, which the contract states deliberately: a flow parked at one of them
- * may resume into a step reachable only from another. All 538 targets are an
+ * may resume into a step reachable only from another. All 534 targets are an
  * edge out of at least one such step, which is what the validator enforces;
- * 207 are an edge out of every one of them and 331 are not, and a live daemon
- * was observed taking one of the 331. Narrowing the check to the step the flow
+ * 207 are an edge out of every one of them and 327 are not, and a live daemon
+ * was observed taking one of the 327. Narrowing the check to the step the flow
  * is at would strip them, so it is not a tightening anyone may do quietly — it
  * is a rewrite of the recovery table, and this test is what makes it loud.
  *

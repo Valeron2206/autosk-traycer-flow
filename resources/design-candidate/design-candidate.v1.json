@@ -148,7 +148,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "1d35e6ec537acf5dc60ce040950ec581c956e57a78f5b616bcd0252ab8a4ef71"
+      "sha256": "602d21c012f293d53ab78d4e25515cb257b4e024ba0fa11d50f70a54e0cd13ad"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "741e348b1a06b71c783187d5eda80a7b902b5a9a924ea5d05fd985f614d6689b"
+      "sha256": "3f17fc5b23c002191c704508d59ecf966baa4b641f624e2c92ae53b920528902"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "49f0df197b35f9af30a98d61a31876758d713647add1f0558c11639c7a1f6661"
+      "sha256": "6a2654ed71deb920eaa08cb61d2a2f130ae481b9155d37c727ebcfb18594e4fd"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -507,7 +507,7 @@
       "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
     }
   ],
-  "candidate_digest": "ca1052450b796ed4de44b63ce5e14f7cad63b0bc38853a7a988378307bfc6f87",
+  "candidate_digest": "66a1491c5771159ce08fba5a7a440fcfac1504eb8d0ebf09cfdaf4b9eaf6a90c",
   "dispositions": [
     {
       "issue": 3,
