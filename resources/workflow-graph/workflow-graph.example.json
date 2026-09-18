@@ -275,5 +275,11 @@
       "required_state": "a new anchor version, a daemon impact disposition, and current authority, alignment and classifier hashes"
     }
   ],
-  "canonical_digest": "a3e18b9ece5110e02baa145a1d2a5685cc73fd01ee4ffabbcf4ae4a954a6a6d1"
+  "canonical_digest": "5367ea4c0f39ad4d910bc7a8305399d600404af09b84c2493c0acbe54c944ddf",
+  "external_operations": [
+    {
+      "status": "cancel",
+      "executor": "autosk resume <id> --to cancel"
+    }
+  ]
 }

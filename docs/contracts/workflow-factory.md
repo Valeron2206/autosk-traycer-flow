@@ -10,7 +10,7 @@ Criterion 2 asks that `workflow_graph_digest` cover steps, transitions, guards, 
 
 This contract is the projection: no decision is taken here that the document does not state.
 
-Not every declared field has a reader, and claiming otherwise is the kind of sentence this epic has already paid for. These do not: `caps` (section 6 says why, with numbers), `views` (rendered by slice 3, read by nobody at runtime), `entry_steps` (section 2), `guards[].authority` and `predicates[].reads` (they say who may take a transition and what state it inspects — both are the evaluator's business, and this factory does not evaluate), and `recovery[].parks_at` and `required_state` (design-time statements the graph validator checks). `graph_reasons` is pinned by the schema to two codes that are their own names, so reading it back would only compare a constant with itself.
+Not every declared field has a reader, and claiming otherwise is the kind of sentence this epic has already paid for. These do not: `caps` (section 6 says why, with numbers), `views` (rendered by slice 3, read by nobody at runtime), `entry_steps` (section 2), `guards[].authority` and `predicates[].reads` (they say who may take a transition and what state it inspects — both are the evaluator's business, and this factory does not evaluate), and `recovery[].required_state` (a design-time statement the graph validator checks). `graph_reasons` is pinned by the schema to two codes that are their own names, so reading it back would only compare a constant with itself.
 
 ## 2. What the engine actually calls
 
@@ -42,13 +42,27 @@ Parking happens only when no edge is a candidate, and then the step's own `no_tr
 
 A parked flow may be resumed only at a target the PARK REASON permits, never at one the step permits. Two reasons can park at the same step and allow different targets, so reading permission off the step would let a resume that one reason forbids be laundered through another that was never the reason for this park. The shipped graph has such pairs, and a test walks them.
 
-Permission is not additionally checked against the edges out of the step the flow stands at. That is deliberate and measured: of the 6245 `(named step, resume target)` pairs the document declares — a step being one its row names in `parks_at` or in `handled_at` — 5312 are not a declared edge out of that particular step. The rule the graph contract states, and that `scripts/validate-workflow-graph.mjs` enforces, is that a target is an edge out of ONE of them, so requiring an edge out of the current one would refuse most of the resumes the document sanctions.
+Permission is not additionally checked against the edges out of the step the flow stands at. That is deliberate and measured: of the 6035 `(named step, resume target)` pairs the document declares — a step being one its row names in `parks_at` or in `handled_at` — 5167 are not a declared edge out of that particular step. The rule the graph contract states, and that `scripts/validate-workflow-graph.mjs` enforces, is that a target is an edge out of ONE of them, so requiring an edge out of the current one would refuse most of the resumes the document sanctions.
+
+What the union lends is conditioned once more on what the park record shows. A target the row names among its own steps owes no evidence beyond the reason: reaching a `parks_at` stop or a `handled_at` surface is the recovery happening. Any other target is permitted through an edge out of one of them, and the two kinds of edge lend the permission differently. An edge out of a `parks_at` step lends it unconditionally — the park on this reason is the evidence the reason's stop was reached. An edge out of a `handled_at` step lends it only once that step's handling has COMPLETED under this park — `handled_at`'s own description is "where resume leaves from", and a resume cannot leave from a step whose handling never finished.
+
+A visit cannot be the evidence, because `metadata.step_visits` is bumped in the same write as the position — on entry, before the handler runs — so a step that was entered and then threw still counts as visited, and all three bypasses the review measured survive it. What the park record carries instead is a completion receipt: a run whose `handled_at` step's work resolves under a recorded park reason writes `park.receipts.<step>` holding that reason and a watermark — the visit counts of the reason's `parks_at` steps as they stood at completion. The receipt is conditional on the work: a step with no registered handler ran nothing and completes nothing, and a handler that threw completes nothing, so neither leaves a receipt.
+
+The gate compares the stored watermark to the counts the daemon's counter reports NOW, and that comparison is what "this park" means. The park's identity is derived, never written: another episode of the reason cannot begin without re-entering a step that produces it, and the daemon bumps the count in the same write as the position — so a receipt earned under an earlier park satisfies no later one, the same reason included, and no write of the factory's has to land for the match to break. That is also what makes the record's own writes safe to lose: the reason is the only leaf `recordPark` writes, and a write that fails leaves the previous record whole — a park the record still describes, whose receipts remain honest about what completed under it and still cannot satisfy a newer episode, because the producing step's count already moved.
+
+The reason's own lifecycle is this: it is recorded when the flow stops, and it is cleared when the flow leaves the stop it describes. A take into a step the reason's row does not name — neither `parks_at` nor `handled_at`, the surface the episode's recovery runs on — removes `park.reason` with `autosk metadata unset` after any receipt the run owed and before the position moves, and a take inside the surface keeps it, because a step there is where this episode's handling may still be standing and a completion still owes the reason its receipt. The write is a leaf delete, so `park.receipts` is untouched — the watermark re-scopes those, not a clearing — and a failed clear throws rather than moving the task under a reason the record still claims. What this makes true is the other half of the daemon's own park: an infrastructure stop writes no reason and now finds none recorded for a stop the flow already left, so the re-entry that needs no permission stays open — it measured closed while a reason the earlier park wrote sat in the field and governed every target including the step the flow stood at.
+
+A park record with no receipt for the lending step receipts nothing, and a receipt write that fails throws rather than leaving a completion nobody recorded.
+
+The shipped document is why this is not a nicety: `aggregate_verify_failed` parks at `aggregate_verify`, and five of its six targets are edges out of `record_aggregate_remediation` alone, so without the check a parked task resumes at `draft_artifact` on a step it never ran and the artifact is redrawn with no remediation record behind it. Its sibling `aggregate_remediation_required` permits the same six targets and is unaffected — it parks at the record step, so every one of them is lent by an edge out of a `parks_at` step.
 
 One move needs no permission, and only one: re-entering the step the flow already stands at **when nothing recorded why it stopped**. That is the daemon's own park after an infrastructure failure, which carries no reason because the graph did not park it, and refusing it would strand such a task forever.
 
 A RECORDED reason governs every target including the current step. The first writing of this rule left the exception unconditional, and round 1 of the review measured what that costs: `alignment_policy_out_of_scope` permits five targets and not `clarify_alignment`, a step it parks at, and an ordinary `autosk resume` re-ran that step anyway — the daemon recorded `status=work` and the step's counter went from 1 to 2. The justification offered for the exception was that re-entry grants nothing new, and that was not true either: re-entry runs the step's body and its effects again.
 
 The reason itself is read from the task's metadata at `park.reason`. That is the plan's own notation: every recovery row's `required_state` is written `human с park.reason=<code>`. The daemon has no park reason of its own — `metadata` is free-form and opaque to it apart from the `step_visits` counter it maintains — so the factory records the reason with `autosk metadata set` before it parks, and a failed write throws rather than parking a task nothing could resume.
+
+One check runs before any of this, because a task the operation already took out of the workflow is not the graph's to move: a task standing at a status the register carries is the relocation the register declared, so nothing is admitted for it but the way back in — a named entry, which is how an enroll of a relocated task arrives. `parked` is the exemption, and it is load-bearing now that the register may carry `human`: `parked` IS the human status — the graph's own park state — so reading it as the operation's completion would mark every ordinarily-parked task out of the graph and refuse its resume entirely. The review measured exactly that against a register naming `[cancel, human]`: `--to human`, `--to cancel` and a permitted step re-entry all refused before the exemption.
 
 ## 5. What a park reason is, and whose it is
 
@@ -78,7 +92,7 @@ So the executable is refused at the point where it would be produced, and that r
 
 The design validator carries the same refusal now, as `graph_park_reason_ambiguous`. Refusing only at build was refusing after the document had already been shipped, pinned and digested — and the example in this repository proved the gap was not theoretical: it shipped with a parking edge carrying no guard at all, and the validator accepted it for as long as the check lived only here.
 
-These reasons belong to the park vocabulary, which `resources/refusal-vocabulary/refusal-vocabulary.v1.json` enumerates and `03-technical-plan.md` §7 owns. They are not this contract's, and putting them in its closed set would make it look like the owner of eighty-four codes it merely passes on.
+These reasons belong to the park vocabulary, which `resources/refusal-vocabulary/refusal-vocabulary.v1.json` enumerates and `03-technical-plan.md` §7 owns. They are not this contract's, and putting them in its closed set would make it look like the owner of eighty-five codes it merely passes on.
 
 ## 6. Caps are not enforced here, and the reason is measurable
 
@@ -110,6 +124,8 @@ The canonical form itself lives in `src/host/workflow-graph-canonical.mjs` for t
 
 Hook presence is part of that shape. No step in the shipped document declares `hooks`, so every agent step is built with `onRun` and nothing else; a document that declares more is refused at build time rather than built without them, because ignoring a declared hook would make the shape a function of this file instead of the document.
 
+The register is part of that shape too, as of the CLI patch that reads it. `external_operations` names the statuses an operation outside the workflow drives, and the built definition projects them as `exits` — the field `registry.workflow.get` renders and `resume --to` reads instead of restating the status union. The register selects from the union a relocation can carry (`done|cancel|human`), so an entry naming a status outside it declares an operation the wire cannot express: the CLI could neither name it nor accept it nor refuse it, which is the drift `status_unknown` refuses at build. The daemon's side checks the same subset at registration, because the field is also writeable by a workflow no document produced. A document without a register builds `exits: []` — declared, and empty — while a workflow definition that omits the field renders the union, which is what the wire answered before the field existed.
+
 ## 8. Counter durability, and the boundary it has
 
 Established from the source before the crash test was written, which is the order the ticket requires.
@@ -124,13 +140,15 @@ The instrument is the window itself. `scripts/verify-autosk-crash.mjs` kills the
 
 ## 9. Refusal classes
 
-Closed set: `guard_unknown`, `park_reason_ambiguous`, `predicate_unknown`, `step_unknown`.
+Closed set: `guard_unknown`, `park_reason_ambiguous`, `predicate_unknown`, `status_unknown`, `step_unknown`.
 
 Three of these are what the factory issues when the document reaches it malformed — a step, a guard or a predicate that nothing declares. Each has a design-time counterpart the graph validator issues over the document (`graph_step_unknown`, `graph_guard_unknown`, `graph_predicate_unknown`), and they are separate codes on purpose: at design time a document is refused, and at runtime a task is. A caller that cannot tell the two apart cannot tell a bad document from a good one loaded wrong.
 
 `park_reason_ambiguous` is the fourth, and it is not about a malformed document but about an under-specified one: an edge that parks the task whose guards name more than one reason, or none. Section 5 says why picking one would be worse than refusing.
 
-Four further codes the factory produces are owned and closed by `docs/contracts/workflow-graph.md`, which owns what the graph says about itself: `graph_digest_stale`, `no_transition_reason`, `resume_target_not_permitted` and `transition_not_declared`. They are produced here and declared there, and the suite asserts that each of the eight is closed by exactly one contract.
+`status_unknown` is the fifth, and it is about a declaration the wire cannot carry: `external_operations` naming a status outside the `done|cancel|human` union (section 7).
+
+Four further codes the factory produces are owned and closed by `docs/contracts/workflow-graph.md`, which owns what the graph says about itself: `graph_digest_stale`, `no_transition_reason`, `resume_target_not_permitted` and `transition_not_declared`. They are produced here and declared there, and the suite asserts that each of the nine is closed by exactly one contract.
 
 An undeclared predicate fails closed in both operations rather than reading as false. False is an answer, and the honest answer to an id nobody declared is that nobody can give one; answering "not a candidate" would look exactly like the edge correctly losing.
 
@@ -144,11 +162,16 @@ An undeclared predicate fails closed in both operations rather than reading as f
 - twelve steps park with their own reason under an evaluator that answers false to everything
 - a step with no reason and no way out parks with `no_transition_reason` rather than with `undefined`
 - the counterexample of two reasons sharing a parking step with divergent targets, taken from the shipped document
+- a resume whose only permitting edges leave a `handled_at` step is refused until the park record carries that step's completion receipt — a watermark of the reason's `parks_at` visit counts at completion — and refused again once a `parks_at` step has been re-entered, while a `parks_at` edge or a step the row names lends permission with no receipt
+- a `handled_at` step with no registered handler leaves no receipt, and the target its edges lend stays refused
+- a repeated park invalidates the earlier episode's receipts with no write needing to land — the producing step's counter moved on re-entry, so the gate refuses whether the reason write succeeded, was refused, or never returned
+- a take to a step the reason's row does not name clears `park.reason` by leaf delete before the position moves, and a later engine-side park then re-enters freely; a take inside the row's `parks_at`/`handled_at` surface keeps it
 - enroll admits the first step and refuses every other target
 - a guard refusing a requested target names that guard's `park_reason`, and it is a reason the document declares a row for
 - a status target is admitted exactly when selection parks, and refused when a candidate edge exists
 - a parked flow is refused a status move and a forbidden step, however the guards would vote
 - a parked flow re-enters the step it stands at with no reason recorded, and reaches nothing else that way
+- a task parked at a status the register also carries still moves by its reason — the register's own `human`, a declared `cancel`, a permitted step — while a non-parked task standing at a registered status stays out of the graph
 - an undeclared predicate and an undeclared guard refuse both operations
 - a guard declaring no park reason refuses by name rather than with `undefined` as the code
 - every code in the factory's declared set is produced by running it, and every one is closed by exactly one contract
@@ -161,8 +184,9 @@ An undeclared predicate fails closed in both operations rather than reading as f
 - a recorded reason refuses re-entry into a step it does not permit, while a park with no reason still admits it
 - a document naming an undeclared predicate is refused when it is read, so no operation can be reached under it
 - a document whose digest describes different bytes is refused, and one carrying no digest is computed rather than refused
+- a register entry naming a status outside the union is refused at build, and the register the document does declare reaches `registry.workflow.get` as `exits`
 
-Two of these run against a real daemon rather than in the suite, because what they measure is the daemon's: the six-document digest case is `scripts/verify-autosk-graph-digest.mjs`, for section 7, and the crash case is `scripts/verify-autosk-visits.mjs`, for section 8. The compatibility workflow runs both on every pull request. The rest are `test/runtime-workflow-factory.test.mjs`.
+Two of these run against a real daemon rather than in the suite, because what they measure is the daemon's: the six-document digest case is `scripts/verify-autosk-graph-digest.mjs`, for section 7, and the crash case is `scripts/verify-autosk-visits.mjs`, for section 8. The compatibility workflow runs both on every pull request. The rest are `test/runtime-workflow-factory.test.mjs`. A third real-daemon measurer, `scripts/verify-autosk-exits.mjs`, drives the register itself through the built CLI — names it, accepts the declared status, refuses the undeclared, and watches the out-of-union entry fail at registration — because the register's whole point is what the operator's binary does with it.
 
 Both verifiers install the factory into a real project as an extension, and both must copy `src/host/workflow-graph-canonical.mjs` beside it. Moving that module out of the validator broke exactly this and neither verifier was re-run against the tree that moved it; the extension failed to load with `ERR_MODULE_NOT_FOUND` and both exited 1. A daemon-side test is only evidence when it is run after the change it is evidence for.
 
@@ -172,7 +196,7 @@ That the predicates are answered correctly: the document says what state each re
 
 That the graph is the right graph. It proves the runtime obeys the document, not that the document describes the product. That is what the views of slice 3 and the chain check are for.
 
-Building the runtime did surface one thing about the document, and it is recorded rather than repaired here. Exactly one agent step has no outgoing edge — `ticket_done`, entered from `commit_on_pass` — so a flow that reaches the end of a ticket parks, and the reason it parks with is `project_boundary_invalid`, the daemon's generic boundary check. Nothing in the graph validator asks an agent step where it goes, so nothing refused it. The suite names the step, so a second one added with no way out fails rather than joining it quietly; whether `ticket_done` should be a status step or lead to one is a change to the document and an owner's to make.
+Building the runtime did surface one thing about the document, and it is repaired rather than merely recorded. Exactly one agent step had no outgoing edge — `ticket_done`, entered from `commit_on_pass` — so a flow that reached the end of a ticket parked, and the reason it parked with was `project_boundary_invalid`, the daemon's generic boundary check. Nothing in the graph validator asked an agent step where it goes, so nothing refused it. The document now declares the exit — `ticket_done` leads to `done`, carrying `ticket_completed` — and `graph_step_stranded` refuses the next agent step declared with no way out, so it fails rather than joining quietly.
 
 That caps hold. Section 6 says why, with the numbers.
 

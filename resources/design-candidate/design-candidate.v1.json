@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "01-core-flows.md",
-      "sha256": "a76923d8cb51d0e10f980c6909f126445528c922e94f77bfe3c60c13af888e30"
+      "sha256": "4e5035a93a2bdbc70e9fc86b12d8b9680142452c6e81ceece8c0ff20b99f5d6f"
     },
     {
       "path": "02-architecture.md",
@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "1c945d5559158abeac121bb7421aeefd35127037e8d689f362f32d206496c1c8"
+      "sha256": "0d4c625b332d3cb8413dcba41999bdf9676f04e823aefda7961d11029d6e4353"
     },
     {
       "path": "04-decisions.md",
@@ -24,7 +24,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "193bafcb1ee2514fe944b1154ff67dbfeef8578614ffa8e9066b5b48d5fe1f34"
+      "sha256": "3a97f844af3f2b6177e2f5a4b52a400783861189a9168068bcf30ac868c5c92a"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -148,7 +148,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "bd98681fa3cbee4daba7df10e830910138fbf1009f7e58d0412a5045a65bf180"
+      "sha256": "1d35e6ec537acf5dc60ce040950ec581c956e57a78f5b616bcd0252ab8a4ef71"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
-      "sha256": "d2f7e054fcb4abb6130bafe1dbd4c63c5eecbe00e28636722683d226bc521293"
+      "sha256": "c112c458dddb0f624364110dce9cdf20043836dab1b3834c5a08da49054c355b"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -188,11 +188,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "0778fd1684e4bddd6adeb58c0b8a8ead4cb263ac5ce5ea58e12974debfa5f860"
+      "sha256": "741e348b1a06b71c783187d5eda80a7b902b5a9a924ea5d05fd985f614d6689b"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "9c651fce73597c8c270c3184d549ce1826ef15ae88e6aacc40a17c7c73b2231e"
+      "sha256": "49f0df197b35f9af30a98d61a31876758d713647add1f0558c11639c7a1f6661"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -424,7 +424,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "4a699decc3ad706a798db0394142945afa812176ee6fda1a912b9cba6a06c195"
+      "sha256": "10404b762f2534bf4a4522e8f04270d052e5a70a077257ba8927d3b61b601f31"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -488,26 +488,26 @@
     },
     {
       "path": "resources/workflow-graph/canonical-reference.json",
-      "sha256": "a54fd5f2c7319888e29fd853d1f6de06af96043bf32f3f71cdc28bdaf7a23ce6"
+      "sha256": "e81104de8fc4964e59e76d3526819033b74c09f7f1b1358e5962aeffcaf05276"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.example.json",
-      "sha256": "1569e66db2dd4386747ec6924bb0fff54b9b849c3d869361724b88d17b0f1e8a"
+      "sha256": "ea369d94cfb4e5f1c64fe697f530263beced2119e45e8c49e300507711b71fcb"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.refused.example.json",
-      "sha256": "3bb914f3a979af9005378ba966deab3b9d4bec79b69f5e6c6c1d4d2b881f56bb"
+      "sha256": "b616fb3afa346d148677feb41704fd49304afcef9ef9607f055529051419f0a5"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "183e685ad00b0c56dc345ee7a2010da66e7046e9be864c10326c3373efbc56e9"
+      "sha256": "78a2ce6400a6e4befffb957c4d0eea91500857caa0271a1d9282c867b67651d0"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "5b02ed5de9e74e30037e3500b6bc62ec9b2ec0735f05d49504bccf8dafc1bbfe"
+      "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
     }
   ],
-  "candidate_digest": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+  "candidate_digest": "ca1052450b796ed4de44b63ce5e14f7cad63b0bc38853a7a988378307bfc6f87",
   "dispositions": [
     {
       "issue": 3,

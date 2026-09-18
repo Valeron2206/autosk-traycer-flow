@@ -3205,6 +3205,13 @@
         "user_decision"
       ],
       "description": "source не `user_decision|project_policy`, daemon provenance отсутствует, Git/comment используется как authority, classifier proof invalid либо identity не совпадает; kind=tickets — human с park.reason=tickets_breakdown_alignment_required; record не создаётся"
+    },
+    {
+      "id": "cond_422",
+      "reads": [
+        "task_record"
+      ],
+      "description": "все ticket work items terminal — done"
     }
   ],
   "steps": [
@@ -7969,6 +7976,14 @@
         "actor": "human"
       },
       "park_reason": "tickets_breakdown_alignment_required"
+    },
+    {
+      "id": "guard_547",
+      "predicate": "cond_422",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "ticket_completed"
     }
   ],
   "transitions": [
@@ -12849,6 +12864,15 @@
       "guards": [
         "guard_531"
       ]
+    },
+    {
+      "id": "t_543",
+      "from": "ticket_done",
+      "to": "done",
+      "priority": 0,
+      "guards": [
+        "guard_547"
+      ]
     }
   ],
   "caps": [
@@ -13722,7 +13746,6 @@
         "dispatch_panel",
         "draft_artifact",
         "freeze_artifact",
-        "human",
         "panel_join",
         "present_tickets_breakdown",
         "record_artifact_pass"
@@ -13743,7 +13766,6 @@
         "dispatch_narrow_review",
         "dispatch_review",
         "freeze",
-        "human",
         "invalidate_quick_classification",
         "rebuild_code_anchor",
         "record_code_verdict",
@@ -14094,7 +14116,6 @@
         "dispatch_panel",
         "dispatch_review",
         "dispatch_ticket_dag",
-        "done",
         "draft_artifact",
         "emit_blocked_anchor",
         "fix",
@@ -14102,7 +14123,6 @@
         "freeze",
         "freeze_artifact",
         "freeze_candidate",
-        "human",
         "implement",
         "init_planning_ref",
         "integrate",
@@ -14130,7 +14150,6 @@
         "review_join_wait",
         "select_next",
         "synthesize_panel",
-        "ticket_done",
         "ticket_join",
         "ticket_join_wait",
         "validate_disposition",
@@ -14234,6 +14253,19 @@
         "validate_tickets_manifest"
       ],
       "required_state": "Recorded by daemon at record_alignment; a resume requires the identity the park recorded to still be current."
+    },
+    {
+      "reason": "ticket_completed",
+      "parks_at": [
+        "done"
+      ],
+      "handled_at": [
+        "commit_on_pass"
+      ],
+      "resume_targets": [
+        "human"
+      ],
+      "required_state": "The factory never records this reason: it annotates the exit edge the way the reasons on the other eleven edges into done annotate theirs, and the factory parks a task only on a human status. The row exists because every produced reason requires one; done declares no edges, so some handled_at step must lend the resume target — commit_on_pass is the choice, as the step the flow arrived from — and the named target is one of three the schema and the terminal-resume rule admit, not a live route"
     },
     {
       "reason": "ticket_edge_receipt_lost",
@@ -14613,7 +14645,7 @@
           "covers": [
             "project_boundary_invalid"
           ],
-          "binds": "9075ba885dc5024e5840f216d7cdc0a640201b3759107e72323bf6355152196e",
+          "binds": "ee75994d60d87f4a00794718bc58cc9c33f9305eb1e9c3ec8b1e65c567819843",
           "cells": [
             "project_boundary_invalid",
             "`<deterministic_step>`",
@@ -15222,13 +15254,24 @@
         },
         {
           "covers": [
+            "ticket_completed"
+          ],
+          "binds": "165bb3ca16736fda115411bb83463e48112635c2e3ecb932b4c89936032c4171",
+          "cells": [
+            "ticket_completed",
+            "ticket_done",
+            "нет — фабрика никогда не записывает эту причину (парк возможен только на human); строка обязана биекцией причина↔строка"
+          ]
+        },
+        {
+          "covers": [
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
           "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
-            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel"
           ]
         },
@@ -15236,7 +15279,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "bbedc21a49c44626843ff9409226a22379aef504169f108b72cc1167b9613fb1",
+          "binds": "09d6ceedfd7d873f6329d282f852ca7bd2bdd3e457addf4a494fe4f9459a0dd6",
           "cells": [
             "no_external_reviewer",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -15247,7 +15290,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "3d8d4bb8e6067acd4c9c8e46289a4acc6178f3361fab5fdc74d082e60e8ab7d1",
+          "binds": "5912f0bb2a839496b23df932e738029553d6cfbb5892ff0571c31a9991f448a6",
           "cells": [
             "no_external_panel_lead",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -15350,6 +15393,7 @@
         "project_boundary_invalid",
         "protocol_lock_invalid",
         "review_waiver_invalid",
+        "ticket_completed",
         "verification_cap",
         "verification_environment_failed",
         "verification_record_invalid"
@@ -15873,7 +15917,7 @@
           "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
           "cells": [
             "Aggregate verification failed",
-            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation",
+            "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel"
           ]
         },
@@ -15881,7 +15925,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "bbedc21a49c44626843ff9409226a22379aef504169f108b72cc1167b9613fb1",
+          "binds": "09d6ceedfd7d873f6329d282f852ca7bd2bdd3e457addf4a494fe4f9459a0dd6",
           "cells": [
             "Нет внешней code-review family",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -15892,7 +15936,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "3d8d4bb8e6067acd4c9c8e46289a4acc6178f3361fab5fdc74d082e60e8ab7d1",
+          "binds": "5912f0bb2a839496b23df932e738029553d6cfbb5892ff0571c31a9991f448a6",
           "cells": [
             "Нет внешней panel Lead family",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -15957,5 +16001,11 @@
       ]
     }
   ],
-  "canonical_digest": "f41e58dece66dc392ffeca335a66cc1886acbc80608101d599ab87530b51ccc7"
+  "canonical_digest": "7294aefc28bb27cdd2bac1659643a709ea8392c934b3aa28fe7acff582e05319",
+  "external_operations": [
+    {
+      "status": "cancel",
+      "executor": "autosk resume <id> --to cancel"
+    }
+  ]
 }

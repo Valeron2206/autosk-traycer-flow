@@ -144,6 +144,19 @@ test("graph_terminal_step_leaves: a step that ends the flow and continues it", (
   );
 });
 
+test("graph_step_stranded: an agent step with no way out can only ever park", () => {
+  // The mirror of the rule above, on the other kind. The shipped document
+  // carried exactly one — ticket_done, whose only answer was a park — and the
+  // rule exists so the next one is refused rather than named by hand.
+  const graph = mutated((document) => {
+    document.transitions = document.transitions.filter((edge) => edge.from !== "freeze_artifact");
+  });
+  assert.deepEqual(
+    validateGraph(graph, schema).filter((message) => message.startsWith("graph_step_stranded")),
+    ["graph_step_stranded: freeze_artifact is an agent step and declares no way out"],
+  );
+});
+
 // --- parking and resuming --------------------------------------------------
 
 test("graph_recovery_missing: a reason the graph can park with and nothing says how to leave", () => {
@@ -403,6 +416,23 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
       row.parks_at = ["freeze_artifact", "await_alignment"];
       row.handled_at = ["await_alignment"];
     },
+    // And the terminal-resume intersection: a code the battery never provokes is
+    // one it cannot speak for, and this mutation is what provokes it — `done` is
+    // the example's only step with no way out, parked by exemption and reached
+    // by a declared edge, so nothing else in the row is wrong.
+    (document) => {
+      const row = document.recovery.find((entry) => entry.reason === "core_flow_decision_required");
+      row.parks_at = ["await_alignment", "done"];
+      row.handled_at = ["record_artifact_pass"];
+      row.resume_targets = ["record_alignment", "done"];
+    },
+    // And the uncarried outcome, for the same reason: dropping the register leaves
+    // `cancel` a status the document may name with nothing to perform it.
+    (document) => { delete document.external_operations; },
+    // And the stranded agent step, for the same reason: the `orphan` push above
+    // provokes it incidentally, but the defect it exists for was a reachable step
+    // with no exit, so the battery provokes it that way too.
+    (document) => { document.transitions = document.transitions.filter((edge) => edge.from !== "record_alignment"); },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -666,7 +696,7 @@ test("a step name used as a word does not become an edge to that step", () => {
 test("every step the tables leave without an exit is given the one its chain draws", () => {
   const graph = document();
   const leaves = new Set(graph.transitions.map((edge) => edge.from));
-  const terminal = new Set(["done", "ticket_done", "human"]);
+  const terminal = new Set(["done", "human"]);
   const stranded = graph.steps
     .map((step) => step.name)
     .filter((name) => !leaves.has(name) && !terminal.has(name));
@@ -1114,6 +1144,62 @@ test("handled_at is checked for unknown step names the same way parks_at is", ()
   );
 });
 
+test("graph_recovery_terminal_resume: a step with no way out may not stand in both of a row's lists", () => {
+  // A task parked on a step with no outgoing edge that resumes into that same
+  // step arrives at it again, and every arrival replays the step — the defect
+  // the shipped document carried on three rows. `done` is the example's only
+  // such step: the status exemption admits it to parks_at, and pass_to_done
+  // makes it a declared edge out of record_artifact_pass, so nothing else in
+  // this row is wrong and only the new refusal can fire.
+  const graph = mutated((entry) => {
+    const row = entry.recovery.find((candidate) => candidate.reason === "core_flow_decision_required");
+    row.parks_at = ["await_alignment", "done"];
+    row.handled_at = ["record_artifact_pass"];
+    row.resume_targets = ["record_alignment", "done"];
+  });
+  const errors = validateGraph(graph, schema);
+  assert.ok(
+    errors.some((message) =>
+      message.startsWith("graph_recovery_terminal_resume: core_flow_decision_required parks at done"),
+    ),
+    `expected the terminal-resume refusal, got:\n${errors.join("\n") || "(no findings)"}`,
+  );
+  assert.ok(
+    !errors.some((message) => message.startsWith("resume_target_not_permitted") && message.includes("done")),
+    "done is a declared edge out of a handled_at step, so the refusal must be the terminal one",
+  );
+});
+
+test("a step with no way out may still be a park or a target, just never both", () => {
+  // The two legal halves the rule must not touch: `done` as a resume target of
+  // a row that never parks there — the shape the shipped document's eighty
+  // references to `human` take — and `done` as a place a row parks without
+  // resuming into it, which is how blocked_anchor names it.
+  for (const [parksAt, resumeTargets] of [
+    [["await_alignment"], ["record_alignment", "done"]],
+    [["await_alignment", "done"], ["record_alignment"]],
+  ]) {
+    const graph = mutated((entry) => {
+      const row = entry.recovery.find((candidate) => candidate.reason === "core_flow_decision_required");
+      row.parks_at = parksAt;
+      row.handled_at = ["record_artifact_pass"];
+      row.resume_targets = resumeTargets;
+    });
+    assert.deepEqual(validateGraph(graph, schema), []);
+  }
+
+  // And a step WITH a way out may stand in both lists at once: the shipped
+  // example does it, parking at freeze_artifact and resuming into it, which is
+  // legal because the step can still leave. The rule is keyed on the missing
+  // exit, not on the overlap.
+  const exampleGraph = example();
+  const bothLists = exampleGraph.recovery.filter(
+    (row) => row.parks_at.includes("freeze_artifact") && row.resume_targets.includes("freeze_artifact"),
+  );
+  assert.ok(bothLists.length > 0, "the example carries the legal both-lists shape this rule must spare");
+  assert.deepEqual(validateGraph(exampleGraph, schema), []);
+});
+
 test("resume is permitted out of a handled_at step, not only out of a parks_at step", () => {
   const graph = mutated((entry) => {
     const row = entry.recovery.find((r) => r.reason === "artifact_freeze_invalid");
@@ -1129,13 +1215,14 @@ test("resume is permitted out of a handled_at step, not only out of a parks_at s
 test("every edge into done carries a park reason, and none of them is a park", () => {
   // Three rounds of review caught three hand-counted claims of mine about this
   // document, this one twice: "no parking edge lands on done" and then "six of the
-  // eleven carry a reason", when all eleven do. A number in a contract that nothing
-  // recomputes is a number that rots, so the claim is asserted here instead.
+  // eleven carry a reason", when all eleven did. A number in a contract that nothing
+  // recomputes is a number that rots, so the claim is asserted here instead — and
+  // it is twelve now, the twelfth being ticket_done's declared exit.
   const graph = document();
   const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
   const steps = new Map(graph.steps.map((step) => [step.name, step]));
   const into = graph.transitions.filter((edge) => edge.to === "done");
-  assert.equal(into.length, 11);
+  assert.equal(into.length, 12);
   for (const edge of into) {
     assert.ok(
       edge.guards.some((id) => guards.get(id)?.park_reason !== undefined),
@@ -1146,11 +1233,12 @@ test("every edge into done carries a park reason, and none of them is a park", (
     graph.recovery.filter((row) => row.parks_at.includes("done")).map((row) => row.reason),
   );
   const under = into.filter((edge) => edge.guards.some((id) => named.has(guards.get(id)?.park_reason)));
-  assert.equal(under.length, 7, [...named].join(", "));
+  assert.equal(under.length, 8, [...named].join(", "));
 
   // And none of it is a park, which is the whole point: the landing has to be a
-  // human status step, and this one is `done`. That is the open debt, stated as a
-  // property of the document rather than as a sentence somebody has to trust.
+  // human status step, and this one is `done`. The stop is expressed by the edge
+  // rather than by a park record, stated as a property of the document rather
+  // than as a sentence somebody has to trust.
   assert.equal(steps.get("done").status, "done");
   const produced = producedAt(graph);
   for (const reason of named) {
@@ -1173,9 +1261,9 @@ test("every status step the shipped document names in a parks_at rests on the ex
       );
     }
   }
-  // Seven, and the count is asserted so that the claim "none of the seven is
+  // Eight, and the count is asserted so that the claim "none of the eight is
   // produced" cannot quietly become a claim about some other number.
-  assert.equal(references.length, 7, references.join(", "));
+  assert.equal(references.length, 8, references.join(", "));
 });
 
 test("the shipped document lists every step the graph parks a reason at", () => {
@@ -1224,4 +1312,104 @@ test("graph_recovery_parks_at_incomplete: a cap counts an edge whose reason its 
     }),
     "graph_recovery_parks_at_incomplete",
   );
+});
+
+test("no row of the shipped document stands a step with no way out in both of its lists", () => {
+  // The terminal-resume defect stated as a property, not a count. Before the
+  // fix this assertion failed naming exactly three rows — project_boundary_invalid
+  // at done, human and ticket_done, no_external_panel_lead and no_external_reviewer
+  // at human — which is the evidence the rule is no wider than the defect. The
+  // number stays there; what is asserted here is the invariant a neighbour
+  // ticket's added rows must also satisfy.
+  const graph = document();
+  const leaves = new Set(graph.transitions.map((edge) => edge.from));
+  const violations = [];
+  for (const row of graph.recovery) {
+    for (const name of row.parks_at) {
+      if (!leaves.has(name) && row.resume_targets.includes(name)) {
+        violations.push(`${row.reason} -> ${name}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test("graph_external_outcome_uncarried: a status the document may name and nothing performs", () => {
+  // The defect this closed, asked as «who executes» rather than «where is it
+  // mentioned»: `cond_272` said the outcome of an unresolved foreign movement is
+  // human or cancel, the graph drew the human half as `t_367` and the cancel half
+  // as nothing, and the views described a status operation without naming what
+  // performs it. On the base document — both the shipped one and the working
+  // example — this refusal fired once and named `cancel`. The statuses come from
+  // the step schema's own enum, so the question is not which fix was chosen: a
+  // step driving `cancel` would satisfy it as surely as the register does.
+  const graph = mutated((document) => { delete document.external_operations; });
+  assert.ok(
+    validateGraph(graph, schema).some((message) =>
+      message.startsWith("graph_external_outcome_uncarried: nothing carries cancel")),
+    "a status with no carrier must be refused",
+  );
+
+  // And the contradiction the other way. The views say the operation is a status
+  // operation and NOT a workflow step; a document that declares it here and also
+  // drives it from a step states both halves of that at once.
+  const both = mutated((document) => {
+    document.steps.push({ name: "abandon", kind: "status", status: "cancel" });
+    document.transitions.push({
+      id: "t_cancel",
+      from: "record_artifact_pass",
+      to: "abandon",
+      priority: 99,
+      guards: [document.guards[0].id],
+    });
+  });
+  assert.ok(
+    validateGraph(both, schema).some((message) =>
+      message.startsWith("graph_external_outcome_uncarried: cancel is declared an operation")),
+    "one status carried twice must be refused",
+  );
+
+  // Two entries for one status leave it undecided which operation performs it.
+  const twice = mutated((document) => {
+    document.external_operations.push({ status: "cancel", executor: "autosk cancel <id>" });
+  });
+  assert.ok(
+    validateGraph(twice, schema).some((message) => message.includes("two entries declare an executor")),
+    "a status with two executors must be refused",
+  );
+
+  // The positive halves: the shipped document and the working example both carry
+  // every status they may name, so neither is refused for this.
+  for (const carried of [document(), example()]) {
+    assert.deepEqual(
+      validateGraph(carried, schema).filter((message) =>
+        message.startsWith("graph_external_outcome_uncarried")),
+      [],
+    );
+  }
+});
+
+test("a terminal step stays a lawful resume target of every row that does not park there", () => {
+  // The fix removed the intersection, not the union: `done` is still a resume
+  // target of the rows that never park at it (ten, measured when it landed),
+  // `ticket_done` of the two commit rows — now under the ordinary rule, since
+  // it gained the exit to `done` — and `human` of every row whose park
+  // is an ordinary stop for a person. A row in that shape is legitimate; a row
+  // in the forbidden shape is the defect.
+  const graph = document();
+  const leaves = new Set(graph.transitions.map((edge) => edge.from));
+  const zeroed = new Set(graph.steps.map((step) => step.name).filter((name) => !leaves.has(name)));
+  for (const row of graph.recovery) {
+    for (const target of row.resume_targets) {
+      if (zeroed.has(target)) {
+        assert.ok(!row.parks_at.includes(target), `${row.reason} parks at ${target} and still resumes into it`);
+      }
+    }
+  }
+  const targeting = (name) => graph.recovery.filter((row) => row.resume_targets.includes(name)).map((row) => row.reason);
+  assert.ok(targeting("done").length >= 10, `done stopped being a target the union intends: ${targeting("done")}`);
+  for (const reason of ["commit_cas_failed", "commit_foreign_movement"]) {
+    assert.ok(targeting("ticket_done").includes(reason), `${reason} no longer resumes into ticket_done`);
+  }
+  assert.ok(targeting("human").length >= 80, `human stopped being a target of ordinary parking: ${targeting("human").length}`);
 });

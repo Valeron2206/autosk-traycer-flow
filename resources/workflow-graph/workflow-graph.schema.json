@@ -339,7 +339,7 @@
             }
           },
           "handled_at": {
-            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 61 of the 84 rows name none, and the widest holds 46 of project_boundary_invalid's 68. Bounded by the step count for the same reason as parks_at.",
+            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 61 of the 85 rows name none, and the widest holds 46 of project_boundary_invalid's 68. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
@@ -495,6 +495,36 @@
       "description": "sha256 over the canonical serialization of this document with this field removed, not over the committed file bytes.",
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "external_operations": {
+      "description": "The executors of task statuses this document can drive and does not carry by a step. Every status the step schema admits must have a carrier — a step that drives it or an entry here — and no status may have both: an entry here says the outcome is performed by a status operation outside the workflow, which is what the views state in the document’s own words. This is the one place an executor is named.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "executor"
+        ],
+        "properties": {
+          "status": {
+            "description": "The task status the operation drives. One entry per status.",
+            "enum": [
+              "human",
+              "done",
+              "cancel"
+            ]
+          },
+          "executor": {
+            "description": "The operation that performs it, written as a reader can invoke it.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
     }
   },
   "$defs": {

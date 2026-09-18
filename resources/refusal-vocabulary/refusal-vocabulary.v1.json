@@ -115,6 +115,9 @@
       "named_at": [
         "aggregate_verify",
         "dispatch_ticket_dag",
+        "draft_artifact",
+        "human",
+        "present_tickets_breakdown",
         "record_aggregate_remediation"
       ],
       "named_at_classes": [],
@@ -127,6 +130,9 @@
       "named_at": [
         "aggregate_verify",
         "dispatch_ticket_dag",
+        "draft_artifact",
+        "human",
+        "present_tickets_breakdown",
         "record_aggregate_remediation"
       ],
       "named_at_classes": [],
@@ -984,6 +990,16 @@
       "producer_files": []
     },
     {
+      "code": "ticket_completed",
+      "named_at": [
+        "ticket_done"
+      ],
+      "named_at_classes": [],
+      "closed_by": "03-technical-plan.md",
+      "producer": "daemon",
+      "producer_files": []
+    },
+    {
       "code": "ticket_edge_receipt_lost",
       "named_at": [
         "dispatch_ticket_dag"
@@ -1112,5 +1128,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "bdb6488c210890381ecf4b7853bb673d9e8e54a0590b557f48701e2c532f8c35"
+  "vocabulary_digest": "301e57e270756c099c275a63c10959e703354568e1658b8a624e56b2e07ef007"
 }

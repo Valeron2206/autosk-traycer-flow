@@ -48,6 +48,8 @@ Identify the exact CLI uses in autosk-flow; add the SDK primitives upstream; pro
 
 The CLI staying is deliberate. It is a good operator surface and a bad correctness dependency, and keeping it over the same API means it cannot drift into a second semantics — which is the failure the migration exists to prevent, not the CLI itself.
 
+The operator path for extension migrations is `autosk migrate` (`plan` / `apply` / `rollback` / `list`). It executes over the same daemon API, not a second mechanism — the verb is the operator's handle to the same receipt-anchored, read-back-verified store operations the correctness-critical path uses. For the verb surface and its refusals, see `docs/cli.md` §migrate.
+
 ## 8. Refusal classes
 
 - `sdk_generic_mutation`;
