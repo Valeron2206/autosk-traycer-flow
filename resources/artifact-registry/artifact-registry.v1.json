@@ -32,6 +32,35 @@
       "human_approval": "required"
     },
     {
+      "class": "anchor_pack",
+      "category": "behavior_defining",
+      "author_roles": [
+        "author"
+      ],
+      "requires": [
+        "design_schema"
+      ],
+      "paths": [
+        "resources/anchor-pack/anchor-pack.v1.json"
+      ],
+      "review": {
+        "mode": "narrow_review",
+        "condition": "every claim the slot makes is checked by its validator — member digests and sizes, the byte-exact rebuild of verifiable sources from the frozen commit, the aggregate pack digest and the round-record binding — and the semantic rule it enforces lives in the contract, a contract_document under full_panel"
+      },
+      "identity_fields": [
+        "project_identity",
+        "content_digest"
+      ],
+      "carrier": "autosk-flow/stage-carrier/v1",
+      "schema": "resources/anchor-pack/anchor-pack.schema.json",
+      "validator": "scripts/validate-anchor-pack.mjs",
+      "impacts": [],
+      "publication": "none",
+      "model_execution_allowed": false,
+      "retention": "durable",
+      "human_approval": "not_required"
+    },
+    {
       "class": "approved_delta",
       "category": "behavior_defining",
       "author_roles": [
@@ -358,6 +387,7 @@
       "model_family_policy": "cross_family_required",
       "requires": [],
       "paths": [
+        "docs/contracts/anchor-pack.md",
         "docs/contracts/approved-delta.md",
         "docs/contracts/arena.md",
         "docs/contracts/artifact-registry.md",
@@ -409,6 +439,7 @@
       ],
       "carrier": "autosk-flow/stage-carrier/v1",
       "impacts": [
+        "anchor_pack",
         "approved_delta",
         "arena_block",
         "artifact_registry",
@@ -2018,5 +2049,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "3e31bf8dd2427bf0c53c1048b800e66b23a446feaca3c4b60eeee7ff95cdb41f"
+  "registry_digest": "df714122e93ac9ba04d0ff37c2533997b4605eded9c93fd3a263e478b332d922"
 }

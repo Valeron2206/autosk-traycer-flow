@@ -1460,7 +1460,7 @@ Resume contract:
 
 | park.reason | Существующий workflow step | Требование |
 | --- | --- | --- |
-| brief_alignment_required | clarify_alignment, record_alignment | current framing packet и matching daemon `UserDecisionRecord` либо re-resolved exact active policy |
+| brief_alignment_required | clarify_alignment, record_alignment | current framing packet и matching daemon `UserDecisionRecord`; re-resolved active policy не подходит |
 | core_flow_decision_required | clarify_alignment, record_alignment | каждое material behavior decision закрыто daemon record; model self-approval отсутствует |
 | tech_plan_readiness_required | clarify_alignment, record_alignment | current readiness record, classifier proof и daemon decision/current policy совпадают |
 | tickets_breakdown_alignment_required | present_tickets_breakdown, record_alignment | current Ticket set/DAG/scopes/outcomes/order/exclusions показаны и daemon approval subject hash совпадает |

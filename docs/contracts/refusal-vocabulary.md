@@ -41,7 +41,7 @@ Matching is whole-word: a short code is a suffix of longer ones, and a file that
 
 ## 6. Every park reason has one owner
 
-Most of these reasons are the workflow's own vocabulary: they belong to the resume contract in `03-technical-plan.md` §7 and to no artifact. Seventeen of the eighty-five are additionally closed by the artifact contract they belong to.
+Most of these reasons are the workflow's own vocabulary: they belong to the resume contract in `03-technical-plan.md` §7 and to no artifact. Twenty of the eighty-five are additionally closed by the artifact contract they belong to.
 
 Either way the owner is a recorded field, not something a reader infers. "Somebody must have closed this somewhere" is exactly how a code with no owner survives, so an entry with no `closed_by`, or one naming a document that does not close it, is `refusal_vocabulary_owner_missing`.
 
@@ -61,4 +61,4 @@ Closed set: `refusal_vocabulary_drift`, `refusal_vocabulary_unknown_step`, `refu
 
 Decided: that the vocabulary is finite and extracted, that every reason parks at a registered step or a declared class, that the owner and the producer are recorded rather than implied, that no name is declared by two contracts, and that every contract closes its own set.
 
-Deferred, and named: the daemon side. Seventy-one of the reasons are parked by `autoskd`, and this repository can check that they are declared, enumerated and bound to a real step — it cannot check that the daemon emits them. That belongs to the daemon's own tests, and no count here should be read as covering it.
+Deferred, and named: the daemon side. Sixty-nine of the reasons are parked by `autoskd`, and this repository can check that they are declared, enumerated and bound to a real step — it cannot check that the daemon emits them. That belongs to the daemon's own tests, and no count here should be read as covering it.

@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "anchor_version": 2,
+  "round": 4,
+  "attempt": 2,
+  "frozen_commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+  "scope_identity": "c611a46b08f5a27323a2418206e616532d4c66f9dd535349f5332795726bd134",
+  "candidate_digest": "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+  "members": [
+    {
+      "path": "pack/anchor.md",
+      "sha256": "f033f46736a39f9103b6c099a306c4618bbb5e1ded2c8a52ee9c638d36c2b9b5",
+      "size": 18268,
+      "source": {
+        "kind": "authored"
+      }
+    },
+    {
+      "path": "pack/normative-technical-plan-7.md",
+      "sha256": "d6e36c64e40f6f61b7730ce8f71fce22a5fc7f945b526d804be6d4b7ed4e080c",
+      "size": 26298,
+      "source": {
+        "kind": "doc_sections",
+        "commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+        "path": "03-technical-plan.md",
+        "from_heading": "## 7.",
+        "until_heading": "## 8."
+      }
+    },
+    {
+      "path": "pack/normative-workflow-factory-2-8.md",
+      "sha256": "58dca37676add37d53c4a93ce6ea5fc41fdbddf4a2a18bedc9be8f425a2a8241",
+      "size": 15012,
+      "source": {
+        "kind": "doc_sections",
+        "commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+        "path": "docs/contracts/workflow-factory.md",
+        "from_heading": "## 2.",
+        "until_heading": "## 9."
+      }
+    },
+    {
+      "path": "pack/normative-workflow-graph-6-8.md",
+      "sha256": "1be532d86b125bcf2b48b6e41f4ac5f3a0c7bf34c0d6aa78ff8808220a26b843",
+      "size": 11375,
+      "source": {
+        "kind": "doc_sections",
+        "commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+        "path": "docs/contracts/workflow-graph.md",
+        "from_heading": "## 6.",
+        "until_heading": "## 9."
+      }
+    },
+    {
+      "path": "pack/panel-package.md",
+      "sha256": "22f07e1a0a3dbb5d913a2bdd24e7f3e0dfac058b293c916501009f108677474b",
+      "size": 190078,
+      "source": {
+        "kind": "built",
+        "builder": "scripts/build-panel-package.mjs"
+      }
+    },
+    {
+      "path": "pack/workflow-graph.v1.json",
+      "sha256": "5b02ed5de9e74e30037e3500b6bc62ec9b2ec0735f05d49504bccf8dafc1bbfe",
+      "size": 433168,
+      "source": {
+        "kind": "repo_file",
+        "commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+        "path": "resources/workflow-graph/workflow-graph.v1.json"
+      }
+    }
+  ],
+  "pack_digest": "330c2dca988f5dd7e1a4e911e5acca44400b0fcf247639130dced1e1320becbf",
+  "canonical_form": {
+    "encoding": "utf-8",
+    "line_ending": "lf",
+    "path_order": "raw_bytes",
+    "json_indent": 2,
+    "trailing_newline": true
+  }
+}

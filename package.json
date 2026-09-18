@@ -58,6 +58,7 @@
     "validate:workflow-views": "node scripts/render-workflow-views.mjs",
     "validate:workflow-chains": "node scripts/check-workflow-chains.mjs",
     "validate:runtime-identity-lock": "node scripts/validate-runtime-identity-lock.mjs",
+    "validate:anchor-pack": "node scripts/validate-anchor-pack.mjs",
     "render:workflow-views": "node scripts/render-workflow-views.mjs --write"
   },
   "engines": {

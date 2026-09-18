@@ -213,6 +213,46 @@ test("a required_state rewritten in place is caught too", () => {
   );
 });
 
+test("the two brief_alignment rows state one rule: a daemon record, not a policy", () => {
+  const graph = document();
+  const rows = graph.views.map((view) =>
+    view.rows.filter((row) => row.covers.includes("brief_alignment_required")),
+  );
+  assert.deepEqual(
+    rows.map((found) => found.length),
+    [1, 1],
+    "each view covers the reason exactly once",
+  );
+  // The shared `binds` is by construction — the digest covers the recovery
+  // entries, not the cells — so it cannot notice the two requirements
+  // disagreeing. It did not: the park row admitted "либо re-resolved exact
+  // active policy" where the resume row's rule has no such path. One rule
+  // means both require the daemon `UserDecisionRecord` and neither offers a
+  // policy in its place.
+  //
+  // An offered policy is not caught by looking for the keywords:
+  // "... либо re-resolved exact active policy; policy не подходит" carries
+  // both while still admitting the path. So the requirement is checked
+  // clause by clause: a clause that mentions policy must be the clause that
+  // excludes it.
+  assert.equal(rows[0][0].binds, rows[1][0].binds);
+  for (const row of [rows[0][0], rows[1][0]]) {
+    assert.match(row.cells[2], /UserDecisionRecord/);
+    assert.match(row.cells[2], /policy не подходит/);
+    // The defect was an alternative offered with "либо", and the clause rule
+    // cannot see an admission and an exclusion sharing one clause.
+    assert.doesNotMatch(row.cells[2], /либо/);
+    for (const clause of row.cells[2].split(";")) {
+      if (!/policy/i.test(clause)) continue;
+      assert.match(
+        clause,
+        /policy не подходит/i,
+        `a clause that mentions policy without excluding it: ${clause.trim()}`,
+      );
+    }
+  }
+});
+
 /**
  * Coverage at step granularity, which is what the reason-level check above cannot
  * see. A reason may be covered by rows that name only some of the steps the graph

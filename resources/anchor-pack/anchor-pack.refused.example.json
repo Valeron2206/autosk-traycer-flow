@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "anchor_version": 2,
+  "round": 4,
+  "attempt": 2,
+  "frozen_commit": "228de2cd40d9d1b749efdef215c471963de8e882",
+  "scope_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidate_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "members": [
+    {
+      "path": "pack/anchor.md",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 18268,
+      "source": {
+        "kind": "authored"
+      }
+    },
+    {
+      "path": "pack/normative-technical-plan-7.md",
+      "sha256": "d6e36c64e40f6f61b7730ce8f71fce22a5fc7f945b526d804be6d4b7ed4e080c",
+      "size": 26298,
+      "source": {
+        "kind": "authored"
+      }
+    },
+    {
+      "path": "pack/normative-workflow-factory-2-8.md",
+      "sha256": "58dca37676add37d53c4a93ce6ea5fc41fdbddf4a2a18bedc9be8f425a2a8241",
+      "size": 15012,
+      "source": {
+        "kind": "authored"
+      }
+    },
+    {
+      "path": "pack/normative-workflow-graph-6-8.md",
+      "sha256": "1be532d86b125bcf2b48b6e41f4ac5f3a0c7bf34c0d6aa78ff8808220a26b843",
+      "size": 11375,
+      "source": {
+        "kind": "authored"
+      }
+    },
+    {
+      "path": "pack/panel-package.md",
+      "sha256": "22f07e1a0a3dbb5d913a2bdd24e7f3e0dfac058b293c916501009f108677474b",
+      "size": 190078,
+      "source": {
+        "kind": "authored"
+      }
+    },
+    {
+      "path": "pack/workflow-graph.v1.json",
+      "sha256": "5b02ed5de9e74e30037e3500b6bc62ec9b2ec0735f05d49504bccf8dafc1bbfe",
+      "size": 433168,
+      "source": {
+        "kind": "authored"
+      }
+    }
+  ],
+  "pack_digest": "bbd458848cc2a237480f173c6452ff51fd0fb21777dd6d90bd922738b1ac6895",
+  "canonical_form": {
+    "encoding": "utf-8",
+    "line_ending": "lf",
+    "path_order": "raw_bytes",
+    "json_indent": 2,
+    "trailing_newline": true
+  }
+}

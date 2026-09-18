@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "0d4c625b332d3cb8413dcba41999bdf9676f04e823aefda7961d11029d6e4353"
+      "sha256": "8aab471eeb4b185a15ab0afeb4842c9dbb56eeabd16c943d1acecb82d32243eb"
     },
     {
       "path": "04-decisions.md",
@@ -29,6 +29,10 @@
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
       "sha256": "28cdf414fadb563d6911eacfca71b5bd0e4c970b67cb6ea61ecc896139fee195"
+    },
+    {
+      "path": "docs/contracts/anchor-pack.md",
+      "sha256": "65bc2d12e5837175e69cbee9af56680b51f5cf3a8a2333508ef130078f4ea2f4"
     },
     {
       "path": "docs/contracts/approved-delta.md",
@@ -148,7 +152,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "1d35e6ec537acf5dc60ce040950ec581c956e57a78f5b616bcd0252ab8a4ef71"
+      "sha256": "602d21c012f293d53ab78d4e25515cb257b4e024ba0fa11d50f70a54e0cd13ad"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -188,11 +192,23 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "741e348b1a06b71c783187d5eda80a7b902b5a9a924ea5d05fd985f614d6689b"
+      "sha256": "3f17fc5b23c002191c704508d59ecf966baa4b641f624e2c92ae53b920528902"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "49f0df197b35f9af30a98d61a31876758d713647add1f0558c11639c7a1f6661"
+      "sha256": "6a2654ed71deb920eaa08cb61d2a2f130ae481b9155d37c727ebcfb18594e4fd"
+    },
+    {
+      "path": "resources/anchor-pack/anchor-pack.refused.example.json",
+      "sha256": "c61b23e9c4e3621b48a2aaff629b83a345bffe9e68dbf4c6134db644b80d2cea"
+    },
+    {
+      "path": "resources/anchor-pack/anchor-pack.schema.json",
+      "sha256": "7f74b43611c9d8bccd7cd109ed77b5eaba3b3a1e68e2cfba892825199389ed4c"
+    },
+    {
+      "path": "resources/anchor-pack/anchor-pack.v1.json",
+      "sha256": "5186e4175bc3d54162227a2dcc6d7f158fd22b26ae5f19559c6ed7c63edd7fc5"
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
@@ -216,7 +232,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "e0aecda19e763d2dd172699f61dce074216d55b6762424e4faa427d573512958"
+      "sha256": "3fd342f2a9365e3c9ec394916cc50abf103ed4a7a50b31597e8f0a1e8e1d5129"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
@@ -504,10 +520,10 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "735aa9736c39d3a8aeed065692644771e53c82add96c25bd51912d2d88744f17"
+      "sha256": "106d6188fbca2d631cec225f5cf1e260217c9af1f0364ee4427902199d3f4420"
     }
   ],
-  "candidate_digest": "ca1052450b796ed4de44b63ce5e14f7cad63b0bc38853a7a988378307bfc6f87",
+  "candidate_digest": "502677da32c388cd237c31c800093fcc45fa9238a1e4906f5a54949a78f8619b",
   "dispositions": [
     {
       "issue": 3,

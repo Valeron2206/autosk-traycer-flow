@@ -14459,7 +14459,7 @@
           "cells": [
             "brief_alignment_required",
             "clarify_alignment, record_alignment",
-            "current framing packet и matching daemon `UserDecisionRecord` либо re-resolved exact active policy"
+            "current framing packet и matching daemon `UserDecisionRecord`; re-resolved active policy не подходит"
           ]
         },
         {
@@ -16001,7 +16001,7 @@
       ]
     }
   ],
-  "canonical_digest": "7294aefc28bb27cdd2bac1659643a709ea8392c934b3aa28fe7acff582e05319",
+  "canonical_digest": "70345a3829acb8a3cd39578e42cab00368b5709b94c870f63522143bf705a522",
   "external_operations": [
     {
       "status": "cancel",
