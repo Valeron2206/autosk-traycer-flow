@@ -12,7 +12,7 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "8aab471eeb4b185a15ab0afeb4842c9dbb56eeabd16c943d1acecb82d32243eb"
+      "sha256": "d0ab24efe11c5246e0c8193f2554afe1f90850c60ca330cd7bce8107e5932931"
     },
     {
       "path": "04-decisions.md",
@@ -196,7 +196,7 @@
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "cbd3da474058dcf77d71274f6936c50f68006e0de4b9be1d25a936749bf44b34"
+      "sha256": "415e121c5c3f81556a769ee64e4cecbd4decd53f860421e4f209278aaaba8454"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -520,10 +520,10 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "0d0df486faffb1e93d08d8c116c4d0c26dea9793bdd77aeb4a28dc47fdd64125"
+      "sha256": "3e0d2b46b18acf78f859d00d6c77400966fc473ded8074acd42016cf87c04315"
     }
   ],
-  "candidate_digest": "887147d131af8e55d3f852203de5db99264fe85ef6f3b5238ed7187d68296d58",
+  "candidate_digest": "ad62e6f00bd06f9275c12e030daa0e6396b01a3ad93ae764c8b30f4898684125",
   "dispositions": [
     {
       "issue": 3,

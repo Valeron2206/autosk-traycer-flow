@@ -1031,9 +1031,10 @@
         "audit_retained",
         "candidate_keepalive",
         "phase",
-        "status"
+        "status",
+        "transition_takings"
       ],
-      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и round >= cap — human с park.reason=review_cap"
+      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и transition_takings >= cap — human с park.reason=review_cap"
     },
     {
       "id": "cond_136",
@@ -1041,9 +1042,10 @@
         "audit_retained",
         "candidate_keepalive",
         "phase",
-        "status"
+        "status",
+        "transition_takings"
       ],
-      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и round < cap — fix_artifact"
+      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и transition_takings < cap — fix_artifact"
     },
     {
       "id": "cond_137",
@@ -2558,16 +2560,18 @@
     {
       "id": "cond_332",
       "reads": [
-        "task_record"
+        "task_record",
+        "transition_takings"
       ],
-      "description": "NOT_PASS/findings и round >= cap — human с review_cap"
+      "description": "NOT_PASS/findings и transition_takings >= cap — human с review_cap"
     },
     {
       "id": "cond_333",
       "reads": [
-        "task_record"
+        "task_record",
+        "transition_takings"
       ],
-      "description": "NOT_PASS/findings и round < cap — fix"
+      "description": "NOT_PASS/findings и transition_takings < cap — fix"
     },
     {
       "id": "cond_334",
@@ -17154,7 +17158,7 @@
       ]
     }
   ],
-  "canonical_digest": "37b71a1b40d3d3e432577be9eae990c94909fefff09c0efd8eb8c5eb26cc642b",
+  "canonical_digest": "2a38be312d323aee78d645acd6afdda22b678149bcffc262face868c334146cf",
   "external_operations": [
     {
       "status": "cancel",

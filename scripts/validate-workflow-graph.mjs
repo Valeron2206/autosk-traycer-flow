@@ -56,6 +56,7 @@ export const CONTRACT_MARKER = "<!-- workflow-graph-contract:v1 -->";
  * to hang a reason on.
  */
 export const REFUSALS = Object.freeze([
+  "graph_cap_quantity_undeclared",
   "graph_cap_transition_shared",
   "graph_cap_transition_unknown",
   "graph_digest_stale",
@@ -547,6 +548,108 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
         `graph_cap_transition_shared: cap ${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), ` +
           `which shares its pair with ${siblings.join(", ")}`,
       );
+    }
+  }
+
+  // Which predicates are a cap's is read off the edges, not off the predicates:
+  // the guards on its counted transition — they let the flow take another
+  // round — and the guards on the sibling edge that carries the cap's own
+  // park_reason, which is the edge the flow parks on when the limit is reached.
+  // Whatever those descriptions compare with `cap` is the quantity the cap
+  // fires on, and the document must declare it readable: the union of every
+  // predicate's `reads` is the vocabulary an evaluator draws names from, and a
+  // compared quantity outside it is a quantity nothing names. The shipped
+  // document compared `round` with both caps while no predicate's reads
+  // declared it. The check stays this narrow on purpose: naming ANY word of
+  // the vocabulary in a description outside one's own reads is a different,
+  // measuredly lawful shape — most predicates do it — and refusing that would
+  // redden the document on the majority that is not the defect.
+  //
+  // The comparison notation the check reads is a closed set, parsed exactly —
+  // a pattern patched per counterexample always has a next counterexample.
+  // `operand OP operand`, the word `cap` on one side and an identifier on the
+  // other, each operand either bare or wrapped in ONE balanced pair of
+  // parentheses, whitespace free, OP one of `<`, `>`, `<=`, `>=`, `=`, `==`,
+  // `!=`, `≤`, `≥`, `≠`. Chains are not supported: a `cap` whose comparison
+  // touches another operator on either side is refused, never checked on
+  // either side — `transition_takings >= cap > round` hid an undeclared
+  // quantity behind a lawful first comparison. So is a `cap` beside an
+  // unbalanced or stray parenthesis, or with no comparison around it at all.
+  // A predicate that never names `cap` owes nothing — auxiliary guards are
+  // left alone.
+  //
+  // The token boundary is the whole run of identifier characters, leading
+  // digits included: `0transition_takings` is ONE run and not an identifier,
+  // so it is no operand, and `0cap` contains no `cap` word at all — the rule
+  // never reaches it. Slicing the run at the digit let the first through and
+  // made the second a false refusal.
+  const declaredReads = new Set(document.predicates.flatMap((entry) => entry.reads));
+  const capToken = /[A-Za-z0-9_]+|<=|>=|==|!=|≤|≥|≠|<|>|=|\(|\)|[\s\S]/gu;
+  const isOperator = (token) => typeof token === "string" && /^(?:<=|>=|==|!=|≤|≥|≠|<|>|=)$/u.test(token);
+  const isIdentifier = (token) => typeof token === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(token);
+  const isParen = (token) => token === "(" || token === ")";
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (!counted) continue; // already refused as graph_cap_transition_unknown
+    const named = new Set(counted.guards.map((id) => guards.get(id)?.predicate));
+    for (const edge of outgoing.get(counted.from) ?? []) {
+      if (edge.id === counted.id) continue;
+      if (edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason)) {
+        for (const id of edge.guards) named.add(guards.get(id)?.predicate);
+      }
+    }
+    for (const id of named) {
+      const entry = document.predicates.find((candidate) => candidate.id === id);
+      if (!entry) continue; // already refused as graph_predicate_unknown
+      const tokens = [...entry.description.matchAll(capToken)]
+        .map((match) => match[0])
+        .filter((token) => !/^\s+$/u.test(token));
+      for (let at = 0; at < tokens.length; at += 1) {
+        if (tokens[at] !== "cap") continue;
+        // cap's operand is bare, or exactly one balanced pair of parentheses —
+        // any other paren next to it is a form the check cannot read.
+        let lo = at;
+        let hi = at;
+        let malformed = false;
+        if (tokens[at - 1] === "(" && tokens[at + 1] === ")") {
+          lo = at - 1;
+          hi = at + 1;
+        } else if (isParen(tokens[at - 1]) || isParen(tokens[at + 1])) {
+          malformed = true;
+        }
+        const leftOp = isOperator(tokens[lo - 1]);
+        const rightOp = isOperator(tokens[hi + 1]);
+        if (leftOp === rightOp) malformed = true; // both sides is a chain, neither is no comparison
+        let quantity;
+        if (!malformed) {
+          const operator = leftOp ? lo - 1 : hi + 1;
+          const near = leftOp ? operator - 1 : operator + 1;
+          let operandLo = near;
+          let operandHi = near;
+          if (leftOp && tokens[near] === ")" && isIdentifier(tokens[near - 1]) && tokens[near - 2] === "(") {
+            operandLo = near - 2;
+          } else if (!leftOp && tokens[near] === "(" && isIdentifier(tokens[near + 1]) && tokens[near + 2] === ")") {
+            operandHi = near + 2;
+          } else if (!isIdentifier(tokens[near])) {
+            malformed = true;
+          }
+          const before = tokens[Math.min(lo, operandLo) - 1];
+          const after = tokens[Math.max(hi, operandHi) + 1];
+          if (isOperator(before) || isOperator(after) || isParen(before) || isParen(after)) malformed = true;
+          quantity = tokens[operandLo] === "(" ? tokens[operandLo + 1] : tokens[operandLo];
+        }
+        if (malformed) {
+          errors.push(
+            `graph_cap_quantity_undeclared: cap ${cap.cycle}'s predicate ${id} mentions cap outside ` +
+              "a comparison the validator can read",
+          );
+        } else if (!declaredReads.has(quantity)) {
+          errors.push(
+            `graph_cap_quantity_undeclared: cap ${cap.cycle}'s predicate ${id} compares with ${quantity}, ` +
+              "which no predicate's reads declares",
+          );
+        }
+      }
     }
   }
 
