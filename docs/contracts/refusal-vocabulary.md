@@ -61,4 +61,4 @@ Closed set: `refusal_vocabulary_drift`, `refusal_vocabulary_unknown_step`, `refu
 
 Decided: that the vocabulary is finite and extracted, that every reason parks at a registered step or a declared class, that the owner and the producer are recorded rather than implied, that no name is declared by two contracts, and that every contract closes its own set.
 
-Deferred, and named: the daemon side. Sixty-nine of the reasons are parked by `autoskd`, and this repository can check that they are declared, enumerated and bound to a real step — it cannot check that the daemon emits them. That belongs to the daemon's own tests, and no count here should be read as covering it.
+Deferred, and named: the daemon side. Sixty-eight of the reasons are parked by `autoskd`, and this repository can check that they are declared, enumerated and bound to a real step — it cannot check that the daemon emits them. That belongs to the daemon's own tests, and no count here should be read as covering it.

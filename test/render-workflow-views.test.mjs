@@ -29,6 +29,7 @@ import {
   renderRow,
   renderView,
   rosterErrors,
+  ruleErrors,
   stepCoverageErrors,
 } from "../scripts/render-workflow-views.mjs";
 
@@ -301,4 +302,133 @@ test("a reason a view omits is not asked to name its steps", () => {
   view.rows = view.rows.filter((row) => !row.covers.includes(omitted));
   view.omits = [...(view.omits ?? []), omitted];
   assert.deepEqual(stepCoverageErrors(graph), []);
+});
+
+/**
+ * The checks above compare the text each row renders and the reasons each row
+ * covers. What none of them can see is whether two rows bound to the same
+ * recovery entries state the same rule: `binds` covers the entries, not the
+ * sentences, so "admitted here, excluded there" passes every one of them. That
+ * is exactly the pre-t06 pair — the park row offered "либо re-resolved exact
+ * active policy" where the resume row allowed no such path — and it shipped
+ * green. The `rule` annotation is the declared half of the comparison the
+ * digest cannot make: what the text requires, what it admits as sufficient and
+ * what it excludes, over the `decision_options` vocabulary. It is checked only
+ * where it can mean anything — rows sharing one `binds` over a non-empty
+ * `covers`, inside one declared case.
+ */
+
+test("the shipped rule annotations declare no conflicts", () => {
+  assert.deepEqual(ruleErrors(document()), []);
+});
+
+test("a row admitting what its bound sibling excludes is refused", () => {
+  const graph = document();
+  const park = graph.views.find((view) => view.id === "park_table");
+  // The pre-t06 text, annotated the way that text reads: the framing packet
+  // with the daemon record, or the re-resolved policy — each offered.
+  park.rows[0].cells[2] = "current framing packet и matching daemon `UserDecisionRecord` либо re-resolved exact active policy";
+  park.rows[0].rule = {
+    requires: [],
+    admits: ["daemon_user_decision_record", "framing_packet_current", "policy_as_decision_substitute"],
+    excludes: [],
+  };
+  assert.ok(
+    ruleErrors(graph).includes(
+      "view_rule_conflict: park_table row 1 offers policy_as_decision_substitute, which core_flows_resume row 1 excludes",
+    ),
+    "the live resume row excludes the option the offered path needs",
+  );
+});
+
+test("a row that offers and excludes one option is refused", () => {
+  const graph = document();
+  graph.views.find((view) => view.id === "park_table").rows[0].rule = {
+    requires: ["daemon_user_decision_record"],
+    admits: [],
+    excludes: ["daemon_user_decision_record"],
+  };
+  assert.ok(
+    ruleErrors(graph).some((message) => message === "view_rule_conflict: park_table row 1 both offers and excludes daemon_user_decision_record"),
+    "a self-contradicting annotation must fail",
+  );
+});
+
+test("an option outside the registered vocabulary is refused", () => {
+  const graph = document();
+  graph.views.find((view) => view.id === "park_table").rows[0].rule.requires.push("unregistered_option");
+  assert.ok(
+    ruleErrors(graph).includes("view_option_unknown: park_table row 1 names unregistered_option, which the graph does not register"),
+    "an annotation may only name declared options",
+  );
+});
+
+test("an option the registry carries and no row names is refused", () => {
+  const graph = document();
+  graph.decision_options.push("unclaimed_option");
+  assert.ok(
+    ruleErrors(graph).includes("view_option_unused: the graph registers unclaimed_option, which no row names"),
+    "the registry is exactly the options in play, no dead entries",
+  );
+});
+
+test("a case outside the view's registry is refused", () => {
+  const graph = document();
+  graph.views.find((view) => view.id === "park_table").rows[14].case = "unregistered_case";
+  assert.ok(
+    ruleErrors(graph).includes("view_case_unknown: park_table row 15 declares case unregistered_case, which park_table does not register"),
+    "a case must come from the view's own list",
+  );
+});
+
+test("a bound row declaring no rule is refused", () => {
+  const graph = document();
+  const row = graph.views.find((view) => view.id === "park_table").rows[0];
+  delete row.rule;
+  assert.ok(
+    ruleErrors(graph).includes("view_rule_missing: park_table row 1 shares a binding and declares no rule"),
+    "the annotation is not optional where rows share a binding",
+  );
+});
+
+test("a bound row declaring no case in a cased group is refused", () => {
+  const graph = document();
+  const row = graph.views.find((view) => view.id === "park_table").rows[14];
+  delete row.case;
+  assert.ok(
+    ruleErrors(graph).includes("view_case_missing: park_table row 15 is bound with rows that declare cases and declares none"),
+    "an uncased row in a cased group would escape comparison silently",
+  );
+});
+
+test("rows that bind no recovery entries are never compared", () => {
+  const graph = document();
+  const resume = graph.views.find((view) => view.id === "core_flows_resume");
+  // The four covers:[] rows share one binds over an empty set — a degenerate
+  // grouping that is not a shared decision. Annotate two of them so that
+  // comparing them would flag, and require silence.
+  resume.rows[16].rule = { requires: ["daemon_user_decision_record"], admits: [], excludes: [] };
+  resume.rows[17].rule = { requires: [], admits: [], excludes: ["daemon_user_decision_record"] };
+  const errors = ruleErrors(graph);
+  assert.ok(
+    !errors.some((message) => message.startsWith("view_rule_conflict")),
+    "an empty covers binds nothing, so nothing is compared: " + errors.join("\n"),
+  );
+  assert.ok(
+    !errors.some((message) => message.startsWith("view_rule_missing")),
+    "the degenerate group is also exempt from the annotation requirement",
+  );
+});
+
+test("rows in different cases are never compared", () => {
+  const graph = document();
+  const park = graph.views.find((view) => view.id === "park_table");
+  // gate_child excludes what only the planned case's row offers: the group
+  // names more than one decision, so these rows never face each other.
+  park.rows[14].rule = { requires: [], admits: [], excludes: ["pending_anchor_current"] };
+  const errors = ruleErrors(graph);
+  assert.ok(
+    !errors.some((message) => message.startsWith("view_rule_conflict")),
+    "different cases are different decisions: " + errors.join("\n"),
+  );
 });

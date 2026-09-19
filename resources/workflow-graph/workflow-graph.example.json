@@ -34,6 +34,20 @@
         "review_disposition"
       ],
       "description": "The current review disposition for this candidate is pass or waived."
+    },
+    {
+      "id": "freeze_round_open",
+      "reads": [
+        "transition_takings"
+      ],
+      "description": "transition_takings < cap — the freeze may run another round"
+    },
+    {
+      "id": "freeze_round_closed",
+      "reads": [
+        "transition_takings"
+      ],
+      "description": "transition_takings >= cap — the freeze rounds are spent"
     }
   ],
   "steps": [
@@ -125,6 +139,22 @@
         "actor": "agent"
       },
       "park_reason": "quick_classification_invalid"
+    },
+    {
+      "id": "freeze_round_open_guard",
+      "predicate": "freeze_round_open",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "artifact_freeze_invalid"
+    },
+    {
+      "id": "freeze_round_closed_guard",
+      "predicate": "freeze_round_closed",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "review_cap"
     }
   ],
   "transitions": [
@@ -176,7 +206,9 @@
       "from": "freeze_artifact",
       "to": "freeze_artifact",
       "priority": 1,
-      "guards": []
+      "guards": [
+        "freeze_round_open_guard"
+      ]
     },
     {
       "id": "pass_to_done",
@@ -193,6 +225,15 @@
       "to": "freeze_artifact",
       "priority": 1,
       "guards": []
+    },
+    {
+      "id": "freeze_to_await_at_cap",
+      "from": "freeze_artifact",
+      "to": "await_alignment",
+      "priority": 3,
+      "guards": [
+        "freeze_round_closed_guard"
+      ]
     }
   ],
   "caps": [
@@ -275,7 +316,7 @@
       "required_state": "a new anchor version, a daemon impact disposition, and current authority, alignment and classifier hashes"
     }
   ],
-  "canonical_digest": "5367ea4c0f39ad4d910bc7a8305399d600404af09b84c2493c0acbe54c944ddf",
+  "canonical_digest": "33c7b1902fdc222f6b1a5fff5e1ee2fea27d91eba736a9cb87963da260782c6f",
   "external_operations": [
     {
       "status": "cancel",

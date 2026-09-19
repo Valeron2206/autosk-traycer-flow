@@ -56,6 +56,10 @@ export const CONTRACT_MARKER = "<!-- workflow-graph-contract:v1 -->";
  * to hang a reason on.
  */
 export const REFUSALS = Object.freeze([
+  "graph_cap_binding_ambiguous",
+  "graph_cap_binding_incomplete",
+  "graph_cap_quantity_undeclared",
+  "graph_cap_transition_shared",
   "graph_cap_transition_unknown",
   "graph_digest_stale",
   "graph_duplicate_key",
@@ -522,6 +526,209 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   for (const cap of document.caps) {
     if (!transitions.has(cap.counted_transition)) {
       errors.push(`graph_cap_transition_unknown: cap ${cap.cycle} counts ${cap.counted_transition}`);
+    }
+  }
+
+  // A cap is measured at runtime by the durable transition_takings counter,
+  // which is keyed by the (from, to) pair an edge traverses — the step the flow
+  // leaves and the step it lands on — not by the transition's own id. So the
+  // counted edge must be the only one on its pair: a second transition over
+  // the same pair would have its takings counted toward the cap as well, and
+  // the document would be claiming a precision the counter cannot give. An
+  // uncapped shared pair is fine — nothing reads its count.
+  const byPair = new Map();
+  for (const edge of document.transitions) {
+    const pair = `${edge.from} -> ${edge.to}`;
+    byPair.set(pair, [...(byPair.get(pair) ?? []), edge.id]);
+  }
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (!counted) continue; // already refused as graph_cap_transition_unknown
+    const siblings = (byPair.get(`${counted.from} -> ${counted.to}`) ?? []).filter((id) => id !== counted.id);
+    if (siblings.length > 0) {
+      errors.push(
+        `graph_cap_transition_shared: cap ${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), ` +
+          `which shares its pair with ${siblings.join(", ")}`,
+      );
+    }
+  }
+
+  // The same per-guard binding the runtime applies is checked here, so a
+  // document that cannot be bound is refused before it ships rather than at
+  // build. Two ways the binding is incomplete: a counted edge that declares
+  // no guards carries nothing the below-limit term can bind to, and a cap no
+  // sibling edge carries the park_reason of has nothing to park on at the
+  // limit. Two ways it is ambiguous: a guard the binding reaches that another
+  // edge also references would carry the cap's constraint onto a move the cap
+  // never named, and an edge two caps bind would owe both limits.
+  const guardRefs = new Map();
+  for (const edge of document.transitions) {
+    for (const id of new Set(edge.guards)) {
+      guardRefs.set(id, [...(guardRefs.get(id) ?? []), edge]);
+    }
+  }
+  const boundGuards = new Map();
+  const boundEdges = new Map();
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (!counted) continue; // already refused as graph_cap_transition_unknown
+    if (counted.guards.length === 0) {
+      errors.push(
+        `graph_cap_binding_incomplete: cap ${cap.cycle} counts ${counted.id}, ` +
+          "which declares no guards to bind below its limit",
+      );
+      continue;
+    }
+    const countedEntry = boundEdges.get(counted.id) ?? { edge: counted, caps: new Set() };
+    countedEntry.caps.add(cap);
+    boundEdges.set(counted.id, countedEntry);
+    for (const id of counted.guards) {
+      boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge: counted, cap }]);
+    }
+    const carrying = (outgoing.get(counted.from) ?? []).filter(
+      (edge) => edge.id !== counted.id && edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason),
+    );
+    if (carrying.length === 0) {
+      errors.push(
+        `graph_cap_binding_incomplete: cap ${cap.cycle} has no edge out of ${counted.from} ` +
+          `carrying ${cap.park_reason} to park on at the limit`,
+      );
+      continue;
+    }
+    for (const edge of carrying) {
+      const entry = boundEdges.get(edge.id) ?? { edge, caps: new Set() };
+      entry.caps.add(cap);
+      boundEdges.set(edge.id, entry);
+      for (const id of edge.guards) {
+        boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge, cap }]);
+      }
+    }
+  }
+  for (const [id, bindings] of boundGuards) {
+    const caps = [...new Set(bindings.map(({ cap }) => cap.cycle))].join(" and ");
+    const boundSet = new Set(bindings.map(({ edge }) => edge.id));
+    const outside = (guardRefs.get(id) ?? []).filter((edge) => !boundSet.has(edge.id));
+    if (outside.length > 0) {
+      errors.push(
+        `graph_cap_binding_ambiguous: guard ${id} carries ${caps}'s term on ${[...boundSet].join(", ")} ` +
+          `and is also referenced by ${outside.map((edge) => edge.id).join(", ")}`,
+      );
+      continue;
+    }
+    if (boundSet.size > 1) {
+      errors.push(
+        `graph_cap_binding_ambiguous: guard ${id} carries ${caps}'s term on ${[...boundSet].join(" and ")}`,
+      );
+    }
+  }
+  for (const { edge, caps } of boundEdges.values()) {
+    if (caps.size > 1) {
+      errors.push(
+        `graph_cap_binding_ambiguous: edge ${edge.id}, guarded by ${edge.guards.join(", ")}, ` +
+          `is bound by ${[...caps].map((cap) => cap.cycle).join(" and ")}`,
+      );
+    }
+  }
+
+  // Which predicates are a cap's is read off the edges, not off the predicates:
+  // the guards on its counted transition — they let the flow take another
+  // round — and the guards on the sibling edge that carries the cap's own
+  // park_reason, which is the edge the flow parks on when the limit is reached.
+  // Whatever those descriptions compare with `cap` is the quantity the cap
+  // fires on, and the document must declare it readable: the union of every
+  // predicate's `reads` is the vocabulary an evaluator draws names from, and a
+  // compared quantity outside it is a quantity nothing names. The shipped
+  // document compared `round` with both caps while no predicate's reads
+  // declared it. The check stays this narrow on purpose: naming ANY word of
+  // the vocabulary in a description outside one's own reads is a different,
+  // measuredly lawful shape — most predicates do it — and refusing that would
+  // redden the document on the majority that is not the defect.
+  //
+  // The comparison notation the check reads is a closed set, parsed exactly —
+  // a pattern patched per counterexample always has a next counterexample.
+  // `operand OP operand`, the word `cap` on one side and an identifier on the
+  // other, each operand either bare or wrapped in ONE balanced pair of
+  // parentheses, whitespace free, OP one of `<`, `>`, `<=`, `>=`, `=`, `==`,
+  // `!=`, `≤`, `≥`, `≠`. Chains are not supported: a `cap` whose comparison
+  // touches another operator on either side is refused, never checked on
+  // either side — `transition_takings >= cap > round` hid an undeclared
+  // quantity behind a lawful first comparison. So is a `cap` beside an
+  // unbalanced or stray parenthesis, or with no comparison around it at all.
+  // A predicate that never names `cap` owes nothing — auxiliary guards are
+  // left alone.
+  //
+  // The token boundary is the whole run of identifier characters, leading
+  // digits included: `0transition_takings` is ONE run and not an identifier,
+  // so it is no operand, and `0cap` contains no `cap` word at all — the rule
+  // never reaches it. Slicing the run at the digit let the first through and
+  // made the second a false refusal.
+  const declaredReads = new Set(document.predicates.flatMap((entry) => entry.reads));
+  const capToken = /[A-Za-z0-9_]+|<=|>=|==|!=|≤|≥|≠|<|>|=|\(|\)|[\s\S]/gu;
+  const isOperator = (token) => typeof token === "string" && /^(?:<=|>=|==|!=|≤|≥|≠|<|>|=)$/u.test(token);
+  const isIdentifier = (token) => typeof token === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(token);
+  const isParen = (token) => token === "(" || token === ")";
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (!counted) continue; // already refused as graph_cap_transition_unknown
+    const named = new Set(counted.guards.map((id) => guards.get(id)?.predicate));
+    for (const edge of outgoing.get(counted.from) ?? []) {
+      if (edge.id === counted.id) continue;
+      if (edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason)) {
+        for (const id of edge.guards) named.add(guards.get(id)?.predicate);
+      }
+    }
+    for (const id of named) {
+      const entry = document.predicates.find((candidate) => candidate.id === id);
+      if (!entry) continue; // already refused as graph_predicate_unknown
+      const tokens = [...entry.description.matchAll(capToken)]
+        .map((match) => match[0])
+        .filter((token) => !/^\s+$/u.test(token));
+      for (let at = 0; at < tokens.length; at += 1) {
+        if (tokens[at] !== "cap") continue;
+        // cap's operand is bare, or exactly one balanced pair of parentheses —
+        // any other paren next to it is a form the check cannot read.
+        let lo = at;
+        let hi = at;
+        let malformed = false;
+        if (tokens[at - 1] === "(" && tokens[at + 1] === ")") {
+          lo = at - 1;
+          hi = at + 1;
+        } else if (isParen(tokens[at - 1]) || isParen(tokens[at + 1])) {
+          malformed = true;
+        }
+        const leftOp = isOperator(tokens[lo - 1]);
+        const rightOp = isOperator(tokens[hi + 1]);
+        if (leftOp === rightOp) malformed = true; // both sides is a chain, neither is no comparison
+        let quantity;
+        if (!malformed) {
+          const operator = leftOp ? lo - 1 : hi + 1;
+          const near = leftOp ? operator - 1 : operator + 1;
+          let operandLo = near;
+          let operandHi = near;
+          if (leftOp && tokens[near] === ")" && isIdentifier(tokens[near - 1]) && tokens[near - 2] === "(") {
+            operandLo = near - 2;
+          } else if (!leftOp && tokens[near] === "(" && isIdentifier(tokens[near + 1]) && tokens[near + 2] === ")") {
+            operandHi = near + 2;
+          } else if (!isIdentifier(tokens[near])) {
+            malformed = true;
+          }
+          const before = tokens[Math.min(lo, operandLo) - 1];
+          const after = tokens[Math.max(hi, operandHi) + 1];
+          if (isOperator(before) || isOperator(after) || isParen(before) || isParen(after)) malformed = true;
+          quantity = tokens[operandLo] === "(" ? tokens[operandLo + 1] : tokens[operandLo];
+        }
+        if (malformed) {
+          errors.push(
+            `graph_cap_quantity_undeclared: cap ${cap.cycle}'s predicate ${id} mentions cap outside ` +
+              "a comparison the validator can read",
+          );
+        } else if (!declaredReads.has(quantity)) {
+          errors.push(
+            `graph_cap_quantity_undeclared: cap ${cap.cycle}'s predicate ${id} compares with ${quantity}, ` +
+              "which no predicate's reads declares",
+          );
+        }
+      }
     }
   }
 

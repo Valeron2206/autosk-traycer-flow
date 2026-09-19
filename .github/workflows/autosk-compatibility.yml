@@ -80,6 +80,8 @@ jobs:
           node scripts/verify-autosk-creation.mjs "$SOURCE_DIR" > build/evidence/creation-layout.log 2>&1
           node scripts/verify-autosk-crash.mjs "$SOURCE_DIR" > build/evidence/creation-crash.log 2>&1
           node scripts/verify-autosk-visits.mjs "$SOURCE_DIR" > build/evidence/visit-durability.log 2>&1
+          node scripts/verify-autosk-takings.mjs "$SOURCE_DIR" > build/evidence/taking-durability.log 2>&1
+          node scripts/verify-autosk-cap.mjs "$SOURCE_DIR" > build/evidence/cap-evaluator.log 2>&1
           node scripts/verify-autosk-graph-digest.mjs "$SOURCE_DIR" > build/evidence/graph-digest.log 2>&1
 
       - name: Check upstream types and complete test suites

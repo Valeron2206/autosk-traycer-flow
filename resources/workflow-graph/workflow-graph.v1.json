@@ -1031,9 +1031,10 @@
         "audit_retained",
         "candidate_keepalive",
         "phase",
-        "status"
+        "status",
+        "transition_takings"
       ],
-      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и round >= cap — human с park.reason=review_cap"
+      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и transition_takings >= cap — human с park.reason=review_cap"
     },
     {
       "id": "cond_136",
@@ -1041,9 +1042,10 @@
         "audit_retained",
         "candidate_keepalive",
         "phase",
-        "status"
+        "status",
+        "transition_takings"
       ],
-      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и round < cap — fix_artifact"
+      "description": "Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и transition_takings < cap — fix_artifact"
     },
     {
       "id": "cond_137",
@@ -2558,16 +2560,18 @@
     {
       "id": "cond_332",
       "reads": [
-        "task_record"
+        "task_record",
+        "transition_takings"
       ],
-      "description": "NOT_PASS/findings и round >= cap — human с review_cap"
+      "description": "NOT_PASS/findings и transition_takings >= cap — human с review_cap"
     },
     {
       "id": "cond_333",
       "reads": [
-        "task_record"
+        "task_record",
+        "transition_takings"
       ],
-      "description": "NOT_PASS/findings и round < cap — fix"
+      "description": "NOT_PASS/findings и transition_takings < cap — fix"
     },
     {
       "id": "cond_334",
@@ -14444,6 +14448,168 @@
       "required_state": "Section 2 parks with this reason at rebuild_code_anchor, repair_anchor_handoff: идемпотентно подтвердить human park, exact unblock parent, receipt phase=edge_suspended, park.reason=waiting_parent_anchor"
     }
   ],
+  "decision_options": [
+    "active_blocker_edge_added",
+    "actual_roster_external_lead_recorded",
+    "adopt_reset",
+    "all_expected_tickets_terminal",
+    "anchor_rebuild_op_null",
+    "anchor_version_new",
+    "approved_findings_identity_preserved",
+    "approved_recorded_only_if_snapshot_watermark_unchanged",
+    "artifact_pass_attempt_increment",
+    "atomic_pass_prepared_operation_capability",
+    "authority_dependency_intent_bindings_and_expiry_included",
+    "bad_immutable_record_retained",
+    "base_tree_rewritten",
+    "blocker_suspended_with_receipt",
+    "branch_unambiguous_after_investigation",
+    "cancel_as_separate_status_operation",
+    "cancel_live_ticket",
+    "cancel_only_status_operation_when_unresolved",
+    "candidate_identity_exact",
+    "candidate_supersession",
+    "capability_passes_pinned_synthetic_preflight",
+    "child_blocker_enrollment_side_effects",
+    "child_still_human",
+    "classifier_proof_current",
+    "cleanup_before_namespace_match",
+    "committed_recipe_receipt_restored",
+    "conflicting_operation_explicitly_voided",
+    "contest_attempt_increment",
+    "corrected_arena_block",
+    "corrected_manifest_passes_alignment_validation_freeze_panel_publication",
+    "creation_binding_planned_replacement",
+    "current_authority_alignment_classifier_record",
+    "current_heads_included",
+    "current_ticket_set_dag_scopes_outcomes_order_exclusions_shown",
+    "daemon_approval_matches",
+    "daemon_attributed_cap_decision_new",
+    "daemon_attributed_waiver_current_identity",
+    "daemon_commits_user_decision_record",
+    "daemon_impact_disposition",
+    "daemon_issues_policy_projection_from_record",
+    "daemon_record_per_material_decision",
+    "daemon_record_signed_exact_staged_proposal",
+    "daemon_user_decision_record",
+    "direct_client_policy_bytes",
+    "explicit_decision_after_investigation",
+    "explicit_force_permission",
+    "failed_record_kept_as_audit_evidence",
+    "findings_identity_preserved",
+    "foreign_ref_signed_investigation",
+    "framing_packet_current",
+    "freeze_new_immutable_receipt",
+    "fresh_identity_bound_proof_via_pipeline",
+    "full_panel_required",
+    "handoff_receipt_restored",
+    "human_child_blocker_left",
+    "human_park_blocked_anchor",
+    "immutable_blocked_result_current_identity",
+    "invalid_base_requires_daemon_intake_base_selection_and_fresh_init",
+    "invalid_child_ids_recorded",
+    "invalid_disposition_tasks_recorded",
+    "invalid_review_child_closed",
+    "investigation_record_binds_operation_details",
+    "join_ensures_pending_anchor",
+    "keepalive_closure_restored",
+    "keepalive_ref_create_or_receipt_restore",
+    "local_pending_null",
+    "lock_drift_via_repair_protocol_snapshot",
+    "lock_storage_cause_resolved",
+    "malformed_proposal_kept_as_evidence",
+    "matching_parent_rebuild_receipt",
+    "missing_operation_rebuilt_from_committed_bytes",
+    "model_self_approval",
+    "narrow_full_mode_preserved",
+    "new_arena_attempt",
+    "new_author_base_current_verified_planning_head",
+    "new_candidate_attempt",
+    "new_candidate_review_attempt",
+    "new_lead_child_attempt",
+    "new_map_computed_by_step",
+    "new_review_child_attempt",
+    "no_other_ref_moved",
+    "no_ref_side_effect_proof",
+    "obstruction_relocated_recoverably_recorded",
+    "old_anchor_review_bindings_void",
+    "old_arena_judgments_void",
+    "old_artifact_pass_bindings_void",
+    "old_candidate_verdict_absent",
+    "old_candidate_verdict_pass_bindings_rebound_unchanged",
+    "old_candidate_verdict_pass_bindings_void",
+    "old_candidate_verdict_void",
+    "old_code_review_binding_void",
+    "old_done_bindings_reuse",
+    "old_lead_child_closed",
+    "old_panel_bindings_void",
+    "old_sandbox_accounted",
+    "old_tickets_records_voided_retained",
+    "operation_identity_unchanged",
+    "ordinary_retry",
+    "ordinary_retry_adopt_reset",
+    "original_base_worktree_receipt",
+    "own_anchor_bump",
+    "panel_attempt_increment",
+    "panel_publication_before_dispatch",
+    "parent_edge_active",
+    "parent_metadata_write_on_live_ticket",
+    "parent_rebuild_completed",
+    "pathspec_identity_reminted",
+    "pending_anchor_current",
+    "pending_anchor_preserved",
+    "pending_cas_receipt_resolved",
+    "pending_propagated_to_parent",
+    "policy_as_decision_substitute",
+    "policy_not_issued_from_record",
+    "pre_cas_object_rewritten_from_persisted_bytes",
+    "precondition_restored",
+    "prior_pass_object_ref_side_effects",
+    "proof_attached",
+    "publication_before_namespace_match",
+    "quick_integration",
+    "readiness_confirmed_by_current_policy",
+    "readiness_confirmed_by_daemon_decision",
+    "readiness_record_current",
+    "rebuild_side_effects",
+    "rebuild_writes",
+    "receipt_matched_to_live_or_superseded_ticket",
+    "receipt_only_mode_reuses_valid_event",
+    "recoverable_state_saved",
+    "ref_on_recorded_base",
+    "ref_reflog_checkpoint_unchanged",
+    "ref_reflog_helper_capability",
+    "ref_reflog_unchanged_or_absent",
+    "remain_human_when_foreign_or_indeterminate",
+    "remain_human_when_unrecoverable",
+    "repair_map_for_missing_cancelled_unbound_tickets",
+    "resume_intent_matches_op_anchor_receipt_target",
+    "resume_same_creation_key_binding_phase",
+    "retry_route",
+    "schema_valid_trigger",
+    "set_change_void_proposal_breakdown_panel",
+    "signature_before_pass_operation_write",
+    "signature_bytes_by_trusted_signer_under_locked_policy",
+    "signed_record_binds_target_prefix_transitions_tree",
+    "stale_binding_via_recorded_owning_repair",
+    "stale_signed_policy",
+    "status_impact_map_reread",
+    "step_ensures_pending_anchor_atomic",
+    "step_stages_map_status_cascade_hashes",
+    "supersede_event_mode_with_daemon_record",
+    "suspended_receipt",
+    "ticket_anchor_equals_parent",
+    "trusted_client_signs_exact_challenge",
+    "unchanged_close_op",
+    "unchanged_external_retry",
+    "unchanged_set_repair_map_fresh_candidates",
+    "user_authored_dispositions",
+    "user_decision_chose_fallback",
+    "valid_base_corruption_restores_committed_bytes",
+    "verify_freeze_full_review",
+    "waits_parent_rebuild",
+    "waiver_consumer_resume"
+  ],
   "views": [
     {
       "id": "park_table",
@@ -14460,7 +14626,17 @@
             "brief_alignment_required",
             "clarify_alignment, record_alignment",
             "current framing packet и matching daemon `UserDecisionRecord`; re-resolved active policy не подходит"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_user_decision_record",
+              "framing_packet_current"
+            ],
+            "admits": [],
+            "excludes": [
+              "policy_as_decision_substitute"
+            ]
+          }
         },
         {
           "covers": [
@@ -14471,7 +14647,16 @@
             "core_flow_decision_required",
             "clarify_alignment, record_alignment",
             "каждое material behavior decision закрыто daemon record; model self-approval отсутствует"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_record_per_material_decision"
+            ],
+            "admits": [],
+            "excludes": [
+              "model_self_approval"
+            ]
+          }
         },
         {
           "covers": [
@@ -14482,7 +14667,18 @@
             "tech_plan_readiness_required",
             "clarify_alignment, record_alignment",
             "current readiness record, classifier proof и daemon decision/current policy совпадают"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "classifier_proof_current",
+              "readiness_record_current"
+            ],
+            "admits": [
+              "readiness_confirmed_by_current_policy",
+              "readiness_confirmed_by_daemon_decision"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14493,7 +14689,15 @@
             "tickets_breakdown_alignment_required",
             "present_tickets_breakdown, record_alignment",
             "current Ticket set/DAG/scopes/outcomes/order/exclusions показаны и daemon approval subject hash совпадает"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "current_ticket_set_dag_scopes_outcomes_order_exclusions_shown",
+              "daemon_approval_matches"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14504,7 +14708,19 @@
             "alignment_policy_out_of_scope",
             "clarify_alignment for brief/core_flow/tech_plan; present_tickets_breakdown for tickets",
             "trusted client signs only exact challenge; autoskd commits UserDecisionRecord then issues current daemon policy projection. Direct client policy bytes/stale signed policy rejected"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_commits_user_decision_record",
+              "daemon_issues_policy_projection_from_record",
+              "trusted_client_signs_exact_challenge"
+            ],
+            "admits": [],
+            "excludes": [
+              "direct_client_policy_bytes",
+              "stale_signed_policy"
+            ]
+          }
         },
         {
           "covers": [
@@ -14515,7 +14731,19 @@
             "alignment_record_stale",
             "clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
             "новая anchor version/daemon impact disposition и current authority/alignment/classifier record; старые candidate/verdict/PASS bindings void или явно re-bound как unchanged"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "anchor_version_new",
+              "current_authority_alignment_classifier_record",
+              "daemon_impact_disposition"
+            ],
+            "admits": [
+              "old_candidate_verdict_pass_bindings_rebound_unchanged",
+              "old_candidate_verdict_pass_bindings_void"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14526,7 +14754,17 @@
             "tickets_manifest_invalid",
             "present_tickets_breakdown before freeze and after publication; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "old Tickets candidate/receipt/PASS bindings are voided and retained when present; corrected manifest/views pass fresh alignment, validation, freeze, full Panel and replacement publication before dispatch_ticket_dag; child/blocker/enrollment side effects remain absent"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "corrected_manifest_passes_alignment_validation_freeze_panel_publication",
+              "old_tickets_records_voided_retained"
+            ],
+            "admits": [],
+            "excludes": [
+              "child_blocker_enrollment_side_effects"
+            ]
+          }
         },
         {
           "covers": [
@@ -14537,7 +14775,19 @@
             "tickets_manifest_stale",
             "recorded owning recovery step, then present_tickets_breakdown; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "protocol/runtime/project-instruction lock drift first runs repair_protocol_snapshot and any other stale binding runs its recorded owning repair; old Tickets candidate/receipt/PASS records are voided and retained; then present_tickets_breakdown -> record_alignment -> validate_tickets_manifest creates fresh identity-bound proof, freeze creates a new immutable receipt, and full Panel/replacement publication complete before dispatch"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "freeze_new_immutable_receipt",
+              "fresh_identity_bound_proof_via_pipeline",
+              "lock_drift_via_repair_protocol_snapshot",
+              "old_tickets_records_voided_retained",
+              "panel_publication_before_dispatch",
+              "stale_binding_via_recorded_owning_repair"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14559,7 +14809,18 @@
             "quick_classification_invalid",
             "invalidate_quick_classification",
             "schema-valid trigger, original base/worktree receipt и одна daemon-owned creation binding Planned replacement; Quick commit/integrate остаются запрещены"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "creation_binding_planned_replacement",
+              "original_base_worktree_receipt",
+              "schema_valid_trigger"
+            ],
+            "admits": [],
+            "excludes": [
+              "quick_integration"
+            ]
+          }
         },
         {
           "covers": [
@@ -14570,7 +14831,16 @@
             "panel_join_invalid",
             "dispatch_panel, panel_join",
             "invalid child IDs записаны, attempt+1; старые bindings void"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "invalid_child_ids_recorded",
+              "old_panel_bindings_void",
+              "panel_attempt_increment"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14615,7 +14885,18 @@
             "blocked_anchor, gate child",
             "`<gate_join_step>` после child done",
             "immutable blocked result current identity; join ensures pending_anchor и не оставляет human child blocker"
-          ]
+          ],
+          "case": "gate_child",
+          "rule": {
+            "requires": [
+              "immutable_blocked_result_current_identity",
+              "join_ensures_pending_anchor"
+            ],
+            "admits": [],
+            "excludes": [
+              "human_child_blocker_left"
+            ]
+          }
         },
         {
           "covers": [
@@ -14626,6 +14907,15 @@
             "`accept`, `aggregate_verify`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join`",
             "шаг сам atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor: gate-ребёнка, который бы это сделал, у него нет"
           ],
+          "case": "no_gate_child",
+          "rule": {
+            "requires": [
+              "human_park_blocked_anchor",
+              "step_ensures_pending_anchor_atomic"
+            ],
+            "admits": [],
+            "excludes": []
+          },
           "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a"
         },
         {
@@ -14661,7 +14951,19 @@
             "planning_ref_init_invalid",
             "init_planning_ref",
             "valid-base corruption restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and fresh init operation, preserving the failed record as audit evidence; ref/reflog stay unchanged or absent; adopt/reset запрещены"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "failed_record_kept_as_audit_evidence",
+              "invalid_base_requires_daemon_intake_base_selection_and_fresh_init",
+              "ref_reflog_unchanged_or_absent",
+              "valid_base_corruption_restores_committed_bytes"
+            ],
+            "admits": [],
+            "excludes": [
+              "adopt_reset"
+            ]
+          }
         },
         {
           "covers": [
@@ -14672,7 +14974,18 @@
             "planning_ref_capability_missing",
             "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
             "required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "capability_passes_pinned_synthetic_preflight",
+              "operation_identity_unchanged"
+            ],
+            "admits": [
+              "atomic_pass_prepared_operation_capability",
+              "ref_reflog_helper_capability"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14683,7 +14996,17 @@
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
             "exact investigation record binds operation type/ID when present, detecting gate, ref/reflog observations and recorded target; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "cancel_only_status_operation_when_unresolved",
+              "investigation_record_binds_operation_details"
+            ],
+            "admits": [],
+            "excludes": [
+              "ordinary_retry_adopt_reset"
+            ]
+          }
         },
         {
           "covers": [
@@ -14694,7 +15017,21 @@
             "planning_candidate_keepalive_invalid",
             "freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state",
             "exact candidate identity, keepalive ref/create or audit/release receipt and full closure must be restored without moving another ref; moved foreign ref requires signed investigation or candidate supersession; cleanup remains forbidden until namespace enumeration matches current plus planning.candidate_history"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "candidate_identity_exact",
+              "keepalive_closure_restored",
+              "no_other_ref_moved"
+            ],
+            "admits": [
+              "candidate_supersession",
+              "foreign_ref_signed_investigation"
+            ],
+            "excludes": [
+              "cleanup_before_namespace_match"
+            ]
+          }
         },
         {
           "covers": [
@@ -14705,7 +15042,18 @@
             "planning_candidate_base_stale",
             "draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets; also freeze_artifact",
             "old candidate/verdict absent or void; new author base equals current verified planning head and pathspec identity is re-minted"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_author_base_current_verified_planning_head",
+              "pathspec_identity_reminted"
+            ],
+            "admits": [
+              "old_candidate_verdict_absent",
+              "old_candidate_verdict_void"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14716,7 +15064,18 @@
             "planning_publication_invalid",
             "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
             "exact no-ref-side-effect proof and missing operation rebuilt only from committed bytes, or conflicting operation explicitly voided; otherwise remain human"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "no_ref_side_effect_proof",
+              "remain_human_when_unrecoverable"
+            ],
+            "admits": [
+              "conflicting_operation_explicitly_voided",
+              "missing_operation_rebuilt_from_committed_bytes"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14727,7 +15086,18 @@
             "planning_publication_corrupt",
             "publish_artifact_pass or publish_planning_invalidation recorded operation kind",
             "exact committed recipe/receipt bytes restored, or missing pre-CAS object rewritable from persisted exact bytes with unchanged ref/reflog checkpoint; foreign/indeterminate state remains human"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "ref_reflog_checkpoint_unchanged",
+              "remain_human_when_foreign_or_indeterminate"
+            ],
+            "admits": [
+              "committed_recipe_receipt_restored",
+              "pre_cas_object_rewritten_from_persisted_bytes"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14738,7 +15108,17 @@
             "planning_signing_unavailable",
             "record_artifact_pass",
             "current locked delivery policy and trusted signer materialize exact replayable signature bytes before the atomic PASS+operation write; no prior PASS/object/ref side effect exists"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "signature_before_pass_operation_write",
+              "signature_bytes_by_trusted_signer_under_locked_policy"
+            ],
+            "admits": [],
+            "excludes": [
+              "prior_pass_object_ref_side_effects"
+            ]
+          }
         },
         {
           "covers": [
@@ -14771,7 +15151,17 @@
             "panel_waiver_required",
             "freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster; также record_artifact_pass",
             "retry route либо daemon-attributed waiver current identity; reduced roster также фиксирует actual roster/external Lead"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "actual_roster_external_lead_recorded"
+            ],
+            "admits": [
+              "daemon_attributed_waiver_current_identity",
+              "retry_route"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14793,7 +15183,15 @@
             "contest_join_invalid",
             "contest_join, dispatch_contest",
             "invalid disposition tasks записаны, attempt+1"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "contest_attempt_increment",
+              "invalid_disposition_tasks_recorded"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14804,7 +15202,15 @@
             "narrow_join_invalid",
             "dispatch_narrow_review, narrow_review_join",
             "прежний Lead child закрыт, новый attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_lead_child_attempt",
+              "old_lead_child_closed"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14815,7 +15221,16 @@
             "review_join_invalid",
             "dispatch_review или dispatch_narrow_review; также review_join",
             "invalid review child закрыт, новый attempt и сохранён narrow/full mode"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "invalid_review_child_closed",
+              "narrow_full_mode_preserved",
+              "new_review_child_attempt"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14826,7 +15241,15 @@
             "code_verdict_invalid",
             "freeze, record_code_verdict",
             "старый review binding void, новый candidate/review attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_candidate_review_attempt",
+              "old_code_review_binding_void"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14892,7 +15315,18 @@
             "blocked_anchor, autosk-planned",
             "prepare_anchor_impact",
             "pending_anchor current; step deterministicly stages full map/status/cascade hash без rebuild side effects"
-          ]
+          ],
+          "case": "planned",
+          "rule": {
+            "requires": [
+              "pending_anchor_current",
+              "step_stages_map_status_cascade_hashes"
+            ],
+            "admits": [],
+            "excludes": [
+              "rebuild_side_effects"
+            ]
+          }
         },
         {
           "covers": [
@@ -14903,7 +15337,15 @@
             "anchor_impact_approval_required",
             "prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval",
             "signed daemon `UserDecisionRecord` exact staged proposal hash; step atomically records approved status только при unchanged snapshot/watermark"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "approved_recorded_only_if_snapshot_watermark_unchanged",
+              "daemon_record_signed_exact_staged_proposal"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14914,7 +15356,17 @@
             "anchor_impact_invalid",
             "prepare_anchor_impact, rebuild_anchor",
             "malformed/stale proposal сохраняется как evidence; новая полная map вычисляется deterministic step, не пользователем"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "malformed_proposal_kept_as_evidence",
+              "new_map_computed_by_step"
+            ],
+            "admits": [],
+            "excludes": [
+              "user_authored_dispositions"
+            ]
+          }
         },
         {
           "covers": [
@@ -14925,7 +15377,19 @@
             "anchor_repair_ticket_live",
             "rebuild_anchor",
             "anchor_rebuild_op=null; каждый Ticket expected set, включая claimed-unaffected, завершился в human/done/cancel; status/impact map перечитаны; pending_anchor сохранён; rebuild writes отсутствуют"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "all_expected_tickets_terminal",
+              "anchor_rebuild_op_null",
+              "pending_anchor_preserved",
+              "status_impact_map_reread"
+            ],
+            "admits": [],
+            "excludes": [
+              "rebuild_writes"
+            ]
+          }
         },
         {
           "covers": [
@@ -14947,7 +15411,18 @@
             "waiting_parent_anchor с malformed/mismatched event/receipt",
             "repair_anchor_handoff",
             "mode=receipt_only переиспользует valid event; mode=supersede_event требует daemon user record и exact raw id/hash; bad immutable record сохраняется"
-          ]
+          ],
+          "case": "malformed_handoff",
+          "rule": {
+            "requires": [
+              "bad_immutable_record_retained"
+            ],
+            "admits": [
+              "receipt_only_mode_reuses_valid_event",
+              "supersede_event_mode_with_daemon_record"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14958,7 +15433,17 @@
             "blocked_anchor, standalone Quick",
             "rebuild_code_anchor",
             "own anchor bump, старые review bindings void, затем verify/freeze/full code review"
-          ]
+          ],
+          "case": "standalone_quick",
+          "rule": {
+            "requires": [
+              "old_anchor_review_bindings_void",
+              "own_anchor_bump",
+              "verify_freeze_full_review"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14969,7 +15454,17 @@
             "blocked_anchor, Ticket with parent",
             "rebuild_code_anchor",
             "propagate pending to parent, suspend blocker with receipt, ждать parent rebuild_anchor"
-          ]
+          ],
+          "case": "ticket_with_parent",
+          "rule": {
+            "requires": [
+              "blocker_suspended_with_receipt",
+              "pending_propagated_to_parent",
+              "waits_parent_rebuild"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14980,7 +15475,18 @@
             "waiting_parent_anchor",
             "rebuild_code_anchor",
             "parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt restored"
-          ]
+          ],
+          "case": "rebuild_completed",
+          "rule": {
+            "requires": [
+              "handoff_receipt_restored",
+              "local_pending_null",
+              "parent_rebuild_completed",
+              "ticket_anchor_equals_parent"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -14991,7 +15497,16 @@
             "anchor_resume_pending",
             "rebuild_code_anchor",
             "exact parent edge active, resume_intent совпадает с op/anchor/receipt/target и child всё ещё human"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "child_still_human",
+              "parent_edge_active",
+              "resume_intent_matches_op_anchor_receipt_target"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15013,7 +15528,19 @@
             "blocked_anchor, Ticket pending already absorbed by parent",
             "rebuild_code_anchor",
             "Ticket anchor=parent, local pending=null, matching parent_rebuild_receipt, no suspended receipt"
-          ]
+          ],
+          "case": "absorbed_pending",
+          "rule": {
+            "requires": [
+              "local_pending_null",
+              "matching_parent_rebuild_receipt",
+              "ticket_anchor_equals_parent"
+            ],
+            "admits": [],
+            "excludes": [
+              "suspended_receipt"
+            ]
+          }
         },
         {
           "covers": [
@@ -15151,7 +15678,16 @@
             "artifact_pass_invalid",
             "freeze_artifact, record_artifact_pass",
             "старые bindings void, attempt+1, сохранённый full/narrow mode"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "artifact_pass_attempt_increment",
+              "narrow_full_mode_preserved",
+              "old_artifact_pass_bindings_void"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15162,7 +15698,15 @@
             "review_cap",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
             "новый daemon-attributed cap decision, сохранённые findings и identity"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_attributed_cap_decision_new",
+              "findings_identity_preserved"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15173,7 +15717,15 @@
             "arena_join_invalid",
             "arena_join, dispatch_arena",
             "новый arena attempt; старые judgments void"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_arena_attempt",
+              "old_arena_judgments_void"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15184,7 +15736,15 @@
             "arena_fallback_required",
             "apply_arena_decision, arena_join",
             "daemon `UserDecisionRecord` выбрал fallback; review_cycles.tech_plan narrow=false/full required"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "full_panel_required",
+              "user_decision_chose_fallback"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15195,7 +15755,15 @@
             "arena_contract_invalid",
             "fix_artifact, record_artifact_pass",
             "исправленный autosk-arena block, review_cycles.tech_plan.narrow=false/full_panel_required=true"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "corrected_arena_block",
+              "full_panel_required"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15206,7 +15774,14 @@
             "ticket_join_invalid",
             "dispatch_ticket_dag, ticket_join",
             "repair map для missing/cancelled/unbound Tickets"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "repair_map_for_missing_cancelled_unbound_tickets"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15217,7 +15792,15 @@
             "ticket_edge_receipt_lost",
             "dispatch_ticket_dag",
             "receipt сопоставлен live Ticket или valid superseded_by, старый sandbox учтён"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "old_sandbox_accounted",
+              "receipt_matched_to_live_or_superseded_ticket"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15228,7 +15811,15 @@
             "candidate_changed",
             "commit_on_pass, fix",
             "approved findings/identity сохранены, новый candidate attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "approved_findings_identity_preserved",
+              "new_candidate_attempt"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15239,7 +15830,15 @@
             "commit_cas_failed",
             "commit_on_pass",
             "ref всё ещё на recorded base, причина lock/storage устранена"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "lock_storage_cause_resolved",
+              "ref_on_recorded_base"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15250,7 +15849,15 @@
             "commit_foreign_movement",
             "commit_on_pass",
             "private branch снова однозначен после расследования; cancel — отдельная status-операция"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "branch_unambiguous_after_investigation",
+              "cancel_as_separate_status_operation"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15273,7 +15880,18 @@
             "aggregate_verify_failed / aggregate_remediation_required",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "resume same creation key/binding and phase; external retry/unchanged close op, set-changing continues choice_recorded -> old_bindings_void -> proposal_ready -> breakdown/full Panel"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "resume_same_creation_key_binding_phase",
+              "set_change_void_proposal_breakdown_panel"
+            ],
+            "admits": [
+              "unchanged_close_op",
+              "unchanged_external_retry"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15284,7 +15902,15 @@
             "no_external_reviewer",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
             "waiver resume обязательно проходит freeze consumer; режим сохраняется"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "narrow_full_mode_preserved",
+              "waiver_consumer_resume"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15295,7 +15921,15 @@
             "no_external_panel_lead",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
             "waiver resume обязательно проходит freeze_artifact consumer; full/narrow сохраняется"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "narrow_full_mode_preserved",
+              "waiver_consumer_resume"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15306,7 +15940,15 @@
             "cleanup_dirty",
             "cleanup",
             "force=true разрешён явно или состояние сохранено"
-          ]
+          ],
+          "rule": {
+            "requires": [],
+            "admits": [
+              "explicit_force_permission",
+              "recoverable_state_saved"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15317,7 +15959,15 @@
             "integration_authorization_required",
             "accept",
             "новый signed record связывает current target OID, completed-prefix receipt, exact remaining transitions, final tree, relevant authority/dependency/intent bindings и expiry"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "authority_dependency_intent_bindings_and_expiry_included",
+              "signed_record_binds_target_prefix_transitions_tree"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15328,7 +15978,14 @@
             "integration_obstruction",
             "integrate",
             "восстановимое перемещение помехи записано"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "obstruction_relocated_recoverably_recorded"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15339,7 +15996,16 @@
             "integration_precondition",
             "integrate",
             "нарушенное предусловие устранено, base/tree повторно записаны и доказательство приложено"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "base_tree_rewritten",
+              "precondition_restored",
+              "proof_attached"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15350,10 +16016,29 @@
             "foreign_movement / indeterminate",
             "integration_recovery",
             "обычный retry запрещён; cancel — отдельная status-операция, не workflow step"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "cancel_as_separate_status_operation"
+            ],
+            "admits": [],
+            "excludes": [
+              "ordinary_retry"
+            ]
+          }
         }
       ],
-      "coverage": "complete"
+      "coverage": "complete",
+      "cases": [
+        "absorbed_pending",
+        "gate_child",
+        "malformed_handoff",
+        "no_gate_child",
+        "planned",
+        "rebuild_completed",
+        "standalone_quick",
+        "ticket_with_parent"
+      ]
     },
     {
       "id": "core_flows_resume",
@@ -15408,7 +16093,16 @@
             "Brief framing не согласован",
             "clarify_alignment, record_alignment",
             "полный daemon `UserDecisionRecord` framing; policy не подходит: §2 запрещает ей утверждать product framing Brief"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_user_decision_record"
+            ],
+            "admits": [],
+            "excludes": [
+              "policy_as_decision_substitute"
+            ]
+          }
         },
         {
           "covers": [
@@ -15419,7 +16113,16 @@
             "Core Flow содержит открытое решение поведения",
             "clarify_alignment, record_alignment",
             "daemon record закрыл каждое material решение; model self-approval запрещён"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_record_per_material_decision"
+            ],
+            "admits": [],
+            "excludes": [
+              "model_self_approval"
+            ]
+          }
         },
         {
           "covers": [
@@ -15430,7 +16133,18 @@
             "Tech Plan не готов из-за open question или silent inference",
             "clarify_alignment, record_alignment",
             "readiness/classifier proof подтверждены daemon record либо current exact policy"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "classifier_proof_current",
+              "readiness_record_current"
+            ],
+            "admits": [
+              "readiness_confirmed_by_current_policy",
+              "readiness_confirmed_by_daemon_decision"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15441,7 +16155,15 @@
             "Ticket breakdown не согласован",
             "present_tickets_breakdown, record_alignment",
             "показаны current Ticket set/DAG/scopes/outcomes/order/exclusions и daemon approval совпадает"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "current_ticket_set_dag_scopes_outcomes_order_exclusions_shown",
+              "daemon_approval_matches"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15452,7 +16174,18 @@
             "Alignment policy не покрывает решение",
             "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets",
             "trusted client подписывает only exact nonce challenge; autoskd journal/head-bind'ит новый UserDecisionRecord и только из него daemon issues exact policy projection"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_commits_user_decision_record",
+              "daemon_issues_policy_projection_from_record",
+              "trusted_client_signs_exact_challenge"
+            ],
+            "admits": [],
+            "excludes": [
+              "policy_not_issued_from_record"
+            ]
+          }
         },
         {
           "covers": [
@@ -15463,7 +16196,16 @@
             "Alignment record устарел",
             "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
             "новая anchor version, daemon impact disposition и current authority/alignment/classifier hashes"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "anchor_version_new",
+              "current_authority_alignment_classifier_record",
+              "daemon_impact_disposition"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15474,7 +16216,17 @@
             "tickets_manifest_invalid",
             "present_tickets_breakdown до freeze и после publication; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "old Tickets candidate/receipt/PASS bindings voided and retained when present; corrected manifest/views проходят новый alignment, validation, freeze, full Panel и replacement publication до dispatch_ticket_dag; child/blocker/enrollment side effects до этого отсутствуют"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "corrected_manifest_passes_alignment_validation_freeze_panel_publication",
+              "old_tickets_records_voided_retained"
+            ],
+            "admits": [],
+            "excludes": [
+              "child_blocker_enrollment_side_effects"
+            ]
+          }
         },
         {
           "covers": [
@@ -15485,7 +16237,19 @@
             "tickets_manifest_stale",
             "owning recovery step, затем present_tickets_breakdown; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
             "protocol/runtime/project-instruction lock drift сначала проходит repair_protocol_snapshot, а другой stale binding — его recorded owning repair; old Tickets candidate/receipt/PASS records voided and retained; затем present_tickets_breakdown -> record_alignment -> validate_tickets_manifest создаёт fresh identity-bound proof, freeze создаёт новый immutable receipt, full Panel и replacement publication завершаются до dispatch"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "freeze_new_immutable_receipt",
+              "fresh_identity_bound_proof_via_pipeline",
+              "lock_drift_via_repair_protocol_snapshot",
+              "old_tickets_records_voided_retained",
+              "panel_publication_before_dispatch",
+              "stale_binding_via_recorded_owning_repair"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15496,7 +16260,19 @@
             "planning_ref_init_invalid",
             "init_planning_ref",
             "corruption with otherwise valid base restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and a fresh init operation while preserving prior audit evidence; no adopt/reset"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "failed_record_kept_as_audit_evidence",
+              "invalid_base_requires_daemon_intake_base_selection_and_fresh_init",
+              "ref_reflog_unchanged_or_absent",
+              "valid_base_corruption_restores_committed_bytes"
+            ],
+            "admits": [],
+            "excludes": [
+              "adopt_reset"
+            ]
+          }
         },
         {
           "covers": [
@@ -15507,7 +16283,18 @@
             "planning_ref_capability_missing",
             "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
             "pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "capability_passes_pinned_synthetic_preflight",
+              "operation_identity_unchanged"
+            ],
+            "admits": [
+              "atomic_pass_prepared_operation_capability",
+              "ref_reflog_helper_capability"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15518,7 +16305,17 @@
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
             "exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "cancel_only_status_operation_when_unresolved",
+              "investigation_record_binds_operation_details"
+            ],
+            "admits": [],
+            "excludes": [
+              "ordinary_retry_adopt_reset"
+            ]
+          }
         },
         {
           "covers": [
@@ -15529,7 +16326,21 @@
             "planning_candidate_keepalive_invalid",
             "freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state",
             "exact candidate keepalive ref/create or audit/release receipt and complete object closure restored or candidate explicitly superseded; cleanup and publication remain blocked until namespace inventory matches metadata/history"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "candidate_identity_exact",
+              "keepalive_closure_restored"
+            ],
+            "admits": [
+              "candidate_supersession",
+              "keepalive_ref_create_or_receipt_restore"
+            ],
+            "excludes": [
+              "cleanup_before_namespace_match",
+              "publication_before_namespace_match"
+            ]
+          }
         },
         {
           "covers": [
@@ -15540,7 +16351,17 @@
             "planning_candidate_base_stale",
             "draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets; also freeze_artifact",
             "stale candidate/verdict absent or void; author base re-minted from current verified planning head"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_author_base_current_verified_planning_head"
+            ],
+            "admits": [
+              "old_candidate_verdict_absent",
+              "old_candidate_verdict_void"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15551,7 +16372,18 @@
             "planning_publication_invalid",
             "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
             "no-ref-side-effect proof plus exact committed operation recovery, or conflicting operation explicitly voided; otherwise remain human"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "no_ref_side_effect_proof",
+              "remain_human_when_unrecoverable"
+            ],
+            "admits": [
+              "conflicting_operation_explicitly_voided",
+              "missing_operation_rebuilt_from_committed_bytes"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15562,7 +16394,17 @@
             "planning_publication_corrupt",
             "publish_artifact_pass or publish_planning_invalidation recorded operation kind",
             "committed recipe/receipt restored, or missing pre-CAS object rewritten from exact persisted bytes with unchanged checkpoint"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "ref_reflog_checkpoint_unchanged"
+            ],
+            "admits": [
+              "committed_recipe_receipt_restored",
+              "pre_cas_object_rewritten_from_persisted_bytes"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15573,7 +16415,17 @@
             "planning_signing_unavailable",
             "record_artifact_pass",
             "trusted signer produced exact replayable signature bytes under current locked policy before PASS/operation/object/ref side effects"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "signature_before_pass_operation_write",
+              "signature_bytes_by_trusted_signer_under_locked_policy"
+            ],
+            "admits": [],
+            "excludes": [
+              "prior_pass_object_ref_side_effects"
+            ]
+          }
         },
         {
           "covers": [
@@ -15584,7 +16436,18 @@
             "Quick classification invalid, Planned handoff не завершён",
             "invalidate_quick_classification",
             "schema-valid planned_trigger, исходный base/worktree receipt и idempotent creation binding Planned replacement; Quick integration запрещена"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "creation_binding_planned_replacement",
+              "original_base_worktree_receipt",
+              "schema_valid_trigger"
+            ],
+            "admits": [],
+            "excludes": [
+              "quick_integration"
+            ]
+          }
         },
         {
           "covers": [],
@@ -15613,7 +16476,15 @@
             "Invalid/cancelled panel child",
             "dispatch_panel, panel_join",
             "invalid child IDs, attempt+1"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "invalid_child_ids_recorded",
+              "panel_attempt_increment"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15624,7 +16495,17 @@
             "Сокращённая панель",
             "dispatch_panel или panel_join; также freeze_artifact, record_artifact_pass",
             "retry отсутствующего route либо waiver с artifact identity и фактическим roster"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "actual_roster_external_lead_recorded"
+            ],
+            "admits": [
+              "daemon_attributed_waiver_current_identity",
+              "retry_route"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15635,7 +16516,15 @@
             "Invalid contest disposition",
             "contest_join, dispatch_contest",
             "invalid child IDs, attempt+1"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "contest_attempt_increment",
+              "invalid_child_ids_recorded"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15646,7 +16535,14 @@
             "Invalid narrow-review child",
             "dispatch_narrow_review, narrow_review_join",
             "новый Lead child и attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_lead_child_attempt"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15657,7 +16553,15 @@
             "Invalid code-review child",
             "dispatch_review или dispatch_narrow_review; также review_join",
             "новый review child, сохранённый режим и attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "narrow_full_mode_preserved",
+              "new_review_child_attempt"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15668,7 +16572,15 @@
             "Code verdict revalidation failed",
             "freeze, record_code_verdict",
             "старый review binding void, новый candidate/review attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_candidate_review_attempt",
+              "old_code_review_binding_void"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15679,7 +16591,17 @@
             "BLOCKED_ANCHOR, Planned",
             "prepare_anchor_impact",
             "deterministic step строит/stages full map + status/cascade hashes без side effects"
-          ]
+          ],
+          "case": "planned",
+          "rule": {
+            "requires": [
+              "step_stages_map_status_cascade_hashes"
+            ],
+            "admits": [],
+            "excludes": [
+              "rebuild_side_effects"
+            ]
+          }
         },
         {
           "covers": [
@@ -15690,7 +16612,15 @@
             "Anchor impact ждёт approval",
             "prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval",
             "daemon `UserDecisionRecord` подписал exact staged proposal; step record'ит approved только при unchanged status/watermark"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "approved_recorded_only_if_snapshot_watermark_unchanged",
+              "daemon_record_signed_exact_staged_proposal"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15701,7 +16631,16 @@
             "Invalid/stale anchor impact map",
             "prepare_anchor_impact, rebuild_anchor",
             "новая карта вычисляется step; пользователь не hand-author'ит dispositions"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_map_computed_by_step"
+            ],
+            "admits": [],
+            "excludes": [
+              "user_authored_dispositions"
+            ]
+          }
         },
         {
           "covers": [
@@ -15712,7 +16651,16 @@
             "BLOCKED_ANCHOR, standalone Quick",
             "rebuild_code_anchor",
             "own anchor bump, затем verify/freeze/full review"
-          ]
+          ],
+          "case": "standalone_quick",
+          "rule": {
+            "requires": [
+              "own_anchor_bump",
+              "verify_freeze_full_review"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15723,7 +16671,17 @@
             "BLOCKED_ANCHOR, Ticket with parent",
             "rebuild_code_anchor",
             "propagate pending в parent, suspend blocker с receipt, ждать parent rebuild_anchor"
-          ]
+          ],
+          "case": "ticket_with_parent",
+          "rule": {
+            "requires": [
+              "blocker_suspended_with_receipt",
+              "pending_propagated_to_parent",
+              "waits_parent_rebuild"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15734,7 +16692,18 @@
             "Waiting for parent anchor",
             "rebuild_code_anchor, repair_anchor_handoff",
             "parent rebuild завершён, Ticket anchor=parent, local pending=null, receipt восстановлен"
-          ]
+          ],
+          "case": "rebuild_completed",
+          "rule": {
+            "requires": [
+              "handoff_receipt_restored",
+              "local_pending_null",
+              "parent_rebuild_completed",
+              "ticket_anchor_equals_parent"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15745,7 +16714,16 @@
             "Anchor resume pending",
             "rebuild_code_anchor",
             "exact parent edge active; pending resume_intent совпадает с op/anchor/receipt/target и child остаётся human"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "child_still_human",
+              "parent_edge_active",
+              "resume_intent_matches_op_anchor_receipt_target"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15756,7 +16734,18 @@
             "Parent absorbed live Ticket anchor before suspension",
             "rebuild_code_anchor",
             "Ticket anchor=parent, local pending=null, matching parent_rebuild_receipt, active blocker edge добавлен"
-          ]
+          ],
+          "case": "absorbed_pending",
+          "rule": {
+            "requires": [
+              "active_blocker_edge_added",
+              "local_pending_null",
+              "matching_parent_rebuild_receipt",
+              "ticket_anchor_equals_parent"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [],
@@ -15797,7 +16786,19 @@
             "Любой expected work Ticket, включая claimed-unaffected (anchor_repair_ticket_live)",
             "rebuild_anchor после завершения live run",
             "все expected Tickets human/terminal; status/impact перечитаны; pending_anchor сохранён; parent metadata write/cancel live Ticket запрещены"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "all_expected_tickets_terminal",
+              "pending_anchor_preserved",
+              "status_impact_map_reread"
+            ],
+            "admits": [],
+            "excludes": [
+              "cancel_live_ticket",
+              "parent_metadata_write_on_live_ticket"
+            ]
+          }
         },
         {
           "covers": [
@@ -15808,7 +16809,16 @@
             "Artifact PASS revalidation failed",
             "freeze_artifact, record_artifact_pass",
             "старые bindings void, attempt+1, сохранённый full/narrow mode"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "artifact_pass_attempt_increment",
+              "narrow_full_mode_preserved",
+              "old_artifact_pass_bindings_void"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15819,7 +16829,15 @@
             "Лимит review",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
             "новый daemon-attributed cap decision, сохранённые findings и identity"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "daemon_attributed_cap_decision_new",
+              "findings_identity_preserved"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15830,7 +16848,14 @@
             "Invalid Arena/Judge",
             "arena_join, dispatch_arena",
             "новый arena attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "new_arena_attempt"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15841,7 +16866,15 @@
             "Arena fallback",
             "apply_arena_decision, arena_join",
             "пользователь выбрал fallback; следующая панель полная"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "full_panel_required",
+              "user_decision_chose_fallback"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15852,7 +16885,15 @@
             "Invalid autosk-arena block",
             "fix_artifact, record_artifact_pass",
             "исправленный block, narrow=false и новая полная panel"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "corrected_arena_block",
+              "full_panel_required"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15863,7 +16904,14 @@
             "Invalid Ticket set execution",
             "dispatch_ticket_dag, ticket_join",
             "repair map для конкретных Tickets"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "repair_map_for_missing_cancelled_unbound_tickets"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15874,7 +16922,15 @@
             "Lost suspended Ticket receipt",
             "dispatch_ticket_dag",
             "receipt сопоставлен live Ticket или valid superseded_by, старый sandbox учтён"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "old_sandbox_accounted",
+              "receipt_matched_to_live_or_superseded_ticket"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15885,7 +16941,15 @@
             "Candidate changed before commit",
             "commit_on_pass, fix",
             "approved findings/identity сохранены, новый candidate attempt"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "approved_findings_identity_preserved",
+              "new_candidate_attempt"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15896,7 +16960,15 @@
             "Commit CAS failed without movement",
             "commit_on_pass",
             "ref всё ещё на recorded base, причина lock/storage устранена"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "lock_storage_cause_resolved",
+              "ref_on_recorded_base"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15907,7 +16979,15 @@
             "Private ticket branch moved",
             "commit_on_pass",
             "branch снова однозначен после расследования; cancel — отдельная status-операция"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "branch_unambiguous_after_investigation",
+              "cancel_as_separate_status_operation"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15919,7 +16999,18 @@
             "Aggregate verification failed",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
             "external_retry repeats evidence; unchanged set/DAG creates failure-bound repair map and fresh code candidates/review for affected Tickets (old done bindings forbidden); set-changing voids Tickets approval then new proposal/breakdown/full Panel"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "set_change_void_proposal_breakdown_panel",
+              "unchanged_external_retry",
+              "unchanged_set_repair_map_fresh_candidates"
+            ],
+            "admits": [],
+            "excludes": [
+              "old_done_bindings_reuse"
+            ]
+          }
         },
         {
           "covers": [
@@ -15930,7 +17021,15 @@
             "Нет внешней code-review family",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
             "recovery возвращается к реальному waiver consumer, режим сохраняется"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "narrow_full_mode_preserved",
+              "waiver_consumer_resume"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15941,7 +17040,15 @@
             "Нет внешней panel Lead family",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
             "recovery возвращается к waiver consumer, full/narrow сохраняется"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "narrow_full_mode_preserved",
+              "waiver_consumer_resume"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15952,7 +17059,15 @@
             "Dirty cleanup",
             "cleanup",
             "явное force-разрешение либо сохранённое восстановимое состояние"
-          ]
+          ],
+          "rule": {
+            "requires": [],
+            "admits": [
+              "explicit_force_permission",
+              "recoverable_state_saved"
+            ],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15963,7 +17078,16 @@
             "Integration authorization missing/expired",
             "accept",
             "pending CAS receipt сначала resolved; новый signed record связывает current target, completed prefix, remaining transitions, final tree и current heads"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "current_heads_included",
+              "pending_cas_receipt_resolved",
+              "signed_record_binds_target_prefix_transitions_tree"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15974,7 +17098,14 @@
             "Integration obstruction",
             "integrate",
             "помеха перемещена восстанавливаемо и записано доказательство"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "obstruction_relocated_recoverably_recorded"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15985,7 +17116,16 @@
             "Integration precondition",
             "integrate",
             "предусловие устранено, base/tree повторно записаны и доказательство приложено"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "base_tree_rewritten",
+              "precondition_restored",
+              "proof_attached"
+            ],
+            "admits": [],
+            "excludes": []
+          }
         },
         {
           "covers": [
@@ -15996,12 +17136,29 @@
             "Foreign movement / indeterminate",
             "integration_recovery",
             "явное решение после расследования; cancel выполняется отдельной status-операцией, обычный retry запрещён"
-          ]
+          ],
+          "rule": {
+            "requires": [
+              "cancel_as_separate_status_operation",
+              "explicit_decision_after_investigation"
+            ],
+            "admits": [],
+            "excludes": [
+              "ordinary_retry"
+            ]
+          }
         }
+      ],
+      "cases": [
+        "absorbed_pending",
+        "planned",
+        "rebuild_completed",
+        "standalone_quick",
+        "ticket_with_parent"
       ]
     }
   ],
-  "canonical_digest": "70345a3829acb8a3cd39578e42cab00368b5709b94c870f63522143bf705a522",
+  "canonical_digest": "2a38be312d323aee78d645acd6afdda22b678149bcffc262face868c334146cf",
   "external_operations": [
     {
       "status": "cancel",

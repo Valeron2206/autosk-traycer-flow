@@ -117,6 +117,27 @@ export function normalizeGraph(document) {
       ...(entry.handled_at ? { handled_at: [...entry.handled_at].sort() } : {}),
     }));
   }
+  if (Array.isArray(document.decision_options)) {
+    normalized.decision_options = [...document.decision_options].sort();
+  }
+  if (Array.isArray(document.views)) {
+    normalized.views = document.views.map((view) => ({
+      ...view,
+      ...(view.cases ? { cases: [...view.cases].sort() } : {}),
+      rows: view.rows.map((row) =>
+        row.rule === undefined
+          ? row
+          : {
+              ...row,
+              rule: {
+                requires: [...row.rule.requires].sort(),
+                admits: [...row.rule.admits].sort(),
+                excludes: [...row.rule.excludes].sort(),
+              },
+            },
+      ),
+    }));
+  }
   return normalized;
 }
 

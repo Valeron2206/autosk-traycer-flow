@@ -53,7 +53,11 @@ apply in the listed order, each producing the tree beside it:
 | `0029-helper-in-identity.patch` | `b0357eda7b3ee4d8b5589f1d0b4fa248bf664d91` |
 | `0030-artifact-write-adapter.patch` | `dc2e2c02a954579b8552848761edeb9800302d1b` |
 | `0031-partial-frame-race.patch` | `9f52d343ff42ee495f9caa408ef7e7564d878516` |
-| `0032-graph-document-in-shape.patch` | `13d51252539262e0dbea0f2527c41a57e4674e43` — the current `result_tree` |
+| `0032-graph-document-in-shape.patch` | `13d51252539262e0dbea0f2527c41a57e4674e43` |
+| `0033-document-digest-in-pin.patch` | `f166bec8ffb5223aa9eb41a45667c07990b55e57` |
+| `0037-operator-migrate-path.patch` | `44da0902ed65746dd76897df6695e27175aedb5b` |
+| `0038-cli-exits-from-the-register.patch` | `cedc6577cb9975f0c942988bd89917ffbfccc699` |
+| `0034-transition-takings-counter.patch` | `39c6cc16cc9974364667247e9ce9c9d34d32233b` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

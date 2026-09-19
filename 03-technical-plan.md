@@ -213,8 +213,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | narrow_review_join_wait | blocker terminal/removed | narrow_review_join |
 | narrow_review_join | Lead status=done, NOT_PASS/findings and candidate_keepalive phase=verified | resume candidate_audit_transfer_op through audit_ref_verified -> live_ref_deleted -> verified; only then append terminal audit receipt/history and phase=audit_retained; narrow_review_join |
 | narrow_review_join | NOT_PASS audit transfer is not committed or its exact receipt/ref proof is missing | human с park.reason=planning_candidate_keepalive_invalid; retain live/audit refs and resume narrow_review_join only from the same operation |
-| narrow_review_join | Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и round >= cap | human с park.reason=review_cap |
-| narrow_review_join | Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и round < cap | fix_artifact |
+| narrow_review_join | Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и transition_takings >= cap | human с park.reason=review_cap |
+| narrow_review_join | Lead status=done, NOT_PASS/findings, candidate_keepalive phase=audit_retained и transition_takings < cap | fix_artifact |
 | narrow_review_join | Lead status=done, verdict PASS текущей identity | record_artifact_pass |
 | narrow_review_join | cancel/missing/invalid | human с park.reason=narrow_join_invalid |
 | record_artifact_pass | matching recorded_unpublished PASS and open prepared planning_publication_op exact current identity and verified candidate_keepalive already exist after atomic write | read-back all three records without rewriting; publish_artifact_pass |
@@ -487,8 +487,8 @@ Parent Ticket блокируется review child и после разблоки
 | record_code_verdict | disposition=waived, daemon review waiver current identity валиден, workflow=autosk-ticket | atomically review={status:waived,waiver_record_id,waiver_record_hash,waived_review_mode:full\|narrow,waived_review_reason}, full flags reset; commit_on_pass |
 | record_code_verdict | disposition=waived, daemon review waiver current identity валиден, workflow=autosk-quick, classification valid, signed IntegrationAuthorizationRecord exact candidate валиден | atomically review={status:waived,waiver_record_id,waiver_record_hash,waived_review_mode:full\|narrow,waived_review_reason}, full flags reset; integrate |
 | record_code_verdict | disposition=waived, daemon review waiver current identity валиден, workflow=autosk-quick, classification valid, integration authorization отсутствует/невалидна | atomically review={status:waived,waiver_record_id,waiver_record_hash,waived_review_mode:full\|narrow,waived_review_reason}, full flags reset; accept |
-| record_code_verdict | NOT_PASS/findings и round >= cap | если full, atomically full_review_required=false/full_review_reason=null; human с review_cap |
-| record_code_verdict | NOT_PASS/findings и round < cap | если full, atomically full_review_required=false/full_review_reason=null; fix |
+| record_code_verdict | NOT_PASS/findings и transition_takings >= cap | если full, atomically full_review_required=false/full_review_reason=null; human с review_cap |
+| record_code_verdict | NOT_PASS/findings и transition_takings < cap | если full, atomically full_review_required=false/full_review_reason=null; fix |
 | record_code_verdict | PASS и workflow=autosk-ticket | если full, atomically full_review_required=false/full_review_reason=null; commit_on_pass |
 | record_code_verdict | PASS и workflow=autosk-quick, classification всё ещё valid, signed IntegrationAuthorizationRecord exact candidate валиден | если full, atomically full_review_required=false/full_review_reason=null; integrate |
 | record_code_verdict | PASS и workflow=autosk-quick, classification всё ещё valid, integration authorization отсутствует или невалидна | если full, atomically full_review_required=false/full_review_reason=null; accept |

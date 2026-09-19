@@ -121,6 +121,278 @@ test("graph_cap_transition_unknown: a cap counts an edge that does not exist", (
   assertRefuses(mutated((document) => { document.caps[0].counted_transition = "never_declared"; }), "graph_cap_transition_unknown");
 });
 
+test("graph_cap_transition_shared: a cap counts an edge its pair does not own alone", () => {
+  // The runtime counter is keyed by the (from, to) pair, so a counted edge must
+  // be the only transition on it. `freeze_retry` is a self-loop unique to its
+  // pair; a second freeze_artifact -> freeze_artifact edge makes the cap's
+  // count unattributable to one edge.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions.push({ id: "freeze_retry_bis", from: "freeze_artifact", to: "freeze_artifact", priority: 2, guards: [] });
+    }),
+    "graph_cap_transition_shared",
+  );
+});
+
+test("a shared pair is lawful while no cap counts it (and a cap alone on its pair is lawful)", () => {
+  // The working example ships both halves: `await_alignment -> record_alignment`
+  // carries two transitions and no cap, and `freeze_retry` is counted alone.
+  // Already asserted by the acceptance test — this mutation proves the refusal
+  // is about the CAP sharing a pair, not about the pair being shared: pointing
+  // the cap at a transition unique to its own pair is accepted.
+  const document = mutated((document) => {
+    document.caps[0].counted_transition = "freeze_to_pass";
+  });
+  assert.deepEqual(validateGraph(document, schema), []);
+});
+
+test("graph_cap_binding_incomplete: a cap's counted edge declares no guards", () => {
+  // The runtime binds the below-limit term to the counted edge's guards, and
+  // an empty conjunction holds at every count — nothing carries the term, so
+  // the edge would admit at the limit. The shape the review measured.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = [];
+    }),
+    "graph_cap_binding_incomplete",
+  );
+});
+
+test("graph_cap_binding_incomplete: no sibling edge carries the cap's park_reason", () => {
+  // Without a carrying sibling the counted edge still stops at the limit, but
+  // the flow has no edge to park on — the task stands still with the step's
+  // own reason and the cap's `park_reason` is never recorded.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions = document.transitions.filter((edge) => edge.id !== "freeze_to_await_at_cap");
+    }),
+    "graph_cap_binding_incomplete",
+  );
+});
+
+test("graph_cap_binding_ambiguous: a bound guard a second edge also references", () => {
+  // `freeze_round_open_guard` carries the cap's below-limit term on
+  // `freeze_retry`; on `freeze_to_pass` — an edge the cap never names — it
+  // would gate that move on the cap's count too.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions.find((edge) => edge.id === "freeze_to_pass").guards.push("freeze_round_open_guard");
+    }),
+    "graph_cap_binding_ambiguous",
+  );
+});
+
+test("graph_cap_binding_ambiguous: one edge the binding reaches from two caps", () => {
+  // A second cap counting `freeze_to_pass` keeps the same `park_reason`, so it
+  // reaches `freeze_to_await_at_cap` as its carrying edge as well — the
+  // sibling's guard would owe both caps' limits.
+  assertRefuses(
+    mutated((document) => {
+      document.caps.push({ cycle: "second_cycle", counted_transition: "freeze_to_pass", limit: 3, park_reason: "review_cap" });
+    }),
+    "graph_cap_binding_ambiguous",
+  );
+});
+
+test("graph_cap_quantity_undeclared: the counted edge's predicate compares with a quantity no reads declares", () => {
+  // The guards on the counted transition let the flow take another round, so
+  // their predicates are the cap's: what they compare with `cap` is the
+  // quantity the cap fires on. `round` is in no predicate's `reads` — the
+  // defect the shipped document carried on both caps until the quantity was
+  // named `transition_takings`.
+  assertRefuses(
+    mutated((document) => {
+      document.predicates.push({ id: "rounds_left", reads: ["authority_record_id"], description: "round < cap — freeze_artifact again" });
+      document.guards.push({ id: "round_under_cap", predicate: "rounds_left", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["round_under_cap"];
+    }),
+    "graph_cap_quantity_undeclared",
+  );
+});
+
+test("graph_cap_quantity_undeclared: the parking sibling's predicate is bound the same way", () => {
+  // The other half of a cap's pair of branches: the sibling edge out of the
+  // counted transition's step that carries the cap's own park_reason — the
+  // edge the flow takes when the limit is reached. Its predicate is the cap's
+  // too, and the same refusal binds it.
+  assertRefuses(
+    mutated((document) => {
+      document.predicates.push({ id: "rounds_spent", reads: ["authority_record_id"], description: "round >= cap — park" });
+      document.guards.push({ id: "round_at_cap", predicate: "rounds_spent", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.push({ id: "freeze_to_await", from: "freeze_artifact", to: "await_alignment", priority: 2, guards: ["round_at_cap"] });
+    }),
+    "graph_cap_quantity_undeclared",
+  );
+});
+
+test("the same comparison is lawful on a predicate that is not the cap's", () => {
+  // The refusal is about the cap's quantity, not about every comparison a
+  // description writes. An edge that carries a different reason keeps its
+  // predicate outside the cap's branches, so an undeclared word there is the
+  // ordinary prose the check must not touch.
+  const graph = mutated((document) => {
+    document.predicates.push({ id: "rounds_spent", reads: ["authority_record_id"], description: "round >= cap — park" });
+    document.guards.push({ id: "round_at_pass", predicate: "rounds_spent", authority: { actor: "agent" }, park_reason: "artifact_freeze_invalid" });
+    document.transitions.push({ id: "freeze_to_await", from: "freeze_artifact", to: "await_alignment", priority: 2, guards: ["round_at_pass"] });
+  });
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("graph_cap_quantity_undeclared: parentheses and the Unicode operators are still comparisons", () => {
+  // The supported notation: `quantity` and `cap` are identifiers, either may
+  // sit in one pair of parentheses, whitespace is free, and `≤`, `≥`, `≠`
+  // stand beside the ASCII operators. The review found each of these forms
+  // slipping past the check while `round` stayed undeclared.
+  for (const description of ["(round) >= cap", "round < (cap)", "round ≥ cap", "cap ≤ (round)", "(round) != cap"]) {
+    assertRefuses(
+      mutated((document) => {
+        document.predicates.push({ id: "cap_variant", reads: ["authority_record_id"], description });
+        document.guards.push({ id: "cap_variant_guard", predicate: "cap_variant", authority: { actor: "agent" }, park_reason: "review_cap" });
+        document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_variant_guard"];
+      }),
+      "graph_cap_quantity_undeclared",
+    );
+  }
+});
+
+test("graph_cap_quantity_undeclared: a cap mention the parser cannot read is refused, not skipped", () => {
+  // The other half of the same defect: notation outside the supported set
+  // must refuse, never pass silently. A cap predicate that names `cap` owes
+  // one readable comparison; a verbal form, an unsupported operator, nested
+  // parentheses or a bare mention all leave the quantity unbound — and the
+  // refusal says so, the notation reason, not the undeclared-quantity one.
+  for (const description of ["round exceeds cap", "round =< cap", "((round)) >= cap", "park when cap is hit"]) {
+    const graph = mutated((document) => {
+      document.predicates.push({ id: "cap_unreadable", reads: ["authority_record_id"], description });
+      document.guards.push({ id: "cap_unreadable_guard", predicate: "cap_unreadable", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_unreadable_guard"];
+    });
+    const errors = validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared"));
+    assert.ok(
+      errors.every((message) => message.includes("mentions cap outside a comparison the validator can read")),
+      `${description}:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  }
+});
+
+test("graph_cap_quantity_undeclared: chains and unbalanced parentheses are malformed notation, not unchecked sides", () => {
+  // Written with the DECLARED quantity so an undeclared operand cannot mask
+  // the parse error: every refusal here is the notation reason — the shape
+  // the validator cannot read — never "compares with X". A chain is refused
+  // outright rather than checked on either side, and a parenthesis is only
+  // lawful as one balanced pair around one operand.
+  for (const description of [
+    "transition_takings >= cap > transition_takings",
+    "transition_takings >= cap > round",
+    "transition_takings >= cap)",
+    "transition_takings < (cap",
+    "(cap < transition_takings",
+    "cap) < transition_takings",
+    "((transition_takings) < cap",
+    "cap < (transition_takings))",
+  ]) {
+    const graph = mutated((document) => {
+      document.predicates.push({ id: "cap_malformed", reads: ["transition_takings"], description });
+      document.guards.push({ id: "cap_malformed_guard", predicate: "cap_malformed", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_malformed_guard"];
+    });
+    const errors = validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared"));
+    assert.ok(
+      errors.length > 0 && errors.every((message) => message.includes("mentions cap outside a comparison the validator can read")),
+      `${description}:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  }
+});
+
+test("graph_cap_quantity_undeclared: identifier runs are tokenized whole — a leading digit is no operand and hides no cap", () => {
+  // The token boundary is the whole run of identifier characters, digits
+  // included: a run starting with a digit is not an identifier, so
+  // `0transition_takings` is no operand — and `0cap` is no `cap` word at all,
+  // a run the rule never reaches. Splitting the run at the digit is what let
+  // the first two through and made the third a false refusal.
+  for (const description of ["0transition_takings >= cap", "cap < 123transition_takings"]) {
+    const graph = mutated((document) => {
+      document.predicates.push({ id: "cap_digit", reads: ["transition_takings"], description });
+      document.guards.push({ id: "cap_digit_guard", predicate: "cap_digit", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_digit_guard"];
+    });
+    const errors = validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared"));
+    assert.ok(
+      errors.length > 0 && errors.every((message) => message.includes("mentions cap outside a comparison the validator can read")),
+      `${description}:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  }
+  for (const description of ["0cap", "cap0", "x0cap >= round"]) {
+    const graph = mutated((document) => {
+      document.predicates.push({ id: "cap_digit", reads: ["transition_takings"], description });
+      document.guards.push({ id: "cap_digit_guard", predicate: "cap_digit", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_digit_guard"];
+    });
+    assert.deepEqual(
+      validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
+      [],
+      `${description}: a run that is not the word cap names nothing and owes nothing`,
+    );
+  }
+});
+
+test("graph_cap_quantity_undeclared: a missing operand is malformed notation, not an undeclared undefined", () => {
+  // `cap <` and its mirrors carry no second operand at all, so the refusal
+  // must be the notation reason — RegExp.test coercing `undefined` into the
+  // string "undefined" once made it read like an undeclared quantity.
+  for (const description of ["cap <", "> cap", "(cap) >=", "<= (cap)"]) {
+    const graph = mutated((document) => {
+      document.predicates.push({ id: "cap_missing", reads: ["transition_takings"], description });
+      document.guards.push({ id: "cap_missing_guard", predicate: "cap_missing", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_missing_guard"];
+    });
+    const errors = validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared"));
+    assert.ok(
+      errors.length > 0 && errors.every((message) => message.includes("mentions cap outside a comparison the validator can read")),
+      `${description}:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  }
+});
+
+test("the supported notations pass once the quantity is declared, and a guard that never mentions cap owes no comparison", () => {
+  // The green control for both fixes: every supported writing of a declared
+  // quantity is accepted, and an auxiliary predicate that does not name `cap`
+  // is left alone — it has nothing to compare.
+  for (const description of ["(transition_takings) >= cap", "transition_takings < (cap)", "transition_takings ≥ cap", "attempts remain and nothing here compares"]) {
+    const graph = mutated((document) => {
+      document.predicates.push({ id: "cap_declared", reads: ["authority_record_id", "transition_takings"], description });
+      document.guards.push({ id: "cap_declared_guard", predicate: "cap_declared", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["cap_declared_guard"];
+    });
+    assert.deepEqual(
+      validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
+      [],
+      description,
+    );
+  }
+});
+
+test("the shipped cap predicates each declare the quantity they compare with cap in their own reads", () => {
+  // The union rule cannot see this half of the criterion: the vocabulary
+  // accepts the quantity declared anywhere, so a cap predicate could compare
+  // with `transition_takings` while never declaring it — removing it from one
+  // predicate's `reads` left every check green, and even the 293 count did
+  // not move. The ticket's bar is the narrower one: each of the four carries
+  // the quantity in its OWN `reads`, and its description compares that name
+  // with `cap`.
+  const graph = document();
+  const byId = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  for (const id of ["cond_135", "cond_136", "cond_332", "cond_333"]) {
+    const entry = byId.get(id);
+    assert.ok(entry.reads.includes("transition_takings"), `${id} reads: ${entry.reads.join(", ")}`);
+    assert.match(
+      entry.description,
+      /(?<![A-Za-z0-9_])transition_takings\s*(?:>=|<)\s*cap(?![A-Za-z0-9_])/u,
+      `${id}: ${entry.description}`,
+    );
+  }
+});
+
 test("graph_step_unreachable: a step no edge can reach", () => {
   assertRefuses(
     mutated((document) => {
@@ -433,6 +705,12 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     // provokes it incidentally, but the defect it exists for was a reachable step
     // with no exit, so the battery provokes it that way too.
     (document) => { document.transitions = document.transitions.filter((edge) => edge.from !== "record_alignment"); },
+    // And the cap predicate's undeclared quantity, for the same reason.
+    (document) => {
+      document.predicates.push({ id: "rounds_left", reads: ["authority_record_id"], description: "round < cap" });
+      document.guards.push({ id: "round_under_cap", predicate: "rounds_left", authority: { actor: "agent" }, park_reason: "review_cap" });
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = ["round_under_cap"];
+    },
   ];
   for (const mutate of mutations) {
     for (const message of validateGraph(mutated(mutate), schema)) produced.add(code(message));
@@ -654,10 +932,33 @@ test("every cap counts the transition that spends a round, not merely one that e
     // and moved on something else. The condition is what makes it the round.
     const says = counted.guards.map((id) => predicates.get(guards.get(id).predicate) ?? "");
     assert.ok(
-      says.some((description) => /round\s*<\s*cap/u.test(description)),
+      says.some((description) => /transition_takings\s*<\s*cap/u.test(description)),
       `${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), whose conditions are:\n${says.join("\n")}`,
     );
   }
+});
+
+test("the quantity rule binds the cap's predicates only, not every description naming a word outside its reads", () => {
+  // The negative half, and the measurement that chose it. A predicate's
+  // `reads` declares the state it inspects, not every word its sentence may
+  // use: most descriptions name a word of the vocabulary their own list does
+  // not carry — 293 of the shipped document's 410, counted at identifier
+  // boundaries, which is the tokenization this measurement is stated in. A
+  // rule keyed on per-predicate disagreement would redden that lawful
+  // majority and could never go green. What is refused is the narrower shape:
+  // a cap predicate comparing `cap` with a quantity ABSENT FROM THE WHOLE
+  // VOCABULARY — which is what `round` was until it was named. The shipped
+  // document passes the check while carrying all 293.
+  const graph = document();
+  const vocabulary = new Set(graph.predicates.flatMap((entry) => entry.reads));
+  const atBoundary = (word) => new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`, "u");
+  const broad = graph.predicates.filter((entry) =>
+    [...vocabulary].some((word) => !entry.reads.includes(word) && atBoundary(word).test(entry.description)));
+  assert.equal(broad.length, 293, "the broad-rule population moved — remeasure before blaming the check");
+  assert.deepEqual(
+    validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
+    [],
+  );
 });
 
 test("a step name used as a word does not become an edge to that step", () => {

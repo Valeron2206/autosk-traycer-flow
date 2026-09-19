@@ -1,0 +1,758 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index 34183e9..f6ff117 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -410,8 +410,11 @@ export class Engine implements SessionHost {
+     await this.runOnTransit(project, wf, taskId, workflowName, leavingStep, to);
+     // `to` is always a `{ step }` here, so entering it counts a visit (atomically
+     // with the position write); `onTransit` already ran, so the bump is post-read.
++    // The move counts a taking of its edge only when it leaves a step — a first
++    // enroll leaves "" and is an entry with no edge behind it.
+     const updated = await project.store.setPosition(taskId, positionFor(wf, leavingStep, to), {
+       countVisit: to.step,
++      countTaking: leavingStep === "" ? undefined : { from: leavingStep, to: to.step },
+       pinRuntimeIdentity: decision.admitted ?? undefined,
+     });
+     this.emitTask(project, updated);
+@@ -470,9 +473,11 @@ export class Engine implements SessionHost {
+     }
+     await this.runOnTransit(project, wf, taskId, view.workflow, view.step, target);
+     // Only a `{ step }` resume target counts a visit (entering a named step);
+-    // a `{ status }` resume flips status without re-entering a step.
++    // a `{ status }` resume flips status without re-entering a step. The step
++    // case counts the edge it traverses as well, out of the parked step.
+     const updated = await project.store.setPosition(taskId, positionFor(wf, view.step, target), {
+       countVisit: "step" in target ? target.step : undefined,
++      countTaking: "step" in target ? { from: view.step, to: target.step } : undefined,
+     });
+     this.emitTask(project, updated);
+     this.kickScan();
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 4f7f3b2..eab22ba 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -405,10 +405,13 @@ export class SessionRuntime {
+     // 1. Task position first — while the session is still `running` (live), so a
+     //    concurrent scan sees the live session and skips re-dispatching. Entering
+     //    a named step counts a visit (atomically with the position write, after
+-    //    `onTransit` already ran); a `{ status }` target does not.
++    //    `onTransit` already ran); a `{ status }` target does not. The same move
++    //    counts the taking of the edge it traverses — this session's step to the
++    //    target — while a `{ status }` target traverses no edge.
+     const pos = positionFor(wf, this.step, to);
+     await this.project.store.setPosition(this.taskId, pos, {
+       countVisit: "step" in to ? to.step : undefined,
++      countTaking: "step" in to ? { from: this.step, to: to.step } : undefined,
+     });
+ 
+     // 2. Structural transcript entries.
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index a53e669..10359f9 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -54,9 +54,12 @@ export {
+ } from "./records.ts";
+ export {
+   STEP_VISITS_KEY,
++  TRANSITION_TAKINGS_KEY,
+   isEmptyMetadata,
+   getStepVisits,
+   bumpStepVisit,
++  getTransitionTakings,
++  bumpTransitionTaking,
+   RUNTIME_IDENTITY_KEY,
+   readRuntimeIdentityPin,
+   setRuntimeIdentityPin,
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 50623b6..8a0e211 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -3,13 +3,17 @@
+  *
+  * `metadata` is an opaque, human-editable key/value bag persisted in
+  * `task.json` (see {@link StoredTask}). The daemon treats it as data EXCEPT for
+- * one reserved sub-object, `step_visits` (step name → entry count), which the
++ * two reserved sub-objects: `step_visits` (step name → entry count), which the
+  * engine auto-maintains so a workflow's `ctx.visits()` cap reads a persistent,
+- * human-resettable counter instead of counting session files.
++ * human-resettable counter instead of counting session files, and
++ * `transition_takings` (from step → to step → taking count), which the engine
++ * maintains in the same write so a cap declared over ONE edge reads the number
++ * of times that edge was taken rather than entries by any edge.
+  *
+  * Every helper here is defensive: the bag can be edited by hand under hybrid
+- * ownership, so a corrupt/missing/wrong-typed `step_visits` (or a non-numeric
+- * entry) is tolerated rather than thrown on.
++ * ownership, so a corrupt/missing/wrong-typed `step_visits` or
++ * `transition_takings` (or a non-numeric entry) is tolerated rather than thrown
++ * on.
+  *
+  * The edit RPCs (`task.metadata.set` / `task.metadata.unset`) address leaves by
+  * **dot-path** (e.g. `step_visits.dev`): `set` creates any intermediate objects
+@@ -62,6 +66,62 @@ export function bumpStepVisit(meta: Record<string, unknown>, step: string): void
+   meta[STEP_VISITS_KEY] = current;
+ }
+ 
++/**
++ * The reserved metadata sub-object the engine auto-maintains
++ * (from step → to step → taking count): one nested map per edge left, so a cap
++ * declared on a transition reads takings of that edge rather than entries into
++ * its `to` step by any edge (`step_visits`).
++ */
++export const TRANSITION_TAKINGS_KEY = "transition_takings";
++
++/**
++ * Reads the reserved `transition_takings` map as
++ * `{ [from]: { [to]: count } }`, defensively ignoring any non-object inner map
++ * or non-finite / non-numeric leaf. Returns a fresh nested object; never
++ * aliases the stored bag. The fresh maps are prototype-free, so a step named
++ * `__proto__` is a plain key on write as well as on read.
++ */
++export function getTransitionTakings(
++  meta: Record<string, unknown> | undefined | null,
++): Record<string, Record<string, number>> {
++  const out: Record<string, Record<string, number>> = Object.create(null);
++  if (meta == null) return out;
++  if (!Object.hasOwn(meta, TRANSITION_TAKINGS_KEY)) return out;
++  const raw = meta[TRANSITION_TAKINGS_KEY];
++  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return out;
++  for (const from of Object.keys(raw as Record<string, unknown>)) {
++    const inner = (raw as Record<string, unknown>)[from];
++    if (typeof inner !== "object" || inner === null || Array.isArray(inner)) continue;
++    const takings: Record<string, number> = Object.create(null);
++    for (const to of Object.keys(inner as Record<string, unknown>)) {
++      const value = (inner as Record<string, unknown>)[to];
++      if (typeof value === "number" && Number.isFinite(value)) takings[to] = value;
++    }
++    out[from] = takings;
++  }
++  return out;
++}
++
++/**
++ * Increments `meta.transition_takings[from][to]` by one (creating the reserved
++ * sub-object and/or the entries as needed), mutating `meta` in place. A
++ * pre-existing non-object `transition_takings`, non-object `from` map or
++ * non-numeric leaf is reset rather than trusted, so a hand-corrupted counter
++ * self-heals to a clean count on the next bump.
++ */
++export function bumpTransitionTaking(
++  meta: Record<string, unknown>,
++  taking: { from: string; to: string },
++): void {
++  const current = getTransitionTakings(meta);
++  const inner: Record<string, number> = Object.hasOwn(current, taking.from)
++    ? current[taking.from]!
++    : Object.create(null);
++  inner[taking.to] = (Object.hasOwn(inner, taking.to) ? inner[taking.to]! : 0) + 1;
++  current[taking.from] = inner;
++  meta[TRANSITION_TAKINGS_KEY] = current;
++}
++
+ /**
+  * Applies a dot-path merge patch to `meta` in place. Each entry's KEY is a
+  * dot-path (`a.b.c`); the value is written at that leaf, creating intermediate
+@@ -93,10 +153,11 @@ export function applyMetadataUnset(meta: Record<string, unknown>, keys: string[]
+ /**
+  * Refuses an edit that would reach the engine-owned runtime identity pin.
+  *
+- * `step_visits` stays human-editable, but the cost of corrupting it is no longer
+- * only a miscounted cap: it is also the visit count a scoped creation grant is
+- * checked against (issue #11), so a caller that can write it can satisfy the check
+- * its own grant asserts. That is knowingly accepted — the grant carries no
++ * Both engine counters stay human-editable — `step_visits` and
++ * `transition_takings` alike — but the cost of corrupting `step_visits` is no
++ * longer only a miscounted cap: it is also the visit count a scoped creation
++ * grant is checked against (issue #11), so a caller that can write it can
++ * satisfy the check its own grant asserts. That is knowingly accepted — the grant carries no
+  * signature either, so locking the counter would harden one half of a guarantee
+  * whose other half does not exist, and would take away a counter the operator is
+  * meant to be able to reset. `scopedCreation.ts` says the same thing from the
+diff --git a/daemon/core/src/store/records.ts b/daemon/core/src/store/records.ts
+index 6386362..c5cb76b 100644
+--- a/daemon/core/src/store/records.ts
++++ b/daemon/core/src/store/records.ts
+@@ -52,7 +52,8 @@ export interface StoredTask {
+   creation_binding_hash?: string;
+   /**
+    * Free-form, human-editable key/value bag (plan §2). Always an object
+-   * in memory ({} when none); the engine reserves the `step_visits` sub-object.
++   * in memory ({} when none); the engine reserves the `step_visits` and
++   * `transition_takings` sub-objects.
+    * It is OMITTED from the serialised `task.json` when empty (see
+    * {@link serializeTask}) so pre-existing files round-trip byte-for-byte.
+    */
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index ff06985..5b5b90b 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -70,6 +70,7 @@ import {
+   applyMetadataPatch,
+   applyMetadataUnset,
+   bumpStepVisit,
++  bumpTransitionTaking,
+   readRuntimeIdentityPin,
+   setRuntimeIdentityPin,
+   type RuntimeIdentityPin,
+@@ -894,17 +895,29 @@ export class Store {
+    * `onTransit` has been consulted at the call site, preserving the prior-entries
+    * semantics of `ctx.visits()`. A `{ status }` flip (and `reopen`/`park`) passes
+    * no `countVisit` and therefore never counts.
++   *
++   * `opts.countTaking` (`{ from, to }`) bumps
++   * `metadata.transition_takings[from][to]` in the same write: the durable count
++   * of one edge's takings, atomic with the move that is the taking. Callers pass
++   * it on every `{ step }` move that leaves a named step — self-loops included —
++   * and never on a `{ status }` flip, which is a status move rather than an edge
++   * traversal.
+    */
+   async setPosition(
+     id: string,
+     pos: { status: TaskStatus; workflow: string | null; step: string | null },
+-    opts?: { countVisit?: string; pinRuntimeIdentity?: RuntimeIdentityPin },
++    opts?: {
++      countVisit?: string;
++      countTaking?: { from: string; to: string };
++      pinRuntimeIdentity?: RuntimeIdentityPin;
++    },
+   ): Promise<TaskView> {
+     await this.mutateTask(id, (t) => {
+       t.status = pos.status;
+       t.workflow = pos.workflow;
+       t.step = pos.step;
+       if (opts?.countVisit !== undefined) bumpStepVisit(t.metadata, opts.countVisit);
++      if (opts?.countTaking !== undefined) bumpTransitionTaking(t.metadata, opts.countTaking);
+       // The pin lands in the SAME write as the position, so a task is never
+       // observable as enrolled on a workflow without the identity it was
+       // admitted under (issue #10).
+diff --git a/daemon/core/test/engine.takings.test.ts b/daemon/core/test/engine.takings.test.ts
+new file mode 100644
+index 0000000..5c29b8d
+--- /dev/null
++++ b/daemon/core/test/engine.takings.test.ts
+@@ -0,0 +1,219 @@
++/**
++ * `transition_takings` — the per-edge durable counter (patch 0034).
++ *
++ * `setPosition` bumps `metadata.transition_takings[from][to]` inside the SAME
++ * `mutateTask` write as the position, so a cap declared over ONE edge reads
++ * takings of that edge rather than entries into its `to` step by any edge —
++ * which is what `step_visits` counts, and what the shipped document's two caps
++ * (`t_231`, `t_443`) are not.
++ *
++ * The persisted bag is read raw, off the record the position write landed:
++ * what is being asserted is that the durable record itself answers the count.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { type AgentDefinition, type WorkflowDefinition } from "@autosk/sdk";
++
++import { makeEngine, makeProject, transitAgent, type TestProject } from "./engineHarness.ts";
++import { waitForComplete } from "./helpers.ts";
++
++/** The persisted counter, read off the task record the position write landed. */
++function takingsOf(meta: Record<string, unknown>): Record<string, Record<string, number>> {
++  const raw = meta.transition_takings;
++  return (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, Record<string, number>>;
++}
++
++type Bag = { step_visits?: Record<string, number> } & Record<string, unknown>;
++
++describe("engine — transition_takings", () => {
++  const cleanups: (() => void)[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const c of cleanups.splice(0)) c();
++  });
++  function track(p: TestProject): TestProject {
++    cleanups.push(p.cleanup);
++    return p;
++  }
++
++  test("a run with self-loops: takings of the counted edge diverge from visits of its target", async () => {
++    // The shipped graph's own pair: `t_231` is narrow_review_join ->
++    // fix_artifact, and fix_artifact is entered by nine edges, seven of them
++    // self-loops. Here the flow takes the counted edge ONCE and self-loops
++    // twice — three entries into the step, one taking of the edge.
++    let loops = 0;
++    const fixer: AgentDefinition = {
++      async onRun(ctx) {
++        loops += 1;
++        await ctx.transit(loops <= 2 ? { step: "fix_artifact" } : { status: "done" });
++      },
++    };
++    const wf: WorkflowDefinition = {
++      name: "review",
++      firstStep: "narrow_review_join",
++      steps: {
++        narrow_review_join: transitAgent({ step: "fix_artifact" }),
++        fix_artifact: fixer,
++      },
++    };
++    const p = track(await makeProject({ workflows: [wf] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "one round, three entries" });
++    await engine.enroll(p.root, task.id, { workflow: "review" });
++    await waitForComplete(p.store, task.id, "done");
++
++    const meta = p.store.peekMetadata(task.id) as Bag;
++    expect(meta.step_visits).toEqual({ narrow_review_join: 1, fix_artifact: 3 });
++    // One taking of the counted edge; two of the self-loop. The enroll entry
++    // counted a visit but no taking — it leaves no step — and the closing
++    // {status} move traversed no edge.
++    expect(takingsOf(meta)).toEqual({
++      narrow_review_join: { fix_artifact: 1 },
++      fix_artifact: { fix_artifact: 2 },
++    });
++  });
++
++  test("a { step } resume counts the edge out of the parked step; a { status } move counts none", async () => {
++    // Parks at fix_artifact by a {status} transit — a status move, not an edge.
++    // Then: resume to polish (fa -> polish), park again, resume back
++    // (polish -> fa), park, resume with no target (fa -> fa), and close by a
++    // {status} resume — which traverses no edge either.
++    const parker: AgentDefinition = {
++      async onRun(ctx) {
++        await ctx.transit({ status: "human" });
++      },
++    };
++    const wf: WorkflowDefinition = {
++      name: "review",
++      firstStep: "narrow_review_join",
++      steps: {
++        narrow_review_join: transitAgent({ step: "fix_artifact" }),
++        fix_artifact: parker,
++        polish: parker,
++      },
++    };
++    const p = track(await makeProject({ workflows: [wf] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "parked and resumed" });
++    await engine.enroll(p.root, task.id, { workflow: "review" });
++    await waitForComplete(p.store, task.id, "human");
++
++    await engine.resume(p.root, task.id, { step: "polish" });
++    await waitForComplete(p.store, task.id, "human");
++    await engine.resume(p.root, task.id, { step: "fix_artifact" });
++    await waitForComplete(p.store, task.id, "human");
++    await engine.resume(p.root, task.id); // no target: re-enters fix_artifact
++    await waitForComplete(p.store, task.id, "human");
++    await engine.resume(p.root, task.id, { status: "done" });
++
++    const meta = p.store.peekMetadata(task.id) as Bag;
++    expect(meta.step_visits).toEqual({ narrow_review_join: 1, fix_artifact: 3, polish: 1 });
++    expect(takingsOf(meta)).toEqual({
++      narrow_review_join: { fix_artifact: 1 },
++      fix_artifact: { polish: 1, fix_artifact: 1 },
++      polish: { fix_artifact: 1 },
++    });
++  });
++
++  test("a same-workflow re-enroll counts the edge it traverses", async () => {
++    // A parked task enrolled again into the SAME workflow moves from the step
++    // it was parked at to the named target: that move is an edge traversal and
++    // counts, exactly as a resume's does.
++    const parker: AgentDefinition = {
++      async onRun(ctx) {
++        await ctx.transit({ status: "human" });
++      },
++    };
++    const wf: WorkflowDefinition = {
++      name: "review",
++      firstStep: "narrow_review_join",
++      steps: {
++        narrow_review_join: transitAgent({ step: "fix_artifact" }),
++        fix_artifact: parker,
++        polish: parker,
++      },
++    };
++    const p = track(await makeProject({ workflows: [wf] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "re-enrolled" });
++    await engine.enroll(p.root, task.id, { workflow: "review" });
++    await waitForComplete(p.store, task.id, "human");
++
++    await engine.enroll(p.root, task.id, { workflow: "review", step: "polish" });
++    await waitForComplete(p.store, task.id, "human");
++
++    const meta = p.store.peekMetadata(task.id) as Bag;
++    expect(meta.step_visits).toEqual({ narrow_review_join: 1, fix_artifact: 1, polish: 1 });
++    expect(takingsOf(meta)).toEqual({
++      narrow_review_join: { fix_artifact: 1 },
++      fix_artifact: { polish: 1 },
++    });
++  });
++
++  test("a step named 'constructor' transits and counts like any other", async () => {
++    // The graph id pattern admits `constructor`. With an inherited-property
++    // read the bump would land the Object function under the `from` key: the
++    // position write serializes without it, and the next store view's
++    // structuredClone throws DataCloneError — the task would sit at finish,
++    // status work, forever.
++    const wf: WorkflowDefinition = {
++      name: "ctor",
++      firstStep: "constructor",
++      steps: {
++        constructor: transitAgent({ step: "finish" }),
++        finish: transitAgent({ status: "done" }),
++      },
++    };
++    const p = track(await makeProject({ workflows: [wf] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "ctor step" });
++    await engine.enroll(p.root, task.id, { workflow: "ctor" });
++    await waitForComplete(p.store, task.id, "done");
++
++    const meta = p.store.peekMetadata(task.id) as Bag;
++    // step_visits.constructor is wrong by a pre-existing defect of the older
++    // counter (its own-key read is a separate debt, not this patch's scope);
++    // what this patch owns is the pair count — and that the flow completes.
++    expect(meta.step_visits?.finish).toBe(1);
++    expect(takingsOf(meta)).toEqual({ constructor: { finish: 1 } });
++  });
++
++  test("a step named '__proto__' transits and counts like any other", async () => {
++    // Our graph schema refuses the name, but addWorkflow accepts an own
++    // `__proto__` key in steps. A plain-object counter map would send the
++    // write through the prototype setter and the count would never land.
++    const wf: WorkflowDefinition = {
++      name: "proto",
++      firstStep: "__proto__",
++      steps: {
++        ["__proto__"]: transitAgent({ step: "finish" }),
++        finish: transitAgent({ status: "done" }),
++      },
++    };
++    const p = track(await makeProject({ workflows: [wf] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "proto step" });
++    await engine.enroll(p.root, task.id, { workflow: "proto" });
++    await waitForComplete(p.store, task.id, "done");
++
++    const meta = p.store.peekMetadata(task.id) as Bag;
++    expect(meta.step_visits?.finish).toBe(1);
++    expect(takingsOf(meta)).toEqual({ ["__proto__"]: { finish: 1 } });
++  });
++});
+diff --git a/daemon/core/test/engine.transitions.test.ts b/daemon/core/test/engine.transitions.test.ts
+index 75856d9..d6c458d 100644
+--- a/daemon/core/test/engine.transitions.test.ts
++++ b/daemon/core/test/engine.transitions.test.ts
+@@ -357,8 +357,12 @@ describe("engine — enroll / resume / statusStep parking", () => {
+     expect(parkReason.v).toContain("looped too many times");
+     // 3 sessions ran at "do" (the 3rd self-loop was rejected → parked).
+     expect(p.store.sessions.sessionsForTask(task.id)).toHaveLength(3);
+-    // The cap is now metadata-backed: the persisted counter sits at the cap.
+-    expect(p.store.peekMetadata(task.id)).toEqual({ step_visits: { do: 3 } });
++    // The cap is now metadata-backed: the persisted counter sits at the cap —
++    // 3 entries into "do", of which the self-loop edge itself was taken twice.
++    expect(p.store.peekMetadata(task.id)).toEqual({
++      step_visits: { do: 3 },
++      transition_takings: { do: { do: 2 } },
++    });
+   });
+ 
+   test("resetting metadata.step_visits lets a capped task proceed again", async () => {
+@@ -395,14 +399,20 @@ describe("engine — enroll / resume / statusStep parking", () => {
+     await waitForComplete(p.store, task.id, "human");
+     expect(p.store.sessions.sessionsForTask(task.id)).toHaveLength(3); // hit the cap
+ 
+-    // The human escape hatch: clear the persisted counter, then resume.
++    // The human escape hatch: clear the persisted counter, then resume. Only
++    // step_visits is cleared — the takings of the self-loop edge stay durable.
+     await p.store.unsetMetadata(task.id, ["step_visits"]);
+-    expect(p.store.peekMetadata(task.id)).toEqual({});
+-    await engine.resume(p.root, task.id); // re-enters "do"
++    expect(p.store.peekMetadata(task.id)).toEqual({ transition_takings: { do: { do: 2 } } });
++    await engine.resume(p.root, task.id); // re-enters "do" — a taking too
+     await waitForComplete(p.store, task.id, "human");
+ 
+     // The reset bought another full batch up to the cap: 3 more "do" sessions.
++    // The edge counter kept counting across the reset: the bare resume's taking
++    // plus the two further self-loops of the second batch.
+     expect(p.store.sessions.sessionsForTask(task.id)).toHaveLength(6);
+-    expect(p.store.peekMetadata(task.id)).toEqual({ step_visits: { do: 3 } });
++    expect(p.store.peekMetadata(task.id)).toEqual({
++      step_visits: { do: 3 },
++      transition_takings: { do: { do: 5 } },
++    });
+   });
+ });
+diff --git a/daemon/core/test/metadata.test.ts b/daemon/core/test/metadata.test.ts
+index 8620a95..71c59c8 100644
+--- a/daemon/core/test/metadata.test.ts
++++ b/daemon/core/test/metadata.test.ts
+@@ -9,10 +9,13 @@ import { describe, expect, test } from "bun:test";
+ import {
+   RUNTIME_IDENTITY_KEY,
+   STEP_VISITS_KEY,
++  TRANSITION_TAKINGS_KEY,
+   applyMetadataPatch,
+   applyMetadataUnset,
+   bumpStepVisit,
++  bumpTransitionTaking,
+   getStepVisits,
++  getTransitionTakings,
+   isEmptyMetadata,
+   readRuntimeIdentityPin,
+   setRuntimeIdentityPin,
+@@ -121,6 +124,99 @@ describe("bumpStepVisit", () => {
+   });
+ });
+ 
++describe("getTransitionTakings — defensive read", () => {
++  test("returns {} when transition_takings is absent or not an object", () => {
++    expect(getTransitionTakings(undefined)).toEqual({});
++    expect(getTransitionTakings({})).toEqual({});
++    expect(getTransitionTakings({ transition_takings: "nope" })).toEqual({});
++    expect(getTransitionTakings({ transition_takings: [1, 2] })).toEqual({});
++    expect(getTransitionTakings({ transition_takings: null })).toEqual({});
++  });
++
++  test("keeps only object rows, and only their finite numeric entries", () => {
++    const meta = {
++      transition_takings: {
++        dev: { review: 2, bad: "x", nan: Number.NaN, inf: Infinity },
++        docs: "nope",
++        float: { review: 1.5 },
++      },
++    };
++    expect(getTransitionTakings(meta)).toEqual({
++      dev: { review: 2 },
++      float: { review: 1.5 },
++    });
++  });
++
++  test("returns fresh nested objects that do not alias the stored bag", () => {
++    const meta = { transition_takings: { dev: { review: 1 } } };
++    const out = getTransitionTakings(meta);
++    out.dev!.review = 99;
++    expect((meta.transition_takings as Record<string, Record<string, number>>).dev!.review).toBe(1);
++  });
++});
++
++describe("bumpTransitionTaking", () => {
++  test("creates the reserved sub-object + pair on first bump", () => {
++    const meta: Record<string, unknown> = {};
++    bumpTransitionTaking(meta, { from: "dev", to: "review" });
++    expect(meta[TRANSITION_TAKINGS_KEY]).toEqual({ dev: { review: 1 } });
++  });
++
++  test("increments an existing pair and leaves siblings untouched", () => {
++    const meta: Record<string, unknown> = {
++      transition_takings: { dev: { review: 2, docs: 1 }, docs: { dev: 4 } },
++    };
++    bumpTransitionTaking(meta, { from: "dev", to: "review" });
++    expect(meta.transition_takings).toEqual({ dev: { review: 3, docs: 1 }, docs: { dev: 4 } });
++  });
++
++  test("self-heals a corrupt transition_takings to a clean count", () => {
++    const meta: Record<string, unknown> = { transition_takings: "broken" };
++    bumpTransitionTaking(meta, { from: "dev", to: "review" });
++    expect(meta.transition_takings).toEqual({ dev: { review: 1 } });
++  });
++
++  test("self-heals a corrupt row to a clean count, keeping sibling rows", () => {
++    const meta: Record<string, unknown> = {
++      transition_takings: { dev: "broken", docs: { dev: 4 } },
++    };
++    bumpTransitionTaking(meta, { from: "dev", to: "review" });
++    expect(meta.transition_takings).toEqual({ dev: { review: 1 }, docs: { dev: 4 } });
++  });
++
++  test("counts a step named 'constructor' as source and as target", () => {
++    // `constructor` is a legal step id; an inherited-property read would land
++    // the Object function in the bag instead of a count — and a function in
++    // the bag breaks the next structuredClone of the record.
++    const meta: Record<string, unknown> = {};
++    bumpTransitionTaking(meta, { from: "constructor", to: "finish" });
++    bumpTransitionTaking(meta, { from: "finish", to: "constructor" });
++    bumpTransitionTaking(meta, { from: "constructor", to: "finish" });
++    expect(meta.transition_takings).toEqual({
++      constructor: { finish: 2 },
++      finish: { constructor: 1 },
++    });
++    expect(() => structuredClone(meta)).not.toThrow();
++  });
++
++  test("counts a step named '__proto__' as source and as target", () => {
++    // The daemon accepts an own `__proto__` key in a workflow's steps (our
++    // graph schema refuses it, addWorkflow does not); writing it into a
++    // plain object goes through the prototype setter and loses the count.
++    const meta: Record<string, unknown> = {};
++    bumpTransitionTaking(meta, { from: "__proto__", to: "finish" });
++    bumpTransitionTaking(meta, { from: "finish", to: "__proto__" });
++    bumpTransitionTaking(meta, { from: "__proto__", to: "finish" });
++    const expected = {
++      ["__proto__"]: { finish: 2 },
++      finish: { ["__proto__"]: 1 },
++    };
++    expect(meta.transition_takings).toEqual(expected);
++    expect(() => structuredClone(meta)).not.toThrow();
++    expect(JSON.parse(JSON.stringify(meta.transition_takings))).toEqual(expected);
++  });
++});
++
+ describe("applyMetadataPatch — dot-path set", () => {
+   test("sets a top-level leaf", () => {
+     const meta: Record<string, unknown> = {};
+diff --git a/daemon/core/test/store.metadata.test.ts b/daemon/core/test/store.metadata.test.ts
+index 48e5b40..1ba7157 100644
+--- a/daemon/core/test/store.metadata.test.ts
++++ b/daemon/core/test/store.metadata.test.ts
+@@ -2,8 +2,9 @@
+  * Store-level `metadata` mutations (plan §4) + hybrid-ownership for the bag.
+  *
+  * Covers `mergeMetadata` / `unsetMetadata` (the dedicated merge family),
+- * `peekMetadata` (the engine's synchronous read), the `countVisit` option on
+- * `setPosition`, the per-task-lock serialisation of concurrent edits, and that
++ * `peekMetadata` (the engine's synchronous read), the `countVisit` and
++ * `countTaking` options on `setPosition`, the per-task-lock serialisation of
++ * concurrent edits, and that
+  * an external `metadata` file edit is ACCEPTED by reconciliation (with and
+  * without a live session), while status/step/workflow rejection is unchanged.
+  */
+@@ -122,6 +123,39 @@ describe("store metadata mutations", () => {
+     expect(store.peekMetadata(t.id)).toEqual({ step_visits: { dev: 2 } });
+   });
+ 
++  test("setPosition({countTaking}) bumps the (from,to) pair in the same write as the position", async () => {
++    const t = await store.createTask({ title: "t" });
++    // Enrolment: a visit, but no source step — countTaking stays absent.
++    await store.setPosition(t.id, { status: "work", workflow: "wf", step: "dev" }, { countVisit: "dev" });
++    expect(store.peekMetadata(t.id)).toEqual({ step_visits: { dev: 1 } });
++    // A committed dev -> review move counts the pair AND the landing visit in one write.
++    await store.setPosition(
++      t.id,
++      { status: "work", workflow: "wf", step: "review" },
++      { countVisit: "review", countTaking: { from: "dev", to: "review" } },
++    );
++    expect(store.peekMetadata(t.id)).toEqual({
++      step_visits: { dev: 1, review: 1 },
++      transition_takings: { dev: { review: 1 } },
++    });
++    // A position move with NO countTaking (a {status} flip / reopen / park) does not count.
++    await store.setPosition(t.id, { status: "human", workflow: "wf", step: "review" });
++    expect(store.peekMetadata(t.id)).toEqual({
++      step_visits: { dev: 1, review: 1 },
++      transition_takings: { dev: { review: 1 } },
++    });
++    // A self-loop counts too: review -> review.
++    await store.setPosition(
++      t.id,
++      { status: "work", workflow: "wf", step: "review" },
++      { countVisit: "review", countTaking: { from: "review", to: "review" } },
++    );
++    expect(store.peekMetadata(t.id)).toEqual({
++      step_visits: { dev: 1, review: 2 },
++      transition_takings: { dev: { review: 1 }, review: { review: 1 } },
++    });
++  });
++
+   test("peekMetadata returns a clone (callers cannot mutate the cached record)", async () => {
+     const t = await store.createTask({ title: "t" });
+     await store.mergeMetadata(t.id, { "step_visits.dev": 1 });
+diff --git a/daemon/sdk/src/types.ts b/daemon/sdk/src/types.ts
+index 5f9a750..b908bb8 100644
+--- a/daemon/sdk/src/types.ts
++++ b/daemon/sdk/src/types.ts
+@@ -45,9 +45,10 @@ export interface TaskView {
+   readonly creation_binding_hash?: string;
+   /**
+    * Free-form, human-editable key/value bag persisted in `task.json`. Always
+-   * present (an empty object when the task has none). The engine reserves the
+-   * `step_visits` sub-object (step name → entry count) which it auto-maintains;
+-   * everything else is opaque to the daemon.
++   * present (an empty object when the task has none). The engine reserves two
++   * sub-objects it auto-maintains — `step_visits` (step name → entry count) and
++   * `transition_takings` (from step → to step → taking count); everything else
++   * is opaque to the daemon.
+    */
+   metadata: Record<string, unknown>;
+   created_at: string;
+diff --git a/docs/cli.md b/docs/cli.md
+index 7a8109e..4dcf809 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -428,7 +428,8 @@ $ autosk metadata show ask-3f9b2c
+ }
+ ```
+ 
+-The engine reserves `step_visits` (a `step → count` map for workflow visit caps).
++The engine reserves `step_visits` (a `step → count` map for workflow visit caps)
++and `transition_takings` (a `from → to → count` map for transition caps).
+ Reset a stuck counter by hand — this is the supported escape hatch:
+ 
+ ```bash
+diff --git a/docs/concepts.md b/docs/concepts.md
+index 2ca17b6..3d2f889 100644
+--- a/docs/concepts.md
++++ b/docs/concepts.md
+@@ -316,7 +316,7 @@ daemon creates the intermediate objects for you:
+ autosk metadata set <id> labels.priority high   # { "labels": { "priority": "high" } }
+ ```
+ 
+-The bag is opaque to the daemon **except for one reserved sub-object**:
++The bag is opaque to the daemon **except for two reserved sub-objects**:
+ 
+ ### `step_visits` — the reserved engine counter
+ 
+@@ -341,6 +341,30 @@ autosk metadata unset <id> step_visits        # reset every step's count
+ autosk metadata set   <id> step_visits.dev 0  # reset just the dev count
+ ```
+ 
++### `transition_takings` — the reserved edge counter
++
++`metadata.transition_takings` is a nested `{ source step → { target step →
++count } }` map the **engine auto-maintains** for transition caps — caps that
++count how many times a task takes one declared `from → to` edge rather than how
++many times it enters a step. On **every committed step→step move** — a transit,
++a `resume` into a step, a same-workflow re-enroll — the engine bumps
++`transition_takings[from][to]` by one, in the same atomic write as the new
++position and the `step_visits` bump. The initial enroll has no source step, so
++it counts a visit but **no** taking; `{ status }` flips traverse no edge and
++count neither.
++
++A self-loop counts: `a → a` bumps `transition_takings[a][a]` once per taking.
++That is what distinguishes the two counters — three entries into `fix_artifact`
++over a run may be `step_visits.fix_artifact = 3` while the edge into it was
++taken once: `transition_takings.narrow_review_join.fix_artifact = 1` and the
++self-loop `transition_takings.fix_artifact.fix_artifact = 2`.
++
++Like `step_visits`, the map is human-editable and resettable:
++
++```bash
++autosk metadata unset <id> transition_takings   # reset every edge's count
++```
++
+ Only the dedicated `metadata set` / `metadata unset` family writes the bag —
+ there is no `task update` passthrough for metadata.
+ 
+diff --git a/internal/changelog/CHANGELOG.md b/internal/changelog/CHANGELOG.md
+index 0478a55..6724dd7 100644
+--- a/internal/changelog/CHANGELOG.md
++++ b/internal/changelog/CHANGELOG.md
+@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ ### Added
+ - **create:** add idempotent creation binding receipts for automation (#11).
+ - **engine:** refuse to run a task whose extension distribution changed after enrollment (#10).
++- **engine:** count committed step→step moves in `metadata.transition_takings` alongside `step_visits`.
+ 
+ ### Fixed
+ - **pi-agent:** gate prompts on pi's `agent_settled`, ending "Agent is already processing" session failures (#19).
