@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "39c6cc16cc9974364667247e9ce9c9d34d32233b",
+  "result_tree": "55e6c9e54a36b0dc3efbc5ca9f70296e3bd72be6",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -150,6 +150,10 @@
     {
       "file": "patches/0034-transition-takings-counter.patch",
       "sha256": "af919c63d0cefb35975d70679fe0c57c1488a76ea04d977479933b01ae1aaa06"
+    },
+    {
+      "file": "patches/0039-step-visits-prototype-key.patch",
+      "sha256": "00878c636429e1d273e2ce1a8be766778d7b95eaa6c68eb8d43a5deede29317a"
     }
   ],
   "license": {
