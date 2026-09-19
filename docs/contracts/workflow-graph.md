@@ -75,7 +75,7 @@ Duplicate keys are refused at the parse because a parsed object no longer carrie
 
 `resources/workflow-graph/canonical-reference.json` ships the reference: an input, its canonical bytes and its digest, together with the four forks the serialization has to settle — two writings of one integer, two writings of one string, a duplicate key, and a name carrying an unpaired surrogate. Two implementations are compared against that file and not against this section. A fork the reference does not exercise is left to whoever writes the second implementation, exactly as if the rule had never been written down.
 
-The reference's document case is the shipped working example rewritten with reordered keys, reversed unordered arrays and a different indent. It therefore proves the digest the example carries, rather than proving a digest of its own.
+The reference's document case is the shipped working example rewritten with reordered keys, reversed unordered arrays and a different indent. It therefore proves the digest the example carries, rather than proving a digest of its own. The validator refuses a document input that is not exactly that rewrite, so a regeneration cannot quietly substitute the example's own bytes.
 
 ## 5. Identity: two digests with different jobs
 

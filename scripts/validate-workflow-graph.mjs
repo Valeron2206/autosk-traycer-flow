@@ -924,13 +924,76 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
 // ---------------------------------------------------------------------------
 
 /**
+ * The array paths `normalizeGraph` sorts — the rewrite's sets.
+ *
+ * Membership is a property of the field, not of the values it happens to
+ * hold: two `views[].rows` that differ only inside their sorted sets are
+ * canonically equal, so probing whether a reversal moves the canonical bytes
+ * would call that ordered array a set. The roles are stated here instead,
+ * read off `normalizeGraph` as it stands — `*` marks an element of the array
+ * above it, so `transitions.*.guards` is the guard list inside each written
+ * transition, while `transitions` itself is absent and keeps its order. The
+ * tests pin every listed entry against the canonicalizer and check the array
+ * reversals observable in the shipped example; a change to `normalizeGraph`
+ * still requires checking this table against it.
+ */
+export const SORTED_ARRAY_PATHS = new Set([
+  "predicates",
+  "predicates.*.reads",
+  "steps",
+  "steps.*.hooks",
+  "guards",
+  "guards.*.authority.policy_rules",
+  "transitions.*.guards",
+  "caps",
+  "recovery",
+  "recovery.*.parks_at",
+  "recovery.*.handled_at",
+  "decision_options",
+  "views.*.cases",
+  "views.*.rows.*.rule.requires",
+  "views.*.rows.*.rule.admits",
+  "views.*.rows.*.rule.excludes",
+]);
+
+/**
+ * The document case's input, rebuilt from the example rather than copied.
+ *
+ * The case exists to prove the canonical bytes do not care how the document is
+ * written, which an input equal to the example cannot show. So the input is
+ * the example rewritten: every object's keys in reverse order, every array in
+ * `SORTED_ARRAY_PATHS` written back to front, and a four-space indent.
+ * `transitions`, `resume_targets` and every other order-carrying array keep
+ * their written order whatever their elements hold: whether an array is a
+ * set is a property of its field, read off `normalizeGraph`, not of what a
+ * reversal does to the bytes.
+ */
+export function rewriteExampleInput(exampleText) {
+  const rewrite = (node, path) => {
+    if (Array.isArray(node)) {
+      const items = node.map((item) => rewrite(item, `${path}.*`));
+      return SORTED_ARRAY_PATHS.has(path) ? items.reverse() : items;
+    }
+    if (node !== null && typeof node === "object") {
+      return Object.fromEntries(
+        Object.keys(node)
+          .reverse()
+          .map((key) => [key, rewrite(node[key], path === "" ? key : `${path}.${key}`)]),
+      );
+    }
+    return node;
+  };
+  return `${JSON.stringify(rewrite(parseStrict(exampleText), ""), null, 4)}\n`;
+}
+
+/**
  * Whether this implementation reproduces the shipped reference.
  *
  * Two implementations are compared by the reference and not by the prose: a
  * fork the reference does not exercise is left to whoever writes the second
  * implementation, exactly as if the rule had never been written down.
  */
-export function validateReference(reference) {
+export function validateReference(reference, exampleText) {
   const errors = [];
   const decode = (encoded) => Buffer.from(encoded, "base64").toString("utf8");
 
@@ -938,6 +1001,21 @@ export function validateReference(reference) {
     const bytes = canonicalBytes(parseStrict(decode(encodedInput)));
     return { base64: bytes.toString("base64"), digest: createHash("sha256").update(bytes).digest("hex") };
   };
+
+  // The document case proves the digest survives a rewrite, so the input has
+  // to be one: an input equal to the example's own bytes reproduces everything
+  // and shows nothing — which is how the rewrite was lost. The refusal names
+  // the expected input, so regenerating the file is paste, not authorship.
+  const expected = rewriteExampleInput(exampleText);
+  if (!Buffer.from(reference.document.input_utf8_base64, "base64").equals(Buffer.from(expected, "utf8"))) {
+    errors.push(
+      "reference document: input is not the shipped example rewritten — " +
+        `expected input_utf8_base64 ${Buffer.from(expected, "utf8").toString("base64")}`,
+    );
+  }
+  if (!canonicalBytes(parseStrict(expected)).equals(canonicalBytes(parseStrict(exampleText)))) {
+    errors.push("reference document: the rewrite does not canonicalize to the example's bytes");
+  }
 
   const document = canonicalOf(reference.document.input_utf8_base64);
   if (document.base64 !== reference.document.canonical_utf8_base64) {
@@ -1058,7 +1136,11 @@ export function validateWorkflowGraphDesign(files) {
   }
 
   try {
-    errors.push(...validateReference(parseStrict(files[REFERENCE_PATH])).map((message) => `${REFERENCE_PATH}: ${message}`));
+    errors.push(
+      ...validateReference(parseStrict(files[REFERENCE_PATH]), files[EXAMPLE_PATH]).map(
+        (message) => `${REFERENCE_PATH}: ${message}`,
+      ),
+    );
   } catch (error) {
     errors.push(`${REFERENCE_PATH}: ${error.message}`);
   }
