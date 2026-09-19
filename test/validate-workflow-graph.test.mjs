@@ -25,6 +25,7 @@ import {
   REFUSALS,
   REFUSED_PATH,
   SCHEMA_PATH,
+  SORTED_ARRAY_PATHS,
   canonicalBytes,
   canonicalText,
   encodeName,
@@ -34,6 +35,7 @@ import {
   loadFiles,
   parseStrict,
   producedAt,
+  rewriteExampleInput,
   validateGraph,
   validateReference,
   validateWorkflowGraphDesign,
@@ -545,7 +547,7 @@ test("the canonical bytes are UTF-8 and carry no BOM", () => {
 // --- the reference ---------------------------------------------------------
 
 test("the canonicalization reference reproduces", () => {
-  assert.deepEqual(validateReference(parseStrict(files[REFERENCE_PATH])), []);
+  assert.deepEqual(validateReference(parseStrict(files[REFERENCE_PATH]), files[EXAMPLE_PATH]), []);
 });
 
 test("the reference pins the digest the shipped example carries", () => {
@@ -564,13 +566,181 @@ test("the reference exercises all four forks the plan names", () => {
 test("a reference that records the wrong bytes is caught", () => {
   const reference = parseStrict(files[REFERENCE_PATH]);
   reference.document.canonical_digest = "0".repeat(64);
-  assert.ok(validateReference(reference).some((message) => message.includes("digest does not reproduce")));
+  assert.ok(
+    validateReference(reference, files[EXAMPLE_PATH]).some((message) => message.includes("digest does not reproduce")),
+  );
 });
 
 test("a reference that drops a fork is caught", () => {
   const reference = parseStrict(files[REFERENCE_PATH]);
   reference.forks = reference.forks.filter((fork) => fork.fork !== "duplicate_key");
-  assert.ok(validateReference(reference).some((message) => message.includes("fork duplicate_key is not exercised")));
+  assert.ok(
+    validateReference(reference, files[EXAMPLE_PATH]).some((message) =>
+      message.includes("fork duplicate_key is not exercised"),
+    ),
+  );
+});
+
+test("the reference's document input is the shipped example rewritten", () => {
+  const reference = parseStrict(files[REFERENCE_PATH]);
+  const input = Buffer.from(reference.document.input_utf8_base64, "base64").toString("utf8");
+  assert.equal(input, rewriteExampleInput(files[EXAMPLE_PATH]));
+});
+
+test("a reference whose document input is the example itself is caught", () => {
+  const reference = parseStrict(files[REFERENCE_PATH]);
+  reference.document.input_utf8_base64 = Buffer.from(files[EXAMPLE_PATH], "utf8").toString("base64");
+  const errors = validateReference(reference, files[EXAMPLE_PATH]);
+  assert.ok(
+    errors.some((message) => message.includes("input is not the shipped example rewritten")),
+    `expected an input refusal, got:\n${errors.join("\n") || "(no findings)"}`,
+  );
+});
+
+test("a reference whose input drops one part of the rewrite is caught", () => {
+  const rewritten = rewriteExampleInput(files[EXAMPLE_PATH]);
+  // The rewrite's keys are the example's reversed, so reversing them again
+  // leaves every object written as the example wrote it while the set arrays
+  // stay reversed.
+  const keysInOrder = (node) => {
+    if (Array.isArray(node)) return node.map(keysInOrder);
+    if (node !== null && typeof node === "object") {
+      return Object.fromEntries(Object.entries(node).reverse().map(([key, value]) => [key, keysInOrder(value)]));
+    }
+    return node;
+  };
+  const setUnreversed = parseStrict(rewritten);
+  setUnreversed.predicates.reverse();
+  const variants = {
+    "keys in the written order": `${JSON.stringify(keysInOrder(parseStrict(rewritten)), null, 4)}\n`,
+    "a set left unreversed": `${JSON.stringify(setUnreversed, null, 4)}\n`,
+    "the old indent": `${JSON.stringify(parseStrict(rewritten), null, 2)}\n`,
+  };
+  for (const [name, variant] of Object.entries(variants)) {
+    assert.notEqual(variant, rewritten, `${name}: the variant must differ from the rewrite to test anything`);
+    const reference = parseStrict(files[REFERENCE_PATH]);
+    reference.document.input_utf8_base64 = Buffer.from(variant, "utf8").toString("base64");
+    const errors = validateReference(reference, files[EXAMPLE_PATH]);
+    assert.ok(
+      errors.some((message) => message.includes("input is not the shipped example rewritten")),
+      `${name}: expected an input refusal, got:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  }
+});
+
+test("reversing an order-carrying array moves the canonical bytes, and the rewrite leaves it alone", () => {
+  const reordered = example();
+  reordered.transitions.reverse();
+  assert.ok(!canonicalBytes(reordered).equals(canonicalBytes(example())));
+
+  const rewritten = parseStrict(rewriteExampleInput(files[EXAMPLE_PATH]));
+  assert.deepEqual(
+    rewritten.transitions.map((edge) => edge.id),
+    example().transitions.map((edge) => edge.id),
+  );
+});
+
+test("an ordered array of canonically equal rows keeps its written order while the sets inside are reversed", () => {
+  const text = JSON.stringify({
+    views: [
+      {
+        rows: [
+          { rule: { requires: [], admits: ["a", "b"], excludes: [] } },
+          { rule: { requires: [], admits: ["b", "a"], excludes: [] } },
+        ],
+      },
+    ],
+  });
+  const before = parseStrict(text).views[0].rows.map((row) => row.rule.admits);
+  const after = parseStrict(rewriteExampleInput(text)).views[0].rows.map((row) => row.rule.admits);
+  assert.deepEqual(after, before.map((items) => [...items].reverse()));
+});
+
+// A `*` segment steps into the array's first element, as in SORTED_ARRAY_PATHS.
+const at = (node, path) =>
+  path.split(".").reduce((inner, key) => (key === "*" ? inner[0] : inner[key]), node);
+
+test("every path the rewrite treats as a set is one the canonicalizer sorts", () => {
+  const fixtures = {
+    "predicates": { predicates: [{ id: "b", reads: [] }, { id: "a", reads: [] }] },
+    "predicates.*.reads": { predicates: [{ id: "p", reads: ["b", "a"] }] },
+    "steps": { steps: [{ name: "b" }, { name: "a" }] },
+    "steps.*.hooks": { steps: [{ name: "s", hooks: ["b", "a"] }] },
+    "guards": { guards: [{ id: "b" }, { id: "a" }] },
+    "guards.*.authority.policy_rules": {
+      guards: [{ id: "g", authority: { policy_rules: ["b", "a"] } }],
+    },
+    "transitions.*.guards": { transitions: [{ id: "t", guards: ["b", "a"] }] },
+    "caps": { caps: [{ cycle: "b" }, { cycle: "a" }] },
+    "recovery": {
+      recovery: [{ reason: "b", parks_at: [] }, { reason: "a", parks_at: [] }],
+    },
+    "recovery.*.parks_at": { recovery: [{ reason: "r", parks_at: ["b", "a"] }] },
+    "recovery.*.handled_at": {
+      recovery: [{ reason: "r", parks_at: [], handled_at: ["b", "a"] }],
+    },
+    "decision_options": { decision_options: ["b", "a"] },
+    "views.*.cases": { views: [{ rows: [], cases: ["b", "a"] }] },
+    "views.*.rows.*.rule.requires": {
+      views: [{ rows: [{ rule: { requires: ["b", "a"], admits: [], excludes: [] } }] }],
+    },
+    "views.*.rows.*.rule.admits": {
+      views: [{ rows: [{ rule: { requires: [], admits: ["b", "a"], excludes: [] } }] }],
+    },
+    "views.*.rows.*.rule.excludes": {
+      views: [{ rows: [{ rule: { requires: [], admits: [], excludes: ["b", "a"] } }] }],
+    },
+  };
+  assert.deepEqual([...SORTED_ARRAY_PATHS].sort(), Object.keys(fixtures).sort());
+  for (const [path, fixture] of Object.entries(fixtures)) {
+    const canonical = canonicalBytes(fixture);
+    at(fixture, path).reverse();
+    assert.ok(
+      canonicalBytes(fixture).equals(canonical),
+      `${path}: reversing a set must not move the canonical bytes`,
+    );
+  }
+});
+
+test("every ordered array in the example that reversal can see keeps its order", () => {
+  const document = example();
+  const canonical = canonicalBytes(document);
+  const arrays = [];
+  const walk = (node, path) => {
+    if (Array.isArray(node)) {
+      arrays.push([path, node]);
+      node.forEach((item) => walk(item, `${path}.*`));
+      return;
+    }
+    if (node !== null && typeof node === "object") {
+      for (const key of Object.keys(node)) {
+        walk(node[key], path === "" ? key : `${path}.${key}`);
+      }
+    }
+  };
+  walk(document, "");
+
+  // The canonical bytes of the document with the array replaced by one
+  // element isolate that element's canonical form: equal bytes mean
+  // canonically equal elements, which reverse invisibly and prove nothing.
+  const lone = (path, item) => {
+    const clone = parseStrict(JSON.stringify(document));
+    const segments = path.split(".");
+    const parent = segments
+      .slice(0, -1)
+      .reduce((node, key) => (key === "*" ? node[0] : node[key]), clone);
+    parent[segments.at(-1)] = [item];
+    return canonicalBytes(clone);
+  };
+  for (const [path, array] of arrays) {
+    if (SORTED_ARRAY_PATHS.has(path) || array.length < 2) continue;
+    const forms = array.map((item) => lone(path, item));
+    if (forms.every((form) => form.equals(forms[0]))) continue;
+    array.reverse();
+    const moved = !canonicalBytes(document).equals(canonical);
+    array.reverse();
+    assert.ok(moved, `${path}: an order-carrying array's reversal must move the canonical bytes`);
+  }
 });
 
 // --- findings from the slice 1 cross-family review --------------------------
