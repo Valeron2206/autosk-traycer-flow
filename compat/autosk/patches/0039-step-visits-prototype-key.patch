@@ -1,0 +1,342 @@
+diff --git a/daemon/core/src/store/metadata.ts b/daemon/core/src/store/metadata.ts
+index 8a0e211..0e27fd1 100644
+--- a/daemon/core/src/store/metadata.ts
++++ b/daemon/core/src/store/metadata.ts
+@@ -37,10 +37,11 @@ export function isEmptyMetadata(meta: Record<string, unknown> | undefined | null
+  * (`float64`) shape — a count round-tripped through JSON stays a plain number
+  * (a finite fractional value, e.g. a hand-set `1.5`, is kept as-is; the engine
+  * only ever writes integers). Returns a fresh object; never aliases the stored
+- * bag.
++ * bag. The fresh map is prototype-free, so a step named `constructor` or
++ * `__proto__` is a plain key on write as well as on read.
+  */
+ export function getStepVisits(meta: Record<string, unknown> | undefined | null): Record<string, number> {
+-  const out: Record<string, number> = {};
++  const out: Record<string, number> = Object.create(null);
+   if (meta == null) return out;
+   // `hasOwn`, not `in`: a polluted prototype must not become a visit count, and a
+   // bag that inherits one is a bag with no visits of its own.
+@@ -62,7 +63,7 @@ export function getStepVisits(meta: Record<string, unknown> | undefined | null):
+  */
+ export function bumpStepVisit(meta: Record<string, unknown>, step: string): void {
+   const current = getStepVisits(meta);
+-  current[step] = (current[step] ?? 0) + 1;
++  current[step] = (Object.hasOwn(current, step) ? current[step]! : 0) + 1;
+   meta[STEP_VISITS_KEY] = current;
+ }
+ 
+diff --git a/daemon/core/test/engine.stepvisits.test.ts b/daemon/core/test/engine.stepvisits.test.ts
+new file mode 100644
+index 0000000..57a95c7
+--- /dev/null
++++ b/daemon/core/test/engine.stepvisits.test.ts
+@@ -0,0 +1,219 @@
++/**
++ * `step_visits` on prototype-named steps (patch 0039).
++ *
++ * `step_visits` is the `step → count` map the engine auto-maintains so a
++ * workflow's `ctx.visits()` cap — and the visit number a scoped creation grant
++ * is bound to — reads a persistent counter. Two step names reachable through
++ * `registry.addWorkflow` collide with `Object.prototype` members: `constructor`
++ * (which our graph schema also admits) and `__proto__` (which only the daemon's
++ * direct WorkflowDefinition surface accepts — the t16 reviewer proved the flow
++ * reaches `done` on it). A counter built on a plain object reads the inherited
++ * member instead of a count, so the bump writes a string — or, for `__proto__`,
++ * goes through the prototype setter — and the visit never lands.
++ *
++ * The persisted bag is read raw, off `task.json` itself: what is asserted is
++ * that the durable record carries the count, not only the in-memory view.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import { readFile } from "node:fs/promises";
++import {
++  type AgentDefinition,
++  type TaskCreationGrant,
++  type TaskCreationGrantBinding,
++  type TaskCreationSlot,
++  type WorkflowDefinition,
++} from "@autosk/sdk";
++
++import { makeEngine, makeProject, transitAgent, type TestProject } from "./engineHarness.ts";
++import { waitFor, waitForComplete } from "./helpers.ts";
++
++const DIGEST = "a".repeat(64);
++
++/** The persisted `step_visits` map, read off the `task.json` the run landed. */
++async function storedStepVisits(
++  p: TestProject,
++  taskId: string,
++): Promise<Record<string, unknown>> {
++  const stored = JSON.parse(
++    await readFile(`${p.root}/.autosk/tasks/${taskId}/task.json`, "utf8"),
++  ) as { metadata?: { step_visits?: Record<string, unknown> } };
++  return stored.metadata?.step_visits ?? {};
++}
++
++describe("engine — step_visits on prototype-named steps", () => {
++  const cleanups: (() => void)[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const c of cleanups.splice(0)) c();
++  });
++  function track(p: TestProject): TestProject {
++    cleanups.push(p.cleanup);
++    return p;
++  }
++
++  for (const source of ["ordinary", "constructor", "__proto__"]) {
++    test(`a run through a step named '${source}' records the visit durably`, async () => {
++      // `registry.addWorkflow` (inside makeProject) accepts all three names —
++      // `__proto__` as an own computed key, the way the t16 reviewer declared it.
++      const wf: WorkflowDefinition = {
++        name: "probe",
++        firstStep: source,
++        steps: {
++          [source]: transitAgent({ step: "finish" }),
++          finish: transitAgent({ status: "done" }),
++        },
++      };
++      const p = track(await makeProject({ workflows: [wf] }));
++      const { engine } = makeEngine();
++      engines.push(engine);
++      await engine.addProject(p.project);
++
++      const task = await p.store.createTask({ title: `visit ${source}` });
++      await engine.enroll(p.root, task.id, { workflow: "probe" });
++      await waitForComplete(p.store, task.id, "done");
++
++      const visits = await storedStepVisits(p, task.id);
++      expect(Object.hasOwn(visits, source)).toBe(true);
++      expect(visits[source]).toBe(1);
++      expect(visits.finish).toBe(1);
++    });
++  }
++
++  for (const step of ["do", "constructor"]) {
++    test(`a max_visits guard fires on '${step}' entries`, async () => {
++      // The common cap: onTransit rejects the 3rd entry into the step and the
++      // agent parks. `ctx.visits` reads the persisted counter, so a step whose
++      // visits never land can never reach the cap — the agent's own bound (6
++      // runs, then done) is what keeps that broken case finite.
++      const parkReason: { v: string | null } = { v: null };
++      let runs = 0;
++      const looper: AgentDefinition = {
++        async onRun(ctx) {
++          runs += 1;
++          try {
++            if (runs >= 6) {
++              await ctx.transit({ status: "done" });
++              return;
++            }
++            await ctx.transit({ step });
++          } catch (e) {
++            parkReason.v = e instanceof Error ? e.message : String(e);
++            await ctx.transit({ status: "human" });
++          }
++        },
++      };
++      const wf: WorkflowDefinition = {
++        name: "capped",
++        firstStep: step,
++        steps: { [step]: looper },
++        onTransit(ctx, to) {
++          if ("step" in to && to.step === step && ctx.visits(step) >= 3) {
++            throw new Error("looped too many times");
++          }
++        },
++      };
++      const p = track(await makeProject({ workflows: [wf] }));
++      const { engine } = makeEngine();
++      engines.push(engine);
++      await engine.addProject(p.project);
++
++      const task = await p.store.createTask({ title: `capped ${step}` });
++      await engine.enroll(p.root, task.id, { workflow: "capped" });
++      // Terminal state is `human` when the guard fires; a guard that never fires
++      // runs to the agent's own bound and ends `done` — wait for either, so the
++      // assertions below name which half broke.
++      await waitFor(async () => {
++        const view = await p.store.taskView(task.id);
++        return ["human", "done"].includes(view.status) && p.store.sessions.liveSessionsForTask(task.id).length === 0;
++      });
++
++      expect((await p.store.taskView(task.id)).status).toBe("human");
++      expect(parkReason.v).toContain("looped too many times");
++      // 3 sessions ran at the step (the 3rd self-loop was rejected → parked).
++      expect(p.store.sessions.sessionsForTask(task.id)).toHaveLength(3);
++      expect((await storedStepVisits(p, task.id))[step]).toBe(3);
++    });
++  }
++
++  test("ctx.scopedCreation on a step named 'constructor' accepts this visit's grant and refuses another's", async () => {
++    // `ctx.scopedCreation` binds a grant to the visit recorded in step_visits:
++    // a step whose visit reads inherited instead of counted mints nothing.
++    const seen: { minted: string[]; created: string[]; refused: string[] } = {
++      minted: [],
++      created: [],
++      refused: [],
++    };
++    const slots: TaskCreationSlot[] = [
++      {
++        slot_id: "seat",
++        input: {
++          title: "child",
++          description: "",
++          blocked_by: [],
++          creation_key: "flow:ctor-seat",
++          creation_binding_hash: "c".repeat(64),
++        },
++      },
++    ];
++    const agent: AgentDefinition = {
++      async onRun(ctx) {
++        const grantFor = (visit: number): TaskCreationGrant => {
++          const binding: TaskCreationGrantBinding = {
++            schema_version: 1,
++            grant_id: `grant-${visit}`,
++            project_sha256: DIGEST,
++            parent_task_id: ctx.tasks.currentId,
++            session_id: ctx.session.id,
++            workflow: "ctor",
++            step: "constructor",
++            step_visit: visit,
++            operation_id: "op-1",
++            context_digest: DIGEST,
++            expires_at_ms: Date.now() + 60_000,
++          };
++          return {
++            ...binding,
++            slots,
++            signature: engine.grantSigner.sign(binding, slots),
++          } as unknown as TaskCreationGrant;
++        };
++        try {
++          const api = await ctx.scopedCreation(grantFor(1));
++          seen.minted.push(...api.slot_ids);
++          const child = await api.create("seat");
++          if (child.outcome === "created") seen.created.push(child.task.id);
++        } catch (e) {
++          seen.refused.push(`current: ${e instanceof Error ? e.message : String(e)}`);
++        }
++        try {
++          await ctx.scopedCreation(grantFor(2));
++          seen.refused.push("other: minted");
++        } catch (e) {
++          seen.refused.push(`other: ${e instanceof Error ? e.message : String(e)}`);
++        }
++        await ctx.transit({ status: "done" });
++      },
++    };
++    const wf: WorkflowDefinition = {
++      name: "ctor",
++      firstStep: "constructor",
++      steps: { constructor: agent },
++    };
++    const p = track(await makeProject({ workflows: [wf] }));
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const task = await p.store.createTask({ title: "ctor grant" });
++    await engine.enroll(p.root, task.id, { workflow: "ctor" });
++    await waitForComplete(p.store, task.id, "done");
++
++    expect(seen.minted).toEqual(["seat"]);
++    expect(seen.created).toHaveLength(1);
++    expect(seen.refused).toHaveLength(1);
++    expect(seen.refused[0]).toMatch(/minted for visit 2 of constructor, this is visit 1/);
++    expect((await p.store.taskView(seen.created[0]!)).title).toBe("child");
++  });
++});
+diff --git a/daemon/core/test/engine.takings.test.ts b/daemon/core/test/engine.takings.test.ts
+index 5c29b8d..75b4d77 100644
+--- a/daemon/core/test/engine.takings.test.ts
++++ b/daemon/core/test/engine.takings.test.ts
+@@ -184,10 +184,7 @@ describe("engine — transition_takings", () => {
+     await waitForComplete(p.store, task.id, "done");
+ 
+     const meta = p.store.peekMetadata(task.id) as Bag;
+-    // step_visits.constructor is wrong by a pre-existing defect of the older
+-    // counter (its own-key read is a separate debt, not this patch's scope);
+-    // what this patch owns is the pair count — and that the flow completes.
+-    expect(meta.step_visits?.finish).toBe(1);
++    expect(meta.step_visits).toEqual({ constructor: 1, finish: 1 });
+     expect(takingsOf(meta)).toEqual({ constructor: { finish: 1 } });
+   });
+ 
+@@ -213,7 +210,7 @@ describe("engine — transition_takings", () => {
+     await waitForComplete(p.store, task.id, "done");
+ 
+     const meta = p.store.peekMetadata(task.id) as Bag;
+-    expect(meta.step_visits?.finish).toBe(1);
++    expect(meta.step_visits).toEqual({ ["__proto__"]: 1, finish: 1 });
+     expect(takingsOf(meta)).toEqual({ ["__proto__"]: { finish: 1 } });
+   });
+ });
+diff --git a/daemon/core/test/metadata.test.ts b/daemon/core/test/metadata.test.ts
+index 71c59c8..dfb1060 100644
+--- a/daemon/core/test/metadata.test.ts
++++ b/daemon/core/test/metadata.test.ts
+@@ -102,6 +102,17 @@ describe("getStepVisits — defensive read", () => {
+     out.dev = 99;
+     expect((meta.step_visits as Record<string, number>).dev).toBe(1);
+   });
++
++  test("the fresh map is prototype-free: prototype-named steps read absent, not inherited", () => {
++    // On a plain {} `visits["constructor"]` is the inherited Object function and
++    // `visits["__proto__"]` is Object.prototype — neither is a visit count, yet
++    // both are what the engine's readers (`ctx.visits`, `ctx.scopedCreation`)
++    // were being handed.
++    const visits = getStepVisits({});
++    expect(Object.getPrototypeOf(visits)).toBeNull();
++    expect(visits["constructor"]).toBeUndefined();
++    expect(visits["__proto__"]).toBeUndefined();
++  });
+ });
+ 
+ describe("bumpStepVisit", () => {
+@@ -122,6 +133,30 @@ describe("bumpStepVisit", () => {
+     bumpStepVisit(meta, "dev");
+     expect(meta.step_visits).toEqual({ dev: 1 });
+   });
++
++  test("counts a step named 'constructor' as an own number", () => {
++    // `constructor` is a legal step id; an inherited-property read lands the
++    // Object function in the bag as a string, and the next read — which keeps
++    // only finite numbers — drops it, so the visit is never counted.
++    const meta: Record<string, unknown> = {};
++    bumpStepVisit(meta, "constructor");
++    bumpStepVisit(meta, "constructor");
++    expect(meta.step_visits).toEqual({ constructor: 2 });
++    expect(JSON.parse(JSON.stringify(meta.step_visits))).toEqual({ constructor: 2 });
++  });
++
++  test("counts a step named '__proto__' as an own key", () => {
++    // `addWorkflow` accepts an own `__proto__` step even though our graph schema
++    // refuses it; assigning into a plain object goes through the prototype
++    // setter and the count never lands.
++    const meta: Record<string, unknown> = {};
++    bumpStepVisit(meta, "__proto__");
++    bumpStepVisit(meta, "__proto__");
++    const expected = { ["__proto__"]: 2 };
++    expect(Object.hasOwn(meta.step_visits as object, "__proto__")).toBe(true);
++    expect(meta.step_visits).toEqual(expected);
++    expect(JSON.parse(JSON.stringify(meta.step_visits))).toEqual(expected);
++  });
+ });
+ 
+ describe("getTransitionTakings — defensive read", () => {
+diff --git a/internal/changelog/CHANGELOG.md b/internal/changelog/CHANGELOG.md
+index 6724dd7..c3f7e97 100644
+--- a/internal/changelog/CHANGELOG.md
++++ b/internal/changelog/CHANGELOG.md
+@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ - **engine:** count committed step→step moves in `metadata.transition_takings` alongside `step_visits`.
+ 
+ ### Fixed
++- **engine:** `step_visits` now counts steps named `constructor` or `__proto__`.
+ - **pi-agent:** gate prompts on pi's `agent_settled`, ending "Agent is already processing" session failures (#19).
+ - **daemon:** large task descriptions no longer corrupt a multibyte UTF-8 char at a transport chunk boundary (#15).
+ - **workflow:** step lists now preserve declaration order (#14).
