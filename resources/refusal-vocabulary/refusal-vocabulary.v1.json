@@ -952,8 +952,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "scripts/verify-autosk-cap.mjs"
+      ]
     },
     {
       "code": "review_join_invalid",
@@ -1128,5 +1130,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "301e57e270756c099c275a63c10959e703354568e1658b8a624e56b2e07ef007"
+  "vocabulary_digest": "e45ca1e740455f535610714fff491af8266876b2c4ce892653f7bb4a30178acb"
 }

@@ -785,6 +785,20 @@ test("every refusal this factory declares is one it produces", () => {
     () => parkReasonFor(state, ambiguous),
     () => buildWorkflow({ ...graph, canonical_digest: "0".repeat(64) }, { evaluate: always }),
     () => index({ ...graph, external_operations: [{ status: "limbo", executor: "x" }] }),
+    // t_231 is a cap's counted edge: stripping its guards leaves the cap with
+    // nothing to bind the below-limit term to.
+    () => index({
+      ...graph,
+      transitions: graph.transitions.map((entry) =>
+        entry.id === "t_231" ? { ...entry, guards: [] } : entry),
+    }),
+    // `guard_238` is bound below the limit on t_231; putting it on t_230 — the
+    // edge carrying the cap's park_reason — reaches it in the second role too.
+    () => index({
+      ...graph,
+      transitions: graph.transitions.map((entry) =>
+        entry.id === "t_230" ? { ...entry, guards: [...entry.guards, "guard_238"] } : entry),
+    }),
   ]) {
     produced.add(refusalOf(attempt).reason);
   }
@@ -827,8 +841,9 @@ test("a register entry outside the status union is refused at build", () => {
 
 test("and every refusal it produces is one some contract closes", () => {
   // A reachable code no contract closes is a vocabulary that reads as closed and
-  // is not. Three of these are the graph contract's, which owns the reasons the
-  // graph issues about itself; three are this factory's own.
+  // is not. Four of these are the graph contract's, which owns the reasons the
+  // graph issues about itself and the document's digest; the rest are this
+  // factory's own.
   const owners = closedByContract(readContracts());
   const closing = new Map();
   for (const code of REFUSALS) {
@@ -1583,5 +1598,329 @@ test("the way back in is not the way on: an entry is admitted where a continuati
   assert.ok(
     !entries.has("panel_join"),
     "the bypass target must not be an entry, or the control proves nothing",
+  );
+});
+
+// --- the caps' term -----------------------------------------------------------
+
+test("a cap binds exactly the counted edge's guards and its carrying siblings'", () => {
+  // Derived from the document, not listed beside it: the counted edge admits
+  // below the limit, and the sibling edges carrying the cap's park_reason are
+  // how the flow stops at it. The shipped document's two caps must therefore
+  // bind exactly these four guards — a fifth means a guard the cap does not
+  // own is gated by it, and a missing one means the cap still has no evaluator.
+  const state = index(document());
+  assert.deepEqual(
+    [...state.capTerms.keys()].sort(),
+    ["guard_237", "guard_238", "guard_449", "guard_450"],
+  );
+  assert.deepEqual(state.capTerms.get("guard_237"), [
+    { from: "narrow_review_join", to: "fix_artifact", limit: 10, below: false },
+  ]);
+  assert.deepEqual(state.capTerms.get("guard_238"), [
+    { from: "narrow_review_join", to: "fix_artifact", limit: 10, below: true },
+  ]);
+  assert.deepEqual(state.capTerms.get("guard_449"), [
+    { from: "record_code_verdict", to: "fix", limit: 10, below: false },
+  ]);
+  assert.deepEqual(state.capTerms.get("guard_450"), [
+    { from: "record_code_verdict", to: "fix", limit: 10, below: true },
+  ]);
+});
+
+test("the counted edge admits the tenth taking and refuses the eleventh", async () => {
+  // Both halves of the boundary, on both caps the shipped document declares.
+  for (const [from, to, predicates] of [
+    ["narrow_review_join", "fix_artifact", ["cond_135", "cond_136"]],
+    ["record_code_verdict", "fix", ["cond_332", "cond_333"]],
+  ]) {
+    const workflow = buildWorkflow(document(), {
+      evaluate: (predicate) => predicates.includes(predicate),
+    });
+    const takings = (count) => ({ transition_takings: { [from]: { [to]: count } } });
+
+    const continuing = { id: "task-1", step: from, status: "work", metadata: takings(9) };
+    await workflow.steps[from].onRun(context(continuing).ctx);
+    assert.equal(continuing.step, to, `${from}: nine takings is below the cap, so the round continues`);
+    assert.equal(continuing.metadata.park?.reason, undefined);
+
+    const capped = { id: "task-1", step: from, status: "work", metadata: takings(10) };
+    const { ctx, calls } = context(capped);
+    await workflow.steps[from].onRun(ctx);
+    assert.equal(capped.step, "human", `${from}: the eleventh taking is refused, so the flow parks`);
+    assert.equal(capped.status, "human");
+    assert.equal(capped.metadata.park.reason, "review_cap");
+    assert.ok(
+      calls.execs.some((argv) => argv[4] === "park.reason" && argv[5] === "review_cap"),
+      `${from}: the cap's reason was recorded before the task parked`,
+    );
+  }
+});
+
+test("the cap term narrows the caller's answer and never widens it", async () => {
+  // A caller refusing every predicate parks with the step's own reason at any
+  // count: if the term could turn a false into a candidate, this would park
+  // review_cap or move to fix_artifact instead.
+  const refusing = buildWorkflow(document(), { evaluate: never });
+  const refused = {
+    id: "task-1",
+    step: "narrow_review_join",
+    status: "work",
+    metadata: { transition_takings: { narrow_review_join: { fix_artifact: 10 } } },
+  };
+  await refusing.steps.narrow_review_join.onRun(context(refused).ctx);
+  assert.equal(refused.step, "narrow_review_join", "a status move parks in place");
+  assert.equal(refused.status, "human");
+  assert.equal(
+    refused.metadata.park.reason,
+    "planning_candidate_keepalive_invalid",
+    "a refused counted edge is the step's own park, not the cap's",
+  );
+
+  // And a caller wrongly admitting the counted predicate still loses the edge
+  // at the limit: the term is a conjunction, not a second opinion.
+  const wrong = buildWorkflow(document(), { evaluate: (predicate) => predicate === "cond_136" });
+  const lost = {
+    id: "task-1",
+    step: "narrow_review_join",
+    status: "work",
+    metadata: { transition_takings: { narrow_review_join: { fix_artifact: 10 } } },
+  };
+  await wrong.steps.narrow_review_join.onRun(context(lost).ctx);
+  assert.notEqual(lost.step, "fix_artifact", "a caller's true does not take the eleventh taking");
+  assert.equal(lost.status, "human");
+  assert.equal(lost.metadata.park.reason, "planning_candidate_keepalive_invalid");
+});
+
+test("the veto refuses a transit onto the counted pair at the limit", async () => {
+  // Selection and the veto cannot disagree about a cap any more than they can
+  // about a guard. The explicit path is `ctx.transit({step})` inside a running
+  // session, which `SessionRuntime.transit` hands to this veto; an operator's
+  // resume is refused by `Engine.resume` before any hook runs and is not this
+  // path. A counted target refused at the limit carries its own guard's
+  // `park_reason` — `planning_candidate_keepalive_invalid` here — and not
+  // `review_cap`, which is recorded only when selection takes the carrying
+  // sibling.
+  const workflow = buildWorkflow(document(), { evaluate: always });
+  const task = {
+    id: "task-1",
+    step: "narrow_review_join",
+    status: "work",
+    metadata: { transition_takings: { narrow_review_join: { fix_artifact: 10 } } },
+  };
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "fix_artifact" }),
+    (error) => error.reason === "planning_candidate_keepalive_invalid",
+  );
+  task.metadata.transition_takings.narrow_review_join.fix_artifact = 9;
+  assert.equal(await workflow.onTransit(context(task).ctx, { step: "fix_artifact" }), undefined);
+
+  const code = {
+    id: "task-2",
+    step: "record_code_verdict",
+    status: "work",
+    metadata: { transition_takings: { record_code_verdict: { fix: 10 } } },
+  };
+  await assert.rejects(
+    () => workflow.onTransit(context(code).ctx, { step: "fix" }),
+    (error) => error.reason === "project_boundary_invalid",
+  );
+});
+
+test("a missing or unreadable count reads as zero takings", async () => {
+  // The counter is a parsed record: anything that is not an own numeric entry
+  // under the pair is no taking, and no taking means the round continues.
+  const workflow = buildWorkflow(document(), { evaluate: (predicate) => predicate === "cond_136" });
+  for (const metadata of [
+    undefined,
+    {},
+    { transition_takings: null },
+    { transition_takings: "garbage" },
+    { transition_takings: {} },
+    { transition_takings: { narrow_review_join: "garbage" } },
+    { transition_takings: { narrow_review_join: null } },
+    { transition_takings: { narrow_review_join: {} } },
+    { transition_takings: { narrow_review_join: { fix_artifact: "10" } } },
+    { transition_takings: { narrow_review_join: { fix_artifact: Number.NaN } } },
+    { transition_takings: { narrow_review_join: { fix_artifact: {} } } },
+  ]) {
+    const task = { id: "task-1", step: "narrow_review_join", status: "work", metadata };
+    await workflow.steps.narrow_review_join.onRun(context(task).ctx);
+    assert.equal(
+      task.step,
+      "fix_artifact",
+      `metadata ${JSON.stringify(metadata) ?? "absent"} must read as zero takings`,
+    );
+  }
+});
+
+test("the count is read by own key at both levels, so prototype names inherit nothing", async () => {
+  // `metadata` is a parsed record, and a step named `constructor` or `__proto__`
+  // still has to mean its own entries and nothing else. The poisoned cases
+  // below are the ones a member read cannot see through — a literal
+  // `{__proto__: x}` writes no key at all; it rewires the object's prototype —
+  // which is exactly the defect the counter's writer had to fix twice.
+  const protoDocument = (from, to, limit) => ({
+    workflow: "cap_prototype_names",
+    first_step: from,
+    predicates: [{ id: "holds", reads: [], description: "the answer" }],
+    steps: [
+      { name: from, kind: "agent", no_transition_reason: "fixture_no_exit" },
+      { name: to, kind: "agent", no_transition_reason: "fixture_no_exit" },
+      { name: "human", kind: "status", status: "human" },
+    ],
+    guards: [
+      { id: "g_round", predicate: "holds", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+      { id: "g_cap", predicate: "holds", authority: { actor: "agent" }, park_reason: "review_cap" },
+    ],
+    transitions: [
+      { id: "t_cap", from, to: "human", priority: 0, guards: ["g_cap"] },
+      { id: "t_round", from, to, priority: 1, guards: ["g_round"] },
+    ],
+    caps: [{ cycle: "round", counted_transition: "t_round", limit, park_reason: "review_cap" }],
+    recovery: [
+      { reason: "fixture_no_exit", parks_at: [from, to], resume_targets: [from, to], required_state: "n/a" },
+      { reason: "review_cap", parks_at: [from], resume_targets: [from, to], required_state: "n/a" },
+    ],
+  });
+  const drive = async (from, to, limit, metadata) => {
+    const workflow = buildWorkflow(protoDocument(from, to, limit), {
+      evaluate: always,
+      agents: { [from]: async () => {} },
+    });
+    const task = { id: "task-1", step: from, status: "work", metadata };
+    await workflow.steps[from].onRun(context(task).ctx);
+    return task;
+  };
+
+  // `constructor` as the source: a member read finds the map an inherited
+  // `constructor` key carries and calls its `fix` a count of five.
+  assert.equal(
+    (await drive("constructor", "fix", 5, {
+      transition_takings: { __proto__: { constructor: { fix: 5 } } },
+    })).step,
+    "fix",
+  );
+  // `__proto__` as the source: the literal wrote no key; it made the count map
+  // the record's prototype.
+  assert.equal(
+    (await drive("__proto__", "fix", 5, {
+      transition_takings: { __proto__: { fix: 5 } },
+    })).step,
+    "fix",
+  );
+  // `constructor` as the target: the inner map's prototype carries it.
+  assert.equal(
+    (await drive("review", "constructor", 5, {
+      transition_takings: { review: { __proto__: { constructor: 5 } } },
+    })).step,
+    "constructor",
+  );
+  // And an own `__proto__` key IS a count: parsed JSON carries it as data, so
+  // reading it is as required as not inheriting it.
+  const parsed = await drive(
+    "review",
+    "__proto__",
+    2,
+    JSON.parse('{"transition_takings":{"review":{"__proto__":2}}}'),
+  );
+  assert.equal(parsed.step, "human");
+  assert.equal(parsed.metadata.park.reason, "review_cap");
+});
+
+test("a cap whose counted edge declares no guards is refused at build", () => {
+  // The below-limit term binds to the counted edge's guards, and an empty
+  // conjunction holds at every count: with `guards: []` nothing carries the
+  // term, so selection and the veto alike take the edge past its limit — the
+  // bypass the review measured. The document is refused where it is read.
+  const graph = document();
+  graph.transitions = graph.transitions.map((edge) =>
+    edge.id === "t_231" ? { ...edge, guards: [] } : edge,
+  );
+  const refusal = refusalOf(() => index(graph));
+  assert.equal(refusal.reason, "cap_binding_incomplete");
+  assert.match(refusal.detail, /artifact_review_round/);
+  assert.match(refusal.detail, /t_231/);
+});
+
+test("a cap with no sibling carrying its park_reason is refused at build", () => {
+  // t_230 is the edge the flow parks on when the limit is reached. Without it
+  // the counted edge still stops, but the task stands still with the step's
+  // own reason and `review_cap` is never recorded.
+  const graph = document();
+  graph.transitions = graph.transitions.filter((edge) => edge.id !== "t_230");
+  const refusal = refusalOf(() => index(graph));
+  assert.equal(refusal.reason, "cap_binding_incomplete");
+  assert.match(refusal.detail, /artifact_review_round/);
+  assert.match(refusal.detail, /review_cap/);
+});
+
+test("a guard the cap binding reaches that another edge also references is refused at build", () => {
+  // `guard_238` carries the artifact cap's below-limit term on t_231. Putting
+  // it on t_443 — an edge out of a different step — would constrain that edge
+  // by a cap that never named it; the cap that would count t_443 is removed so
+  // the edge stands outside every binding.
+  const graph = document();
+  graph.caps = graph.caps.filter((cap) => cap.counted_transition !== "t_443");
+  graph.transitions = graph.transitions.map((edge) =>
+    edge.id === "t_443" ? { ...edge, guards: ["guard_238"] } : edge,
+  );
+  const refusal = refusalOf(() => index(graph));
+  assert.equal(refusal.reason, "cap_binding_ambiguous");
+  assert.match(refusal.detail, /guard_238/);
+  assert.match(refusal.detail, /t_443/);
+});
+
+test("a guard bound to a cap as counted-edge and carrying-sibling at once is refused at build", () => {
+  // `guard_238` asks below the limit on the counted edge t_231; putting it on
+  // t_230 — the edge carrying review_cap — binds it to the same cap in the
+  // second role. One guard cannot carry a cap's answer on two edges.
+  const graph = document();
+  graph.transitions = graph.transitions.map((edge) =>
+    edge.id === "t_230" ? { ...edge, guards: [...edge.guards, "guard_238"] } : edge,
+  );
+  const refusal = refusalOf(() => index(graph));
+  assert.equal(refusal.reason, "cap_binding_ambiguous");
+  assert.match(refusal.detail, /guard_238/);
+});
+
+test("an edge the binding reaches from two caps is refused at build", () => {
+  // A second cap counting t_232 — which shares neither pair nor guards with
+  // t_231 — still parks through the same review_cap edge, so t_230's guard
+  // would owe two limits.
+  const graph = document();
+  graph.caps = [...graph.caps, { cycle: "second_local", counted_transition: "t_232", limit: 10, park_reason: "review_cap" }];
+  const refusal = refusalOf(() => index(graph));
+  assert.equal(refusal.reason, "cap_binding_ambiguous");
+  assert.match(refusal.detail, /t_230/);
+});
+
+test("a cap counting a transition the document never declared is refused at build", () => {
+  // The refusal is the factory's own `transition_not_declared` — the code an
+  // undeclared edge already produces — because a counted transition that does
+  // not exist is an edge the document does not declare.
+  const graph = document();
+  graph.caps = graph.caps.map((cap) => ({ ...cap, counted_transition: "never_declared" }));
+  const refusal = refusalOf(() => index(graph));
+  assert.equal(refusal.reason, "transition_not_declared");
+  assert.match(refusal.detail, /never_declared/);
+});
+
+test("an array in the count record is no count, even for a step named `length`", async () => {
+  // The daemon's reader (`getTransitionTakings`, patch 0034) excludes arrays
+  // at both levels of the record. Without the exclusion an inner array's own
+  // `length` reads as the count of a target step named `length` — a count the
+  // durable record does not carry, and one the flow must not stop on.
+  const graph = JSON.parse(JSON.stringify(document()).replaceAll("fix_artifact", "length"));
+  graph.canonical_digest = graphDigest(graph);
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => predicate === "cond_136" });
+  const metadata = { transition_takings: { narrow_review_join: Array(10).fill(0) } };
+  const task = { id: "task-1", step: "narrow_review_join", status: "work", metadata };
+  await workflow.steps.narrow_review_join.onRun(context(task).ctx);
+  assert.equal(task.step, "length");
+  const vetoed = { id: "task-2", step: "narrow_review_join", status: "work", metadata };
+  assert.equal(
+    await workflow.onTransit(context(vetoed).ctx, { step: "length" }),
+    undefined,
   );
 });

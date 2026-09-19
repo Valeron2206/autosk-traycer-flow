@@ -75,13 +75,14 @@ const BASE = {
   guards: [
     { id: "g_always", predicate: "always", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
     { id: "g_never", predicate: "never", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+    { id: "g_done", predicate: "always", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
   ],
   transitions: [
     { id: "t_next", from: "start", to: "next", priority: 0, guards: ["g_always"] },
-    { id: "t_done", from: "next", to: "done", priority: 0, guards: ["g_always"] },
+    { id: "t_done", from: "next", to: "done", priority: 0, guards: ["g_done"] },
     { id: "t_park", from: "next", to: "human", priority: 1, guards: ["g_never"] },
   ],
-  caps: [{ cycle: "round", counted_transition: "t_next", limit: 3, park_reason: "fixture_no_exit" }],
+  caps: [{ cycle: "round", counted_transition: "t_done", limit: 3, park_reason: "fixture_no_exit" }],
   recovery: [
     { reason: "fixture_no_exit", parks_at: ["next"], resume_targets: ["done", "next"], required_state: "n/a" },
   ],
@@ -100,7 +101,10 @@ const VARIANTS = {
     return document;
   },
   guards: (document) => {
-    document.guards.find((guard) => guard.id === "g_never").park_reason = "fixture_other";
+    // g_always sits on t_next, which the cap binding does not reach — mutating
+    // g_never instead would strip t_park of the cap's park_reason and make the
+    // variant unbuildable.
+    document.guards.find((guard) => guard.id === "g_always").park_reason = "fixture_other";
     return document;
   },
   caps: (document) => {

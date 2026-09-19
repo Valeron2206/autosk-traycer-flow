@@ -52,12 +52,14 @@ import { graphDigest } from "./workflow-graph-canonical.mjs";
 /**
  * Every way this factory refuses, which is not every reason a flow stops.
  *
- * These six are the factory's own: it issues them when the document cannot
+ * These seven are the factory's own: it issues them when the document cannot
  * answer. The reasons a flow parks with — a step's `no_transition_reason`, a
  * guard's `park_reason` — are the document's, drawn from the park vocabulary,
  * and are relayed rather than invented here.
  */
 export const REFUSALS = Object.freeze([
+  "cap_binding_ambiguous",
+  "cap_binding_incomplete",
   "graph_digest_stale",
   "guard_unknown",
   "no_transition_reason",
@@ -145,7 +147,86 @@ export function index(document) {
     document.first_step,
     ...(document.entry_steps ?? []).map((entry) => entry.step),
   ]);
-  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, document };
+  // The cap terms, bound per guard once: a cap's counted edge admits below its
+  // limit, and the sibling edges that carry its park_reason are how the flow
+  // stops at it, so their guards ask the count the other way. The counter is
+  // keyed by the pair traversed — `graph_cap_transition_shared` keeps a counted
+  // pair to one edge for exactly this — so a term reads the pair the cap's
+  // `counted_transition` traverses, never the edge's own id.
+  const capTerms = new Map();
+  const capBindings = new Map();
+  const boundEdges = new Map();
+  const bindCap = (id, edge, cap, counted, below) => {
+    capTerms.set(id, [...(capTerms.get(id) ?? []), { from: counted.from, to: counted.to, limit: cap.limit, below }]);
+    capBindings.set(id, [...(capBindings.get(id) ?? []), { edge, cap }]);
+    const entry = boundEdges.get(edge.id) ?? { edge, caps: new Set() };
+    entry.caps.add(cap);
+    boundEdges.set(edge.id, entry);
+  };
+  const guardRefs = new Map();
+  for (const edge of document.transitions) {
+    for (const id of new Set(edge.guards)) {
+      guardRefs.set(id, [...(guardRefs.get(id) ?? []), edge]);
+    }
+  }
+  for (const cap of document.caps ?? []) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (counted === undefined) {
+      throw new GraphRefusal("transition_not_declared", `cap ${cap.cycle} counts ${cap.counted_transition}`);
+    }
+    if (counted.guards.length === 0) {
+      throw new GraphRefusal(
+        "cap_binding_incomplete",
+        `cap ${cap.cycle} counts ${counted.id}, which declares no guards to bind below its limit`,
+      );
+    }
+    for (const id of counted.guards) bindCap(id, counted, cap, counted, true);
+    const carrying = (outgoing.get(counted.from) ?? []).filter(
+      (edge) => edge.id !== counted.id && edge.guards.some((id) => guards.get(id).park_reason === cap.park_reason),
+    );
+    if (carrying.length === 0) {
+      throw new GraphRefusal(
+        "cap_binding_incomplete",
+        `cap ${cap.cycle} has no edge out of ${counted.from} carrying ${cap.park_reason} to park on at the limit`,
+      );
+    }
+    for (const edge of carrying) {
+      for (const id of edge.guards) bindCap(id, edge, cap, counted, false);
+    }
+  }
+  // The binding is per guard, and it can only be read one way: a guard a
+  // second edge also references would carry the cap's constraint onto a move
+  // the cap never named, and an edge two caps bind would owe both limits —
+  // shapes the document is refused for rather than answered wrong on every
+  // decision.
+  for (const [id, bindings] of capBindings) {
+    const caps = [...new Set(bindings.map(({ cap }) => cap.cycle))].join(" and ");
+    const boundSet = new Set(bindings.map(({ edge }) => edge.id));
+    const outside = (guardRefs.get(id) ?? []).filter((edge) => !boundSet.has(edge.id));
+    if (outside.length > 0) {
+      throw new GraphRefusal(
+        "cap_binding_ambiguous",
+        `guard ${id} carries ${caps}'s term on ${[...boundSet].join(", ")} ` +
+          `and is also referenced by ${outside.map((edge) => edge.id).join(", ")}`,
+      );
+    }
+    if (boundSet.size > 1) {
+      throw new GraphRefusal(
+        "cap_binding_ambiguous",
+        `guard ${id} carries ${caps}'s term on ${[...boundSet].join(" and ")}`,
+      );
+    }
+  }
+  for (const { edge, caps } of boundEdges.values()) {
+    if (caps.size > 1) {
+      throw new GraphRefusal(
+        "cap_binding_ambiguous",
+        `edge ${edge.id}, guarded by ${edge.guards.join(", ")}, is bound by ` +
+          `${[...caps].map((cap) => cap.cycle).join(" and ")}`,
+      );
+    }
+  }
+  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, capTerms, document };
 }
 
 /** A refusal carrying the code the graph names for it. */
@@ -174,6 +255,41 @@ function holds(state, edge, evaluate) {
     if (!evaluate(guard.predicate, guard)) return { ok: false, guard };
   }
   return { ok: true };
+}
+
+/**
+ * Whether a guard's cap terms hold on the task's record.
+ *
+ * An unbound guard owes nothing and holds vacuously. A bound one asks the
+ * durable counter for the pair its cap counts — below the limit for the
+ * counted edge's own guards, at it for the carrying siblings' — and every one
+ * of its terms must hold, because each is a cap the document declared.
+ */
+function capHolds(terms, task) {
+  if (terms === undefined) return true;
+  for (const term of terms) {
+    const takings = takingsOf(task, term.from, term.to);
+    if (term.below ? takings >= term.limit : takings < term.limit) return false;
+  }
+  return true;
+}
+
+/**
+ * The durable count of one pair's takings, read by own key at both levels.
+ *
+ * The record is parsed JSON, and a step named `constructor` or `__proto__`
+ * still answers an inherited property to a member read — none of which is a
+ * taking count. An array is no count either, at either level, however its own
+ * keys name a step — the daemon's reader excludes it the same way. What is not
+ * an own numeric entry is no taking at all.
+ */
+function takingsOf(task, from, to) {
+  const bySource = task.metadata?.transition_takings;
+  if (bySource === null || typeof bySource !== "object" || Array.isArray(bySource) || !Object.hasOwn(bySource, from)) return 0;
+  const byTarget = bySource[from];
+  if (byTarget === null || typeof byTarget !== "object" || Array.isArray(byTarget) || !Object.hasOwn(byTarget, to)) return 0;
+  const count = byTarget[to];
+  return Number.isFinite(count) ? count : 0;
 }
 
 /**
@@ -424,6 +540,15 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
     );
   }
   const state = index(document);
+  // The evaluator every decision runs through: the caller's answer, and for
+  // the guards a cap binds, the cap's own term over the durable count. The
+  // layer can only narrow — a refused predicate stays refused however the
+  // count stands, and one wrongly admitted still loses the counted edge at
+  // the limit — and both decision sites run through it, because selection and
+  // the veto cannot disagree about a cap for the same reason they cannot
+  // disagree about a guard.
+  const deciding = (task) => (predicate, guard) =>
+    evaluate(predicate, guard, task) && capHolds(state.capTerms.get(guard.id), task);
   // A document that cannot say why one of its parks happened is not executable,
   // and this is decided here rather than when such an edge is taken. A runtime
   // refusal fails the session, the engine then parks the task, and whatever an
@@ -456,7 +581,7 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
     if (step.hooks !== undefined && (step.hooks.length !== 1 || step.hooks[0] !== "onRun")) {
       throw new TypeError(`${step.name} declares hooks ${step.hooks.join(", ")}; this factory builds onRun`);
     }
-    steps[step.name] = { onRun: (ctx) => run(state, step, agents[step.name], evaluate, ctx) };
+    steps[step.name] = { onRun: (ctx) => run(state, step, agents[step.name], deciding, ctx) };
   }
 
   return {
@@ -491,7 +616,7 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
         park: task.metadata?.park,
         visits: task.metadata?.step_visits,
       };
-      admit(state, context, to, (predicate, guard) => evaluate(predicate, guard, task));
+      admit(state, context, to, deciding(task));
     },
   };
 }
@@ -504,7 +629,7 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
  * choose its own destination would be a second state machine beside the one the
  * document declares.
  */
-async function run(state, step, work, evaluate, ctx) {
+async function run(state, step, work, deciding, ctx) {
   if (work) await work(ctx);
   // Read after the work, not before: the predicates read the task record, and
   // what the step just recorded is exactly what the next decision is about.
@@ -524,7 +649,7 @@ async function run(state, step, work, evaluate, ctx) {
   if (work && row && (row.handled_at ?? []).includes(step.name)) {
     await recordReceipt(ctx, step.name, park.reason, row, task);
   }
-  const decision = select(state, step.name, (predicate, guard) => evaluate(predicate, guard, task));
+  const decision = select(state, step.name, deciding(task));
   if (decision.take) {
     // A declared edge into a parking step stops the task just as surely as
     // finding no candidate does, and operation 2 reads permission off the reason.

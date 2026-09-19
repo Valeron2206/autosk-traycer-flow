@@ -56,6 +56,8 @@ export const CONTRACT_MARKER = "<!-- workflow-graph-contract:v1 -->";
  * to hang a reason on.
  */
 export const REFUSALS = Object.freeze([
+  "graph_cap_binding_ambiguous",
+  "graph_cap_binding_incomplete",
   "graph_cap_quantity_undeclared",
   "graph_cap_transition_shared",
   "graph_cap_transition_unknown",
@@ -547,6 +549,83 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
       errors.push(
         `graph_cap_transition_shared: cap ${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), ` +
           `which shares its pair with ${siblings.join(", ")}`,
+      );
+    }
+  }
+
+  // The same per-guard binding the runtime applies is checked here, so a
+  // document that cannot be bound is refused before it ships rather than at
+  // build. Two ways the binding is incomplete: a counted edge that declares
+  // no guards carries nothing the below-limit term can bind to, and a cap no
+  // sibling edge carries the park_reason of has nothing to park on at the
+  // limit. Two ways it is ambiguous: a guard the binding reaches that another
+  // edge also references would carry the cap's constraint onto a move the cap
+  // never named, and an edge two caps bind would owe both limits.
+  const guardRefs = new Map();
+  for (const edge of document.transitions) {
+    for (const id of new Set(edge.guards)) {
+      guardRefs.set(id, [...(guardRefs.get(id) ?? []), edge]);
+    }
+  }
+  const boundGuards = new Map();
+  const boundEdges = new Map();
+  for (const cap of document.caps) {
+    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
+    if (!counted) continue; // already refused as graph_cap_transition_unknown
+    if (counted.guards.length === 0) {
+      errors.push(
+        `graph_cap_binding_incomplete: cap ${cap.cycle} counts ${counted.id}, ` +
+          "which declares no guards to bind below its limit",
+      );
+      continue;
+    }
+    const countedEntry = boundEdges.get(counted.id) ?? { edge: counted, caps: new Set() };
+    countedEntry.caps.add(cap);
+    boundEdges.set(counted.id, countedEntry);
+    for (const id of counted.guards) {
+      boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge: counted, cap }]);
+    }
+    const carrying = (outgoing.get(counted.from) ?? []).filter(
+      (edge) => edge.id !== counted.id && edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason),
+    );
+    if (carrying.length === 0) {
+      errors.push(
+        `graph_cap_binding_incomplete: cap ${cap.cycle} has no edge out of ${counted.from} ` +
+          `carrying ${cap.park_reason} to park on at the limit`,
+      );
+      continue;
+    }
+    for (const edge of carrying) {
+      const entry = boundEdges.get(edge.id) ?? { edge, caps: new Set() };
+      entry.caps.add(cap);
+      boundEdges.set(edge.id, entry);
+      for (const id of edge.guards) {
+        boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge, cap }]);
+      }
+    }
+  }
+  for (const [id, bindings] of boundGuards) {
+    const caps = [...new Set(bindings.map(({ cap }) => cap.cycle))].join(" and ");
+    const boundSet = new Set(bindings.map(({ edge }) => edge.id));
+    const outside = (guardRefs.get(id) ?? []).filter((edge) => !boundSet.has(edge.id));
+    if (outside.length > 0) {
+      errors.push(
+        `graph_cap_binding_ambiguous: guard ${id} carries ${caps}'s term on ${[...boundSet].join(", ")} ` +
+          `and is also referenced by ${outside.map((edge) => edge.id).join(", ")}`,
+      );
+      continue;
+    }
+    if (boundSet.size > 1) {
+      errors.push(
+        `graph_cap_binding_ambiguous: guard ${id} carries ${caps}'s term on ${[...boundSet].join(" and ")}`,
+      );
+    }
+  }
+  for (const { edge, caps } of boundEdges.values()) {
+    if (caps.size > 1) {
+      errors.push(
+        `graph_cap_binding_ambiguous: edge ${edge.id}, guarded by ${edge.guards.join(", ")}, ` +
+          `is bound by ${[...caps].map((cap) => cap.cycle).join(" and ")}`,
       );
     }
   }

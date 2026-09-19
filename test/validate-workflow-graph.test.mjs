@@ -146,6 +146,54 @@ test("a shared pair is lawful while no cap counts it (and a cap alone on its pai
   assert.deepEqual(validateGraph(document, schema), []);
 });
 
+test("graph_cap_binding_incomplete: a cap's counted edge declares no guards", () => {
+  // The runtime binds the below-limit term to the counted edge's guards, and
+  // an empty conjunction holds at every count — nothing carries the term, so
+  // the edge would admit at the limit. The shape the review measured.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions.find((edge) => edge.id === "freeze_retry").guards = [];
+    }),
+    "graph_cap_binding_incomplete",
+  );
+});
+
+test("graph_cap_binding_incomplete: no sibling edge carries the cap's park_reason", () => {
+  // Without a carrying sibling the counted edge still stops at the limit, but
+  // the flow has no edge to park on — the task stands still with the step's
+  // own reason and the cap's `park_reason` is never recorded.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions = document.transitions.filter((edge) => edge.id !== "freeze_to_await_at_cap");
+    }),
+    "graph_cap_binding_incomplete",
+  );
+});
+
+test("graph_cap_binding_ambiguous: a bound guard a second edge also references", () => {
+  // `freeze_round_open_guard` carries the cap's below-limit term on
+  // `freeze_retry`; on `freeze_to_pass` — an edge the cap never names — it
+  // would gate that move on the cap's count too.
+  assertRefuses(
+    mutated((document) => {
+      document.transitions.find((edge) => edge.id === "freeze_to_pass").guards.push("freeze_round_open_guard");
+    }),
+    "graph_cap_binding_ambiguous",
+  );
+});
+
+test("graph_cap_binding_ambiguous: one edge the binding reaches from two caps", () => {
+  // A second cap counting `freeze_to_pass` keeps the same `park_reason`, so it
+  // reaches `freeze_to_await_at_cap` as its carrying edge as well — the
+  // sibling's guard would owe both caps' limits.
+  assertRefuses(
+    mutated((document) => {
+      document.caps.push({ cycle: "second_cycle", counted_transition: "freeze_to_pass", limit: 3, park_reason: "review_cap" });
+    }),
+    "graph_cap_binding_ambiguous",
+  );
+});
+
 test("graph_cap_quantity_undeclared: the counted edge's predicate compares with a quantity no reads declares", () => {
   // The guards on the counted transition let the flow take another round, so
   // their predicates are the cap's: what they compare with `cap` is the

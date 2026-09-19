@@ -152,7 +152,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "602d21c012f293d53ab78d4e25515cb257b4e024ba0fa11d50f70a54e0cd13ad"
+      "sha256": "a02687da9bd280f0431255872ce90933d2d6b03f5718b6609a51b841f4cbdc1a"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -192,11 +192,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "d7fcaabc95b361666957203b03eab2e24fa5f3327b8878f32c96eb701bd44a56"
+      "sha256": "504b522081552f418060dac200760673b2d091588daa8445342af990fc1b9391"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "415e121c5c3f81556a769ee64e4cecbd4decd53f860421e4f209278aaaba8454"
+      "sha256": "2cf2a46d3fe9626f9f652b114cfa49284dd1df275ecbb9ce300c0f597b2218dd"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -440,7 +440,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "10404b762f2534bf4a4522e8f04270d052e5a70a077257ba8927d3b61b601f31"
+      "sha256": "958aa428e2dc20c0291c646317dc30b610671088b4befee1bbc30e615263227a"
     },
     {
       "path": "resources/requirement-revision/revision-record.schema.json",
@@ -504,11 +504,11 @@
     },
     {
       "path": "resources/workflow-graph/canonical-reference.json",
-      "sha256": "e81104de8fc4964e59e76d3526819033b74c09f7f1b1358e5962aeffcaf05276"
+      "sha256": "e5c6445bff72dd21d97c940ba238761d78d1e8172e2b371533fa9761a173bb66"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.example.json",
-      "sha256": "ea369d94cfb4e5f1c64fe697f530263beced2119e45e8c49e300507711b71fcb"
+      "sha256": "2e1724c279bea5375d7592a7ef27d2f904220eb189ac853f98d4e5a450dfc63e"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.refused.example.json",
@@ -523,7 +523,7 @@
       "sha256": "3e0d2b46b18acf78f859d00d6c77400966fc473ded8074acd42016cf87c04315"
     }
   ],
-  "candidate_digest": "ad62e6f00bd06f9275c12e030daa0e6396b01a3ad93ae764c8b30f4898684125",
+  "candidate_digest": "de2b38dbd127a6352fd3ffd29be7bc29ea92266ed164e92b1f7f012a2c3961c4",
   "dispositions": [
     {
       "issue": 3,
