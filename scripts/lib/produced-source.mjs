@@ -50,7 +50,7 @@ function enumerate(root, { dir, suffix, deep }) {
   return members.sort();
 }
 
-const digestOf = (files, listings) =>
+export const digestOf = (files, listings) =>
   sha256(
     files
       .map((file) => `${file.path} ${file.sha256}`)

@@ -22,9 +22,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { sourceDrift } from './lib/produced-source.mjs';
+import { digestOf, sourceDrift } from './lib/produced-source.mjs';
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
 import { panelVerdicts } from './validate-design-candidate.mjs';
+import { classifySeam } from './verify-autosk-migration-seam.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -234,8 +235,55 @@ function producedCell(reportEntry, refusals) {
   return cell;
 }
 
+const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/u;
+
+/**
+ * A store-composed refusal reason for the package page.
+ *
+ * The record keeps the store's verbatim string — that is the text a reader
+ * compares against a real incident — and the project directory it was
+ * measured under, so the machine-local path is substituted verbatim rather
+ * than parsed: a path containing an apostrophe is still matched whole, where
+ * a quote-bounded read would end the store's quoting early and leave a
+ * volatile tail. What the substitution leaves may hold a quoted path outside
+ * the project, which renders as outside and carries no path; anything else —
+ * an unbalanced quote, an unquoted path fragment — means the reason cannot be
+ * delimited safely, and the leading class is rendered with the path withheld
+ * rather than half-rewritten.
+ */
+function seamReason(reason, projectDirs) {
+  if (typeof reason !== "string") return "not recorded";
+  const withhold = () => {
+    const cls = reason.split(/['/]/u)[0].replace(/[\s:,]+$/u, "");
+    return `${cls === "" ? "store refusal" : cls} — path withheld`;
+  };
+  // Every namespace the reason may embed — the project dir as passed and as
+  // the loader realpathed it — substituted verbatim, longest first.
+  let rendered = reason;
+  const dirs = [...new Set([projectDirs].flat())]
+    .filter((dir) => typeof dir === "string" && dir.length > 0)
+    .sort((a, b) => b.length - a.length);
+  for (const dir of dirs) rendered = rendered.split(dir).join("<project>");
+  const segments = rendered.split("'");
+  // An odd apostrophe count means a path carried a quote of its own.
+  if (segments.length % 2 === 0) return withhold();
+  const out = [];
+  for (const [index, segment] of segments.entries()) {
+    if (index % 2 === 1) {
+      // Inside the store's quoting: a `<project>` path is already rewritten;
+      // a path outside the project is named as outside, carrying no path.
+      out.push(segment.startsWith("/") ? "'<path outside the project>'" : `'${segment}'`);
+    } else {
+      // An unquoted path fragment cannot be delimited safely.
+      if (segment.includes("/")) return withhold();
+      out.push(segment);
+    }
+  }
+  return out.join("");
+}
+
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null }) {
   if (produced !== null) {
     if (!produced.source) {
       throw new Error("the produced report carries no source binding — nothing proves it ran on this tree");
@@ -244,6 +292,57 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
     if (drift.length > 0) {
       throw new Error(`the produced report was produced on another tree: ${drift.join("; ")}`);
     }
+  }
+  if (migrationSeam === null) {
+    // The band is required evidence; the only way out is a refusal the
+    // package prints with its stated reason — silence is not an outcome.
+    if (typeof migrationSeamRefusal !== "string" || migrationSeamRefusal.trim() === "") {
+      throw new Error(
+        "the migration-seam measurement is missing — run " +
+          "`node scripts/verify-autosk-migration-seam.mjs <prefix> --record <file>` and pass --migration-seam <file>, " +
+          'or decline it on record with --no-migration-seam "<reason>"',
+      );
+    }
+  } else {
+    if (migrationSeamRefusal !== null) {
+      throw new Error("a migration-seam measurement and a recorded refusal of it cannot both be given");
+    }
+    if (!migrationSeam.bound?.source) {
+      throw new Error("the migration-seam record carries no source binding — nothing proves it ran on this tree");
+    }
+    const seamDrift = sourceDrift(ROOT, migrationSeam.bound.source);
+    if (seamDrift.length > 0) {
+      throw new Error(`the migration-seam record was produced on another tree: ${seamDrift.join("; ")}`);
+    }
+    if (migrationSeam.bound.source_tree !== compat.result_tree) {
+      throw new Error(
+        `the migration-seam record measured patched source tree ${migrationSeam.bound.source_tree ?? "none"} — ` +
+          `this package is built over ${compat.result_tree}`,
+      );
+    }
+    // The source tree names tracked bytes only; the record must also bind the
+    // executed surface it cannot name — the installed modules and the
+    // store-lock helper the run executed. The binding is verified to be
+    // coherent: its digest recomputes over exactly its recorded members, and
+    // the helper the run spawned is one of them.
+    const executed = migrationSeam.bound?.executed;
+    const executedFiles = executed?.files;
+    if (!Array.isArray(executedFiles) || executedFiles.length === 0 || !LOWERCASE_SHA256.test(executed?.digest ?? "")) {
+      throw new Error("the migration-seam record binds no executed surface — installed modules and the store-lock helper are unnamed");
+    }
+    if (digestOf(executedFiles, []) !== executed.digest) {
+      throw new Error("the migration-seam record's executed-surface digest does not recompute over its recorded members");
+    }
+    if (!LOWERCASE_SHA256.test(executedFiles.find((file) => file?.path === "bin/autosk-store-lock")?.sha256 ?? "")) {
+      throw new Error("the migration-seam record does not bind the store-lock helper binary it executed");
+    }
+  }
+  // The band's own checks are the builder's too: a record that fails them —
+  // malformed, controls that cannot report present, an executed member
+  // outside the install roots — is not a measurement the package may quote.
+  const seamVerdict = migrationSeam === null ? null : classifySeam(migrationSeam);
+  if (seamVerdict !== null && !seamVerdict.ok) {
+    throw new Error(`the migration-seam record fails the band's own checks: ${seamVerdict.failures.join("; ")}`);
   }
   const sections = [];
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
@@ -479,6 +578,31 @@ source, and both product harnesses plus the fault harness.
 
 Steps: ${cleanRoom.steps.map((step) => `${step.step}=${step.ok === false ? 'FAIL' : 'ok'}`).join(', ')}.
 
+### Migration seam
+
+${migrationSeam === null
+    ? `The migration-seam band did not run for this build — a recorded refusal,
+not silence. The stated reason: "${migrationSeamRefusal}"`
+    : `Measured by \`node scripts/verify-autosk-migration-seam.mjs\` on the pinned
+source tree. The record binds the patched tree as git names it, the measurer's
+own bytes, and the executed bytes git cannot name — the installed module tree
+and the store-lock helper — and the script bytes were re-verified against this
+package's tree, so these are this tree's values, not a run made elsewhere.
+
+| field | value |
+| --- | --- |
+| measured source tree | \`${migrationSeam.bound.source_tree}\` |
+| executed bytes | ${migrationSeam.bound.executed.files.length} files outside the tracked tree — digest \`${migrationSeam.bound.executed.digest}\` |
+| workflow | \`${migrationSeam.workflow}\` |
+| pinned before the move | \`${migrationSeam.migrated_task?.pin_before?.pin?.pin?.digest ?? migrationSeam.migrated_task?.pin_before?.pin?.state}\` — helper ${seamVerdict.control.read_back_before_migration} |
+| migrate plan | ${migrationSeam.migration?.plan?.supported === true ? `supported — \`${migrationSeam.migration.plan.from}\` → \`${migrationSeam.migration.plan.to}\`` : `refused — ${migrationSeam.migration?.plan?.reason ?? 'no plan'}`} |
+| migrate apply | ${migrationSeam.migration?.apply?.ok === true ? `sealed receipt \`${migrationSeam.migration.apply.receipt.id}\`` : `did not seal — ${migrationSeam.migration?.apply?.reason ?? 'no receipt'}`} |
+| pinned after the move | \`${migrationSeam.migrated_task?.pin_after?.pin?.pin?.digest ?? migrationSeam.migrated_task?.pin_after?.pin?.state}\` — helper ${seamVerdict.measured.helper} |
+| resume answer | ${seamVerdict.measured.resume}${seamVerdict.measured.refusal ? ` — \`${seamVerdict.measured.refusal}\`` : ''} |
+| old distribution record | bytes_held=${migrationSeam.old_distribution?.bytes_held} — ${seamReason(migrationSeam.old_distribution?.not_held_reason, [migrationSeam.project_dir, migrationSeam.project_dir_physical])} |
+| controls | pre-migration read-back ${seamVerdict.control.read_back_before_migration}; fresh admission ${seamVerdict.control.fresh_admission_helper}, resume ${seamVerdict.control.fresh_admission_resume} |
+`}
+
 ### The fault matrix, with its denominator
 
 **${matrix.groups.length} groups**, which is the denominator for the coverage
@@ -628,6 +752,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     report_digest: reportDigest(mutationReport),
   };
   const produced = arg('--produced') ? await readJson(arg('--produced')) : null;
+  const migrationSeam = arg('--migration-seam') ? await readJson(arg('--migration-seam')) : null;
+  const migrationSeamRefusal = arg('--no-migration-seam');
 
   const contracts = await measureContracts();
 
@@ -643,6 +769,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     contracts,
     vocabulary,
     produced,
+    migrationSeam,
+    migrationSeamRefusal,
   });
   if (out) await writeFile(out, built.text);
   console.log(`package_bytes=${built.bytes}`);

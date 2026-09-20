@@ -16,7 +16,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal } from "../scripts/build-panel-package.mjs";
-import { bindSource, sourceDrift } from "../scripts/lib/produced-source.mjs";
+import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
@@ -76,6 +76,9 @@ const build = (overrides = {}) => buildPackage({
   tests: { passed: 1769, failed: 0 },
   contracts,
   vocabulary,
+  // The band is required evidence: builds under test carry a valid record
+  // unless they are the refusal-path tests, which pass null plus a reason.
+  migrationSeam: seamRecord(),
   ...overrides,
 });
 
@@ -626,4 +629,272 @@ test("the package is deterministic and names what it left out", async () => {
   assert.equal(one.text, two.text);
   for (const name of FULL_TEXT) assert.match(one.text, new RegExp(`### ${name.replace(".", "\\.")}`, "u"));
   assert.match(one.text, /Not reproduced, and named so a verdict can say what it covered/u);
+});
+
+/**
+ * A migration-seam record in the shape the measurer emits, bound to this tree:
+ * the two script files hashed the way `produce:refusals` binds its inputs, and
+ * the manifest's own patched-tree id as the source it ran against.
+ */
+const SEAM_EXECUTED_FILES = [
+  { path: "bin/autosk-store-lock", sha256: "0".repeat(64) },
+  { path: "daemon/node_modules/@autosk/sdk/src/index.ts", sha256: "1".repeat(64) },
+];
+
+const seamRecord = (over = {}) => ({
+  band: "migration-seam",
+  project_dir: "/tmp/autosk-migration-seam-test/project",
+  project_dir_physical: "/private/tmp/autosk-migration-seam-test/project",
+  bound: {
+    source_tree: compat.result_tree,
+    source: bindSource(ROOT, [
+      "scripts/verify-autosk-migration-seam.mjs",
+      "scripts/verify-autosk-migration-seam.driver.ts",
+      "scripts/lib/seam-engine-gate.mjs",
+      "scripts/lib/seam-module-loads.mjs",
+    ]),
+    executed: {
+      files: SEAM_EXECUTED_FILES.map((file) => ({ ...file })),
+      listings: [],
+      digest: digestOf(SEAM_EXECUTED_FILES, []),
+    },
+  },
+  workflow: "seam-flow",
+  served: {
+    before: { digest: "a".repeat(64), graph: "c".repeat(64) },
+    after: { digest: "b".repeat(64), graph: "c".repeat(64) },
+  },
+  old_distribution: {
+    bytes_held: false,
+    not_held_reason: "root cannot be read: ENOENT: no such file or directory",
+    index_file: ".autosk/runtime/v1/index.json",
+    restorable_after_update: false,
+  },
+  migrated_task: {
+    id: "ask-migrated",
+    pin_before: {
+      file: ".autosk/tasks/ask-migrated/task.json",
+      pin: { state: "pinned", pin: { workflow: "seam-flow", digest: "a".repeat(64), graph: "c".repeat(64), helper: "e".repeat(64) } },
+    },
+    pin_after: {
+      file: ".autosk/tasks/ask-migrated/task.json",
+      pin: { state: "pinned", pin: { workflow: "seam-flow", digest: "b".repeat(64), graph: "c".repeat(64) } },
+    },
+    resume_decision: {
+      ok: false,
+      reason: "extension_version_mismatch: seam-flow has no recorded store helper for this task",
+    },
+  },
+  migration: {
+    plan: { supported: true, from: "a".repeat(64), to: "b".repeat(64) },
+    apply: { ok: true, receipt: { id: "f".repeat(64), completed_at: "2026-01-01T00:00:00Z" } },
+  },
+  control: {
+    read_back_before_migration: {
+      task: "ask-migrated",
+      file: ".autosk/tasks/ask-migrated/task.json",
+      pin: { state: "pinned", pin: { workflow: "seam-flow", digest: "a".repeat(64), graph: "c".repeat(64), helper: "e".repeat(64) } },
+    },
+    fresh_admission_after_migration: {
+      task: "ask-witness",
+      file: ".autosk/tasks/ask-witness/task.json",
+      pin: { state: "pinned", pin: { workflow: "seam-flow", digest: "b".repeat(64), graph: "c".repeat(64), helper: "e".repeat(64) } },
+      resume_decision: { ok: true },
+    },
+  },
+  ...over,
+});
+
+test("a bound migration-seam record renders its measured fields as data", async () => {
+  const { text } = await build({ migrationSeam: seamRecord() });
+  assert.match(text, /### Migration seam/u);
+  assert.match(text, /measured source tree \| `[0-9a-f]{40}`/u);
+  assert.match(text, /helper present/u);
+  assert.match(text, /helper absent/u);
+  assert.match(text, /resume answer \| refused — `extension_version_mismatch`/u);
+  assert.match(text, /pre-migration read-back present; fresh admission present, resume admitted/u);
+  assert.match(text, /root cannot be read: ENOENT/u);
+});
+
+test("a migration-seam record bound to another patched tree refuses by name", async () => {
+  // The record says it measured one patched source tree; the manifest this
+  // package names another. Rendering the value anyway would certify a claim
+  // about bytes nobody here ran.
+  const other = seamRecord({ bound: { ...seamRecord().bound, source_tree: "1".repeat(40) } });
+  await assert.rejects(
+    () => build({ migrationSeam: other }),
+    (error) =>
+      error.message.includes("measured patched source tree") &&
+      error.message.includes("1".repeat(40)) &&
+      error.message.includes(compat.result_tree),
+  );
+});
+
+test("a migration-seam record bound to other script bytes refuses by name", async () => {
+  const drifted = seamRecord();
+  drifted.bound.source.files.find((file) => file.path === "scripts/verify-autosk-migration-seam.driver.ts").sha256 =
+    "0".repeat(64);
+  await assert.rejects(
+    () => build({ migrationSeam: drifted }),
+    (error) =>
+      error.message.includes("produced on another tree") &&
+      error.message.includes("scripts/verify-autosk-migration-seam.driver.ts"),
+  );
+});
+
+test("a migration-seam record with no source binding refuses to render", async () => {
+  const unbound = seamRecord({ bound: { source_tree: compat.result_tree } });
+  await assert.rejects(() => build({ migrationSeam: unbound }), /no source binding/u);
+});
+
+test("a build with no migration-seam measurement refuses, naming the command and the flag", async () => {
+  // The band is required evidence: a package without it is not a quieter
+  // package, it is one that cannot answer what migrate did to the pin. The
+  // refusal has to say how to supply the measurement or record a refusal.
+  await assert.rejects(
+    () => build({ migrationSeam: null }),
+    (error) =>
+      error.message.includes("verify-autosk-migration-seam.mjs") &&
+      error.message.includes("--migration-seam") &&
+      error.message.includes("--no-migration-seam"),
+  );
+});
+
+test("a recorded refusal renders its reason verbatim, distinguishable from a measurement", async () => {
+  const { text } = await build({ migrationSeam: null, migrationSeamRefusal: "no prepared upstream source on this seat" });
+  assert.match(text, /### Migration seam/u);
+  assert.match(text, /did not run for this build — a recorded refusal/u);
+  assert.match(text, /"no prepared upstream source on this seat"/u);
+  assert.doesNotMatch(text, /measured source tree/u);
+});
+
+test("an empty refusal reason is a refusal to say anything, so it refuses", async () => {
+  await assert.rejects(() => build({ migrationSeam: null, migrationSeamRefusal: "  " }), /--no-migration-seam/u);
+});
+
+test("a measurement and a recorded refusal cannot both be given", async () => {
+  await assert.rejects(
+    () => build({ migrationSeam: seamRecord(), migrationSeamRefusal: "why not both" }),
+    /cannot both be given/u,
+  );
+});
+
+test("a migration-seam record whose executed surface does not recompute refuses", async () => {
+  // The executed binding is verified for coherence: a member changed without
+  // the digest, or a digest that does not fold these members, is a record that
+  // cannot be read as bound.
+  const tampered = seamRecord();
+  tampered.bound.executed.files[1].sha256 = "2".repeat(64);
+  await assert.rejects(() => build({ migrationSeam: tampered }), /does not recompute/u);
+});
+
+test("a migration-seam record that does not bind the helper it ran refuses", async () => {
+  const seam = seamRecord();
+  const files = SEAM_EXECUTED_FILES.filter((file) => file.path !== "bin/autosk-store-lock");
+  seam.bound.executed = { files, listings: [], digest: digestOf(files, []) };
+  await assert.rejects(() => build({ migrationSeam: seam }), /store-lock helper/u);
+});
+
+test("a migration-seam record whose executed surface binds no module refuses", async () => {
+  // A helper-only member list recomputes, names the helper, and stays in
+  // scope — and still establishes nothing about what the run imported.
+  const seam = seamRecord();
+  const files = SEAM_EXECUTED_FILES.filter((file) => !file.path.includes("node_modules/"));
+  seam.bound.executed = { files, listings: [], digest: digestOf(files, []) };
+  await assert.rejects(() => build({ migrationSeam: seam }), /fails the band's own checks.*module/u);
+});
+
+test("a migration-seam record without a resume answer refuses rather than render refused", async () => {
+  // `ok` absent is not `ok: false` — the package must not print a measured
+  // refusal for a record that carried no answer.
+  const seam = seamRecord();
+  delete seam.migrated_task.resume_decision;
+  await assert.rejects(() => build({ migrationSeam: seam }), /fails the band's own checks.*resume answer/u);
+});
+
+test("the pinned cells render the pin's own digest, not the served distribution's", async () => {
+  // The reviewer's serializer-zeroing produced exactly this shape: served
+  // says one thing, the pin read from disk says another. The cell quotes the
+  // pin — what the record holds — not the field the pin is expected to match.
+  const seam = seamRecord();
+  seam.migrated_task.pin_before.pin.pin.digest = "9".repeat(64);
+  seam.migrated_task.pin_after.pin.pin.digest = "8".repeat(64);
+  const { text } = await build({ migrationSeam: seam });
+  const before = text.split("\n").find((line) => line.includes("pinned before"));
+  const after = text.split("\n").find((line) => line.includes("pinned after"));
+  assert.match(before, /`9{64}`/u);
+  assert.doesNotMatch(before, /`a{64}`/u);
+  assert.match(after, /`8{64}`/u);
+  assert.doesNotMatch(after, /`b{64}`/u);
+});
+
+test("a migration-seam record that fails the band's own checks refuses", async () => {
+  // A coherent digest over a member outside the install roots passes the
+  // builder's arithmetic and still is not a measurement the package may
+  // quote — the band's own checks are the builder's too.
+  const seam = seamRecord();
+  const files = [...SEAM_EXECUTED_FILES, { path: "etc/passwd", sha256: "3".repeat(64) }];
+  seam.bound.executed = { files, listings: [], digest: digestOf(files, []) };
+  await assert.rejects(() => build({ migrationSeam: seam }), /fails the band's own checks/u);
+});
+
+test("the migration-seam row carries no machine-local path, and renders identically across temp dirs", async () => {
+  // The record keeps the store's verbatim reason — it is the string a reader
+  // compares against a real incident — but the package cannot carry the
+  // measurer's temp directory: a governance document must not differ between
+  // two runs that found exactly the same thing.
+  const first = seamRecord();
+  first.project_dir = "/tmp/autosk-migration-seam-a1b2C3/project";
+  first.project_dir_physical = "/private/tmp/autosk-migration-seam-a1b2C3/project";
+  first.old_distribution.not_held_reason =
+    "root cannot be read: ENOENT: no such file or directory, lstat '/private/tmp/autosk-migration-seam-a1b2C3/project/.autosk/extensions/seam-flow'";
+  const second = seamRecord();
+  second.project_dir = "/private/var/folders/zz/autosk-migration-seam-Zz99Yy/project";
+  second.project_dir_physical = "/private/var/folders/zz/autosk-migration-seam-Zz99Yy/project";
+  second.old_distribution.not_held_reason =
+    "root cannot be read: ENOENT: no such file or directory, lstat '/private/var/folders/zz/autosk-migration-seam-Zz99Yy/project/.autosk/extensions/seam-flow'";
+  const cell = (text) => text.split("\n").find((line) => line.includes("old distribution record"));
+  const one = cell((await build({ migrationSeam: first })).text);
+  const two = cell((await build({ migrationSeam: second })).text);
+  assert.match(one, /lstat '<project>\/\.autosk\/extensions\/seam-flow'/u);
+  assert.doesNotMatch(one, /\/tmp\/|\/private\/|\/var\/folders\//u);
+  assert.equal(one, two);
+});
+
+test("a project path containing an apostrophe is still rewritten whole", async () => {
+  // A quote-bounded read ends the store's quoting early on such a path and
+  // leaves a volatile tail; the substitution is verbatim, so the apostrophe
+  // is just another byte in the prefix being replaced.
+  const seam = seamRecord();
+  seam.project_dir = "/tmp/it's-here/autosk-migration-seam-b7/project";
+  seam.project_dir_physical = "/private/tmp/it's-here/autosk-migration-seam-b7/project";
+  seam.old_distribution.not_held_reason =
+    "root cannot be read: ENOENT: no such file or directory, lstat '/private/tmp/it's-here/autosk-migration-seam-b7/project/.autosk/extensions/seam-flow'";
+  const { text } = await build({ migrationSeam: seam });
+  const cell = text.split("\n").find((line) => line.includes("old distribution record"));
+  assert.match(cell, /lstat '<project>\/\.autosk\/extensions\/seam-flow'/u);
+  assert.doesNotMatch(cell, /tmp|it's-here/u);
+});
+
+test("a reason whose path cannot be delimited renders its class and withholds the path", async () => {
+  // An apostrophe inside a path outside the project unbalances the quoting:
+  // no rewrite can tell where the path ends, so the cell says the class and
+  // that the path was withheld — never a partially rewritten tail.
+  const seam = seamRecord();
+  seam.old_distribution.not_held_reason =
+    "root cannot be read: ENOENT: no such file or directory, lstat '/mnt/vol'ume/seam-flow'";
+  const { text } = await build({ migrationSeam: seam });
+  const cell = text.split("\n").find((line) => line.includes("old distribution record"));
+  assert.match(cell, /path withheld/u);
+  assert.doesNotMatch(cell, /mnt|vol|ume/u);
+});
+
+test("a reason naming a path outside the project carries no absolute path at all", async () => {
+  const seam = seamRecord();
+  seam.old_distribution.not_held_reason =
+    "root cannot be read: ENOENT: no such file or directory, lstat '/mnt/volume-that-went-away/seam-flow'";
+  const { text } = await build({ migrationSeam: seam });
+  const cell = text.split("\n").find((line) => line.includes("old distribution record"));
+  assert.match(cell, /outside the project/u);
+  assert.doesNotMatch(cell, /\/mnt\//u);
 });

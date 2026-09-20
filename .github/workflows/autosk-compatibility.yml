@@ -83,6 +83,7 @@ jobs:
           node scripts/verify-autosk-takings.mjs "$SOURCE_DIR" > build/evidence/taking-durability.log 2>&1
           node scripts/verify-autosk-cap.mjs "$SOURCE_DIR" > build/evidence/cap-evaluator.log 2>&1
           node scripts/verify-autosk-graph-digest.mjs "$SOURCE_DIR" > build/evidence/graph-digest.log 2>&1
+          node scripts/verify-autosk-migration-seam.mjs "$SOURCE_DIR" --record build/evidence/migration-seam.record.json > build/evidence/migration-seam.log 2>&1
 
       - name: Check upstream types and complete test suites
         env:
