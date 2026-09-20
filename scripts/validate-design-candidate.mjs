@@ -16,11 +16,20 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CANDIDATE_PATH as CANDIDATE, MEASURED_PATH, measuredDigest } from "./lib/measured-inputs.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const SCHEMA_PATH = "resources/design-candidate/design-candidate.schema.json";
-export const CANDIDATE_PATH = "resources/design-candidate/design-candidate.v1.json";
+export const CANDIDATE_PATH = CANDIDATE;
+
+/**
+ * Measured design inputs excused from `files[]` membership, path → the owner's
+ * reason. Listing is the rule; an entry here is the only alternative, so a
+ * measured path that is neither listed nor excused is the defect the
+ * measurement exists to catch. Empty while every measured input is listed.
+ */
+export const MEMBERSHIP_EXCEPTIONS = new Map();
 
 /**
  * The panel the owner specified, exactly. A route or an effort that differs is
@@ -199,6 +208,14 @@ export function validateCandidate(candidate, schema, { readFile } = {}) {
   for (const file of candidate.files) {
     if (seenPaths.has(file.path)) errors.push(`${file.path}: listed twice`);
     seenPaths.add(file.path);
+    if (file.path === CANDIDATE_PATH) {
+      errors.push(`${file.path}: the candidate cannot list itself`);
+      continue;
+    }
+    if (/[*?[\]{}]/u.test(file.path)) {
+      errors.push(`${file.path}: a member is a concrete path, not a glob`);
+      continue;
+    }
     // The candidate is bytes, not a list of names. A digest that does not match
     // what is on disk is exactly "candidate changed between seats", caught here
     // rather than by a reviewer noticing.
@@ -211,6 +228,31 @@ export function validateCandidate(candidate, schema, { readFile } = {}) {
     }
     if (actual !== file.sha256) {
       errors.push(`${file.path}: recorded ${file.sha256}, on disk ${actual} — the candidate has drifted`);
+    }
+  }
+
+  // The membership floor: the measurement runs the validators under a read
+  // instrument and pins the inputs they were observed to open. Each recorded
+  // input must be listed, or excused by name in MEMBERSHIP_EXCEPTIONS — a
+  // member list silent about one leaves a file the panel never reviewed free
+  // to change a verdict. The artifact's digest must recompute, or the list is
+  // not the measurement it claims to be.
+  let artifact;
+  try {
+    artifact = JSON.parse(read(MEASURED_PATH));
+  } catch (error) {
+    errors.push(`${MEASURED_PATH}: the measured inputs cannot be read (${error.code ?? error.message})`);
+  }
+  if (artifact) {
+    const { schema_version, readers, inputs, digest } = artifact;
+    if (digest !== measuredDigest({ schema_version, readers, inputs })) {
+      errors.push(`${MEASURED_PATH}: digest does not recompute over the recorded readers and inputs`);
+    }
+    const listed = new Set(candidate.files.map((file) => file.path));
+    for (const relative of inputs ?? []) {
+      if (!listed.has(relative) && !MEMBERSHIP_EXCEPTIONS.has(relative)) {
+        errors.push(`${relative}: a measured design input the candidate neither lists nor excuses`);
+      }
     }
   }
 

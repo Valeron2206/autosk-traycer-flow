@@ -42,5 +42,10 @@
       "occurrences": 7
     }
   ],
+  "requirement_growth": {
+    "requirements": 5,
+    "previous_approved": 5,
+    "net_delta": 0
+  },
   "lock_digest": "0000000000000000000000000000000000000000000000000000000000000000"
 }

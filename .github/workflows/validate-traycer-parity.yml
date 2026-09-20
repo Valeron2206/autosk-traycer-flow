@@ -177,6 +177,13 @@ jobs:
       - name: Check the anchor pack slot against the frozen commit
         run: npm run validate:anchor-pack
 
+      # The membership floor pins a recorded measurement, so the artifact must
+      # be regenerated whenever a validator's reads change. This re-runs every
+      # validator under the read instrument and fails on any drift — a new
+      # input, a removed one, or a reader the artifact does not name.
+      - name: Re-measure design inputs and check the recorded set
+        run: node scripts/measure-design-inputs.mjs --check
+
       # The doctor is read-only, so running it in CI costs nothing and proves the
       # command still produces a schema-valid report on a machine that is not the
       # author's. A `fail` here is expected: the runner has no daemon binaries.

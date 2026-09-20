@@ -18,6 +18,7 @@ import {
   ROOT,
   GROUP_A,
   GROUP_B,
+  MEMBERSHIP_EXCEPTIONS,
   PANEL_BY_ROUND,
   PANEL_DIR,
   REQUIRED_PANEL,
@@ -29,9 +30,22 @@ import {
   validateDesignCandidate,
   validatePanelRound,
 } from "../scripts/validate-design-candidate.mjs";
+import { MEASURED_PATH, measuredDigest } from "../scripts/lib/measured-inputs.mjs";
 
 const files = loadFiles();
 const schema = JSON.parse(files[SCHEMA_PATH]);
+
+/** The recorded measurement, read off disk like the floor does. */
+function measuredInputs() {
+  return JSON.parse(readFileSync(path.join(ROOT, MEASURED_PATH), "utf8"));
+}
+
+/** A readFile that serves `artifact` at MEASURED_PATH and disk for the rest. */
+function withArtifact(artifact) {
+  const text = `${JSON.stringify(artifact, null, 2)}\n`;
+  return (relative) =>
+    relative === MEASURED_PATH ? text : readFileSync(path.join(ROOT, relative), "utf8");
+}
 
 function candidate() {
   return JSON.parse(files[CANDIDATE_PATH]);
@@ -236,6 +250,127 @@ test("a file listed but unreadable is refused", () => {
     }),
     /cannot be read/u,
   );
+});
+
+test("every measured design input is a member or a recorded exception", () => {
+  // The set is measured by running the validators under a read instrument,
+  // not copied from a list someone wrote: a path whose bytes can move a
+  // verdict has to be pinned, or excused by name. Silence is the defect this
+  // ticket shipped against.
+  const listed = new Set(candidate().files.map((file) => file.path));
+  const silent = measuredInputs().inputs.filter(
+    (relative) => !listed.has(relative) && !MEMBERSHIP_EXCEPTIONS.has(relative),
+  );
+  assert.deepEqual(silent, []);
+});
+
+test("a candidate silent about a measured design input is refused", () => {
+  const listed = new Set(candidate().files.map((file) => file.path));
+  const target = measuredInputs().inputs.find((relative) => listed.has(relative));
+  assert.ok(target, "the measurement found no member to remove");
+  assertRejects(
+    mutated((value) => {
+      value.files = value.files.filter((file) => file.path !== target);
+    }),
+    /measured design input/u,
+  );
+});
+
+test("the measured inputs artifact is itself a member", () => {
+  // The floor reads the artifact, so the instrument records it and the
+  // candidate must pin its bytes like every other measured input.
+  const listed = new Set(candidate().files.map((file) => file.path));
+  assert.ok(measuredInputs().inputs.includes(MEASURED_PATH));
+  assert.ok(listed.has(MEASURED_PATH));
+});
+
+test("an unlisted input written into the artifact is refused", () => {
+  // The floor trusts the artifact only as far as its digest: an input added
+  // to the record and resealed, but never listed, is refused all the same.
+  const artifact = measuredInputs();
+  const added = { ...artifact, inputs: [...artifact.inputs, "resources/design-candidate/unlisted.json"].sort() };
+  const { digest, ...body } = added;
+  assertRejects(candidate(), /unlisted\.json.*measured design input/u, {
+    readFile: withArtifact({ ...body, digest: measuredDigest(body) }),
+  });
+});
+
+test("a measured inputs artifact whose digest does not recompute is refused", () => {
+  const artifact = measuredInputs();
+  assertRejects(candidate(), /digest does not recompute/u, {
+    readFile: withArtifact({ ...artifact, digest: "0".repeat(64) }),
+  });
+});
+
+test("a member entry that is a glob is refused", () => {
+  // A glob is a promise about files, not a file: `panel/*.json` would pin
+  // nothing, and a phantom path fails the same way — members name bytes.
+  assertRejects(
+    mutated((value) => {
+      value.files.push({ path: "resources/design-candidate/panel/*.json", sha256: "0".repeat(64) });
+    }),
+    /not a glob/u,
+  );
+});
+
+test("the candidate cannot list itself", () => {
+  assertRejects(
+    mutated((value) => {
+      value.files.push({ path: CANDIDATE_PATH, sha256: "0".repeat(64) });
+    }),
+    /cannot list itself/u,
+  );
+});
+
+test("a name that says example does not excuse a measured input", () => {
+  // The reviewer's example-name scenario: a real operand renamed
+  // `*.example.*` is still a measured member, and dropping it from the list
+  // is refused exactly like dropping any other member.
+  const target = measuredInputs().inputs.find((relative) => /example/u.test(relative));
+  assert.ok(target, "the measurement found no member named example");
+  assert.ok(
+    candidate().files.some((file) => file.path === target),
+    `${target}: a measured input named example must be listed like any other`,
+  );
+  assertRejects(
+    mutated((value) => {
+      value.files = value.files.filter((file) => file.path !== target);
+    }),
+    /measured design input/u,
+  );
+});
+
+test("a measured input excused by a named exception passes", () => {
+  // The exception mechanism is the recorded escape: a member the list does
+  // not pin passes only while its name sits in MEMBERSHIP_EXCEPTIONS.
+  const target = measuredInputs().inputs.find((relative) =>
+    candidate().files.some((file) => file.path === relative),
+  );
+  assert.ok(target, "the measurement found no member to excuse");
+  MEMBERSHIP_EXCEPTIONS.set(target, "test exception — exercised branch");
+  try {
+    const value = mutated((draft) => {
+      draft.files = draft.files.filter((file) => file.path !== target);
+    });
+    assert.deepEqual(validateCandidate(value, schema), []);
+  } finally {
+    MEMBERSHIP_EXCEPTIONS.delete(target);
+  }
+});
+
+test("a lock rewritten with a higher baseline is refused by its pin", () => {
+  // The raisedBaseline scenario's other half: the lock validator does not
+  // verify where previous_approved came from — what holds the baseline is
+  // that the lock file is a member. Rewritten bytes are different bytes, and
+  // the candidate refuses the stale pin until the lock is resealed.
+  const lockPath = "resources/runtime-identity-lock/runtime-identity-lock.v1.json";
+  const tampered = JSON.parse(readFileSync(path.join(ROOT, lockPath), "utf8"));
+  tampered.requirement_growth.previous_approved += 1;
+  const read = (relative) =>
+    relative === lockPath
+      ? JSON.stringify(tampered, null, 2) + "\n"
+      : readFileSync(path.join(ROOT, relative), "utf8");
+  assertRejects(candidate(), /has drifted/u, { readFile: read });
 });
 
 test("the candidate digest must recompute", () => {
