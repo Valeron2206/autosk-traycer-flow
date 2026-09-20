@@ -32,7 +32,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "86c994f3fc93ba1f7cf69311acb40add644dd8c2a3e42e5b47d26440b6e25865"
+      "sha256": "e189a75ddc970162512d5efefb309f4a17bcb75a0b19370f157c0b62e11e0227"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -168,7 +168,7 @@
     },
     {
       "path": "docs/contracts/runtime-identity-lock.md",
-      "sha256": "011d95b0eae1f9227f3a7dba8d34b6b11857daca2cf81bb2d1421935cf409362"
+      "sha256": "7abb34ef27f1803a4eff5cd68044f7e915ccfa3648aefb72596c609ed1eff314"
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
@@ -792,7 +792,7 @@
     },
     {
       "path": "resources/runtime-identity-lock/runtime-identity-lock.v1.json",
-      "sha256": "5026edc138db5458e047f1d1777417685d1078806b64c4589bc651099f4787bc"
+      "sha256": "09d860304a4e20c141d5d35cd581c4c805e9ba170e021530891ae0406d3a5c71"
     },
     {
       "path": "resources/sdk-write-api/capability-token.example.json",
@@ -939,7 +939,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "18aaac0e13b5da71e161eba16b399500adfaaff363911e1d210827925ed28ad1",
+  "candidate_digest": "18cd5b0d4e4c031fa2f607abe4d853c33c2a9a764e17a1ff396f0fab34777c7b",
   "dispositions": [
     {
       "issue": 3,

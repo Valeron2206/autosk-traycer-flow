@@ -192,12 +192,25 @@
    "introduced_by": "patches/0005-workflow-shape-identity.patch",
    "added_line": "  const steps = Object.entries(wf.steps).sort(([a], [b]) =>",
    "occurrences": 1
+  },
+  {
+   "id": "helper_moves_with_the_migration",
+   "requires": "applying a migration carries the store helper the task's pin already records into the pin it writes",
+   "why": "The helper digests the binary that writes trusted state, not the extension, so a migration does not change it and the receipt cannot name one for it. Without the carry the apply writes a pin that every resume refuses as extension_version_mismatch for a missing store helper — a sealed migration whose tasks can never run. The read-back compares what the move carried, so deleting the line fails the apply instead of slipping a helper-less pin through.",
+   "introduced_by": "patches/0040-apply-migration-carries-helper.patch",
+   "added_line": "        if (current.pin.helper !== undefined) pin.helper = current.pin.helper;",
+   "occurrences": 1
   }
  ],
  "requirement_growth": {
-  "requirements": 24,
+  "requirements": 25,
   "previous_approved": 24,
-  "net_delta": 0
+  "net_delta": 1,
+  "growth_rationale": "The migration moved two of the pin's three identity components and dropped the third; the defect already shipped once, so the line that carries the store helper is anchored the way the document move already is.",
+  "replacement_candidates": [
+   "document_moves_with_the_migration",
+   "migrated_document_read_back"
+  ]
  },
- "lock_digest": "d1d2c252ae60f99c003054f90b95f67041a6cb515c433c94374831d490f9e084"
+ "lock_digest": "3e8a5b437cad4b442ad3c7712ccff665f6390dbed87e839575c343b20953a270"
 }
