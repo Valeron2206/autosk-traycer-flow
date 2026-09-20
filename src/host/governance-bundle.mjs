@@ -152,6 +152,10 @@ export function stageErrors(candidate) {
  * A panel fix changes the digest, so verdicts collected before it are about a
  * candidate that no longer exists. Rounding that up is the temptation this
  * removes.
+ *
+ * Every entry a seat carries is judged, not the first: the schema admits more
+ * entries than seats, so a duplicate `pass` must not stand in front of a `fail`
+ * and hide it.
  */
 export function attestationErrors(attestation, candidateDigest) {
   const errors = [];
@@ -159,22 +163,24 @@ export function attestationErrors(attestation, candidateDigest) {
     errors.push({ reason: 'bundle_attestation_mismatch', detail: attestation.candidate_digest });
   }
   for (const required of REQUIRED_SEATS) {
-    const verdict = (attestation.verdicts ?? []).find((entry) => entry.seat === required.seat);
-    if (!verdict) {
+    const answers = (attestation.verdicts ?? []).filter((entry) => entry.seat === required.seat);
+    if (answers.length === 0) {
       errors.push({ reason: 'bundle_panel_incomplete', detail: `${required.seat} did not answer` });
       continue;
     }
-    if (verdict.route !== required.route || verdict.effort !== required.effort) {
-      errors.push({
-        reason: 'bundle_panel_incomplete',
-        detail: `${required.seat}: ${verdict.route}/${verdict.effort} is not ${required.route}/${required.effort}`,
-      });
-    }
-    if (verdict.candidate_digest !== candidateDigest) {
-      errors.push({ reason: 'bundle_attestation_mismatch', detail: `${required.seat} answered about another candidate` });
-    }
-    if (verdict.verdict !== 'pass') {
-      errors.push({ reason: 'bundle_panel_incomplete', detail: `${required.seat}: ${verdict.verdict}` });
+    for (const verdict of answers) {
+      if (verdict.route !== required.route || verdict.effort !== required.effort) {
+        errors.push({
+          reason: 'bundle_panel_incomplete',
+          detail: `${required.seat}: ${verdict.route}/${verdict.effort} is not ${required.route}/${required.effort}`,
+        });
+      }
+      if (verdict.candidate_digest !== candidateDigest) {
+        errors.push({ reason: 'bundle_attestation_mismatch', detail: `${required.seat} answered about another candidate` });
+      }
+      if (verdict.verdict !== 'pass') {
+        errors.push({ reason: 'bundle_panel_incomplete', detail: `${required.seat}: ${verdict.verdict}` });
+      }
     }
   }
   if (!attestation.release_actor) {

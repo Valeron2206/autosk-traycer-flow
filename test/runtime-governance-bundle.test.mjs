@@ -261,6 +261,51 @@ test("a seat that answered about another candidate does not count", () => {
   );
 });
 
+test("a duplicate seat cannot hide a refusal, in either order", () => {
+  // The schema admits more entries than seats, so the same five verdicts must
+  // give the same admission whether the refusal trails or leads its seat's pass.
+  const value = candidate();
+  const digest = bundleDigest(value.members);
+  const verdicts = attestation(digest).verdicts;
+  const refusal = {
+    seat: "opus",
+    route: "anthropic/claude-opus-5",
+    effort: "max",
+    candidate_digest: digest,
+    verdict: "fail",
+  };
+  const trailing = releaseAdmission(value, attestation(digest, { verdicts: [...verdicts, refusal] }));
+  const leading = releaseAdmission(value, attestation(digest, { verdicts: [refusal, ...verdicts] }));
+  assert.equal(trailing.admitted, leading.admitted);
+  assert.equal(trailing.admitted, false);
+  assert.ok(trailing.errors.some((error) => error.detail === "opus: fail"));
+});
+
+test("a duplicate entry is checked itself, not just for its verdict", () => {
+  // A second entry for a seat carries its own route and digest too: a stale
+  // answer behind a valid pass is still an answer about another candidate.
+  const value = candidate();
+  const digest = bundleDigest(value.members);
+  const verdicts = attestation(digest).verdicts;
+  const stale = { ...verdicts[0], candidate_digest: "9".repeat(64) };
+  const trailing = releaseAdmission(value, attestation(digest, { verdicts: [...verdicts, stale] }));
+  const leading = releaseAdmission(value, attestation(digest, { verdicts: [stale, ...verdicts] }));
+  assert.equal(trailing.admitted, leading.admitted);
+  assert.equal(trailing.admitted, false);
+  assert.ok(trailing.errors.some((error) => /answered about another candidate/u.test(error.detail)));
+});
+
+test("a duplicate seat that agrees changes nothing", () => {
+  // Duplicates are allowed and counted rather than refused at the door: a seat
+  // saying the same thing twice adds no error.
+  const value = candidate();
+  const digest = bundleDigest(value.members);
+  const verdicts = [...attestation(digest).verdicts, attestation(digest).verdicts[0]];
+  const outcome = releaseAdmission(value, attestation(digest, { verdicts }));
+  assert.deepEqual(outcome.errors.slice(), []);
+  assert.equal(outcome.admitted, true);
+});
+
 test("the current pointer moves by compare-and-swap, and re-releasing is idempotent", () => {
   assert.deepEqual(releasePointer("digest-a", { digest: "digest-a", expectedCurrent: "digest-a" }), {
     action: "already_current",
