@@ -49,6 +49,7 @@ export const REQUIRED_PANEL = Object.freeze([
 export const REFUSALS = Object.freeze([
   "bundle_inventory_missing",
   "bundle_inventory_extra",
+  "bundle_inventory_duplicate",
   "bundle_not_canonical",
   "bundle_traycer_reference",
   "bundle_private_path",

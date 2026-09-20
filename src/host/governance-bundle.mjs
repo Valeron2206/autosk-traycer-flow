@@ -18,6 +18,7 @@ export const STAGES = immutable(['baseline', 'adaptation', 'release']);
 export const REFUSALS = immutable([
   'bundle_inventory_missing',
   'bundle_inventory_extra',
+  'bundle_inventory_duplicate',
   'bundle_not_canonical',
   'bundle_traycer_reference',
   'bundle_private_path',
@@ -85,20 +86,34 @@ export function bundleDigest(members) {
  * A missing member and an extra member are both refusals: a bundle that
  * carries a file nobody declared is a bundle whose contents nobody can vouch
  * for.
+ *
+ * Multiplicity is counted, not folded into a Set: two members under one path
+ * sort equal and keep their input order, so a repeat the Set hid would give
+ * one manifest two digests — and panel verdicts bind the digest. A repeated
+ * member path is its own refusal even when the manifest declares the path
+ * twice: a second declaration cannot make the two members distinct.
  */
 export function inventoryErrors(manifest, members) {
-  const declared = new Set(manifest.members.map((member) => member.path));
-  const present = new Set(members.map((member) => member.path));
+  const count = (entries) => {
+    const counts = new Map();
+    for (const entry of entries) counts.set(entry.path, (counts.get(entry.path) ?? 0) + 1);
+    return counts;
+  };
+  const declared = count(manifest.members);
+  const present = count(members);
   const errors = [];
-  for (const path of declared) {
-    if (!present.has(path)) errors.push({ reason: 'bundle_inventory_missing', detail: path });
+  for (const [path, carried] of present) {
+    if (carried > 1) errors.push({ reason: 'bundle_inventory_duplicate', detail: path });
   }
-  for (const path of present) {
-    if (!declared.has(path)) errors.push({ reason: 'bundle_inventory_extra', detail: path });
+  for (const [path, asked] of declared) {
+    if ((present.get(path) ?? 0) < asked) errors.push({ reason: 'bundle_inventory_missing', detail: path });
+  }
+  for (const [path, carried] of present) {
+    if (carried > (declared.get(path) ?? 0)) errors.push({ reason: 'bundle_inventory_extra', detail: path });
   }
   // Named individually rather than by glob: a glob would let one protocol file
   // go missing without the count changing.
-  for (const path of declared) {
+  for (const path of declared.keys()) {
     if (path.includes('*')) {
       errors.push({ reason: 'bundle_inventory_missing', detail: `${path} is a glob, not a member` });
     }
