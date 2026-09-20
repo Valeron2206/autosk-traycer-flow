@@ -76,8 +76,8 @@ test("the digest is over path and hash in path order, and does not depend on mem
   assert.equal(bundleDigest(members), bundleDigest([...members].reverse()));
   assert.notEqual(bundleDigest(members), bundleDigest([member("a.md"), member("b.md", "different\n")]));
   // The comparator's tie branch is unreachable while member paths are unique,
-  // and the inventory refuses a repeated path — so the property tested is the
-  // one the sort exists for, and the tie itself never arises.
+  // and the inventory refuses a repeated member path — so the property tested
+  // is the one the sort exists for, and the tie itself never arises.
   const paths = [member("a.md"), member("b.md"), member("c.md")].map((entry) => entry.path);
   assert.equal(new Set(paths).size, paths.length);
 });
@@ -149,6 +149,31 @@ test("a missing member and an extra member are both refusals", () => {
   assert.ok(missing.some((error) => error.reason === "bundle_inventory_missing"));
   const extra = inventoryErrors({ members: [] }, members);
   assert.ok(extra.some((error) => error.reason === "bundle_inventory_extra"));
+});
+
+test("a repeated member path refuses in either order: one manifest cannot yield two digests", () => {
+  // Two members under one declared path sort equal, so the digest keeps their
+  // input order — ef807943… and ef01e27d… are one manifest attested as two.
+  const manifest = { members: [{ path: "a.md" }] };
+  const forward = candidate({
+    manifest,
+    members: [member("a.md", "clean\n"), member("a.md", "different\n")],
+  });
+  const backward = candidate({ manifest, members: [...forward.members].reverse() });
+  assert.deepEqual([bundleDigest(forward.members), bundleDigest(backward.members)], [
+    "ef807943ff66293dec6098e71202724cadf9ab2c04b819d87a81ca19738c8009",
+    "ef01e27d9708ecce3cbb52445eb3bfd3b5baad6bebaa32ee06ebb620614a7693",
+  ]);
+  const outcomes = [forward, backward].map((value) =>
+    releaseAdmission(value, attestation(bundleDigest(value.members))));
+  assert.deepEqual(outcomes.map((outcome) => outcome.admitted), [false, false]);
+  for (const outcome of outcomes) {
+    assert.ok(
+      outcome.errors.some(
+        (error) => error.reason === "bundle_inventory_duplicate" && error.detail === "a.md",
+      ),
+    );
+  }
 });
 
 test("members are named individually, because a glob hides a missing file", () => {
@@ -381,6 +406,7 @@ test("every refusal class the contract closes can be produced", () => {
   collect(releaseAdmission(candidate({ stage: "adaptation" }), attestation("0".repeat(64))).errors);
   collect(inventoryErrors({ members: [{ path: "missing.md" }] }, value.members));
   collect(inventoryErrors({ members: [] }, value.members));
+  collect(inventoryErrors({ members: [{ path: "a.md" }] }, [member("a.md"), member("a.md")]));
   collect(canonicalTextErrors("a.md", "no newline"));
   collect(scanErrors([member("a.md", "traycer_call()\n")]));
   collect(scanErrors([member("a.md", "/Users/x\n")]));

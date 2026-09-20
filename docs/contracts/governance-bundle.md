@@ -34,7 +34,7 @@ One input must give one digest. That requires the canonical form to be stated ra
 
 `agent-selection-guide.md`, `protocol/**` (the twelve files, named individually in the manifest — a glob would let one go missing without the count changing), the role and stage contracts, the stage-carriers registry, `bundle-manifest.json` and `bundle-attestation.json`.
 
-A missing member and an extra member are both refusals. An extra one matters as much: a bundle that carries a file nobody declared is a bundle whose contents nobody can vouch for.
+A missing member and an extra member are both refusals. An extra one matters as much: a bundle that carries a file nobody declared is a bundle whose contents nobody can vouch for. A member path that repeats is refused as well: two members under one name still hash in input order, so a repeat would let one manifest yield two digests — and panel verdicts bind the digest.
 
 ## 5. Nothing Traycer-specific, nothing private
 
@@ -65,6 +65,7 @@ An attestation whose candidate digest is not the bundle's own is refused. That i
 
 - `bundle_inventory_missing`;
 - `bundle_inventory_extra`;
+- `bundle_inventory_duplicate`;
 - `bundle_not_canonical`;
 - `bundle_traycer_reference`;
 - `bundle_private_path`;

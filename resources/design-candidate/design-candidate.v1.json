@@ -120,7 +120,7 @@
     },
     {
       "path": "docs/contracts/governance-bundle.md",
-      "sha256": "9811731b1b4474ac21aae02654163cb4b561797cb8d4dcd90e47421664ffeb81"
+      "sha256": "c2a9db5361bc2bfb8b179f237f83810a7fee9be064b3e4074c0841e300b8548b"
     },
     {
       "path": "docs/contracts/housekeeping.md",
@@ -939,7 +939,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "18cd5b0d4e4c031fa2f607abe4d853c33c2a9a764e17a1ff396f0fab34777c7b",
+  "candidate_digest": "385c97fa7e3e408824b021a8f4b2ace6680e330039a05770125284e4ca78bc94",
   "dispositions": [
     {
       "issue": 3,
