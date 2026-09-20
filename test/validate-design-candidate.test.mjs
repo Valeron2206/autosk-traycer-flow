@@ -751,6 +751,129 @@ test("one fail blocks, and blocking must say why", () => {
   assert.ok(validateCandidate(value, schema).some((message) => /must record why/u.test(message)));
 });
 
+test("a refusal outranks a seat that could not review", () => {
+  // Round 4's actual shape: astra recorded non_verdict and the three seats
+  // that could review refused the candidate. The walk returned
+  // pending_final_panel at astra — first in REQUIRED_PANEL — before any fail
+  // was read, so three refusals were invisible unless astra pretended to pass.
+  const value = mutated((draft) => {
+    draft.attestation.state = "blocked";
+    draft.attestation.blocked_reason = "three seats refused the candidate";
+  });
+  value.attestation.verdicts = fullPanel(value.candidate_digest).map((entry) => ({
+    ...entry,
+    verdict: entry.seat === "astra" ? "non_verdict" : "fail",
+  }));
+  assert.equal(computeAttestationState(value), "blocked");
+  assert.deepEqual(validateCandidate(value, schema), []);
+});
+
+test("the seat that could not review can sit anywhere in the order", () => {
+  // The defect was traversal order: pending_final_panel at the first non-pass
+  // seat hid every fail behind it. Whichever required seat is incomplete —
+  // and whatever order the verdicts are listed in — the refusals still decide.
+  for (const silent of REQUIRED_PANEL) {
+    const value = mutated((draft) => {
+      draft.attestation.state = "blocked";
+      draft.attestation.blocked_reason = "the panel refused";
+    });
+    const verdicts = fullPanel(value.candidate_digest).map((entry) => ({
+      ...entry,
+      verdict: entry.seat === silent.seat ? "non_verdict" : "fail",
+    }));
+    value.attestation.verdicts = verdicts;
+    assert.equal(computeAttestationState(value), "blocked", `${silent.seat} could not review`);
+    value.attestation.verdicts = verdicts.slice().reverse();
+    assert.equal(
+      computeAttestationState(value),
+      "blocked",
+      `${silent.seat} could not review, listed last`,
+    );
+  }
+});
+
+test("a seat missing altogether does not hide a refusal", () => {
+  // Absence is the stronger incompleteness: if a missing entry could hide a
+  // fail, deleting a recorded non_verdict would be the way to unblock.
+  const value = mutated((draft) => {
+    draft.attestation.state = "blocked";
+    draft.attestation.blocked_reason = "the panel refused";
+  });
+  value.attestation.verdicts = fullPanel(value.candidate_digest)
+    .filter((entry) => entry.seat !== "astra")
+    .map((entry) => ({ ...entry, verdict: "fail" }));
+  assert.equal(computeAttestationState(value), "blocked");
+});
+
+test("a refusal bound to another candidate's digest is rejected", () => {
+  // A fail about other bytes is not a refusal of this candidate: the verdict
+  // counts for nothing, so the seat has not reviewed this candidate — pending,
+  // not blocked.
+  const value = mutated((draft) => {
+    draft.attestation.state = "pending_final_panel";
+  });
+  const verdicts = fullPanel(value.candidate_digest);
+  const astra = verdicts.find((entry) => entry.seat === "astra");
+  astra.candidate_digest = createHash("sha256").update("round 4's candidate").digest("hex");
+  astra.verdict = "fail";
+  value.attestation.verdicts = verdicts;
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+});
+
+test("round 4's verdicts bound to their own digest stay rejected", () => {
+  // The set this ticket refuses to write: round 4's verdicts are bound to
+  // 6a3a1213…, and ticket 8 has since moved the candidate's digest. Written in
+  // now they would be three refusals about bytes this candidate is not — the
+  // same rejection as one foreign-digest verdict, applied to the whole set.
+  const value = mutated((draft) => {
+    draft.attestation.state = "pending_final_panel";
+  });
+  value.attestation.verdicts = fullPanel(
+    "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
+  ).map((entry) => ({ ...entry, verdict: entry.seat === "astra" ? "non_verdict" : "fail" }));
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+});
+
+test("a refusal on a route the panel never required is not this panel's verdict", () => {
+  // A fail recorded on another route answered a question nobody asked: the
+  // seat's verdict does not count, so the panel is incomplete, not refused.
+  const value = mutated((draft) => {
+    draft.attestation.state = "pending_final_panel";
+  });
+  const verdicts = fullPanel(value.candidate_digest);
+  const astra = verdicts.find((entry) => entry.seat === "astra");
+  astra.route = "anthropic/claude-opus-5";
+  astra.verdict = "fail";
+  value.attestation.verdicts = verdicts;
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+});
+
+test("a panel that could not review is pending, never blocked", () => {
+  // `blocked` is a recorded refusal, not a synonym for incomplete — no set
+  // without a counted fail produces it.
+  const value = mutated((draft) => {
+    draft.attestation.state = "pending_final_panel";
+  });
+  value.attestation.verdicts = fullPanel(value.candidate_digest).map((entry) => ({
+    ...entry,
+    verdict: "non_verdict",
+  }));
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+});
+
+test("a refusal shadowed by a same-seat pass still blocks", () => {
+  // The schema permits more entries than seats, so a seat can be recorded
+  // twice — and a pass listed first must not hide the fail listed after it.
+  const value = mutated((draft) => {
+    draft.attestation.state = "blocked";
+    draft.attestation.blocked_reason = "the panel refused";
+  });
+  const verdicts = fullPanel(value.candidate_digest);
+  verdicts.push({ ...verdicts.find((entry) => entry.seat === "muse"), verdict: "fail" });
+  value.attestation.verdicts = verdicts;
+  assert.equal(computeAttestationState(value), "blocked");
+});
+
 test("an asserted state must match the computed one", () => {
   assertRejects(
     mutated((value) => {
