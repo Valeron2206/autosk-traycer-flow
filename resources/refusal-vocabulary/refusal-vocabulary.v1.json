@@ -1008,8 +1008,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/workflow-factory.mjs"
+      ]
     },
     {
       "code": "ticket_join_invalid",
@@ -1019,8 +1021,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/workflow-factory.mjs"
+      ]
     },
     {
       "code": "ticket_repair_op_invalid",
@@ -1031,8 +1035,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/workflow-factory.mjs"
+      ]
     },
     {
       "code": "ticket_repair_state_invalid",
@@ -1042,8 +1048,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/workflow-factory.mjs"
+      ]
     },
     {
       "code": "tickets_breakdown_alignment_required",
@@ -1053,8 +1061,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/tickets-manifest.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/workflow-factory.mjs"
+      ]
     },
     {
       "code": "tickets_manifest_invalid",
@@ -1069,7 +1079,7 @@
       "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "host",
       "producer_files": [
-        "scripts/validate-tickets-manifest-design.mjs"
+        "src/host/workflow-factory.mjs"
       ]
     },
     {
@@ -1084,7 +1094,7 @@
       "closed_by": "docs/contracts/tickets-manifest.md",
       "producer": "host",
       "producer_files": [
-        "scripts/validate-tickets-manifest-design.mjs"
+        "src/host/workflow-factory.mjs"
       ]
     },
     {
@@ -1130,5 +1140,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "e45ca1e740455f535610714fff491af8266876b2c4ce892653f7bb4a30178acb"
+  "vocabulary_digest": "587ec19fe5a745dac134a77a8661081635edcd2f24cf8a9c98bdb7f8fefb337a"
 }

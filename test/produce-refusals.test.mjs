@@ -21,9 +21,20 @@ import { pathToFileURL } from "node:url";
 import { ROOT, produceCase, produceReport } from "../scripts/produce-refusals.mjs";
 import { sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { collectRecordedPaths, reduceToInputs, toRepoRelative } from "../scripts/lib/measured-inputs.mjs";
+import {
+  caseEmitterFiles,
+  executedManifests,
+  loadCases,
+} from "../scripts/produce-refusals-manifests.mjs";
 import * as ticketsManifest from "../scripts/produce-refusals-tickets-manifest.mjs";
 import * as workflowGraph from "../scripts/produce-refusals-workflow-graph.mjs";
 import * as identityLock from "../scripts/produce-refusals-runtime-identity-lock.mjs";
+
+// Case data comes through the one shared loader — a manifest's declared
+// `CASES_PATH` is the path read, here as in the run.
+const manifests = executedManifests();
+const ticketsCases = loadCases(ticketsManifest.CASES_PATH);
+const workflowCases = loadCases(workflowGraph.CASES_PATH);
 
 test("every declared case produces its own class", async () => {
   const report = await produceReport();
@@ -48,18 +59,35 @@ test("the declared cases cover each contract's measured closed set exactly", asy
 test("a declared class with no case fails the run, named", async () => {
   const short = {
     ...workflowGraph,
-    cases: workflowGraph.cases.filter((entry) => entry.class !== "graph_schema"),
+    cases: workflowCases.filter((entry) => entry.class !== "graph_schema"),
   };
   const report = await produceReport([short]);
   assert.deepEqual(report.contracts[0].uncovered, ["graph_schema"]);
   assert.equal(report.uncovered, 1);
 });
 
+test("a driven case that records no emitter fails the run, named", async () => {
+  // The case still drives and still produces its class — what is missing is
+  // the record of who emitted it, and a manifest silent about that measured
+  // nothing a declaration can be checked against.
+  const stripped = ticketsCases.map((entry) => {
+    if (entry.class !== "tickets_manifest_stale") return entry;
+    const copy = { ...entry };
+    delete copy.emitter;
+    return copy;
+  });
+  const report = await produceReport([{ ...ticketsManifest, cases: stripped }]);
+  assert.deepEqual(report.contracts[0].malformed, ["tickets_manifest_stale"]);
+  assert.equal(report.malformed, 1);
+  const row = report.contracts[0].cases.find((entry) => entry.class === "tickets_manifest_stale");
+  assert.equal(row.pass, true, "the class was still produced — the record, not the run, is what failed");
+});
+
 test("a case naming no declared class fails the run, named", async () => {
   const extra = {
     ...ticketsManifest,
     cases: [
-      ...ticketsManifest.cases,
+      ...ticketsCases,
       {
         class: "no_such_class",
         side: "runtime",
@@ -75,7 +103,7 @@ test("a case naming no declared class fails the run, named", async () => {
 
 test("a case whose drive produces the wrong class fails, named", async () => {
   const fixture = ticketsManifest.fixture();
-  const stale = ticketsManifest.cases.find((entry) => entry.class === "tickets_manifest_stale");
+  const stale = ticketsCases.find((entry) => entry.class === "tickets_manifest_stale");
   // The same edge, asserted against a different class the same step also
   // carries: the produced set contains the carrier's reason, not this one.
   const result = await produceCase({ ...stale, class: "tickets_manifest_invalid" }, fixture, ticketsManifest.emitters);
@@ -86,7 +114,7 @@ test("a case whose drive produces the wrong class fails, named", async () => {
 
 test("a runtime case that drifts to the step's own reason fails", async () => {
   const fixture = ticketsManifest.fixture();
-  const stale = ticketsManifest.cases.find((entry) => entry.class === "tickets_manifest_stale");
+  const stale = ticketsCases.find((entry) => entry.class === "tickets_manifest_stale");
   // park_step holds no candidate edge open, so the step's own
   // no_transition_reason is what recordPark writes — the fixture trap this
   // guards is a case silently producing a step's declared reason rather than
@@ -100,7 +128,7 @@ test("a runtime case that drifts to the step's own reason fails", async () => {
 
 test("a mutation the schema rejects cannot pass on the masking error", async () => {
   const fixture = workflowGraph.fixture();
-  const unreachable = workflowGraph.cases.find((entry) => entry.class === "graph_step_unreachable");
+  const unreachable = workflowCases.find((entry) => entry.class === "graph_step_unreachable");
   // Removing /recovery fails the schema, and validateGraph returns the shape
   // errors without reaching the reachability walk — so the expected class is
   // absent even though an error was produced.
@@ -116,7 +144,7 @@ test("a mutation the schema rejects cannot pass on the masking error", async () 
 
 test("a code written into the input is not a produced code", async () => {
   const fixture = workflowGraph.fixture();
-  const found = workflowGraph.cases.find((entry) => entry.class === "graph_number_not_canonical");
+  const found = workflowCases.find((entry) => entry.class === "graph_number_not_canonical");
   // The declared class is written into the document twice as a key, so the
   // parser's real refusal is the duplicate key. The declared class appearing
   // in the input — echoed inside the refusal's detail — is not a production.
@@ -134,7 +162,7 @@ test("a code written into the input is not a produced code", async () => {
 
 test("a normal return is not a production, whatever the payload carries", async () => {
   const fixture = workflowGraph.fixture();
-  const found = workflowGraph.cases.find((entry) => entry.class === "graph_number_not_canonical");
+  const found = workflowCases.find((entry) => entry.class === "graph_number_not_canonical");
   // parseStrict returns this document normally — the declared class sits in a
   // field of the returned value, and a returned value is never a refusal.
   const payload = {
@@ -164,6 +192,82 @@ test("a class echoed inside a refusal's detail is not the produced code", async 
   assert.equal(result.pass, false);
   assert.ok(result.produced.includes("lock_requirement_unmet"), JSON.stringify(result.produced));
   assert.ok(!result.produced.includes("lock_schema"), JSON.stringify(result.produced));
+});
+
+test("the executed manifests close against the producing namespace on disk", async () => {
+  // Every `produce-refusals-*.cases.json` is case data an executed manifest
+  // must declare, and every declared CASES_PATH must be one of those files,
+  // once — a gap in either direction is a boundary leak the run refuses.
+  const report = await produceReport();
+  assert.deepEqual(report.closure, { undriven: [], missing: [], duplicate: [] });
+  assert.equal(report.unclosed, 0);
+});
+
+test("a cases file on disk that no manifest declares fails the run, named", async () => {
+  // The array entry gone but the import kept is the leak this closes: the
+  // file is still read at module load, yet nothing drives its cases — the
+  // report names it rather than letting the measured set silently shrink.
+  const report = await produceReport([manifests[0]]);
+  const expected = manifests.slice(1).map((manifest) => manifest.CASES_PATH).sort();
+  assert.deepEqual(report.closure.undriven, expected);
+  assert.equal(report.unclosed, expected.length);
+});
+
+test("a manifest declaring a cases path outside the namespace fails the run, named", async () => {
+  const moved = { ...manifests[0], CASES_PATH: "resources/workflow-graph/workflow-graph.v1.json" };
+  const report = await produceReport([moved]);
+  assert.deepEqual(report.closure.missing, ["resources/workflow-graph/workflow-graph.v1.json"]);
+});
+
+test("two manifests declaring one cases file fails the run, named", async () => {
+  const second = { ...manifests[1], CASES_PATH: manifests[0].CASES_PATH, cases: manifests[0].cases };
+  const report = await produceReport([manifests[0], second]);
+  assert.deepEqual(report.closure.duplicate, [manifests[0].CASES_PATH]);
+});
+
+test("a manifest's cases are loaded from its declared CASES_PATH", () => {
+  // The declaration and the read are one value, loaded once through the
+  // shared loader — a manifest cannot name one file while another file's
+  // bytes drive its cases.
+  for (const manifest of manifests) {
+    assert.deepEqual(manifest.cases, loadCases(manifest.CASES_PATH));
+  }
+});
+
+test("every producing module loads as the first import, in a fresh process", () => {
+  // The manifests, the shared list, the runner and the validator form an
+  // import cycle; a module that reads a manifest's exports during its own
+  // evaluation crashes when that manifest is the entry point. One shared
+  // process masks it — each module must load cleanly on its own.
+  for (const module of [
+    "scripts/produce-refusals-manifests.mjs",
+    "scripts/produce-refusals-tickets-manifest.mjs",
+    "scripts/produce-refusals-workflow-graph.mjs",
+    "scripts/produce-refusals-runtime-identity-lock.mjs",
+    "scripts/produce-refusals-refusal-vocabulary.mjs",
+    "scripts/produce-refusals.mjs",
+    "scripts/validate-refusal-vocabulary.mjs",
+  ]) {
+    const run = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", `await import("./${module}")`],
+      { cwd: realpathSync.native(ROOT), encoding: "utf8" },
+    );
+    assert.equal(run.status, 0, `${module} as first import: ${run.stderr.trim()}`);
+  }
+});
+
+test("an emitter record is file#symbol — an empty or missing half is malformed", () => {
+  // The boundary elsewhere is that the named symbol is not checked against
+  // what ran; the record still has to be one file and one symbol.
+  for (const bad of ["a.mjs#", "a.mjs##", "#f", "a.mjs", "", 7]) {
+    assert.equal(caseEmitterFiles({ class: "x", emitter: bad }), null, JSON.stringify(bad));
+  }
+  assert.equal(caseEmitterFiles({ class: "x", emitter: "a.mjs#f", also: "b.mjs#" }), null);
+  assert.deepEqual(
+    [...caseEmitterFiles({ class: "x", emitter: "a.mjs#f", also: "b.mjs#g" })].sort(),
+    ["a.mjs", "b.mjs"],
+  );
 });
 
 test("the report binds the source bytes it was produced from", async () => {

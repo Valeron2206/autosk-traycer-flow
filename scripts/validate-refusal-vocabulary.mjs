@@ -20,6 +20,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { caseEmitterFiles, executedManifests } from "./produce-refusals-manifests.mjs";
+
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_PATH = "docs/contracts/refusal-vocabulary.md";
 export const SCHEMA_PATH = "resources/refusal-vocabulary/refusal-vocabulary.schema.json";
@@ -189,37 +191,97 @@ export function stepErrors(vocabulary, steps) {
 }
 
 /**
+ * What the producing command measured, and what it recorded emitting each
+ * measured class.
+ *
+ * The measured set is the classes `npm run produce:refusals` drives — the
+ * `cases` arrays of the manifests the runner executes, read through the same
+ * module list the run uses, not a filename pattern that a file the run never
+ * touches could join. `emitters` maps a measured class to the files its cases
+ * record — the record is a declaration too (`file#symbol`), and which symbol
+ * actually ran is the producing command's own question, not answered here.
+ * A measured class absent from `emitters` has a malformed record: it stays
+ * measured, and the check refuses rather than fall back to text.
+ */
+export function readProducedEmitters() {
+  const measured = new Set();
+  const emitters = new Map();
+  for (const manifest of executedManifests()) {
+    for (const entry of manifest.cases) {
+      measured.add(entry.class);
+      const files = caseEmitterFiles(entry);
+      if (files === null) continue;
+      const set = emitters.get(entry.class) ?? new Set();
+      for (const file of files) set.add(file);
+      emitters.set(entry.class, set);
+    }
+  }
+  return { measured, emitters };
+}
+
+/**
  * Who produces each reason.
  *
  * Most of these are parked by the daemon, which is not in this repository, and
  * saying otherwise would make the enumeration look better checked than it is.
  * So the claim is recorded and then contradicted where the repository does
  * produce the code.
+ *
+ * For a class the producing command measures, containing the code is not the
+ * claim being checked: a file can name a reason it never emits, so a `host`
+ * entry must declare exactly the files the manifests record, and a `daemon`
+ * entry is contradicted by the record itself. A class with no case keeps the
+ * whole-word textual check — naming is the only evidence available there —
+ * and a case that records no emitter refuses rather than let its class slip
+ * back onto that weaker test.
  */
-export function producerErrors(vocabulary, sources) {
+export function producerErrors(vocabulary, sources, produced) {
   const errors = [];
   for (const entry of vocabulary.park_reasons) {
     // A whole-word match. A short code is a suffix of longer ones, and a file
     // that only ever writes the longer code does not produce the short one.
     const names = new RegExp(`\\b${entry.code}\\b`, "u");
     const naming = Object.keys(sources).filter((file) => names.test(sources[file])).sort();
+    const measured = produced.measured.has(entry.code);
+    const emitters = produced.emitters.get(entry.code);
+    if (measured && emitters === undefined) {
+      errors.push({
+        reason: "refusal_vocabulary_producer_misdeclared",
+        detail: `${entry.code}: a driven case measures it and records no emitter`,
+      });
+      continue;
+    }
     if (entry.producer === "host") {
       if (entry.producer_files.length === 0) {
         errors.push({ reason: "refusal_vocabulary_producer_missing", detail: `${entry.code} claims a host producer and names none` });
       }
       for (const file of entry.producer_files) {
-        if (!naming.includes(file)) {
-          errors.push({ reason: "refusal_vocabulary_producer_missing", detail: `${entry.code}: ${file} does not name it` });
+        if (emitters === undefined ? !naming.includes(file) : !emitters.has(file)) {
+          errors.push({
+            reason: emitters === undefined ? "refusal_vocabulary_producer_missing" : "refusal_vocabulary_producer_misdeclared",
+            detail: `${entry.code}: ${file} does not ${emitters === undefined ? "name" : "produce"} it`,
+          });
+        }
+      }
+      if (emitters !== undefined) {
+        for (const file of emitters) {
+          if (!entry.producer_files.includes(file)) {
+            errors.push({
+              reason: "refusal_vocabulary_producer_misdeclared",
+              detail: `${entry.code}: ${file} produces it and is not declared`,
+            });
+          }
         }
       }
     } else {
       if (entry.producer_files.length > 0) {
         errors.push({ reason: "refusal_vocabulary_producer_misdeclared", detail: `${entry.code} is daemon-produced and names host files` });
       }
-      if (naming.length > 0) {
+      const producing = emitters === undefined ? naming : [...emitters].sort();
+      if (producing.length > 0) {
         errors.push({
           reason: "refusal_vocabulary_producer_misdeclared",
-          detail: `${entry.code} is declared daemon-produced and ${naming[0]} produces it`,
+          detail: `${entry.code} is declared daemon-produced and ${producing[0]} produces it`,
         });
       }
     }
@@ -335,11 +397,11 @@ export function vocabularyDigest(vocabulary) {
 }
 
 /** Everything, in the order a reader would ask it. */
-export function vocabularyErrors(vocabulary, { plan, graph, flows, sources, contracts }) {
+export function vocabularyErrors(vocabulary, { plan, graph, flows, sources, contracts, produced }) {
   const errors = [
     ...driftErrors(vocabulary, extractVocabulary(plan, graph)),
     ...stepErrors(vocabulary, registeredSteps(graph)),
-    ...producerErrors(vocabulary, sources),
+    ...producerErrors(vocabulary, sources, produced),
     ...ownerErrors(vocabulary, contracts),
     ...unmappedCodes(vocabulary, flows),
     ...unclosedContracts(contracts),
@@ -351,7 +413,7 @@ export function vocabularyErrors(vocabulary, { plan, graph, flows, sources, cont
 }
 
 /** The shipped design. */
-export function validateDesign(files, { plan, graph, flows, sources, contracts }) {
+export function validateDesign(files, { plan, graph, flows, sources, contracts, produced }) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
   if (!contract || !contract.includes(CONTRACT_MARKER)) errors.push(`${CONTRACT_PATH}: the contract marker is missing`);
@@ -365,16 +427,16 @@ export function validateDesign(files, { plan, graph, flows, sources, contracts }
 
   const vocabulary = JSON.parse(files[VOCABULARY_PATH]);
   errors.push(
-    ...vocabularyErrors(vocabulary, { plan, graph, flows, sources, contracts })
+    ...vocabularyErrors(vocabulary, { plan, graph, flows, sources, contracts, produced })
       .map((entry) => `${VOCABULARY_PATH}: ${entry.reason}: ${entry.detail}`),
   );
 
   const refused = JSON.parse(files[REFUSED_PATH]);
-  const produced = new Set(
-    vocabularyErrors(refused, { plan, graph, flows, sources, contracts }).map((entry) => entry.reason),
+  const producedReasons = new Set(
+    vocabularyErrors(refused, { plan, graph, flows, sources, contracts, produced }).map((entry) => entry.reason),
   );
-  if (produced.size < 4) {
-    errors.push(`${REFUSED_PATH}: the refused example produces only ${produced.size} refusal classes`);
+  if (producedReasons.size < 4) {
+    errors.push(`${REFUSED_PATH}: the refused example produces only ${producedReasons.size} refusal classes`);
   }
   return errors;
 }
@@ -413,6 +475,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     flows: read(FLOWS_PATH),
     sources: readSources(),
     contracts: readContracts(),
+    produced: readProducedEmitters(),
   };
   const errors = validateDesign(files, context);
   for (const error of errors) console.error(error);
@@ -420,8 +483,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   else {
     const vocabulary = JSON.parse(files[VOCABULARY_PATH]);
     const host = vocabulary.park_reasons.filter((entry) => entry.producer === "host").length;
+    const measured = vocabulary.park_reasons.filter((entry) => context.produced.measured.has(entry.code)).length;
     console.log("Refusal vocabulary validation PASS");
     console.log(`park_reasons=${vocabulary.park_reasons.length} host=${host} daemon=${vocabulary.park_reasons.length - host}`);
+    console.log(
+      `emission_checked=${measured} of ${vocabulary.park_reasons.length} park reasons — ` +
+        `producer declarations reconciled with recorded emitters, not with execution ` +
+        `(${context.produced.measured.size} classes measured by produce:refusals)`,
+    );
     console.log(`registered_steps=${registeredSteps(context.graph).length}`);
     console.log(`vocabulary_digest=${vocabulary.vocabulary_digest}`);
   }

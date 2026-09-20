@@ -8,6 +8,7 @@
 
 import { readFileSync } from "node:fs";
 
+import { executedManifests } from "./produce-refusals-manifests.mjs";
 import {
   FLOWS_PATH,
   GRAPH_PATH,
@@ -15,6 +16,7 @@ import {
   ROOT,
   VOCABULARY_PATH,
   readContracts,
+  readProducedEmitters,
   readSources,
   vocabularyDigest,
   vocabularyErrors,
@@ -22,11 +24,7 @@ import {
 
 export const CONTRACT = "docs/contracts/refusal-vocabulary.md";
 
-const CASES_PATH = "scripts/produce-refusals-refusal-vocabulary.cases.json";
-
-export const cases = JSON.parse(
-  readFileSync(new URL(`../${CASES_PATH}`, import.meta.url), "utf8"),
-);
+export const CASES_PATH = "scripts/produce-refusals-refusal-vocabulary.cases.json";
 
 export const emitters = { vocabularyDigest, vocabularyErrors };
 
@@ -40,18 +38,21 @@ export const fixture = () => {
       flows: read(FLOWS_PATH),
       sources: readSources(ROOT),
       contracts: readContracts(ROOT),
+      produced: readProducedEmitters(),
     },
   };
 };
 
 // Every repo-relative path `fixture` opens — the same scans the validator
 // performs, enumerated by its own readers so the set cannot drift from them.
+// The producer check reads every executed manifest's cases data, so the list
+// is the executed manifests', not a filename pattern.
 export const sources = () => [
-  CASES_PATH,
   VOCABULARY_PATH,
   PLAN_PATH,
   GRAPH_PATH,
   FLOWS_PATH,
+  ...executedManifests().map((manifest) => manifest.CASES_PATH),
   ...Object.keys(readSources(ROOT)),
   ...Object.keys(readContracts(ROOT)).map((name) => `docs/contracts/${name}`),
 ];

@@ -24,11 +24,7 @@ import {
 
 export const CONTRACT = "docs/contracts/workflow-graph.md";
 
-const CASES_PATH = "scripts/produce-refusals-workflow-graph.cases.json";
-
-export const cases = JSON.parse(
-  readFileSync(new URL(`../${CASES_PATH}`, import.meta.url), "utf8"),
-);
+export const CASES_PATH = "scripts/produce-refusals-workflow-graph.cases.json";
 
 export const emitters = { graphDigest, buildWorkflow, index, admit, permitsResume, parseStrict, validateGraph };
 

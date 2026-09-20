@@ -23,11 +23,7 @@ import {
 
 export const CONTRACT = "docs/contracts/runtime-identity-lock.md";
 
-const CASES_PATH = "scripts/produce-refusals-runtime-identity-lock.cases.json";
-
-export const cases = JSON.parse(
-  readFileSync(new URL(`../${CASES_PATH}`, import.meta.url), "utf8"),
-);
+export const CASES_PATH = "scripts/produce-refusals-runtime-identity-lock.cases.json";
 
 export const emitters = {
   LOCK_PATH,
