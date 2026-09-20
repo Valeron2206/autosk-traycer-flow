@@ -12,11 +12,14 @@ import test from "node:test";
 import {
   CONTRACT_PATH,
   EXAMPLE_PATH,
+  FAMILY_PARTITION_PATH,
   REFUSALS,
   REQUIRED_PANEL,
   SCHEMA_PATH,
   UNAVAILABLE_EXAMPLE_PATH,
+  familyOf,
   loadFiles,
+  partitionErrors,
   preflightDesignDigest,
   routeAvailability,
   validateProviderPreflightDesign,
@@ -191,6 +194,48 @@ test("every refusal is documented", () => {
 
 test("a zero exit without a structured result is not a pass", () => {
   assert.ok(files[CONTRACT_PATH].includes('"The process ended" is not "the work was done"'));
+});
+
+test("a family is a property of the model, not of the harness serving it", () => {
+  // `cursor/` serves both Grok and Kimi, so a partition keyed on the route
+  // prefix calls a kimi model grok and nothing notices.
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  assert.equal(familyOf("anthropic/claude-opus-5", partition), "opus");
+  assert.equal(familyOf("openai-codex/gpt-6-astra", partition), "gpt");
+  assert.equal(familyOf("cursor/muse-spark-1.3", partition), "kimi");
+  assert.equal(familyOf("cursor/cursor-grok-4.6", partition), "grok");
+  assert.equal(familyOf("cursor/cursor-kimi-2.5", partition), "kimi");
+  assert.equal(familyOf("meta/muse-spark-1.3-contributor", partition), "kimi");
+});
+
+test("a second family on an already-used prefix is a data row, not a rule change", () => {
+  // The one-harness-two-families case is pinned by routes the shipped data
+  // already carries: two kimi models and a grok model all stand on `cursor/`.
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  const panel = [
+    { route_id: "cursor/cursor-grok-4.6", effort: "xhigh" },
+    { route_id: "cursor/cursor-kimi-2.5", effort: "max" },
+    { route_id: "cursor/muse-spark-1.3", effort: "max" },
+  ];
+  const resolved = panel.map((seat) => familyOf(seat.route_id, partition));
+  assert.deepEqual(new Set(resolved), new Set(["grok", "kimi"]));
+  assert.ok(partitionErrors(partition, panel).every((message) => !/belongs to no declared family/u.test(message)));
+});
+
+test("a model the partition does not name belongs to no family, and says so by name", () => {
+  // A prefix that once meant a family cannot lend it: the refusal names the
+  // route instead of letting it inherit `xai/`'s.
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  assert.equal(familyOf("xai/grok-9.9-unlisted", partition), null);
+  const errors = partitionErrors(partition, [{ route_id: "xai/grok-9.9-unlisted", effort: "max" }]);
+  assert.ok(errors.some((message) => /xai\/grok-9\.9-unlisted/u.test(message)));
+});
+
+test("the same model may not be listed in two families", () => {
+  // `find` would answer with whichever family came first.
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  partition.families.find((entry) => entry.family === "kimi").models.push("claude-opus-5");
+  assert.ok(partitionErrors(partition).some((message) => /more than once/u.test(message)));
 });
 
 test("the design digest changes when any shipped file changes", () => {

@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "4e5035a93a2bdbc70e9fc86b12d8b9680142452c6e81ceece8c0ff20b99f5d6f"
+      "sha256": "b2fe6ce6f66af3f1ab51132f859a6e578a3f2d252424839a09e4fbdd4a87df1b"
     },
     {
       "path": "02-architecture.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "d33fbff327e637be70d3be68886cb26f7dea2cab59eb09ad0ae82b54d788a377"
+      "sha256": "6fb4346650aaba0fa87f310bdaf265b5b064cabb87b77bf543a0e0f18c648393"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -532,7 +532,7 @@
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
-      "sha256": "29cb715634366deea5a70c7dd8e265d2569f9533bfacd9b9e30b34416e0826cd"
+      "sha256": "690a7aec30a0e1b7ce9024548f8e33930d783f1bb367ddc4b71333d975dbc815"
     },
     {
       "path": "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
@@ -939,7 +939,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "385c97fa7e3e408824b021a8f4b2ace6680e330039a05770125284e4ca78bc94",
+  "candidate_digest": "2c5608e2f02cd06cc4a1c25ac2563e45708496853f36a40581a6e189f3b506e3",
   "dispositions": [
     {
       "issue": 3,

@@ -34,17 +34,28 @@ export const REQUIRED_PANEL = Object.freeze([
 
 export const FAMILY_PARTITION_PATH = "resources/panel-roster/family-partition.v1.json";
 
+/** The model a route serves: everything after the harness prefix. */
+export function modelOf(routeId) {
+  const slash = routeId.indexOf("/");
+  return slash === -1 ? routeId : routeId.slice(slash + 1);
+}
+
 /**
- * The family each route belongs to.
+ * The family each route belongs to, answered by the model and not by the
+ * harness that serves it.
  *
  * Cross-family independence is the mechanism behind the panel gate, behind Lead
  * selection and behind `arena_judge_family_conflict`. Panel round 3 found that
  * "family" was a naming convention nothing pinned, so a partition that quietly
- * put two seats in one family would have left the gate looking intact.
+ * put two seats in one family would have left the gate looking intact. A
+ * partition keyed on the route prefix reopens the same hole the moment one
+ * harness serves two families — `cursor/` serves both Grok and Kimi — so the
+ * partition names each family's model ids, and a model it does not name
+ * belongs to none.
  */
 export function familyOf(routeId, partition) {
-  const match = partition.families.find((entry) =>
-    entry.route_prefixes.some((prefix) => routeId.startsWith(prefix)));
+  const model = modelOf(routeId);
+  const match = partition.families.find((entry) => Array.isArray(entry.models) && entry.models.includes(model));
   return match ? match.family : null;
 }
 
@@ -61,9 +72,22 @@ export function partitionErrors(partition, panel = REQUIRED_PANEL) {
     // something the partition does not contain.
     errors.push(`${FAMILY_PARTITION_PATH}: the master order and the declared families differ`);
   }
+  for (const entry of partition.families) {
+    if (!Array.isArray(entry.models)) {
+      errors.push(`${FAMILY_PARTITION_PATH}: ${entry.family} declares no model list`);
+    }
+  }
+  const models = partition.families.flatMap((entry) => (Array.isArray(entry.models) ? entry.models : []));
+  if (new Set(models).size !== models.length) {
+    // `find` answers with the first match, so a model listed twice resolves to
+    // whichever family happens to come first.
+    errors.push(`${FAMILY_PARTITION_PATH}: a model is listed more than once`);
+  }
   const seats = panel.map((entry) => ({ route: entry.route_id, family: familyOf(entry.route_id, partition) }));
   for (const seat of seats) {
-    if (!seat.family) errors.push(`${FAMILY_PARTITION_PATH}: ${seat.route} belongs to no declared family`);
+    if (!seat.family) {
+      errors.push(`${FAMILY_PARTITION_PATH}: ${seat.route} (model ${modelOf(seat.route)}) belongs to no declared family`);
+    }
   }
   const families = seats.filter((seat) => seat.family).map((seat) => seat.family);
   if (new Set(families).size !== panel.length) {
