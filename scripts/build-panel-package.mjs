@@ -235,6 +235,10 @@ function producedCell(reportEntry, refusals) {
   return cell;
 }
 
+const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+const countWord = (count) => COUNT_WORDS[count] ?? String(count);
+
 const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/u;
 
 /**
@@ -348,6 +352,40 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
   const producedBy = new Map((produced?.contracts ?? []).map((entry) => [entry.contract, entry]));
   const open = contracts.filter((entry) => entry.refusals.length === 0);
+  // A whole heading, not a substring: "never the latest source" and
+  // "Attestation binds a candidate" are not test sections.
+  const requiredTests = contracts.filter((entry) =>
+    entry.headings.some((heading) => /^\d+\.\s+required (implementation|runtime) tests$/iu.test(heading)),
+  );
+  // The refusal counts are read off the bound report rather than written into
+  // prose — a typed number is exactly how a stale one survives a re-measurement.
+  // A class counts only when a passing case produced it under a name its
+  // contract declares: a failed case contributes nothing, and neither does a
+  // produced code outside the contract's closed set. The not-clean list below
+  // is read from the same cases, so the explanation cannot disagree with the
+  // count whatever the report's aggregates say.
+  const declaredBy = new Map(contracts.map((entry) => [entry.path, new Set(entry.refusals)]));
+  const producedCases = (produced?.contracts ?? []).flatMap((entry) =>
+    (entry.cases ?? []).map((entryCase) => ({ ...entryCase, contract: entry.contract, declared: declaredBy.get(entry.contract) ?? new Set() })),
+  );
+  const passingCases = producedCases.filter((entryCase) => entryCase.pass === true);
+  const producedClasses = produced === null ? null
+    : new Set(passingCases.flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => entryCase.declared.has(code)))).size;
+  const daemonJudged = produced === null ? null
+    : passingCases.filter((entryCase) => entryCase.predicate_owner === "daemon").length;
+  const unproducedDeclared = produced === null ? 0 : produced.contracts.reduce((sum, entry) => {
+    const declared = declaredBy.get(entry.contract) ?? new Set();
+    const confirmed = new Set(passingCases.filter((entryCase) => entryCase.contract === entry.contract)
+      .flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => declared.has(code))));
+    return sum + [...declared].filter((code) => !confirmed.has(code)).length;
+  }, 0);
+  const undeclaredProduced = produced === null ? 0
+    : new Set(producedCases.flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => !entryCase.declared.has(code)))).size;
+  const producedDeviations = produced === null ? [] : [
+    ...(producedCases.length === passingCases.length ? [] : [`${countWord(producedCases.length - passingCases.length)} case${producedCases.length - passingCases.length === 1 ? "" : "s"} failed`]),
+    ...(unproducedDeclared === 0 ? [] : [`${countWord(unproducedDeclared)} declared class${unproducedDeclared === 1 ? " has" : "es have"} no passing case`]),
+    ...(undeclaredProduced === 0 ? [] : [`${countWord(undeclaredProduced)} produced code${undeclaredProduced === 1 ? " names" : "s name"} no declared class`]),
+  ];
   const sameTree = cleanRoom.extension?.tree === tree && cleanRoom.extension?.dirty === false;
 
   sections.push(`# autosk-traycer-flow — final acceptance package
@@ -601,6 +639,18 @@ package's tree, so these are this tree's values, not a run made elsewhere.
 | resume answer | ${seamVerdict.measured.resume}${seamVerdict.measured.refusal ? ` — \`${seamVerdict.measured.refusal}\`` : ''} |
 | old distribution record | bytes_held=${migrationSeam.old_distribution?.bytes_held} — ${seamReason(migrationSeam.old_distribution?.not_held_reason, [migrationSeam.project_dir, migrationSeam.project_dir_physical])} |
 | controls | pre-migration read-back ${seamVerdict.control.read_back_before_migration}; fresh admission ${seamVerdict.control.fresh_admission_helper}, resume ${seamVerdict.control.fresh_admission_resume} |
+
+A repository-side band measures the migration seam on the pinned, patched
+source: it records what the runtime identity pin held before the move, what it
+held after, and what resume answered, together with the state of the old
+distribution's held bytes. It reports a measured fact rather than a required
+property — today \`helper\` is ${seamVerdict.measured.helper} after the move and
+resume ${seamVerdict.measured.resume === "refused" ? `refuses${seamVerdict.measured.refusal ? ` \`${seamVerdict.measured.refusal}\`` : ""}` : `is ${seamVerdict.measured.resume}`} — and the package refuses to build without that
+measurement or a recorded reason for its absence. The measurement is bound to
+the patched tree, to the measurer's own bytes and to the importable surface it
+ran against, including installed modules git does not track. It does not
+exercise the RPC or CLI path, does not perform a step transition, and attests
+nothing about the runtime it ran under.
 `}
 
 ### The fault matrix, with its denominator
@@ -657,11 +707,33 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries
   the graph document, its schema, the canonical reference, both contracts and the
   patches that put the document's digest inside the identity a task is pinned to.
-  What is not claimed is the daemon that executes it — that code lives outside
-  this repository, so nothing here is evidence about its runtime behaviour. This
-  paragraph said the opposite until the work landed and the sentence was not
-  rewritten; a panel was dispatched on the stale text and three of its four seats
-  found it independently.
+  What is not claimed inside this section is a band that measures the daemon
+  that executes it — that code lives outside this repository — and the
+  narrowing is exactly that: \`scripts/verify-autosk-graph-digest.mjs\` and
+  \`scripts/verify-autosk-visits.mjs\` do run against it, carried by
+  \`.github/workflows/autosk-compatibility.yml\` on every pull request and
+  every push to main — on \`228de2cd\`, the commit the round-4 panel froze,
+  that run passed on both platforms — and no band of this section lists them.
+  This paragraph said the opposite until the work landed and the sentence was
+  not rewritten; a panel was dispatched on the stale text and three of its four
+  seats found it independently.
+- Membership is the \`files[]\` list alone. Of the code, only
+  \`src/host/workflow-graph-canonical.mjs\` is a member, because the canonical
+  form it implements carries criterion 2 and the task identity digest. The rest
+  of the code is outside the candidate: the code evidence this section presents
+  is evidence about code the verdict does not bind.
+- The review-round cap is bound and evaluated — ticket 7 closed on the binding,
+  not on a retracted finding and not on a wait for patch \`0034\`; ticket 17
+  closed on the evaluator landing, not on \`blocked_by: 0035\`: the quantity
+  the caps fire on is declared — \`transition_takings\` is in the predicates'
+  \`reads\` vocabulary and in the \`reads\` of the four cap predicates, and the
+  validator refuses a cap predicate comparing with a quantity no predicate
+  declares it reads. The evaluator is the term the factory applies over the
+  caller's evaluator at both decision sites, bound per guard at build;
+  \`scripts/verify-autosk-cap.mjs\` drives it against a real daemon, where an
+  unenforced cap lets the count pass the limit and an enforced one parks with
+  \`review_cap\` at it. Like the two measurers above, that run is carried by
+  the compatibility workflow and is no band of this section.
 - ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the
   reproducible mutation command. The daemon is not in this repository and its
   guards are not mutated by it, so nothing here is evidence about them.
@@ -673,11 +745,15 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   unlinked is open, and a seat that wants to know has to read the code.
 - There is no mapping from a refusal class to a killed mutant. The command shows
   that each module's guards are exercised by its own tests; it does not show
-  that every one of the ${contracts.reduce((sum, entry) => sum + entry.refusals.length, 0)} declared classes is reachable. Each contract
-  carries its own "every refusal class can be produced" test, which is a
-  different and narrower claim. Section 4's refusal-class count is not that
-  mapping either: it counts the classes named in the linked modules, which is a
-  measurement over text and not a proof that any of them can be reached.
+  that every one of the ${classes} declared classes is reachable. Nor does each
+  contract carry an "every refusal class can be produced" test: ${requiredTests.length}
+  of the ${contracts.length} contracts carry a required-tests section, and what
+  produces classes at all is one command — ${produced === null
+    ? `no produced report is bound to this build, so no produced count is claimed here.`
+    : `\`npm run produce:refusals\` drives each of the ${produced.cases} refusal classes of ${countWord(produced.contracts.length)} contracts to the refusal that carries it and compares the produced code with the declared class; the class list is read from this package's own contract measurement, so a class without a case fails the run. Of the ${classes} classes the contracts declare, this command produces ${producedClasses}; the other ${classes - producedClasses} are declared and not produced by it, and this table prints that rather than implying coverage.${producedDeviations.length === 0 ? "" : ` The bound run is not clean — ${producedDeviations.join("; ")} — so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven.`} For ${countWord(daemonJudged)} ticket-lifecycle classes the evidence is that the host writes the class when the predicate holds — the predicate is the daemon's judgment. The report is bound to the bytes, the directory membership and the positions it ran against, which is evidence about this tree and not an attestation of the Node runtime it ran under.`}
+  Section 4's refusal-class count is not that mapping either: it counts the
+  classes named in the linked modules, which is a measurement over text and not
+  a proof that any of them can be reached.
 - \`npm test\` is reported as a pass/fail total with no coverage figure. Read it
   as "the suite is green", not as "the suite is adequate".
 - No deployment to real users has been performed, and none is claimed.`);
