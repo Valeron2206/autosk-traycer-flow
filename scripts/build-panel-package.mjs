@@ -22,6 +22,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { sourceDrift } from './lib/produced-source.mjs';
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
 import { panelVerdicts } from './validate-design-candidate.mjs';
 
@@ -207,10 +208,46 @@ export async function measureContracts() {
   return contracts;
 }
 
+/**
+ * The cell answers "of the classes this contract declares, how many the run
+ * produced" — the denominator is the contract's own closed set, not the number
+ * of cases, so a run short of the set cannot print a fraction that reads as
+ * complete. A shortfall names the classes; a case outside the set is named too.
+ */
+function producedCell(reportEntry, refusals) {
+  const covered = new Set(
+    (reportEntry.cases ?? [])
+      .filter((row) => row.pass && refusals.includes(row.class))
+      .map((row) => row.class),
+  );
+  const missing = refusals.filter((name) => !covered.has(name));
+  const outside = [
+    ...new Set(
+      (reportEntry.cases ?? [])
+        .filter((row) => !refusals.includes(row.class))
+        .map((row) => row.class),
+    ),
+  ];
+  let cell = `${covered.size} of ${refusals.length}`;
+  if (missing.length > 0) cell += ` — not produced: ${missing.join(", ")}`;
+  if (outside.length > 0) cell += ` — outside the declared set: ${outside.join(", ")}`;
+  return cell;
+}
+
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts() }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null }) {
+  if (produced !== null) {
+    if (!produced.source) {
+      throw new Error("the produced report carries no source binding — nothing proves it ran on this tree");
+    }
+    const drift = sourceDrift(ROOT, produced.source);
+    if (drift.length > 0) {
+      throw new Error(`the produced report was produced on another tree: ${drift.join("; ")}`);
+    }
+  }
   const sections = [];
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
+  const producedBy = new Map((produced?.contracts ?? []).map((entry) => [entry.contract, entry]));
   const open = contracts.filter((entry) => entry.refusals.length === 0);
   const sameTree = cleanRoom.extension?.tree === tree && cleanRoom.extension?.dirty === false;
 
@@ -337,8 +374,32 @@ nothing — **not** that nothing evaluates the contract. Two implementations who
 names no convention could reach were missed exactly that way before the links
 were measured.
 
-| contract | rules evaluated in | refusal classes named there | document read by |
-| --- | --- | --- | --- |
+One more column is a different kind of fact, and the difference is the point of
+it. \`refusal classes named there\` counts a class appearing in the text of a
+linked host module; \`produced\` reports \`npm run produce:refusals\` on this
+tree — every declared case driven to refusal and the produced code compared to
+its class by exact string. The report binds the bytes it ran on — every file
+the run reads plus the membership of each directory its scans enumerate,
+measured against the run itself under the fs instrument, and every bound
+name must be its own physical path: the same bytes reached through a link
+are a different input — and a package built
+on a different tree refuses the column rather than printing a number produced
+elsewhere. A file is bound because the run opened it, which makes it a
+dependency, not a proof that the production needed it. Five of the
+produced classes are ticket-lifecycle
+reasons whose predicate is the daemon's judgment: the cell records that the
+host writes the class when the predicate holds, not that the host judges the
+predicate. Three produced codes are the graph's own park reasons, which no
+edge and no step can carry — they surface at the factory's exported boundary,
+but by different routes: \`no_transition_reason\` is \`select\` over a
+synthetic document, because the schema forbids the shape that reaches it;
+\`resume_target_not_permitted\` and \`transition_not_declared\` are
+\`permitsResume\` and \`admit\` refusing a move the document does not allow,
+over the shipped, schema-valid document itself. A row with no
+producing case reports the absence rather than implying one.
+
+| contract | rules evaluated in | refusal classes named there | produced | document read by |
+| --- | --- | --- | --- | --- |
 ${contracts.map((entry) => {
     const readers = entry.readers ?? [];
     const evaluators = entry.evaluators ?? [];
@@ -360,7 +421,10 @@ ${contracts.map((entry) => {
     const named = evaluators.length === 0
       ? 'not measured — no module linked'
       : `${entry.refusals_named ?? 0} of ${entry.refusals.length}`;
-    return `| \`${entry.path}\` | ${evaluated.join('; ') || 'no link measured'} | ${named} | ${readers.map((name) => `\`${name}\``).join(', ') || 'nothing in `scripts/` names it'} |`;
+    const producedText = producedBy.has(entry.path)
+      ? producedCell(producedBy.get(entry.path), entry.refusals)
+      : 'not in the produced run';
+    return `| \`${entry.path}\` | ${evaluated.join('; ') || 'no link measured'} | ${named} | ${producedText} | ${readers.map((name) => `\`${name}\``).join(', ') || 'nothing in `scripts/` names it'} |`;
   }).join('\n')}
 
 ${contracts.map((entry) => `### ${entry.path}
@@ -563,6 +627,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     rules: MUTATION_RULES.map((rule) => rule.from),
     report_digest: reportDigest(mutationReport),
   };
+  const produced = arg('--produced') ? await readJson(arg('--produced')) : null;
 
   const contracts = await measureContracts();
 
@@ -577,6 +642,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     tests: { passed, failed: 0 },
     contracts,
     vocabulary,
+    produced,
   });
   if (out) await writeFile(out, built.text);
   console.log(`package_bytes=${built.bytes}`);

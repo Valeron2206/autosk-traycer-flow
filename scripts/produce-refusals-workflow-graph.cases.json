@@ -1,0 +1,231 @@
+[
+  {
+    "class": "graph_schema",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery" }] }
+  },
+  {
+    "class": "graph_duplicate_name",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "copy", "from": "/steps/0/name", "path": "/steps/1/name" }] }
+  },
+  {
+    "class": "graph_first_step_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/first_step", "value": "no_such_step" }] }
+  },
+  {
+    "class": "graph_step_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/transitions/0/to", "value": "no_such_step" }] }
+  },
+  {
+    "class": "graph_predicate_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/guards/0/predicate", "value": "cond_probe_absent" }] }
+  },
+  {
+    "class": "graph_guard_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/0/guards/1", "value": "g_probe_absent" }] }
+  },
+  {
+    "class": "graph_external_outcome_uncarried",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/external_operations/-", "value": { "status": "done", "executor": "probe external executor" } }] }
+  },
+  {
+    "class": "graph_priority_ambiguous",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/-", "value": { "id": "t_probe_priority", "from": "intake", "to": "init_planning_ref", "priority": 0, "guards": [] } }] }
+  },
+  {
+    "class": "graph_terminal_step_leaves",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/-", "value": { "id": "t_probe_terminal", "from": "done", "to": "implement", "priority": 0, "guards": [] } }] }
+  },
+  {
+    "class": "graph_step_stranded",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/steps/-", "value": { "name": "probe_stranded", "kind": "agent", "no_transition_reason": "artifact_freeze_invalid" } }] }
+  },
+  {
+    "class": "graph_step_unreachable",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/transitions/291/to", "value": "freeze_artifact" }] },
+    "note": "t_274 is apply_arena_decision's only incoming edge; redirecting it strands the step"
+  },
+  {
+    "class": "graph_entry_step_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/entry_steps/-", "value": { "step": "no_such_step", "reason": "probe" } }] }
+  },
+  {
+    "class": "graph_cap_transition_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/caps/0/counted_transition", "value": "t_probe_absent" }] }
+  },
+  {
+    "class": "graph_cap_transition_shared",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/-", "value": { "id": "t_probe_shared", "from": "narrow_review_join", "to": "fix_artifact", "priority": 90, "guards": [] } }] }
+  },
+  {
+    "class": "graph_cap_binding_incomplete",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/transitions/248/guards", "value": [] }] },
+    "note": "empties the guards of t_231, the edge artifact_review_round counts — nothing left to bind below the limit"
+  },
+  {
+    "class": "graph_cap_binding_ambiguous",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/0/guards/1", "value": "guard_238" }] },
+    "note": "guard_238 is bound to the artifact_review_round cap; referencing it from t_001 carries the term onto an edge the cap never named"
+  },
+  {
+    "class": "graph_cap_quantity_undeclared",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/predicates/127/description", "value": "probe: undeclared_quantity <= cap" }] },
+    "note": "cond_136 is the counted guard's predicate; comparing cap with a quantity no reads declares is the refusal"
+  },
+  {
+    "class": "graph_park_reason_reserved",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/guards/0/park_reason", "value": "transition_not_declared" }] }
+  },
+  {
+    "class": "graph_park_reason_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/guards/0/park_reason", "value": "probe_made_up_reason" }] }
+  },
+  {
+    "class": "graph_park_reason_ambiguous",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/-", "value": { "id": "t_probe_ambiguous", "from": "intake", "to": "human", "priority": 91, "guards": [] } }] },
+    "note": "an edge into human whose guards name no reason"
+  },
+  {
+    "class": "graph_recovery_missing",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery/80" }] },
+    "note": "drops the tickets_manifest_stale row; its reason is still produced by guard_181"
+  },
+  {
+    "class": "graph_recovery_reason_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/-", "value": { "reason": "probe_unproduced_reason", "parks_at": ["human"], "resume_targets": ["done"], "required_state": "probe" } }] }
+  },
+  {
+    "class": "graph_recovery_terminal_resume",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/10/parks_at/-", "value": "done" }] },
+    "note": "arena_candidate_failed's row already permits resume into done; parking it there makes a terminal step both stand and target"
+  },
+  {
+    "class": "graph_recovery_parks_at_incomplete",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery/80/parks_at/1" }] },
+    "note": "removes freeze_artifact from the row's parks_at while edge t_175 still produces the reason there"
+  },
+  {
+    "class": "graph_recovery_parks_at_unproduced",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/parks_at/-", "value": "implement" }] },
+    "note": "lists an agent step where nothing in the graph produces the reason"
+  },
+  {
+    "class": "graph_recovery_handled_at_parks",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/handled_at", "value": ["freeze_artifact"] }] },
+    "note": "freeze_artifact produces the reason (t_175); calling it handled-only is refused"
+  },
+  {
+    "class": "graph_recovery_lists_overlap",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/parks_at/-", "value": "human" }, { "op": "add", "path": "/recovery/80/handled_at", "value": ["human"] }] },
+    "note": "the same step in both lists of one row — the status kind keeps the unproduced check silent so overlap is the code that fires"
+  },
+  {
+    "class": "graph_digest_stale",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "also": "src/host/workflow-factory.mjs#buildWorkflow",
+    "drive": { "kind": "graph_validate", "restamp": false, "mutate": [{ "op": "replace", "path": "/canonical_digest", "value": "0000000000000000000000000000000000000000000000000000000000000000" }] },
+    "note": "design side declared; the runtime twin refuses the same staleness at build in buildWorkflow"
+  },
+  {
+    "class": "graph_not_json",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#parseStrict",
+    "drive": { "kind": "graph_parse", "text": "{" }
+  },
+  {
+    "class": "graph_duplicate_key",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#parseStrict",
+    "drive": { "kind": "graph_parse", "text": "{\"a\":1,\"a\":2}" }
+  },
+  {
+    "class": "graph_number_not_canonical",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#exactInteger",
+    "drive": { "kind": "graph_parse", "text": "{\"a\":-0}" }
+  },
+  {
+    "class": "graph_lone_surrogate",
+    "side": "design",
+    "emitter": "src/host/workflow-graph-canonical.mjs#canonicalString",
+    "also": "src/host/workflow-factory.mjs#buildWorkflow",
+    "drive": { "kind": "graph_canonical", "mutate": [{ "op": "replace", "path": "/predicates/0/description", "value": "probe \ud800 lone surrogate" }] },
+    "note": "an unpaired surrogate has no canonical UTF-8 spelling; the serializer throws it and buildWorkflow's digest check is the runtime twin"
+  },
+  {
+    "class": "no_transition_reason",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#select",
+    "drive": { "kind": "park_step", "step": "s0", "synthetic": true },
+    "note": "produced at the exported boundary: the schema requires no_transition_reason on every agent step, so a valid document cannot reach this — the run stands up a one-step document that does"
+  },
+  {
+    "class": "resume_target_not_permitted",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#permitsResume",
+    "also": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "resume", "reason": "tickets_manifest_stale", "to": "done" },
+    "note": "produced at the exported boundary; the validator co-emits the same code when a recovery row permits a target no edge reaches"
+  },
+  {
+    "class": "transition_not_declared",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#admit",
+    "drive": { "kind": "admit", "step": "freeze_artifact", "to": "done" },
+    "note": "produced at the exported boundary: freeze_artifact declares no edge to done, so the veto refuses the move"
+  }
+]

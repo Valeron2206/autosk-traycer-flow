@@ -1,0 +1,56 @@
+[
+  {
+    "class": "tickets_manifest_invalid",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_edge", "step": "freeze_artifact", "edge": "t_535" },
+    "note": "produced at the park write: guard_182's park_reason carries this reason on freeze_artifact's edge t_535 into human, and recordPark writes park.reason"
+  },
+  {
+    "class": "tickets_manifest_stale",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_edge", "step": "freeze_artifact", "edge": "t_175" },
+    "note": "produced at the park write: guard_181's park_reason carries this reason on freeze_artifact's edge t_175 into human, and recordPark writes park.reason"
+  },
+  {
+    "class": "ticket_join_invalid",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_edge", "step": "ticket_join", "edge": "t_354" },
+    "predicate_owner": "daemon",
+    "note": "the predicate is the daemon's judgment; the evidence here is that the host writes the class when the predicate holds"
+  },
+  {
+    "class": "ticket_repair_op_invalid",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_edge", "step": "resume_repaired_tickets", "edge": "t_322" },
+    "predicate_owner": "daemon",
+    "note": "the predicate is the daemon's judgment; the evidence here is that the host writes the class when the predicate holds"
+  },
+  {
+    "class": "ticket_repair_state_invalid",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_step", "step": "resume_repaired_tickets" },
+    "predicate_owner": "daemon",
+    "note": "the predicate is the daemon's judgment; the evidence here is that the host writes the class when the predicate holds"
+  },
+  {
+    "class": "tickets_breakdown_alignment_required",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_edge", "step": "record_alignment", "edge": "t_542" },
+    "predicate_owner": "daemon",
+    "note": "the predicate is the daemon's judgment; the evidence here is that the host writes the class when the predicate holds"
+  },
+  {
+    "class": "ticket_edge_receipt_lost",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#recordPark",
+    "drive": { "kind": "park_step", "step": "dispatch_ticket_dag" },
+    "predicate_owner": "daemon",
+    "note": "the predicate is the daemon's judgment; the evidence here is that the host writes the class when the predicate holds"
+  }
+]

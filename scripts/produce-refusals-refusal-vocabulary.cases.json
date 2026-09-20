@@ -1,0 +1,68 @@
+[
+  {
+    "class": "refusal_vocabulary_drift",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#driftErrors",
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/code", "value": "probe_drift_code" }] },
+    "note": "a vocabulary row the plan and graph park table does not extract"
+  },
+  {
+    "class": "refusal_vocabulary_unknown_step",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#stepErrors",
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/named_at/0", "value": "no_such_step" }] }
+  },
+  {
+    "class": "refusal_vocabulary_unknown_class",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#stepErrors",
+    "drive": { "kind": "vocab", "mutate": [{ "op": "add", "path": "/park_reasons/0/named_at_classes/-", "value": "no_such_class" }] }
+  },
+  {
+    "class": "refusal_vocabulary_producer_missing",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#producerErrors",
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/13/producer_files", "value": [] }] },
+    "note": "a host-declared entry naming no producing file"
+  },
+  {
+    "class": "refusal_vocabulary_producer_misdeclared",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#producerErrors",
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/producer_files", "value": ["scripts/build-panel-package.mjs"] }] },
+    "note": "a daemon-declared entry naming host files is the misdeclared shape"
+  },
+  {
+    "class": "refusal_vocabulary_code_unmapped",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#unmappedCodes",
+    "drive": { "kind": "vocab", "flows": [{ "find": "## 9. Разрешённые исключения", "with": "| `probe_unmapped_code` | probe_step | probe state |\n\n## 9. Разрешённые исключения" }] },
+    "note": "a machine code in the user-facing recovery table that the vocabulary does not enumerate"
+  },
+  {
+    "class": "refusal_vocabulary_unclosed_contract",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#unclosedContracts",
+    "drive": { "kind": "vocab", "extra_contracts": { "zz-probe-open.md": "# Probe contract\n\nNo closed refusal set is declared in this document.\n" } },
+    "note": "a contract document from which no closed set can be read"
+  },
+  {
+    "class": "refusal_vocabulary_owner_missing",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#ownerErrors",
+    "drive": { "kind": "vocab", "mutate": [{ "op": "remove", "path": "/park_reasons/0/closed_by" }] }
+  },
+  {
+    "class": "refusal_vocabulary_owner_ambiguous",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#ownerErrors",
+    "drive": { "kind": "vocab", "extra_contracts": { "zz-probe-dup.md": "# Probe contract\n\nClosed set: `tickets_manifest_invalid`.\n\n" } },
+    "note": "the code is already closed by docs/contracts/tickets-manifest.md; a second contract declaring it is the ambiguity"
+  },
+  {
+    "class": "refusal_vocabulary_digest_stale",
+    "side": "design",
+    "emitter": "scripts/validate-refusal-vocabulary.mjs#vocabularyErrors",
+    "drive": { "kind": "vocab", "restamp": false, "mutate": [{ "op": "replace", "path": "/vocabulary_digest", "value": "0000000000000000000000000000000000000000000000000000000000000000" }] }
+  }
+]

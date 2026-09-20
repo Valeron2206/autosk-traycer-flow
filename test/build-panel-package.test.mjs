@@ -10,11 +10,13 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal } from "../scripts/build-panel-package.mjs";
+import { bindSource, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
@@ -204,11 +206,19 @@ test("a contract is linked to the module that evaluates it, whatever the module 
   // and each one says which measurement carried it.
   const measured = await measureContracts();
   const graph = measured.find((entry) => entry.path === "docs/contracts/workflow-graph.md");
+  // The factory joined the canonical module when the production manifest began
+  // reading the contract through it: `select`, `admit` and `recordPark` in it
+  // are the runtime emitters, so the import link is real.
   assert.deepEqual(graph.evaluators, [
+    {
+      module: "src/host/workflow-factory.mjs",
+      link: "import",
+      via: ["scripts/produce-refusals-workflow-graph.mjs"],
+    },
     {
       module: "src/host/workflow-graph-canonical.mjs",
       link: "import",
-      via: ["scripts/validate-workflow-graph.mjs"],
+      via: ["scripts/produce-refusals-workflow-graph.mjs", "scripts/validate-workflow-graph.mjs"],
     },
   ]);
 
@@ -361,9 +371,172 @@ test("the row separates reading the contract from evaluating its rules", async (
       "\\| `docs/contracts/workflow-graph\\.md` \\| `src/host/absent\\.mjs` \\(not in the mutation table, declared\\); " +
         "`src/host/workflow-graph-canonical\\.mjs` \\(18/19, imported by `scripts/validate-workflow-graph\\.mjs`\\); " +
         `\`src/host/workflow-preflight\\.mjs\` \\(no mutable guard, name match only\\) \\| 2 of ${outline.refusals.length} \\| ` +
-        "`scripts/validate-workflow-graph\\.mjs` \\|",
+        "not in the produced run \\| `scripts/validate-workflow-graph\\.mjs` \\|",
       "u",
     ),
+  );
+});
+
+test("a produced report fills the cell against the contract's own closed set", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const outline = contractOutline(read(graph));
+  const produced = {
+    source: bindSource(ROOT, [graph]),
+    contracts: [
+      {
+        contract: graph,
+        produced: outline.refusals.length,
+        of: outline.refusals.length,
+        cases: outline.refusals.map((name) => ({ class: name, pass: true })),
+      },
+    ],
+  };
+  const { text } = await build({ produced });
+  const lines = text.split("\n");
+  const table = lines.findIndex((line) => line.startsWith("| contract | rules evaluated in"));
+  const row = lines.slice(table).find((line) => line.startsWith(`| \`${graph}\``));
+  assert.equal(row.split("|")[4].trim(), `${outline.refusals.length} of ${outline.refusals.length}`);
+});
+
+test("a produced run short of the closed set does not read as complete", async () => {
+  // Three passing cases over three cases would print `3 of 3` if the cell
+  // counted cases; against the contract's own set it must show the shortfall
+  // and name what the run did not produce.
+  const graph = "docs/contracts/workflow-graph.md";
+  const outline = contractOutline(read(graph));
+  const covered = outline.refusals.slice(0, 3);
+  const produced = {
+    source: bindSource(ROOT, [graph]),
+    contracts: [
+      {
+        contract: graph,
+        produced: covered.length,
+        of: covered.length,
+        cases: covered.map((name) => ({ class: name, pass: true })),
+      },
+    ],
+  };
+  const { text } = await build({ produced });
+  const lines = text.split("\n");
+  const table = lines.findIndex((line) => line.startsWith("| contract | rules evaluated in"));
+  const row = lines.slice(table).find((line) => line.startsWith(`| \`${graph}\``));
+  const cell = row.split("|")[4].trim();
+  assert.ok(cell.startsWith(`3 of ${outline.refusals.length}`), cell);
+  assert.ok(cell.includes("not produced:"), cell);
+  assert.ok(cell.includes(outline.refusals.at(-1)), cell);
+  assert.ok(!/\b3 of 3\b/u.test(cell), cell);
+});
+
+test("a produced report bound to other bytes refuses to render", async () => {
+  // The report says it measured one set of bytes; this tree has others — the
+  // build must refuse the column rather than print a number produced
+  // elsewhere.
+  const graph = "docs/contracts/workflow-graph.md";
+  const source = bindSource(ROOT, [graph]);
+  source.files[0].sha256 = "0".repeat(64);
+  const produced = {
+    source,
+    contracts: [
+      {
+        contract: graph,
+        produced: 1,
+        of: 1,
+        cases: [{ class: "graph_schema", pass: true }],
+      },
+    ],
+  };
+  await assert.rejects(
+    () => build({ produced }),
+    (error) => error.message.includes("produced on another tree") && error.message.includes(graph),
+  );
+});
+
+test("a produced report with no source binding refuses to render", async () => {
+  await assert.rejects(
+    () => build({ produced: { contracts: [] } }),
+    /no source binding/u,
+  );
+});
+
+test("a produced report refuses a tree that gained a scanned member", async () => {
+  // A file added under a scanned directory drifts no recorded member, so the
+  // listing membership is the check that catches it — drop one real contract
+  // from the record, as a report made before it existed would read.
+  const graph = "docs/contracts/workflow-graph.md";
+  const source = bindSource(ROOT, [graph], [{ dir: "docs/contracts", suffix: ".md", deep: false }]);
+  const added = source.listings[0].members.find((name) => name !== graph);
+  source.listings[0].members = source.listings[0].members.filter((name) => name !== added);
+  const produced = { source, contracts: [] };
+  await assert.rejects(
+    () => build({ produced }),
+    (error) => error.message.includes("produced on another tree") && error.message.includes(added),
+  );
+});
+
+test("a produced report refuses a tree that lost a scanned member", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const source = bindSource(ROOT, [graph], [{ dir: "docs/contracts", suffix: ".md", deep: false }]);
+  source.listings[0].members.push("docs/contracts/zz-removed-since.md");
+  const produced = { source, contracts: [] };
+  await assert.rejects(
+    () => build({ produced }),
+    (error) =>
+      error.message.includes("produced on another tree") &&
+      error.message.includes("docs/contracts/zz-removed-since.md"),
+  );
+});
+
+// A bound name is a position: a regular file swapped for a same-bytes link to
+// an outside copy keeps every recorded digest, but the copy's physical
+// neighbours — never bound, never hashed — are what the run's own imports
+// would load. The bound name must be its own physical path, so the consumer
+// refuses the topology, not the bytes.
+const linkedFixture = () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "produced-link-"));
+  const outside = mkdtempSync(path.join(os.tmpdir(), "produced-link-out-"));
+  mkdirSync(path.join(root, "src"));
+  writeFileSync(path.join(outside, "member.mjs"), "export const m = 1;\n");
+  writeFileSync(path.join(outside, "neighbour.mjs"), "export const swapped = true;\n");
+  copyFileSync(path.join(outside, "member.mjs"), path.join(root, "src", "member.mjs"));
+  return { root, outside };
+};
+
+test("a bound file replaced by a same-bytes link refuses — the name is not the physical path", () => {
+  const { root, outside } = linkedFixture();
+  const source = bindSource(root, ["src/member.mjs"], [{ dir: "src", suffix: ".mjs", deep: true }]);
+  rmSync(path.join(root, "src", "member.mjs"));
+  symlinkSync(path.join(outside, "member.mjs"), path.join(root, "src", "member.mjs"));
+  const drift = sourceDrift(root, source);
+  assert.ok(
+    drift.some((line) => line.includes("src/member.mjs") && line.includes("physical path")),
+    `expected a topology refusal for src/member.mjs, got: ${drift.join("; ") || "none"}`,
+  );
+});
+
+test("a bound directory replaced by a link refuses — the ancestor is the same attack one level up", () => {
+  const { root, outside } = linkedFixture();
+  const source = bindSource(root, ["src/member.mjs"], [{ dir: "src", suffix: ".mjs", deep: true }]);
+  rmSync(path.join(root, "src"), { recursive: true });
+  symlinkSync(outside, path.join(root, "src"), "dir");
+  const drift = sourceDrift(root, source);
+  assert.ok(
+    drift.some((line) => line.startsWith("src:") && line.includes("physical path")),
+    `expected a topology refusal for src, got: ${drift.join("; ") || "none"}`,
+  );
+  // The linked dir's own line carries it — its members do not pile on.
+  assert.ok(
+    !drift.some((line) => line.startsWith("src/member.mjs:")),
+    `expected the directory line to carry the members, got: ${drift.join("; ")}`,
+  );
+});
+
+test("bindSource refuses to bind a name that resolves through a link", () => {
+  const { root, outside } = linkedFixture();
+  rmSync(path.join(root, "src", "member.mjs"));
+  symlinkSync(path.join(outside, "member.mjs"), path.join(root, "src", "member.mjs"));
+  assert.throws(
+    () => bindSource(root, ["src/member.mjs"], [{ dir: "src", suffix: ".mjs", deep: true }]),
+    /cannot bind src\/member\.mjs.*physical path/u,
   );
 });
 

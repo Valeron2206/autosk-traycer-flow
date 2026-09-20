@@ -216,7 +216,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "ee03416bdfaa4504cf224e13afd05198b7f23be604d6de7c4de1816d5e135ce4"
+      "sha256": "3c6db7f0b28b90f08f314379a2a1715454f23e4efe3443b35dc430864e9b23bd"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -939,7 +939,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "dbac145162e87970eca8aa829edb902daebbb572c90d712efa1ca1e8039c07d5",
+  "candidate_digest": "18aaac0e13b5da71e161eba16b399500adfaaff363911e1d210827925ed28ad1",
   "dispositions": [
     {
       "issue": 3,
