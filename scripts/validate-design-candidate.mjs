@@ -32,6 +32,16 @@ export const CANDIDATE_PATH = CANDIDATE;
 export const MEMBERSHIP_EXCEPTIONS = new Map();
 
 /**
+ * Members the operative membership rule names by name. The rule lives in
+ * round 4's third anchor correction — the list is the only mechanism, and it
+ * names the canonicalizer a member because the factory contract's §7 rests
+ * criterion 2 on the canonical form it implements and the task identity
+ * digest depends on it. A candidate that drops a named member is refused:
+ * the pin the rule promises cannot lapse silently.
+ */
+export const REQUIRED_MEMBERS = Object.freeze(["src/host/workflow-graph-canonical.mjs"]);
+
+/**
  * The panel the owner specified, exactly. A route or an effort that differs is
  * not a smaller panel — it is a different one, and a PASS from it is a PASS
  * about a question nobody asked.
@@ -144,6 +154,113 @@ export function validatePanelRound(round, required = PANEL_BY_ROUND[round.round]
       errors.push(`round ${round.round} ${wanted.seat}: records a ${seat.verdict} with no findings`);
     }
   }
+  // A record that carries anchor corrections carries the operative membership
+  // rule with them, and the record is refused if any entry differs from the
+  // pinned set — the historical digests and the declared membership text.
+  if (Array.isArray(round.anchor_corrections) && round.anchor_corrections.length > 0) {
+    errors.push(...membershipRuleErrors(round));
+  }
+  return errors;
+}
+
+/**
+ * The operative membership rule, verbatim. It is one token inside
+ * MEMBERSHIP_CORRECTION: one clause, one mechanism, the list.
+ */
+export const MEMBERSHIP_RULE =
+  "`membership: a member is a path listed in files[]; the list is the only mechanism`";
+
+/**
+ * The path the carrying text names with no file behind it. The correction
+ * answers for it: not a member until listed.
+ */
+export const NAMED_NO_FILE = "src/git/ref-custody-helper.ts";
+
+/**
+ * The membership correction, closed. This is the complete normative content
+ * of round 4's third anchor correction, assembled here from the constants it
+ * must carry, and the record's entry must equal it verbatim. There is no
+ * parser and no vocabulary scan: a sentence added, a word changed, a negation
+ * wrapped around the rule, a withdrawn clause re-adopted after a harmless
+ * preamble — all fail by inequality.
+ *
+ * What this buys: the array cannot assert anything the code does not
+ * declare, which is the only way to close normative content without parsing
+ * English. What it costs: the wording can no longer change without a code
+ * change — right for the record of a withdrawal written once.
+ */
+export const MEMBERSHIP_CORRECTION =
+  'Anchor version 2 §2 stated the rule in two clauses — "a path in the candidate\'s `files`, or a new path whose artifact class the candidate carries, is a member" — and the second is withdrawn by the owner\'s decision of 2026-09-19: no field carries an artifact class and nothing computes one, so the clause named a mechanism that does not exist. ' +
+  `The operative rule is ${MEMBERSHIP_RULE}. ` +
+  `\`${REQUIRED_MEMBERS[0]}\` is listed by name, because the factory contract's §7 rests criterion 2 on the canonical form it implements and the task identity digest depends on it — editing it moves \`candidate_digest\`. ` +
+  "The rest of the code is outside the candidate: editing an unlisted path binds nothing and moves no digest, and the wording about code evidence is ticket 13's to place in §5. " +
+  `A path the carrying text names with no file behind it — \`${NAMED_NO_FILE}\` — is not a member; it becomes a member only by being listed.`;
+
+/**
+ * What the correction must still say, checked against the declared text
+ * itself — so an edit to MEMBERSHIP_CORRECTION that drops a decision fails in
+ * the validator rather than only in prose review: the two clauses quoted, the
+ * withdrawal with its reason, the rule as the token, the canonicalizer named
+ * with its reason, the rest of the code outside with the ticket-13 handoff,
+ * and the named path answered for.
+ */
+const CORRECTION_CONTENT = Object.freeze([
+  "a path in the candidate's `files`, or a new path whose artifact class the candidate carries, is a member",
+  "withdrawn by the owner's decision of 2026-09-19",
+  "no field carries an artifact class and nothing computes one",
+  MEMBERSHIP_RULE,
+  `\`${REQUIRED_MEMBERS[0]}\` is listed by name`,
+  "the factory contract's §7 rests criterion 2",
+  "task identity digest",
+  "editing an unlisted path binds nothing",
+  "ticket 13",
+  `\`${NAMED_NO_FILE}\``,
+  "only by being listed",
+]);
+
+/**
+ * The corrections that are not the membership correction, pinned by content
+ * hash in array order. Their prose stays out of the code; an edit, an added
+ * entry, or a reordered array fails.
+ */
+const CORRECTION_DIGESTS = Object.freeze([
+  "49391ea311368c5635728f2094fb0b65a01ca40eeaac71818f591f90c8af14f2",
+  "8eaeb230547df1743179ac65871686411fc58af41975bbb3988789fa0c48f6b8",
+]);
+
+/**
+ * The operative membership rule, read where the owner's decision placed it:
+ * the third anchor correction on the round 4 record. The record is closed —
+ * the array carries exactly the pinned corrections: the two historical
+ * entries match their digests, in order, and the membership correction
+ * equals the declared text. Nothing in the array can assert anything the
+ * code does not declare.
+ */
+export function membershipRuleErrors(round) {
+  const errors = [];
+  for (const fragment of CORRECTION_CONTENT) {
+    if (!MEMBERSHIP_CORRECTION.includes(fragment)) {
+      errors.push(`the declared membership correction does not state "${fragment}"`);
+    }
+  }
+  const corrections = Array.isArray(round?.anchor_corrections) ? round.anchor_corrections : [];
+  if (corrections.length !== CORRECTION_DIGESTS.length + 1) {
+    errors.push(
+      `round ${round?.round}: ${corrections.length} anchor corrections, ${CORRECTION_DIGESTS.length + 1} pinned`,
+    );
+  }
+  for (const [i, digest] of CORRECTION_DIGESTS.entries()) {
+    const entry = corrections[i];
+    if (typeof entry !== "string" || sha256(entry) !== digest) {
+      errors.push(`round ${round.round}: anchor correction ${i + 1} is not the recorded historical text`);
+    }
+  }
+  if (
+    corrections.length > CORRECTION_DIGESTS.length &&
+    corrections[CORRECTION_DIGESTS.length] !== MEMBERSHIP_CORRECTION
+  ) {
+    errors.push(`round ${round.round}: the membership correction is not the declared text`);
+  }
   return errors;
 }
 
@@ -228,6 +345,16 @@ export function validateCandidate(candidate, schema, { readFile } = {}) {
     }
     if (actual !== file.sha256) {
       errors.push(`${file.path}: recorded ${file.sha256}, on disk ${actual} — the candidate has drifted`);
+    }
+  }
+
+  // The rule's named members: the operative membership rule (stated in round
+  // 4's anchor corrections and checked by membershipRuleErrors) names these
+  // paths members by name, so a candidate that drops one is refused rather
+  // than silently un-pinned.
+  for (const required of REQUIRED_MEMBERS) {
+    if (!seenPaths.has(required)) {
+      errors.push(`${required}: the operative membership rule names it a member, but files[] does not list it`);
     }
   }
 
