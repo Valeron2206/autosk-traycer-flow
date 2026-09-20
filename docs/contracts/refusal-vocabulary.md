@@ -37,7 +37,9 @@ Most of these reasons are parked by the daemon, which is not in this repository.
 - a `host` entry names files, and a named file that does not contain the code is `refusal_vocabulary_producer_missing`;
 - a `daemon` entry names none, and a `daemon` entry the repository does in fact produce is `refusal_vocabulary_producer_misdeclared`.
 
-Matching is whole-word: a short code is a suffix of longer ones, and a file that only ever writes the longer code does not produce the short one.
+Where production is measured, containing the code is not the test. `npm run produce:refusals` drives each class its per-contract manifests declare, and the measured set is exactly those manifests' cases — the list the runner executes, not a filename pattern a file the run never touches could join. For a class it measures, `producer_files` must equal the record — a file that only contains the code is not production — so a named file the record does not hold, a recorded file the declaration omits, or a `daemon` claim the record contradicts is `refusal_vocabulary_producer_misdeclared`. A driven case that records no emitter is a broken manifest, not a class that quietly drops out: it refuses too. A class no case measures keeps the textual test, and matching is whole-word: a short code is a suffix of longer ones, and a file that only ever writes the longer code does not produce the short one.
+
+The boundary, in numbers: of the 448 refusal classes the contracts declare, the run measures 61 and does not check production for the other 387. Of the vocabulary's 85 park reasons, 7 are among the measured and the remaining 78 keep the textual check — 13 of those 78 are also contract classes, so they sit in both counts. And the record is a declaration like any other: what this section verifies is that the vocabulary's producer field and the manifests' emitter field cannot silently disagree, not that the named symbol is the code that ran — that correspondence is the producing command's own debt.
 
 ## 6. Every park reason has one owner
 
@@ -61,4 +63,4 @@ Closed set: `refusal_vocabulary_drift`, `refusal_vocabulary_unknown_step`, `refu
 
 Decided: that the vocabulary is finite and extracted, that every reason parks at a registered step or a declared class, that the owner and the producer are recorded rather than implied, that no name is declared by two contracts, and that every contract closes its own set.
 
-Deferred, and named: the daemon side. Sixty-eight of the reasons are parked by `autoskd`, and this repository can check that they are declared, enumerated and bound to a real step — it cannot check that the daemon emits them. That belongs to the daemon's own tests, and no count here should be read as covering it.
+Deferred, and named: the daemon side. Sixty-three of the reasons are parked by `autoskd`, and this repository can check that they are declared, enumerated and bound to a real step — it cannot check that the daemon emits them. That belongs to the daemon's own tests, and no count here should be read as covering it.

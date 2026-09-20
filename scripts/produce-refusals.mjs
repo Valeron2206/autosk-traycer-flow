@@ -16,27 +16,33 @@
  * any case whose class the contract does not declare. A case's `produced` list
  * is the classes read through the refusal channel its drive kind defines — a
  * normal return is not a refusal, and input bytes are never read as output.
+ * The `emitter` a case carries is a declaration, copied into the report: its
+ * `file#symbol` shape is checked, but which symbol actually ran is a question
+ * the report does not answer.
+ *
+ * The executed list is closed against the namespace it draws from: every
+ * `produce-refusals-*.cases.json` on disk must be declared by an executed
+ * manifest, every manifest's `CASES_PATH` must be one of those files, and
+ * no two manifests may declare the same one — a gap in any direction is a
+ * boundary leak the run refuses, not a data error it reports per case.
  *
  * The report binds the source bytes it was produced from: the module closure
  * it executed, the data each manifest declares its fixture opens, and the
  * contract documents. A package rendered on other bytes refuses the column.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { measureContracts } from "./build-panel-package.mjs";
 import { bindSource } from "./lib/produced-source.mjs";
-import * as ticketsManifest from "./produce-refusals-tickets-manifest.mjs";
-import * as workflowGraph from "./produce-refusals-workflow-graph.mjs";
-import * as identityLock from "./produce-refusals-runtime-identity-lock.mjs";
-import * as refusalVocabulary from "./produce-refusals-refusal-vocabulary.mjs";
+import { caseEmitterFiles, casesClosureErrors, executedManifests } from "./produce-refusals-manifests.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export const MANIFESTS = [ticketsManifest, workflowGraph, identityLock, refusalVocabulary];
+export { executedManifests };
 
 /**
  * The smallest document `index`/`buildWorkflow` can stand up: one agent step
@@ -334,10 +340,21 @@ function moduleClosure() {
   return seen;
 }
 
-export async function produceReport(manifests = MANIFESTS) {
+export async function produceReport(manifests = executedManifests()) {
   // One measurement defines the class list for the run and for the package's
   // column: a declared class with no case, or a case naming no declared class,
   // fails the run the way a wrong produced code does.
+  // The executed list must close against the producing namespace on disk:
+  // a `produce-refusals-*.cases.json` no manifest declares drives nothing
+  // but sits where a reader expects driven data, and a manifest whose
+  // `CASES_PATH` is outside the namespace — or shared with another
+  // manifest — is a boundary leak, not a data error.
+  const closure = casesClosureErrors(
+    manifests,
+    readdirSync(path.join(ROOT, "scripts"))
+      .filter((name) => name.startsWith("produce-refusals-") && name.endsWith(".cases.json"))
+      .map((name) => `scripts/${name}`),
+  );
   const declaredBy = new Map(
     (await measureContracts()).map((entry) => [entry.path, entry.refusals]),
   );
@@ -350,11 +367,17 @@ export async function produceReport(manifests = MANIFESTS) {
     }
     const declared = declaredBy.get(manifest.CONTRACT) ?? [];
     const caseClasses = cases.map((entry) => entry.class);
+    // A driven case that does not record who emitted its class is a manifest
+    // that measured nothing checkable — refused by name, not silently kept.
+    const malformed = manifest.cases
+      .filter((caseDecl) => caseEmitterFiles(caseDecl) === null)
+      .map((caseDecl) => caseDecl.class ?? JSON.stringify(caseDecl));
     contracts.push({
       contract: manifest.CONTRACT,
       declared: declared.length,
       produced: cases.filter((entry) => entry.pass).length,
       of: cases.length,
+      malformed,
       uncovered: declared.filter((name) => !caseClasses.includes(name)),
       undeclared: [...new Set(caseClasses.filter((name) => !declared.includes(name)))],
       cases,
@@ -373,12 +396,18 @@ export async function produceReport(manifests = MANIFESTS) {
     bound.add(manifest.CONTRACT);
     listings.push(...(manifest.listings?.() ?? []));
   }
+  // The closure scan above is a directory enumeration — record it so a
+  // cases file added after the run refuses the column too.
+  listings.push({ dir: "scripts", suffix: ".cases.json", deep: false });
   return {
     tool: "produce-refusals",
     cases: contracts.reduce((sum, entry) => sum + entry.of, 0),
     passed: contracts.reduce((sum, entry) => sum + entry.produced, 0),
     uncovered: contracts.reduce((sum, entry) => sum + entry.uncovered.length, 0),
     undeclared: contracts.reduce((sum, entry) => sum + entry.undeclared.length, 0),
+    malformed: contracts.reduce((sum, entry) => sum + entry.malformed.length, 0),
+    unclosed: closure.undriven.length + closure.missing.length + closure.duplicate.length,
+    closure,
     source: bindSource(ROOT, [...bound], listings),
     contracts,
   };
@@ -387,6 +416,15 @@ export async function produceReport(manifests = MANIFESTS) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const out = process.argv.includes("--out") ? process.argv[process.argv.indexOf("--out") + 1] : null;
   const report = await produceReport();
+  for (const file of report.closure.undriven) {
+    console.error(`UNDRIVEN ${file} — a producing-cases file on disk that no executed manifest declares`);
+  }
+  for (const file of report.closure.missing) {
+    console.error(`MISSING ${file} — an executed manifest declares a cases path outside the driven namespace`);
+  }
+  for (const file of report.closure.duplicate) {
+    console.error(`DUPLICATE ${file} — more than one executed manifest declares it as its cases file`);
+  }
   for (const entry of report.contracts) {
     console.log(
       `${entry.contract}: produced ${entry.produced} of ${entry.declared} declared classes (${entry.of} cases)`,
@@ -397,16 +435,25 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     for (const name of entry.undeclared) {
       console.error(`  UNDECLARED ${name} — a case produces it, the contract does not declare it`);
     }
+    for (const name of entry.malformed) {
+      console.error(`  MALFORMED ${name} — a driven case records no emitter it can be traced to`);
+    }
     for (const failure of entry.cases.filter((row) => !row.pass)) {
       console.error(`  FAIL ${failure.class} (${failure.drive}) produced: ${failure.produced.join(", ") || "nothing"}`);
     }
   }
   console.log(
     `cases=${report.cases} produced=${report.passed} failed=${report.cases - report.passed} ` +
-      `uncovered=${report.uncovered} undeclared=${report.undeclared}`,
+      `uncovered=${report.uncovered} undeclared=${report.undeclared} malformed=${report.malformed} unclosed=${report.unclosed}`,
   );
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
-  if (report.passed !== report.cases || report.uncovered > 0 || report.undeclared > 0) {
+  if (
+    report.passed !== report.cases ||
+    report.uncovered > 0 ||
+    report.undeclared > 0 ||
+    report.malformed > 0 ||
+    report.unclosed > 0
+  ) {
     process.exitCode = 1;
   }
 }

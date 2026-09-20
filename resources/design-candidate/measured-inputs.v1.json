@@ -281,7 +281,11 @@
     "resources/workflow-graph/workflow-graph.example.json",
     "resources/workflow-graph/workflow-graph.refused.example.json",
     "resources/workflow-graph/workflow-graph.schema.json",
-    "resources/workflow-graph/workflow-graph.v1.json"
+    "resources/workflow-graph/workflow-graph.v1.json",
+    "scripts/produce-refusals-refusal-vocabulary.cases.json",
+    "scripts/produce-refusals-runtime-identity-lock.cases.json",
+    "scripts/produce-refusals-tickets-manifest.cases.json",
+    "scripts/produce-refusals-workflow-graph.cases.json"
   ],
-  "digest": "6321bc5d7bde1133ca520d1d1d9e96b6d50a8c3f0394e59ad6981f7ad7e321af"
+  "digest": "d7b884177b30413d1f7c11be1869a747922f42a6550b5b868bf58c1d7aa1ce81"
 }

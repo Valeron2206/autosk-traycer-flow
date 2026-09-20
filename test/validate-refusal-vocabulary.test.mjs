@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { executedManifests } from "../scripts/produce-refusals-manifests.mjs";
 import {
   CONTRACT_MARKER,
   CONTRACT_PATH,
@@ -28,6 +29,7 @@ import {
   parkTable,
   producerErrors,
   readContracts,
+  readProducedEmitters,
   readSources,
   registeredSteps,
   stepErrors,
@@ -47,7 +49,7 @@ const files = Object.fromEntries(
 const plan = read(PLAN_PATH);
 const graph = JSON.parse(read(GRAPH_PATH));
 const flows = read(FLOWS_PATH);
-const context = { plan, graph, flows, sources: readSources(), contracts: readContracts() };
+const context = { plan, graph, flows, sources: readSources(), contracts: readContracts(), produced: readProducedEmitters() };
 const vocabulary = () => JSON.parse(files[VOCABULARY_PATH]);
 const reasons = (list) => [...new Set(list.map((entry) => entry.reason))].sort();
 
@@ -142,25 +144,28 @@ test("a class defined as everything else is recomputed, not trusted", () => {
 });
 
 test("a producer claim the repository contradicts is refused", () => {
+  // `unmeasured` stands in for the producing manifests' record: these classes
+  // are not covered, so the whole-word textual check is what applies.
+  const unmeasured = { measured: new Set(), emitters: new Map() };
   const sources = { "src/host/a.mjs": "throw new FlowError('cleanup_dirty')" };
   const daemonClaim = {
     park_reasons: [{ code: "cleanup_dirty", named_at: ["cleanup"], named_at_classes: [], producer: "daemon", producer_files: [] }],
   };
-  assert.deepEqual(reasons(producerErrors(daemonClaim, sources)), ["refusal_vocabulary_producer_misdeclared"]);
+  assert.deepEqual(reasons(producerErrors(daemonClaim, sources, unmeasured)), ["refusal_vocabulary_producer_misdeclared"]);
   assert.deepEqual(
-    producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "host", producer_files: ["src/host/a.mjs"] }] }, sources),
+    producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "host", producer_files: ["src/host/a.mjs"] }] }, sources, unmeasured),
     [],
   );
   assert.deepEqual(
-    reasons(producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "host", producer_files: [] }] }, sources)),
+    reasons(producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "host", producer_files: [] }] }, sources, unmeasured)),
     ["refusal_vocabulary_producer_missing"],
   );
   assert.deepEqual(
-    reasons(producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "host", producer_files: ["src/host/b.mjs"] }] }, sources)),
+    reasons(producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "host", producer_files: ["src/host/b.mjs"] }] }, sources, unmeasured)),
     ["refusal_vocabulary_producer_missing"],
   );
   assert.deepEqual(
-    reasons(producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "daemon", producer_files: ["src/host/a.mjs"] }] }, sources)),
+    reasons(producerErrors({ park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "daemon", producer_files: ["src/host/a.mjs"] }] }, sources, unmeasured)),
     ["refusal_vocabulary_producer_misdeclared"],
   );
   // A daemon entry naming a file at all is already wrong, whether or not that
@@ -169,9 +174,100 @@ test("a producer claim the repository contradicts is refused", () => {
     reasons(producerErrors(
       { park_reasons: [{ ...daemonClaim.park_reasons[0], producer: "daemon", producer_files: ["src/host/b.mjs"] }] },
       { "src/host/b.mjs": "nothing relevant" },
+      unmeasured,
     )),
     ["refusal_vocabulary_producer_misdeclared"],
   );
+});
+
+test("a measured class is compared to the recorded emitter, not to text", () => {
+  // The producing manifests record `probe_code` as emitted by the factory. A
+  // declaration naming a file that contains the code but never emits it —
+  // the shape this defect shipped as — is refused.
+  const produced = { measured: new Set(["probe_code"]), emitters: new Map([["probe_code", new Set(["src/host/factory.mjs"])]]) };
+  const sources = { "scripts/detector.mjs": "'probe_code' sits in a list here" };
+  const base = { code: "probe_code", named_at: ["cleanup"], named_at_classes: [] };
+  assert.deepEqual(
+    producerErrors({ park_reasons: [{ ...base, producer: "host", producer_files: ["src/host/factory.mjs"] }] }, sources, produced),
+    [],
+  );
+  for (const entry of [
+    { ...base, producer: "host", producer_files: ["scripts/detector.mjs"] },
+    { ...base, producer: "host", producer_files: ["src/host/factory.mjs", "scripts/detector.mjs"] },
+    { ...base, producer: "host", producer_files: [] },
+    { ...base, producer: "daemon", producer_files: [] },
+  ]) {
+    assert.ok(
+      reasons(producerErrors({ park_reasons: [entry] }, sources, produced)).includes("refusal_vocabulary_producer_misdeclared"),
+      `${JSON.stringify(entry.producer_files)} ${entry.producer} should be refused`,
+    );
+  }
+  // And a measured class declared daemon is refused even though no source file
+  // names the code — the record, not the text, contradicts it.
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [{ ...base, producer: "daemon", producer_files: [] }] }, {}, produced)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
+});
+
+test("a producer declaration is checked against what the file emits, not what it names", () => {
+  // The producing manifests (`npm run produce:refusals`) record which file each
+  // measured class is emitted by. A producer field that names a file which only
+  // *contains* the code is the defect this guards: the shipped vocabulary named
+  // the tickets-manifest design validator for tickets_manifest_* — it carries
+  // the codes in a closed-set list and never emits them; the factory writes them.
+  const emitters = new Map();
+  for (const manifest of executedManifests()) {
+    for (const entry of manifest.cases) {
+      const files = emitters.get(entry.class) ?? new Set();
+      for (const key of ["emitter", "also"]) {
+        if (typeof entry[key] === "string") files.add(entry[key].split("#")[0]);
+      }
+      if (files.size > 0) emitters.set(entry.class, files);
+    }
+  }
+  const measured = vocabulary().park_reasons.filter((entry) => emitters.has(entry.code));
+  assert.ok(measured.length > 0, "no park reason is covered by the producing manifests — the test measures nothing");
+  const wrong = measured
+    .filter(
+      (entry) =>
+        entry.producer !== "host" ||
+        entry.producer_files.join(",") !== [...emitters.get(entry.code)].sort().join(","),
+    )
+    .map((entry) => `${entry.code}: declared ${entry.producer} ${JSON.stringify(entry.producer_files)}, emits at ${JSON.stringify([...emitters.get(entry.code)].sort())}`);
+  assert.deepEqual(wrong, []);
+});
+
+test("the measured set is the executed manifests' cases, not a filename pattern", () => {
+  // A `*.cases.json` file no manifest executes contributes nothing: the check
+  // and the runner read one list, `executedManifests()`, so a stray file cannot widen
+  // what counts as measured.
+  const produced = readProducedEmitters();
+  const driven = new Set(executedManifests().flatMap((manifest) => manifest.cases.map((entry) => entry.class)));
+  assert.deepEqual([...produced.measured].sort(), [...driven].sort());
+  for (const code of produced.emitters.keys()) {
+    assert.ok(produced.measured.has(code), `${code} has an emitter record but no driven case`);
+  }
+});
+
+test("a driven case that records no emitter is refused, not silently unmeasured", () => {
+  // The class stays measured — its case was driven — but the record cannot say
+  // who emits, so no declaration may pass on it. Falling back to the textual
+  // check would let a stripped manifest re-admit the defect this removes.
+  const produced = { measured: new Set(["probe_code"]), emitters: new Map() };
+  const sources = { "scripts/detector.mjs": "'probe_code' sits in a list here" };
+  const base = { code: "probe_code", named_at: ["cleanup"], named_at_classes: [] };
+  for (const entry of [
+    { ...base, producer: "host", producer_files: ["scripts/detector.mjs"] },
+    { ...base, producer: "host", producer_files: [] },
+    { ...base, producer: "daemon", producer_files: [] },
+  ]) {
+    assert.deepEqual(
+      reasons(producerErrors({ park_reasons: [entry] }, sources, produced)),
+      ["refusal_vocabulary_producer_misdeclared"],
+      `${JSON.stringify(entry.producer_files)} ${entry.producer} should be refused`,
+    );
+  }
 });
 
 test("a short code is not produced by a file that only writes a longer one", () => {
@@ -179,7 +275,7 @@ test("a short code is not produced by a file that only writes a longer one", () 
   // match would have credited the wrong file with producing it.
   const sources = { "src/host/a.mjs": "'planning_ref_foreign_movement'" };
   const entry = { code: "foreign_movement", named_at: ["integration_recovery"], named_at_classes: [], producer: "daemon", producer_files: [] };
-  assert.deepEqual(producerErrors({ park_reasons: [entry] }, sources), []);
+  assert.deepEqual(producerErrors({ park_reasons: [entry] }, sources, { measured: new Set(), emitters: new Map() }), []);
 });
 
 test("a park reason with no recorded owner, or the wrong one, is refused", () => {

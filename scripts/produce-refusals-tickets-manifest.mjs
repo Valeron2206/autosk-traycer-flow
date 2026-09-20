@@ -16,12 +16,8 @@ import { buildWorkflow } from "../src/host/workflow-factory.mjs";
 
 export const CONTRACT = "docs/contracts/tickets-manifest.md";
 
-const CASES_PATH = "scripts/produce-refusals-tickets-manifest.cases.json";
+export const CASES_PATH = "scripts/produce-refusals-tickets-manifest.cases.json";
 const DOCUMENT_PATH = "resources/workflow-graph/workflow-graph.v1.json";
-
-export const cases = JSON.parse(
-  readFileSync(new URL(`../${CASES_PATH}`, import.meta.url), "utf8"),
-);
 
 export const emitters = { buildWorkflow };
 
