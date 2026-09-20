@@ -352,7 +352,7 @@
     },
     {
       "path": "resources/design-candidate/panel/round-4.json",
-      "sha256": "b146e7de93d5ea2eee19f9fd9bfbc4e25bc8c0353e38e5591368bde496eef476"
+      "sha256": "15d6f2aa592eb39e3a88613a7108ea5105b187d81e950826e106a055bfab02f2"
     },
     {
       "path": "resources/doctor-report/doctor-report.example.json",
@@ -933,9 +933,13 @@
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
       "sha256": "3e0d2b46b18acf78f859d00d6c77400966fc473ded8074acd42016cf87c04315"
+    },
+    {
+      "path": "src/host/workflow-graph-canonical.mjs",
+      "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "6098e812aac71d3fc0f8b8e48204e25d36186bb8bd89724171019c54410ae00c",
+  "candidate_digest": "dbac145162e87970eca8aa829edb902daebbb572c90d712efa1ca1e8039c07d5",
   "dispositions": [
     {
       "issue": 3,

@@ -9,7 +9,8 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -18,14 +19,19 @@ import {
   ROOT,
   GROUP_A,
   GROUP_B,
+  MEMBERSHIP_CORRECTION,
   MEMBERSHIP_EXCEPTIONS,
+  MEMBERSHIP_RULE,
+  NAMED_NO_FILE,
   PANEL_BY_ROUND,
   PANEL_DIR,
+  REQUIRED_MEMBERS,
   REQUIRED_PANEL,
   SCHEMA_PATH,
   candidateDigest,
   computeAttestationState,
   loadFiles,
+  membershipRuleErrors,
   validateCandidate,
   validateDesignCandidate,
   validatePanelRound,
@@ -137,8 +143,10 @@ test("round 4 is the first recorded under a different roster, and the first with
     round.seats.map((seat) => seat.verdict).sort(),
     ["fail", "fail", "fail", "non_verdict"],
   );
-  // And the anchor the round ran under carried two statements the seats falsified.
-  assert.equal(round.anchor_corrections.length, 2);
+  // And the anchor the round ran under carried two statements the seats
+  // falsified; a third correction withdraws §2's class clause and states the
+  // operative membership rule.
+  assert.equal(round.anchor_corrections.length, 3);
 });
 
 test("a round recorded with a roster nobody required is refused", () => {
@@ -356,6 +364,301 @@ test("a measured input excused by a named exception passes", () => {
   } finally {
     MEMBERSHIP_EXCEPTIONS.delete(target);
   }
+});
+
+const CANONICALIZER = "src/host/workflow-graph-canonical.mjs";
+
+/**
+ * Round 4 with `mutate` applied, written to a temp copy on disk — the member
+ * pin and the digest resealed, so the candidate stays internally valid over
+ * changed prose — and read back. Every membership case below runs over bytes
+ * read from a file, the way the reviewer's probes did.
+ */
+function mutatedRoundOnDisk(mutate) {
+  const tmp = mkdtempSync(path.join(tmpdir(), "t09-"));
+  const round = readRound(4);
+  mutate(round);
+  const roundPath = `${PANEL_DIR}/round-4.json`;
+  mkdirSync(path.join(tmp, PANEL_DIR), { recursive: true });
+  writeFileSync(path.join(tmp, roundPath), `${JSON.stringify(round, null, 2)}\n`);
+  const value = mutated((draft) => {
+    draft.files.find((file) => file.path === roundPath).sha256 = createHash("sha256")
+      .update(readFileSync(path.join(tmp, roundPath), "utf8"))
+      .digest("hex");
+  });
+  writeFileSync(path.join(tmp, CANDIDATE_PATH), `${JSON.stringify(value, null, 2)}\n`);
+  const read = (relative) => {
+    try {
+      return readFileSync(path.join(tmp, relative), "utf8");
+    } catch {
+      return readFileSync(path.join(ROOT, relative), "utf8");
+    }
+  };
+  assert.deepEqual(validateCandidate(value, schema, { readFile: read }), []);
+  return JSON.parse(readFileSync(path.join(tmp, roundPath), "utf8"));
+}
+
+test("the shipped record is the pinned corrections set", () => {
+  // The closed form: the check declares the whole normative content of
+  // anchor_corrections — the historical entries by content hash and the
+  // membership correction by exact text — so the array cannot assert
+  // anything the code does not declare.
+  assert.equal(readRound(4).anchor_corrections[2], MEMBERSHIP_CORRECTION);
+  assert.deepEqual(membershipRuleErrors(readRound(4)), []);
+  assert.deepEqual(validatePanelRound(readRound(4)), []);
+});
+
+test("a withdrawn clause adopted after a harmless preamble is refused", () => {
+  // The reviewer's probe, verbatim: the historical quotation, repeated after
+  // "adopts the following:", reinstates the two-clause rule. There is no
+  // whitelist left to strip it with — the entry is not the declared text.
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] +=
+      " This correction also adopts the following: a path in the candidate's `files`, or a new path whose artifact class the candidate carries, is a member.";
+  });
+  assert.ok(
+    validatePanelRound(round).some((message) => /not the declared text/u.test(message)),
+    "the adopted clause is not refused",
+  );
+});
+
+test("the rule inside a negation is refused", () => {
+  // One word — "is" to "is not" — turns the operative rule into its denial.
+  // Exact equality reads no meaning; the entry is not the declared text.
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] = draft.anchor_corrections[2].replace(
+      "The operative rule is",
+      "The operative rule is not",
+    );
+  });
+  assert.ok(
+    validatePanelRound(round).some((message) => /not the declared text/u.test(message)),
+    "the negated rule is not refused",
+  );
+});
+
+test("a membership verb the scan did not know is refused by the historical pin", () => {
+  // "acquires membership" outran the predicate list in a non-carrier entry.
+  // The digest pin does not read verbs at all.
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[0] +=
+      " A new path whose artifact class the candidate carries acquires membership.";
+  });
+  assert.ok(
+    validatePanelRound(round).some((message) => /not the recorded historical text/u.test(message)),
+    "the edited historical correction is not refused",
+  );
+});
+
+test("a clause appended to the carrier is refused", () => {
+  // The attempt-1 probe: the withdrawn clause returns as a sentence after
+  // the rule.
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] = draft.anchor_corrections[2].replace(
+      `${MEMBERSHIP_RULE}.`,
+      `${MEMBERSHIP_RULE}. A new path whose \`artifact_class\` the candidate carries is also a member.`,
+    );
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the declared text/u.test(message)),
+    "the appended clause is not refused",
+  );
+});
+
+test("an unknown mechanism inside or beside the token is refused", () => {
+  // `ghost[]` corrupting the token leaves the entry not the declared text;
+  // named beside it, the same.
+  const inside = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] = draft.anchor_corrections[2].replaceAll(
+      MEMBERSHIP_RULE,
+      "`membership: a member is a path listed in files[] or ghost[]`",
+    );
+  });
+  assert.ok(
+    membershipRuleErrors(inside).some((message) => /not the declared text/u.test(message)),
+    "the corrupted token is not refused",
+  );
+  const beside = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] += " A path in `ghost[]` is carried.";
+  });
+  assert.ok(
+    membershipRuleErrors(beside).some((message) => /not the declared text/u.test(message)),
+    "the named unknown mechanism is not refused",
+  );
+});
+
+test("a repeated mechanism name is refused like every other deviation", () => {
+  // Naming `files[]` twice added no clause, and the counting model refused
+  // it falsely. Under the closed form there is no legitimate prose edit at
+  // all — the carrier is a frozen record and any addition fails by
+  // inequality, which is correct now rather than a false refusal.
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] += " The list `files[]` is where it is recorded.";
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the declared text/u.test(message)),
+    "the prose addition is not refused",
+  );
+});
+
+test("membership asserted in a correction that is not the carrier is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[1] += " The canonicalizer is also a member.";
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the recorded historical text/u.test(message)),
+    "the out-of-carrier assertion is not refused",
+  );
+});
+
+test("a duplicated carrier is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections.push(draft.anchor_corrections[2]);
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /4 anchor corrections, 3 pinned/u.test(message)),
+    "the duplicated carrier is not refused",
+  );
+});
+
+test("a record that drops the membership correction is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections = draft.anchor_corrections.filter(
+      (entry) => !entry.includes(MEMBERSHIP_RULE),
+    );
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /2 anchor corrections, 3 pinned/u.test(message)),
+    "the dropped carrier is not refused",
+  );
+});
+
+test("the rule removed from its carrier is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] = draft.anchor_corrections[2].replace(`${MEMBERSHIP_RULE}. `, "");
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the declared text/u.test(message)),
+    "the missing rule is not refused",
+  );
+});
+
+test("one word changed anywhere in the carrier is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] = draft.anchor_corrections[2].replace("withdrawn", "kept");
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the declared text/u.test(message)),
+    "the changed word is not refused",
+  );
+});
+
+test("a fourth correction appended is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections.push("A harmless note.");
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /4 anchor corrections, 3 pinned/u.test(message)),
+    "the appended correction is not refused",
+  );
+});
+
+test("a historical correction edited by one character is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[0] = `${draft.anchor_corrections[0]} `;
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the recorded historical text/u.test(message)),
+    "the edited historical correction is not refused",
+  );
+});
+
+test("a reordered corrections array is refused", () => {
+  const round = mutatedRoundOnDisk((draft) => {
+    const [first, second, third] = draft.anchor_corrections;
+    draft.anchor_corrections = [second, first, third];
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the recorded historical text/u.test(message)),
+    "the reordered array is not refused",
+  );
+});
+
+test("the declared correction answers for a named path with no file behind it", () => {
+  // 02-architecture.md names NAMED_NO_FILE for the planned
+  // autosk-flow-ref-custody component and no file exists there. The declared
+  // text denies it membership until it is listed — asserted in code, so the
+  // answer cannot be edited out without the validator refusing.
+  assert.ok(MEMBERSHIP_CORRECTION.includes(NAMED_NO_FILE));
+  assert.ok(MEMBERSHIP_CORRECTION.includes("only by being listed"));
+  const round = mutatedRoundOnDisk((draft) => {
+    draft.anchor_corrections[2] = draft.anchor_corrections[2].replaceAll(
+      NAMED_NO_FILE,
+      "src/git/other-helper.ts",
+    );
+  });
+  assert.ok(
+    membershipRuleErrors(round).some((message) => /not the declared text/u.test(message)),
+    "the renamed path is not refused",
+  );
+});
+
+test("a member the operative rule names by name cannot be dropped", () => {
+  // The canonicalizer is listed because §7 of the factory contract rests
+  // criterion 2 on the canonical form it implements and the task identity
+  // digest depends on it. Dropping it is refused — the pin cannot lapse
+  // silently.
+  const listed = new Set(candidate().files.map((file) => file.path));
+  for (const required of REQUIRED_MEMBERS) {
+    assert.ok(listed.has(required), `${required} is named a member but is not listed`);
+    assertRejects(
+      mutated((value) => {
+        value.files = value.files.filter((file) => file.path !== required);
+      }),
+      new RegExp(`${required.replace(/[.[\]]/gu, "\\$&")}.*does not list it`, "u"),
+    );
+  }
+});
+
+test("editing the canonicalizer is caught by its pin, and a PASS does not survive it", () => {
+  // Member bytes are pinned bytes: serve different bytes under the same path
+  // and the recorded sha256 goes stale, which is a refusal.
+  const tampered = `${readFileSync(path.join(ROOT, CANONICALIZER), "utf8")}// edited\n`;
+  const read = (relative) =>
+    relative === CANONICALIZER ? tampered : readFileSync(path.join(ROOT, relative), "utf8");
+  assertRejects(candidate(), /workflow-graph-canonical\.mjs.*has drifted/u, { readFile: read });
+
+  // Resealing over the new bytes moves the digest, and a verdict bound to the
+  // old one stays bound to the old one — that is the annulment the failure
+  // scenario was missing.
+  const edited = mutated((value) => {
+    value.files.find((file) => file.path === CANONICALIZER).sha256 =
+      createHash("sha256").update(tampered).digest("hex");
+  });
+  assert.notEqual(edited.candidate_digest, candidate().candidate_digest);
+  edited.attestation.verdicts = fullPanel(candidate().candidate_digest);
+  assert.equal(computeAttestationState(edited), "pending_final_panel");
+});
+
+test("a file appearing at a path the text only names is not a member", () => {
+  // The operative rule's answer: membership is the list, and a file that
+  // appears at a named-but-unlisted path binds nothing and moves no digest.
+  const bytes = "export {};\n";
+  const read = (relative) =>
+    relative === NAMED_NO_FILE ? bytes : readFileSync(path.join(ROOT, relative), "utf8");
+  const value = candidate();
+  assert.deepEqual(validateCandidate(value, schema, { readFile: read }), []);
+  assert.equal(candidateDigest(value), value.candidate_digest);
+
+  // Only listing makes it a member — and listing moves the digest.
+  const listed = mutated((draft) => {
+    draft.files.push({
+      path: NAMED_NO_FILE,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
+  });
+  assert.notEqual(candidateDigest(listed), value.candidate_digest);
+  assert.deepEqual(validateCandidate(listed, schema, { readFile: read }), []);
 });
 
 test("a lock rewritten with a higher baseline is refused by its pin", () => {
