@@ -64,6 +64,7 @@ Two consequences are deliberate. A requirement can be met by a line inside a com
 | `reopen_refuses_a_different_pair` | Reopening a migration whose plan matches but whose documents differ is refused. |
 | `source_document_verified_before_moving` | The claimed source document is compared with the task's own before the move. |
 | `canonical_sorts_steps` | The canonical serialization sorts the steps. |
+| `helper_moves_with_the_migration` | Applying a migration carries the task's recorded store helper into the pin it writes. |
 
 Each carries, in the resource, what goes wrong when it stops holding. A requirement whose cost nobody can state is one nobody will defend when it becomes inconvenient.
 
@@ -98,6 +99,7 @@ migrated_document_read_back	1	      if (after.pin.document !== opened.to_documen
 reopen_refuses_a_different_pair	1	              `migration ${id} was opened with ${name} ${was ?? "absent"} and is now asked for ${now ?? "absent"}`,
 source_document_verified_before_moving	1	        if (opened.from_document !== undefined && current.pin.document !== opened.from_document) {
 canonical_sorts_steps	1	  const steps = Object.entries(wf.steps).sort(([a], [b]) =>
+helper_moves_with_the_migration	1	        if (current.pin.helper !== undefined) pin.helper = current.pin.helper;
 ```
 
 Three of these anchor to a call rather than to a declaration, and the distinction is what the first two rounds of this slice were about. A patch can leave `canonicalWorkflowGraph` standing and stop calling it; it can leave a comment saying the identity is re-checked between steps and delete the check. What must survive is the use.

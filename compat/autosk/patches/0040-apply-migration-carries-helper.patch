@@ -1,0 +1,384 @@
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+index cc530fe0568b9ba46a102ff759ac35d0194e23d5..f987f4bc79ae1d84bba6d4fa71770324e5dccae0 100644
+--- a/daemon/core/src/store/distributions.ts
++++ b/daemon/core/src/store/distributions.ts
+@@ -144,6 +144,23 @@ export interface MigrationReceipt {
+    */
+   from_document?: string;
+   to_document?: string;
++  /**
++   * The store helper each listed task's pin carried when the migration was
++   * opened — `null` when the pin recorded none.
++   *
++   * `helper` is the one identity component a migration cannot take from the
++   * receipt's targets: it digests the store binary the task was admitted under,
++   * not the extension, so the move carries it rather than renaming it. Writing
++   * it down here is what lets the read-back check the carry after an
++   * interruption — a task already on `to` can no longer say what it carried, so
++   * the expectation has to live somewhere the first write cannot reach.
++   *
++   * Recorded and never identifying, like the documents: `migrationId` does not
++   * see it. Optional because a receipt written before the field existed carries
++   * none — and for such a receipt an apply refuses a task it did not move
++   * rather than seal a carry it cannot check.
++   */
++  helpers?: Record<string, string | null>;
+   workflow: string;
+   /** The exact tasks the plan named, sorted. */
+   tasks: string[];
+@@ -323,6 +340,7 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     "reverses",
+     "from_document",
+     "to_document",
++    "helpers",
+   ]);
+   const extra = Object.keys(item).filter((k) => !allowed.has(k));
+   if (extra.length > 0) {
+@@ -340,6 +358,7 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+     reverses,
+     from_document: fromDocument,
+     to_document: toDocument,
++    helpers,
+   } = item;
+   for (const [name, value] of [["from", from], ["to", to], ["to_graph", toGraph], ["id", id]] as const) {
+     if (typeof value !== "string" || !DIGEST_PATTERN.test(value)) {
+@@ -374,6 +393,23 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+       throw new DistributionIndexError(`migration receipt ${name} is not a lowercase sha256`);
+     }
+   }
++  if (helpers !== undefined) {
++    // The record covers exactly the listed tasks — a partial snapshot would say
++    // "this task's helper was never recorded" about a task it was written for.
++    if (typeof helpers !== "object" || helpers === null || Array.isArray(helpers)) {
++      throw new DistributionIndexError("migration receipt helpers is not a record");
++    }
++    const taskSet = new Set(tasks as string[]);
++    const keys = Object.keys(helpers);
++    if (keys.length !== taskSet.size || keys.some((k) => !taskSet.has(k))) {
++      throw new DistributionIndexError("migration receipt helpers does not cover exactly the task set");
++    }
++    for (const [taskId, helper] of Object.entries(helpers)) {
++      if (helper !== null && (typeof helper !== "string" || !DIGEST_PATTERN.test(helper))) {
++        throw new DistributionIndexError(`migration receipt helpers.${taskId} is not a lowercase sha256`);
++      }
++    }
++  }
+   // The id is derived from the contents, so a receipt whose id does not match
+   // describes a different migration than the one it claims to be.
+   const expected = migrationId(
+@@ -398,6 +434,7 @@ function parseReceipt(entry: unknown): MigrationReceipt {
+   };
+   if (fromDocument !== undefined) receipt.from_document = fromDocument as string;
+   if (toDocument !== undefined) receipt.to_document = toDocument as string;
++  if (helpers !== undefined) receipt.helpers = { ...(helpers as Record<string, string | null>) };
+   if (completedAt !== undefined) receipt.completed_at = completedAt;
+   if (reverses !== undefined) receipt.reverses = reverses as string;
+   return receipt;
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 5b5b90bcbdc0440143e9d6cb9d372b4752086f66..581da3c2d4bcb97f05a16f6566d3b2b9d6fd90aa 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -1580,6 +1580,18 @@ export class Store {
+       }
+     }
+     const id = migrationId(from, to, toGraph, workflow, unique, reverses);
++    // The helper each task's pin carries is written down here, before the first
++    // move can overwrite it: after an interrupted apply a task already on `to`
++    // can no longer say what it carried, so the expectation must live in a
++    // record that predates the write. `null` is the honest entry for a pin that
++    // records none — and for a task whose pin cannot be read at all, which the
++    // apply phase refuses on its own terms.
++    const helpers: Record<string, string | null> = Object.create(null);
++    for (const taskId of unique) {
++      await this.reconcileTask(taskId);
++      const pin = readRuntimeIdentityPin(this.tasks.peek(taskId)?.metadata);
++      helpers[taskId] = pin.state === "pinned" ? (pin.pin.helper ?? null) : null;
++    }
+     let receipt: MigrationReceipt | undefined;
+     await withCreationLock(this.paths, async (io) => {
+       const raw = await io.readRuntimeIndex();
+@@ -1625,6 +1637,7 @@ export class Store {
+         workflow,
+         tasks: unique,
+         started_at: this.clock(),
++        helpers,
+       };
+       if (reverses !== undefined) opened.reverses = reverses;
+       if (documents?.from !== undefined) opened.from_document = documents.from;
+@@ -1656,6 +1669,9 @@ export class Store {
+     if (!opened) throw new Error(`migration ${id} was never opened`);
+     if (opened.completed_at !== undefined) return opened;
+ 
++    // The read-back compares the carried helper against what the move was given,
++    // so what each task's pin carried is recorded as the moves run.
++    const carriedHelpers = new Map<string, string | undefined>();
+     for (const taskId of opened.tasks) {
+       // No reconcile here: `mutateTask` reconciles under the per-task lock, so the
+       // check and the write see one record. Reading outside the lock and writing
+@@ -1686,6 +1702,12 @@ export class Store {
+               `and the receipt claims ${opened.from_document}`,
+           );
+         }
++        // What the move carried is recorded only for pins this run actually
++        // moves — read under the same lock that writes, so it is the value the
++        // pin held before the write and never the write's own product. A task
++        // found already on `to` is not recorded: its expectation comes from the
++        // receipt, or the read-back refuses it.
++        carriedHelpers.set(taskId, current.pin.helper);
+         // BOTH identity components move. A pin carries a distribution digest and a
+         // declared shape, and admission refuses on either — moving only the digest
+         // would seal a receipt while leaving the task parked, the operation claiming
+@@ -1693,15 +1715,17 @@ export class Store {
+         //
+         // The document moves with them when the receipt names one: a pin whose shape
+         // advanced while its document stayed behind would name a pair that never
+-        // existed. `helper` is deliberately still absent here — losing it is a
+-        // separate defect recorded as its own debt, and fixing it is not this
+-        // change's work type.
++        // existed. `helper` is carried rather than renamed: it digests the store
++        // binary the task was admitted under, not the extension, so the migration
++        // does not change it — and recomputing it here would re-admit the task
++        // under a store writer it never passed admission with.
+         const pin: RuntimeIdentityPin = {
+           workflow: current.pin.workflow,
+           digest: opened.to,
+           graph: opened.to_graph,
+         };
+         if (opened.to_document !== undefined) pin.document = opened.to_document;
++        if (current.pin.helper !== undefined) pin.helper = current.pin.helper;
+         setRuntimeIdentityPin(t.metadata, pin);
+         moved = true;
+       });
+@@ -1712,7 +1736,7 @@ export class Store {
+     // verification does not merely fail a test — it stops compiling, which is the
+     // difference between a rule and a habit. No test could catch its removal from
+     // inside a single call, because phase 2 can only fail if a write did not stick.
+-    const verified = await this.verifyMigration(id);
++    const verified = await this.verifyMigration(id, carriedHelpers);
+ 
+     let sealed: MigrationReceipt | undefined;
+     await withCreationLock(this.paths, async (io) => {
+@@ -1740,7 +1764,10 @@ export class Store {
+    * thing it verifies cannot be tested apart from it — and an untested read-back is
+    * indistinguishable from writing and believing the write.
+    */
+-  async verifyMigration(id: string): Promise<MigrationReceipt> {
++  async verifyMigration(
++    id: string,
++    carriedHelpers?: Map<string, string | undefined>,
++  ): Promise<MigrationReceipt> {
+     const opened = await this.findMigration(id);
+     if (!opened) throw new Error(`migration ${id} was never opened`);
+     for (const taskId of opened.tasks) {
+@@ -1763,6 +1790,40 @@ export class Store {
+           `migration ${id}: ${taskId} read back on shape ${after.pin.graph ?? "none"}, expected ${opened.to_graph}`,
+         );
+       }
++      // `helper` is the one component the move cannot take from a target field:
++      // the task was admitted under it and the migration does not change it.
++      // What it is checked against has to predate the write — the receipt's
++      // `helpers` snapshot taken when the migration opened, or the apply's own
++      // record of the `from`-pins it moved this run. Reading the expectation
++      // from the pin being verified would let an already-lost value become its
++      // own answer, which is the interrupted-apply hole this check exists to
++      // close. A receipt carrying no snapshot and a run that did not move the
++      // task leaves nothing to check against: a bare `verifyMigration` skips the
++      // component as it always has, but a verify called from the apply — the
++      // call that leads to sealing — refuses rather than seal a carry it
++      // cannot verify.
++      let expectedHelper: string | undefined;
++      let helperKnown = false;
++      if (opened.helpers !== undefined && Object.hasOwn(opened.helpers, taskId)) {
++        expectedHelper = opened.helpers[taskId] ?? undefined;
++        helperKnown = true;
++      } else if (carriedHelpers !== undefined && carriedHelpers.has(taskId)) {
++        expectedHelper = carriedHelpers.get(taskId);
++        helperKnown = true;
++      }
++      if (!helperKnown) {
++        if (carriedHelpers !== undefined) {
++          throw new Error(
++            `migration ${id}: ${taskId} is already on ${opened.to} and nothing predating the write records the helper it should carry`,
++          );
++        }
++      } else if (after.pin.helper !== expectedHelper) {
++        throw new Error(
++          `migration ${id}: ${taskId} read back on store helper ${after.pin.helper ?? "none"}, expected ${
++            expectedHelper ?? "none"
++          }`,
++        );
++      }
+     }
+     return opened;
+   }
+diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
+index b9276c420cd15cea998898f7fb52efe85515fea9..f398bb1560ff984f4a8e618bc5d060b6b20ab99a 100644
+--- a/daemon/core/test/store.migration.test.ts
++++ b/daemon/core/test/store.migration.test.ts
+@@ -12,8 +12,9 @@ import { createHash } from "node:crypto";
+ import { readFile, writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ 
+-import { Store } from "../src/index.ts";
+-import { migrationId, parseDistributionIndex } from "../src/store/distributions.ts";
++import { ExtensionRegistry, Store } from "../src/index.ts";
++import { runtimeIdentityDecision } from "../src/engine/runtimeIdentity.ts";
++import { migrationId, parseDistributionIndex, serializeDistributionIndex } from "../src/store/distributions.ts";
+ import { withCreationLock } from "../src/store/creation.ts";
+ import { ProjectPaths } from "../src/store/paths.ts";
+ import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
+@@ -44,12 +45,19 @@ describe("applying a migration", () => {
+     return { store, root: dir.path };
+   }
+ 
+-  async function pinned(store: Store, digest: string): Promise<string> {
++  async function pinned(store: Store, digest: string, helper?: string): Promise<string> {
+     const t = await store.createTask({ title: "migrating" });
++    const pin = { workflow: "wf", digest, graph: GRAPH } as {
++      workflow: string;
++      digest: string;
++      graph: string;
++      helper?: string;
++    };
++    if (helper !== undefined) pin.helper = helper;
+     await store.setPosition(
+       t.id,
+       { status: "human", workflow: "wf", step: "review" },
+-      { pinRuntimeIdentity: { workflow: "wf", digest, graph: GRAPH } },
++      { pinRuntimeIdentity: pin },
+     );
+     return t.id;
+   }
+@@ -166,6 +174,132 @@ describe("applying a migration", () => {
+     expect((await store.verifyMigration(receipt.id)).id).toBe(receipt.id);
+   });
+ 
++  test("a migrated task keeps the store helper it was admitted under", async () => {
++    // The pin's third component digests the binary that writes trusted state,
++    // not the extension — an extension migration does not change it, so the
++    // moved pin must still carry it. The resume gate is exercised rather than
++    // simulated: the same decision function engine.resume calls, on the pin the
++    // file holds, under the same "refuse" policy.
++    const { store } = await project();
++    const HELPER = "5".repeat(64);
++    const wf = { name: "wf", firstStep: "do", steps: { do: { onRun: async () => {} } } };
++    const before = new ExtensionRegistry();
++    before.addWorkflow("test", wf, { root: "/old", entry: "i.js", entries: [], bytes: 0, digest: OLD });
++    const admission = runtimeIdentityDecision(before, { state: "absent" }, "wf", "adopt", HELPER);
++    if (!admission.ok || !admission.admitted) throw new Error("unreachable");
++    const a = await store.createTask({ title: "migrating" });
++    await store.setPosition(
++      a.id,
++      { status: "human", workflow: "wf", step: "do" },
++      { pinRuntimeIdentity: admission.admitted },
++    );
++
++    const after = new ExtensionRegistry();
++    after.addWorkflow(
++      "test",
++      { name: "wf", firstStep: "do", steps: { do: { onRun: async () => {} }, ship: { onRun: async () => {} } } },
++      { root: "/new", entry: "i.js", entries: [], bytes: 0, digest: NEW },
++    );
++    const moved = after.workflowAdmission("wf")!;
++    const receipt = await store.beginMigration(OLD, NEW, moved.graph, "wf", [a.id]);
++    await store.applyMigration(receipt.id);
++
++    const pin = readRuntimeIdentityPin((await store.taskView(a.id)).metadata);
++    const resume = runtimeIdentityDecision(after, pin, "wf", "refuse", HELPER);
++    if (!resume.ok) throw new Error(resume.reason);
++  });
++
++  test("an interrupted apply whose write kept the helper is finished by the next run", async () => {
++    // Attempt one moved the pin correctly and never sealed: the pin is already
++    // on `to` with its helper, the receipt is still open. The retry must seal —
++    // the receipt's snapshot, taken before any write, is what it checks against.
++    const { store } = await project();
++    const HELPER = "5".repeat(64);
++    const a = await pinned(store, OLD, HELPER);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: NEW_GRAPH, helper: HELPER } },
++    );
++    const sealed = await store.applyMigration(receipt.id);
++    expect(sealed.completed_at).toBeDefined();
++    const pin = readRuntimeIdentityPin((await store.taskView(a)).metadata);
++    expect(pin.state === "pinned" ? pin.pin.helper : undefined).toBe(HELPER);
++  });
++
++  test("a retry does not adopt a helper the first attempt already lost", async () => {
++    // The pin is on `to` WITHOUT its helper and the receipt is open — the shape
++    // an interrupted apply leaves when the carry was lost at the write/read-back
++    // boundary. The first retry refuses; the second must refuse too, because a
++    // check whose expectation is read from the state it checks can never fail.
++    const { store, root } = await project();
++    const HELPER = "5".repeat(64);
++    const a = await pinned(store, OLD, HELPER);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: NEW_GRAPH } },
++    );
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow(/read back on store helper none/);
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow(/read back on store helper none/);
++    const stored = parseDistributionIndex(
++      (await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex())) ?? "",
++    );
++    expect(stored.migrations.find((m) => m.id === receipt.id)?.completed_at).toBeUndefined();
++  });
++
++  test("a receipt that records no helpers refuses a task the apply did not move", async () => {
++    // The receipts written before `helpers` existed carry no snapshot. For a
++    // task still on `from` the pin itself is the pre-write record and the apply
++    // proceeds; for a task already on `to` nothing predates the write, so the
++    // run refuses rather than seal a carry it cannot check.
++    const { store, root } = await project();
++    const HELPER = "5".repeat(64);
++    const a = await pinned(store, OLD, HELPER);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await withCreationLock(new ProjectPaths(root), async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw ?? "");
++      const entry = index.migrations.find((m) => m.id === receipt.id);
++      if (entry === undefined) throw new Error("receipt not stored");
++      delete entry.helpers;
++      await io.writeRuntimeIndex(
++        raw === null ? null : sha(raw),
++        serializeDistributionIndex(index),
++      );
++    });
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: NEW_GRAPH } },
++    );
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow(/nothing predating the write/);
++    const stored = parseDistributionIndex(
++      (await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex())) ?? "",
++    );
++    expect(stored.migrations.find((m) => m.id === receipt.id)?.completed_at).toBeUndefined();
++  });
++
++  test("a helper that drifted between the plan and the apply is refused", async () => {
++    // The receipt recorded HELPER at open; the pin was re-admitted under OTHER
++    // before the apply ran. The moved pin carries what the task claims now, and
++    // the read-back refuses it against the record — delete the comparison and
++    // this seals.
++    const { store } = await project();
++    const HELPER = "5".repeat(64);
++    const OTHER_HELPER = "6".repeat(64);
++    const a = await pinned(store, OLD, HELPER);
++    const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH, helper: OTHER_HELPER } },
++    );
++    await expect(store.applyMigration(receipt.id)).rejects.toThrow(/read back on store helper/);
++  });
++
+   test("a receipt whose id does not describe its contents is refused", () => {
+     // The id is derived from source, target, workflow and task set, so a mismatch
+     // means the record describes a different migration than the one it claims.

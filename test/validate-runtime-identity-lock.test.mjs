@@ -186,6 +186,8 @@ test("lock_growth_unjustified: the requirement count grows past baseline with no
       document.requirement_growth.requirements = document.requirements.length;
       document.requirement_growth.net_delta =
         document.requirements.length - document.requirement_growth.previous_approved;
+      delete document.requirement_growth.growth_rationale;
+      delete document.requirement_growth.replacement_candidates;
     }),
     "lock_growth_unjustified",
   );
@@ -221,19 +223,17 @@ test("lock_growth_unjustified: a recorded count that disagrees with the set is r
 });
 
 test("lock_growth_unjustified: a recorded delta that does not recompute is refused", () => {
-  const errors = validateLock(
-    mutated((document) => {
-      document.requirements.push(metRequirement());
-      document.requirement_growth.requirements = document.requirements.length;
-      document.requirement_growth.net_delta = 5;
-      document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
-      document.requirement_growth.replacement_candidates = ["none found smaller"];
-    }),
-    schema,
-    { manifest, readPatch },
-  );
+  const document = mutated((document) => {
+    document.requirements.push(metRequirement());
+    document.requirement_growth.requirements = document.requirements.length;
+    document.requirement_growth.net_delta = 5;
+    document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
+    document.requirement_growth.replacement_candidates = ["none found smaller"];
+  });
+  const errors = validateLock(document, schema, { manifest, readPatch });
   assert.deepEqual(codes(errors), ["lock_growth_unjustified"]);
-  assert.ok(errors.some((message) => /records net_delta 5, computed 1/u.test(message)), errors.join("\n"));
+  const computed = document.requirements.length - document.requirement_growth.previous_approved;
+  assert.ok(errors.some((message) => message.includes(`records net_delta 5, computed ${computed}`)), errors.join("\n"));
 });
 
 test("lock_growth_unjustified: growth with candidates considered but no rationale is refused", () => {
@@ -244,6 +244,7 @@ test("lock_growth_unjustified: growth with candidates considered but no rational
       document.requirement_growth.net_delta =
         document.requirements.length - document.requirement_growth.previous_approved;
       document.requirement_growth.replacement_candidates = ["none found smaller"];
+      delete document.requirement_growth.growth_rationale;
     }),
     schema,
     { manifest, readPatch },
@@ -260,6 +261,7 @@ test("lock_growth_unjustified: growth with a rationale but nothing considered fo
       document.requirement_growth.net_delta =
         document.requirements.length - document.requirement_growth.previous_approved;
       document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
+      delete document.requirement_growth.replacement_candidates;
     }),
     schema,
     { manifest, readPatch },
