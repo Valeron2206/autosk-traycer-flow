@@ -1,0 +1,61 @@
+[
+  {
+    "class": "lock_schema",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "lock": [{ "op": "remove", "path": "/requirements" }] }
+  },
+  {
+    "class": "lock_digest_stale",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "restamp": false, "lock": [{ "op": "replace", "path": "/lock_digest", "value": "0000000000000000000000000000000000000000000000000000000000000000" }] }
+  },
+  {
+    "class": "lock_duplicate_id",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "lock": [{ "op": "copy", "from": "/requirements/0/id", "path": "/requirements/1/id" }] }
+  },
+  {
+    "class": "lock_growth_unjustified",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "lock": [{ "op": "replace", "path": "/requirement_growth/net_delta", "value": 99 }] },
+    "note": "the budget's recorded net_delta no longer matches requirements minus previous_approved"
+  },
+  {
+    "class": "lock_not_json",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateDesign",
+    "drive": { "kind": "lock_design", "files": { "resources/runtime-identity-lock/runtime-identity-lock.v1.json": { "text": "{" } } }
+  },
+  {
+    "class": "lock_patch_digest_stale",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "patches": { "patches/0001-atomic-task-creation.patch": "tampered patch bytes" } },
+    "note": "the manifest pins the patch's sha256; returning different bytes is the refusal"
+  },
+  {
+    "class": "lock_patch_unknown",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "lock": [{ "op": "replace", "path": "/requirements/0/introduced_by", "value": "patches/9999-absent.patch" }] },
+    "note": "the requirement claims an introducer the manifest does not carry"
+  },
+  {
+    "class": "lock_requirement_count",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "lock": [{ "op": "replace", "path": "/requirements/0/occurrences", "value": 2 }] },
+    "note": "the series leaves the line once; the requirement now expects two"
+  },
+  {
+    "class": "lock_requirement_unmet",
+    "side": "design",
+    "emitter": "scripts/validate-runtime-identity-lock.mjs#validateLock",
+    "drive": { "kind": "lock_validate", "lock": [{ "op": "replace", "path": "/requirements/0/added_line", "value": "a line no patch in the series adds" }] },
+    "note": "the anchored line survives nowhere in the series, so the count is zero"
+  }
+]
