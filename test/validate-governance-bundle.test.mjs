@@ -158,6 +158,142 @@ test("one fail blocks", () => {
   assert.equal(attestationState(blocked), "blocked");
 });
 
+test("a missing seat cannot hide the seats that refused", () => {
+  // The cross-family review's reproduction: the opus seat is absent and the
+  // three seats that reviewed refused. The walk returned pending_panel at
+  // opus — first in REQUIRED_PANEL — before any fail was read, and
+  // validateBundle accepted the bundle as merely incomplete: state
+  // pending_panel, errors [].
+  const refused = mutated((draft) => {
+    draft.stage = "adaptation";
+    delete draft.attestation.release_actor;
+    delete draft.attestation.released_at;
+    draft.attestation.panel = draft.attestation.panel
+      .filter((entry) => entry.seat !== "opus")
+      .map((entry) => ({ ...entry, verdict: "fail" }));
+  });
+  assert.equal(attestationState(refused), "blocked");
+  // Recorded as "the panel has not assembled", the refusal must still be named.
+  refused.attestation.state = "pending_panel";
+  assertRejects(refused, /attestation state is pending_panel, computed blocked/u);
+  // Recorded honestly, the same bundle is refused rather than malformed.
+  refused.attestation.state = "blocked";
+  assert.deepEqual(validateBundle(refused, schema), []);
+});
+
+test("the absent seat can sit anywhere in the order", () => {
+  // opus is merely first in REQUIRED_PANEL; whichever seat is missing — and
+  // whatever order the entries are listed in — the refusals still decide.
+  for (const missing of REQUIRED_PANEL) {
+    for (const reverse of [false, true]) {
+      const value = mutated((draft) => {
+        draft.stage = "adaptation";
+        delete draft.attestation.release_actor;
+        delete draft.attestation.released_at;
+        const panel = draft.attestation.panel
+          .filter((entry) => entry.seat !== missing.seat)
+          .map((entry) => ({ ...entry, verdict: "fail" }));
+        draft.attestation.panel = reverse ? panel.reverse() : panel;
+      });
+      assert.equal(attestationState(value), "blocked", `${missing.seat} missing, reversed=${reverse}`);
+    }
+  }
+});
+
+test("a seat present but not counted cannot hide a refusal either", () => {
+  // A wrong route or another digest is the same hiding spot as absence: the
+  // entry is not this panel's verdict, and it must not end the count before
+  // the fails behind it.
+  for (const spoil of [
+    (opus) => {
+      opus.route = "anthropic/other-route";
+    },
+    (opus) => {
+      opus.candidate_digest = "9".repeat(64);
+    },
+  ]) {
+    const value = mutated((draft) => {
+      draft.stage = "adaptation";
+      delete draft.attestation.release_actor;
+      delete draft.attestation.released_at;
+      for (const entry of draft.attestation.panel) {
+        if (entry.seat !== "opus") entry.verdict = "fail";
+      }
+    });
+    spoil(value.attestation.panel.find((entry) => entry.seat === "opus"));
+    assert.equal(attestationState(value), "blocked");
+  }
+});
+
+test("a refusal bound to another bundle's digest is not this bundle's refusal", () => {
+  // A fail about other bytes is not a refusal of this bundle: the verdict
+  // counts for nothing, so the panel is incomplete, not refused.
+  const value = mutated((draft) => {
+    for (const entry of draft.attestation.panel) entry.verdict = "fail";
+  });
+  for (const entry of value.attestation.panel) entry.candidate_digest = "9".repeat(64);
+  assert.equal(attestationState(value), "pending_panel");
+});
+
+test("a refusal on a route the panel never required is not this panel's verdict", () => {
+  // The same rule from the other side: a fail recorded on another route
+  // counts for nothing — it neither blocks nor passes the seat.
+  const value = mutated((draft) => {
+    const opus = draft.attestation.panel.find((entry) => entry.seat === "opus");
+    opus.route = "anthropic/other-route";
+    opus.verdict = "fail";
+  });
+  assert.equal(attestationState(value), "pending_panel");
+});
+
+test("a verdict that is not pass does not count toward attested", () => {
+  // The schema's pass|fail enum rejects this panel before the helper ever
+  // runs — but a check that holds only because something else catches the
+  // case first is not a check, so this asserts on the helper directly.
+  const value = mutated((draft) => {
+    draft.attestation.panel.find((entry) => entry.seat === "opus").verdict = "non_verdict";
+  });
+  assert.equal(attestationState(value), "pending_panel");
+});
+
+test("a seat that could not review does not hide the seats that refused", () => {
+  // non_verdict cannot reach the helper through validateBundle — the schema
+  // enum rejects it — but the helper's own rule is the same: a verdict that
+  // is not counted contributes nothing to either side.
+  const value = mutated((draft) => {
+    for (const entry of draft.attestation.panel) {
+      entry.verdict = entry.seat === "opus" ? "non_verdict" : "fail";
+    }
+  });
+  assert.equal(attestationState(value), "blocked");
+});
+
+test("a panel where no seat could review is pending, not refused", () => {
+  const value = mutated((draft) => {
+    for (const entry of draft.attestation.panel) entry.verdict = "non_verdict";
+  });
+  assert.equal(attestationState(value), "pending_panel");
+});
+
+test("a duplicate seat cannot hide a refusal", () => {
+  // The panel is bounded by maxItems, not by unique seats, so a second entry
+  // for one seat fits the schema. Taking the first entry per seat would let
+  // an early pass shadow a later fail — the same defect one level down.
+  const value = mutated((draft) => {
+    draft.stage = "adaptation";
+    delete draft.attestation.release_actor;
+    delete draft.attestation.released_at;
+    const opus = draft.attestation.panel.find((entry) => entry.seat === "opus");
+    draft.attestation.panel = [
+      opus,
+      { ...opus, verdict: "fail" },
+      ...draft.attestation.panel.filter((entry) => entry.seat === "astra" || entry.seat === "grok"),
+    ];
+  });
+  assert.equal(value.attestation.panel.length, 4);
+  assert.equal(attestationState(value), "blocked");
+});
+
 test("a release needs a complete panel, an actor and a time", () => {
   assertRejects(
     mutated((value) => {

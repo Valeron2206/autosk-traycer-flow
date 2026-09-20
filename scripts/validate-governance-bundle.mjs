@@ -104,20 +104,28 @@ export function bundleDigest(members) {
  * The attestation state, computed.
  *
  * `attested` needs one verdict per required seat, on the exact route and effort,
- * each `pass`, and each bound to THIS candidate digest. A panel fix changes the
- * digest, so verdicts collected before it are about a candidate that no longer
- * exists — which is the case most likely to be rounded up.
+ * each `pass`, and each bound to THIS candidate digest. A refusal outranks an
+ * incomplete panel: one counted `fail` is `blocked` wherever the seat sits in
+ * the order, so a missing or mismatched seat cannot hide the seats that
+ * refused. Anything else is `pending_panel` — including verdicts collected
+ * before a panel fix, which changes the digest and leaves them about a
+ * candidate that no longer exists. That is the case most likely to be
+ * rounded up.
  */
 export function attestationState(bundle) {
   const verdicts = bundle.attestation.panel ?? [];
-  for (const required of REQUIRED_PANEL) {
-    const seat = verdicts.find((entry) => entry.seat === required.seat);
-    if (!seat) return "pending_panel";
-    if (seat.route !== required.route || seat.effort !== required.effort) return "pending_panel";
-    if (seat.candidate_digest !== bundle.bundle_digest) return "pending_panel";
-    if (seat.verdict === "fail") return "blocked";
-  }
-  return "attested";
+  const counted = verdicts.filter(
+    (entry) =>
+      REQUIRED_PANEL.some(
+        (required) =>
+          entry.seat === required.seat &&
+          entry.route === required.route &&
+          entry.effort === required.effort,
+      ) && entry.candidate_digest === bundle.bundle_digest,
+  );
+  if (counted.some((entry) => entry.verdict === "fail")) return "blocked";
+  const passed = new Set(counted.filter((entry) => entry.verdict === "pass").map((entry) => entry.seat));
+  return REQUIRED_PANEL.every((required) => passed.has(required.seat)) ? "attested" : "pending_panel";
 }
 
 export function validateBundle(bundle, schema) {
