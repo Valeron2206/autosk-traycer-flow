@@ -160,6 +160,144 @@ test("lock_not_json: a lock that does not parse is refused, not skipped", () => 
   assert.ok(errors.some((message) => message.startsWith("lock_not_json")), errors.join("\n"));
 });
 
+test("lock_growth_unjustified: the requirement count grows past baseline with no justification", () => {
+  // A new requirement that the budget does not reseal for is the quiet case —
+  // the set grew and nothing was asked to justify it. The line below is met,
+  // so no other refusal covers for this one.
+  const extra = {
+    id: "another_requirement",
+    requires: "the refusal stays declared",
+    why: "A second name for the same guarantee doubles the review surface without doubling the guarantee.",
+    introduced_by: "patches/0003-runtime-identity-admission.patch",
+    added_line: 'export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";',
+    occurrences: 1,
+  };
+  assertRefuses(
+    mutated((document) => {
+      document.requirements.push(extra);
+    }),
+    "lock_growth_unjustified",
+  );
+  // Recording the growth in the budget is still not enough: a positive delta
+  // owes its rationale and the candidates considered for removal.
+  assertRefuses(
+    mutated((document) => {
+      document.requirements.push(extra);
+      document.requirement_growth.requirements = document.requirements.length;
+      document.requirement_growth.net_delta =
+        document.requirements.length - document.requirement_growth.previous_approved;
+    }),
+    "lock_growth_unjustified",
+  );
+});
+
+/** A fresh requirement the patches genuinely meet — no other refusal can cover for the budget's. */
+function metRequirement() {
+  return {
+    id: "budget_probe_requirement",
+    requires: "the refusal stays declared",
+    why: "A probe requirement the patches satisfy, so a budget check is the only check that can fire.",
+    introduced_by: "patches/0003-runtime-identity-admission.patch",
+    added_line: 'export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";',
+    occurrences: 1,
+  };
+}
+
+test("lock_growth_unjustified: a recorded count that disagrees with the set is refused", () => {
+  const errors = validateLock(
+    mutated((document) => {
+      document.requirements.push(metRequirement());
+      // The delta and its justification are honest; only the count lies.
+      document.requirement_growth.net_delta =
+        document.requirements.length - document.requirement_growth.previous_approved;
+      document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
+      document.requirement_growth.replacement_candidates = ["none found smaller"];
+    }),
+    schema,
+    { manifest, readPatch },
+  );
+  assert.deepEqual(codes(errors), ["lock_growth_unjustified"]);
+  assert.ok(errors.some((message) => /the budget records \d+ requirements/u.test(message)), errors.join("\n"));
+});
+
+test("lock_growth_unjustified: a recorded delta that does not recompute is refused", () => {
+  const errors = validateLock(
+    mutated((document) => {
+      document.requirements.push(metRequirement());
+      document.requirement_growth.requirements = document.requirements.length;
+      document.requirement_growth.net_delta = 5;
+      document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
+      document.requirement_growth.replacement_candidates = ["none found smaller"];
+    }),
+    schema,
+    { manifest, readPatch },
+  );
+  assert.deepEqual(codes(errors), ["lock_growth_unjustified"]);
+  assert.ok(errors.some((message) => /records net_delta 5, computed 1/u.test(message)), errors.join("\n"));
+});
+
+test("lock_growth_unjustified: growth with candidates considered but no rationale is refused", () => {
+  const errors = validateLock(
+    mutated((document) => {
+      document.requirements.push(metRequirement());
+      document.requirement_growth.requirements = document.requirements.length;
+      document.requirement_growth.net_delta =
+        document.requirements.length - document.requirement_growth.previous_approved;
+      document.requirement_growth.replacement_candidates = ["none found smaller"];
+    }),
+    schema,
+    { manifest, readPatch },
+  );
+  assert.deepEqual(codes(errors), ["lock_growth_unjustified"]);
+  assert.ok(errors.some((message) => /no rationale/u.test(message)), errors.join("\n"));
+});
+
+test("lock_growth_unjustified: growth with a rationale but nothing considered for removal is refused", () => {
+  const errors = validateLock(
+    mutated((document) => {
+      document.requirements.push(metRequirement());
+      document.requirement_growth.requirements = document.requirements.length;
+      document.requirement_growth.net_delta =
+        document.requirements.length - document.requirement_growth.previous_approved;
+      document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
+    }),
+    schema,
+    { manifest, readPatch },
+  );
+  assert.deepEqual(codes(errors), ["lock_growth_unjustified"]);
+  assert.ok(errors.some((message) => /nothing considered/u.test(message)), errors.join("\n"));
+});
+
+test("growth that is recorded, justified, and considered is allowed", () => {
+  const errors = validateLock(
+    mutated((document) => {
+      document.requirements.push(metRequirement());
+      document.requirement_growth.requirements = document.requirements.length;
+      document.requirement_growth.net_delta =
+        document.requirements.length - document.requirement_growth.previous_approved;
+      document.requirement_growth.growth_rationale = "The probe requirement extends the admitted set deliberately.";
+      document.requirement_growth.replacement_candidates = ["none found smaller"];
+    }),
+    schema,
+    { manifest, readPatch },
+  );
+  assert.deepEqual(errors, []);
+});
+
+test("a raised baseline passes validateLock — the candidate pin is what holds it", () => {
+  // The reviewer's raisedBaseline scenario: the validator recomputes the
+  // delta against the recorded baseline and does not verify its provenance.
+  // That is the recorded limit — what holds the baseline is that the lock is
+  // a design-candidate member, so this document is different bytes and the
+  // candidate refuses its stale pin until it is resealed.
+  const raised = mutated((document) => {
+    document.requirement_growth.previous_approved += 1;
+    document.requirement_growth.net_delta =
+      document.requirements.length - document.requirement_growth.previous_approved;
+  });
+  assert.deepEqual(validateLock(raised, schema, { manifest, readPatch }), []);
+});
+
 // --- the anchoring itself --------------------------------------------------
 
 test("a file header is not an added line", () => {

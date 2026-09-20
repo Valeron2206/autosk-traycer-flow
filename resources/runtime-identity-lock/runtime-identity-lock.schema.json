@@ -8,6 +8,7 @@
   "required": [
     "schema_version",
     "requirements",
+    "requirement_growth",
     "lock_digest"
   ],
   "properties": {
@@ -65,6 +66,46 @@
             "description": "How many of this line the whole series leaves in place. A count rather than a presence test: a line that appears twice where one was expected is a copy someone made, and the requirement stops describing what it checks.",
             "type": "integer",
             "minimum": 1
+          }
+        }
+      }
+    },
+    "requirement_growth": {
+      "description": "The requirement-count budget: the count the document carries, the previous approved baseline, and the net delta the validator recomputes. Positive growth owes a rationale and the candidates considered for replacement or removal, because a requirement nobody can justify is how a lock becomes a list.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requirements",
+        "previous_approved",
+        "net_delta"
+      ],
+      "properties": {
+        "requirements": {
+          "description": "How many requirements the document carries. Recorded rather than recomputed at write time so that a set edited without resealing the budget is a disagreement, not a silent update.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "previous_approved": {
+          "description": "The requirement count at the last approved sealing. The validator does not verify that provenance: what holds the baseline is the candidate pin — the lock is a design-candidate member, so raising it moves candidate_digest and goes before the panel.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "net_delta": {
+          "description": "requirements minus previous_approved. Recorded so a reader sees the growth; recomputed by the validator so a recorded delta cannot lie.",
+          "type": "integer"
+        },
+        "growth_rationale": {
+          "description": "Why the set grew past baseline. Required whenever net_delta is positive.",
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 1024
+        },
+        "replacement_candidates": {
+          "description": "Requirements considered for replacement or removal to absorb the growth. Required to be non-empty whenever net_delta is positive.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

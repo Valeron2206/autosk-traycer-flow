@@ -51,6 +51,7 @@ export const CONTRACT_MARKER = "<!-- runtime-identity-lock-contract:v1 -->";
 export const REFUSALS = Object.freeze([
   "lock_digest_stale",
   "lock_duplicate_id",
+  "lock_growth_unjustified",
   "lock_not_json",
   "lock_patch_digest_stale",
   "lock_patch_unknown",
@@ -127,6 +128,28 @@ export function validateLock(lock, schema, { manifest, readPatch }) {
   for (const requirement of lock.requirements) {
     if (seen.has(requirement.id)) errors.push(`lock_duplicate_id: ${requirement.id} is declared twice`);
     seen.add(requirement.id);
+  }
+
+  // The count is budgeted, not just counted. `requirement_growth` records what
+  // the document carries against the previous approved baseline; a set that
+  // grew has to reseal the budget, and a positive delta has to say why and
+  // name what was considered for removal — a requirement nobody can justify is
+  // how a lock becomes a list.
+  const budget = lock.requirement_growth;
+  const netDelta = lock.requirements.length - budget.previous_approved;
+  if (budget.requirements !== lock.requirements.length) {
+    errors.push(
+      `lock_growth_unjustified: the budget records ${budget.requirements} requirements and the lock carries ${lock.requirements.length}`,
+    );
+  }
+  if (budget.net_delta !== netDelta) {
+    errors.push(`lock_growth_unjustified: records net_delta ${budget.net_delta}, computed ${netDelta}`);
+  }
+  if (netDelta > 0 && !budget.growth_rationale) {
+    errors.push(`lock_growth_unjustified: ${netDelta} requirement(s) over baseline with no rationale`);
+  }
+  if (netDelta > 0 && (budget.replacement_candidates ?? []).length === 0) {
+    errors.push("lock_growth_unjustified: grows with nothing considered for replacement or removal");
   }
 
   const series = [];

@@ -16,9 +16,11 @@ What was missing is on this side. Nothing in this repository noticed if a later 
 
 This contract does not define the lock, the engine, or the refusal. Those are the patch series, and the manifest already pins their bytes.
 
+For the design candidate's membership rule the patch series counts as code: a `.patch` file is excluded from `files[]` by extension, not excused by name. That exclusion does not leave the bytes unwatched — a changed patch stops matching the digest the manifest carries and this validator fails on `lock_patch_digest_stale`, while updating the manifest moves `candidate_digest` because the manifest is a member.
+
 It also does not claim the lock satisfies criterion 2 of issue #10. What a declaration can express is the steps a workflow declared and the agent hooks each step has, and patch `0005` says so in as many words: transitions, guards, caps and recovery targets are not in it.
 
-Patch `0032` closes the gap without widening the declaration: a definition may carry the digest of the graph document it was built from, and the canonical shape serialises that digest and serialises its absence too. So the other three components reach the pinned identity through one field rather than through the declaration, and they reach it only for a workflow that was in fact built from the document — `docs/contracts/workflow-factory.md` is where that link is specified and `test/runtime-workflow-factory.test.mjs` is where it is checked. Two of these fourteen requirements hold that field in place; none of them proves any particular workflow used it.
+Patch `0032` closes the gap without widening the declaration: a definition may carry the digest of the graph document it was built from, and the canonical shape serialises that digest and serialises its absence too. So the other three components reach the pinned identity through one field rather than through the declaration, and they reach it only for a workflow that was in fact built from the document — `docs/contracts/workflow-factory.md` is where that link is specified and `test/runtime-workflow-factory.test.mjs` is where it is checked. Two of these requirements hold that field in place; none of them proves any particular workflow used it.
 
 ## 3. How the check is anchored
 
@@ -31,6 +33,8 @@ The alternative was to parse the TypeScript. This repository has twice paid for 
 Two consequences are deliberate. A requirement can be met by a line inside a comment, because a comment that stops being true is a change worth noticing. And the count matters: a line appearing twice where one was expected is a copy someone made, and the requirement has stopped describing what it checks.
 
 **The requirement set and this contract are one set.** Every requirement here must be in the resource, and every requirement in the resource must be here. One direction was not enough: requiring only that a declared requirement is named let a requirement be deleted from the resource and resealed while this document kept promising it, so a guarantee could leave without touching the document that is under full panel review. That was also the whole argument for reviewing the resource narrowly, and it did not hold until both directions did.
+
+**The size of that set is budgeted, not only compared.** `requirement_growth` in the resource records the count the document carries, the previous approved baseline, and the net delta — which the validator recomputes rather than trusts. Set equality alone let the count grow while every requirement in it stayed honestly anchored; the set was still one set, just a larger one than anyone approved. Growth is allowed, but it is recorded: a count above baseline is refused unless it carries a `growth_rationale` and the `replacement_candidates` considered for displacement (`lock_growth_unjustified`). The validator does not verify where the baseline came from; what holds `previous_approved` is that this lock is a design-candidate member — raising it moves `candidate_digest`, and that change goes before the panel like any other member's.
 
 ## 4. What is required
 
@@ -100,7 +104,7 @@ Three of these anchor to a call rather than to a declaration, and the distinctio
 
 ## 5. Refusal classes
 
-Closed set: `lock_digest_stale`, `lock_duplicate_id`, `lock_not_json`, `lock_patch_digest_stale`, `lock_patch_unknown`, `lock_requirement_count`, `lock_requirement_unmet`, `lock_schema`.
+Closed set: `lock_digest_stale`, `lock_duplicate_id`, `lock_growth_unjustified`, `lock_not_json`, `lock_patch_digest_stale`, `lock_patch_unknown`, `lock_requirement_count`, `lock_requirement_unmet`, `lock_schema`.
 
 `lock_patch_digest_stale` is worth its own class rather than being folded into the manifest's own check. The manifest catches a changed patch, but a requirement anchored to bytes this validator never read would be an assertion about a file it did not open — so it verifies the pin itself before reading the line.
 

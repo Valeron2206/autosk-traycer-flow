@@ -194,5 +194,10 @@
    "occurrences": 1
   }
  ],
- "lock_digest": "9e979bbf30242e0873293bbb65d03c233b4aa139c3136803fb507e3fec34462b"
+ "requirement_growth": {
+  "requirements": 24,
+  "previous_approved": 24,
+  "net_delta": 0
+ },
+ "lock_digest": "d1d2c252ae60f99c003054f90b95f67041a6cb515c433c94374831d490f9e084"
 }
