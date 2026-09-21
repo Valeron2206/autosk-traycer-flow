@@ -449,7 +449,20 @@ Authority/dependency/user-instruction/correction appends, graph repair mutations
 
 ## 9. Модели
 
-Целевые Pi route specs:
+<!-- panel-roster-historical:v1 -->
+
+**Таблица ниже — историческое целевое намерение, а не действующий состав панели.** Действующий состав задаёт только `REQUIRED_PANEL` в `scripts/validate-provider-preflight.mjs` — маршрут для панели берётся оттуда, из таблицы его брать нельзя. Расхождение построчно, замер 2026-09-21:
+
+| Роль | Записано здесь | `REQUIRED_PANEL` на тот день | Итог |
+| --- | --- | --- | --- |
+| GPT critique/review | `openai-codex/gpt-5.6-sol:max` | `openai-codex/gpt-6-astra` / `high` | разошлись модель и effort |
+| Opus coordination/architecture | `pi-claude-code-provider/opus:max` | `anthropic/claude-opus-5` / `max` | разошлись харнесс и модель |
+| Grok implementation/feasibility | `cursor/cursor-grok-4.6:xhigh` | `cursor/cursor-grok-4.6` / `xhigh` | совпадает точно |
+| Kimi intent/scope | `cursor/kimi-k3:max` | `meta/muse-spark-1.3-contributor` / `max` | разошлись харнесс и модель |
+
+Три из четырёх записанных маршрутов `family-partition.v1.json` не относит ни к одному семейству — собранная по этой таблице панель получает отказ `partitionErrors`.
+
+Целевые Pi route specs (историческая запись, не действующий состав):
 
 | Роль | Route |
 | --- | --- |

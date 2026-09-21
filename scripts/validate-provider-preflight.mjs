@@ -23,6 +23,49 @@ export const SCHEMA_PATH = "resources/provider-preflight/provider-preflight.sche
 export const EXAMPLE_PATH = "resources/provider-preflight/provider-preflight.example.json";
 export const UNAVAILABLE_EXAMPLE_PATH = "resources/provider-preflight/provider-preflight.unavailable.example.json";
 export const CONTRACT_MARKER = "<!-- provider-preflight-contract:v1 -->";
+export const ARCH_PATH = "02-architecture.md";
+/**
+ * §9 of the architecture document keeps its route table as historical target
+ * intent; this marker anchors the marking that keeps the table from reading as
+ * the live roster.
+ */
+export const PANEL_HISTORICAL_MARKER = "<!-- panel-roster-historical:v1 -->";
+
+/**
+ * The whole of §9, byte for byte — from the "## 9. Модели" heading through the
+ * route table, bounded by "## 10.". Threat model, per the owner's decision:
+ * the carrier protects the marking against accidental edits. Deliberate hiding
+ * by CommonMark trickery is out of scope — an actor doing that can delete this
+ * carrier in the same PR, and review sees both. Any byte change in the span
+ * fails until this constant is updated in the same commit.
+ */
+const SECTION_NINE_MARKING = `## 9. Модели
+
+<!-- panel-roster-historical:v1 -->
+
+**Таблица ниже — историческое целевое намерение, а не действующий состав панели.** Действующий состав задаёт только \`REQUIRED_PANEL\` в \`scripts/validate-provider-preflight.mjs\` — маршрут для панели берётся оттуда, из таблицы его брать нельзя. Расхождение построчно, замер 2026-09-21:
+
+| Роль | Записано здесь | \`REQUIRED_PANEL\` на тот день | Итог |
+| --- | --- | --- | --- |
+| GPT critique/review | \`openai-codex/gpt-5.6-sol:max\` | \`openai-codex/gpt-6-astra\` / \`high\` | разошлись модель и effort |
+| Opus coordination/architecture | \`pi-claude-code-provider/opus:max\` | \`anthropic/claude-opus-5\` / \`max\` | разошлись харнесс и модель |
+| Grok implementation/feasibility | \`cursor/cursor-grok-4.6:xhigh\` | \`cursor/cursor-grok-4.6\` / \`xhigh\` | совпадает точно |
+| Kimi intent/scope | \`cursor/kimi-k3:max\` | \`meta/muse-spark-1.3-contributor\` / \`max\` | разошлись харнесс и модель |
+
+Три из четырёх записанных маршрутов \`family-partition.v1.json\` не относит ни к одному семейству — собранная по этой таблице панель получает отказ \`partitionErrors\`.
+
+Целевые Pi route specs (историческая запись, не действующий состав):
+
+| Роль | Route |
+| --- | --- |
+| GPT critique/review | openai-codex/gpt-5.6-sol:max |
+| Opus coordination/architecture | pi-claude-code-provider/opus:max |
+| Grok implementation/feasibility | cursor/cursor-grok-4.6:xhigh |
+| Kimi intent/scope | cursor/kimi-k3:max |
+
+Перед каждым epic preflight проверяет наличие exact route и делает короткий синтетический вызов без приватного кода. Наличие модели в каталоге не считается доказательством готовой авторизации.
+
+`;
 
 /** The panel this program's owner specified, route and effort exactly. */
 export const REQUIRED_PANEL = Object.freeze([
@@ -136,7 +179,7 @@ export function routeAvailability(route, { nowMs, downDomains = [] } = {}) {
 
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, UNAVAILABLE_EXAMPLE_PATH, FAMILY_PARTITION_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, UNAVAILABLE_EXAMPLE_PATH, FAMILY_PARTITION_PATH, ARCH_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -187,6 +230,98 @@ export function validateRoute(route, schema) {
 export function validateProviderPreflightDesign(files) {
   const errors = [];
   errors.push(...partitionErrors(JSON.parse(files[FAMILY_PARTITION_PATH])));
+  // §9's route table stays in the architecture document as historical target
+  // intent, with REQUIRED_PANEL the only source of the live roster. While the
+  // table stands, the marking that stops it reading as live must stand too —
+  // where the eye lands before the table — or a dropped note turns the table
+  // back into a claim.
+  // The service marker is itself an HTML comment — held as a sentinel — and
+  // every other comment is stripped, so no comment can satisfy a check of a
+  // visible claim. An unterminated comment strips to the end of
+  // the input: in CommonMark it hides everything after it, and a mid-line
+  // `<!--` with no closing is stripped the same way — over-conservative for a
+  // construct that is literal text there, but the fail-safe side. A literal
+  // NUL could impersonate the sentinel, so it is refused outright.
+  if (files[ARCH_PATH].includes("\u0000")) {
+    errors.push(`${ARCH_PATH}: contains a literal NUL — it could impersonate the marking sentinel`);
+  }
+  // The pin is the closure: whatever survives every named check below still
+  // has to match SECTION_NINE_MARKING byte for byte. Its two anchors must each
+  // occur exactly once — a duplicate heading can move where the pinned span
+  // begins, and a copy of either outside the span would stand there unmarked.
+  for (const anchor of ["## 9. Модели", "| Роль | Route |"]) {
+    if (files[ARCH_PATH].split(anchor).length - 1 !== 1) {
+      errors.push(`${ARCH_PATH}: "${anchor}" must occur exactly once — a duplicate can spoof the §9 pin`);
+    }
+  }
+  const sectionNineAt = files[ARCH_PATH].indexOf("## 9. Модели");
+  const sectionTenAt = sectionNineAt === -1 ? -1 : files[ARCH_PATH].indexOf("## 10.", sectionNineAt);
+  if (sectionTenAt === -1 || files[ARCH_PATH].slice(sectionNineAt, sectionTenAt) !== SECTION_NINE_MARKING) {
+    errors.push(`${ARCH_PATH}: §9 differs from the pinned text — update SECTION_NINE_MARKING in scripts/validate-provider-preflight.mjs only if the change is intended`);
+  }
+  const SENTINEL = "\u0000panel-roster-historical\u0000";
+  const visible = files[ARCH_PATH]
+    .replaceAll(PANEL_HISTORICAL_MARKER, SENTINEL)
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  const afterNine = visible.split("## 9. Модели")[1] ?? "";
+  if (afterNine !== "" && !afterNine.includes("## 10.")) {
+    errors.push(`${ARCH_PATH}: §9 has no following "## 10." boundary — the section cannot be scoped`);
+  }
+  const section = afterNine.split("## 10.")[0];
+  const markerAt = section.indexOf(SENTINEL);
+  const tableAt = section.indexOf("| Роль | Route |");
+  if (markerAt === -1) {
+    errors.push(`${ARCH_PATH} §9: the route table lacks its historical-intent marking (${PANEL_HISTORICAL_MARKER})`);
+  } else {
+    const marking = section.slice(markerAt, tableAt === -1 ? section.length : tableAt);
+    if (tableAt !== -1 && markerAt > tableAt) {
+      errors.push(`${ARCH_PATH} §9: ${PANEL_HISTORICAL_MARKER} must sit before the route table, not after it`);
+    }
+    // Diagnosis, not closure: the pin above is the closure, and this list is
+    // not exhaustive — a list of named constructs loses to the next one. It
+    // exists so a failure says why: a marking line that is a link reference
+    // definition, an HTML tag, indented code, or a fence is refused by name
+    // instead of being searched for a claim it cannot render.
+    const DISALLOWED_LINE = [
+      ["a link reference definition", /^ {0,3}\[[^\]]+\]:/],
+      ["an HTML tag", /<[a-zA-Z/!?]/],
+      ["an indented code line", /^(?: {4}|\t)/],
+      ["a code fence", /^ {0,3}(?:```|~~~)/],
+    ];
+    const kept = [];
+    for (const line of marking.split("\n")) {
+      if (line.trim() === "") continue;
+      const hit = DISALLOWED_LINE.find(([, pattern]) => pattern.test(line));
+      if (hit) {
+        errors.push(`${ARCH_PATH} §9: the marking holds ${hit[0]} — a claim is pinned only where it renders`);
+      } else {
+        kept.push(line);
+      }
+    }
+    const claims = kept.join("\n");
+    if (!claims.includes("историческое целевое намерение")) {
+      errors.push(`${ARCH_PATH} §9: the marking must declare the table историческое целевое намерение, not the live roster`);
+    }
+    // The exclusive-source statement is pinned on its own, on the lines kept
+    // above and before the first table row — a column header in the dated
+    // comparison must never be able to satisfy it.
+    const firstRow = kept.findIndex((line) => line.trimStart().startsWith("|"));
+    const prologue = kept.slice(0, firstRow === -1 ? kept.length : firstRow).join("\n");
+    for (const fragment of [
+      "задаёт только `REQUIRED_PANEL`",
+      "`scripts/validate-provider-preflight.mjs`",
+      "из таблицы его брать нельзя",
+    ]) {
+      if (!prologue.includes(fragment)) {
+        errors.push(`${ARCH_PATH} §9: the marking must state "${fragment}" before any table`);
+      }
+    }
+    for (const role of ["critique/review", "coordination/architecture", "implementation/feasibility", "intent/scope"]) {
+      if (!claims.includes(role)) {
+        errors.push(`${ARCH_PATH} §9: the marking must name the ${role} row's divergence`);
+      }
+    }
+  }
   const contract = files[CONTRACT_PATH];
   if (!contract.includes(CONTRACT_MARKER)) errors.push(`${CONTRACT_PATH}: missing ${CONTRACT_MARKER}`);
   if (!contract.includes(SCHEMA_PATH)) errors.push(`${CONTRACT_PATH}: does not point at ${SCHEMA_PATH}`);
