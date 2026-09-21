@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ARCH_PATH,
   CONTRACT_PATH,
   EXAMPLE_PATH,
   FAMILY_PARTITION_PATH,
@@ -242,4 +243,32 @@ test("the design digest changes when any shipped file changes", () => {
   const before = preflightDesignDigest(files);
   const after = preflightDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
+});
+
+test("any byte change inside §9 fails the pin", () => {
+  // The marking stays honest only while no edit inside the span slips by.
+  const droppedClause = {
+    ...files,
+    [ARCH_PATH]: files[ARCH_PATH].replace(" — маршрут для панели берётся оттуда, из таблицы его брать нельзя", ""),
+  };
+  assert.ok(validateProviderPreflightDesign(droppedClause).some((message) => /§9 differs from the pinned text/u.test(message)));
+  const retimedRoute = {
+    ...files,
+    [ARCH_PATH]: files[ARCH_PATH].replace("openai-codex/gpt-5.6-sol:max |", "openai-codex/gpt-5.6-sol:high |"),
+  };
+  assert.ok(validateProviderPreflightDesign(retimedRoute).some((message) => /§9 differs from the pinned text/u.test(message)));
+});
+
+test("the §9 pin's anchors each occur exactly once", () => {
+  // A second heading or route-table header would stand outside the pin,
+  // unmarked, and a duplicate heading can move where the pinned span begins.
+  const secondHeading = { ...files, [ARCH_PATH]: `${files[ARCH_PATH]}\n## 9. Модели\n` };
+  assert.ok(validateProviderPreflightDesign(secondHeading).some((message) => /must occur exactly once/u.test(message)));
+  const secondHeader = { ...files, [ARCH_PATH]: `${files[ARCH_PATH]}\n| Роль | Route |\n` };
+  assert.ok(validateProviderPreflightDesign(secondHeader).some((message) => /must occur exactly once/u.test(message)));
+});
+
+test("a missing \"## 10.\" boundary fails rather than widening the section", () => {
+  const widened = { ...files, [ARCH_PATH]: files[ARCH_PATH].replace("\n## 10.", "\n## Ten.") };
+  assert.ok(validateProviderPreflightDesign(widened).some((message) => /no following "## 10\." boundary/u.test(message)));
 });

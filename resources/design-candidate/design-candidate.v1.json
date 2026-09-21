@@ -12,7 +12,7 @@
     },
     {
       "path": "02-architecture.md",
-      "sha256": "1ef0c566f80478a50594c25cd7dcabcf2803ee8798fbfde279f3bbcec9ac933f"
+      "sha256": "2342777680104c57fadc235f5984ad883ecfa3739911a2a91a2d286668a30f9d"
     },
     {
       "path": "03-technical-plan.md",
@@ -955,7 +955,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "2dc4e6b931f3a1e83b2ede112a43ea1d37ad39a349ce0bead2bd0abb9f7ec635",
+  "candidate_digest": "16c69be5ae8ec2291c1caf3c79a87f38f81b6f8e44ac71ed415424a27f5850be",
   "dispositions": [
     {
       "issue": 3,
