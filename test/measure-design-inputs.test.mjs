@@ -975,11 +975,16 @@ test("a copy of a repository file refuses the measurement by name", () => {
   const root = sandbox({
     "validate:copies": "node scripts/validate-copies.mjs",
     files: {
-      "scripts/validate-copies.mjs": `import { copyFileSync, readFileSync } from "node:fs";
+      "scripts/validate-copies.mjs": `import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-JSON.parse(readFileSync("data/inputs.json", "utf8"));
-copyFileSync("data/inputs.json", join(tmpdir(), "copied-" + process.pid + ".json"));
+const work = mkdtempSync(join(tmpdir(), "t08-copy-"));
+try {
+  JSON.parse(readFileSync("data/inputs.json", "utf8"));
+  copyFileSync("data/inputs.json", join(work, "copied.json"));
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}
 `,
       "data/inputs.json": "{}",
     },
@@ -993,11 +998,16 @@ test("a copy of an external file is ignored", () => {
   const root = sandbox({
     "validate:external": "node scripts/validate-external.mjs",
     files: {
-      "scripts/validate-external.mjs": `import { copyFileSync, readFileSync } from "node:fs";
+      "scripts/validate-external.mjs": `import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-JSON.parse(readFileSync("data/inputs.json", "utf8"));
-copyFileSync("/etc/hosts", join(tmpdir(), "ext-" + process.pid + ".txt"));
+const work = mkdtempSync(join(tmpdir(), "t08-ext-"));
+try {
+  JSON.parse(readFileSync("data/inputs.json", "utf8"));
+  copyFileSync("/etc/hosts", join(work, "ext.txt"));
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}
 `,
       "data/inputs.json": "{}",
     },
@@ -1077,19 +1087,24 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 JSON.parse(fs.readFileSync("data/inputs.json", "utf8"));
-const fifo = join(tmpdir(), "gate-" + process.pid + ".fifo");
-const r = spawnSync("mkfifo", [fifo]);
-if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
-fs.symlinkSync("/etc/hosts", "data/late-src.json");
-const fd = fs.openSync(fifo, fs.constants.O_RDWR);
-const gate = new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
-const copy = new Promise((resolve, reject) => fs.copyFile("data/late-src.json", join(tmpdir(), "c-" + process.pid + ".json"), (e) => e ? reject(e) : resolve()));
-fs.unlinkSync("data/late-src.json");
-fs.symlinkSync("inputs.json", "data/late-src.json");
-fs.writeSync(fd, "x");
-await gate;
-await copy;
-fs.closeSync(fd);
+const work = fs.mkdtempSync(join(tmpdir(), "t08-gate-"));
+try {
+  const fifo = join(work, "gate.fifo");
+  const r = spawnSync("mkfifo", [fifo]);
+  if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
+  fs.symlinkSync("/etc/hosts", "data/late-src.json");
+  const fd = fs.openSync(fifo, fs.constants.O_RDWR);
+  const gate = new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
+  const copy = new Promise((resolve, reject) => fs.copyFile("data/late-src.json", join(work, "c.json"), (e) => e ? reject(e) : resolve()));
+  fs.unlinkSync("data/late-src.json");
+  fs.symlinkSync("inputs.json", "data/late-src.json");
+  fs.writeSync(fd, "x");
+  await gate;
+  await copy;
+  fs.closeSync(fd);
+} finally {
+  fs.rmSync(work, { recursive: true, force: true });
+}
 `,
       "data/inputs.json": "{}",
     },
@@ -1175,17 +1190,22 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 JSON.parse(fs.readFileSync("data/inputs.json", "utf8"));
-const fifo = join(tmpdir(), "gate-" + process.pid + ".fifo");
-const r = spawnSync("mkfifo", [fifo]);
-if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
-const fd = fs.openSync(fifo, fs.constants.O_RDWR);
-const gate = new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
-const read = new Promise((resolve, reject) => fs.readFile("data/late.json", "utf8", (e, d) => e ? reject(e) : resolve(d)));
-fs.symlinkSync("inputs.json", "data/late.json");
-fs.writeSync(fd, "x");
-await gate;
-JSON.parse(await read);
-fs.closeSync(fd);
+const work = fs.mkdtempSync(join(tmpdir(), "t08-gate-"));
+try {
+  const fifo = join(work, "gate.fifo");
+  const r = spawnSync("mkfifo", [fifo]);
+  if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
+  const fd = fs.openSync(fifo, fs.constants.O_RDWR);
+  const gate = new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
+  const read = new Promise((resolve, reject) => fs.readFile("data/late.json", "utf8", (e, d) => e ? reject(e) : resolve(d)));
+  fs.symlinkSync("inputs.json", "data/late.json");
+  fs.writeSync(fd, "x");
+  await gate;
+  JSON.parse(await read);
+  fs.closeSync(fd);
+} finally {
+  fs.rmSync(work, { recursive: true, force: true });
+}
 `,
       "data/inputs.json": "{}",
     },
