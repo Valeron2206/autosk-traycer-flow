@@ -68,13 +68,21 @@ export function canonicalJson(value) {
 }
 
 /**
- * The aggregate digest, over `path\0sha256\n` in path order.
+ * The order `bundleDigest` sorts members into.
  *
- * Paths are compared as raw bytes, so the order does not depend on a locale.
+ * Paths are compared as raw bytes, so the order does not depend on a locale:
+ * a smaller path gives -1, a larger gives 1, and equal paths give 0.
+ */
+export function compareMembersByPath(a, b) {
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+}
+
+/**
+ * The aggregate digest, over `path\0sha256\n` in path order.
  */
 export function bundleDigest(members) {
   const lines = [...members]
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .sort(compareMembersByPath)
     .map((member) => `${member.path}\0${member.sha256}\n`)
     .join('');
   return sha256(lines);
