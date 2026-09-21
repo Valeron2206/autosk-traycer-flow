@@ -13,10 +13,17 @@
  * The point is not the number. The point is that the number can be recomputed
  * by anyone holding the frozen tree, which is what "mutation-tested" has to
  * mean before it can be evidence.
+ *
+ * A mutant that cannot parse fails to load, and classifyRun() reports that as
+ * an environment failure, which fails the run — but that is a reading of the
+ * runner's output after the spawn, not a measurement of the mutant. So
+ * parseability is measured directly: test/mutation-report-parse.test.mjs
+ * proves that every mutant this enumeration can produce parses, and the run
+ * itself does no per-mutant `node --check`.
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
@@ -168,6 +175,14 @@ export function mutants(source) {
   return out;
 }
 
+/** The listing a run enumerates: every host module and the test directory. */
+export function hostListing(root = ROOT) {
+  return {
+    modules: readdirSync(path.join(root, "src/host")).filter((n) => n.endsWith(".mjs")).map((n) => n.replace(/\.mjs$/u, "")).sort(),
+    tests: readdirSync(path.join(root, "test")),
+  };
+}
+
 /**
  * The pairs this command covers: a module and the test file that owns it.
  *
@@ -270,17 +285,12 @@ export function restoreLeftovers({ readdirSync, readFileSync, writeFileSync, unl
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { readdirSync, unlinkSync } = await import("node:fs");
   const leftovers = restoreLeftovers({ readdirSync, readFileSync, writeFileSync, unlinkSync });
   for (const name of leftovers) process.stderr.write(`restored ${name} from a killed run\n`);
   const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
   const out = process.argv.includes("--out") ? process.argv[process.argv.indexOf("--out") + 1] : null;
 
-  const listing = {
-    modules: readdirSync(path.join(ROOT, "src/host")).filter((n) => n.endsWith(".mjs")).map((n) => n.replace(/\.mjs$/u, "")).sort(),
-    tests: readdirSync(path.join(ROOT, "test")),
-  };
-  const covered = pairs(listing).filter((pair) => !only || pair.module.includes(only));
+  const covered = pairs(hostListing()).filter((pair) => !only || pair.module.includes(only));
   const expected = JSON.parse(readFileSync(path.join(ROOT, EXPECTED_PATH), "utf8"));
 
   const modules = [];
