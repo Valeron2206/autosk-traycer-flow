@@ -39,15 +39,9 @@
     },
     {
       "module": "src/host/governance-bundle.mjs",
-      "line": 76,
-      "guard": "< -> <=",
-      "reason": "The comparator's branches differ only for two members with the same path, and `inventoryErrors` refuses a bundle whose manifest repeats one. The property the sort exists for \u2014 one digest whatever order the members arrive in \u2014 is tested directly."
-    },
-    {
-      "module": "src/host/governance-bundle.mjs",
-      "line": 76,
+      "line": 77,
       "guard": "> -> >=",
-      "reason": "The comparator's branches differ only for two members with the same path, and `inventoryErrors` refuses a bundle whose manifest repeats one. The property the sort exists for \u2014 one digest whatever order the members arrive in \u2014 is tested directly."
+      "reason": "Unreachable difference under this engine's sort \u2014 a property of the implementation, not of stable sorting in general. The comparator's branches disagree only for two members with the same path, where the original answers 0 and the mutant answers 1; a stable sort that consumed the result as `> 0` anywhere would tell them apart \u2014 an insertion sort shifting on `compare(previous, current) > 0` reverses the pair under the mutant \u2014 so what makes the mutant unobservable is that no consumer of `Compare` tests `> 0`: in `deps/v8/third_party/v8/builtins/array-sort.tq` (V8 13.6.233.17 in Node v24.16.0, V8 14.1.146.11 in Node v25.9.0) insertion, run detection, both merge directions and both gallops all branch on `order < 0` or `order >= 0`, so 0 and 1 select the same transition at every site and the permutation is identical. A different engine, or a future V8 that tests `> 0`, would make the mutant observable. Measured corroboration on this engine: all-equal member lists at every length from 2 to 500, and about 400,000 randomised and run-built lists with equal paths split across merge boundaries, with no divergent permutation. Separately, and not part of the equivalence: since #215 a member list carrying one path twice is refused at admission on `bundle_inventory_duplicate`; the digest is still computed and returned for a refused candidate, so this narrows where a difference could matter rather than whether one can be observed. The sibling mutant on this line, `< -> <=`, answers -1 on equal paths, does reorder them under this same sort, and is killed by the pinned digests in 'a repeated member path refuses in either order'."
     },
     {
       "module": "src/host/project-fs.mjs",
