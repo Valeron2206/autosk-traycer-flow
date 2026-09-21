@@ -528,7 +528,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "5e7c7195aa21379093f6cc93fd447f6360fc0e08db4f39d2c5086a9b1e6cebfe"
+      "sha256": "5a08fc24e4eeadfb17e01f36fbe087b04d1589e0f7c3417969052a16d420a01e"
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
@@ -955,7 +955,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "3d83c07054a509588b56fa816ca57962accc92459582afcbd4dd2696984a2434",
+  "candidate_digest": "a0544f97f51f2b981b3332d9def4f2d5c840e47e7098f2f30379ce7ad76628d4",
   "dispositions": [
     {
       "issue": 3,
