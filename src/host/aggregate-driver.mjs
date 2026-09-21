@@ -147,3 +147,4 @@ export function checksDigest(checks) {
     .update(JSON.stringify(checks.map((check) => [check.id, check.command, ...(check.args ?? [])])), 'utf8')
     .digest('hex');
 }
+// probe: acceptance of the src/host mutation filter (PR not for merge)
