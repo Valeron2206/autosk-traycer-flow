@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
+  byKeyComparator,
   canonicalBytes,
   canonicalText,
   graphDigest,
@@ -197,6 +198,16 @@ test("a step with no hooks and a guard with no policy rules pass through", () =>
   assert.equal(normalized.steps[1].hooks, undefined, "the status step declares none");
   assert.deepEqual(normalized.steps[0].hooks, ["onRun"]);
   assert.equal(normalized.guards[0].authority.policy_rules, undefined);
+});
+
+test("the set ordering is a comparator contract, not a property of one engine's sort", () => {
+  // Equal keys must answer 0: a comparator that returns 1 for a tie is
+  // observably wrong to anything that calls it, whatever a given sort does
+  // with the answer. Smaller gives -1, larger gives 1.
+  const byId = byKeyComparator("id");
+  assert.equal(byId({ id: "a" }, { id: "b" }), -1);
+  assert.equal(byId({ id: "b" }, { id: "a" }), 1);
+  assert.equal(byId({ id: "a" }, { id: "a" }), 0);
 });
 
 test("two members a document should not have keep the order it wrote them in", () => {

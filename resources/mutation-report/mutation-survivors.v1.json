@@ -38,12 +38,6 @@
       "reason": "The comparator's branches differ only for two equal trailer names, and the list is proven duplicate-free by test: `TRAILERS` and the kind-specific set are disjoint, so no tie is reachable. The property the sort exists for \u2014 one ordering whatever order a host listed them in \u2014 is tested directly."
     },
     {
-      "module": "src/host/governance-bundle.mjs",
-      "line": 77,
-      "guard": "> -> >=",
-      "reason": "Unreachable difference under this engine's sort \u2014 a property of the implementation, not of stable sorting in general. The comparator's branches disagree only for two members with the same path, where the original answers 0 and the mutant answers 1; a stable sort that consumed the result as `> 0` anywhere would tell them apart \u2014 an insertion sort shifting on `compare(previous, current) > 0` reverses the pair under the mutant \u2014 so what makes the mutant unobservable is that no consumer of `Compare` tests `> 0`: in `deps/v8/third_party/v8/builtins/array-sort.tq` (V8 13.6.233.17 in Node v24.16.0, V8 14.1.146.11 in Node v25.9.0) insertion, run detection, both merge directions and both gallops all branch on `order < 0` or `order >= 0`, so 0 and 1 select the same transition at every site and the permutation is identical. A different engine, or a future V8 that tests `> 0`, would make the mutant observable. Measured corroboration on this engine: all-equal member lists at every length from 2 to 500, and about 400,000 randomised and run-built lists with equal paths split across merge boundaries, with no divergent permutation. Separately, and not part of the equivalence: since #215 a member list carrying one path twice is refused at admission on `bundle_inventory_duplicate`; the digest is still computed and returned for a refused candidate, so this narrows where a difference could matter rather than whether one can be observed. The sibling mutant on this line, `< -> <=`, answers -1 on equal paths, does reorder them under this same sort, and is killed by the pinned digests in 'a repeated member path refuses in either order'."
-    },
-    {
       "module": "src/host/project-fs.mjs",
       "line": 32,
       "guard": "<= -> <",
@@ -102,12 +96,6 @@
       "line": 97,
       "guard": "< -> <=",
       "reason": "The comparator's second key breaks ties in specificity by class name, and two entries with the same specificity *and* the same class name would be one class registered twice \u2014 which `ambiguous_class` refuses before any path is classified. The tie branch is therefore unreachable, and the selection property is tested directly."
-    },
-    {
-      "module": "src/host/workflow-graph-canonical.mjs",
-      "line": 89,
-      "guard": "> -> >=",
-      "reason": "Unreachable difference under a stable sort. The comparator is `left < right ? -1 : left > right ? 1 : 0`, so its two remaining branches can only disagree on equal keys, where the original answers 0 and the mutant answers 1 \u2014 both meaning \"do not move left before right\". A stable sort never moves an element past one it does not compare strictly-before, so the permutation is identical: measured on runs of equal keys of length 2, 3, 4, 5, 10 and 15, and on mixed keys containing a duplicate, the original and the mutant agree on every one. The sibling mutant on this line, `< -> <=`, answers -1 on equal keys and does reorder them; it is killed by \"two members a document should not have keep the order it wrote them in\", so the line is covered and this is the single difference no input can show."
     }
   ],
   "non_terminating_mutants": [

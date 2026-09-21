@@ -78,6 +78,15 @@ function canonicalString(value) {
 }
 
 /**
+ * The order a set is put into: by one key, compared as raw bytes.
+ *
+ * A smaller key gives -1, a larger gives 1, and equal keys give 0.
+ */
+export function byKeyComparator(key) {
+  return (left, right) => (left[key] < right[key] ? -1 : left[key] > right[key] ? 1 : 0);
+}
+
+/**
  * The arrays whose order the document decides, put in their one order.
  *
  * `transitions` and `resume_targets` are declared order-carrying by the plan
@@ -85,8 +94,7 @@ function canonicalString(value) {
  * be typed in some order, and a reshuffle of a set must not move the digest.
  */
 export function normalizeGraph(document) {
-  const byKey = (items, key) =>
-    [...items].sort((left, right) => (left[key] < right[key] ? -1 : left[key] > right[key] ? 1 : 0));
+  const byKey = (items, key) => [...items].sort(byKeyComparator(key));
   const normalized = { ...document };
   if (Array.isArray(document.predicates)) {
     normalized.predicates = byKey(document.predicates, "id").map((entry) => ({

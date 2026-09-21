@@ -19,6 +19,7 @@ import {
   bundleForEpic,
   canonicalJson,
   canonicalTextErrors,
+  compareMembersByPath,
   epicMigrationErrors,
   inventoryErrors,
   releaseAdmission,
@@ -80,6 +81,15 @@ test("the digest is over path and hash in path order, and does not depend on mem
   // is the one the sort exists for, and the tie itself never arises.
   const paths = [member("a.md"), member("b.md"), member("c.md")].map((entry) => entry.path);
   assert.equal(new Set(paths).size, paths.length);
+});
+
+test("the member order is a comparator contract, not a property of one engine's sort", () => {
+  // Equal paths must answer 0: a comparator that returns 1 for a tie is
+  // observably wrong to anything that calls it, whatever a given sort does
+  // with the answer. Smaller gives -1, larger gives 1.
+  assert.equal(compareMembersByPath(member("a.md"), member("b.md")), -1);
+  assert.equal(compareMembersByPath(member("b.md"), member("a.md")), 1);
+  assert.equal(compareMembersByPath(member("a.md"), member("a.md")), 0);
 });
 
 test("only Markdown members with real text are held to the canonical text form", () => {
