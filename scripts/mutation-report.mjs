@@ -168,16 +168,24 @@ export function mutants(source) {
   return out;
 }
 
-/** The pairs this command covers: a module and the test file that owns it. */
+/**
+ * The pairs this command covers: a module and the test file that owns it.
+ *
+ * A module without `runtime-<name>.test.mjs` is refused by name rather than
+ * dropped: the covered set must not shrink silently.
+ */
 export function pairs(listing) {
   const tests = new Set(listing.tests);
-  return listing.modules
-    .map((name) => {
-      const candidates = [`runtime-${name}.test.mjs`, `runtime-${name.replace(/-checks$/u, "")}.test.mjs`];
-      const test = candidates.find((candidate) => tests.has(candidate));
-      return test ? { module: `src/host/${name}.mjs`, test: `test/${test}` } : null;
-    })
-    .filter(Boolean);
+  const covered = [];
+  const unpaired = [];
+  for (const name of listing.modules) {
+    const candidates = [`runtime-${name}.test.mjs`, `runtime-${name.replace(/-checks$/u, "")}.test.mjs`];
+    const test = candidates.find((candidate) => tests.has(candidate));
+    if (test) covered.push({ module: `src/host/${name}.mjs`, test: `test/${test}` });
+    else unpaired.push(`src/host/${name}.mjs`);
+  }
+  if (unpaired.length > 0) throw new Error(`host modules with no paired runtime test: ${unpaired.join(", ")}`);
+  return covered;
 }
 
 function unnamedAgainst(entries, named) {

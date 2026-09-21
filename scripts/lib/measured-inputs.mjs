@@ -20,10 +20,7 @@
  *   `process.binding("fs").readFileUtf8` and friends — are not classified
  *   (the declared boundary covers module exports only);
  * - the runner spawns each `validate:*` with the arguments package.json
- *   declares; CI additionally passes the pull request's base SHA to
- *   `validate:scope`, so the measured run uses its default `origin/main`.
- *   That reader records no non-code inputs either way on the shipped code,
- *   so the difference moves no member today — declared, not parity.
+ *   declares.
  */
 
 import { createHash } from "node:crypto";

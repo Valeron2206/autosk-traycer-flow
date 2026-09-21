@@ -37,7 +37,6 @@
     "validate:refusal-vocabulary",
     "validate:requirement-revision",
     "validate:runtime-identity-lock",
-    "validate:scope",
     "validate:sdk-write-api",
     "validate:stage-carriers",
     "validate:static-analysis",
@@ -287,5 +286,5 @@
     "scripts/produce-refusals-tickets-manifest.cases.json",
     "scripts/produce-refusals-workflow-graph.cases.json"
   ],
-  "digest": "d7b884177b30413d1f7c11be1869a747922f42a6550b5b868bf58c1d7aa1ce81"
+  "digest": "77eb3f393179d977cebb6e557fe1f9c7eb5c123b13b3c19eec4b62b464503a8a"
 }
