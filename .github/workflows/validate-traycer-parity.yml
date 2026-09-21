@@ -197,17 +197,58 @@ jobs:
         if: github.event_name == 'pull_request'
         run: npm run classify:changeset -- "${{ github.event.pull_request.base.sha }}"
 
-      - name: Validate pull-request file scope
-        if: github.event_name == 'pull_request'
-        run: npm run validate:scope -- "${{ github.event.pull_request.base.sha }}"
-
   # The mutation run is the evidence behind "every runtime module was
   # mutation-tested", so it is a command that executes rather than a number in a
-  # pull request. It neuters 512 guards one at a time and re-runs a test file
+  # pull request. It neuters each guard one at a time and re-runs a test file
   # for each, which is too slow to sit in front of every push; it runs on main
-  # and on demand, where a survivor nobody named is still caught loudly.
+  # and on demand, where a survivor nobody named is still caught loudly. A pull
+  # request that changes src/host/** pays the same run before merging.
+  #
+  # The gate is its own job so a pull request that leaves src/host alone reports
+  # `mutation` as skipped rather than as a green check that ran nothing. The
+  # diff is computed under `set -e` before the decision, so a base SHA that
+  # cannot be resolved fails this job instead of silently answering "no host
+  # changes". The pathspec does the matching, not the printed text: --name-only
+  # quotes paths that need escaping, so a pattern on the output would miss them.
+  # --no-renames keeps a module moved out of src/host on the diff.
+  host-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      runs: ${{ steps.gate.outputs.runs }}
+    steps:
+      - name: Check out source
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check whether the pull request touched src/host
+        id: gate
+        if: github.event_name == 'pull_request'
+        run: |
+          set -e
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            echo "pull_request event carried no base SHA" >&2
+            exit 1
+          fi
+          changed="$(git diff --name-only --no-renames "${base}...HEAD" -- src/host/)"
+          if [ -n "$changed" ]; then
+            echo "runs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "runs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # `!cancelled()` keeps the main and dispatch runs independent of the gate
+  # job's health without defeating workflow cancellation: it drops the implicit
+  # success() on `needs`, so on those events the ref/event terms decide and a
+  # gate-job flake cannot skip them. On pull_request the terms are false, so the
+  # gate's output alone decides — and a failed gate still means mutation stays
+  # skipped.
   mutation:
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: host-changes
+    if: "!cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || needs.host-changes.outputs.runs == 'true')"
     runs-on: ubuntu-latest
     steps:
       - name: Check out source

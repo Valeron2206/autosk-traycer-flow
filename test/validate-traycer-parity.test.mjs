@@ -7,12 +7,10 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  ALLOWED_CHANGED_FILES,
   assertReportPath,
   computeAggregateDigest,
   computeCommandCapabilityHash,
   computeSummary,
-  validateChangedFiles,
   validateDocumentation,
   validateRegistry,
   verifySourceMap,
@@ -270,23 +268,12 @@ test("summary document counts must match the registry summary", () => {
   assert.match(validateDocumentation(documentation.readme, drifted, baseRegistry).join("\n"), /v1 count/);
 });
 
-test("changed-file scope accepts only the exact issue #3 set", () => {
-  assert.deepEqual(validateChangedFiles(ALLOWED_CHANGED_FILES), []);
-  assert.match(validateChangedFiles([...ALLOWED_CHANGED_FILES, "03-technical-plan.md"]).join("\n"), /outside scope/);
-  assert.match(validateChangedFiles(ALLOWED_CHANGED_FILES.slice(1)).join("\n"), /required changed files missing/);
-});
-
-test("issue #3 scope gate is skipped after the registry exists in the base", () => {
-  assert.deepEqual(validateChangedFiles(["src/future-work.ts"], { baseContainsRegistry: true }), []);
-});
-
-test("push validation does not require a branch diff while pull requests keep the scope gate", () => {
+test("push validation does not require a branch diff while pull requests classify the changeset", () => {
   const packageJson = JSON.parse(readFileSync(path.join(ROOT, "package.json")));
   const workflow = readFileSync(path.join(ROOT, ".github/workflows/validate-traycer-parity.yml"), "utf8");
   assert.equal(packageJson.scripts["validate:migration"], "node scripts/validate-traycer-parity.mjs");
-  assert.equal(packageJson.scripts["validate:scope"], "node scripts/validate-traycer-parity.mjs --check-file-scope");
   assert.match(workflow, /if: github\.event_name == 'pull_request'/);
-  assert.match(workflow, /run: npm run validate:scope -- "\$\{\{ github\.event\.pull_request\.base\.sha \}\}"/);
+  assert.match(workflow, /run: npm run classify:changeset -- "\$\{\{ github\.event\.pull_request\.base\.sha \}\}"/);
 });
 
 test("workflow actions are immutable and checkout does not persist credentials", () => {

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -11,17 +10,6 @@ const REGISTRY_PATH = path.join(ROOT, "resources/traycer-parity/registry.v1.json
 const SCHEMA_PATH = path.join(ROOT, "resources/traycer-parity/registry.schema.json");
 const SUMMARY_PATH = path.join(ROOT, "docs/traycer-parity-registry.md");
 const README_PATH = path.join(ROOT, "README.md");
-
-export const ALLOWED_CHANGED_FILES = [
-  ".github/workflows/validate-traycer-parity.yml",
-  "README.md",
-  "docs/traycer-parity-registry.md",
-  "package.json",
-  "resources/traycer-parity/registry.schema.json",
-  "resources/traycer-parity/registry.v1.json",
-  "scripts/validate-traycer-parity.mjs",
-  "test/validate-traycer-parity.test.mjs",
-];
 
 const EXPECTED_BY_KIND = {
   guide: ["guide.agent-selection"],
@@ -393,40 +381,6 @@ export function validateDocumentation(readme, summary, registry) {
   return errors;
 }
 
-function gitLines(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).split("\n").map((value) => value.trim()).filter(Boolean);
-}
-
-export function collectChangedFiles(base = "origin/main", cwd = ROOT) {
-  return sorted(new Set([
-    ...gitLines(["diff", "--name-only", `${base}...HEAD`], cwd),
-    ...gitLines(["diff", "--name-only"], cwd),
-    ...gitLines(["diff", "--cached", "--name-only"], cwd),
-    ...gitLines(["ls-files", "--others", "--exclude-standard"], cwd),
-  ]));
-}
-
-export function validateChangedFiles(changedFiles, { baseContainsRegistry = false } = {}) {
-  if (baseContainsRegistry) return [];
-  const actual = sorted(new Set(changedFiles));
-  const expected = sorted(ALLOWED_CHANGED_FILES);
-  const unexpected = actual.filter((value) => !expected.includes(value));
-  const missing = expected.filter((value) => !actual.includes(value));
-  return [
-    ...(unexpected.length ? [`changed files outside scope: ${unexpected.join(", ")}`] : []),
-    ...(missing.length ? [`required changed files missing: ${missing.join(", ")}`] : []),
-  ];
-}
-
-function refContainsRegistry(ref, cwd = ROOT) {
-  try {
-    execFileSync("git", ["cat-file", "-e", `${ref}:resources/traycer-parity/registry.v1.json`], { cwd, stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function assertReportPath(reportPath, root = ROOT) {
   const absolute = path.resolve(reportPath);
   let outputEntry = null;
@@ -504,15 +458,6 @@ function fail(errors) {
 }
 
 function run(argv) {
-  if (argv[0] === "--check-file-scope") {
-    const base = argv[1] ?? "origin/main";
-    const files = collectChangedFiles(base);
-    const baseContainsRegistry = refContainsRegistry(base);
-    const errors = validateChangedFiles(files, { baseContainsRegistry });
-    if (errors.length) return fail(errors);
-    console.log(baseContainsRegistry ? "OK: issue #3 scope already integrated; exact scope gate skipped" : `OK: issue #3 file scope (${files.length} files)`);
-    return 0;
-  }
   if (argv[0] === "--verify-sources") {
     if (!argv[1]) return fail(["--verify-sources requires a source map"]);
     const registry = parseJson(REGISTRY_PATH);

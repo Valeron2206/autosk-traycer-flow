@@ -4,7 +4,7 @@
   "files": [
     {
       "path": ".github/workflows/validate-traycer-parity.yml",
-      "sha256": "bce48e01d26b50e0d5dd4f666c4f9de21dd7bb4c6858ccae68661cdecf1206a9"
+      "sha256": "2fc3448497db879a93fea78a262ecd3164e6ffb63f9e5ecabafea0620643566d"
     },
     {
       "path": "01-core-flows.md",
@@ -216,7 +216,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "3c6db7f0b28b90f08f314379a2a1715454f23e4efe3443b35dc430864e9b23bd"
+      "sha256": "afe712919c5caac2ca2b738d69c73cbb264ffee35b70295529b8baa3b0b35c63"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -348,7 +348,7 @@
     },
     {
       "path": "resources/design-candidate/measured-inputs.v1.json",
-      "sha256": "df3b1945e58a0bc3d334952813a29f9317bea6bd0b120b659f6cf785544479e3"
+      "sha256": "87ccaa1216a1d184fe820504d1bfc37386974b75b5bf994dbf2246cd8cf99c77"
     },
     {
       "path": "resources/design-candidate/panel/round-4.json",
@@ -955,7 +955,7 @@
       "sha256": "55fe3e111fc691a2cc206a426f32ae7ed92824d842c77e5a2e1237dc3380731c"
     }
   ],
-  "candidate_digest": "a0544f97f51f2b981b3332d9def4f2d5c840e47e7098f2f30379ce7ad76628d4",
+  "candidate_digest": "2dc4e6b931f3a1e83b2ede112a43ea1d37ad39a349ce0bead2bd0abb9f7ec635",
   "dispositions": [
     {
       "issue": 3,

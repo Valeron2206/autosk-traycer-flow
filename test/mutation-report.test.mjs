@@ -66,15 +66,19 @@ test("a line with no guard produces no mutant", () => {
   );
 });
 
-test("a module is answered for by its own test file, and one without is not covered", () => {
+test("a module is answered for by its own test file, and one without is refused by name", () => {
   const listing = {
-    modules: ["approved-delta", "doctor-checks", "orphan"],
+    modules: ["approved-delta", "doctor-checks"],
     tests: ["runtime-approved-delta.test.mjs", "runtime-doctor.test.mjs"],
   };
   assert.deepEqual(pairs(listing), [
     { module: "src/host/approved-delta.mjs", test: "test/runtime-approved-delta.test.mjs" },
     { module: "src/host/doctor-checks.mjs", test: "test/runtime-doctor.test.mjs" },
   ]);
+  assert.throws(
+    () => pairs({ modules: ["approved-delta", "orphan"], tests: ["runtime-approved-delta.test.mjs"] }),
+    /src\/host\/orphan\.mjs/,
+  );
 });
 
 test("a survivor stands only where somebody named it, at its line", () => {
