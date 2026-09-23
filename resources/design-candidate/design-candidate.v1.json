@@ -948,14 +948,14 @@
     },
     {
       "path": "scripts/produce-refusals-workflow-graph.cases.json",
-      "sha256": "bee13c6033ed60229b1e5bb69e0febbc9eeb51fb2a1310af0c3ef261b7535a60"
+      "sha256": "31c8d6019aa8043de0c910eb2b8dd1c4f53605f3ca9a0419734da12b81413557"
     },
     {
       "path": "src/host/workflow-graph-canonical.mjs",
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "b6df2fc1beef19c02bafce7b9af9b5ade127de632e0abdb679ea203bb9d3d629",
+  "candidate_digest": "b1483083df79e2ec48645904df4daabe23b39edb8e96ef058c338db3cf282a93",
   "dispositions": [
     {
       "issue": 3,

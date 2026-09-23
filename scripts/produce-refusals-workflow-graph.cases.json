@@ -176,9 +176,15 @@
     "class": "graph_digest_stale",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "also": "src/host/workflow-factory.mjs#buildWorkflow",
     "drive": { "kind": "graph_validate", "restamp": false, "mutate": [{ "op": "replace", "path": "/canonical_digest", "value": "0000000000000000000000000000000000000000000000000000000000000000" }] },
-    "note": "design side declared; the runtime twin refuses the same staleness at build in buildWorkflow"
+    "note": "design side: the validator refuses a digest that does not recompute"
+  },
+  {
+    "class": "graph_digest_stale",
+    "side": "runtime",
+    "emitter": "src/host/workflow-factory.mjs#buildWorkflow",
+    "drive": { "kind": "graph_build", "restamp": false, "mutate": [{ "op": "replace", "path": "/canonical_digest", "value": "0000000000000000000000000000000000000000000000000000000000000000" }] },
+    "note": "runtime side: buildWorkflow throws graph_digest_stale when the document's digest is not its own"
   },
   {
     "class": "graph_not_json",
@@ -202,9 +208,8 @@
     "class": "graph_lone_surrogate",
     "side": "design",
     "emitter": "src/host/workflow-graph-canonical.mjs#canonicalString",
-    "also": "src/host/workflow-factory.mjs#buildWorkflow",
     "drive": { "kind": "graph_canonical", "mutate": [{ "op": "replace", "path": "/predicates/0/description", "value": "probe \ud800 lone surrogate" }] },
-    "note": "an unpaired surrogate has no canonical UTF-8 spelling; the serializer throws it and buildWorkflow's digest check is the runtime twin"
+    "note": "an unpaired surrogate has no canonical UTF-8 spelling; canonicalString throws it. buildWorkflow only propagates that throw, so it is not a second producer"
   },
   {
     "class": "no_transition_reason",
@@ -217,9 +222,15 @@
     "class": "resume_target_not_permitted",
     "side": "runtime",
     "emitter": "src/host/workflow-factory.mjs#permitsResume",
-    "also": "scripts/validate-workflow-graph.mjs#validateGraph",
     "drive": { "kind": "resume", "reason": "tickets_manifest_stale", "to": "done" },
-    "note": "produced at the exported boundary; the validator co-emits the same code when a recovery row permits a target no edge reaches"
+    "note": "produced at the exported boundary: permitsResume refuses a target the reason's row does not permit"
+  },
+  {
+    "class": "resume_target_not_permitted",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/resume_targets/-", "value": "done" }] },
+    "note": "tickets_manifest_stale's row permits done, and no edge from its parks_at or handled_at steps reaches done"
   },
   {
     "class": "transition_not_declared",
