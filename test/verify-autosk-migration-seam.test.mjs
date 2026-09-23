@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
+import { createRequire, stripTypeScriptTypes } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { digestOf } from "../scripts/lib/produced-source.mjs";
-import { assertExecutedSurface, assertLaunchIntegrity, assertNoEngineLoad } from "../scripts/lib/seam-engine-gate.mjs";
+import { assertExecutedSurface, assertLaunchIntegrity, assertNoEngineLoad, MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { classifySeam, pinHelperState } from "../scripts/verify-autosk-migration-seam.mjs";
 
 const D_OLD = "a".repeat(64);
@@ -45,12 +46,7 @@ function record(over = {}) {
     bound: {
       source_tree: SOURCE_TREE,
       source: {
-        files: [
-          { path: "scripts/verify-autosk-migration-seam.driver.ts", sha256: SCRIPT_SHA },
-          { path: "scripts/verify-autosk-migration-seam.mjs", sha256: SCRIPT_SHA },
-          { path: "scripts/lib/seam-engine-gate.mjs", sha256: SCRIPT_SHA },
-          { path: "scripts/lib/seam-module-loads.mjs", sha256: SCRIPT_SHA },
-        ],
+        files: MEASURER_FILES.map((name) => ({ path: name, sha256: SCRIPT_SHA })),
         listings: [],
         digest: SCRIPT_SHA,
       },
@@ -389,6 +385,7 @@ test("the gate's checks precede its imports in program order", () => {
     "assertNoEngineLoad(moduleLoads",
     'execFileSync("git"',
     "walkExecuted(root",
+    "assertMeasurerLoads(moduleLoads",
     "bindSource(REPO",
     "await import(",
   ].map((landmark) => gateSource.indexOf(landmark, body));
@@ -509,4 +506,518 @@ test("a launch decorated past the contract refuses — bunfig, cwd, env, entry",
   const bunOptions = launchFixture();
   bunOptions.env = { ...bunOptions.env, BUN_OPTIONS: "--preload=/tmp/evil.mjs" };
   assert.throws(() => assertLaunchIntegrity(bunOptions), /BUN_OPTIONS/u);
+});
+
+// Every walked file is either a JSON text or parsed. JSON.parse decides the
+// text: a JSON text has no call and no import, so it is recorded and not
+// parsed, and it still has to be in MEASURER_FILES. Anything else is parsed
+// as JavaScript, whatever its extension and with none. An extension that
+// lower-cases to .ts, .mts, .cts or .tsx is transformed first. A file that
+// neither JSON.parse nor the parse accepts, or that the transform rejects,
+// is a violation that names the file and says it did not parse. A path the
+// walk cannot read is a violation that names the file and says it could not
+// be read: a missing file, or a directory, each of which bun may resolve to
+// another file. Name tokens carry no comments and keep strings whole. Any
+// name `require`, `createRequire`, `Worker` or `dlopen` refuses. A literal
+// import, export-from, `import()` or `require()` source must be relative or
+// `node:`; a relative one is walked. A non-literal import, such as the
+// gate's engine import, is not this rule.
+const acorn = createRequire(fileURLToPath(new URL("../package.json", import.meta.url)))("acorn");
+const LOADER_NAMES = new Set(["require", "createRequire", "Worker", "dlopen"]);
+
+function visitAst(node, visit) {
+  if (!node || typeof node.type !== "string") return;
+  visit(node);
+  for (const key of Object.keys(node)) {
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const item of child) visitAst(item, visit);
+    } else visitAst(child, visit);
+  }
+}
+
+function measurerClosure(repo, entries) {
+  const seen = new Set();
+  const violations = [];
+  const stack = entries.map((name) => resolve(repo, name));
+  while (stack.length > 0) {
+    const file = stack.pop();
+    const name = relative(repo, file).split(sep).join("/");
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const noted = new Set();
+    const note = (specifier) => {
+      const key = `${name} ${specifier}`;
+      if (noted.has(key)) return;
+      noted.add(key);
+      violations.push({ file: name, specifier });
+    };
+    let raw;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      note("the file could not be read");
+      continue;
+    }
+    try {
+      JSON.parse(raw);
+      continue;
+    } catch {
+      // not a JSON text; parse it as JavaScript
+    }
+    const extension = extname(name).toLowerCase();
+    const typescript = extension === ".ts" || extension === ".mts" || extension === ".cts" || extension === ".tsx";
+    let js = raw;
+    if (typescript) {
+      try {
+        js = stripTypeScriptTypes(raw, { mode: "transform" });
+      } catch {
+        note("the file did not parse");
+        continue;
+      }
+    }
+    let ast;
+    try {
+      ast = acorn.parse(js, { ecmaVersion: "latest", sourceType: "module", allowHashBang: true });
+    } catch {
+      note("the file did not parse");
+      continue;
+    }
+    visitAst(ast, (node) => {
+      if (node.type === "Identifier" && LOADER_NAMES.has(node.name)) note(node.name);
+      let spec = null;
+      if (
+        (node.type === "ImportDeclaration" ||
+          node.type === "ExportAllDeclaration" ||
+          node.type === "ExportNamedDeclaration") &&
+        node.source?.type === "Literal" &&
+        typeof node.source.value === "string"
+      ) {
+        spec = node.source.value;
+      } else if (node.type === "ImportExpression" && node.source?.type === "Literal" && typeof node.source.value === "string") {
+        spec = node.source.value;
+      } else if (
+        node.type === "CallExpression" &&
+        node.callee?.type === "Identifier" &&
+        node.callee.name === "require" &&
+        node.arguments?.[0]?.type === "Literal" &&
+        typeof node.arguments[0].value === "string"
+      ) {
+        spec = node.arguments[0].value;
+      }
+      if (spec === null) return;
+      if (spec.startsWith(".")) stack.push(resolve(dirname(file), spec));
+      else if (!spec.startsWith("node:")) note(spec);
+    });
+  }
+  return { files: seen, violations };
+}
+
+const repoRoot = REPO_ROOT.endsWith("/") ? REPO_ROOT.slice(0, -1) : REPO_ROOT;
+
+test("the measurer's relative-import closure is inside MEASURER_FILES and its literals are relative or node:", () => {
+  const { files, violations } = measurerClosure(repoRoot, [
+    "scripts/verify-autosk-migration-seam.mjs",
+    "scripts/verify-autosk-migration-seam.driver.ts",
+  ]);
+  assert.deepEqual(
+    violations.map((entry) => `${entry.file} ${entry.specifier}`),
+    [],
+  );
+  const missing = [...files].filter((name) => !MEASURER_FILES.includes(name)).sort();
+  assert.deepEqual(missing, []);
+});
+
+test("the load log refuses a repository module MEASURER_FILES omits and accepts the driver's log", async () => {
+  const gate = await import("../scripts/lib/seam-engine-gate.mjs");
+  assert.equal(typeof gate.assertMeasurerLoads, "function");
+  const repo = repoRoot;
+  const physical = realpathSync(repo);
+  const driver = join(repo, "scripts/verify-autosk-migration-seam.driver.ts");
+  const gateFile = join(repo, "scripts/lib/seam-engine-gate.mjs");
+  const source = "/var/empty/autosk-measured-source";
+  // bun 1.4.0: the entry is absolute with importer bun:main, and each
+  // relative import is logged twice. node: and bun: specifiers are not logged.
+  const driverLog = [
+    { specifier: driver, importer: "bun:main" },
+    { specifier: "./lib/seam-engine-gate.mjs", importer: driver },
+    { specifier: "./lib/seam-engine-gate.mjs", importer: driver },
+    { specifier: "./produced-source.mjs", importer: gateFile },
+    { specifier: "./produced-source.mjs", importer: gateFile },
+    { specifier: "./seam-module-loads.mjs", importer: gateFile },
+    { specifier: "./seam-module-loads.mjs", importer: gateFile },
+  ];
+  assert.doesNotThrow(() => gate.assertMeasurerLoads(driverLog, repo, physical, source, source));
+  assert.throws(
+    () =>
+      gate.assertMeasurerLoads(
+        [...driverLog, { specifier: "./measured-inputs.mjs", importer: gateFile }],
+        repo,
+        physical,
+        source,
+        source,
+      ),
+    /scripts\/lib\/measured-inputs\.mjs/u,
+  );
+  const engineFile = join(source, "daemon/core/src/store/store.ts");
+  assert.doesNotThrow(() =>
+    gate.assertMeasurerLoads(
+      [
+        ...driverLog,
+        { specifier: join(source, "daemon/core/src/store/store.ts"), importer: gateFile },
+        { specifier: "lodash.merge", importer: engineFile },
+        { specifier: "node:fs", importer: driver },
+        { specifier: "bun:ffi", importer: gateFile },
+        { specifier: "/usr/lib/outside-the-repo.mjs", importer: "bun:main" },
+      ],
+      repo,
+      physical,
+      source,
+      source,
+    ),
+  );
+  assert.throws(
+    () =>
+      gate.assertMeasurerLoads(
+        [...driverLog, { specifier: "./zz-unbound.mjs", importer: gateFile }],
+        repo,
+        physical,
+        source,
+        source,
+      ),
+    /scripts\/lib\/zz-unbound\.mjs/u,
+  );
+});
+
+test("a dotted bare specifier from a measurer module refuses, and one from the engine does not", async () => {
+  const gate = await import("../scripts/lib/seam-engine-gate.mjs");
+  const repo = repoRoot;
+  const physical = realpathSync(repo);
+  const gateFile = join(repo, "scripts/lib/seam-engine-gate.mjs");
+  const source = "/var/empty/autosk-measured-source";
+  const engineFile = join(source, "daemon/core/src/store/store.ts");
+  assert.throws(
+    () => gate.assertMeasurerLoads([{ specifier: "dotted.pkg", importer: gateFile }], repo, physical, source, source),
+    (error) => error instanceof Error && error.message.includes("dotted.pkg") && error.message.includes(gateFile),
+  );
+  assert.doesNotThrow(() =>
+    gate.assertMeasurerLoads([{ specifier: "dotted.pkg", importer: engineFile }], repo, physical, source, source),
+  );
+  assert.throws(
+    () => gate.assertMeasurerLoads([{ specifier: repo, importer: "bun:main" }], repo, physical, source, source),
+    /repository root/u,
+  );
+});
+
+test("a bare literal specifier is named with its file", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-literals-"));
+  try {
+    mkdirSync(join(scratch, "scripts/lib"), { recursive: true });
+    writeFileSync(
+      join(scratch, "scripts/lib/seam-engine-gate.mjs"),
+      'import { moduleLoads } from "./seam-module-loads.mjs";\nimport "acorn";\n',
+    );
+    writeFileSync(join(scratch, "scripts/lib/seam-module-loads.mjs"), "export const moduleLoads = [];\n");
+    writeFileSync(
+      join(scratch, "scripts/verify-autosk-migration-seam.driver.ts"),
+      'import { loadVerifiedEngine } from "./lib/seam-engine-gate.mjs";\nimport "acorn";\n',
+    );
+    const { violations } = measurerClosure(scratch, [
+      "scripts/lib/seam-engine-gate.mjs",
+      "scripts/verify-autosk-migration-seam.driver.ts",
+    ]);
+    assert.deepEqual(
+      violations.map((entry) => `${entry.file} ${entry.specifier}`).sort(),
+      [
+        "scripts/lib/seam-engine-gate.mjs acorn",
+        "scripts/verify-autosk-migration-seam.driver.ts acorn",
+      ],
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("the driver checks the load log again before it emits the record", () => {
+  const emit = driverSource.lastIndexOf("process.stdout.write");
+  const check = driverSource.lastIndexOf("assertMeasurerLoadsBeforeEmit(", emit);
+  assert.ok(emit !== -1 && check !== -1 && check < emit);
+});
+
+test("the measured source and the run scratch must lie outside the repository", async () => {
+  const gate = await import("../scripts/lib/seam-engine-gate.mjs");
+  assert.equal(typeof gate.assertSeamTreesOutsideRepository, "function");
+  const repo = repoRoot;
+  const physical = realpathSync(repo);
+  const sourceInside = join(repo, "zz-measured-source");
+  const projectInside = join(repo, ".probe-tmp");
+  const outside = "/var/empty/autosk-measured-source";
+  const projectOutside = "/var/empty/seam-project";
+  assert.throws(
+    () => gate.assertSeamTreesOutsideRepository(repo, physical, sourceInside, projectOutside),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes(sourceInside) &&
+      error.message.includes("is inside the repository") &&
+      !error.message.includes("measurer binding"),
+  );
+  assert.throws(
+    () => gate.assertSeamTreesOutsideRepository(repo, physical, outside, projectInside),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes(projectInside) &&
+      error.message.includes("is inside the repository") &&
+      !error.message.includes("measurer binding"),
+  );
+  assert.doesNotThrow(() => gate.assertSeamTreesOutsideRepository(repo, physical, outside, projectOutside));
+  assert.throws(
+    () => gate.assertSeamTreesOutsideRepository(repo, physical, "/", projectOutside),
+    (error) => error instanceof Error && error.message.includes("contains the repository"),
+  );
+  const folded = physical.replace("/Users/", "/users/");
+  if (folded !== physical) {
+    try {
+      if (realpathSync.native(folded) === physical) {
+        assert.throws(
+          () => gate.assertSeamTreesOutsideRepository(repo, physical, folded, projectOutside),
+          (error) => error instanceof Error && error.message.includes("is inside the repository"),
+        );
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+});
+
+test("the loader rule names aliases and calls beside strings", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-loaders-"));
+  const sources = {
+    "scripts/direct.mjs": [
+      'import { createRequire } from "node:module";',
+      'import { Worker } from "node:worker_threads";',
+      'createRequire(import.meta.url)("acorn");',
+      'new Worker("./w.mjs");',
+      'process.dlopen({ exports: {} }, "/nonexistent.node");',
+      'require("node:fs");',
+      'import.meta.require("node:fs");',
+    ].join("\n"),
+    "scripts/v12.mjs": 'import { createRequire as zzLoad } from "node:module";\nzzLoad(import.meta.url)("acorn");\n',
+    "scripts/v13.mjs": 'const zzRequire = require;\nzzRequire("acorn");\n',
+    "scripts/v14.mjs": 'import { Worker as ZzThread } from "node:worker_threads";\nvoid ZzThread;\n',
+    "scripts/v15.mjs": 'import { createRequire } from "node:module";\nconst zzNote = "a//b"; createRequire(import.meta.url)("acorn");\n',
+    "scripts/v16.mjs": 'import { createRequire } from "node:module";\nconst zzGlob = "extensions/*";\ncreateRequire(import.meta.url)("acorn");\nconst zzEnd = "*/";\n',
+    "scripts/v20.mjs": "const { require: zzReq } = import.meta;\nvoid zzReq;\n",
+    "scripts/typed.ts": 'import { createRequire } from "node:module";\nconst label: string = "kept";\ncreateRequire(import.meta.url)(label);\n',
+    "scripts/clean.mjs": 'import { readFileSync } from "node:fs";\nconst marker = `// seam-marker: ${"x"}`;\nexport const ok = readFileSync;\nvoid marker;\n',
+  };
+  const expected = {
+    "scripts/direct.mjs": ["Worker", "createRequire", "dlopen", "require"],
+    "scripts/v12.mjs": ["createRequire"],
+    "scripts/v13.mjs": ["require"],
+    "scripts/v14.mjs": ["Worker"],
+    "scripts/v15.mjs": ["createRequire"],
+    "scripts/v16.mjs": ["createRequire"],
+    "scripts/v20.mjs": ["require"],
+    "scripts/typed.ts": ["createRequire"],
+    "scripts/clean.mjs": [],
+  };
+  try {
+    mkdirSync(join(scratch, "scripts"), { recursive: true });
+    for (const [file, source] of Object.entries(sources)) writeFileSync(join(scratch, file), source);
+    const actual = {};
+    for (const file of Object.keys(sources)) {
+      const { violations } = measurerClosure(scratch, [file]);
+      actual[file] = [...new Set(violations.filter((entry) => entry.file === file).map((entry) => entry.specifier))].sort();
+    }
+    assert.deepEqual(actual, expected);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a TypeScript enum is parsed and its loader names are still found", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-enum-"));
+  try {
+    mkdirSync(join(scratch, "scripts"), { recursive: true });
+    writeFileSync(
+      join(scratch, "scripts/typed-enum.ts"),
+      [
+        'import { createRequire } from "node:module";',
+        "enum ZzMode { Measure }",
+        "void ZzMode.Measure;",
+        'createRequire(import.meta.url)("node:fs");',
+        "",
+      ].join("\n"),
+    );
+    const { violations } = measurerClosure(scratch, ["scripts/typed-enum.ts"]);
+    assert.deepEqual(
+      violations.map((entry) => `${entry.file} ${entry.specifier}`).sort(),
+      ["scripts/typed-enum.ts createRequire"],
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a relative JSON import is a closure file and is not parsed", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-json-"));
+  try {
+    mkdirSync(join(scratch, "scripts/lib"), { recursive: true });
+    writeFileSync(
+      join(scratch, "scripts/lib/seam-engine-gate.mjs"),
+      'import zzData from "./zz-data.json" with { type: "json" };\nvoid zzData;\n',
+    );
+    writeFileSync(join(scratch, "scripts/lib/zz-data.json"), '{"note": "a data file the gate imports"}\n');
+    const { files, violations } = measurerClosure(scratch, ["scripts/lib/seam-engine-gate.mjs"]);
+    assert.deepEqual(violations, []);
+    assert.deepEqual([...files].sort(), ["scripts/lib/seam-engine-gate.mjs", "scripts/lib/zz-data.json"]);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+const createRequireHelper = [
+  'import { createRequire } from "node:module";',
+  'createRequire(import.meta.url)("acorn");',
+  "export const helper = true;",
+  "",
+].join("\n");
+
+test("a helper that calls createRequire is named with no extension, .jsx, or .MJS", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-ext-"));
+  const files = ["scripts/zz-helper", "scripts/zz-helper.jsx", "scripts/zz-helper.MJS"];
+  try {
+    mkdirSync(join(scratch, "scripts"), { recursive: true });
+    const actual = {};
+    for (const file of files) {
+      writeFileSync(join(scratch, file), createRequireHelper);
+      const { violations } = measurerClosure(scratch, [file]);
+      actual[file] = violations.map((entry) => `${entry.file} ${entry.specifier}`).sort();
+    }
+    assert.deepEqual(actual, {
+      "scripts/zz-helper": ["scripts/zz-helper createRequire"],
+      "scripts/zz-helper.jsx": ["scripts/zz-helper.jsx createRequire"],
+      "scripts/zz-helper.MJS": ["scripts/zz-helper.MJS createRequire"],
+    });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a .TS file with a type annotation that calls createRequire is named", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-ts-case-"));
+  try {
+    mkdirSync(join(scratch, "scripts"), { recursive: true });
+    writeFileSync(
+      join(scratch, "scripts/typed.TS"),
+      [
+        'import { createRequire } from "node:module";',
+        'const label: string = "kept";',
+        'createRequire(import.meta.url)("acorn");',
+        "void label;",
+        "",
+      ].join("\n"),
+    );
+    const { violations } = measurerClosure(scratch, ["scripts/typed.TS"]);
+    assert.deepEqual(
+      violations.map((entry) => `${entry.file} ${entry.specifier}`).sort(),
+      ["scripts/typed.TS createRequire"],
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("JavaScript text in a .json file imported as js is named", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-json-js-"));
+  try {
+    mkdirSync(join(scratch, "scripts"), { recursive: true });
+    writeFileSync(
+      join(scratch, "scripts/driver.mjs"),
+      'import zzCode from "./zz-code.json" with { type: "js" };\nvoid zzCode;\n',
+    );
+    writeFileSync(join(scratch, "scripts/zz-code.json"), createRequireHelper);
+    const { violations } = measurerClosure(scratch, ["scripts/driver.mjs"]);
+    assert.deepEqual(
+      violations.map((entry) => `${entry.file} ${entry.specifier}`).sort(),
+      ["scripts/zz-code.json createRequire"],
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a walked file that is neither JSON nor JavaScript is named as not parsed", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-binary-"));
+  try {
+    mkdirSync(join(scratch, "scripts"), { recursive: true });
+    writeFileSync(join(scratch, "scripts/driver.mjs"), 'import "./native.node";\n');
+    writeFileSync(join(scratch, "scripts/native.node"), Buffer.from([0x00, 0x01, 0xff, 0xfe, 0x7b]));
+    const { violations } = measurerClosure(scratch, ["scripts/driver.mjs"]);
+    assert.deepEqual(
+      violations.map((entry) => `${entry.file} ${entry.specifier}`).sort(),
+      ["scripts/native.node the file did not parse"],
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a path the walk cannot read is named as unreadable", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "measurer-unreadable-"));
+  try {
+    mkdirSync(join(scratch, "scripts/lib/zz-pkg"), { recursive: true });
+    writeFileSync(join(scratch, "scripts/driver.mjs"), 'import "./lib/zz-sib.js";\nimport "./lib/zz-pkg";\n');
+    writeFileSync(join(scratch, "scripts/lib/zz-sib.ts"), "export const sibling = true;\n");
+    writeFileSync(join(scratch, "scripts/lib/zz-pkg/index.mjs"), "export const indexed = true;\n");
+    const { violations } = measurerClosure(scratch, ["scripts/driver.mjs"]);
+    assert.deepEqual(
+      violations.map((entry) => `${entry.file} ${entry.specifier}`).sort(),
+      ["scripts/lib/zz-pkg the file could not be read", "scripts/lib/zz-sib.js the file could not be read"],
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a child directory whose name starts with '..' is inside the repository", async () => {
+  const gate = await import("../scripts/lib/seam-engine-gate.mjs");
+  const repo = repoRoot;
+  const physical = realpathSync(repo);
+  const child = join(repo, "..zz-cache");
+  assert.throws(
+    () => gate.assertSeamTreesOutsideRepository(repo, physical, child, "/var/empty/seam-project"),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes(resolve(child)) &&
+      error.message.includes("is inside the repository"),
+  );
+});
+
+test("a repository module imported from the engine refuses by name", async () => {
+  const gate = await import("../scripts/lib/seam-engine-gate.mjs");
+  const repo = repoRoot;
+  const physical = realpathSync(repo);
+  const source = "/var/empty/autosk-measured-source";
+  const engineFile = join(source, "daemon/core/src/store/store.ts");
+  assert.throws(
+    () =>
+      gate.assertMeasurerLoads(
+        [{ specifier: join(repo, "scripts/lib/measured-inputs.mjs"), importer: engineFile }],
+        repo,
+        physical,
+        source,
+        source,
+      ),
+    /scripts\/lib\/measured-inputs\.mjs/u,
+  );
+  assert.doesNotThrow(() =>
+    gate.assertMeasurerLoads(
+      [{ specifier: join(repo, "scripts/lib/seam-module-loads.mjs"), importer: engineFile }],
+      repo,
+      physical,
+      source,
+      source,
+    ),
+  );
 });

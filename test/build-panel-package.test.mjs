@@ -10,12 +10,14 @@
  */
 
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal } from "../scripts/build-panel-package.mjs";
+import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
 
@@ -689,8 +691,8 @@ test("the package is deterministic and names what it left out", async () => {
 
 /**
  * A migration-seam record in the shape the measurer emits, bound to this tree:
- * the two script files hashed the way `produce:refusals` binds its inputs, and
- * the manifest's own patched-tree id as the source it ran against.
+ * `MEASURER_FILES` hashed the way the gate binds them, and the manifest's own
+ * patched-tree id as the source it ran against.
  */
 const SEAM_EXECUTED_FILES = [
   { path: "bin/autosk-store-lock", sha256: "0".repeat(64) },
@@ -703,12 +705,7 @@ const seamRecord = (over = {}) => ({
   project_dir_physical: "/private/tmp/autosk-migration-seam-test/project",
   bound: {
     source_tree: compat.result_tree,
-    source: bindSource(ROOT, [
-      "scripts/verify-autosk-migration-seam.mjs",
-      "scripts/verify-autosk-migration-seam.driver.ts",
-      "scripts/lib/seam-engine-gate.mjs",
-      "scripts/lib/seam-module-loads.mjs",
-    ]),
+    source: bindSource(ROOT, MEASURER_FILES),
     executed: {
       files: SEAM_EXECUTED_FILES.map((file) => ({ ...file })),
       listings: [],
@@ -796,6 +793,100 @@ test("a migration-seam record bound to other script bytes refuses by name", asyn
       error.message.includes("produced on another tree") &&
       error.message.includes("scripts/verify-autosk-migration-seam.driver.ts"),
   );
+});
+
+function runNode(args, cwd) {
+  // The test runner sets NODE_TEST_CONTEXT and NODE_TEST_WORKER_ID on this
+  // process. The child does not inherit them because this env is explicit.
+  const env = { PATH: process.env.PATH, HOME: cwd, TMPDIR: process.env.TMPDIR, NO_COLOR: "1" };
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, args, {
+      cwd,
+      env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (status) => resolvePromise({ status, stdout, stderr }));
+  });
+}
+
+test("the package refuses the seam column when a loaded measurer module's bytes change", { timeout: 120_000 }, async () => {
+  // The public command, not the in-process builder. The record is bound to
+  // this tree's MEASURER_FILES; the package then runs in a copy where one
+  // module the measurer loads has a different byte. A binding that omits
+  // that module still prints the column.
+  const scratch = mkdtempSync(path.join(os.tmpdir(), "seam-column-"));
+  try {
+    cpSync(ROOT, scratch, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== "node_modules" && path.basename(source) !== ".git",
+    });
+    const record = seamRecord();
+    const recordPath = path.join(scratch, "seam-record.json");
+    writeFileSync(recordPath, `${JSON.stringify(record)}\n`);
+    const produced = path.join(scratch, "scripts/lib/produced-source.mjs");
+    writeFileSync(produced, `${readFileSync(produced, "utf8")}\n`);
+    const cleanRoom = {
+      faults: [{ id: "F020", detected: true, control: true, detail: "control" }],
+      upstream_commit: compat.upstream.commit,
+      source_tree: compat.result_tree,
+      extension: { commit: "c".repeat(40), tree: "t".repeat(40), dirty: false },
+      report_digest: "r".repeat(64),
+      ok: true,
+      steps: [{ step: "prepare", ok: true }],
+      coverage: {
+        counts: { covered_by_real_fault: 1 },
+        complete: true,
+        rows: [{ id: "F020", state: "covered_by_real_fault", harness: "faults", evidence: "control" }],
+      },
+    };
+    const mutation = {
+      totals: { modules: 1, mutants: 1, killed: 1 },
+      modules: [{ module: "src/host/workflow-factory.mjs", test: "test/x.test.mjs", mutants: 1, killed: 1 }],
+      survivors: [],
+    };
+    const cleanRoomPath = path.join(scratch, "clean-room.json");
+    const mutationPath = path.join(scratch, "mutation.json");
+    writeFileSync(cleanRoomPath, JSON.stringify(cleanRoom));
+    writeFileSync(mutationPath, JSON.stringify(mutation));
+    // argv and import.meta.url must be the same spelling. tmpdir is under
+    // /var, which is a symlink to /private/var, and the CLI compares them
+    // with path.resolve, not realpath.
+    const scratchReal = realpathSync(scratch);
+    const run = await runNode(
+      [
+        realpathSync(path.join(scratch, "scripts/build-panel-package.mjs")),
+        "--commit",
+        "c".repeat(40),
+        "--tree",
+        "t".repeat(40),
+        "--tests-passed",
+        "0",
+        "--clean-room",
+        cleanRoomPath,
+        "--mutation",
+        mutationPath,
+        "--migration-seam",
+        recordPath,
+        "--out",
+        path.join(scratchReal, "package.md"),
+      ],
+      scratchReal,
+    );
+    const output = `${run.stdout}\n${run.stderr}`;
+    assert.notEqual(run.status, 0, output);
+    assert.match(output, /produced on another tree: scripts\/lib\/produced-source\.mjs: report binds/u);
+    assert.doesNotMatch(run.stdout, /package_bytes=/u);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test("a migration-seam record with no source binding refuses to render", async () => {
