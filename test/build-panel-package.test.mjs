@@ -382,14 +382,55 @@ test("the row separates reading the contract from evaluating its rules", async (
   );
 });
 
+const EMPTY_CLOSURE = { undriven: [], missing: [], duplicate: [] };
+const COUNT_TAIL = "so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven.";
+
+function produceSentence(text) {
+  const start = text.indexOf("`npm run produce:refusals` drives ");
+  assert.notEqual(start, -1, "the package has no produce:refusals sentence");
+  const end = text.indexOf("Node runtime it ran under.", start);
+  assert.notEqual(end, -1, "the produce:refusals sentence does not close");
+  return text.slice(start, end);
+}
+
+// Every declared class has a passing case, so a signature or closure deviation
+// is the only thing the clause can be about.
+function coveredCases(graph) {
+  return contractOutline(read(graph)).refusals.map((name) => ({ class: name, pass: true, produced: [name] }));
+}
+
+function stampEntry(entry) {
+  return {
+    ...entry,
+    malformed: entry.malformed ?? [],
+    uncovered: entry.uncovered ?? [],
+    undeclared: entry.undeclared ?? [],
+  };
+}
+
+function boundReport(graph, { cases, malformed = [], uncovered = [], undeclared = [], closure = EMPTY_CLOSURE, contracts, casesAggregate } = {}) {
+  const entries = (contracts ?? [{ contract: graph, malformed, uncovered, undeclared, cases }]).map(stampEntry);
+  const rows = entries.reduce((sum, entry) => sum + entry.cases.length, 0);
+  return {
+    source: bindSource(ROOT, [graph]),
+    cases: casesAggregate ?? rows,
+    closure,
+    contracts: entries,
+  };
+}
+
 test("a produced report with more cases than classes does not call the cases classes", async () => {
   const graph = "docs/contracts/workflow-graph.md";
   const produced = {
     source: bindSource(ROOT, [graph]),
     cases: 2,
+    closure: EMPTY_CLOSURE,
     contracts: [
       {
         contract: graph,
+        malformed: [],
+        uncovered: [],
+        undeclared: [],
         produced: 1,
         of: 2,
         cases: [
@@ -419,23 +460,434 @@ test("signatures that did not run or name the harness do not read as a clean run
     harness: index === 1 ? ["scripts/produce-refusals.mjs#collectWrites"] : [],
   }));
   assert.ok(cases.length > 1, "the fixture needs two cases so each array is its own signature");
-  const produced = {
-    source: bindSource(ROOT, [graph]),
-    cases: cases.length,
-    contracts: [{ contract: graph, produced: cases.length, of: cases.length, cases }],
-  };
+  const produced = boundReport(graph, { cases });
   const { text } = await build({ produced });
-  const start = text.indexOf("`npm run produce:refusals` drives ");
-  assert.notEqual(start, -1, "the package has no produce:refusals sentence");
-  const end = text.indexOf("Node runtime it ran under.", start);
-  assert.notEqual(end, -1, "the produce:refusals sentence does not close");
-  const clause = text.slice(start, end);
+  const clause = produceSentence(text);
   assert.match(clause, new RegExp(`drives ${cases.length} cases over ${cases.length} refusal classes`, "u"));
+  // Signatures do not change the produced count, so the tail does not follow them.
   assert.match(
     clause,
-    /The bound run is not clean — one signature did not run during its case; one signature names the produce-refusals harness —/u,
+    /The bound run is not clean — one signature's function did not run during its case; one signature names the produce-refusals harness, not a producer\./u,
   );
+  assert.doesNotMatch(clause, new RegExp(COUNT_TAIL, "u"));
   assert.doesNotMatch(clause, /\bcases? failed\b/u);
+});
+
+test("a malformed record is named and does not qualify the produced count", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const produced = boundReport(graph, { cases: coveredCases(graph), malformed: ["graph_schema"] });
+  const sentence = produceSentence((await build({ produced })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — one driven case \(`graph_schema`\) records no emitter it can be traced to\./u,
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("an undriven cases file is named and does not qualify the produced count", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const casesPath = "scripts/produce-refusals-zz-undriven.cases.json";
+  const produced = boundReport(graph, {
+    cases: coveredCases(graph),
+    closure: { undriven: [casesPath], missing: [], duplicate: [] },
+  });
+  const sentence = produceSentence((await build({ produced })).text);
+  assert.match(
+    sentence,
+    new RegExp(
+      `The bound run is not clean — one producing-cases file on disk is declared by no executed manifest \\(\`${casesPath}\`\\)\\.`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("a missing cases path is named and does not qualify the produced count", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const casesPath = "scripts/tickets-manifest.cases.json";
+  const produced = boundReport(graph, {
+    cases: coveredCases(graph),
+    closure: { undriven: [], missing: [casesPath], duplicate: [] },
+  });
+  const sentence = produceSentence((await build({ produced })).text);
+  assert.match(
+    sentence,
+    new RegExp(
+      `The bound run is not clean — one cases path that an executed manifest declares is outside the driven namespace \\(\`${casesPath}\`\\)\\.`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("a duplicate cases path is named and does not qualify the produced count", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const casesPath = "scripts/produce-refusals-tickets-manifest.cases.json";
+  const produced = boundReport(graph, {
+    cases: coveredCases(graph),
+    closure: { undriven: [], missing: [], duplicate: [casesPath] },
+  });
+  const sentence = produceSentence((await build({ produced })).text);
+  assert.match(
+    sentence,
+    new RegExp(
+      `The bound run is not clean — one cases path is declared by more than one executed manifest \\(\`${casesPath}\`\\)\\.`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("two unexecuted signatures in one case say during their case", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  cases[0].unexecuted = [
+    "src/host/workflow-graph-canonical.mjs#canonicalString",
+    "src/host/workflow-graph-canonical.mjs#otherSymbol",
+  ];
+  const sentence = produceSentence((await build({ produced: boundReport(graph, { cases }) })).text);
+  assert.match(sentence, /The bound run is not clean — two signatures' functions did not run during their case\./u);
+  assert.doesNotMatch(sentence, /during their cases/u);
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("two unexecuted signatures across cases say during their cases", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  cases[0].unexecuted = ["src/host/workflow-graph-canonical.mjs#canonicalString"];
+  cases[1].unexecuted = ["src/host/workflow-graph-canonical.mjs#otherSymbol"];
+  const sentence = produceSentence((await build({ produced: boundReport(graph, { cases }) })).text);
+  assert.match(sentence, /The bound run is not clean — two signatures' functions did not run during their cases\./u);
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("a failed case keeps the count tail and a harness signature follows it", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  cases[0].harness = ["scripts/produce-refusals.mjs#collectWrites"];
+  // The class still has its passing case, so the failure does not also leave a class unproduced.
+  cases.push({ class: cases[0].class, pass: false, produced: [cases[0].class] });
+  const sentence = produceSentence((await build({ produced: boundReport(graph, { cases }) })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — one case failed — so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven\. One signature names the produce-refusals harness, not a producer\./u,
+  );
+});
+
+test("a produced report without a closure is refused by name", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const produced = {
+    source: bindSource(ROOT, [graph]),
+    contracts: [{ contract: graph, malformed: [], cases: [] }],
+  };
+  await assert.rejects(
+    () => build({ produced }),
+    (error) =>
+      error.message === "the produced report records no undriven, missing, duplicate closure lists",
+  );
+});
+
+test("a produced contract without a malformed array is refused by name", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const produced = {
+    source: bindSource(ROOT, [graph]),
+    closure: EMPTY_CLOSURE,
+    contracts: [{ contract: graph, cases: [] }],
+  };
+  await assert.rejects(
+    () => build({ produced }),
+    (error) => error.message.includes("malformed") && error.message.includes(graph),
+  );
+});
+
+test("an identical repeated contract entry is counted once and the duplicate path is named", async () => {
+  // The aggregate `cases` counts the repeat, which is what the runner writes.
+  // The sentence must not.
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  cases[0].predicate_owner = "daemon";
+  const entry = { contract: graph, malformed: [], cases };
+  const casesPath = "scripts/produce-refusals-tickets-manifest.cases.json";
+  const produced = boundReport(graph, {
+    contracts: [entry, JSON.parse(JSON.stringify(entry))],
+    casesAggregate: cases.length * 2,
+    closure: { undriven: [], missing: [], duplicate: [casesPath] },
+  });
+  const sentence = produceSentence((await build({ produced })).text);
+  assert.match(sentence, new RegExp(`drives ${cases.length} cases over ${cases.length} refusal classes of one contract\\b`, "u"));
+  assert.match(sentence, /For one ticket-lifecycle class\b/u);
+  assert.doesNotMatch(sentence, new RegExp(`drives ${cases.length * 2} cases`, "u"));
+  assert.doesNotMatch(sentence, /For two ticket-lifecycle classes/u);
+  assert.match(
+    sentence,
+    new RegExp(
+      `The bound run is not clean — one cases path is declared by more than one executed manifest \\(\`${casesPath}\`\\)\\.`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("two passing cases of one daemon-judged class count as one ticket-lifecycle class", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const row = { class: "graph_schema", pass: true, produced: ["graph_schema"], predicate_owner: "daemon" };
+  const sentence = produceSentence((await build({ produced: boundReport(graph, { cases: [row, { ...row }] }) })).text);
+  assert.match(sentence, /drives 2 cases/u);
+  assert.match(sentence, /For one ticket-lifecycle class\b/u);
+  assert.doesNotMatch(sentence, /For two ticket-lifecycle classes/u);
+});
+
+test("two different entries for one contract path both count as driven cases", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const entry = (rows) => ({ contract: graph, malformed: [], cases: rows });
+  const produced = boundReport(graph, {
+    contracts: [
+      entry([{ class: "graph_schema", pass: true, produced: ["graph_schema"] }]),
+      entry([
+        { class: "graph_duplicate_name", pass: true, produced: ["graph_duplicate_name"] },
+        { class: "graph_step_unknown", pass: true, produced: ["graph_step_unknown"] },
+      ]),
+    ],
+    casesAggregate: 3,
+  });
+  const sentence = produceSentence((await build({ produced })).text);
+  assert.match(sentence, /drives 3 cases/u);
+  assert.match(sentence, /of one contract\b/u);
+  assert.doesNotMatch(sentence, /of two contracts/u);
+});
+
+test("a side-produced uncovered class is named from the record and qualifies the count", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  const dropped = cases[1].class;
+  cases[0].produced = [cases[0].class, dropped];
+  const kept = cases.filter((row) => row.class !== dropped);
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: kept, uncovered: [dropped] }),
+  })).text);
+  assert.match(
+    sentence,
+    new RegExp(
+      `The bound run is not clean — one declared class has no case in its manifest \\(\`${dropped}\`\\) — ${COUNT_TAIL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(sentence, /no passing case/u);
+});
+
+test("an undeclared record is named and qualifies the count", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), undeclared: ["not_a_declared_class"] }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — one driven class is not declared by its contract \(`not_a_declared_class`\) — so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven\./u,
+  );
+  assert.doesNotMatch(sentence, /names no declared class/u);
+});
+
+test("a side-produced code outside the declared set with empty records is not a clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  cases[0].produced = [cases[0].class, "not_declared_anywhere"];
+  const sentence = produceSentence((await build({ produced: boundReport(graph, { cases }) })).text);
+  assert.doesNotMatch(sentence, /not clean/u);
+  assert.doesNotMatch(sentence, /not_declared_anywhere/u);
+});
+
+test("a class uncovered on two different entries of one contract counts once", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  const dropped = cases[1].class;
+  const rows = cases.filter((row) => row.class !== dropped);
+  const entry = (marker) => ({
+    contract: graph,
+    malformed: [],
+    uncovered: [dropped],
+    undeclared: [],
+    cases: rows.map((row, index) => (index === 0 ? { ...row, marker } : { ...row })),
+  });
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { contracts: [entry("first"), entry("second")] }),
+  })).text);
+  assert.match(sentence, new RegExp(`one declared class has no case in its manifest \\(\`${dropped}\`\\)`, "u"));
+  assert.doesNotMatch(sentence, /two declared classes have no case in their manifest/u);
+});
+
+test("a path that is both missing and duplicate is named in both clauses", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const casesPath = "scripts/tickets-manifest.cases.json";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, {
+      cases: coveredCases(graph),
+      closure: { undriven: [], missing: [casesPath], duplicate: [casesPath] },
+    }),
+  })).text);
+  assert.match(
+    sentence,
+    new RegExp(
+      `The bound run is not clean — one cases path that an executed manifest declares is outside the driven namespace \\(\`${casesPath}\`\\); one cases path is declared by more than one executed manifest \\(\`${casesPath}\`\\)\\.`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("a class-less malformed name with backticks renders as a valid code span", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const internal = JSON.stringify({ emitter: "x", note: "see `graph_schema`" });
+  const leading = "`see` graph_schema";
+  const internalSentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), malformed: [internal] }),
+  })).text);
+  assert.match(internalSentence, new RegExp(`one driven case \\(\`\`${internal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\`\`\\) records no emitter`, "u"));
+  const leadingSentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), malformed: [leading] }),
+  })).text);
+  assert.match(leadingSentence, /one driven case \(`` `see` graph_schema ``\) records no emitter/u);
+});
+
+test("a produced report without a contracts array is refused by name", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  await assert.rejects(
+    () => build({ produced: { source: bindSource(ROOT, [graph]), closure: EMPTY_CLOSURE } }),
+    (error) => error.message === "the produced report records no contracts array",
+  );
+});
+
+test("a contract entry without an uncovered array is refused by name", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  await assert.rejects(
+    () => build({
+      produced: {
+        source: bindSource(ROOT, [graph]),
+        closure: EMPTY_CLOSURE,
+        contracts: [{ contract: graph, malformed: [], undeclared: [], cases: [] }],
+      },
+    }),
+    (error) => error.message === `the produced report's contract ${graph} records no uncovered array`,
+  );
+});
+
+test("a contract entry without an undeclared array is refused by name", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  await assert.rejects(
+    () => build({
+      produced: {
+        source: bindSource(ROOT, [graph]),
+        closure: EMPTY_CLOSURE,
+        contracts: [{ contract: graph, malformed: [], uncovered: [], cases: [] }],
+      },
+    }),
+    (error) => error.message === `the produced report's contract ${graph} records no undeclared array`,
+  );
+});
+
+test("two harness signatures are a plural clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const cases = coveredCases(graph);
+  cases[0].harness = ["scripts/produce-refusals.mjs#collectWrites"];
+  cases[1].harness = ["scripts/produce-refusals.mjs#produceReport"];
+  const sentence = produceSentence((await build({ produced: boundReport(graph, { cases }) })).text);
+  assert.match(sentence, /The bound run is not clean — two signatures name the produce-refusals harness, not a producer\./u);
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("two malformed names are a plural clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), malformed: ["graph_schema", "graph_duplicate_name"] }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — two driven cases \(`graph_schema`, `graph_duplicate_name`\) record no emitter they can be traced to\./u,
+  );
+  assert.doesNotMatch(sentence, new RegExp(COUNT_TAIL, "u"));
+});
+
+test("two undriven paths are a plural clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, {
+      cases: coveredCases(graph),
+      closure: { undriven: ["scripts/produce-refusals-a.cases.json", "scripts/produce-refusals-b.cases.json"], missing: [], duplicate: [] },
+    }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — two producing-cases files on disk are declared by no executed manifest \(`scripts\/produce-refusals-a\.cases\.json`, `scripts\/produce-refusals-b\.cases\.json`\)\./u,
+  );
+});
+
+test("two missing paths use the path wording", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, {
+      cases: coveredCases(graph),
+      closure: { undriven: [], missing: ["scripts/a.cases.json", "scripts/b.cases.json"], duplicate: [] },
+    }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — two cases paths that executed manifests declare are outside the driven namespace \(`scripts\/a\.cases\.json`, `scripts\/b\.cases\.json`\)\./u,
+  );
+});
+
+test("two duplicate paths are a plural clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, {
+      cases: coveredCases(graph),
+      closure: { undriven: [], missing: [], duplicate: ["scripts/a.cases.json", "scripts/b.cases.json"] },
+    }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — two cases paths are declared by more than one executed manifest \(`scripts\/a\.cases\.json`, `scripts\/b\.cases\.json`\)\./u,
+  );
+});
+
+test("two uncovered names are a plural clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), uncovered: ["graph_schema", "graph_duplicate_name"] }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — two declared classes have no case in their manifest \(`graph_schema`, `graph_duplicate_name`\) — so the produced count above/u,
+  );
+});
+
+test("an empty malformed name is words, not a code span", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), malformed: [""] }),
+  })).text);
+  assert.match(sentence, /one driven case \(an empty name\) records no emitter it can be traced to/u);
+  assert.doesNotMatch(sentence, /one driven case \(``\)/u);
+});
+
+test("a name padded with spaces keeps those spaces inside the code span", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), malformed: [" padded "] }),
+  })).text);
+  assert.ok(
+    sentence.includes("one driven case (`  padded  `) records no emitter it can be traced to"),
+    sentence,
+  );
+});
+
+test("two undeclared names are a plural clause", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const sentence = produceSentence((await build({
+    produced: boundReport(graph, { cases: coveredCases(graph), undeclared: ["alpha", "beta"] }),
+  })).text);
+  assert.match(
+    sentence,
+    /The bound run is not clean — two driven classes are not declared by their contract \(`alpha`, `beta`\) — so the produced count above/u,
+  );
 });
 
 test("a produced report fills the cell against the contract's own closed set", async () => {
@@ -443,9 +895,13 @@ test("a produced report fills the cell against the contract's own closed set", a
   const outline = contractOutline(read(graph));
   const produced = {
     source: bindSource(ROOT, [graph]),
+    closure: EMPTY_CLOSURE,
     contracts: [
       {
         contract: graph,
+        malformed: [],
+        uncovered: [],
+        undeclared: [],
         produced: outline.refusals.length,
         of: outline.refusals.length,
         cases: outline.refusals.map((name) => ({ class: name, pass: true })),
@@ -468,9 +924,13 @@ test("a produced run short of the closed set does not read as complete", async (
   const covered = outline.refusals.slice(0, 3);
   const produced = {
     source: bindSource(ROOT, [graph]),
+    closure: EMPTY_CLOSURE,
     contracts: [
       {
         contract: graph,
+        malformed: [],
+        uncovered: [],
+        undeclared: [],
         produced: covered.length,
         of: covered.length,
         cases: covered.map((name) => ({ class: name, pass: true })),

@@ -239,6 +239,143 @@ const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seve
 
 const countWord = (count) => COUNT_WORDS[count] ?? String(count);
 
+const CLOSURE_LISTS = ["undriven", "missing", "duplicate"];
+
+const COUNT_TAIL = "so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven.";
+
+const RECORD_LISTS = ["malformed", "uncovered", "undeclared"];
+
+function contractName(entry) {
+  return typeof entry?.contract === "string" && entry.contract !== "" ? entry.contract : "unnamed";
+}
+
+function requireProducedRecords(produced) {
+  const unnamed = CLOSURE_LISTS.filter((name) => !Array.isArray(produced.closure?.[name]));
+  if (unnamed.length > 0) {
+    const noun = unnamed.length === 1 ? "list" : "lists";
+    throw new Error(`the produced report records no ${unnamed.join(", ")} closure ${noun}`);
+  }
+  if (!Array.isArray(produced.contracts)) {
+    throw new Error("the produced report records no contracts array");
+  }
+  for (const entry of produced.contracts) {
+    const missing = RECORD_LISTS.filter((name) => !Array.isArray(entry?.[name]));
+    if (missing.length === 0) continue;
+    const noun = missing.length === 1 ? "array" : "arrays";
+    throw new Error(`the produced report's contract ${contractName(entry)} records no ${missing.join(", ")} ${noun}`);
+  }
+}
+
+// An exact repeat is one code path writing the same entry twice. Key order is
+// part of that equality, which is what JSON.stringify compares.
+function withoutRepeats(contracts) {
+  const seen = new Set();
+  const kept = [];
+  for (const entry of contracts) {
+    const key = JSON.stringify(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(entry);
+  }
+  return kept;
+}
+
+// A CommonMark code span. An empty name is words, because two backticks are
+// not a span. The fence is one backtick longer than any run inside the text.
+// A space is added at both ends when the text starts or ends with a backtick,
+// and when it starts and ends with a space without being all spaces: CommonMark
+// then strips exactly that padding.
+function codeSpan(text) {
+  if (text === "") return "an empty name";
+  const runs = text.match(/`+/gu) ?? [];
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = "`".repeat(longest + 1);
+  const edgeBacktick = text.startsWith("`") || text.endsWith("`");
+  const edgeSpace = text.startsWith(" ") && text.endsWith(" ") && text.trim() !== "";
+  const pad = edgeBacktick || edgeSpace ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
+const quotedNames = (names) => names.map((name) => codeSpan(String(name))).join(", ");
+
+function distinctRecordNames(contracts, field) {
+  const seen = new Set();
+  const names = [];
+  for (const entry of contracts) {
+    for (const name of entry[field]) {
+      const key = `${entry.contract}\0${name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function namedDeviation(names, one, many) {
+  if (names.length === 0) return null;
+  const listed = quotedNames(names);
+  if (names.length === 1) return one(listed);
+  return many(countWord(names.length), listed);
+}
+
+const present = (clauses) => clauses.filter((clause) => clause !== null);
+
+function unexecutedDeviation(cases) {
+  const rows = cases.filter((entry) => Array.isArray(entry.unexecuted) && entry.unexecuted.length > 0);
+  const count = rows.reduce((sum, entry) => sum + entry.unexecuted.length, 0);
+  if (count === 0) return null;
+  if (count === 1) return "one signature's function did not run during its case";
+  const where = rows.length === 1 ? "case" : "cases";
+  return `${countWord(count)} signatures' functions did not run during their ${where}`;
+}
+
+function harnessDeviation(cases) {
+  const count = cases.reduce((sum, entry) => sum + (Array.isArray(entry.harness) ? entry.harness.length : 0), 0);
+  if (count === 0) return null;
+  if (count === 1) return "one signature names the produce-refusals harness, not a producer";
+  return `${countWord(count)} signatures name the produce-refusals harness, not a producer`;
+}
+
+function malformedDeviation(contracts) {
+  return namedDeviation(
+    contracts.flatMap((entry) => entry.malformed),
+    (listed) => `one driven case (${listed}) records no emitter it can be traced to`,
+    (word, listed) => `${word} driven cases (${listed}) record no emitter they can be traced to`,
+  );
+}
+
+const CLOSURE_DEVIATIONS = [
+  {
+    list: "undriven",
+    one: (listed) => `one producing-cases file on disk is declared by no executed manifest (${listed})`,
+    many: (word, listed) => `${word} producing-cases files on disk are declared by no executed manifest (${listed})`,
+  },
+  {
+    list: "missing",
+    one: (listed) => `one cases path that an executed manifest declares is outside the driven namespace (${listed})`,
+    many: (word, listed) => `${word} cases paths that executed manifests declare are outside the driven namespace (${listed})`,
+  },
+  {
+    list: "duplicate",
+    one: (listed) => `one cases path is declared by more than one executed manifest (${listed})`,
+    many: (word, listed) => `${word} cases paths are declared by more than one executed manifest (${listed})`,
+  },
+];
+
+function closureDeviation(paths, kind) {
+  return namedDeviation(paths, kind.one, kind.many);
+}
+
+function boundRunClause(qualifying, other) {
+  if (qualifying.length === 0 && other.length === 0) return "";
+  if (qualifying.length === 0) return ` The bound run is not clean — ${other.join("; ")}.`;
+  const head = ` The bound run is not clean — ${qualifying.join("; ")} — ${COUNT_TAIL}`;
+  if (other.length === 0) return head;
+  const sentence = other.join("; ");
+  return `${head} ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
+}
+
 const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/u;
 
 /**
@@ -296,6 +433,7 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
     if (drift.length > 0) {
       throw new Error(`the produced report was produced on another tree: ${drift.join("; ")}`);
     }
+    requireProducedRecords(produced);
   }
   if (migrationSeam === null) {
     // The band is required evidence; the only way out is a refusal the
@@ -357,15 +495,22 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   const requiredTests = contracts.filter((entry) =>
     entry.headings.some((heading) => /^\d+\.\s+required (implementation|runtime) tests$/iu.test(heading)),
   );
-  // The refusal counts are read off the bound report rather than written into
-  // prose — a typed number is exactly how a stale one survives a re-measurement.
-  // A class counts only when a passing case produced it under a name its
-  // contract declares: a failed case contributes nothing, and neither does a
-  // produced code outside the contract's closed set. The not-clean list below
-  // is read from the same cases, so the explanation cannot disagree with the
-  // count whatever the report's aggregates say.
+  // Repeats are removed before anything is counted. A contract entry that
+  // JSON.stringify equals an earlier entry was written by the same code path
+  // and counts once. Case rows are not deduplicated, and two entries for one
+  // contract path that differ both count.
+  // Uncovered and undeclared then count distinct (contract path, name) pairs.
+  // The clause names each of the runner's seven exit conditions that fired,
+  // from these records and never from an aggregate. An exit-0 report, whose
+  // records are empty, gets no clause. A failed case, an unexecuted signature
+  // and a harness signature are read from the case rows. Uncovered, undeclared
+  // and malformed names come from each counted contract entry. Unclosed paths
+  // come from the closure lists (undriven, missing, duplicate). The tail
+  // follows only a failed case, an uncovered class or an undeclared class:
+  // those are what can make the produced count differ from the driven classes.
   const declaredBy = new Map(contracts.map((entry) => [entry.path, new Set(entry.refusals)]));
-  const producedCases = (produced?.contracts ?? []).flatMap((entry) =>
+  const countedContracts = produced === null ? null : withoutRepeats(produced.contracts);
+  const producedCases = (countedContracts ?? []).flatMap((entry) =>
     (entry.cases ?? []).map((entryCase) => ({ ...entryCase, contract: entry.contract, declared: declaredBy.get(entry.contract) ?? new Set() })),
   );
   const passingCases = producedCases.filter((entryCase) => entryCase.pass === true);
@@ -373,29 +518,33 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
     : new Set(passingCases.flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => entryCase.declared.has(code)))).size;
   const drivenClasses = new Set(producedCases.map((entryCase) => entryCase.class).filter((name) => name !== undefined)).size;
   const drivenClassLabel = drivenClasses === 1 ? "refusal class" : "refusal classes";
+  const contractCount = countedContracts === null ? 0
+    : new Set(countedContracts.map((entry) => entry.contract)).size;
+  const contractLabel = contractCount === 1 ? "contract" : "contracts";
   const daemonJudged = produced === null ? null
-    : passingCases.filter((entryCase) => entryCase.predicate_owner === "daemon").length;
-  const unproducedDeclared = produced === null ? 0 : produced.contracts.reduce((sum, entry) => {
-    const declared = declaredBy.get(entry.contract) ?? new Set();
-    const confirmed = new Set(passingCases.filter((entryCase) => entryCase.contract === entry.contract)
-      .flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => declared.has(code))));
-    return sum + [...declared].filter((code) => !confirmed.has(code)).length;
-  }, 0);
-  const undeclaredProduced = produced === null ? 0
-    : new Set(producedCases.flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => !entryCase.declared.has(code)))).size;
-  const listedSignatures = (field) => producedCases.reduce(
-    (sum, entryCase) => sum + (Array.isArray(entryCase[field]) ? entryCase[field].length : 0),
-    0,
-  );
-  const unexecutedSignatures = listedSignatures("unexecuted");
-  const harnessSignatures = listedSignatures("harness");
-  const producedDeviations = produced === null ? [] : [
-    ...(producedCases.length === passingCases.length ? [] : [`${countWord(producedCases.length - passingCases.length)} case${producedCases.length - passingCases.length === 1 ? "" : "s"} failed`]),
-    ...(unproducedDeclared === 0 ? [] : [`${countWord(unproducedDeclared)} declared class${unproducedDeclared === 1 ? " has" : "es have"} no passing case`]),
-    ...(undeclaredProduced === 0 ? [] : [`${countWord(undeclaredProduced)} produced code${undeclaredProduced === 1 ? " names" : "s name"} no declared class`]),
-    ...(unexecutedSignatures === 0 ? [] : [`${countWord(unexecutedSignatures)} signature${unexecutedSignatures === 1 ? "" : "s"} did not run during ${unexecutedSignatures === 1 ? "its" : "their"} case`]),
-    ...(harnessSignatures === 0 ? [] : [`${countWord(harnessSignatures)} signature${harnessSignatures === 1 ? "" : "s"} name${harnessSignatures === 1 ? "s" : ""} the produce-refusals harness`]),
-  ];
+    : new Set(passingCases.filter((entryCase) => entryCase.predicate_owner === "daemon").map((entryCase) => entryCase.class)).size;
+  const ticketLifecycleLabel = daemonJudged === 1 ? "ticket-lifecycle class" : "ticket-lifecycle classes";
+  const failedCases = produced === null ? 0 : producedCases.length - passingCases.length;
+  const qualifying = produced === null ? [] : present([
+    failedCases === 0 ? null : `${countWord(failedCases)} case${failedCases === 1 ? "" : "s"} failed`,
+    namedDeviation(
+      distinctRecordNames(countedContracts, "uncovered"),
+      (listed) => `one declared class has no case in its manifest (${listed})`,
+      (word, listed) => `${word} declared classes have no case in their manifest (${listed})`,
+    ),
+    namedDeviation(
+      distinctRecordNames(countedContracts, "undeclared"),
+      (listed) => `one driven class is not declared by its contract (${listed})`,
+      (word, listed) => `${word} driven classes are not declared by their contract (${listed})`,
+    ),
+  ]);
+  const other = produced === null ? [] : present([
+    unexecutedDeviation(producedCases),
+    harnessDeviation(producedCases),
+    malformedDeviation(countedContracts),
+    ...CLOSURE_DEVIATIONS.map((kind) => closureDeviation(produced.closure[kind.list], kind)),
+  ]);
+  const boundRun = boundRunClause(qualifying, other);
   const sameTree = cleanRoom.extension?.tree === tree && cleanRoom.extension?.dirty === false;
 
   sections.push(`# autosk-traycer-flow — final acceptance package
@@ -760,7 +909,7 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   of the ${contracts.length} contracts carry a required-tests section, and what
   produces classes at all is one command — ${produced === null
     ? `no produced report is bound to this build, so no produced count is claimed here.`
-    : `\`npm run produce:refusals\` drives ${produced.cases} cases over ${drivenClasses} ${drivenClassLabel} of ${countWord(produced.contracts.length)} contracts to the refusal that carries each class and compares the produced code with the declared class; the class list is read from this package's own contract measurement, so a class without a case fails the run. Of the ${classes} classes the contracts declare, this command produces ${producedClasses}; the other ${classes - producedClasses} are declared and not produced by it, and this table prints that rather than implying coverage.${producedDeviations.length === 0 ? "" : ` The bound run is not clean — ${producedDeviations.join("; ")} — so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven.`} For ${countWord(daemonJudged)} ticket-lifecycle classes the evidence is that the host writes the class when the predicate holds — the predicate is the daemon's judgment. The report is bound to the bytes, the directory membership and the positions it ran against, which is evidence about this tree and not an attestation of the Node runtime it ran under.`}
+    : `\`npm run produce:refusals\` drives ${producedCases.length} cases over ${drivenClasses} ${drivenClassLabel} of ${countWord(contractCount)} ${contractLabel} to the refusal that carries each class and compares the produced code with the declared class; the class list is read from this package's own contract measurement, so a class without a case fails the run. Of the ${classes} classes the contracts declare, this command produces ${producedClasses}; the other ${classes - producedClasses} are declared and not produced by it, and this table prints that rather than implying coverage.${boundRun} For ${countWord(daemonJudged)} ${ticketLifecycleLabel} the evidence is that the host writes the class when the predicate holds — the predicate is the daemon's judgment. The report is bound to the bytes, the directory membership and the positions it ran against, which is evidence about this tree and not an attestation of the Node runtime it ran under.`}
   Section 4's refusal-class count is not that mapping either: it counts the
   classes named in the linked modules, which is a measurement over text and not
   a proof that any of them can be reached.
