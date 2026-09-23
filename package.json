@@ -63,5 +63,8 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "devDependencies": {
+    "acorn": "8.18.0"
   }
 }

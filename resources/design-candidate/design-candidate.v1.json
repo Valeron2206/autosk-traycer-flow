@@ -4,7 +4,7 @@
   "files": [
     {
       "path": ".github/workflows/validate-traycer-parity.yml",
-      "sha256": "2fc3448497db879a93fea78a262ecd3164e6ffb63f9e5ecabafea0620643566d"
+      "sha256": "0b4ed3e65bc7a6a1aec21868f79d4c917c6493b417422af0c04233e905e4530b"
     },
     {
       "path": "01-core-flows.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "47aafa331eb9bb5152cee55ce83d7ca020349fca3e3cd377a42435c5ae25dbef"
+      "sha256": "8aa481dcee68ac63da279c3a2892f32538d90dd2d67be7cf2b06fa29322f73b0"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -216,7 +216,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "afe712919c5caac2ca2b738d69c73cbb264ffee35b70295529b8baa3b0b35c63"
+      "sha256": "30763c54e533f5c23254bb6cb917a0630c6e12d209d55f36cb57ee6d0bd5335e"
     },
     {
       "path": "resources/anchor-pack/anchor-pack.refused.example.json",
@@ -256,7 +256,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "868002ac0707130fec50d431053548e14397177253d0e30f1472ede6cc80c5cc"
+      "sha256": "215b4c296fe5854101d7ae4d0eacf602189f6cc36f19a83bb4a615257857e57c"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "ea7030938ad18e10af98eec86254e45285c548af7da42804ac75782878f0220b",
+  "candidate_digest": "b6df2fc1beef19c02bafce7b9af9b5ade127de632e0abdb679ea203bb9d3d629",
   "dispositions": [
     {
       "issue": 3,

@@ -27,6 +27,7 @@ import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,46 +85,80 @@ export const PREDICATE_RULES = Object.freeze([
   { from: "<", to: "<=" },
 ]);
 
+// After acorn's own context update: a name or keyword after `?.` is a property
+// (acorn exempts only `.`); a bare `yield` while `inGenerator` starts an
+// expression (acorn knows a generator only through `function*`); a bare `of`
+// whose context is not `p_stat` is an identifier. `for (` is `p_stat`, so
+// `for (x of /re/)` stays a regex. `for await (` is `p_expr`, so the `of` rule
+// fires there too and the parser rereads the slash, including one that starts
+// `/=`.
+function propertyAfterChain(tokTypes, tokContexts) {
+  return function extendParser(ParserClass) {
+    return class extends ParserClass {
+      updateContext(prevType) {
+        super.updateContext(prevType);
+        if (prevType === tokTypes.questionDot && (this.type === tokTypes.name || this.type.keyword)) {
+          this.exprAllowed = false;
+        }
+        if (this.type === tokTypes.name && prevType !== tokTypes.dot && prevType !== tokTypes.questionDot) {
+          if (this.value === "yield" && this.inGenerator) this.exprAllowed = true;
+          if (this.value === "of" && this.curContext() !== tokContexts.p_stat) this.exprAllowed = false;
+        }
+      }
+
+      // acorn rereads only a lone '/' as a regex in expression position
+      // (dist/acorn.js:3040-3041). A '/=' there starts a regex that begins
+      // with '=': after await, after break, continue or debugger ended by
+      // ASI, or after a for-await of.
+      parseExprAtom(refDestructuringErrors, forInit, forNew) {
+        if (this.type === tokTypes.assign && this.value === "/=") {
+          this.pos = this.start + 1;
+          this.readRegexp();
+        }
+        return super.parseExprAtom(refDestructuringErrors, forInit, forNew);
+      }
+    };
+  };
+}
+
+// Modules that import this file for RULES or reportDigest must not load a
+// parser, and the produce-refusals run binds every file it reads.
+let scanningParser;
+function scanningParserClass() {
+  if (!scanningParser) {
+    const acorn = createRequire(import.meta.url)("acorn");
+    scanningParser = acorn.Parser.extend(propertyAfterChain(acorn.tokTypes, acorn.tokContexts));
+  }
+  return scanningParser;
+}
+
+const NON_CODE_TOKENS = new Set(["string", "template", "invalidTemplate", "regexp"]);
+
 /**
  * The offsets that are real code.
  *
- * An operator inside a message, a comment or a regular expression is not a
- * predicate, and mutating one produces either a meaningless mutant or a syntax
- * error counted as a kill — which would inflate the number this command exists
- * to make honest. So the source is scanned once and only code offsets are
- * offered.
+ * Every token is code except strings, template text and regex literals.
+ * Comments and whitespace are not code; the code inside `${...}` is. An
+ * operator inside a message, a comment or a regex is not a predicate, and
+ * mutating one gives a meaningless mutant or a syntax error counted as a
+ * kill. The parser, not the tokenizer, supplies the tokens, because it
+ * rereads a slash in expression position as a regex and refuses source it
+ * cannot read. acorn refuses source nested beyond its recursion depth (about
+ * a thousand levels, far beyond hand-written code). codeOffsets throws that
+ * bare SyntaxError; moduleMutants adds the module's name.
  */
 export function codeOffsets(source) {
   const code = new Uint8Array(source.length);
-  let state = "code";
-  for (let i = 0; i < source.length; i += 1) {
-    const ch = source[i];
-    const next = source[i + 1];
-    if (state === "code") {
-      if (ch === "/" && next === "/") { state = "line"; continue; }
-      if (ch === "/" && next === "*") { state = "block"; i += 1; continue; }
-      if (ch === "'" || ch === '"' || ch === "`") { state = ch; continue; }
-      // A slash after an operator or an opening bracket starts a regex; after a
-      // value it is division. The conservative reading is regex, because a
-      // missed regex would offer its contents as predicates.
-      if (ch === "/") {
-        const before = source.slice(0, i).trimEnd();
-        const last = before[before.length - 1];
-        if (last === undefined || "=(,:[!&|?{};+-*%<>~^".includes(last)) { state = "regex"; continue; }
-      }
-      code[i] = 1;
-      continue;
-    }
-    if (state === "line") { if (ch === "\n") state = "code"; continue; }
-    if (state === "block") { if (ch === "*" && next === "/") { state = "code"; i += 1; } continue; }
-    if (state === "regex") {
-      if (ch === "\\") { i += 1; continue; }
-      if (ch === "/") state = "code";
-      continue;
-    }
-    // Inside a string of some kind.
-    if (ch === "\\") { i += 1; continue; }
-    if (ch === state) state = "code";
+  const tokens = [];
+  scanningParserClass().parse(source, {
+    ecmaVersion: "latest",
+    sourceType: "module",
+    allowReturnOutsideFunction: true,
+    onToken: tokens,
+  });
+  for (const token of tokens) {
+    if (token.type.label === "eof" || NON_CODE_TOKENS.has(token.type.label)) continue;
+    for (let i = token.start; i < token.end; i += 1) code[i] = 1;
   }
   return code;
 }
@@ -173,6 +208,16 @@ export function mutants(source) {
     }
   }
   return out;
+}
+
+/** mutants(source), or a refusal that names the module instead of guessing. */
+export function moduleMutants(module, source) {
+  try {
+    return mutants(source);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw new Error(`cannot parse ${module}: ${error.message}`, { cause: error });
+  }
 }
 
 /** The listing a run enumerates: every host module and the test directory. */
@@ -302,7 +347,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const absolute = path.join(ROOT, pair.module);
     const original = readFileSync(absolute, "utf8");
     const backup = `${absolute}${BACKUP_SUFFIX}`;
-    const cases = mutants(original);
+    const cases = moduleMutants(pair.module, original);
     let killed = 0;
     writeFileSync(backup, original);
     try {
