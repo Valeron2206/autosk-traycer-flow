@@ -91,7 +91,7 @@
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadVerifiedEngine } from "./lib/seam-engine-gate.mjs";
+import { assertMeasurerLoadsBeforeEmit, loadVerifiedEngine } from "./lib/seam-engine-gate.mjs";
 
 const SRC = process.env.AUTOSK_SOURCE_DIR;
 const PROJECT = process.env.AUTOSK_PROJECT_DIR;
@@ -278,6 +278,11 @@ const witnessDecision = runtimeIdentityDecision(registryAfter, witnessPin.pin, "
 note(`control task ${witness.id}: pin at ${witnessPin.file} ${JSON.stringify(witnessPin.pin)}; decision ${JSON.stringify(witnessDecision)}`);
 
 await store.close();
+
+// The gate checked the log before the bind. This is the whole log: a path
+// under the source root is engine code, and a measurer module loaded after
+// the bind is still named.
+assertMeasurerLoadsBeforeEmit(SRC);
 
 process.stdout.write(
   `${JSON.stringify(

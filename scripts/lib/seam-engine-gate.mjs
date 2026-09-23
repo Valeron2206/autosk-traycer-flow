@@ -11,7 +11,9 @@
  * the gate, the run dies while the link is still foreign: by the time any
  * foreign module could restore anything, the guard has already read it.
  *
- * The refusals precede the imports:
+ * These refusals run before the engine imports. The measurer-load check is
+ * the exception: the driver repeats it before the record is emitted, after
+ * those imports have returned.
  *
  *  - the launch itself: a `bunfig.toml` in the caller's cwd, a second
  *    `--preload` in any alias spelling, or an env var like `BUN_OPTIONS` can
@@ -34,7 +36,23 @@
  *    are not the `bun install` links refused by name. The module part has a
  *    floor of its own: every workspace package the imports resolve through
  *    must contribute bound bytes — a helper-only binding names nothing the
- *    run imported.
+ *    run imported;
+ *  - the measurer's own modules. Before the bind, and again in the driver
+ *    before it emits the record, the load log must not name a repository
+ *    file outside `MEASURER_FILES`, whoever imported it; a specifier that
+ *    does not resolve to a path, unless its importer is under the measured
+ *    source root; or the repository root itself.
+ *
+ * Three channels stay outside these refusals. The measurer's non-module reads
+ * of repository files are not on the load log: today it reads only the
+ * measured source root, the project directory, the run's bunfig and the
+ * bound files themselves. `bindSource` hashes a module when the record is
+ * sealed, not at the moment the module was loaded, so a byte that changes
+ * in that window is not what the log checked. A loader reached through a
+ * computed property or a built string, such as `globalThis["Wor" + "ker"]`,
+ * and a module-loading API the rule does not name, such as `module._load`,
+ * are not names the closure test can see. A non-literal specifier that bun
+ * does not log is the same kind of gap.
  *
  * Only then are the engine modules imported and returned with the binding.
  *
@@ -48,7 +66,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { bindSource, digestOf } from "./produced-source.mjs";
@@ -58,12 +76,13 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 // The measurer's own bytes — bound into every record so a record produced by
 // other code is refused downstream by name. `classifySeam` requires this same
-// set.
+// set, and it is the relative-import closure of both entry points.
 export const MEASURER_FILES = [
   "scripts/verify-autosk-migration-seam.mjs",
   "scripts/verify-autosk-migration-seam.driver.ts",
   "scripts/lib/seam-engine-gate.mjs",
   "scripts/lib/seam-module-loads.mjs",
+  "scripts/lib/produced-source.mjs",
 ];
 
 // The engine modules the driver exercises, as source-root-relative
@@ -177,18 +196,17 @@ export function assertLaunchIntegrity({ execArgv, env, cwd, entry }) {
   }
 }
 
-const resolvesUnder = (roots, name, importer) => {
-  let candidate = null;
-  if (typeof name === "string" && name.startsWith("/")) {
-    candidate = name;
-  } else if (
-    typeof name === "string" &&
-    name.startsWith(".") &&
-    typeof importer === "string" &&
-    importer.startsWith("/")
-  ) {
-    candidate = resolve(dirname(importer), name);
+const resolvedLoad = (name, importer) => {
+  if (typeof name !== "string") return null;
+  if (name.startsWith("/")) return name;
+  if (name.startsWith(".") && typeof importer === "string" && importer.startsWith("/")) {
+    return resolve(dirname(importer), name);
   }
+  return null;
+};
+
+const resolvesUnder = (roots, name, importer) => {
+  const candidate = resolvedLoad(name, importer);
   return candidate !== null && roots.some((root) => candidate === root || candidate.startsWith(`${root}/`));
 };
 
@@ -212,6 +230,13 @@ export function assertNoEngineLoad(loads, logicalRoot, physicalRoot) {
     (entry) =>
       resolvesUnder(roots, entry?.specifier, entry?.importer) ||
       resolvesUnder(roots, entry?.importer) ||
+      // bun 1.4.0 does not log a static bare import without a dot, so this
+      // clause never sees one of those. It does log a dotted `@autosk/...`
+      // subpath as written. The closure test reads one acorn parse. It
+      // refuses any name `require`, `createRequire`, `Worker` or `dlopen`,
+      // alias included, and every import, export-from, `import()` or
+      // `require()` source that is a string and is not relative or `node:`.
+      // It does not refuse every bare specifier.
       (typeof entry?.specifier === "string" && entry.specifier.startsWith("@autosk/")),
   );
   if (early.length > 0) {
@@ -220,6 +245,82 @@ export function assertNoEngineLoad(loads, logicalRoot, physicalRoot) {
         "a load that early could repair the surface before the binding reads it",
     );
   }
+}
+
+/**
+ * The load log against the measurer's own binding.
+ *
+ * `assertNoEngineLoad` refuses engine code that resolved before the guard.
+ * This refuses the other direction: a module under this repository, and
+ * outside the measured source root, that the log shows resolved and
+ * `MEASURER_FILES` does not name. Those bytes ran, and the record cannot
+ * name them. `node:` and `bun:` built-ins are not files of this repository.
+ * A load whose path is under the measured source root is engine code: by
+ * the time the gate calls this, `git write-tree` has named the tracked tree
+ * and the executed surface is already bound. Every other resolved path is
+ * classified by that path, whoever imported it: inside this repository it
+ * must be in `MEASURER_FILES`, and outside both trees it is skipped.
+ *
+ * Only an entry that does not resolve to a path is skipped because its
+ * importer is under the source root. bun 1.4.0 logs a dotted bare specifier
+ * (`dotted.pkg`) as written; one imported by the engine is not a measurer
+ * file, and one imported by the measurer is refused by name. A load that
+ * resolves to the repository root itself is refused too.
+ *
+ * Resolution is the same rule as `resolvesUnder`: an absolute specifier is
+ * the path, a relative one is resolved against its importer. Both spellings
+ * of the repository root count, because a log entry may carry either.
+ */
+export function assertMeasurerLoads(loads, logicalRepo, physicalRepo, logicalSource, physicalSource) {
+  if (!Array.isArray(loads)) {
+    throw new Error("the module-load log is missing — nothing proves which measurer modules ran");
+  }
+  const repoRoots = [logicalRepo, physicalRepo].filter((root) => typeof root === "string" && root !== "");
+  const sourceRoots = [logicalSource, physicalSource].filter((root) => typeof root === "string" && root !== "");
+  for (const entry of loads) {
+    const specifier = entry?.specifier;
+    if (typeof specifier !== "string") continue;
+    if (specifier.startsWith("node:") || specifier.startsWith("bun:")) continue;
+    const importer = typeof entry?.importer === "string" ? entry.importer : "";
+    const from = importer === "" ? "no importer" : importer;
+    const candidate = resolvedLoad(specifier, importer);
+    if (candidate === null) {
+      if (resolvesUnder(sourceRoots, importer)) continue;
+      throw new Error(
+        `${specifier} (imported from ${from}) is not in the measurer binding — the load log names a specifier that does not resolve to a path`,
+      );
+    }
+    if (sourceRoots.some((root) => candidate === root || candidate.startsWith(`${root}/`))) continue;
+    let relativePath = null;
+    for (const root of repoRoots) {
+      if (candidate === root) {
+        relativePath = "";
+        break;
+      }
+      const prefix = `${root}/`;
+      if (candidate.startsWith(prefix)) {
+        relativePath = candidate.slice(prefix.length);
+        break;
+      }
+    }
+    if (relativePath === "") {
+      throw new Error(
+        `${specifier} (imported from ${from}) resolves to the repository root — the load log names the repository itself`,
+      );
+    }
+    if (relativePath === null) continue;
+    if (!MEASURER_FILES.includes(relativePath)) {
+      throw new Error(
+        `${relativePath} is not in the measurer binding — the load log names a repository module the record does not bind`,
+      );
+    }
+  }
+}
+
+// The driver's repeat of the check, on the gate's own repository and on the
+// log the preload recorded. `sourceDir` is the measured source root.
+export function assertMeasurerLoadsBeforeEmit(sourceDir) {
+  assertMeasurerLoads(moduleLoads, REPO, realpathSync(REPO), resolve(sourceDir), realpathSync(sourceDir));
 }
 
 /**
@@ -247,12 +348,49 @@ export function assertExecutedSurface(executedFiles, workspacePackages) {
   }
 }
 
+const contains = (parent, child) => {
+  const rel = relative(parent, child);
+  const escapes = rel === ".." || rel.startsWith(`..${sep}`);
+  return rel === "" || (!escapes && !isAbsolute(rel));
+};
+
+/**
+ * The measured source and the run's project directory must sit beside the
+ * repository, not inside it and not around it. An engine import can then
+ * resolve into this repository's `node_modules`, and the run's own scratch
+ * files can be mistaken for measurer modules. Both the path as given and
+ * its native realpath are compared with both spellings of the repository root.
+ */
+export function assertSeamTreesOutsideRepository(logicalRepo, physicalRepo, sourceDir, projectDir) {
+  const repos = [logicalRepo, physicalRepo].filter((root) => typeof root === "string" && root !== "");
+  for (const candidate of [sourceDir, projectDir]) {
+    if (typeof candidate !== "string" || candidate === "") continue;
+    const forms = [resolve(candidate)];
+    try {
+      forms.push(realpathSync.native(candidate));
+    } catch {
+      // a path that is not on disk yet is compared as given
+    }
+    for (const form of forms) {
+      for (const repo of repos) {
+        if (contains(repo, form)) {
+          throw new Error(`${form} is inside the repository; the measured source and the run's scratch must lie outside it`);
+        }
+        if (contains(form, repo)) {
+          throw new Error(`${form} contains the repository; the measured source and the run's scratch must lie outside it`);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Verify the executed surface, bind it, and only then import the engine
  * modules. Returns `{ modules, bound }` — `modules` keyed by the
  * ENGINE_MODULES table, `bound` the record's provenance block.
  */
 export async function loadVerifiedEngine(SRC, { storeLockBin }) {
+  assertSeamTreesOutsideRepository(REPO, realpathSync.native(REPO), resolve(SRC), process.env.AUTOSK_PROJECT_DIR ?? "");
   const realSRC = realpathSync(SRC);
   assertLaunchIntegrity({
     execArgv: process.execArgv,
@@ -382,6 +520,14 @@ export async function loadVerifiedEngine(SRC, { storeLockBin }) {
   executedFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const executed = { files: executedFiles, listings: [], digest: digestOf(executedFiles, []) };
   note(`bound ${executedFiles.length} executed files outside the tracked tree (digest ${executed.digest})`);
+
+  // What this call sees: loads resolved before it. That is the driver's
+  // entry, the static imports that evaluated to reach this function, and any
+  // dynamic import that already ran. It does not see a dynamic import after
+  // this line, a bare specifier bun 1.4.0 does not log (no dot, or a
+  // require of one), or a module only the wrapper loads. The driver repeats
+  // the check on the whole log before it emits the record.
+  assertMeasurerLoads(moduleLoads, REPO, realpathSync(REPO), resolve(SRC), realSRC);
 
   const bound = {
     source_tree: sourceTree,
