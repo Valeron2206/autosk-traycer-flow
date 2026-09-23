@@ -1776,6 +1776,7 @@
         "scripts/**",
         "test/**",
         "package.json",
+        "package-lock.json",
         ".github/workflows/*"
       ],
       "review": {
@@ -2074,5 +2075,5 @@
       "human_approval": "required"
     }
   ],
-  "registry_digest": "be9cf7db8d01ce1fe7e4d5f05a4f8c59264bb32e6ec27086076fef070124e06c"
+  "registry_digest": "5455f5d930dcd66fa32ee5133af68d4986202867aa3a0f77610d1e5cd0ff0b2f"
 }

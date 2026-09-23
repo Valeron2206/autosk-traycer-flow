@@ -94,9 +94,10 @@ Issue #3 добавляет только проверяемое сопостав
 
 Машиночитаемый реестр находится в `resources/traycer-parity/registry.v1.json`, закрытая схема — рядом в `registry.schema.json`, а человекочитаемая сводка — в `docs/traycer-parity-registry.md`. Исходные приватные bytes, домашние пути, sessions и transcripts не публикуются. Символические ссылки на Traycer встречаются только как миграционные locators или явные запреты runtime-зависимости.
 
-Проверка не требует внешних пакетов:
+Проверка требует одну devDependency, acorn, точной версией, установленную через npm ci:
 
 ```text
+npm ci
 npm test
 npm run validate:migration
 ```

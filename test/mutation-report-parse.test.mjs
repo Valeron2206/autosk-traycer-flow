@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { ROOT, hostListing, mutants, pairs } from "../scripts/mutation-report.mjs";
+import { ROOT, hostListing, moduleMutants, mutants, pairs } from "../scripts/mutation-report.mjs";
 
 const PARSE_WORKER = `
   import vm from "node:vm";
@@ -61,7 +61,7 @@ test("every mutant of every covered host module parses", () => {
   const cases = [];
   for (const pair of pairs(hostListing())) {
     const source = readFileSync(path.join(ROOT, pair.module), "utf8");
-    for (const mutant of mutants(source)) {
+    for (const mutant of moduleMutants(pair.module, source)) {
       cases.push({ module: pair.module, line: mutant.line, guard: mutant.guard, source: mutant.source });
     }
   }
