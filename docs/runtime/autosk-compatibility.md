@@ -58,7 +58,9 @@ apply in the listed order, each producing the tree beside it:
 | `0037-operator-migrate-path.patch` | `44da0902ed65746dd76897df6695e27175aedb5b` |
 | `0038-cli-exits-from-the-register.patch` | `cedc6577cb9975f0c942988bd89917ffbfccc699` |
 | `0034-transition-takings-counter.patch` | `39c6cc16cc9974364667247e9ce9c9d34d32233b` |
-| `0039-step-visits-prototype-key.patch` | `55e6c9e54a36b0dc3efbc5ca9f70296e3bd72be6` — the current `result_tree` |
+| `0039-step-visits-prototype-key.patch` | `55e6c9e54a36b0dc3efbc5ca9f70296e3bd72be6` |
+| `0040-apply-migration-carries-helper.patch` | `5e1b241dbb15128369aa488bea57802a18cf2954` |
+| `0041-operator-source-document.patch` | `ee9b550c0cd881d66d32c7a94296d1d6bb00a441` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

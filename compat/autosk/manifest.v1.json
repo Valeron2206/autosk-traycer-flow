@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "5e1b241dbb15128369aa488bea57802a18cf2954",
+  "result_tree": "ee9b550c0cd881d66d32c7a94296d1d6bb00a441",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -158,6 +158,10 @@
     {
       "file": "patches/0040-apply-migration-carries-helper.patch",
       "sha256": "33134d3bb5cb87dcadbfb666d46a24f8bddfd920f1fba3297e54219520864fe6"
+    },
+    {
+      "file": "patches/0041-operator-source-document.patch",
+      "sha256": "c68392e497283d8a24efb64f0b3e2f200e69529126c5f871628e19ab905816e3"
     }
   ],
   "license": {

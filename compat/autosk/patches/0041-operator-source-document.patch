@@ -1,0 +1,377 @@
+diff --git a/daemon/core/src/engine/migration-runner.ts b/daemon/core/src/engine/migration-runner.ts
+index 99dccddecf0819b9baa0abffe5ec0f4c4aa0eac8..3e58c53cc2fa1ff8834d1868c455212fdf75443e 100644
+--- a/daemon/core/src/engine/migration-runner.ts
++++ b/daemon/core/src/engine/migration-runner.ts
+@@ -52,6 +52,21 @@ export async function planProjectMigration(
+   workflow: string,
+   from?: string,
+ ): Promise<MigrationPlanResult> {
++  return planToResult(await planForMigration(store, registry, workflow, from));
++}
++
++/**
++ * The internal half of {@link planProjectMigration}: gathers what the planner
++ * needs and returns the whole plan — `planProjectMigration` projects it for
++ * the wire, `applyProjectMigration` consumes the parts the wire never sees
++ * (the source document the receipt must claim).
++ */
++async function planForMigration(
++  store: Store,
++  registry: ExtensionRegistry,
++  workflow: string,
++  from?: string,
++): Promise<MigrationPlan> {
+   const tasks = await store.storedTasks();
+   const recorded = await store.recordedDistributions();
+   const source = from ?? inferSourceDigest(tasks, workflow);
+@@ -66,8 +81,7 @@ export async function planProjectMigration(
+       impact: [],
+     };
+   }
+-  const plan = planMigration(registry, recorded, tasks, source, workflow);
+-  return planToResult(plan);
++  return planMigration(registry, recorded, tasks, source, workflow);
+ }
+ 
+ /**
+@@ -104,7 +118,7 @@ export async function applyProjectMigration(
+     }
+     return continueMigration(store, registry, receipt);
+   }
+-  const plan = await planProjectMigration(store, registry, workflow, from);
++  const plan = await planForMigration(store, registry, workflow, from);
+   if (!plan.supported) {
+     return { ok: false, reason: plan.reason };
+   }
+@@ -116,7 +130,7 @@ export async function applyProjectMigration(
+     plan.workflow!,
+     plan.impact.map((i) => i.taskId),
+     undefined,
+-    admitted?.document !== undefined ? { to: admitted.document } : undefined,
++    migrationDocuments(plan.fromDocument, admitted?.document),
+   );
+   const sealed = await store.applyMigration(receipt.id);
+   return { ok: true, receipt: receiptToResult(sealed) };
+@@ -170,6 +184,20 @@ export async function rollbackProjectMigration(
+     return { ok: false, reason: plan.reason };
+   }
+   const admitted = registry.workflowAdmission(plan.workflow!);
++  // The forward receipt's source document is the only record of what the moved
++  // tasks came from. The digest check above proves the restored distribution is
++  // the one they left, but a document can change inside it — and sealing the
++  // reversal would then write a (digest, shape, document) triple no task ever
++  // held. A forward receipt carrying no `from_document` makes no claim to test:
++  // it predates the field, or its tasks carried none, and it is not retrofitted.
++  if (original.from_document !== undefined && admitted!.document !== original.from_document) {
++    return {
++      ok: false,
++      reason:
++        `rolling back ${original.id} needs ${original.workflow} to serve document ` +
++        `${original.from_document}; it serves ${admitted!.document ?? "none"}`,
++    };
++  }
+   const receipt = await store.beginMigration(
+     plan.from!,
+     plan.to!,
+@@ -177,7 +205,7 @@ export async function rollbackProjectMigration(
+     plan.workflow!,
+     plan.impact.map((i) => i.taskId),
+     plan.reverses,
+-    admitted?.document !== undefined ? { to: admitted.document } : undefined,
++    migrationDocuments(plan.fromDocument, admitted?.document),
+   );
+   const sealed = await store.applyMigration(receipt.id);
+   return { ok: true, receipt: receiptToResult(sealed) };
+@@ -285,6 +313,17 @@ async function continueMigration(
+   return { ok: true, receipt: receiptToResult(sealed) };
+ }
+ 
++/**
++ * The document pair a receipt claims: the one source document the plan's tasks
++ * were admitted from, and the target document the registry serves. Either half
++ * absent is omitted rather than written — a receipt predating the field and a
++ * workflow built from no document both carry none, and the move only checks
++ * what the receipt claims.
++ */
++function migrationDocuments(from: string | undefined, to: string | undefined) {
++  return from !== undefined || to !== undefined ? { from, to } : undefined;
++}
++
+ function planToResult(plan: MigrationPlan): MigrationPlanResult {
+   if (!plan.supported) {
+     return { supported: false, reason: plan.reason, impact: plan.impact };
+diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
+index 65ea51568740a9812c26f7ff2b5cc7b9e49dc5c2..3271d5d1f66b260250243e6dbcd42f259c3542df 100644
+--- a/daemon/core/src/engine/migration.ts
++++ b/daemon/core/src/engine/migration.ts
+@@ -28,7 +28,20 @@ export interface MigrationImpact {
+ /** Why a pair was refused, or the plan when it was not. */
+ export type MigrationPlan =
+   | { supported: false; reason: string; impact: MigrationImpact[] }
+-  | { supported: true; from: string; to: string; workflow: string; impact: MigrationImpact[] };
++  | {
++      supported: true;
++      from: string;
++      to: string;
++      workflow: string;
++      impact: MigrationImpact[];
++      /**
++       * The one document every task in the plan was admitted from, or absent
++       * when they all carry none. Recorded on the receipt as `from_document`
++       * so the move can compare it against each task's pin — a document can
++       * change inside one distribution, which the digest check cannot see.
++       */
++      fromDocument?: string;
++    };
+ 
+ /**
+  * Plans the move of every open task pinned to `from` onto the distribution the
+@@ -60,7 +73,7 @@ export function planMigration(
+   // a planner that silently planned around tasks it was not shown would answer a
+   // question nobody asked. `Store.deleteDistribution` makes the same demand of
+   // itself by refusing while any task on disk is unaccounted for.
+-  const { impact, unreadable, split } = affectedTasks(tasks, from, workflow);
++  const { impact, unreadable, split, documents } = affectedTasks(tasks, from, workflow);
+ 
+   // Two different states, and they are reported apart. One is "the pin cannot be
+   // read at all", found across the whole project; the other is "pin and position
+@@ -80,6 +93,19 @@ export function planMigration(
+       impact,
+     };
+   }
++  // The receipt claims ONE source document for the whole move, so the task set
++  // may carry exactly one — "carries none" included. Two tasks admitted from
++  // different documents, and one carrying a document beside one carrying none,
++  // both leave a pair no single `from_document` can name truthfully.
++  if (documents.size > 1) {
++    return {
++      supported: false,
++      reason:
++        `open tasks on ${from} came from ${documents.size} documents ` +
++        `(${[...documents].map((d) => d ?? "none").join(", ")}); a migration can only claim one source`,
++      impact,
++    };
++  }
+   if (!recordedDigests.has(from)) {
+     return { supported: false, reason: `source distribution ${from} is not recorded`, impact };
+   }
+@@ -117,7 +143,7 @@ export function planMigration(
+       impact: marked,
+     };
+   }
+-  return { supported: true, from, to, workflow, impact: marked };
++  return { supported: true, from, to, workflow, impact: marked, fromDocument: [...documents][0] };
+ }
+ 
+ /**
+@@ -142,10 +168,11 @@ function affectedTasks(
+   tasks: readonly StoredTask[],
+   from: string,
+   workflow: string,
+-): { impact: MigrationImpact[]; unreadable: string[]; split: string[] } {
++): { impact: MigrationImpact[]; unreadable: string[]; split: string[]; documents: Set<string | undefined> } {
+   const impact: MigrationImpact[] = [];
+   const unreadable: string[] = [];
+   const split: string[] = [];
++  const documents = new Set<string | undefined>();
+   for (const task of tasks) {
+     if (!OPEN_STATUSES.has(task.status)) continue;
+     const pin = readRuntimeIdentityPin(task.metadata);
+@@ -169,11 +196,12 @@ function affectedTasks(
+     }
+     if (!pinNames) continue;
+     impact.push({ taskId: task.id, workflow: pin.pin.workflow, step: task.step });
++    documents.add(pin.pin.document);
+   }
+   impact.sort((a, b) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0));
+   unreadable.sort();
+   split.sort();
+-  return { impact, unreadable, split };
++  return { impact, unreadable, split, documents };
+ }
+ 
+ /** Fills in each impact's blocker against the target workflow's steps. */
+diff --git a/daemon/core/test/engine.migration-runner.test.ts b/daemon/core/test/engine.migration-runner.test.ts
+index 1bdb285e7b5d2df85e522a90c7c4fee44f43f99d..380fc3365487346e0fda76b33d2bbf20476d6312 100644
+--- a/daemon/core/test/engine.migration-runner.test.ts
++++ b/daemon/core/test/engine.migration-runner.test.ts
+@@ -27,6 +27,10 @@ const LISTING_NEW = "file def index.ts\n";
+ const OLD = createHash("sha256").update(LISTING_OLD, "utf8").digest("hex");
+ const NEW = createHash("sha256").update(LISTING_NEW, "utf8").digest("hex");
+ const ELSEWHERE = "3".repeat(64);
++const DOC_A = "a".repeat(64);
++const DOC_B = "b".repeat(64);
++const DOC_C = "c".repeat(64);
++const DOC_T = "d".repeat(64);
+ const steps = { intake: { status: "human" }, review: { status: "human" } };
+ 
+ function registryWithSteps(
+@@ -46,6 +50,17 @@ function registryWith(digest: string): ExtensionRegistry {
+   return registryWithSteps(digest, steps);
+ }
+ 
++/** A registry whose workflow was built from a graph document (`graphDigest`). */
++function registryWithDocument(digest: string, document: string): ExtensionRegistry {
++  const registry = new ExtensionRegistry();
++  registry.addWorkflow(
++    "test",
++    { name: "wf", firstStep: Object.keys(steps)[0]!, steps, graphDigest: document } as never,
++    { root: "/x", entry: "index.ts", entries: [], bytes: 0, digest } as never,
++  );
++  return registry;
++}
++
+ /** The graph digest a receipt must name to match what this registry serves. */
+ function servedGraph(registry: ExtensionRegistry): string {
+   return registry.workflowAdmission("wf")!.graph;
+@@ -73,13 +88,20 @@ describe("migration runner", () => {
+     return { store, root: dir.path };
+   }
+ 
+-  async function pinned(store: Store, digest: string, status: TaskStatus = "human"): Promise<string> {
++  async function pinned(
++    store: Store,
++    digest: string,
++    status: TaskStatus = "human",
++    document?: string,
++  ): Promise<string> {
+     const t = await store.createTask({ title: "migrating" });
+-    await store.setPosition(
+-      t.id,
+-      { status, workflow: "wf", step: "review" },
+-      { pinRuntimeIdentity: { workflow: "wf", digest, graph: GRAPH } },
+-    );
++    const pin: { workflow: string; digest: string; graph: string; document?: string } = {
++      workflow: "wf",
++      digest,
++      graph: GRAPH,
++    };
++    if (document !== undefined) pin.document = document;
++    await store.setPosition(t.id, { status, workflow: "wf", step: "review" }, { pinRuntimeIdentity: pin });
+     return t.id;
+   }
+ 
+@@ -222,4 +244,123 @@ describe("migration runner", () => {
+     // One forward receipt and one reversal — no second, mis-named rollback.
+     expect(await store.listMigrations()).toHaveLength(2);
+   });
++
++  test("an apply refuses to move a task whose document changed since the receipt opened", async () => {
++    // The receipt is opened, the run dies before the move, and the task is
++    // re-admitted under the same distribution with another document — a change
++    // the digest check cannot see, because the document lives inside it. The
++    // continued run must refuse at the move rather than seal a receipt whose
++    // claim about where the task came from is already false.
++    const { store } = await project();
++    const id = await pinned(store, OLD, "human", DOC_A);
++    const target = registryWithDocument(NEW, DOC_T);
++
++    const applyMigration = store.applyMigration.bind(store);
++    store.applyMigration = async () => {
++      store.applyMigration = applyMigration;
++      throw new Error("interrupted before the move");
++    };
++    await expect(applyProjectMigration(store, target, "wf")).rejects.toThrow(
++      "interrupted before the move",
++    );
++    expect(await store.listMigrations()).toHaveLength(1);
++
++    await store.setPosition(
++      id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH, document: DOC_B } },
++    );
++
++    const error = await applyProjectMigration(store, target, "wf").catch((e) => e);
++    expect(error).toBeInstanceOf(Error);
++    expect((error as Error).message).toContain("came from document");
++    expect((error as Error).message).toContain(DOC_B);
++    expect((error as Error).message).toContain(DOC_A);
++    // The refusal is not a finish: the receipt stays open and the task stays put.
++    expect((await store.listMigrations())[0]!.completed_at).toBeUndefined();
++    expect(await digestOf(store, id)).toBe(OLD);
++  });
++
++  test("a rollback refuses to move a task whose document changed since the reverse receipt opened", async () => {
++    // The forward receipt is sealed, the operator restored the source
++    // distribution, the reverse receipt is opened, and the run dies before the
++    // move. A re-admit under the target distribution then hands the task a
++    // document the receipt never claimed.
++    const { store } = await project();
++    const id = await pinned(store, OLD, "human", DOC_A);
++    const applied = await applyProjectMigration(store, registryWithDocument(NEW, DOC_T), "wf");
++    expect(applied.ok).toBe(true);
++    const original = applied.receipt!;
++
++    const restored = registryWithDocument(OLD, DOC_A);
++    const applyMigration = store.applyMigration.bind(store);
++    store.applyMigration = async () => {
++      store.applyMigration = applyMigration;
++      throw new Error("interrupted before the move");
++    };
++    await expect(rollbackProjectMigration(store, restored, original.id)).rejects.toThrow(
++      "interrupted before the move",
++    );
++    expect(await store.listMigrations()).toHaveLength(2);
++
++    const movedDoc = "e".repeat(64);
++    await store.setPosition(
++      id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: GRAPH, document: movedDoc } },
++    );
++
++    const error = await rollbackProjectMigration(store, restored, original.id).catch((e) => e);
++    expect(error).toBeInstanceOf(Error);
++    expect((error as Error).message).toContain("came from document");
++    expect((error as Error).message).toContain(movedDoc);
++    expect((error as Error).message).toContain(DOC_T);
++    const reversal = (await store.listMigrations()).find((m) => m.reverses === original.id);
++    expect(reversal!.completed_at).toBeUndefined();
++    expect(await digestOf(store, id)).toBe(NEW);
++  });
++
++  test("an apply over tasks admitted from different documents refuses at planning", async () => {
++    // One receipt claims one source document, so a task set whose pins disagree
++    // about it has no honest plan. A pin with a document and a pin without one
++    // disagree the same way.
++    const { store } = await project();
++    await pinned(store, OLD, "human", DOC_A);
++    await pinned(store, OLD, "human", DOC_B);
++
++    const result = await applyProjectMigration(store, registryWithDocument(NEW, DOC_T), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(DOC_A);
++    expect(result.reason).toContain(DOC_B);
++    expect(await store.listMigrations()).toHaveLength(0);
++
++    const other = await project();
++    await pinned(other.store, OLD, "human", DOC_A);
++    await pinned(other.store, OLD);
++
++    const mixed = await applyProjectMigration(other.store, registryWithDocument(NEW, DOC_T), "wf");
++    expect(mixed.ok).toBe(false);
++    expect(mixed.reason).toContain(DOC_A);
++    expect(mixed.reason).toContain("none");
++    expect(await other.store.listMigrations()).toHaveLength(0);
++  });
++
++  test("a rollback refuses when the restored distribution serves another document", async () => {
++    // The forward receipt records the document the tasks came from. Restoring
++    // the source distribution under a different document would seal a reversal
++    // pinning each task to a (digest, shape, document) it never held — so the
++    // rollback refuses before opening its receipt.
++    const { store } = await project();
++    await pinned(store, OLD, "human", DOC_A);
++    const applied = await applyProjectMigration(store, registryWithDocument(NEW, DOC_T), "wf");
++    expect(applied.ok).toBe(true);
++    const original = applied.receipt!;
++
++    const result = await rollbackProjectMigration(store, registryWithDocument(OLD, DOC_C), original.id);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(DOC_A);
++    expect(result.reason).toContain(DOC_C);
++    // The only receipt is the sealed forward one — nothing was opened.
++    expect(await store.listMigrations()).toHaveLength(1);
++  });
+ });
