@@ -371,6 +371,8 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   const passingCases = producedCases.filter((entryCase) => entryCase.pass === true);
   const producedClasses = produced === null ? null
     : new Set(passingCases.flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => entryCase.declared.has(code)))).size;
+  const drivenClasses = new Set(producedCases.map((entryCase) => entryCase.class).filter((name) => name !== undefined)).size;
+  const drivenClassLabel = drivenClasses === 1 ? "refusal class" : "refusal classes";
   const daemonJudged = produced === null ? null
     : passingCases.filter((entryCase) => entryCase.predicate_owner === "daemon").length;
   const unproducedDeclared = produced === null ? 0 : produced.contracts.reduce((sum, entry) => {
@@ -381,10 +383,18 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   }, 0);
   const undeclaredProduced = produced === null ? 0
     : new Set(producedCases.flatMap((entryCase) => (entryCase.produced ?? []).filter((code) => !entryCase.declared.has(code)))).size;
+  const listedSignatures = (field) => producedCases.reduce(
+    (sum, entryCase) => sum + (Array.isArray(entryCase[field]) ? entryCase[field].length : 0),
+    0,
+  );
+  const unexecutedSignatures = listedSignatures("unexecuted");
+  const harnessSignatures = listedSignatures("harness");
   const producedDeviations = produced === null ? [] : [
     ...(producedCases.length === passingCases.length ? [] : [`${countWord(producedCases.length - passingCases.length)} case${producedCases.length - passingCases.length === 1 ? "" : "s"} failed`]),
     ...(unproducedDeclared === 0 ? [] : [`${countWord(unproducedDeclared)} declared class${unproducedDeclared === 1 ? " has" : "es have"} no passing case`]),
     ...(undeclaredProduced === 0 ? [] : [`${countWord(undeclaredProduced)} produced code${undeclaredProduced === 1 ? " names" : "s name"} no declared class`]),
+    ...(unexecutedSignatures === 0 ? [] : [`${countWord(unexecutedSignatures)} signature${unexecutedSignatures === 1 ? "" : "s"} did not run during ${unexecutedSignatures === 1 ? "its" : "their"} case`]),
+    ...(harnessSignatures === 0 ? [] : [`${countWord(harnessSignatures)} signature${harnessSignatures === 1 ? "" : "s"} name${harnessSignatures === 1 ? "s" : ""} the produce-refusals harness`]),
   ];
   const sameTree = cleanRoom.extension?.tree === tree && cleanRoom.extension?.dirty === false;
 
@@ -750,7 +760,7 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   of the ${contracts.length} contracts carry a required-tests section, and what
   produces classes at all is one command — ${produced === null
     ? `no produced report is bound to this build, so no produced count is claimed here.`
-    : `\`npm run produce:refusals\` drives each of the ${produced.cases} refusal classes of ${countWord(produced.contracts.length)} contracts to the refusal that carries it and compares the produced code with the declared class; the class list is read from this package's own contract measurement, so a class without a case fails the run. Of the ${classes} classes the contracts declare, this command produces ${producedClasses}; the other ${classes - producedClasses} are declared and not produced by it, and this table prints that rather than implying coverage.${producedDeviations.length === 0 ? "" : ` The bound run is not clean — ${producedDeviations.join("; ")} — so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven.`} For ${countWord(daemonJudged)} ticket-lifecycle classes the evidence is that the host writes the class when the predicate holds — the predicate is the daemon's judgment. The report is bound to the bytes, the directory membership and the positions it ran against, which is evidence about this tree and not an attestation of the Node runtime it ran under.`}
+    : `\`npm run produce:refusals\` drives ${produced.cases} cases over ${drivenClasses} ${drivenClassLabel} of ${countWord(produced.contracts.length)} contracts to the refusal that carries each class and compares the produced code with the declared class; the class list is read from this package's own contract measurement, so a class without a case fails the run. Of the ${classes} classes the contracts declare, this command produces ${producedClasses}; the other ${classes - producedClasses} are declared and not produced by it, and this table prints that rather than implying coverage.${producedDeviations.length === 0 ? "" : ` The bound run is not clean — ${producedDeviations.join("; ")} — so the produced count above is of declared classes confirmed produced by a passing case, not of classes driven.`} For ${countWord(daemonJudged)} ticket-lifecycle classes the evidence is that the host writes the class when the predicate holds — the predicate is the daemon's judgment. The report is bound to the bytes, the directory membership and the positions it ran against, which is evidence about this tree and not an attestation of the Node runtime it ran under.`}
   Section 4's refusal-class count is not that mapping either: it counts the
   classes named in the linked modules, which is a measurement over text and not
   a proof that any of them can be reached.

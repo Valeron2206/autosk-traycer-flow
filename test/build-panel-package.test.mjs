@@ -380,6 +380,62 @@ test("the row separates reading the contract from evaluating its rules", async (
   );
 });
 
+test("a produced report with more cases than classes does not call the cases classes", async () => {
+  const graph = "docs/contracts/workflow-graph.md";
+  const produced = {
+    source: bindSource(ROOT, [graph]),
+    cases: 2,
+    contracts: [
+      {
+        contract: graph,
+        produced: 1,
+        of: 2,
+        cases: [
+          { class: "graph_schema", pass: true, produced: ["graph_schema"] },
+          { class: "graph_schema", pass: true, produced: ["graph_schema"] },
+        ],
+      },
+    ],
+  };
+  const { text } = await build({ produced });
+  assert.match(text, /drives 2 cases over 1 refusal class/u);
+  assert.doesNotMatch(text, /2 refusal classes/u);
+});
+
+test("signatures that did not run or name the harness do not read as a clean run", async () => {
+  // Every case passes and every declared class is produced. That is the shape
+  // that read as clean: the not-clean list looked only at pass and produced,
+  // so a signature that did not run, or one that names the harness, never
+  // reached the sentence a seat reads.
+  const graph = "docs/contracts/workflow-graph.md";
+  const outline = contractOutline(read(graph));
+  const cases = outline.refusals.map((name, index) => ({
+    class: name,
+    pass: true,
+    produced: [name],
+    unexecuted: index === 0 ? ["src/host/workflow-graph-canonical.mjs#canonicalString"] : [],
+    harness: index === 1 ? ["scripts/produce-refusals.mjs#collectWrites"] : [],
+  }));
+  assert.ok(cases.length > 1, "the fixture needs two cases so each array is its own signature");
+  const produced = {
+    source: bindSource(ROOT, [graph]),
+    cases: cases.length,
+    contracts: [{ contract: graph, produced: cases.length, of: cases.length, cases }],
+  };
+  const { text } = await build({ produced });
+  const start = text.indexOf("`npm run produce:refusals` drives ");
+  assert.notEqual(start, -1, "the package has no produce:refusals sentence");
+  const end = text.indexOf("Node runtime it ran under.", start);
+  assert.notEqual(end, -1, "the produce:refusals sentence does not close");
+  const clause = text.slice(start, end);
+  assert.match(clause, new RegExp(`drives ${cases.length} cases over ${cases.length} refusal classes`, "u"));
+  assert.match(
+    clause,
+    /The bound run is not clean — one signature did not run during its case; one signature names the produce-refusals harness —/u,
+  );
+  assert.doesNotMatch(clause, /\bcases? failed\b/u);
+});
+
 test("a produced report fills the cell against the contract's own closed set", async () => {
   const graph = "docs/contracts/workflow-graph.md";
   const outline = contractOutline(read(graph));

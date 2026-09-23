@@ -16,9 +16,17 @@
  * any case whose class the contract does not declare. A case's `produced` list
  * is the classes read through the refusal channel its drive kind defines — a
  * normal return is not a refusal, and input bytes are never read as output.
- * The `emitter` a case carries is a declaration, copied into the report: its
- * `file#symbol` shape is checked, but which symbol actually ran is a question
- * the report does not answer.
+ * The `emitter` a case carries, and `also` when a case still carries one, are
+ * signatures. A signature passes when a function of that name in that file,
+ * outside the produce-refusals harness, ran during its case, read from V8
+ * precise coverage by script url and function name. Which of the functions
+ * that ran produced the code is not checked. `NODE_V8_COVERAGE` is refused,
+ * including when `node --test --experimental-test-coverage` sets it. A
+ * coverage session started in the same process through `node:inspector`, or a
+ * DevTools coverage recording, cannot be detected. Running `produceReport`
+ * inside such a host corrupts that host's coverage. `produce:refusals` must
+ * run in its own process. `--inspect` alone is not a coverage session and is
+ * left alone.
  *
  * The executed list is closed against the namespace it draws from: every
  * `produce-refusals-*.cases.json` on disk must be declared by an executed
@@ -31,7 +39,8 @@
  * contract documents. A package rendered on other bytes refuses the column.
  */
 
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { Session } from "node:inspector/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -139,6 +148,7 @@ const CHANNEL = {
   graph_validate: "returned",
   graph_parse: "thrown",
   graph_canonical: "thrown",
+  graph_build: "thrown",
   park_edge: "written",
   park_step: "written",
   admit: "thrown",
@@ -212,6 +222,13 @@ const DRIVES = {
   // the canonical serializer refuses a document the parser accepted
   async graph_canonical(drive, fixture, emitters) {
     return emitters.graphDigest(mutate(fixture.document(), drive.mutate));
+  },
+  // runtime build: the factory throws before a workflow exists. The document
+  // is mutated and restamped the same way graph_validate does, then built.
+  async graph_build(drive, fixture, emitters) {
+    const doc = mutate(fixture.document(), drive.mutate);
+    if (drive.restamp !== false) doc.canonical_digest = emitters.graphDigest(doc);
+    return emitters.buildWorkflow(doc, { evaluate: () => false });
   },
   // runtime: build the workflow and run the step so the named edge is the
   // one the selector can take — the edge's declared reason is the park write
@@ -340,6 +357,86 @@ function moduleClosure() {
   return seen;
 }
 
+const ROOT_REAL = realpathSync(ROOT);
+
+function scriptRelative(url) {
+  if (!url.startsWith("file:")) return null;
+  let file;
+  try {
+    file = realpathSync(fileURLToPath(url));
+  } catch {
+    return null;
+  }
+  const relative = path.relative(ROOT_REAL, file);
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative.split(path.sep).join("/");
+}
+
+/** file → functionName → highest call count in this take. A name that is absent did not run. */
+function executedFunctions(coverage) {
+  const byFile = new Map();
+  for (const script of coverage.result) {
+    const rel = scriptRelative(script.url);
+    if (rel === null) continue;
+    let names = byFile.get(rel);
+    if (!names) {
+      names = new Map();
+      byFile.set(rel, names);
+    }
+    for (const fn of script.functions) {
+      const count = fn.ranges[0]?.count ?? 0;
+      if (count > (names.get(fn.functionName) ?? 0)) names.set(fn.functionName, count);
+    }
+  }
+  return byFile;
+}
+
+const HARNESS_FILE = /^scripts\/produce-refusals(?:-.+)?\.mjs$/u;
+export const HOST_COVERAGE = "HOST_COVERAGE NODE_V8_COVERAGE — a host coverage session cannot share this isolate";
+
+/** The runner and every manifest module. A signature that names one is not a producer. */
+export function isHarnessFile(file) {
+  return HARNESS_FILE.test(file);
+}
+
+function signatureRan(byFile, signature) {
+  const mark = signature.indexOf("#");
+  const file = signature.slice(0, mark);
+  const symbol = signature.slice(mark + 1);
+  return (byFile.get(file)?.get(symbol) ?? 0) > 0;
+}
+
+function classifySignatures(caseDecl, ran) {
+  const harness = [];
+  const unexecuted = [];
+  for (const signature of caseSignatures(caseDecl)) {
+    if (isHarnessFile(signature.slice(0, signature.indexOf("#")))) harness.push(signature);
+    else if (!signatureRan(ran, signature)) unexecuted.push(signature);
+  }
+  return { harness, unexecuted };
+}
+
+/** Parse a fixture document once, outside the per-case window, and hand each case its own copy. */
+function freezeDocument(fixture) {
+  if (typeof fixture.document !== "function") return fixture;
+  const document = fixture.document();
+  return { ...fixture, document: () => structuredClone(document) };
+}
+
+/** Signatures a well-formed case declares. A malformed record is counted elsewhere. */
+function caseSignatures(caseDecl) {
+  if (caseEmitterFiles(caseDecl) === null) return [];
+  return caseDecl.also === undefined ? [caseDecl.emitter] : [caseDecl.emitter, caseDecl.also];
+}
+
+async function closeCoverage(session) {
+  await session.post("Profiler.stopPreciseCoverage");
+  await session.post("Profiler.disable");
+  session.disconnect();
+}
+
 export async function produceReport(manifests = executedManifests()) {
   // One measurement defines the class list for the run and for the package's
   // column: a declared class with no case, or a case naming no declared class,
@@ -355,105 +452,152 @@ export async function produceReport(manifests = executedManifests()) {
       .filter((name) => name.startsWith("produce-refusals-") && name.endsWith(".cases.json"))
       .map((name) => `scripts/${name}`),
   );
+  if (process.env.NODE_V8_COVERAGE) throw new Error(HOST_COVERAGE);
   const declaredBy = new Map(
     (await measureContracts()).map((entry) => [entry.path, entry.refusals]),
   );
-  const contracts = [];
-  for (const manifest of manifests) {
-    const fixture = manifest.fixture();
-    const cases = [];
-    for (const caseDecl of manifest.cases) {
-      cases.push(await produceCase(caseDecl, fixture, manifest.emitters));
+  // Modules are already evaluated. Precise coverage still counts calls made
+  // after it starts, including functions compiled at import. Fixture documents
+  // are parsed once here, and the take that follows clears that work, so a
+  // case's take is only the case.
+  const session = new Session();
+  session.connect();
+  await session.post("Profiler.enable");
+  await session.post("Profiler.startPreciseCoverage", { callCount: true, detailed: false });
+  try {
+    const prepared = manifests.map((manifest) => ({ manifest, fixture: freezeDocument(manifest.fixture()) }));
+    await session.post("Profiler.takePreciseCoverage");
+    const contracts = [];
+    for (const { manifest, fixture } of prepared) {
+      const cases = [];
+      for (const caseDecl of manifest.cases) {
+        const row = await produceCase(caseDecl, fixture, manifest.emitters);
+        const ran = executedFunctions(await session.post("Profiler.takePreciseCoverage"));
+        const { harness, unexecuted } = classifySignatures(caseDecl, ran);
+        cases.push({ ...row, unexecuted, harness });
+      }
+      const declared = declaredBy.get(manifest.CONTRACT) ?? [];
+      const caseClasses = cases.map((entry) => entry.class);
+      // A driven case that does not record who emitted its class is a manifest
+      // that measured nothing checkable — refused by name, not silently kept.
+      const malformed = manifest.cases
+        .filter((caseDecl) => caseEmitterFiles(caseDecl) === null)
+        .map((caseDecl) => caseDecl.class ?? JSON.stringify(caseDecl));
+      contracts.push({
+        contract: manifest.CONTRACT,
+        declared: declared.length,
+        // Distinct classes that have a passing case. A class with two producers
+        // is one class; the case count stays on `of`.
+        produced: new Set(cases.filter((entry) => entry.pass).map((entry) => entry.class)).size,
+        of: cases.length,
+        malformed,
+        unexecuted: cases.reduce((sum, entry) => sum + entry.unexecuted.length, 0),
+        // A harness signature is not "did not run": the function may have run,
+        // and the exclusion is what refused it. Counted apart from unexecuted.
+        harness: cases.reduce((sum, entry) => sum + entry.harness.length, 0),
+        uncovered: declared.filter((name) => !caseClasses.includes(name)),
+        undeclared: [...new Set(caseClasses.filter((name) => !declared.includes(name)))],
+        cases,
+      });
     }
-    const declared = declaredBy.get(manifest.CONTRACT) ?? [];
-    const caseClasses = cases.map((entry) => entry.class);
-    // A driven case that does not record who emitted its class is a manifest
-    // that measured nothing checkable — refused by name, not silently kept.
-    const malformed = manifest.cases
-      .filter((caseDecl) => caseEmitterFiles(caseDecl) === null)
-      .map((caseDecl) => caseDecl.class ?? JSON.stringify(caseDecl));
-    contracts.push({
-      contract: manifest.CONTRACT,
-      declared: declared.length,
-      produced: cases.filter((entry) => entry.pass).length,
-      of: cases.length,
-      malformed,
-      uncovered: declared.filter((name) => !caseClasses.includes(name)),
-      undeclared: [...new Set(caseClasses.filter((name) => !declared.includes(name)))],
-      cases,
-    });
+    // The report binds the bytes it was produced from: the module closure, the
+    // data each manifest's fixture declares it opens, and the contract document
+    // whose closed set the coverage check measured. The manifests' recorded
+    // directory listings cover every scan the derivation performs — the
+    // measureContracts flat scans are subsets of the deep ones — so an input
+    // added after the run refuses the column too.
+    const bound = moduleClosure();
+    const listings = [];
+    for (const manifest of manifests) {
+      for (const source of manifest.sources()) bound.add(source);
+      bound.add(manifest.CONTRACT);
+      listings.push(...(manifest.listings?.() ?? []));
+    }
+    // The closure scan above is a directory enumeration — record it so a
+    // cases file added after the run refuses the column too.
+    listings.push({ dir: "scripts", suffix: ".cases.json", deep: false });
+    return {
+      tool: "produce-refusals",
+      cases: contracts.reduce((sum, entry) => sum + entry.of, 0),
+      passed: contracts.reduce((sum, entry) => sum + entry.cases.filter((row) => row.pass).length, 0),
+      uncovered: contracts.reduce((sum, entry) => sum + entry.uncovered.length, 0),
+      undeclared: contracts.reduce((sum, entry) => sum + entry.undeclared.length, 0),
+      malformed: contracts.reduce((sum, entry) => sum + entry.malformed.length, 0),
+      unclosed: closure.undriven.length + closure.missing.length + closure.duplicate.length,
+      unexecuted: contracts.reduce((sum, entry) => sum + entry.unexecuted, 0),
+      harness: contracts.reduce((sum, entry) => sum + entry.harness, 0),
+      closure,
+      source: bindSource(ROOT, [...bound], listings),
+      contracts,
+    };
+  } finally {
+    await closeCoverage(session);
   }
-  // The report binds the bytes it was produced from: the module closure, the
-  // data each manifest's fixture declares it opens, and the contract document
-  // whose closed set the coverage check measured. The manifests' recorded
-  // directory listings cover every scan the derivation performs — the
-  // measureContracts flat scans are subsets of the deep ones — so an input
-  // added after the run refuses the column too.
-  const bound = moduleClosure();
-  const listings = [];
-  for (const manifest of manifests) {
-    for (const source of manifest.sources()) bound.add(source);
-    bound.add(manifest.CONTRACT);
-    listings.push(...(manifest.listings?.() ?? []));
-  }
-  // The closure scan above is a directory enumeration — record it so a
-  // cases file added after the run refuses the column too.
-  listings.push({ dir: "scripts", suffix: ".cases.json", deep: false });
-  return {
-    tool: "produce-refusals",
-    cases: contracts.reduce((sum, entry) => sum + entry.of, 0),
-    passed: contracts.reduce((sum, entry) => sum + entry.produced, 0),
-    uncovered: contracts.reduce((sum, entry) => sum + entry.uncovered.length, 0),
-    undeclared: contracts.reduce((sum, entry) => sum + entry.undeclared.length, 0),
-    malformed: contracts.reduce((sum, entry) => sum + entry.malformed.length, 0),
-    unclosed: closure.undriven.length + closure.missing.length + closure.duplicate.length,
-    closure,
-    source: bindSource(ROOT, [...bound], listings),
-    contracts,
-  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const out = process.argv.includes("--out") ? process.argv[process.argv.indexOf("--out") + 1] : null;
-  const report = await produceReport();
-  for (const file of report.closure.undriven) {
-    console.error(`UNDRIVEN ${file} — a producing-cases file on disk that no executed manifest declares`);
-  }
-  for (const file of report.closure.missing) {
-    console.error(`MISSING ${file} — an executed manifest declares a cases path outside the driven namespace`);
-  }
-  for (const file of report.closure.duplicate) {
-    console.error(`DUPLICATE ${file} — more than one executed manifest declares it as its cases file`);
-  }
-  for (const entry of report.contracts) {
-    console.log(
-      `${entry.contract}: produced ${entry.produced} of ${entry.declared} declared classes (${entry.of} cases)`,
-    );
-    for (const name of entry.uncovered) {
-      console.error(`  UNCOVERED ${name} — the contract declares it, no case produces it`);
-    }
-    for (const name of entry.undeclared) {
-      console.error(`  UNDECLARED ${name} — a case produces it, the contract does not declare it`);
-    }
-    for (const name of entry.malformed) {
-      console.error(`  MALFORMED ${name} — a driven case records no emitter it can be traced to`);
-    }
-    for (const failure of entry.cases.filter((row) => !row.pass)) {
-      console.error(`  FAIL ${failure.class} (${failure.drive}) produced: ${failure.produced.join(", ") || "nothing"}`);
-    }
-  }
-  console.log(
-    `cases=${report.cases} produced=${report.passed} failed=${report.cases - report.passed} ` +
-      `uncovered=${report.uncovered} undeclared=${report.undeclared} malformed=${report.malformed} unclosed=${report.unclosed}`,
-  );
-  if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
-  if (
-    report.passed !== report.cases ||
-    report.uncovered > 0 ||
-    report.undeclared > 0 ||
-    report.malformed > 0 ||
-    report.unclosed > 0
-  ) {
+  if (process.env.NODE_V8_COVERAGE) {
+    console.error(HOST_COVERAGE);
     process.exitCode = 1;
+  } else {
+    const report = await produceReport();
+    for (const file of report.closure.undriven) {
+      console.error(`UNDRIVEN ${file} — a producing-cases file on disk that no executed manifest declares`);
+    }
+    for (const file of report.closure.missing) {
+      console.error(`MISSING ${file} — an executed manifest declares a cases path outside the driven namespace`);
+    }
+    for (const file of report.closure.duplicate) {
+      console.error(`DUPLICATE ${file} — more than one executed manifest declares it as its cases file`);
+    }
+    for (const entry of report.contracts) {
+      console.log(
+        `${entry.contract}: produced ${entry.produced} of ${entry.declared} declared classes (${entry.of} cases)`,
+      );
+      for (const name of entry.uncovered) {
+        console.error(`  UNCOVERED ${name} — the contract declares it, no case produces it`);
+      }
+      for (const name of entry.undeclared) {
+        console.error(`  UNDECLARED ${name} — a case produces it, the contract does not declare it`);
+      }
+      for (const name of entry.malformed) {
+        console.error(`  MALFORMED ${name} — a driven case records no emitter it can be traced to`);
+      }
+      for (const failure of entry.cases.filter((row) => !row.pass)) {
+        console.error(`  FAIL ${failure.class} (${failure.drive}) produced: ${failure.produced.join(", ") || "nothing"}`);
+      }
+      for (const row of entry.cases) {
+        for (const signature of row.harness) {
+          console.error(
+            `  HARNESS ${row.class} ${signature} — the signature names the produce-refusals harness, not a producer`,
+          );
+        }
+        for (const signature of row.unexecuted) {
+          console.error(
+            `  UNEXECUTED ${row.class} ${signature} — the signature's function did not run during its case`,
+          );
+        }
+      }
+    }
+    console.log(
+      "a signature passes when a function of that name in that file, outside the produce-refusals harness, ran during its case; which of the functions that ran produced the code is not checked.",
+    );
+    console.log(
+      `cases=${report.cases} produced=${report.passed} failed=${report.cases - report.passed} ` +
+        `uncovered=${report.uncovered} undeclared=${report.undeclared} malformed=${report.malformed} unclosed=${report.unclosed} unexecuted=${report.unexecuted} harness=${report.harness}`,
+    );
+    if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
+    if (
+      report.passed !== report.cases ||
+      report.uncovered > 0 ||
+      report.undeclared > 0 ||
+      report.malformed > 0 ||
+      report.unclosed > 0 ||
+      report.unexecuted > 0 ||
+      report.harness > 0
+    ) {
+      process.exitCode = 1;
+    }
   }
 }
