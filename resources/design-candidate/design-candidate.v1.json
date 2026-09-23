@@ -32,7 +32,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "e189a75ddc970162512d5efefb309f4a17bcb75a0b19370f157c0b62e11e0227"
+      "sha256": "20b121332e4c14cb89c6a6828016f4a1a50bb8917203f12f2dd4d449abf85f48"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "b1483083df79e2ec48645904df4daabe23b39edb8e96ef058c338db3cf282a93",
+  "candidate_digest": "eb62b78b227066ad05eff5dc95ebaa020b00c03eb80198b6691f95ce269dc748",
   "dispositions": [
     {
       "issue": 3,
@@ -1010,7 +1010,7 @@
     {
       "issue": 13,
       "disposition": "accepted",
-      "where": "docs/contracts/platform-support.md, ADR-028 и ADR-039"
+      "where": "docs/contracts/platform-support.md, ADR-028 \u0438 ADR-039"
     },
     {
       "issue": 14,
