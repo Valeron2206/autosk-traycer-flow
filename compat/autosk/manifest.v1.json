@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "ee9b550c0cd881d66d32c7a94296d1d6bb00a441",
+  "result_tree": "976b91a85ed574d813f9c3d20588cf5589766cae",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -162,6 +162,10 @@
     {
       "file": "patches/0041-operator-source-document.patch",
       "sha256": "c68392e497283d8a24efb64f0b3e2f200e69529126c5f871628e19ab905816e3"
+    },
+    {
+      "file": "patches/0042-sealed-receipt-refuses-a-replan.patch",
+      "sha256": "5cef2420242b05cc415addfc24b006d46d2383ed6ef1a23ab1dc70928d239240"
     }
   ],
   "license": {

@@ -1,0 +1,1568 @@
+diff --git a/daemon/core/src/engine/migration-runner.ts b/daemon/core/src/engine/migration-runner.ts
+index 3e58c53..d97d585 100644
+--- a/daemon/core/src/engine/migration-runner.ts
++++ b/daemon/core/src/engine/migration-runner.ts
+@@ -7,16 +7,17 @@
+  * inputs from one to the other.
+  */
+ 
+-import type { ExtensionRegistry } from "../extensions/registry.ts";
++import type { ExtensionRegistry, WorkflowAdmission } from "../extensions/registry.ts";
+ import type { Store } from "../store/store.ts";
+ import { OPEN_STATUSES, type StoredTask } from "../store/records.ts";
+-import type { RuntimeIdentityPin } from "../store/metadata.ts";
++import { readRuntimeIdentityPin, type RuntimeIdentityPin } from "../store/metadata.ts";
+ import {
+   planMigration,
+   planRollback,
+   type MigrationImpact,
+   type MigrationPlan,
+ } from "./migration.ts";
++import { migrationId, type MigrationReceipt } from "../store/distributions.ts";
+ 
+ export interface MigrationPlanResult {
+   supported: boolean;
+@@ -81,7 +82,17 @@ async function planForMigration(
+       impact: [],
+     };
+   }
+-  return planMigration(registry, recorded, tasks, source, workflow);
++  const plan = planMigration(registry, recorded, tasks, source, workflow);
++  if (!plan.supported) return plan;
++  const refused = await sealedReceiptRefusal(
++    store,
++    registry,
++    plan,
++    registry.workflowAdmission(plan.workflow)!.graph,
++  );
++  return refused === undefined
++    ? plan
++    : { supported: false, reason: refused, impact: plan.impact };
+ }
+ 
+ /**
+@@ -159,6 +170,75 @@ export async function rollbackProjectMigration(
+   if (!original) {
+     return { ok: false, reason: `migration ${migrationId} was never opened` };
+   }
++  const gate = await rollbackGate(store, registry, original);
++  if ("continueWith" in gate) {
++    return continueMigration(store, registry, gate.continueWith);
++  }
++  if (!gate.ok) {
++    if ("sealedPlan" in gate) {
++      const refused = await sealedReceiptRefusal(
++        store,
++        registry,
++        gate.sealedPlan,
++        gate.admitted.graph,
++      );
++      return { ok: false, reason: refused ?? `migration ${gate.id} is already sealed` };
++    }
++    return { ok: false, reason: gate.reason };
++  }
++  const plan = gate.plan;
++  const receipt = await store.beginMigration(
++    plan.from!,
++    plan.to!,
++    gate.admitted.graph,
++    plan.workflow!,
++    plan.impact.map((i) => i.taskId),
++    plan.reverses,
++    migrationDocuments(plan.fromDocument, gate.admitted.document),
++  );
++  const sealed = await store.applyMigration(receipt.id);
++  return { ok: true, receipt: receiptToResult(sealed) };
++}
++
++/** The plan a rollback would open: supported, and `reverses` names its receipt. */
++type RollbackPlan = Extract<MigrationPlan, { supported: true }> & { reverses?: string };
++
++/**
++ * What `rollbackProjectMigration` found between resolving a receipt and
++ * touching the index: the open reversal it would continue, the plan it would
++ * open, the refusal it would return, or the sealed derived id it would land
++ * on. The sealed case is reported rather than worded because wording it is
++ * {@link sealedReceiptRefusal}'s job, and that function calls this gate for
++ * its candidates — a refusal that could build a refusal has no bound.
++ */
++type RollbackGate =
++  | { ok: true; continueWith: MigrationReceipt }
++  | { ok: true; plan: RollbackPlan; admitted: WorkflowAdmission }
++  | { ok: false; reason: string }
++  | { ok: false; sealedPlan: RollbackPlan; admitted: WorkflowAdmission; id: string };
++
++/**
++ * Every check `autosk migrate rollback <original>` runs before it opens or
++ * continues a receipt, run read-only so the sealed-receipt refusal can ask
++ * the same question the command would. Keeping one implementation is what
++ * makes a named command provable: the refusal can only name a receipt whose
++ * rollback passes here, and the command only runs these same checks.
++ *
++ * The order mirrors the command's own: an open reversal is continued rather
++ * than re-planned; the restored-distribution check lives in `planRollback`;
++ * the source-document check keeps the reversal from writing a (digest, shape,
++ * document) triple no task ever held; and a derived id that is already sealed
++ * is reported to the caller instead of refused here. One check is left to the
++ * caller on purpose: `beginMigration` refuses a plan that names no tasks,
++ * which the gate reports as a supported empty plan — the command still throws
++ * it exactly where it used to, while the refusal's filter reads it as "this
++ * rollback moves nothing".
++ */
++async function rollbackGate(
++  store: Store,
++  registry: ExtensionRegistry,
++  original: MigrationReceipt,
++): Promise<RollbackGate> {
+   // A rollback interrupted mid-move leaves an open receipt reversing the
+   // original — re-planning cannot find it (the remaining task set names a
+   // different id), so continue it the same way `apply` continues a forward
+@@ -175,7 +255,10 @@ export async function rollbackProjectMigration(
+     };
+   }
+   if (openReversals.length === 1) {
+-    return continueMigration(store, registry, openReversals[0]!);
++    const blocker = continuationBlocker(registry, openReversals[0]!);
++    return blocker === undefined
++      ? { ok: true, continueWith: openReversals[0]! }
++      : { ok: false, reason: blocker };
+   }
+   const tasks = await store.storedTasks();
+   const recorded = await store.recordedDistributions();
+@@ -183,32 +266,34 @@ export async function rollbackProjectMigration(
+   if (!plan.supported) {
+     return { ok: false, reason: plan.reason };
+   }
+-  const admitted = registry.workflowAdmission(plan.workflow!);
++  const admitted = registry.workflowAdmission(plan.workflow!)!;
+   // The forward receipt's source document is the only record of what the moved
+   // tasks came from. The digest check above proves the restored distribution is
+   // the one they left, but a document can change inside it — and sealing the
+   // reversal would then write a (digest, shape, document) triple no task ever
+   // held. A forward receipt carrying no `from_document` makes no claim to test:
+   // it predates the field, or its tasks carried none, and it is not retrofitted.
+-  if (original.from_document !== undefined && admitted!.document !== original.from_document) {
++  if (original.from_document !== undefined && admitted.document !== original.from_document) {
+     return {
+       ok: false,
+       reason:
+         `rolling back ${original.id} needs ${original.workflow} to serve document ` +
+-        `${original.from_document}; it serves ${admitted!.document ?? "none"}`,
++        `${original.from_document}; it serves ${admitted.document ?? "none"}`,
+     };
+   }
+-  const receipt = await store.beginMigration(
++  const derived = migrationId(
+     plan.from!,
+     plan.to!,
+-    admitted!.graph,
++    admitted.graph,
+     plan.workflow!,
+     plan.impact.map((i) => i.taskId),
+     plan.reverses,
+-    migrationDocuments(plan.fromDocument, admitted?.document),
+   );
+-  const sealed = await store.applyMigration(receipt.id);
+-  return { ok: true, receipt: receiptToResult(sealed) };
++  const existing = await store.findMigration(derived);
++  if (existing !== undefined && existing.completed_at !== undefined) {
++    return { ok: false, sealedPlan: plan, admitted, id: derived };
++  }
++  return { ok: true, plan, admitted };
+ }
+ 
+ /** The migration receipts for a project, newest first. */
+@@ -276,41 +361,202 @@ async function continueMigration(
+     workflow: string;
+   },
+ ): Promise<MigrationApplyResult> {
++  const blocker = continuationBlocker(registry, receipt);
++  if (blocker !== undefined) {
++    return { ok: false, reason: blocker };
++  }
++  const sealed = await store.applyMigration(receipt.id);
++  return { ok: true, receipt: receiptToResult(sealed) };
++}
++
++/**
++ * The reason continuing `receipt` would refuse, or `undefined` when it would
++ * run. Shared with {@link rollbackGate}, which answers "would the command
++ * move anything?" for a receipt whose open reversal this is.
++ */
++function continuationBlocker(
++  registry: ExtensionRegistry,
++  receipt: {
++    id: string;
++    from: string;
++    to: string;
++    to_graph: string;
++    to_document?: string;
++    workflow: string;
++  },
++): string | undefined {
+   const admitted = registry.workflowAdmission(receipt.workflow);
+   if (!admitted) {
+-    return {
+-      ok: false,
+-      reason:
+-        `open migration ${receipt.id.slice(0, 8)} cannot continue: ` +
+-        `${receipt.workflow} has no identified distribution`,
+-    };
++    return (
++      `open migration ${receipt.id.slice(0, 8)} cannot continue: ` +
++      `${receipt.workflow} has no identified distribution`
++    );
+   }
+   if (admitted.distribution.digest !== receipt.to) {
+-    return {
+-      ok: false,
+-      reason:
+-        `open migration ${receipt.id.slice(0, 8)} targets ${receipt.to}, ` +
+-        `but ${receipt.workflow} serves ${admitted.distribution.digest}`,
+-    };
++    return (
++      `open migration ${receipt.id.slice(0, 8)} targets ${receipt.to}, ` +
++      `but ${receipt.workflow} serves ${admitted.distribution.digest}`
++    );
+   }
+   if (admitted.graph !== receipt.to_graph) {
+-    return {
+-      ok: false,
+-      reason:
+-        `open migration ${receipt.id.slice(0, 8)} declares graph ${receipt.to_graph}, ` +
+-        `but ${receipt.workflow} serves ${admitted.graph}`,
+-    };
++    return (
++      `open migration ${receipt.id.slice(0, 8)} declares graph ${receipt.to_graph}, ` +
++      `but ${receipt.workflow} serves ${admitted.graph}`
++    );
+   }
+   if (receipt.to_document !== undefined && receipt.to_document !== admitted.document) {
+-    return {
+-      ok: false,
+-      reason:
+-        `open migration ${receipt.id.slice(0, 8)} declares document ${receipt.to_document}, ` +
+-        `but ${receipt.workflow} serves ${admitted.document ?? "none"}`,
+-    };
++    return (
++      `open migration ${receipt.id.slice(0, 8)} declares document ${receipt.to_document}, ` +
++      `but ${receipt.workflow} serves ${admitted.document ?? "none"}`
++    );
+   }
+-  const sealed = await store.applyMigration(receipt.id);
+-  return { ok: true, receipt: receiptToResult(sealed) };
++  return undefined;
++}
++
++/**
++ * Whether continuing `receipt` right now passes every check the store runs on
++ * it — read-only, over the same task records `applyMigration` would mutate.
++ * The store cannot be shared: its checks live behind the per-task lock, so
++ * this mirrors them (store.ts `applyMigration`'s move phase and the
++ * `verifyMigration` read-back that seals the receipt) and must be kept in
++ * step with them. The qualification names a receipt only when this holds for
++ * every task the reversal names, not only the ones the plan covers.
++ *
++ * A task on `to` is skipped by the move but still verified — its document,
++ * shape and helper must be the ones the receipt recorded, because a run that
++ * never moved it has nothing else to check the helper against. A task on
++ * `from` moves, but only while its pin's document still matches the
++ * receipt's `from_document` claim AND its helper is still the one the
++ * snapshot recorded — the move carries the pin's helper into the new pin, so
++ * a changed helper is where the read-back refuses after the write. A task
++ * anywhere else — re-pinned to a third distribution, unpinned, gone — is
++ * where the store throws.
++ */
++async function continuationRunsClean(
++  store: Store,
++  receipt: MigrationReceipt,
++): Promise<boolean> {
++  const tasks = new Map((await store.storedTasks()).map((t) => [t.id, t]));
++  for (const taskId of receipt.tasks) {
++    const task = tasks.get(taskId);
++    if (task === undefined) return false;
++    const current = readRuntimeIdentityPin(task.metadata);
++    if (current.state === "pinned" && current.pin.digest === receipt.to) {
++      if (current.pin.document !== receipt.to_document) return false;
++      if (current.pin.graph !== receipt.to_graph) return false;
++      if (
++        receipt.helpers === undefined ||
++        !Object.hasOwn(receipt.helpers, taskId) ||
++        current.pin.helper !== (receipt.helpers[taskId] ?? undefined)
++      ) {
++        return false;
++      }
++      continue;
++    }
++    if (current.state !== "pinned" || current.pin.digest !== receipt.from) return false;
++    if (receipt.from_document !== undefined && current.pin.document !== receipt.from_document) {
++      return false;
++    }
++    if (
++      receipt.helpers !== undefined &&
++      Object.hasOwn(receipt.helpers, taskId) &&
++      current.pin.helper !== (receipt.helpers[taskId] ?? undefined)
++    ) {
++      return false;
++    }
++  }
++  return true;
++}
++
++/**
++ * A supported plan whose derived id already names a SEALED receipt asks for
++ * work that is done — the receipt is the record of that work, not an
++ * instruction to do it again, and returning it would report a move this call
++ * never made. The refusal names the receipt the plan lands on and, when one
++ * exists, the sealed receipt that reversed it.
++ *
++ * The way forward is the rollback of the latest sealed receipt in the plan's
++ * workflow that ran the plan's target-to-source direction AND would run clean
++ * right now: {@link rollbackGate} replays every check `autosk migrate
++ * rollback` performs before it opens or continues a receipt — read-only, on
++ * the same code — so a named command moves the tasks on the first try and a
++ * receipt whose rollback would refuse is never named. That one rule covers
++ * every shape the index can take: a chain of sealed reversals ends on the tip
++ * that still qualifies; a return receipt superseded by a forward `apply`
++ * (whose `reverses` no link can reach) qualifies on its own; a receipt
++ * reversed over a DIFFERENT task set qualifies again, because the rollback
++ * re-derives its id from the tasks on the source now and that fresh id is
++ * unsealed. An open receipt still never counts on either side: it is not a
++ * completed reversal, and it is not a receipt that can be rolled back — but a
++ * sealed receipt whose open reversal can still continue qualifies when that
++ * reversal's tasks cover every task the plan would move AND every task the
++ * reversal names can still move — running it continues the reversal, a
++ * continuation moves only the reversal's own tasks, and the store's move
++ * phase walks all of them: one re-pinned elsewhere or re-admitted under
++ * another document throws there, after the tasks sorting before it have
++ * already moved.
++ *
++ * Should several receipts qualify, the latest `started_at` wins and `id`
++ * breaks the tie — the choice picks which working command is named, not
++ * whether the tasks move. When no receipt qualifies the refusal says no
++ * single rollback moves these tasks onto the plan's target now — a narrower
++ * and still true claim: a multi-step path through other receipts can exist,
++ * but no one command does it.
++ */
++async function sealedReceiptRefusal(
++  store: Store,
++  registry: ExtensionRegistry,
++  plan: Extract<MigrationPlan, { supported: true }> & { reverses?: string },
++  toGraph: string,
++): Promise<string | undefined> {
++  const ids = plan.impact.map((i) => i.taskId);
++  const id = migrationId(plan.from, plan.to, toGraph, plan.workflow, ids, plan.reverses);
++  const existing = await store.findMigration(id);
++  if (!existing || existing.completed_at === undefined) return undefined;
++  const migrations = await store.listMigrations();
++  const reversal = migrations.find(
++    (m) => m.reverses === id && m.completed_at !== undefined,
++  );
++  const qualifying: MigrationReceipt[] = [];
++  for (const m of migrations) {
++    if (
++      m.completed_at === undefined ||
++      m.workflow !== plan.workflow ||
++      m.from !== plan.to ||
++      m.to !== plan.from
++    ) {
++      continue;
++    }
++    const gate = await rollbackGate(store, registry, m);
++    if (
++      gate.ok &&
++      ("continueWith" in gate
++        ? ids.every((t) => gate.continueWith.tasks.includes(t)) &&
++          (await continuationRunsClean(store, gate.continueWith))
++        : gate.plan.impact.length > 0)
++    ) {
++      qualifying.push(m);
++    }
++  }
++  const way = qualifying
++    .sort((a, b) =>
++      a.started_at === b.started_at
++        ? a.id < b.id
++          ? -1
++          : 1
++        : a.started_at < b.started_at
++          ? -1
++          : 1,
++    )
++    .at(-1);
++  const head = reversal
++    ? `migration ${id} is already sealed; ${reversal.id} reversed it`
++    : `migration ${id} is already sealed and nothing has reversed it`;
++  return `${head} — ${
++    way
++      ? `autosk migrate rollback ${way.id} moves the tasks again`
++      : `no single rollback moves these tasks onto ${plan.to} now`
++  }`;
+ }
+ 
+ /**
+diff --git a/daemon/core/test/engine.migration-runner.test.ts b/daemon/core/test/engine.migration-runner.test.ts
+index 380fc33..5d79db9 100644
+--- a/daemon/core/test/engine.migration-runner.test.ts
++++ b/daemon/core/test/engine.migration-runner.test.ts
+@@ -12,13 +12,16 @@ import { join } from "node:path";
+ 
+ import type { TaskStatus } from "@autosk/sdk";
+ 
+-import { ExtensionRegistry, Store } from "../src/index.ts";
++import { ExtensionRegistry, Store, type Clock } from "../src/index.ts";
+ import {
+   applyProjectMigration,
+   planProjectMigration,
+   rollbackProjectMigration,
+ } from "../src/engine/migration-runner.ts";
+ import { readRuntimeIdentityPin } from "../src/store/metadata.ts";
++import { parseDistributionIndex, serializeDistributionIndex } from "../src/store/distributions.ts";
++import { withCreationLock } from "../src/store/creation.ts";
++import { ProjectPaths } from "../src/store/paths.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+ const GRAPH = "0".repeat(64);
+@@ -31,6 +34,8 @@ const DOC_A = "a".repeat(64);
+ const DOC_B = "b".repeat(64);
+ const DOC_C = "c".repeat(64);
+ const DOC_T = "d".repeat(64);
++const LISTING_V3 = "file 333 index.ts\n";
++const V3 = createHash("sha256").update(LISTING_V3, "utf8").digest("hex");
+ const steps = { intake: { status: "human" }, review: { status: "human" } };
+ 
+ function registryWithSteps(
+@@ -61,6 +66,21 @@ function registryWithDocument(digest: string, document: string): ExtensionRegist
+   return registry;
+ }
+ 
++/** A registry serving two workflows, `wf` and `wf2`, from one distribution. */
++function registryBoth(digest: string): ExtensionRegistry {
++  const registry = new ExtensionRegistry();
++  const identity = { root: "/x", entry: "index.ts", entries: [], bytes: 0, digest } as never;
++  registry.addWorkflow("test", { name: "wf", firstStep: Object.keys(steps)[0]!, steps } as never, identity);
++  registry.addWorkflow("test", { name: "wf2", firstStep: Object.keys(steps)[0]!, steps } as never, identity);
++  return registry;
++}
++
++/** A clock that ticks one second per call, so started_at strictly orders receipts. */
++function steppingClock(): Clock {
++  let tick = 0;
++  return () => new Date(Date.UTC(2026, 8, 23, 0, 0, tick++)).toISOString().replace(/\.\d{3}Z$/, "Z");
++}
++
+ /** The graph digest a receipt must name to match what this registry serves. */
+ function servedGraph(registry: ExtensionRegistry): string {
+   return registry.workflowAdmission("wf")!.graph;
+@@ -77,10 +97,10 @@ describe("migration runner", () => {
+     for (const c of cleanups.splice(0)) c();
+   });
+ 
+-  async function project() {
++  async function project(clock?: Clock) {
+     const dir = tempDir();
+     cleanups.push(dir.cleanup);
+-    const store = new Store(dir.path, { watch: false });
++    const store = new Store(dir.path, { watch: false, clock });
+     stores.push(store);
+     await store.open();
+     await store.recordDistribution(OLD, LISTING_OLD);
+@@ -93,15 +113,24 @@ describe("migration runner", () => {
+     digest: string,
+     status: TaskStatus = "human",
+     document?: string,
++    workflow = "wf",
++    helper?: string,
+   ): Promise<string> {
+     const t = await store.createTask({ title: "migrating" });
+-    const pin: { workflow: string; digest: string; graph: string; document?: string } = {
+-      workflow: "wf",
++    const pin: {
++      workflow: string;
++      digest: string;
++      graph: string;
++      document?: string;
++      helper?: string;
++    } = {
++      workflow,
+       digest,
+       graph: GRAPH,
+     };
+     if (document !== undefined) pin.document = document;
+-    await store.setPosition(t.id, { status, workflow: "wf", step: "review" }, { pinRuntimeIdentity: pin });
++    if (helper !== undefined) pin.helper = helper;
++    await store.setPosition(t.id, { status, workflow, step: "review" }, { pinRuntimeIdentity: pin });
+     return t.id;
+   }
+ 
+@@ -363,4 +392,1070 @@ describe("migration runner", () => {
+     // The only receipt is the sealed forward one — nothing was opened.
+     expect(await store.listMigrations()).toHaveLength(1);
+   });
++  test("a re-apply after a rollback refuses, naming the sealed receipt and its reversal", async () => {
++    // The forward receipt is sealed and the rollback that reversed it is
++    // sealed too. Re-planning the same move derives the same id, and landing
++    // on that receipt as 'applied' would report a move this call never made.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(applied.ok).toBe(true);
++    const original = applied.receipt!;
++    const rolledBack = await rollbackProjectMigration(store, registryWith(OLD), original.id);
++    expect(rolledBack.ok).toBe(true);
++    const reversal = rolledBack.receipt!;
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(original.id);
++    expect(result.reason).toContain(reversal.id);
++    expect(result.reason).toContain(`autosk migrate rollback ${reversal.id}`);
++    expect(result.receipt).toBeUndefined();
++    expect(await digestOf(store, id)).toBe(OLD);
++    expect(await store.listMigrations()).toHaveLength(2);
++  });
++
++  test("a plan that lands on a sealed receipt is not supported and names it", async () => {
++    // The plan verb must agree with apply: a plan apply would refuse cannot be
++    // reported as supported.
++    const { store } = await project();
++    await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const original = applied.receipt!;
++    const rolledBack = await rollbackProjectMigration(store, registryWith(OLD), original.id);
++    const reversal = rolledBack.receipt!;
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(original.id);
++    expect(plan.reason).toContain(reversal.id);
++    expect(await store.listMigrations()).toHaveLength(2);
++  });
++
++  test("a rollback that lands on a sealed reversal refuses the same way", async () => {
++    // After apply, rollback, and rollback of the rollback, the tasks sit on
++    // the target again. Rolling the ORIGINAL back once more derives the id of
++    // the first, sealed rollback — sealing it again is impossible, so the call
++    // must refuse and name it, not return it as freshly done.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const original = applied.receipt!;
++    const rolledBack = await rollbackProjectMigration(store, registryWith(OLD), original.id);
++    const reversal = rolledBack.receipt!;
++    const reApplied = await rollbackProjectMigration(store, registryWith(NEW), reversal.id);
++    expect(reApplied.ok).toBe(true);
++    const secondReversal = reApplied.receipt!;
++    expect(await digestOf(store, id)).toBe(NEW);
++
++    const result = await rollbackProjectMigration(store, registryWith(OLD), original.id);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(reversal.id);
++    expect(result.reason).toContain(secondReversal.id);
++    expect(result.reason).toContain(`autosk migrate rollback ${secondReversal.id}`);
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(3);
++  });
++
++  test("a sealed receipt nothing reversed refuses a re-apply, saying so", async () => {
++    // The task came back to the source by admission, not by a rollback — no
++    // receipt reversed the forward one, and the refusal must say that rather
++    // than point at a way forward that does not exist.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(applied.ok).toBe(true);
++    const original = applied.receipt!;
++    await store.setPosition(
++      id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH } },
++    );
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(original.id);
++    expect(result.reason).toContain("nothing has reversed it");
++    expect(await digestOf(store, id)).toBe(OLD);
++    expect(await store.listMigrations()).toHaveLength(1);
++  });
++
++  test("a rollback of a rollback still opens a new receipt and moves the tasks", async () => {
++    // The reversal of a reversal carries a different `reverses`, so its id is
++    // fresh: it must keep opening and moving even after sealed receipts gain
++    // a refusal.
++    const { store } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const original = applied.receipt!;
++    const rolledBack = await rollbackProjectMigration(store, registryWith(OLD), original.id);
++    const reversal = rolledBack.receipt!;
++
++    const reApplied = await rollbackProjectMigration(store, registryWith(NEW), reversal.id);
++    expect(reApplied.ok).toBe(true);
++    expect(reApplied.receipt?.reverses).toBe(reversal.id);
++    expect(reApplied.receipt?.completed_at).toBeDefined();
++    for (const id of ids) expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(3);
++  });
++  test("the way forward a re-apply refusal names moves the tasks at any chain length", async () => {
++    // Chain of four: forward, rollback, rollback of the rollback, rollback of
++    // that — the tasks are back on the source. The re-apply lands on the first
++    // receipt and names its direct reversal; the command it hands the operator
++    // must move on the first try, not refuse on the next sealed link.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const r1 = applied.receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    const r3 = (await rollbackProjectMigration(store, registryWith(NEW), r2.id)).receipt!;
++    const r4 = (await rollbackProjectMigration(store, registryWith(OLD), r3.id)).receipt!;
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    expect(result.reason).toContain(r2.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(r4.id);
++
++    // The named command, run literally, moves the tasks on the first try.
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.reverses).toBe(r4.id);
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(5);
++  });
++
++  test("the way forward a rollback refusal names moves the tasks at any chain length", async () => {
++    // Chain of six, tasks back on the source. Rolling the second receipt back
++    // again lands on the sealed third; the command the refusal names must skip
++    // every sealed link and move on the first try.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const r1 = applied.receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    const r3 = (await rollbackProjectMigration(store, registryWith(NEW), r2.id)).receipt!;
++    const r4 = (await rollbackProjectMigration(store, registryWith(OLD), r3.id)).receipt!;
++    const r5 = (await rollbackProjectMigration(store, registryWith(NEW), r4.id)).receipt!;
++    const r6 = (await rollbackProjectMigration(store, registryWith(OLD), r5.id)).receipt!;
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await rollbackProjectMigration(store, registryWith(NEW), r2.id);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r3.id);
++    expect(result.reason).toContain(r4.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(r6.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.reverses).toBe(r6.id);
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(7);
++  });
++
++  test("an open receipt with the plan's id is continued, not refused as sealed", async () => {
++    // A receipt opened but never sealed is crash-resume state: plan still
++    // reports the move as supported and apply finishes that same receipt.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const opened = await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [id]);
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(true);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(true);
++    expect(result.receipt?.id).toBe(opened.id);
++    expect(result.receipt?.completed_at).toBeDefined();
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(1);
++  });
++
++  test("an open reversal is not named as the completed reversal or the way forward", async () => {
++    // The forward receipt is sealed, a reversal has been opened but never
++    // finished, and the task was re-admitted onto the source. Only a SEALED
++    // reversal counts: naming the open one would hand the operator a rollback
++    // command that refuses because there is nothing settled to reverse.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const original = applied.receipt!;
++    const openReversal = await store.beginMigration(NEW, OLD, SERVED_GRAPH, "wf", [id], original.id);
++    await store.setPosition(
++      id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH } },
++    );
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(original.id);
++    expect(plan.reason).toContain("nothing has reversed it");
++    expect(plan.reason).not.toContain(openReversal.id);
++  });
++
++  test("a forward return right after the first apply names its receipt as the way forward", async () => {
++    // The tasks came back to the source through a forward apply — its
++    // `reverses` is unset, so the landing receipt has no reversal at all. The
++    // refusal must still hand the operator the rollback that moves them: the
++    // receipt that put them back on the source.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const applied = await applyProjectMigration(store, registryWith(NEW), "wf");
++    const r1 = applied.receipt!;
++    const rf = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    expect(rf.reverses).toBeUndefined();
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(rf.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.reverses).toBe(rf.id);
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(3);
++  });
++
++  test("a forward return after a chain names its receipt as the way forward", async () => {
++    // R1..R3 chain, then the tasks return to the source through a forward
++    // apply (Rf). The landing receipt's reversal chain ends at R3, but R3 was
++    // superseded by Rf: naming it hands the operator a command that cannot
++    // move. The way forward is the rollback of Rf.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    const r3 = (await rollbackProjectMigration(store, registryWith(NEW), r2.id)).receipt!;
++    expect(await digestOf(store, id)).toBe(NEW);
++    const rf = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    expect(result.reason).toContain(r2.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(rf.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.reverses).toBe(rf.id);
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await store.listMigrations()).toHaveLength(5);
++  });
++
++  test("a forward return names its receipt on the rollback side too", async () => {
++    // R1..R3, then a forward return Rf. Rolling R2 back again lands on the
++    // sealed R3 — which nothing reversed — yet a way forward exists: the
++    // rollback of Rf.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    const r3 = (await rollbackProjectMigration(store, registryWith(NEW), r2.id)).receipt!;
++    const rf = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await rollbackProjectMigration(store, registryWith(NEW), r2.id);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r3.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(rf.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(await digestOf(store, id)).toBe(NEW);
++  });
++
++  test("a forward return past a longer chain names its receipt on the rollback side", async () => {
++    // R1..R5 plus a forward return. Rolling R2 back lands on R3, whose sealed
++    // reversal R4 is itself reversed by R5 — but the tasks came back through
++    // Rf, so the way forward is the rollback of Rf, not of the chain tip.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    const r3 = (await rollbackProjectMigration(store, registryWith(NEW), r2.id)).receipt!;
++    const r4 = (await rollbackProjectMigration(store, registryWith(OLD), r3.id)).receipt!;
++    const r5 = (await rollbackProjectMigration(store, registryWith(NEW), r4.id)).receipt!;
++    const rf = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const result = await rollbackProjectMigration(store, registryWith(NEW), r2.id);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r3.id);
++    expect(result.reason).toContain(r4.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(rf.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(await digestOf(store, id)).toBe(NEW);
++  });
++
++  test("an open tip is named and its rollback continues the open receipt", async () => {
++    // R1 sealed, R2 sealed reversing it, R3 open reversing R2. An open receipt
++    // never disqualifies a sealed one: the refusal names R2, and running it
++    // continues the open R3 and moves the tasks.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    const r3 = await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [id], r2.id);
++    expect(await digestOf(store, id)).toBe(OLD);
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    expect(named).toBe(r2.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.id).toBe(r3.id);
++    expect(moved.receipt?.completed_at).toBeDefined();
++    expect(await digestOf(store, id)).toBe(NEW);
++  });
++
++  test("an open receipt is never chosen as the receipt to roll back", async () => {
++    // A receipt that was opened but never sealed is crash-resume state, not a
++    // move that happened. With only an open receipt pointing back at the
++    // source there is no command to hand over, and the refusal must say so.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const openReturn = await store.beginMigration(NEW, OLD, SERVED_GRAPH, "wf", [id]);
++    await store.setPosition(
++      id,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH } },
++    );
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    expect(plan.reason).toContain("no single rollback");
++    expect(plan.reason).not.toContain(openReturn.id);
++    expect(plan.reason).not.toContain("autosk migrate rollback");
++  });
++
++  test("a return receipt that carried extra tasks is still the way forward", async () => {
++    // Rf moved {T, U}; by the time of the re-apply U is done and only T pins
++    // the source, so the plan's task set is {T}. The receipt that put T on
++    // the source is still Rf — naming nothing would hide a command that
++    // works.
++    const { store } = await project();
++    const id = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const extra = await pinned(store, NEW);
++    const rf = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    expect([...rf.tasks].sort()).toEqual([extra, id].sort());
++    await store.setPosition(
++      extra,
++      { status: "done", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH } },
++    );
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(rf.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(await digestOf(store, id)).toBe(NEW);
++    expect(await digestOf(store, extra)).toBe(OLD);
++  });
++
++  test("a return receipt reversed over a different task set is still the way forward", async () => {
++    // Z moved T back to the source and was later reversed — but over {C}, not
++    // {T}. Rolling Z back now re-derives its reversal id from the tasks on the
++    // source NOW, which is {T}: a fresh id, so the rollback proceeds. The
++    // sealed reversal over {C} is no reason to withhold the command.
++    const { store } = await project();
++    const t = await pinned(store, OLD);
++    const c = await pinned(store, OLD, "done");
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const z = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    await store.setPosition(t, { status: "done", workflow: "wf", step: "review" });
++    await store.setPosition(c, { status: "human", workflow: "wf", step: "review" });
++    const rrev = (await rollbackProjectMigration(store, registryWith(NEW), z.id)).receipt!;
++    expect(rrev.reverses).toBe(z.id);
++    await store.setPosition(c, { status: "done", workflow: "wf", step: "review" });
++    await store.setPosition(t, { status: "human", workflow: "wf", step: "review" });
++    expect(await digestOf(store, t)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(z.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.reverses).toBe(z.id);
++    expect(await digestOf(store, t)).toBe(NEW);
++  });
++
++  test("a return receipt reversed over the same task set cannot be the way forward", async () => {
++    // Z moved T back and was then reversed over exactly {T}. Rolling Z back
++    // now derives that same reversal id — sealed — so the command would
++    // refuse. No receipt remains whose rollback lands the tasks on NEW, and
++    // the refusal must say so.
++    const { store } = await project();
++    const t = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const z = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    const rrev = (await rollbackProjectMigration(store, registryWith(NEW), z.id)).receipt!;
++    expect(rrev.reverses).toBe(z.id);
++    await store.setPosition(t, { status: "human", workflow: "wf", step: "review" }, {
++      pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH },
++    });
++    expect(await digestOf(store, t)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    expect(result.reason).not.toContain("autosk migrate rollback");
++    expect(result.reason).toContain(`no single rollback moves these tasks onto ${NEW} now`);
++  });
++
++  test("a return receipt whose document is no longer served is skipped for an earlier one", async () => {
++    // X1 and X both returned T to the source, but X ran while the registry
++    // served document B. With A served again, rolling X back refuses on the
++    // document check — the refusal must name the earlier X1, whose rollback
++    // still passes every check.
++    const { store } = await project(steppingClock());
++    const t = await pinned(store, OLD, "human", DOC_A);
++    const r1 = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf")).receipt!;
++    const x1 = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_A), "wf")).receipt!;
++    await applyProjectMigration(store, registryWithDocument(NEW, DOC_B), "wf");
++    const x = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_B), "wf")).receipt!;
++    expect((await store.findMigration(x.id))?.from_document).toBe(DOC_B);
++    expect(await digestOf(store, t)).toBe(OLD);
++
++    const result = await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(x1.id);
++
++    const moved = await rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.reverses).toBe(x1.id);
++    expect(await digestOf(store, t)).toBe(NEW);
++  });
++
++  test("a return receipt whose document is no longer served leaves no command to name", async () => {
++    // T was re-admitted while the registry served document B, so the only
++    // return receipt claims from_document B. With A served again, rolling it
++    // back refuses on the document check — the refusal must name no command
++    // and say that no single rollback moves the tasks.
++    const { store } = await project();
++    const t = await pinned(store, OLD, "human", DOC_A);
++    const r1 = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf")).receipt!;
++    await store.setPosition(t, { status: "human", workflow: "wf", step: "review" }, {
++      pinRuntimeIdentity: {
++        workflow: "wf",
++        digest: NEW,
++        graph: registryWithDocument(NEW, DOC_B).workflowAdmission("wf")!.graph,
++        document: DOC_B,
++      },
++    });
++    const x = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_A), "wf")).receipt!;
++    expect((await store.findMigration(x.id))?.from_document).toBe(DOC_B);
++
++    const result = await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    expect(result.reason).not.toContain("autosk migrate rollback");
++    expect(result.reason).toContain("no single rollback");
++
++    // And it is true: the only return receipt refuses on its document, and
++    // the landing receipt needs the source served.
++    const literal = await rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), x.id);
++    expect(literal.ok).toBe(false);
++    expect(literal.reason).toContain("document");
++    expect(await digestOf(store, t)).toBe(OLD);
++  });
++
++  test("a rollbackable receipt in another direction is not the way forward", async () => {
++    // Three distributions: T went OLD→NEW→V3→OLD. No receipt ran NEW→OLD, so
++    // the refusal names nothing — even though Rf23 is perfectly rollbackable:
++    // its rollback moves C from V3 to NEW, not the plan's task.
++    const { store } = await project();
++    await store.recordDistribution(V3, LISTING_V3);
++    const t = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const rf23 = (await applyProjectMigration(store, registryWith(V3), "wf")).receipt!;
++    await applyProjectMigration(store, registryWith(OLD), "wf");
++    const c = await pinned(store, V3);
++
++    // T sits on OLD and C on V3, so the source must be named explicitly.
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf", OLD);
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    expect(result.reason).not.toContain("autosk migrate rollback");
++    expect(result.reason).toContain("no single rollback");
++
++    // The wrong-direction rollback still runs on its own terms — and moves
++    // the wrong task.
++    const other = await rollbackProjectMigration(store, registryWith(NEW), rf23.id);
++    expect(other.ok).toBe(true);
++    expect(await digestOf(store, c)).toBe(NEW);
++    expect(await digestOf(store, t)).toBe(OLD);
++  });
++
++  test("a receipt of another workflow is never the way forward", async () => {
++    // wf and wf2 live on the same two distributions. wf's T returned to OLD
++    // by re-admission, so no wf receipt returns it; wf2's W receipt does
++    // point back, but rolling it back would move wf2's task, not T.
++    const { store } = await project();
++    const t = await pinned(store, OLD);
++    const u = await pinned(store, OLD, "human", undefined, "wf2");
++    const r1 = (await applyProjectMigration(store, registryBoth(NEW), "wf")).receipt!;
++    await applyProjectMigration(store, registryBoth(NEW), "wf2");
++    const w = (await applyProjectMigration(store, registryBoth(OLD), "wf2")).receipt!;
++    expect(w.workflow).toBe("wf2");
++    await store.setPosition(t, { status: "human", workflow: "wf", step: "review" }, {
++      pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH },
++    });
++
++    const result = await applyProjectMigration(store, registryBoth(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r1.id);
++    expect(result.reason).not.toContain("autosk migrate rollback");
++    expect(result.reason).not.toContain(w.id);
++    expect(result.reason).toContain("no single rollback");
++    expect(await digestOf(store, u)).toBe(OLD);
++  });
++
++  test("the latest qualifying return receipt is the one named", async () => {
++    // Y1 moved {T} back; Y2 later moved {T,U} back. Both qualify — rolling
++    // either back re-derives a fresh id over the tasks on the source now —
++    // so the refusal names one deterministically: the latest by started_at,
++    // with id breaking ties.
++    const { store } = await project(steppingClock());
++    const t = await pinned(store, OLD);
++    const u = await pinned(store, OLD, "done");
++    await applyProjectMigration(store, registryWith(NEW), "wf");
++    const y1 = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    await store.setPosition(u, { status: "human", workflow: "wf", step: "review" });
++    const r2 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const y2 = (await applyProjectMigration(store, registryWith(OLD), "wf")).receipt!;
++    expect(y2.started_at > y1.started_at).toBe(true);
++
++    const result = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(result.ok).toBe(false);
++    expect(result.reason).toContain(r2.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(result.reason ?? "")?.[1];
++    expect(named).toBe(y2.id);
++
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(await digestOf(store, t)).toBe(NEW);
++    expect(await digestOf(store, u)).toBe(NEW);
++  });
++
++  test("an open reversal that cannot continue does not qualify its receipt", async () => {
++    // R3 is an open reversal of Z opened while NEW served document A; the
++    // registry now serves NEW with document B, so continuing R3 refuses on
++    // the graph check. Rolling Z back is exactly that continuation — the
++    // refusal must not name a command that would fail it.
++    const { store } = await project();
++    const t = await pinned(store, OLD, "human", DOC_B);
++    const r0 = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_B), "wf")).receipt!;
++    const z = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_B), "wf")).receipt!;
++    await store.beginMigration(
++      OLD,
++      NEW,
++      registryWithDocument(NEW, DOC_A).workflowAdmission("wf")!.graph,
++      "wf",
++      [t],
++      z.id,
++    );
++
++    const plan = await planProjectMigration(store, registryWithDocument(NEW, DOC_B), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r0.id);
++    expect(plan.reason).not.toContain("autosk migrate rollback");
++    expect(plan.reason).toContain("no single rollback");
++
++    const literal = await rollbackProjectMigration(store, registryWithDocument(NEW, DOC_B), z.id);
++    expect(literal.ok).toBe(false);
++  });
++
++  test("an open reversal that covers only part of the plan's tasks does not qualify its receipt", async () => {
++    // R2's rollback was opened while B was closed, so the open reversal covers
++    // A alone. With B back the plan covers {A, B}, and continuing that
++    // reversal moves only A — naming R2 would hand the operator a command
++    // that leaves B behind.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    await store.setPosition(b, { status: "done", workflow: "wf", step: "review" });
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a], r2.id);
++    await store.setPosition(b, { status: "human", workflow: "wf", step: "review" });
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    if (named === undefined) {
++      expect(plan.reason).toContain("no single rollback");
++      expect(await digestOf(store, a)).toBe(OLD);
++      expect(await digestOf(store, b)).toBe(OLD);
++    } else {
++      const moved = await rollbackProjectMigration(store, registryWith(NEW), named);
++      expect(moved.ok).toBe(true);
++      expect(await digestOf(store, a)).toBe(NEW);
++      expect(await digestOf(store, b)).toBe(NEW);
++    }
++  });
++
++  test("an open reversal that covers none of the plan's tasks does not qualify its receipt", async () => {
++    // The open reversal of m was opened over a different task set entirely —
++    // {A}, a task m never moved — and the dead run already moved A before
++    // dying. The plan's only task is B: continuing that reversal moves
++    // nothing the plan asks for.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    await store.setPosition(a, { status: "done", workflow: "wf", step: "review" });
++    const l = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    await store.setPosition(a, { status: "human", workflow: "wf", step: "review" });
++    const m = (await applyProjectMigration(store, registryWith(OLD), "wf", NEW)).receipt!;
++    await store.setPosition(b, { status: "done", workflow: "wf", step: "review" });
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a], m.id);
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: SERVED_GRAPH } },
++    );
++    await store.setPosition(b, { status: "human", workflow: "wf", step: "review" });
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    if (named === undefined) {
++      expect(plan.reason).toContain("no single rollback");
++      expect(await digestOf(store, b)).toBe(OLD);
++    } else {
++      const moved = await rollbackProjectMigration(store, registryWith(NEW), named);
++      expect(moved.ok).toBe(true);
++      expect(await digestOf(store, b)).toBe(NEW);
++    }
++  });
++
++  test("an open reversal whose tasks cover the plan still qualifies when it could continue", async () => {
++    // R2's rollback opened over {A, B, C} while C was open, and C closed
++    // afterwards. The plan over {A, B} is a strict subset of the reversal's
++    // tasks: coverage, not equality — a receipt reversed over a wider task
++    // set is still the way forward when every task it names can move.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    const c = await pinned(store, OLD);
++    await store.setPosition(c, { status: "done", workflow: "wf", step: "review" });
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    await store.setPosition(c, { status: "human", workflow: "wf", step: "review" });
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a, b, c], r2.id);
++    await store.setPosition(c, { status: "done", workflow: "wf", step: "review" });
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    expect(named).toBe(r2.id);
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(await digestOf(store, a)).toBe(NEW);
++    expect(await digestOf(store, b)).toBe(NEW);
++  });
++
++  test("an open reversal whose own task was re-pinned elsewhere does not qualify its receipt", async () => {
++    // The reversal covers the plan, but C was re-admitted under a third
++    // distribution after the receipt opened. Coverage says nothing about C:
++    // the store's move phase walks every task the receipt names, and a task
++    // that is no longer on `from` or `to` throws there — after the ones that
++    // sort before it have already moved. Naming this receipt hands the
++    // operator a command that half-runs and then refuses.
++    const { store } = await project();
++    await store.recordDistribution(V3, LISTING_V3);
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    const c = await pinned(store, OLD);
++    await store.setPosition(c, { status: "done", workflow: "wf", step: "review" });
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    await store.setPosition(c, { status: "human", workflow: "wf", step: "review" });
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a, b, c], r2.id);
++    await store.setPosition(
++      c,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: V3, graph: SERVED_GRAPH } },
++    );
++
++    // C's third-digest pin makes the source ambiguous to inference — the
++    // operator spells it out, exactly as the plan refusal tells them to.
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    if (named === undefined) {
++      expect(plan.reason).toContain("no single rollback");
++      expect(await digestOf(store, a)).toBe(OLD);
++      expect(await digestOf(store, b)).toBe(OLD);
++      expect(await digestOf(store, c)).toBe(V3);
++    } else {
++      const moved = await rollbackProjectMigration(store, registryWith(NEW), named);
++      expect(moved.ok).toBe(true);
++      expect(await digestOf(store, a)).toBe(NEW);
++      expect(await digestOf(store, b)).toBe(NEW);
++    }
++  });
++
++  test("an open reversal whose tasks moved documents does not qualify its receipt", async () => {
++    // The reversal covers the plan and every task still sits on `from`, but
++    // A and B were re-admitted under a different document since the receipt
++    // opened. The store's move phase tests the pin's document against the
++    // receipt's `from_document` claim and refuses — so a qualification that
++    // only counts tasks names a command that moves nothing.
++    const { store } = await project();
++    const a = await pinned(store, OLD, "human", DOC_A);
++    const b = await pinned(store, OLD, "human", DOC_A);
++    const r1 = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWithDocument(OLD, DOC_A), r1.id)).receipt!;
++    const graphA = servedGraph(registryWithDocument(NEW, DOC_A));
++    await store.beginMigration(OLD, NEW, graphA, "wf", [a, b], r2.id, { from: DOC_A, to: DOC_A });
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: graphA, document: DOC_B } },
++    );
++    await store.setPosition(
++      b,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: graphA, document: DOC_B } },
++    );
++
++    const plan = await planProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    if (named === undefined) {
++      expect(plan.reason).toContain("no single rollback");
++      expect(await digestOf(store, a)).toBe(OLD);
++      expect(await digestOf(store, b)).toBe(OLD);
++    } else {
++      const moved = await rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), named);
++      expect(moved.ok).toBe(true);
++      expect(await digestOf(store, a)).toBe(NEW);
++      expect(await digestOf(store, b)).toBe(NEW);
++    }
++  });
++  test("an open reversal whose task's helper changed since the receipt opened does not qualify its receipt", async () => {
++    // The reversal covers the plan and every task still sits on `from`, but
++    // A's pin helper is not the one the receipt's snapshot recorded at open —
++    // the task was re-admitted under another store helper. The move phase
++    // carries the CURRENT helper into the new pin, and the read-back then
++    // compares it against the snapshot: the named command would move A and
++    // then refuse, leaving the pin rewritten and the receipt open.
++    const HELPER_X = "e".repeat(64);
++    const HELPER_Y = "f".repeat(64);
++    const { store } = await project();
++    const a = await pinned(store, OLD, "human", undefined, "wf", HELPER_X);
++    const b = await pinned(store, OLD, "human", undefined, "wf", HELPER_X);
++    const r1 = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const r2 = (await rollbackProjectMigration(store, registryWith(OLD), r1.id)).receipt!;
++    await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", [a, b], r2.id);
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: SERVED_GRAPH, helper: HELPER_Y } },
++    );
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf");
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(r1.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    if (named === undefined) {
++      expect(plan.reason).toContain("no single rollback");
++      expect(await digestOf(store, a)).toBe(OLD);
++      expect(await digestOf(store, b)).toBe(OLD);
++    } else {
++      const moved = await rollbackProjectMigration(store, registryWith(NEW), named);
++      expect(moved.ok).toBe(true);
++      expect(await digestOf(store, a)).toBe(NEW);
++      expect(await digestOf(store, b)).toBe(NEW);
++    }
++  });
++  test("an open reversal whose task already on the target changed document does not qualify its receipt", async () => {
++    // The interrupted rollback moved A onto the target before it died; A was
++    // then re-admitted there under another document. Continuing the reversal
++    // would skip A and fail the read-back — pin intact, receipt open — so the
++    // receipt must not be named.
++    const { store } = await project();
++    const a = await pinned(store, OLD, "human", DOC_A);
++    const b = await pinned(store, OLD, "human", DOC_A);
++    await store.setPosition(a, { status: "done", workflow: "wf", step: "review" });
++    const l = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf")).receipt!;
++    await store.setPosition(a, { status: "human", workflow: "wf", step: "review" });
++    const m = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_A), "wf", NEW))
++      .receipt!;
++    const graphA = servedGraph(registryWithDocument(NEW, DOC_A));
++    const n = await store.beginMigration(OLD, NEW, graphA, "wf", [a, b], m.id, {
++      from: DOC_A,
++      to: DOC_A,
++    });
++    // The dead run's move, then the re-admission on the target under DOC_B.
++    const graphB = servedGraph(registryWithDocument(NEW, DOC_B));
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: graphB, document: DOC_B } },
++    );
++
++    const plan = await planProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    expect(plan.reason).toContain("no single rollback");
++    await expect(
++      rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), m.id),
++    ).rejects.toThrow(/read back on document/);
++    expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
++  });
++
++  test("an open reversal whose task already on the target changed helper does not qualify its receipt", async () => {
++    // Same shape, but the re-admission moved the store helper instead of the
++    // document: the snapshot recorded none, the pin carries one, and the
++    // read-back compares them.
++    const HELPER_2 = "2".repeat(64);
++    const { store } = await project();
++    const a = await pinned(store, OLD, "human", DOC_A);
++    const b = await pinned(store, OLD, "human", DOC_A);
++    await store.setPosition(a, { status: "done", workflow: "wf", step: "review" });
++    const l = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf")).receipt!;
++    await store.setPosition(a, { status: "human", workflow: "wf", step: "review" });
++    const m = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_A), "wf", NEW))
++      .receipt!;
++    const graphA = servedGraph(registryWithDocument(NEW, DOC_A));
++    const n = await store.beginMigration(OLD, NEW, graphA, "wf", [a, b], m.id, {
++      from: DOC_A,
++      to: DOC_A,
++    });
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      {
++        pinRuntimeIdentity: {
++          workflow: "wf",
++          digest: NEW,
++          graph: graphA,
++          document: DOC_A,
++          helper: HELPER_2,
++        },
++      },
++    );
++
++    const plan = await planProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    expect(plan.reason).toContain("no single rollback");
++    await expect(
++      rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), m.id),
++    ).rejects.toThrow(/read back on store helper/);
++    expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
++  });
++
++  test("an open reversal that claims no source document still qualifies when its tasks now carry one", async () => {
++    // The reversal's tasks carried no document on `from` when it opened, so it
++    // makes no claim to check — re-admission under a document afterwards does
++    // not change what the move writes. The refusal still names the rollback,
++    // and running it continues the reversal and seals it.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    const l = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const m = (await applyProjectMigration(store, registryWith(OLD), "wf", NEW)).receipt!;
++    const graphNew = servedGraph(registryWith(NEW));
++    const n = await store.beginMigration(OLD, NEW, graphNew, "wf", [a, b], m.id);
++    expect(n.from_document).toBeUndefined();
++    const graphOldB = servedGraph(registryWithDocument(OLD, DOC_B));
++    for (const t of [a, b]) {
++      await store.setPosition(
++        t,
++        { status: "human", workflow: "wf", step: "review" },
++        { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: graphOldB, document: DOC_B } },
++      );
++    }
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    expect(named).toBe(m.id);
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.id).toBe(n.id);
++    expect(await digestOf(store, a)).toBe(NEW);
++    expect(await digestOf(store, b)).toBe(NEW);
++  });
++
++  test("an open reversal with no helpers snapshot whose task sits on the target does not qualify its receipt", async () => {
++    // Receipts written before `helpers` existed carry no snapshot. For a task
++    // already on `to` nothing predates the write, so the continuation refuses
++    // at the read-back — and a qualification that lets it through names a
++    // command that half-runs.
++    const { store, root } = await project();
++    const a = await pinned(store, OLD);
++    const b = await pinned(store, OLD);
++    await store.setPosition(a, { status: "done", workflow: "wf", step: "review" });
++    const l = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    await store.setPosition(a, { status: "human", workflow: "wf", step: "review" });
++    const m = (await applyProjectMigration(store, registryWith(OLD), "wf", NEW)).receipt!;
++    const graphNew = servedGraph(registryWith(NEW));
++    const n = await store.beginMigration(OLD, NEW, graphNew, "wf", [a, b], m.id);
++    await withCreationLock(new ProjectPaths(root), async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw ?? "");
++      const entry = index.migrations.find((x) => x.id === n.id);
++      if (entry === undefined) throw new Error("receipt not stored");
++      delete entry.helpers;
++      await io.writeRuntimeIndex(
++        raw === null ? null : createHash("sha256").update(raw, "utf8").digest("hex"),
++        serializeDistributionIndex(index),
++      );
++    });
++    // The dead run's move: A sits on the target with no helper.
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: graphNew } },
++    );
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    expect(plan.reason).toContain("no single rollback");
++    await expect(rollbackProjectMigration(store, registryWith(NEW), m.id)).rejects.toThrow(
++      /nothing predating the write records the helper/,
++    );
++    expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
++  });
++  test("an open reversal whose task sits intact on the target still qualifies its receipt", async () => {
++    // The interrupted rollback moved A onto the target and died; nothing
++    // changed afterwards, so A reads exactly as the receipt recorded — the
++    // dead run's work is kept, B still needs the move, and the refusal names
++    // the command that finishes the reversal.
++    const { store } = await project();
++    const a = await pinned(store, OLD, "human", DOC_A);
++    const b = await pinned(store, OLD, "human", DOC_A);
++    await store.setPosition(a, { status: "done", workflow: "wf", step: "review" });
++    const l = (await applyProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf")).receipt!;
++    await store.setPosition(a, { status: "human", workflow: "wf", step: "review" });
++    const m = (await applyProjectMigration(store, registryWithDocument(OLD, DOC_A), "wf", NEW))
++      .receipt!;
++    const graphA = servedGraph(registryWithDocument(NEW, DOC_A));
++    const n = await store.beginMigration(OLD, NEW, graphA, "wf", [a, b], m.id, {
++      from: DOC_A,
++      to: DOC_A,
++    });
++    // The dead run's move: A is on the target exactly as n recorded it — pins
++    // carry no helper, like this fixture's, so the snapshot entry is null.
++    await store.setPosition(
++      a,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: graphA, document: DOC_A } },
++    );
++
++    const plan = await planProjectMigration(store, registryWithDocument(NEW, DOC_A), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    expect(named).toBe(m.id);
++    const moved = await rollbackProjectMigration(
++      store,
++      registryWithDocument(NEW, DOC_A),
++      named!,
++    );
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.id).toBe(n.id);
++    expect((await store.findMigration(n.id))?.completed_at).not.toBeUndefined();
++    expect(await digestOf(store, a)).toBe(NEW);
++    expect(await digestOf(store, b)).toBe(NEW);
++  });
++
++  test("an open reversal with no helpers snapshot still qualifies while its tasks are on the source", async () => {
++    // A receipt written before `helpers` existed carries no snapshot, so there
++    // is nothing to read a `from`-task's helper against — the pin itself is the
++    // pre-write record and the move carries it. The refusal still names the
++    // rollback, and running it seals the reversal.
++    const HELPER_1 = "1".repeat(64);
++    const { store, root } = await project();
++    const a = await pinned(store, OLD, "human", undefined, "wf", HELPER_1);
++    const b = await pinned(store, OLD, "human", undefined, "wf", HELPER_1);
++    const l = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const m = (await applyProjectMigration(store, registryWith(OLD), "wf", NEW)).receipt!;
++    const graphNew = servedGraph(registryWith(NEW));
++    const n = await store.beginMigration(OLD, NEW, graphNew, "wf", [a, b], m.id);
++    await withCreationLock(new ProjectPaths(root), async (io) => {
++      const raw = await io.readRuntimeIndex();
++      const index = parseDistributionIndex(raw ?? "");
++      const entry = index.migrations.find((x) => x.id === n.id);
++      if (entry === undefined) throw new Error("receipt not stored");
++      delete entry.helpers;
++      await io.writeRuntimeIndex(
++        raw === null ? null : createHash("sha256").update(raw, "utf8").digest("hex"),
++        serializeDistributionIndex(index),
++      );
++    });
++    expect((await store.findMigration(n.id))?.helpers).toBeUndefined();
++
++    const plan = await planProjectMigration(store, registryWith(NEW), "wf", OLD);
++    expect(plan.supported).toBe(false);
++    expect(plan.reason).toContain(l.id);
++    const named = /autosk migrate rollback ([0-9a-f]{64})/.exec(plan.reason ?? "")?.[1];
++    expect(named).toBe(m.id);
++    const moved = await rollbackProjectMigration(store, registryWith(NEW), named!);
++    expect(moved.ok).toBe(true);
++    expect(moved.receipt?.id).toBe(n.id);
++    expect((await store.findMigration(n.id))?.completed_at).not.toBeUndefined();
++    expect(await digestOf(store, a)).toBe(NEW);
++    expect(await digestOf(store, b)).toBe(NEW);
++  });
++  test("an open reversal refuses to continue while its workflow serves no distribution", async () => {
++    // The extension that served wf is gone, so nothing admits a distribution
++    // for it. Rollback and apply both refuse with the same reason, and the
++    // open receipt is left alone for when the workflow is served again.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const l = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const m = (await applyProjectMigration(store, registryWith(OLD), "wf", NEW)).receipt!;
++    const n = await store.beginMigration(OLD, NEW, servedGraph(registryWith(NEW)), "wf", [a], m.id);
++
++    const empty = new ExtensionRegistry();
++    const rb = await rollbackProjectMigration(store, empty, m.id);
++    expect(rb.ok).toBe(false);
++    expect(rb.reason).toContain(`open migration ${n.id.slice(0, 8)} cannot continue`);
++    expect(rb.reason).toContain("wf has no identified distribution");
++    const ap = await applyProjectMigration(store, empty, "wf");
++    expect(ap.ok).toBe(false);
++    expect(ap.reason).toBe(rb.reason);
++    expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
++    expect(await digestOf(store, a)).toBe(OLD);
++  });
+ });
