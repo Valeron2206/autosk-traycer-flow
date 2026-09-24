@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "ee9b550c0cd881d66d32c7a94296d1d6bb00a441");
+  assert.equal(manifest.result_tree, "976b91a85ed574d813f9c3d20588cf5589766cae");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -168,6 +168,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0039-step-visits-prototype-key.patch",
       "patches/0040-apply-migration-carries-helper.patch",
       "patches/0041-operator-source-document.patch",
+      "patches/0042-sealed-receipt-refuses-a-replan.patch",
     ],
   );
 });
