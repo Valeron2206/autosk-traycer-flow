@@ -1,0 +1,581 @@
+diff --git a/daemon/core/src/engine/migration-runner.ts b/daemon/core/src/engine/migration-runner.ts
+index d97d585..fc9f492 100644
+--- a/daemon/core/src/engine/migration-runner.ts
++++ b/daemon/core/src/engine/migration-runner.ts
+@@ -8,7 +8,7 @@
+  */
+ 
+ import type { ExtensionRegistry, WorkflowAdmission } from "../extensions/registry.ts";
+-import type { Store } from "../store/store.ts";
++import { MigrationRefusal, type Store } from "../store/store.ts";
+ import { OPEN_STATUSES, type StoredTask } from "../store/records.ts";
+ import { readRuntimeIdentityPin, type RuntimeIdentityPin } from "../store/metadata.ts";
+ import {
+@@ -134,17 +134,18 @@ export async function applyProjectMigration(
+     return { ok: false, reason: plan.reason };
+   }
+   const admitted = registry.workflowAdmission(plan.workflow!);
+-  const receipt = await store.beginMigration(
+-    plan.from!,
+-    plan.to!,
+-    admitted!.graph,
+-    plan.workflow!,
+-    plan.impact.map((i) => i.taskId),
+-    undefined,
+-    migrationDocuments(plan.fromDocument, admitted?.document),
+-  );
+-  const sealed = await store.applyMigration(receipt.id);
+-  return { ok: true, receipt: receiptToResult(sealed) };
++  return sealOrRefuse(async () => {
++    const receipt = await store.beginMigration(
++      plan.from!,
++      plan.to!,
++      admitted!.graph,
++      plan.workflow!,
++      plan.impact.map((i) => i.taskId),
++      undefined,
++      migrationDocuments(plan.fromDocument, admitted?.document),
++    );
++    return store.applyMigration(receipt.id);
++  });
+ }
+ 
+ /**
+@@ -187,17 +188,18 @@ export async function rollbackProjectMigration(
+     return { ok: false, reason: gate.reason };
+   }
+   const plan = gate.plan;
+-  const receipt = await store.beginMigration(
+-    plan.from!,
+-    plan.to!,
+-    gate.admitted.graph,
+-    plan.workflow!,
+-    plan.impact.map((i) => i.taskId),
+-    plan.reverses,
+-    migrationDocuments(plan.fromDocument, gate.admitted.document),
+-  );
+-  const sealed = await store.applyMigration(receipt.id);
+-  return { ok: true, receipt: receiptToResult(sealed) };
++  return sealOrRefuse(async () => {
++    const receipt = await store.beginMigration(
++      plan.from!,
++      plan.to!,
++      gate.admitted.graph,
++      plan.workflow!,
++      plan.impact.map((i) => i.taskId),
++      plan.reverses,
++      migrationDocuments(plan.fromDocument, gate.admitted.document),
++    );
++    return store.applyMigration(receipt.id);
++  });
+ }
+ 
+ /** The plan a rollback would open: supported, and `reverses` names its receipt. */
+@@ -230,9 +232,9 @@ type RollbackGate =
+  * document) triple no task ever held; and a derived id that is already sealed
+  * is reported to the caller instead of refused here. One check is left to the
+  * caller on purpose: `beginMigration` refuses a plan that names no tasks,
+- * which the gate reports as a supported empty plan — the command still throws
+- * it exactly where it used to, while the refusal's filter reads it as "this
+- * rollback moves nothing".
++ * which the gate reports as a supported empty plan — the store still refuses
++ * it exactly where it used to, and the command returns that refusal, while
++ * the refusal's filter reads it as "this rollback moves nothing".
+  */
+ async function rollbackGate(
+   store: Store,
+@@ -338,6 +340,21 @@ async function openMigrationsFor(store: Store, workflow: string) {
+   );
+ }
+ 
++/**
++ * Runs a store migration call and maps its declines to the refusal result.
++ * `MigrationRefusal` means the daemon answered and declined — it becomes
++ * `{ ok: false, reason }` (CLI exit 2). Everything else — I/O like EACCES,
++ * broken invariants, transport — propagates unchanged and keeps exit 1.
++ */
++async function sealOrRefuse(run: () => Promise<MigrationReceipt>): Promise<MigrationApplyResult> {
++  try {
++    return { ok: true, receipt: receiptToResult(await run()) };
++  } catch (e) {
++    if (e instanceof MigrationRefusal) return { ok: false, reason: e.message };
++    throw e;
++  }
++}
++
+ /**
+  * Finishes a receipt that is already open. `applyMigration` moves the tasks
+  * still on `from`, skips the ones already moved, verifies, and seals — the
+@@ -365,8 +382,7 @@ async function continueMigration(
+   if (blocker !== undefined) {
+     return { ok: false, reason: blocker };
+   }
+-  const sealed = await store.applyMigration(receipt.id);
+-  return { ok: true, receipt: receiptToResult(sealed) };
++  return sealOrRefuse(() => store.applyMigration(receipt.id));
+ }
+ 
+ /**
+diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
+index 3271d5d..2be3b92 100644
+--- a/daemon/core/src/engine/migration.ts
++++ b/daemon/core/src/engine/migration.ts
+@@ -15,6 +15,9 @@ import type { ExtensionRegistry } from "../extensions/registry.ts";
+ import { readRuntimeIdentityPin } from "../store/metadata.ts";
+ import { OPEN_STATUSES, type StoredTask } from "../store/records.ts";
+ 
++/** The shape a document digest must carry to be written into a receipt. */
++const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
++
+ /** One task the migration would move, and whether it can be. */
+ export interface MigrationImpact {
+   taskId: string;
+@@ -113,6 +116,17 @@ export function planMigration(
+   if (!admitted) {
+     return { supported: false, reason: `${workflow} has no identified distribution to migrate to`, impact };
+   }
++  // The receipt records the served document as `to_document`, a field the
++  // store writes only as a lowercase sha256 — an admission that cannot be
++  // named there is refused the way an unreadable pin is, instead of thrown
++  // when the receipt opens.
++  if (admitted.document !== undefined && !DIGEST_PATTERN.test(admitted.document)) {
++    return {
++      supported: false,
++      reason: `${workflow} serves a document that is not a lowercase sha256 (${admitted.document})`,
++      impact,
++    };
++  }
+   const to = admitted.distribution.digest;
+   if (!recordedDigests.has(to)) {
+     return { supported: false, reason: `target distribution ${to} is not recorded`, impact };
+diff --git a/daemon/core/src/store/index.ts b/daemon/core/src/store/index.ts
+index 10359f9..afd53b7 100644
+--- a/daemon/core/src/store/index.ts
++++ b/daemon/core/src/store/index.ts
+@@ -3,7 +3,7 @@
+  * writes, an mtime cache, and hybrid-ownership reconciliation.
+  */
+ 
+-export { Store, type StoreOptions, type SchedulingRow } from "./store.ts";
++export { Store, MigrationRefusal, type StoreOptions, type SchedulingRow } from "./store.ts";
+ export type { TaskCreationInput, TaskCreationTask, TaskCreationResult } from "@autosk/sdk";
+ export { TaskStore } from "./taskStore.ts";
+ export { SessionStore, type CreateSessionInput } from "./sessionStore.ts";
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 581da3c..87e93e8 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -109,6 +109,20 @@ type CreationAdmissionIndex =
+   | { ok: true; index: CreationIndexRecord; byTask: Map<string, CreationReservationRecord> }
+   | { ok: false; reason: "index_corrupt"; message: string };
+ 
++/**
++ * A decline, not a failure. The store answered the migration call and refused
++ * it — nothing was written, or only the consistent prefix a later continuation
++ * finishes. The runner maps this to `{ ok: false, reason }`, which the CLI
++ * prints as a refusal (exit 2). Every other throw on this path — I/O, a broken
++ * invariant, a caller-bug guard — stays an internal failure (exit 1).
++ */
++export class MigrationRefusal extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "MigrationRefusal";
++  }
++}
++
+ export class Store {
+   readonly paths: ProjectPaths;
+   readonly sessions: SessionStore;
+@@ -1564,7 +1578,7 @@ export class Store {
+     }
+     if (workflow.length === 0) throw new Error("migration workflow is empty");
+     const unique = [...new Set(tasks)].sort();
+-    if (unique.length === 0) throw new Error("migration names no tasks");
++    if (unique.length === 0) throw new MigrationRefusal("migration names no tasks");
+     if (unique.length !== tasks.length) throw new Error("migration names the same task twice");
+ 
+     if (reverses !== undefined && !/^[0-9a-f]{64}$/.test(reverses)) {
+@@ -1621,7 +1635,7 @@ export class Store {
+           ["to_document", existing.to_document, documents?.to],
+         ] as const) {
+           if (was !== now) {
+-            throw new Error(
++            throw new MigrationRefusal(
+               `migration ${id} was opened with ${name} ${was ?? "absent"} and is now asked for ${now ?? "absent"}`,
+             );
+           }
+@@ -1682,7 +1696,7 @@ export class Store {
+         const current = readRuntimeIdentityPin(t.metadata);
+         if (current.state === "pinned" && current.pin.digest === opened.to) return;
+         if (current.state !== "pinned" || current.pin.digest !== opened.from) {
+-          throw new Error(
++          throw new MigrationRefusal(
+             `migration ${id}: ${taskId} is no longer pinned to ${opened.from}, refusing to continue`,
+           );
+         }
+@@ -1697,7 +1711,7 @@ export class Store {
+         // before the field existed, or the workflow was built from no document, and
+         // refusing those would refuse every migration older than this patch.
+         if (opened.from_document !== undefined && current.pin.document !== opened.from_document) {
+-          throw new Error(
++          throw new MigrationRefusal(
+             `migration ${id}: ${taskId} came from document ${current.pin.document ?? "none"}, ` +
+               `and the receipt claims ${opened.from_document}`,
+           );
+@@ -1776,17 +1790,17 @@ export class Store {
+       // Both halves, because a read-back that checks only what the move wrote is
+       // not a verification of the move, it is a restatement of it.
+       if (after.state !== "pinned" || after.pin.digest !== opened.to) {
+-        throw new Error(`migration ${id}: ${taskId} did not read back on ${opened.to}`);
++        throw new MigrationRefusal(`migration ${id}: ${taskId} did not read back on ${opened.to}`);
+       }
+       if (after.pin.document !== opened.to_document) {
+-        throw new Error(
++        throw new MigrationRefusal(
+           `migration ${id}: ${taskId} read back on document ${after.pin.document ?? "none"}, expected ${
+             opened.to_document ?? "none"
+           }`,
+         );
+       }
+       if (after.pin.graph !== opened.to_graph) {
+-        throw new Error(
++        throw new MigrationRefusal(
+           `migration ${id}: ${taskId} read back on shape ${after.pin.graph ?? "none"}, expected ${opened.to_graph}`,
+         );
+       }
+@@ -1813,12 +1827,12 @@ export class Store {
+       }
+       if (!helperKnown) {
+         if (carriedHelpers !== undefined) {
+-          throw new Error(
++          throw new MigrationRefusal(
+             `migration ${id}: ${taskId} is already on ${opened.to} and nothing predating the write records the helper it should carry`,
+           );
+         }
+       } else if (after.pin.helper !== expectedHelper) {
+-        throw new Error(
++        throw new MigrationRefusal(
+           `migration ${id}: ${taskId} read back on store helper ${after.pin.helper ?? "none"}, expected ${
+             expectedHelper ?? "none"
+           }`,
+diff --git a/daemon/core/test/engine.migration-runner.test.ts b/daemon/core/test/engine.migration-runner.test.ts
+index 5d79db9..ae339c0 100644
+--- a/daemon/core/test/engine.migration-runner.test.ts
++++ b/daemon/core/test/engine.migration-runner.test.ts
+@@ -7,7 +7,7 @@
+ 
+ import { afterEach, describe, expect, test } from "bun:test";
+ import { createHash } from "node:crypto";
+-import { readFile, writeFile } from "node:fs/promises";
++import { chmod, readFile, writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ 
+ import type { TaskStatus } from "@autosk/sdk";
+@@ -300,11 +300,11 @@ describe("migration runner", () => {
+       { pinRuntimeIdentity: { workflow: "wf", digest: OLD, graph: GRAPH, document: DOC_B } },
+     );
+ 
+-    const error = await applyProjectMigration(store, target, "wf").catch((e) => e);
+-    expect(error).toBeInstanceOf(Error);
+-    expect((error as Error).message).toContain("came from document");
+-    expect((error as Error).message).toContain(DOC_B);
+-    expect((error as Error).message).toContain(DOC_A);
++    const refused = await applyProjectMigration(store, target, "wf");
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("came from document");
++    expect(refused.reason).toContain(DOC_B);
++    expect(refused.reason).toContain(DOC_A);
+     // The refusal is not a finish: the receipt stays open and the task stays put.
+     expect((await store.listMigrations())[0]!.completed_at).toBeUndefined();
+     expect(await digestOf(store, id)).toBe(OLD);
+@@ -339,11 +339,11 @@ describe("migration runner", () => {
+       { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: GRAPH, document: movedDoc } },
+     );
+ 
+-    const error = await rollbackProjectMigration(store, restored, original.id).catch((e) => e);
+-    expect(error).toBeInstanceOf(Error);
+-    expect((error as Error).message).toContain("came from document");
+-    expect((error as Error).message).toContain(movedDoc);
+-    expect((error as Error).message).toContain(DOC_T);
++    const refused = await rollbackProjectMigration(store, restored, original.id);
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("came from document");
++    expect(refused.reason).toContain(movedDoc);
++    expect(refused.reason).toContain(DOC_T);
+     const reversal = (await store.listMigrations()).find((m) => m.reverses === original.id);
+     expect(reversal!.completed_at).toBeUndefined();
+     expect(await digestOf(store, id)).toBe(NEW);
+@@ -1233,9 +1233,13 @@ describe("migration runner", () => {
+     expect(plan.supported).toBe(false);
+     expect(plan.reason).toContain(l.id);
+     expect(plan.reason).toContain("no single rollback");
+-    await expect(
+-      rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), m.id),
+-    ).rejects.toThrow(/read back on document/);
++    const refused = await rollbackProjectMigration(
++      store,
++      registryWithDocument(NEW, DOC_A),
++      m.id,
++    );
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("read back on document");
+     expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
+   });
+ 
+@@ -1275,9 +1279,13 @@ describe("migration runner", () => {
+     expect(plan.supported).toBe(false);
+     expect(plan.reason).toContain(l.id);
+     expect(plan.reason).toContain("no single rollback");
+-    await expect(
+-      rollbackProjectMigration(store, registryWithDocument(NEW, DOC_A), m.id),
+-    ).rejects.toThrow(/read back on store helper/);
++    const refused = await rollbackProjectMigration(
++      store,
++      registryWithDocument(NEW, DOC_A),
++      m.id,
++    );
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("read back on store helper");
+     expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
+   });
+ 
+@@ -1351,9 +1359,9 @@ describe("migration runner", () => {
+     expect(plan.supported).toBe(false);
+     expect(plan.reason).toContain(l.id);
+     expect(plan.reason).toContain("no single rollback");
+-    await expect(rollbackProjectMigration(store, registryWith(NEW), m.id)).rejects.toThrow(
+-      /nothing predating the write records the helper/,
+-    );
++    const refused = await rollbackProjectMigration(store, registryWith(NEW), m.id);
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("nothing predating the write records the helper");
+     expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
+   });
+   test("an open reversal whose task sits intact on the target still qualifies its receipt", async () => {
+@@ -1458,4 +1466,174 @@ describe("migration runner", () => {
+     expect((await store.findMigration(n.id))?.completed_at).toBeUndefined();
+     expect(await digestOf(store, a)).toBe(OLD);
+   });
++  test("an apply whose plan names no tasks returns a refusal, not an error", async () => {
++    // The source digest is recorded so the plan is supported — with an empty
++    // impact. Opening a receipt over no tasks is the store's decline, and a
++    // decline is data the operator reads, not a thrown internal failure.
++    const { store } = await project();
++    await store.recordDistribution(V3, LISTING_V3);
++    await pinned(store, OLD);
++
++    const refused = await applyProjectMigration(store, registryWith(NEW), "wf", V3);
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toBe("migration names no tasks");
++    expect(await store.listMigrations()).toHaveLength(0);
++  });
++
++  test("a second rollback of the same receipt returns a refusal, not an error", async () => {
++    // The first rollback sealed; the second plans over a task set that is
++    // already back on the source, so the store declines to open a receipt
++    // naming no tasks. Same decline channel as an empty apply.
++    const { store } = await project();
++    await pinned(store, OLD);
++    const original = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const restored = registryWith(OLD);
++    const back = await rollbackProjectMigration(store, restored, original.id);
++    expect(back.ok).toBe(true);
++
++    const refused = await rollbackProjectMigration(store, restored, original.id);
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toBe("migration names no tasks");
++    expect(await store.listMigrations()).toHaveLength(2);
++  });
++
++  test("a continuation over a task re-pinned elsewhere returns a refusal, not an error", async () => {
++    // The open receipt names both tasks at `from`; the later-sorting one was
++    // re-admitted under a third distribution while the receipt was open. The
++    // store declines mid-move — the earlier task's move stands, the receipt
++    // stays open for the operator to repair the pin and continue.
++    const { store } = await project();
++    const ids = [await pinned(store, OLD), await pinned(store, OLD)].sort();
++    const [kept, moved] = ids as [string, string];
++    const receipt = await store.beginMigration(OLD, NEW, SERVED_GRAPH, "wf", ids);
++    await store.setPosition(
++      moved,
++      { status: "human", workflow: "wf", step: "review" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: V3, graph: GRAPH } },
++    );
++
++    const refused = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("no longer pinned to");
++    expect(refused.reason).toContain(moved);
++    expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
++    expect(await digestOf(store, kept)).toBe(NEW);
++    expect(await digestOf(store, moved)).toBe(V3);
++  });
++
++  test("an I/O failure mid-move still throws — a failure is not a refusal", async () => {
++    // EACCES is class 1: the store could not write, so the call rejects and
++    // the CLI keeps exit 1. This pins the runner's catch to MigrationRefusal
++    // only — a catch that converted every Error into ok:false fails here.
++    const { store, root } = await project();
++    const id = await pinned(store, OLD);
++    const taskDir = join(root, ".autosk", "tasks", id);
++    await chmod(taskDir, 0o555);
++    let error: unknown;
++    try {
++      await applyProjectMigration(store, registryWith(NEW), "wf");
++    } catch (e) {
++      error = e;
++    } finally {
++      await chmod(taskDir, 0o755);
++    }
++    expect(error).toBeInstanceOf(Error);
++    expect((error as Error).name).not.toBe("MigrationRefusal");
++    expect((error as { code?: string }).code).toBe("EACCES");
++    // The receipt the failure left open still resumes and seals.
++    const resumed = await applyProjectMigration(store, registryWith(NEW), "wf");
++    expect(resumed.ok).toBe(true);
++    expect(await digestOf(store, id)).toBe(NEW);
++  });
++
++  // The registry accepts any string as a workflow's declared document, but
++  // a receipt can write it as `to_document` only when it is a sha256 — the
++  // planner refuses it as a plan refusal, the same channel an unreadable
++  // pin takes, instead of letting the store's guard throw it. The table pins
++  // the check's form: prefixed, uppercased and off-length digests are as
++  // malformed as a non-hex string.
++  const MALFORMED_DOCUMENTS = [
++    "not-a-sha256",
++    `sha256:${DOC_T}`,
++    DOC_T.toUpperCase(),
++    "e".repeat(63),
++    "e".repeat(65),
++    "",
++    `${DOC_T}\n`,
++    "g".repeat(64),
++  ];
++  for (const document of MALFORMED_DOCUMENTS) {
++    test(`a plan refuses a served document that is not a lowercase sha256 (${JSON.stringify(document)})`, async () => {
++      const { store } = await project();
++      const id = await pinned(store, OLD, "human", DOC_A);
++
++      const plan = await planProjectMigration(
++        store,
++        registryWithDocument(NEW, document),
++        "wf",
++        OLD,
++      );
++      expect(plan.supported).toBe(false);
++      expect(plan.reason).toContain(document);
++      expect(plan.reason).toContain("not a lowercase sha256");
++      expect(plan.impact.map((item) => item.taskId)).toEqual([id]);
++    });
++  }
++
++  test("an apply refuses a served document that is not a lowercase sha256", async () => {
++    const { store } = await project();
++    const id = await pinned(store, OLD, "human", DOC_A);
++
++    const refused = await applyProjectMigration(
++      store,
++      registryWithDocument(NEW, "not-a-sha256"),
++      "wf",
++      OLD,
++    );
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("not-a-sha256");
++    expect(await store.listMigrations()).toHaveLength(0);
++    expect(await digestOf(store, id)).toBe(OLD);
++  });
++
++  test("a rollback refuses a served document that is not a lowercase sha256", async () => {
++    // The sealed forward receipt records no from_document — the pins carried
++    // none — so the gate's own source-document check has nothing to hold, and
++    // the served document's form is what must refuse the open.
++    const { store } = await project();
++    await pinned(store, OLD);
++    const original = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++
++    const refused = await rollbackProjectMigration(
++      store,
++      registryWithDocument(OLD, "not-a-sha256"),
++      original.id,
++    );
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("not-a-sha256");
++    expect((await store.listMigrations()).filter((m) => m.reverses === original.id)).toHaveLength(0);
++  });
++
++  test("a rollback whose derived id is sealed still refuses a malformed served document", async () => {
++    // m moved the task OLD to NEW. n, its reversal, is built directly through
++    // the store to reach the gate's sealed derived-id case — no operator
++    // command seals a receipt under a malformed served document, because the
++    // planner refuses it first. n2 reversed n and put the task back on NEW.
++    // The test pins the document check answering before that case: no rollback
++    // this gate could name would run clean, so none may be named.
++    const { store } = await project();
++    const a = await pinned(store, OLD);
++    const m = (await applyProjectMigration(store, registryWith(NEW), "wf")).receipt!;
++    const malformed = registryWithDocument(OLD, "not-a-sha256");
++    const graph = malformed.workflowAdmission("wf")!.graph;
++    const n = await store.beginMigration(NEW, OLD, graph, "wf", [a], m.id);
++    await store.applyMigration(n.id);
++    const n2 = await rollbackProjectMigration(store, registryWith(NEW), n.id);
++    expect(n2.ok).toBe(true);
++
++    const refused = await rollbackProjectMigration(store, malformed, m.id);
++    expect(refused.ok).toBe(false);
++    expect(refused.reason).toContain("not-a-sha256");
++    expect(refused.reason).not.toContain("autosk migrate rollback");
++  });
+ });
+diff --git a/daemon/core/test/store.migration.test.ts b/daemon/core/test/store.migration.test.ts
+index f398bb1..c4e7329 100644
+--- a/daemon/core/test/store.migration.test.ts
++++ b/daemon/core/test/store.migration.test.ts
+@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
+ import { readFile, writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ 
+-import { ExtensionRegistry, Store } from "../src/index.ts";
++import { ExtensionRegistry, MigrationRefusal, Store } from "../src/index.ts";
+ import { runtimeIdentityDecision } from "../src/engine/runtimeIdentity.ts";
+ import { migrationId, parseDistributionIndex, serializeDistributionIndex } from "../src/store/distributions.ts";
+ import { withCreationLock } from "../src/store/creation.ts";
+@@ -169,7 +169,9 @@ describe("applying a migration", () => {
+     const { store } = await project();
+     const a = await pinned(store, OLD);
+     const receipt = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a]);
+-    await expect(store.verifyMigration(receipt.id)).rejects.toThrow(/did not read back on/);
++    const refusal = await store.verifyMigration(receipt.id).catch((e: unknown) => e);
++    expect(refusal).toBeInstanceOf(MigrationRefusal);
++    expect((refusal as Error).message).toMatch(/did not read back on/);
+     await store.applyMigration(receipt.id);
+     expect((await store.verifyMigration(receipt.id)).id).toBe(receipt.id);
+   });
+@@ -339,7 +341,9 @@ describe("applying a migration", () => {
+         { status: "human", workflow: "wf", step: "review" },
+         { pinRuntimeIdentity: { workflow: "wf", digest: NEW, graph: GRAPH } },
+       );
+-      await expect(store.applyMigration(receipt.id)).rejects.toThrow(/read back on shape/);
++      const refusal = await store.applyMigration(receipt.id).catch((e: unknown) => e);
++      expect(refusal).toBeInstanceOf(MigrationRefusal);
++      expect((refusal as Error).message).toMatch(/read back on shape/);
+       expect((await store.findMigration(receipt.id))?.completed_at).toBeUndefined();
+     })();
+   });
+@@ -371,9 +375,13 @@ describe("applying a migration", () => {
+         to: DOC_B,
+       });
+       expect(first.to_document).toBe(DOC_B);
+-      await expect(
+-        store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, { from: DOC_A, to: DOC_C }),
+-      ).rejects.toThrow(/was opened with to_document .* and is now asked for/);
++      const refusal = await store
++        .beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, { from: DOC_A, to: DOC_C })
++        .catch((e: unknown) => e);
++      expect(refusal).toBeInstanceOf(MigrationRefusal);
++      expect((refusal as Error).message).toMatch(
++        /was opened with to_document .* and is now asked for/,
++      );
+       // Reopening with the SAME documents is still the idempotent path it was.
+       const again = await store.beginMigration(OLD, NEW, NEW_GRAPH, "wf", [a], undefined, {
+         from: DOC_A,
