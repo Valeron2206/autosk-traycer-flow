@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { createRequire, stripTypeScriptTypes } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -421,8 +421,14 @@ test("the load log proves the guard ran before any engine load", () => {
   }
 });
 
+const launchDirs = [];
+after(() => {
+  for (const dir of launchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 const launchFixture = () => {
   const runRoot = mkdtempSync(join(tmpdir(), "seam-launch-"));
+  launchDirs.push(runRoot);
   const launch = join(runRoot, "launch");
   const project = join(runRoot, "project");
   mkdirSync(launch, { recursive: true });

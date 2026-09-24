@@ -14,7 +14,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal } from "../scripts/build-panel-package.mjs";
 import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
@@ -1012,9 +1012,16 @@ test("a produced report refuses a tree that lost a scanned member", async () => 
 // neighbours — never bound, never hashed — are what the run's own imports
 // would load. The bound name must be its own physical path, so the consumer
 // refuses the topology, not the bytes.
+const linkedDirs = [];
+after(() => {
+  for (const dir of linkedDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 const linkedFixture = () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "produced-link-"));
+  linkedDirs.push(root);
   const outside = mkdtempSync(path.join(os.tmpdir(), "produced-link-out-"));
+  linkedDirs.push(outside);
   mkdirSync(path.join(root, "src"));
   writeFileSync(path.join(outside, "member.mjs"), "export const m = 1;\n");
   writeFileSync(path.join(outside, "neighbour.mjs"), "export const swapped = true;\n");

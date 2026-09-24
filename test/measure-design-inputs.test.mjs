@@ -24,7 +24,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
@@ -41,8 +41,15 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const INSTRUMENT_URL = pathToFileURL(path.join(ROOT, "scripts", "lib", "design-reads-instrument.mjs")).href;
 const RUNNER = path.join(ROOT, "scripts", "measure-design-inputs.mjs");
 
+const scratchDirs = [];
+after(() => {
+  for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 function scratch() {
-  return mkdtempSync(path.join(tmpdir(), "t08-measure-"));
+  const dir = mkdtempSync(path.join(tmpdir(), "t08-measure-"));
+  scratchDirs.push(dir);
+  return dir;
 }
 
 /**
@@ -870,6 +877,17 @@ test("a validator that records no reads fails the measurement", () => {
     () => measure(root, { spawn: () => ({ status: 0, stderr: "" }) }),
     /recorded no reads — the instrument did not take/u,
   );
+});
+
+test("a validate entry that is not a plain node run refuses and leaves no scratch behind", () => {
+  // The refusal happens before any reader runs; the scratch directory the
+  // measurer made must still be removed — the child's own TMPDIR witnesses it.
+  const root = sandbox({ "validate:bad": "bun scripts/validate-bad.ts" });
+  const childTmp = scratch();
+  const run = runMeasurement(root, [], { TMPDIR: childTmp, NODE_DISABLE_COMPILE_CACHE: "1" });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr + run.stdout, /validate:bad: "bun scripts\/validate-bad\.ts" is not a plain node script run/u);
+  assert.deepEqual(readdirSync(childTmp), []);
 });
 
 test("--check passes on a fresh artifact and fails on added, removed and stale input", () => {

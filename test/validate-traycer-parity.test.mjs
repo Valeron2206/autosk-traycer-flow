@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   assertReportPath,
@@ -23,6 +23,11 @@ const documentation = {
   readme: readFileSync(path.join(ROOT, "README.md"), "utf8"),
   summary: readFileSync(path.join(ROOT, "docs/traycer-parity-registry.md"), "utf8"),
 };
+
+const scratchDirs = [];
+after(() => {
+  for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 const clone = (value) => structuredClone(value);
 
@@ -291,6 +296,7 @@ test("source report output is rejected inside the worktree", () => {
 
 test("source report output rejects a symlink that resolves into the worktree", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "autosk-parity-report-"));
+  scratchDirs.push(directory);
   const link = path.join(directory, "report.json");
   symlinkSync(path.join(ROOT, "README.md"), link);
   assert.match(assertReportPath(link).join("\n"), /symlink|outside the worktree/);
@@ -298,6 +304,7 @@ test("source report output rejects a symlink that resolves into the worktree", (
 
 test("source report output rejects a dangling symlink into the worktree", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "autosk-parity-dangling-report-"));
+  scratchDirs.push(directory);
   const link = path.join(directory, "report.json");
   symlinkSync(path.join(ROOT, "inside-report.json"), link);
   assert.match(assertReportPath(link).join("\n"), /symlink|outside the worktree/);
@@ -306,6 +313,7 @@ test("source report output rejects a dangling symlink into the worktree", () => 
 function syntheticSources() {
   const registry = clone(baseRegistry);
   const directory = mkdtempSync(path.join(os.tmpdir(), "autosk-parity-sources-"));
+  scratchDirs.push(directory);
   const sourceMap = { schemaVersion: 1, sources: {} };
   for (const source of registry.sources.filter((entry) => entry.kind !== "traycer_protocol_command")) {
     const filePath = path.join(directory, source.id.replaceAll("/", "_"));
@@ -463,6 +471,7 @@ test("empty and malformed source arrays fail closed without throwing", () => {
 
 test("CLI executes when invoked through a symlink", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "autosk-parity-cli-link-"));
+  scratchDirs.push(directory);
   const link = path.join(directory, "validate-traycer-parity.mjs");
   symlinkSync(path.join(ROOT, "scripts/validate-traycer-parity.mjs"), link);
   const output = execFileSync(process.execPath, [link, path.join(ROOT, "resources/traycer-parity/registry.v1.json")], { cwd: ROOT, encoding: "utf8" });

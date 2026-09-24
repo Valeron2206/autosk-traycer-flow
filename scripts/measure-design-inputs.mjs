@@ -59,10 +59,10 @@ export function measure(root, { spawn = spawnSync } = {}) {
   // form (native realpath returns the case on disk, which plain realpathSync
   // does not) so both sides compare as physical names.
   const rootPath = realpathSync.native(root);
+  const readers = validateScripts(root);
   const scratch = mkdtempSync(path.join(tmpdir(), "design-reads-"));
   const failures = [];
   const recorded = new Set();
-  const readers = validateScripts(root);
   try {
     for (const { name, argv } of readers) {
       const logDir = path.join(scratch, name);

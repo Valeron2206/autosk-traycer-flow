@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -376,26 +376,30 @@ const CANONICALIZER = "src/host/workflow-graph-canonical.mjs";
  */
 function mutatedRoundOnDisk(mutate) {
   const tmp = mkdtempSync(path.join(tmpdir(), "t09-"));
-  const round = readRound(4);
-  mutate(round);
-  const roundPath = `${PANEL_DIR}/round-4.json`;
-  mkdirSync(path.join(tmp, PANEL_DIR), { recursive: true });
-  writeFileSync(path.join(tmp, roundPath), `${JSON.stringify(round, null, 2)}\n`);
-  const value = mutated((draft) => {
-    draft.files.find((file) => file.path === roundPath).sha256 = createHash("sha256")
-      .update(readFileSync(path.join(tmp, roundPath), "utf8"))
-      .digest("hex");
-  });
-  writeFileSync(path.join(tmp, CANDIDATE_PATH), `${JSON.stringify(value, null, 2)}\n`);
-  const read = (relative) => {
-    try {
-      return readFileSync(path.join(tmp, relative), "utf8");
-    } catch {
-      return readFileSync(path.join(ROOT, relative), "utf8");
-    }
-  };
-  assert.deepEqual(validateCandidate(value, schema, { readFile: read }), []);
-  return JSON.parse(readFileSync(path.join(tmp, roundPath), "utf8"));
+  try {
+    const round = readRound(4);
+    mutate(round);
+    const roundPath = `${PANEL_DIR}/round-4.json`;
+    mkdirSync(path.join(tmp, PANEL_DIR), { recursive: true });
+    writeFileSync(path.join(tmp, roundPath), `${JSON.stringify(round, null, 2)}\n`);
+    const value = mutated((draft) => {
+      draft.files.find((file) => file.path === roundPath).sha256 = createHash("sha256")
+        .update(readFileSync(path.join(tmp, roundPath), "utf8"))
+        .digest("hex");
+    });
+    writeFileSync(path.join(tmp, CANDIDATE_PATH), `${JSON.stringify(value, null, 2)}\n`);
+    const read = (relative) => {
+      try {
+        return readFileSync(path.join(tmp, relative), "utf8");
+      } catch {
+        return readFileSync(path.join(ROOT, relative), "utf8");
+      }
+    };
+    assert.deepEqual(validateCandidate(value, schema, { readFile: read }), []);
+    return JSON.parse(readFileSync(path.join(tmp, roundPath), "utf8"));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 test("the shipped record is the pinned corrections set", () => {
