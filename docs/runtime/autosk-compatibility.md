@@ -62,7 +62,8 @@ apply in the listed order, each producing the tree beside it:
 | `0040-apply-migration-carries-helper.patch` | `5e1b241dbb15128369aa488bea57802a18cf2954` |
 | `0041-operator-source-document.patch` | `ee9b550c0cd881d66d32c7a94296d1d6bb00a441` |
 | `0042-sealed-receipt-refuses-a-replan.patch` | `976b91a85ed574d813f9c3d20588cf5589766cae` |
-| `0043-store-declines-return-as-refusals.patch` | `90dd4d1dbe36998e208efae1dcf02513fef67329` — the current `result_tree` |
+| `0043-store-declines-return-as-refusals.patch` | `90dd4d1dbe36998e208efae1dcf02513fef67329` |
+| `0044-migrate-refusals-documented-and-escaped.patch` | `cf83781de2a445b9b5e4e8c56903844feeec98ae` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

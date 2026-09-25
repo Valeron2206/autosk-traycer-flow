@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "90dd4d1dbe36998e208efae1dcf02513fef67329",
+  "result_tree": "cf83781de2a445b9b5e4e8c56903844feeec98ae",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -170,6 +170,10 @@
     {
       "file": "patches/0043-store-declines-return-as-refusals.patch",
       "sha256": "10c68b055f8615848d42d605408af4111a14a0582e7a2402283ff4c0d68a1d31"
+    },
+    {
+      "file": "patches/0044-migrate-refusals-documented-and-escaped.patch",
+      "sha256": "da88ad4c89e41f232671bc2283994b9fa815fdaac3cc577b4c67570100987437"
     }
   ],
   "license": {
