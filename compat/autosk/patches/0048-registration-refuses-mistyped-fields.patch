@@ -1,0 +1,368 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index 6af5a7f..69a5875 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -140,8 +140,11 @@ export class Engine implements SessionHost {
+   /**
+    * Remembers, in the project's runtime index, every distribution the registry
+    * was built from, and holds their files (issue #10). Shared with the
+-   * registry-swap path ({@link ProjectManager.rebuildRegistry}), which publishes
+-   * a registry the same way this does.
++   * registry-swap path ({@link ProjectManager.rebuildRegistry}), but the two
++   * publish differently: the swap records before it exposes the rebuilt
++   * registry on the handle, while here the handle is already published — the
++   * manager cached it before this ran, and {@link addProject} registered the
++   * project with the engine above.
+    */
+   private async recordDistributions(project: EngineProject): Promise<void> {
+     await recordServedDistributions(project.store, project.registry, this.logger);
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index c5b34e7..f50dcec 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -218,6 +218,23 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" graphDigest must be a string`);
+       return;
+     }
++    // `description` reaches the wire only as a string — `renderWorkflowInfo`
++    // emits no other value. Any other value is diagnosed here and ignored:
++    // the workflow registers, because a task may already be pinned to the
++    // name and refusing it would strand the task. The readers that decode a
++    // string never see one that is not.
++    if (workflow.description !== undefined && typeof workflow.description !== "string") {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" description must be a string`);
++    }
++    // The engine calls `onTransit` on every transition only when it is
++    // truthy, while the shape digest folds it as `typeof === "function"`
++    // (graph.ts:56) — so a truthy non-function would throw on first use
++    // against an identity that claims there is none. A falsy value is absent
++    // for both readers: it registers without a diagnostic.
++    if (workflow.onTransit && typeof workflow.onTransit !== "function") {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" onTransit must be a function`);
++      return;
++    }
+     this.workflows.set(name, workflow);
+     if (identity) {
+       // Both digests come from this one site, because they are two projections of
+@@ -236,8 +253,10 @@ export class ExtensionRegistry {
+    * Registers a named agent on behalf of `source` (plan §3.3, §4.1). An empty
+    * name, a missing `onRun`, or a duplicate name are each recorded as a
+    * diagnostic and skip the registration (never throw — the factory keeps
+-   * running). First-registered wins on a collision, so the higher-priority
+-   * source (project beats global) keeps the name.
++   * running). A `description` that is present and not a string is diagnosed
++   * and ignored: the agent registers and the field never renders.
++   * First-registered wins on a collision, so the higher-priority source
++   * (project beats global) keeps the name.
+    */
+   addAgent(source: string, registration: AgentRegistration): void {
+     const name = registration?.name;
+@@ -250,6 +269,12 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerAgent: "${name}" agent must define an onRun function`);
+       return;
+     }
++    // `description` reaches `registry.agent.list` only as a string —
++    // `renderAgentInfo` emits no other value. Any other value is diagnosed
++    // here and ignored: the agent registers, like a workflow's description.
++    if (registration.description !== undefined && typeof registration.description !== "string") {
++      this.recordDiagnostic(source, `registerAgent: "${name}" description must be a string`);
++    }
+     if (this.agents.has(name)) {
+       this.recordDiagnostic(source, `duplicate agent name: ${name}`);
+       return;
+@@ -322,7 +347,7 @@ export class ExtensionRegistry {
+ /** Renders an {@link AgentRegistration} to its {@link AgentInfo} wire projection. */
+ function renderAgentInfo(reg: AgentRegistration): AgentInfo {
+   const info: AgentInfo = { name: reg.name };
+-  if (reg.description !== undefined) info.description = reg.description;
++  if (typeof reg.description === "string") info.description = reg.description;
+   return info;
+ }
+ 
+@@ -383,6 +408,6 @@ export function renderWorkflowInfo(wf: WorkflowDefinition): WorkflowInfo {
+     // declaration itself, rendered in declaration order like the step names.
+     exits: wf.exits === undefined ? ["done", "cancel", "human"] : [...new Set(wf.exits)],
+   };
+-  if (wf.description !== undefined) info.description = wf.description;
++  if (typeof wf.description === "string") info.description = wf.description;
+   return info;
+ }
+diff --git a/daemon/core/src/extensions/servedDistributions.ts b/daemon/core/src/extensions/servedDistributions.ts
+index 1b71679..d361548 100644
+--- a/daemon/core/src/extensions/servedDistributions.ts
++++ b/daemon/core/src/extensions/servedDistributions.ts
+@@ -21,8 +21,10 @@ import type { ExtensionRegistry } from "./registry.ts";
+  * rebuilt registry's distributions the moment it lands, so it records them
+  * before the handle exposes them. At open (Engine.addProject) the handle is
+  * already readable — it is cached before the engine registers the project —
+- * so the guarantee there is narrower: the record lands before the engine's
+- * first scan can schedule work the registry admits.
++ * so the guarantee there is narrower: the record lands before the scan
++ * addProject itself starts. Until it lands, a scan the engine runs for any
++ * other reason, or a concurrent request for the project, can already schedule
++ * work under the registry (the recorded first-open window).
+  *
+  * Failing to record must not stop the operation that published the registry:
+  * the index is a record, not a precondition for running, and a project that
+diff --git a/daemon/core/src/project/manager.ts b/daemon/core/src/project/manager.ts
+index 251730d..1463a37 100644
+--- a/daemon/core/src/project/manager.ts
++++ b/daemon/core/src/project/manager.ts
+@@ -302,7 +302,8 @@ export class ProjectManager {
+       const next = await loadProjectRegistry(root, this.envFor(handle.store));
+       // The swap serves the rebuilt registry's distributions the moment it
+       // lands, so they are recorded + held BEFORE the handle exposes them —
+-      // the same guarantee opening a project gives (issue #10, criterion 3).
++      // a stronger ordering than opening a project gives, where the handle is
++      // already published before the record lands (issue #10, criterion 3).
+       await recordServedDistributions(handle.store, next, this.logger);
+       // Atomic swap: a single synchronous reassignment of the handle field the
+       // RPC read handlers (`registry.*`, `project.diagnostics`) consult fresh.
+diff --git a/daemon/core/test/extensions.registry.test.ts b/daemon/core/test/extensions.registry.test.ts
+index 1bf9da2..b2b64f3 100644
+--- a/daemon/core/test/extensions.registry.test.ts
++++ b/daemon/core/test/extensions.registry.test.ts
+@@ -177,6 +177,173 @@ describe("ExtensionRegistry registration", () => {
+     }
+   });
+ 
++  test("a non-string workflow description is diagnosed, ignored, and never rendered", () => {
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const values: [string, unknown][] = [
++      ["number", 7],
++      ["zero", 0],
++      ["object", {}],
++      ["array", []],
++      ["true", true],
++      ["false", false],
++      ["null", null],
++      ["bigint", BigInt(7)],
++      ["function", () => {}],
++      ["symbol", Symbol("d")],
++      ["string-object", new String("x")],
++    ];
++    // Ignored is the registration's own contract, with or without a
++    // distribution identity — the same behavior must hold in a registry
++    // assembled by hand, which has no identities at all.
++    for (const withIdentity of [true, false]) {
++      for (const [label, value] of values) {
++        const r = new ExtensionRegistry();
++        const name = `bad-desc-${withIdentity ? "id" : "noid"}-${label}`;
++        r.addWorkflow(
++          "ext",
++          { ...wf(name), description: value } as never,
++          withIdentity ? identity : undefined,
++        );
++        expect(r.diagnostics).toEqual([
++          { source: "ext", error: `registerWorkflow: "${name}" description must be a string` },
++        ]);
++        // The workflow registers — the admission included under an identity —
++        // and the mistyped field never reaches either wire projection.
++        expect(r.workflowNames()).toEqual([name]);
++        if (withIdentity) expect(r.workflowAdmission(name)).toBeDefined();
++        for (const info of [r.getWorkflowInfo(name), ...r.listWorkflows()]) {
++          expect(info).not.toHaveProperty("description");
++        }
++        // The factory keeps running: a later registration still lands.
++        r.addWorkflow("ext", wf(`later-${name}`), withIdentity ? identity : undefined);
++        expect(r.workflowNames()).toEqual([name, `later-${name}`]);
++      }
++    }
++    // Controls: a string renders with no diagnostic; an absent one needs none.
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", wf("str", { description: "a string" }));
++    r.addWorkflow("ext", wf("undef"));
++    expect(r.diagnostics).toEqual([]);
++    expect(r.getWorkflowInfo("str")?.description).toBe("a string");
++    expect(r.getWorkflowInfo("undef")).not.toHaveProperty("description");
++  });
++
++  test("a truthy non-function onTransit is a diagnostic, not a throw or a half-registration", () => {
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const values: [string, unknown][] = [
++      ["number", 7],
++      ["string", "x"],
++      ["object", {}],
++      ["array", []],
++      ["true", true],
++      ["bigint", BigInt(7)],
++      ["symbol", Symbol("t")],
++    ];
++    for (const withIdentity of [true, false]) {
++      for (const [label, value] of values) {
++        const r = new ExtensionRegistry();
++        const name = `bad-transit-${withIdentity ? "id" : "noid"}-${label}`;
++        r.addWorkflow(
++          "ext",
++          { ...wf(name), onTransit: value } as never,
++          withIdentity ? identity : undefined,
++        );
++        expect(r.diagnostics).toEqual([
++          { source: "ext", error: `registerWorkflow: "${name}" onTransit must be a function` },
++        ]);
++        expect(r.workflowNames()).toEqual([]);
++        expect(r.workflowAdmission(name)).toBeUndefined();
++        r.addWorkflow("ext", wf(`after-${name}`), withIdentity ? identity : undefined);
++        expect(r.workflowNames()).toEqual([`after-${name}`]);
++      }
++    }
++  });
++
++  test("a falsy onTransit counts as absent: it registers with no diagnostic", () => {
++    const values: [string, unknown][] = [
++      ["null", null],
++      ["false", false],
++      ["zero", 0],
++      ["empty-string", ""],
++    ];
++    for (const [label, value] of values) {
++      const r = new ExtensionRegistry();
++      const name = `falsy-transit-${label}`;
++      r.addWorkflow("ext", { ...wf(name), onTransit: value } as never);
++      expect(r.diagnostics).toEqual([]);
++      expect(r.workflowNames()).toEqual([name]);
++    }
++  });
++
++  test("a non-string agent description is diagnosed, ignored, and never rendered", () => {
++    const values: [string, unknown][] = [
++      ["number", 7],
++      ["zero", 0],
++      ["object", {}],
++      ["array", []],
++      ["true", true],
++      ["false", false],
++      ["null", null],
++      ["bigint", BigInt(7)],
++      ["function", () => {}],
++      ["symbol", Symbol("d")],
++      ["string-object", new String("x")],
++    ];
++    for (const [label, value] of values) {
++      const r = new ExtensionRegistry();
++      const name = `bad-agent-${label}`;
++      r.addAgent("ext", { name, description: value, agent: agentStep() } as never);
++      expect(r.diagnostics).toEqual([
++        { source: "ext", error: `registerAgent: "${name}" description must be a string` },
++      ]);
++      // The agent registers, and the mistyped field never reaches the wire.
++      expect(r.listAgents()).toEqual([{ name }]);
++      expect(r.getAgentInfo(name)).toEqual({ name });
++      r.addAgent("ext", { name: `later-${name}`, agent: agentStep() });
++      expect(r.listAgents()).toEqual([{ name }, { name: `later-${name}` }]);
++    }
++    // The string control renders with no diagnostic.
++    const r = new ExtensionRegistry();
++    r.addAgent("ext", { name: "str", description: "a string", agent: agentStep() });
++    expect(r.diagnostics).toEqual([]);
++    expect(r.listAgents()).toEqual([{ name: "str", description: "a string" }]);
++  });
++
++  test("a description mutated to a non-string after registration still renders nothing", () => {
++    const r = new ExtensionRegistry();
++    const def = wf("mut", { description: "fine" });
++    r.addWorkflow("ext", def);
++    expect(r.getWorkflowInfo("mut")?.description).toBe("fine");
++    // The registry stores the definition itself, so a later mutation is what
++    // the render sees — the guard, not the registration-time value, decides.
++    (def as { description?: unknown }).description = 42;
++    expect(r.getWorkflowInfo("mut")).not.toHaveProperty("description");
++    expect(r.listWorkflows()).toEqual([r.getWorkflowInfo("mut")!]);
++    expect(r.diagnostics).toEqual([]);
++  });
++
++  test("a string description and a function onTransit still register", () => {
++    const r = new ExtensionRegistry();
++    r.addWorkflow("s", wf("ok", { description: "a string", onTransit: async () => {} }));
++    r.addAgent("s", { name: "a", description: "a string", agent: agentStep() });
++    expect(r.workflowNames()).toEqual(["ok"]);
++    expect(r.getWorkflowInfo("ok")?.description).toBe("a string");
++    expect(r.listAgents()).toEqual([{ name: "a", description: "a string" }]);
++    expect(r.diagnostics).toEqual([]);
++  });
++
+   test("a sparse exits array is the same status_unknown diagnostic, not a throw", () => {
+     const identity = {
+       root: "/ext/dist",
+@@ -192,20 +359,29 @@ describe("ExtensionRegistry registration", () => {
+       ["assigned-hole", assigned],
+       ["new-array", new Array(1)],
+     ];
+-    for (const [label, value] of values) {
+-      const r = new ExtensionRegistry();
+-      const name = `bad-exits-${label}`;
+-      r.addWorkflow("ext", wf(name, { exits: value as unknown as string[] }), identity);
+-      expect(r.diagnostics).toEqual([
+-        {
+-          source: "ext",
+-          error: `registerWorkflow: "${name}" status_unknown: exits must be a subset of done|cancel|human`,
+-        },
+-      ]);
+-      expect(r.workflowNames()).toEqual([]);
+-      expect(r.workflowAdmission(name)).toBeUndefined();
+-      r.addWorkflow("ext", wf(`after-${name}`), identity);
+-      expect(r.workflowNames()).toEqual([`after-${name}`]);
++    // The check is the registration's own contract, with or without a
++    // distribution identity — the same refusal must hold in a registry
++    // assembled by hand, which has no identities at all.
++    for (const withIdentity of [true, false]) {
++      for (const [label, value] of values) {
++        const r = new ExtensionRegistry();
++        const name = `bad-exits-${withIdentity ? "id" : "noid"}-${label}`;
++        r.addWorkflow(
++          "ext",
++          wf(name, { exits: value as unknown as string[] }),
++          withIdentity ? identity : undefined,
++        );
++        expect(r.diagnostics).toEqual([
++          {
++            source: "ext",
++            error: `registerWorkflow: "${name}" status_unknown: exits must be a subset of done|cancel|human`,
++          },
++        ]);
++        expect(r.workflowNames()).toEqual([]);
++        expect(r.workflowAdmission(name)).toBeUndefined();
++        r.addWorkflow("ext", wf(`after-${name}`), withIdentity ? identity : undefined);
++        expect(r.workflowNames()).toEqual([`after-${name}`]);
++      }
+     }
+   });
+ 
+diff --git a/docs/extensions.md b/docs/extensions.md
+index 11fb091..8af7f72 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -87,11 +87,21 @@ registers three leaves the other two registered.
+   different status) is rejected.
+ - `graphDigest` — when present, a **string** (the canonical digest of the graph
+   document the workflow was built from).
++- `description` — when present, a **string**; any other value is **ignored** —
++  the workflow registers, the field never reaches `registry.workflow.*`, and the
++  project diagnostics name it.
++- `onTransit` — a **function**; a truthy value that is not a function is
++  refused (the engine calls a truthy `onTransit` on every transition). A falsy
++  value counts as absent.
++- `exits` — when present, an **array** drawn from `done` / `cancel` / `human`
++  (the statuses a `task.resume` relocation may name).
+ 
+ `registerAgent({ name, description?, agent })` requires:
+ 
+ - `name` — a **non-empty string**, and **unique** among registered agents.
+ - `agent.onRun` — a **function** (the same `onRun` an inline agent step uses).
++- `description` — when present, a **string**; any other value is **ignored**
++  and named in the project diagnostics.
+ 
+ ## Discovery order
+ 
