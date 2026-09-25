@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -53,21 +53,104 @@ function scratch() {
 }
 
 /**
+ * Every spawn that loads the instrument runs under a named deadline. The gate
+ * windows they exercise can leave a process alive forever — a pending fifo
+ * read holds a libuv pool thread — so a regression must fail the run, not
+ * hang the suite. spawnSync's timeout signals only the direct child; where a
+ * run starts children of its own — the runner's validators, parent.mjs's
+ * child.mjs — the spawn is detached so the child leads its own process group
+ * and an expired deadline kills the group with it. Node v25.9.0 does not
+ * document detached among spawnSync's options but the runtime honors it —
+ * 'a validator that never exits fails by name inside the run deadline' turns
+ * red if it ever stops taking effect. Sized from the
+ * slowest measured run — 321 ms for runMeasurement, 79 ms for runInstrumented
+ * and 138 ms for the instrumented parent.mjs spawns alone, 890 ms, 476 ms and
+ * 149 ms under the full suite — well past ten times that and past the 30 s
+ * floor.
+ */
+const RUN_DEADLINE_MS = 30_000;
+
+function assertRunWithinDeadline(label, argv, run, deadlineMs) {
+  if (run.error?.code !== "ETIMEDOUT") return;
+  try {
+    process.kill(-run.pid, "SIGKILL");
+  } catch (error) {
+    // ESRCH: the group is gone. EPERM: darwin reports it for a group whose
+    // members are all exiting or zombies, so nothing is left to signal.
+    if (error.code !== "ESRCH" && error.code !== "EPERM") throw error;
+  }
+  const poll = new Int32Array(new SharedArrayBuffer(4));
+  for (let i = 0; i < 200; i += 1) {
+    try {
+      process.kill(-run.pid, 0);
+    } catch (error) {
+      if (error.code === "ESRCH") break;
+      // EPERM: members still exiting (darwin); poll until they are reaped.
+      if (error.code !== "EPERM") throw error;
+    }
+    Atomics.wait(poll, 0, 0, 10);
+  }
+  const tail = String(run.stderr ?? "").trimEnd().slice(-1000);
+  const error = new Error(
+    `${label} exceeded its ${deadlineMs} ms deadline: ${argv.join(" ")}${tail === "" ? "" : `\nstderr tail:\n${tail}`}`,
+  );
+  throw error;
+}
+
+/**
+ * One bounded spawnSync for every run that loads the instrument — the named
+ * expiry lands before the caller's assertions, and detached runs carry the
+ * group kill for children of their own.
+ */
+function boundedSpawn(argv, { label, cwd, env = {}, detached = false, deadlineMs = RUN_DEADLINE_MS }) {
+  const run = spawnSync(process.execPath, argv, {
+    cwd,
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+    detached,
+    timeout: deadlineMs,
+    killSignal: "SIGKILL",
+  });
+  assertRunWithinDeadline(label, [process.execPath, ...argv], run, deadlineMs);
+  return run;
+}
+
+/**
  * Runs `source` as an instrumented process and returns the recorded paths.
  * The probe and its data live in a scratch directory, not the repository.
  */
-function runInstrumented(source, { env = {}, cwd } = {}) {
+function runInstrumented(source, { env = {}, cwd, deadlineMs = RUN_DEADLINE_MS } = {}) {
   const dir = scratch();
   const logDir = path.join(dir, "log");
   mkdirSync(logDir);
   const probe = path.join(dir, "probe.mjs");
   writeFileSync(probe, source);
-  const run = spawnSync(process.execPath, ["--import", INSTRUMENT_URL, probe], {
+  const argv = ["--import", INSTRUMENT_URL, probe];
+  const run = boundedSpawn(argv, {
+    label: "runInstrumented",
     cwd: cwd ?? dir,
-    env: { ...process.env, ...env, DESIGN_READS_LOG: logDir },
-    encoding: "utf8",
+    env: { ...env, DESIGN_READS_LOG: logDir },
+    deadlineMs,
   });
   return { run, recorded: collectRecordedPaths(logDir) };
+}
+
+/**
+ * Runs dir/parent.mjs instrumented and detached — parent.mjs starts
+ * child.mjs of its own, so an expired deadline must kill the whole group,
+ * not just the direct child.
+ */
+function runInstrumentedParent(dir, logDir, deadlineMs = RUN_DEADLINE_MS) {
+  return boundedSpawn(["--import", INSTRUMENT_URL, "parent.mjs"], {
+    label: "instrumented parent.mjs",
+    cwd: dir,
+    env: {
+      NODE_OPTIONS: `--import ${INSTRUMENT_URL}`,
+      DESIGN_READS_LOG: logDir,
+    },
+    detached: true,
+    deadlineMs,
+  });
 }
 
 /**
@@ -366,15 +449,7 @@ const run = spawnSync(process.execPath, ["child.mjs"], { cwd: "sub", stdio: "inh
 process.exit(run.status ?? 1);
 `,
   );
-  const run = spawnSync(process.execPath, ["--import", INSTRUMENT_URL, "parent.mjs"], {
-    cwd: dir,
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--import ${INSTRUMENT_URL}`,
-      DESIGN_READS_LOG: logDir,
-    },
-    encoding: "utf8",
-  });
+  const run = runInstrumentedParent(dir, logDir);
   assert.equal(run.status, 0, run.stderr);
   assert.ok(fileReads(collectRecordedPaths(logDir)).has(at(dir, "sub", "inside.txt")), [...collectRecordedPaths(logDir)].join("\n"));
 });
@@ -395,15 +470,7 @@ const run = spawnSync(process.execPath, ["child.mjs"], { stdio: "inherit" });
 process.exit(run.status ?? 1);
 `,
   );
-  const run = spawnSync(process.execPath, ["--import", INSTRUMENT_URL, "parent.mjs"], {
-    cwd: dir,
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--import ${INSTRUMENT_URL}`,
-      DESIGN_READS_LOG: logDir,
-    },
-    encoding: "utf8",
-  });
+  const run = runInstrumentedParent(dir, logDir);
   assert.equal(run.status, 0, run.stderr);
   const logs = readdirSync(logDir);
   assert.ok(logs.length >= 2, "the child wrote its own per-pid log");
@@ -807,12 +874,166 @@ function sandbox(scripts) {
   return root;
 }
 
-function runMeasurement(root, args = [], env = {}) {
-  return spawnSync(process.execPath, [RUNNER, "--root", root, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, ...env },
+function runMeasurement(root, args = [], env = {}, deadlineMs = RUN_DEADLINE_MS) {
+  const argv = [RUNNER, "--root", root, ...args];
+  // The runner's own TMPDIR defaults to a scratch dir so the design-reads-*
+  // directory a killed run leaves removes with the test's scratch; a caller's
+  // env wins where a test hands the runner its own TMPDIR.
+  return boundedSpawn(argv, {
+    label: "runMeasurement",
+    env: { TMPDIR: scratch(), ...env },
+    detached: true,
+    deadlineMs,
   });
 }
+
+test("an instrumented probe that never exits fails by name inside the run deadline", () => {
+  // The gate window's failure mode: the read is queued on the fifo and the
+  // release never comes, so the probe stays alive forever. The deadline must
+  // end the run by name, and the stderr tail must show the probe's own words —
+  // a probe is the direct child, so its stderr reaches run.stderr.
+  assert.throws(
+    () =>
+      runInstrumented(
+        `import fs from "node:fs";
+import { spawnSync } from "node:child_process";
+const r = spawnSync("mkfifo", ["gate.fifo"]);
+if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
+const fd = fs.openSync("gate.fifo", fs.constants.O_RDWR);
+console.error("probe-parked-at-gate");
+await new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
+`,
+        { deadlineMs: 3_000 },
+      ),
+    /runInstrumented exceeded its 3000 ms deadline[\s\S]*probe-parked-at-gate/u,
+  );
+});
+
+test("a validator that never exits fails by name inside the run deadline", () => {
+  // The same failure mode one level down: the runner is blocked in spawnSync
+  // on a validator stuck behind its gate. The validator drops its own pid in
+  // the sandbox root before it blocks, so the test can check the validator
+  // itself is gone — an empty process group could also mean the run never had
+  // one of its own. A validator's stderr dies in the runner's spawnSync pipe
+  // with the runner, so the pid record is the check that survives.
+  const root = sandbox({
+    "validate:stuck": "node scripts/validate-stuck.mjs",
+    files: {
+      "scripts/validate-stuck.mjs": `import fs from "node:fs";
+import { spawnSync } from "node:child_process";
+JSON.parse(fs.readFileSync("data/inputs.json", "utf8"));
+fs.writeFileSync("validator.pid", String(process.pid));
+const r = spawnSync("mkfifo", ["gate.fifo"]);
+if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
+const fd = fs.openSync("gate.fifo", fs.constants.O_RDWR);
+await new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
+`,
+      "data/inputs.json": "{}",
+    },
+  });
+  assert.throws(
+    () => runMeasurement(root, [], {}, 3_000),
+    /runMeasurement exceeded its 3000 ms deadline/u,
+  );
+  const pidFile = path.join(root, "validator.pid");
+  assert.ok(existsSync(pidFile), "the validator recorded its pid before the deadline");
+  assert.throws(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0), { code: "ESRCH" });
+});
+
+test("a child.mjs that never exits fails by name inside the run deadline", () => {
+  // The gate window one generation down: parent.mjs is blocked in spawnSync
+  // on child.mjs, itself parked behind the gate. child.mjs drops its own pid
+  // in the run directory before it blocks, so the test can check the
+  // grandchild itself is gone — detached is what puts it inside the group
+  // the deadline kills.
+  const dir = scratch();
+  const logDir = path.join(dir, "log");
+  mkdirSync(logDir);
+  writeFileSync(
+    path.join(dir, "child.mjs"),
+    `import fs from "node:fs";
+import { spawnSync } from "node:child_process";
+fs.writeFileSync("child.pid", String(process.pid));
+const r = spawnSync("mkfifo", ["gate.fifo"]);
+if (r.status !== 0) throw new Error("mkfifo failed: " + r.stderr);
+const fd = fs.openSync("gate.fifo", fs.constants.O_RDWR);
+await new Promise((resolve, reject) => fs.read(fd, Buffer.alloc(1), 0, 1, null, (e) => e ? reject(e) : resolve()));
+`,
+  );
+  writeFileSync(
+    path.join(dir, "parent.mjs"),
+    `import { spawnSync } from "node:child_process";
+const run = spawnSync(process.execPath, ["child.mjs"], { stdio: "inherit" });
+process.exit(run.status ?? 1);
+`,
+  );
+  assert.throws(
+    () => runInstrumentedParent(dir, logDir, 3_000),
+    /instrumented parent\.mjs exceeded its 3000 ms deadline/u,
+  );
+  const pidFile = path.join(dir, "child.pid");
+  assert.ok(existsSync(pidFile), "child.mjs recorded its pid before the deadline");
+  assert.throws(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0), { code: "ESRCH" });
+});
+
+test("an expired deadline still fails by name while the group holds only a zombie", async () => {
+  // On darwin a group whose members are all zombies answers EPERM to kill —
+  // the group exists but takes no signal — and the deadline's named failure
+  // must survive that window. A detached child that exits at once becomes a
+  // zombie while the event loop stays blocked, so the helper meets the EPERM
+  // deterministically here; the exit is awaited so the zombie is reaped.
+  const child = spawn("/usr/bin/true", [], { detached: true, stdio: "ignore" });
+  const exited = new Promise((resolve) => child.on("exit", resolve));
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let i = 0; i < 100; i += 1) {
+    const state = execFileSync("ps", ["-o", "stat=", "-p", String(child.pid)], { encoding: "utf8" }).trim();
+    if (state.startsWith("Z")) break;
+    Atomics.wait(pause, 0, 0, 20);
+  }
+  assert.throws(
+    () => assertRunWithinDeadline("a stuck run", ["true"], { error: { code: "ETIMEDOUT" }, pid: child.pid }, 30_000),
+    /a stuck run exceeded its 30000 ms deadline/u,
+  );
+  await exited;
+});
+
+test("a probe that kills itself is a signal exit, not an expired deadline", () => {
+  // The deadline check keys on run.error.code === "ETIMEDOUT": a probe that
+  // dies by SIGKILL comes back as a signal exit, not a named failure.
+  const { run } = runInstrumented(`process.kill(process.pid, "SIGKILL");\n`);
+  assert.equal(run.status, null);
+  assert.equal(run.signal, "SIGKILL");
+});
+
+test("a measurement run gives the runner a scratch TMPDIR of its own", () => {
+  // The deadline can kill a runner mid-validator, and what the run leaves in
+  // TMPDIR must remove with the test's scratch — so runMeasurement hands the
+  // runner a scratch directory when the caller passes none of its own, and
+  // the caller's TMPDIR wins when it does. The validator records the TMPDIR
+  // it saw; the record is checked against the registered scratches, not a
+  // name derived from tmpdir(), whose spelling os.tmpdir() does not fully
+  // normalize.
+  const root = sandbox({
+    "validate:tmpdir": "node scripts/validate-tmpdir.mjs",
+    files: {
+      "scripts/validate-tmpdir.mjs": `import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+JSON.parse(readFileSync("data/inputs.json", "utf8"));
+writeFileSync("validator-tmpdir.txt", tmpdir());
+`,
+      "data/inputs.json": "{}",
+    },
+  });
+  const run = runMeasurement(root);
+  assert.equal(run.status, 0, run.stderr);
+  const recorded = readFileSync(path.join(root, "validator-tmpdir.txt"), "utf8");
+  assert.ok(scratchDirs.includes(recorded));
+
+  const own = scratch();
+  const runWithOwn = runMeasurement(root, [], { TMPDIR: own });
+  assert.equal(runWithOwn.status, 0, runWithOwn.stderr);
+  assert.equal(readFileSync(path.join(root, "validator-tmpdir.txt"), "utf8"), own);
+});
 
 test("the runner records what a validator actually opened", () => {
   const root = sandbox({
@@ -880,8 +1101,8 @@ test("a validator that records no reads fails the measurement", () => {
 });
 
 test("a validate entry that is not a plain node run refuses and leaves no scratch behind", () => {
-  // The refusal happens before any reader runs; the scratch directory the
-  // measurer made must still be removed — the child's own TMPDIR witnesses it.
+  // The refusal comes before the measurer creates its scratch directory, so
+  // nothing may be left behind — the child's own TMPDIR witnesses it.
   const root = sandbox({ "validate:bad": "bun scripts/validate-bad.ts" });
   const childTmp = scratch();
   const run = runMeasurement(root, [], { TMPDIR: childTmp, NODE_DISABLE_COMPILE_CACHE: "1" });
