@@ -32,7 +32,7 @@
     },
     {
       "path": "compat/autosk/manifest.v1.json",
-      "sha256": "2d28081f0c76c583362a3005c07d30149058589c79b530b9c269b298380f64a3"
+      "sha256": "6500728d6890c878116935f9136e6a0c31e70f67992cfd258f7d592f36bc0322"
     },
     {
       "path": "compat/autosk/patches/0032-graph-document-in-shape.patch",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "0338a57e9da867cc12c9e5dc5096ee1acd1a0b8e97859114a4bd7cc59fefd244",
+  "candidate_digest": "7a95e9e68bae6feecc6bb7002ee6544fb940a9e7ddd59900af7ff6554d6d6ec0",
   "dispositions": [
     {
       "issue": 3,

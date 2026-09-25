@@ -1,0 +1,311 @@
+diff --git a/daemon/core/src/engine/runtimeIdentity.ts b/daemon/core/src/engine/runtimeIdentity.ts
+index 1e7d6f7..5862793 100644
+--- a/daemon/core/src/engine/runtimeIdentity.ts
++++ b/daemon/core/src/engine/runtimeIdentity.ts
+@@ -17,6 +17,9 @@ import type { RuntimeIdentityPin, RuntimeIdentityPinRead } from "../store/metada
+ /** The park reason and error prefix for a refused runtime identity. */
+ export const EXTENSION_VERSION_MISMATCH = "extension_version_mismatch";
+ 
++/** The same lowercase-sha256 shape the pin reader applies to `document`. */
++const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
++
+ /** Whether this path is a genuine (re)start, and so may adopt a missing pin. */
+ export type AbsentPinPolicy = "adopt" | "refuse";
+ 
+@@ -88,6 +91,20 @@ export function runtimeIdentityDecision(
+   }
+   // One lookup, so the two digests cannot be seen out of step with each other.
+   const current = registry.workflowAdmission(workflowName);
++  // The served document is written into a pin verbatim, under a reader that
++  // accepts only a lowercase sha256. Refusing a malformed one here — before any
++  // makePin, on every path below — is the writer refusing exactly the set the
++  // reader refuses, instead of minting a pin this daemon cannot read.
++  if (
++    current !== undefined &&
++    current.document !== undefined &&
++    (typeof current.document !== "string" || !DIGEST_PATTERN.test(current.document))
++  ) {
++    return {
++      ok: false,
++      reason: `${EXTENSION_VERSION_MISMATCH}: ${workflowName} serves a document that is not a lowercase sha256 (${JSON.stringify(current.document)})`,
++    };
++  }
+   if (pinned.state === "absent") {
+     if (!current) return { ok: true, admitted: null };
+     if (absent === "refuse") {
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index 3d53041..c03f6a1 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -180,11 +180,14 @@ export class ExtensionRegistry {
+     // `exits` is the register the CLI reads: the statuses a `task.resume`
+     // `{to:{status}}` may name. The union stays closed — a workflow declaring
+     // one outside it would list an exit nothing can perform, so it is refused
+-    // here rather than let the declaration and the wire disagree.
++    // here rather than let the declaration and the wire disagree. The spread
++    // materialises a hole as undefined, the same read the shape digest's
++    // `[...new Set]` makes — `.every` on the array itself would skip it and
++    // leave the throw for inside `workflowGraphDigest`, after `workflows.set`.
+     if (workflow.exits !== undefined) {
+       const valid =
+         Array.isArray(workflow.exits) &&
+-        workflow.exits.every(
++        [...workflow.exits].every(
+           (status) => status === "done" || status === "cancel" || status === "human",
+         );
+       if (!valid) {
+@@ -195,6 +198,15 @@ export class ExtensionRegistry {
+         return;
+       }
+     }
++    // `graphDigest` is carried into the admission and the pin verbatim, under
++    // a reader that accepts only a lowercase sha256 string. A value that is not
++    // a string is refused here rather than inside the shape digest, whose `b64`
++    // would throw — a registration must never throw — or coerce a Buffer or an
++    // array into bytes the reader would later refuse.
++    if (workflow.graphDigest !== undefined && typeof workflow.graphDigest !== "string") {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" graphDigest must be a string`);
++      return;
++    }
+     this.workflows.set(name, workflow);
+     if (identity) {
+       // Both digests come from this one site, because they are two projections of
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index eb006d6..ae14b22 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -1402,3 +1402,134 @@ describe("the store helper is part of the identity", () => {
+     }
+   });
+ });
++
++describe("a served document that is not a lowercase sha256", () => {
++  // The pin reader refuses a document that is not a lowercase sha256
++  // (metadata.ts). The writer must refuse the same set: admitting such a
++  // document would mint a pin this daemon cannot read.
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++  });
++  const pinnedRead = (pin: Record<string, unknown> | undefined) =>
++    pin === undefined
++      ? ({ state: "absent" } as const)
++      : readRuntimeIdentityPin({ runtime_identity: pin });
++
++  const HELPER = "c".repeat(64);
++  const IDENTITY = { root: "/dist", entry: "i.js", entries: [], bytes: 0, digest: "a".repeat(64) };
++
++  const registryServing = (document: unknown) => {
++    const registry = new ExtensionRegistry();
++    registry.addWorkflow(
++      "test",
++      {
++        name: "wf",
++        firstStep: "do",
++        steps: { do: { status: "human" } },
++        graphDigest: document,
++      } as never,
++      IDENTITY,
++    );
++    return registry;
++  };
++
++  const MALFORMED = [
++    "",
++    `${"d".repeat(64)}\n`,
++    ` ${"d".repeat(64)}`,
++    "g".repeat(64),
++    "D".repeat(64),
++    "d".repeat(63),
++  ];
++
++  const servedDocumentRefusal = (document: unknown) =>
++    `extension_version_mismatch: wf serves a document that is not a lowercase sha256 (${JSON.stringify(document)})`;
++
++  for (const document of MALFORMED) {
++    test(`refuses every admission over a malformed served document ${JSON.stringify(document)}`, () => {
++      const registry = registryServing(document);
++      // A task with no pin would otherwise be adopted with the malformed
++      // document copied into the pin it mints.
++      const adopted = runtimeIdentityDecision(registry, { state: "absent" }, "wf", "adopt", HELPER);
++      expect(adopted.ok).toBe(false);
++      if (adopted.ok) throw new Error("unreachable");
++      expect(adopted.reason).toBe(servedDocumentRefusal(document));
++
++      const adoptedRefuse = runtimeIdentityDecision(registry, { state: "absent" }, "wf", "refuse", HELPER);
++      expect(adoptedRefuse.ok).toBe(false);
++      if (adoptedRefuse.ok) throw new Error("unreachable");
++      expect(adoptedRefuse.reason).toBe(servedDocumentRefusal(document));
++
++      // A task pinned to this same distribution is refused too.
++      const admitted = registry.workflowAdmission("wf")!;
++      const pinned = pinnedRead({
++        workflow: "wf",
++        digest: IDENTITY.digest,
++        graph: admitted.graph,
++        helper: HELPER,
++        document: "d".repeat(64),
++      });
++      const refused = runtimeIdentityDecision(registry, pinned, "wf", "refuse", HELPER);
++      expect(refused.ok).toBe(false);
++      if (refused.ok) throw new Error("unreachable");
++      expect(refused.reason).toBe(servedDocumentRefusal(document));
++    });
++  }
++
++  test("a well-formed served document still admits", () => {
++    const registry = registryServing("d".repeat(64));
++    const adopted = runtimeIdentityDecision(registry, { state: "absent" }, "wf", "adopt", HELPER);
++    expect(adopted.ok).toBe(true);
++    if (!adopted.ok) throw new Error("unreachable");
++    expect(adopted.admitted?.document).toBe("d".repeat(64));
++  });
++
++  test("enroll on a malformed-document workflow refuses and writes no pin", async () => {
++    const p = await makeProject();
++    try {
++      const { engine } = makeEngine();
++      engines.push(engine);
++      p.project.registry = registryServing("g".repeat(64));
++      await engine.addProject(p.project);
++      const task = await p.store.createTask({ title: "t" });
++      await expect(engine.enroll(p.root, task.id, { workflow: "wf" })).rejects.toThrow(
++        `cannot enroll ${task.id}: ${servedDocumentRefusal("g".repeat(64))}`,
++      );
++      // The task row exists (createTask wrote it), bare: no workflow, no pin.
++      const view = await p.store.taskView(task.id);
++      expect(view.workflow).toBeNull();
++      expect(readRuntimeIdentityPin(view.metadata).state).toBe("absent");
++    } finally {
++      p.cleanup();
++    }
++  });
++
++  test("resume refuses a task once the served document turns malformed", async () => {
++    const p = await makeProject();
++    try {
++      const { engine } = makeEngine();
++      engines.push(engine);
++      p.project.registry = registryServing("d".repeat(64));
++      await engine.addProject(p.project);
++      const task = await p.store.createTask({ title: "t" });
++      const enrolled = await engine.enroll(p.root, task.id, { workflow: "wf" });
++      expect(enrolled.status).toBe("human");
++      // The distribution is unchanged; only the served document went malformed.
++      p.project.registry = registryServing("g".repeat(64));
++      await expect(engine.resume(p.root, task.id)).rejects.toThrow(
++        `cannot resume ${task.id}: ${servedDocumentRefusal("g".repeat(64))}`,
++      );
++      await expect(engine.enroll(p.root, task.id, { workflow: "wf" })).rejects.toThrow(
++        servedDocumentRefusal("g".repeat(64)),
++      );
++      // The refusal is read-only: the existing, well-formed pin is untouched.
++      const view = await p.store.taskView(task.id);
++      const pin = readRuntimeIdentityPin(view.metadata);
++      expect(pin.state).toBe("pinned");
++      if (pin.state === "pinned") expect(pin.pin.document).toBe("d".repeat(64));
++    } finally {
++      p.cleanup();
++    }
++  });
++});
+diff --git a/daemon/core/test/extensions.registry.test.ts b/daemon/core/test/extensions.registry.test.ts
+index b5550b2..1bf9da2 100644
+--- a/daemon/core/test/extensions.registry.test.ts
++++ b/daemon/core/test/extensions.registry.test.ts
+@@ -133,6 +133,82 @@ describe("ExtensionRegistry registration", () => {
+     ]);
+   });
+ 
++  test("a non-string graphDigest is a diagnostic, not a throw or a half-registration", () => {
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const values: [string, unknown][] = [
++      ["null", null],
++      ["number", 123],
++      ["boolean", true],
++      ["object", {}],
++      ["array", []],
++      ["array-of-hex", ["d".repeat(64)]],
++      ["buffer", Buffer.from("dd".repeat(32))],
++      ["uint8array", new Uint8Array([1, 2, 3])],
++      ["function", () => {}],
++      ["symbol", Symbol("s")],
++    ];
++    // The check is the registration's own contract, with or without a
++    // distribution identity — the same refusal must hold in a registry
++    // assembled by hand, which has no identities at all.
++    for (const withIdentity of [true, false]) {
++      for (const [label, value] of values) {
++        const r = new ExtensionRegistry();
++        const name = `bad-${withIdentity ? "id" : "noid"}-${label}`;
++        r.addWorkflow(
++          "ext",
++          { ...wf(name), graphDigest: value } as never,
++          withIdentity ? identity : undefined,
++        );
++        expect(r.diagnostics).toEqual([
++          { source: "ext", error: `registerWorkflow: "${name}" graphDigest must be a string` },
++        ]);
++        expect(r.workflowNames()).toEqual([]);
++        expect(r.workflowAdmission(name)).toBeUndefined();
++        // The factory keeps running: a later registration still lands.
++        r.addWorkflow("ext", wf(`after-${name}`), withIdentity ? identity : undefined);
++        expect(r.workflowNames()).toEqual([`after-${name}`]);
++      }
++    }
++  });
++
++  test("a sparse exits array is the same status_unknown diagnostic, not a throw", () => {
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const assigned = ["done"];
++    assigned[2] = "cancel";
++    const values: [string, unknown][] = [
++      ["literal-hole", ["done", , "cancel"]],
++      ["assigned-hole", assigned],
++      ["new-array", new Array(1)],
++    ];
++    for (const [label, value] of values) {
++      const r = new ExtensionRegistry();
++      const name = `bad-exits-${label}`;
++      r.addWorkflow("ext", wf(name, { exits: value as unknown as string[] }), identity);
++      expect(r.diagnostics).toEqual([
++        {
++          source: "ext",
++          error: `registerWorkflow: "${name}" status_unknown: exits must be a subset of done|cancel|human`,
++        },
++      ]);
++      expect(r.workflowNames()).toEqual([]);
++      expect(r.workflowAdmission(name)).toBeUndefined();
++      r.addWorkflow("ext", wf(`after-${name}`), identity);
++      expect(r.workflowNames()).toEqual([`after-${name}`]);
++    }
++  });
++
+   test("diagnostics getter returns a defensive copy", () => {
+     const r = new ExtensionRegistry();
+     r.recordDiagnostic("a", "boom");
+diff --git a/docs/extensions.md b/docs/extensions.md
+index 2095fe2..11fb091 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -85,6 +85,8 @@ registers three leaves the other two registered.
+   function; the step key is the agent name) or a `statusStep` whose `status` is
+   one of `done` / `cancel` / `human`. Any other shape (or a `statusStep` with a
+   different status) is rejected.
++- `graphDigest` — when present, a **string** (the canonical digest of the graph
++  document the workflow was built from).
+ 
+ `registerAgent({ name, description?, agent })` requires:
+ 
