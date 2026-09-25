@@ -1,0 +1,392 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index c367365..6af5a7f 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -36,7 +36,7 @@ import { SessionTokens } from "./sessionTokens.ts";
+ import { systemClock, type Clock } from "../store/clock.ts";
+ import { consoleLogger, type Logger } from "../store/logger.ts";
+ import { readRuntimeIdentityPin } from "../store/metadata.ts";
+-import { canonicalDistribution } from "../extensions/identity.ts";
++import { recordServedDistributions } from "../extensions/servedDistributions.ts";
+ import { EXTENSION_VERSION_MISMATCH, runtimeIdentityDecision } from "./runtimeIdentity.ts";
+ import { TranscriptWriter } from "./transcript.ts";
+ import { buildTransitContext, positionFor, validateTarget } from "./transition.ts";
+@@ -138,40 +138,13 @@ export class Engine implements SessionHost {
+   }
+ 
+   /**
+-   * Remembers, in the project's runtime index, every distribution the registry was
+-   * built from, and holds their files (issue #10). A task's pin says which digest
+-   * it needs; the record says what that digest consisted of, and the held bytes
+-   * are what let an Epic keep running after the copy on disk is replaced — which
+-   * for one globally installed extension happens to every project at once.
+-   *
+-   * Failing to record must not stop a project opening: the index is a record, not
+-   * a precondition for running, and a project that cannot write it is still a
+-   * project whose tasks are pinned and checked. The failure is logged, not
+-   * swallowed.
++   * Remembers, in the project's runtime index, every distribution the registry
++   * was built from, and holds their files (issue #10). Shared with the
++   * registry-swap path ({@link ProjectManager.rebuildRegistry}), which publishes
++   * a registry the same way this does.
+    */
+   private async recordDistributions(project: EngineProject): Promise<void> {
+-    const byDigest = new Map<string, { entries: string; root: string; owner?: string }>();
+-    for (const name of project.registry.workflowNames()) {
+-      const admitted = project.registry.workflowAdmission(name);
+-      if (!admitted || byDigest.has(admitted.distribution.digest)) continue;
+-      byDigest.set(admitted.distribution.digest, {
+-        entries: canonicalDistribution(admitted.distribution.entries),
+-        // The resolved root the digest was taken over, so the store can hold the
+-        // files as well as the listing (issue #10, criterion 3).
+-        root: admitted.distribution.root,
+-        // The extension the distribution belongs to — the ENTRY's install root,
+-        // so a record written while a held copy is served still names the
+-        // extension, not the materialized tree it is running from.
+-        owner: admitted.owner,
+-      });
+-    }
+-    for (const [digest, { entries, root, owner }] of byDigest) {
+-      try {
+-        await project.store.recordDistribution(digest, entries, root, owner);
+-      } catch (e) {
+-        this.logger.error(`recording distribution ${digest}: ${errMsg(e)}`);
+-      }
+-    }
++    await recordServedDistributions(project.store, project.registry, this.logger);
+   }
+ 
+   /**
+diff --git a/daemon/core/src/extensions/index.ts b/daemon/core/src/extensions/index.ts
+index ebcb660..d3bef23 100644
+--- a/daemon/core/src/extensions/index.ts
++++ b/daemon/core/src/extensions/index.ts
+@@ -57,6 +57,9 @@ export {
+   type ExtensionEnv,
+   type ResolvedProjectEntries,
+ } from "./loader.ts";
++export {
++  recordServedDistributions,
++} from "./servedDistributions.ts";
+ export {
+   validateInFlightTasks,
+   HAZARD_COMMENT_AUTHOR,
+diff --git a/daemon/core/src/extensions/servedDistributions.ts b/daemon/core/src/extensions/servedDistributions.ts
+new file mode 100644
+index 0000000..1b71679
+--- /dev/null
++++ b/daemon/core/src/extensions/servedDistributions.ts
+@@ -0,0 +1,64 @@
++/**
++ * Recording the distributions a registry serves (issue #10, criterion 3): one
++ * pass over the registry's admissions, deduplicated by digest, written to the
++ * project's runtime index with their files held.
++ */
++
++import type { Logger } from "../store/logger.ts";
++import type { Store } from "../store/store.ts";
++import { canonicalDistribution } from "./identity.ts";
++import type { ExtensionRegistry } from "./registry.ts";
++
++/**
++ * Remembers, in the project's runtime index, every distribution the registry was
++ * built from, and holds their files (issue #10). A task's pin says which digest
++ * it needs; the record says what that digest consisted of, and the held bytes
++ * are what let an Epic keep running after the copy on disk is replaced — which
++ * for one globally installed extension happens to every project at once.
++ *
++ * Every path that publishes a registry runs this, with the guarantee the
++ * path actually gives. A swap (ProjectManager.rebuildRegistry) serves the
++ * rebuilt registry's distributions the moment it lands, so it records them
++ * before the handle exposes them. At open (Engine.addProject) the handle is
++ * already readable — it is cached before the engine registers the project —
++ * so the guarantee there is narrower: the record lands before the engine's
++ * first scan can schedule work the registry admits.
++ *
++ * Failing to record must not stop the operation that published the registry:
++ * the index is a record, not a precondition for running, and a project that
++ * cannot write it is still a project whose tasks are pinned and checked. One
++ * digest's failure is logged with that digest, not swallowed, and the rest are
++ * still recorded.
++ */
++export async function recordServedDistributions(
++  store: Store,
++  registry: ExtensionRegistry,
++  logger: Logger,
++): Promise<void> {
++  const byDigest = new Map<string, { entries: string; root: string; owner?: string }>();
++  for (const name of registry.workflowNames()) {
++    const admitted = registry.workflowAdmission(name);
++    if (!admitted || byDigest.has(admitted.distribution.digest)) continue;
++    byDigest.set(admitted.distribution.digest, {
++      entries: canonicalDistribution(admitted.distribution.entries),
++      // The resolved root the digest was taken over, so the store can hold the
++      // files as well as the listing (issue #10, criterion 3).
++      root: admitted.distribution.root,
++      // The extension the distribution belongs to — the ENTRY's install root,
++      // so a record written while a held copy is served still names the
++      // extension, not the materialized tree it is running from.
++      owner: admitted.owner,
++    });
++  }
++  for (const [digest, { entries, root, owner }] of byDigest) {
++    try {
++      await store.recordDistribution(digest, entries, root, owner);
++    } catch (e) {
++      logger.error(`recording distribution ${digest}: ${errMsg(e)}`);
++    }
++  }
++}
++
++function errMsg(e: unknown): string {
++  return e instanceof Error ? e.message : String(e);
++}
+diff --git a/daemon/core/src/project/manager.ts b/daemon/core/src/project/manager.ts
+index 33a5406..251730d 100644
+--- a/daemon/core/src/project/manager.ts
++++ b/daemon/core/src/project/manager.ts
+@@ -34,6 +34,7 @@ import {
+   listExtensionEntries,
+   loadProjectRegistry,
+   parseInstallSource,
++  recordServedDistributions,
+   removeExtensionFromSettings,
+   settingsEntryFor,
+   updateExtensions,
+@@ -299,6 +300,10 @@ export class ProjectManager {
+       const handle = this.projects.get(root);
+       if (!handle) return { open: false, diagnostics: [], workflows: [], parked: [] };
+       const next = await loadProjectRegistry(root, this.envFor(handle.store));
++      // The swap serves the rebuilt registry's distributions the moment it
++      // lands, so they are recorded + held BEFORE the handle exposes them —
++      // the same guarantee opening a project gives (issue #10, criterion 3).
++      await recordServedDistributions(handle.store, next, this.logger);
+       // Atomic swap: a single synchronous reassignment of the handle field the
+       // RPC read handlers (`registry.*`, `project.diagnostics`) consult fresh.
+       handle.extensions = next;
+diff --git a/daemon/core/test/extensions.reload.test.ts b/daemon/core/test/extensions.reload.test.ts
+index 22a31da..63eee82 100644
+--- a/daemon/core/test/extensions.reload.test.ts
++++ b/daemon/core/test/extensions.reload.test.ts
+@@ -13,6 +13,7 @@ import { newSessionId } from "@autosk/sdk";
+ import {
+   canonicalize,
+   CapturingLogger,
++  Engine,
+   initProject,
+   ProjectManager,
+   ProjectRegistry,
+@@ -78,6 +79,103 @@ describe("ProjectManager.rebuildRegistry", () => {
+     expect(handle.extensions.workflowNames()).toEqual(["added"]);
+   });
+ 
++  test("records and holds the distributions the swapped registry serves", async () => {
++    write(extFile(proj), wfExt("wf"));
++    const handle = await mgr.open(await canonicalize(proj));
++
++    // A second extension appears on disk; the swap is what serves it, so the
++    // swap is what must record + hold its distribution.
++    write(join(proj, ".autosk/extensions/wf2.ts"), wfExt("wf2"));
++    await mgr.rebuildRegistry(handle.root);
++
++    const digest = handle.extensions.workflowIdentity("wf2")!.digest;
++    expect(await handle.store.recordedDistributions()).toContain(digest);
++    expect(await handle.store.readHeldDistribution(digest)).not.toBeNull();
++  });
++
++  test("a swap that serves a new distribution under an unchanged set of workflow names still records it", async () => {
++    write(extFile(proj), wfExt("wf"));
++    const handle = await mgr.open(await canonicalize(proj));
++    const before = handle.extensions.workflowIdentity("wf")!.digest;
++
++    // Same workflow name, different bytes at a different path: the rebuilt
++    // registry serves a new distribution without the name set growing.
++    rmSync(extFile(proj));
++    write(join(proj, ".autosk/extensions/wf2.ts"), wfExt("wf").replace("async (ctx)", "async (ctx) /* v2 */"));
++    await mgr.rebuildRegistry(handle.root);
++
++    const digest = handle.extensions.workflowIdentity("wf")!.digest;
++    expect(handle.extensions.workflowNames()).toEqual(["wf"]);
++    expect(digest).not.toBe(before);
++    expect(await handle.store.recordedDistributions()).toContain(digest);
++    expect(await handle.store.readHeldDistribution(digest)).not.toBeNull();
++  });
++
++  test("a distribution that fails to record is logged and stops neither the swap nor the other digests", async () => {
++    write(extFile(proj), wfExt("wf"));
++    const handle = await mgr.open(await canonicalize(proj));
++    write(join(proj, ".autosk/extensions/wf2.ts"), wfExt("wf2"));
++
++    const failing = handle.extensions.workflowIdentity("wf")!.digest;
++    const record = handle.store.recordDistribution.bind(handle.store);
++    handle.store.recordDistribution = async (digest, entries, root, owner) => {
++      if (digest === failing) throw new Error("disk full");
++      return record(digest, entries, root, owner);
++    };
++
++    const summary = await mgr.rebuildRegistry(handle.root);
++
++    // The swap still landed, the other digest is on record, and the failure is
++    // logged WITH the digest it belonged to.
++    expect(summary.workflows.sort()).toEqual(["wf", "wf2"]);
++    const wf2 = handle.extensions.workflowIdentity("wf2")!.digest;
++    expect(await handle.store.recordedDistributions()).toContain(wf2);
++    expect(logger.errors.some((m) => m.includes(failing))).toBe(true);
++  });
++
++  test("the handle keeps serving the old registry while the new one's distributions are still being recorded", async () => {
++    write(extFile(proj), wfExt("wf"));
++    const handle = await mgr.open(await canonicalize(proj));
++    write(join(proj, ".autosk/extensions/wf2.ts"), wfExt("wf2"));
++
++    // Hold every record call until the test releases it.
++    let release: () => void = () => {};
++    const gate = new Promise<void>((resolve) => {
++      release = resolve;
++    });
++    let sawRecord: () => void = () => {};
++    const firstRecord = new Promise<void>((resolve) => {
++      sawRecord = resolve;
++    });
++    const record = handle.store.recordDistribution.bind(handle.store);
++    handle.store.recordDistribution = async (digest, entries, root, owner) => {
++      sawRecord();
++      await gate;
++      return record(digest, entries, root, owner);
++    };
++    const before = handle.extensions;
++    const pending = mgr.rebuildRegistry(handle.root);
++
++    // Whichever lands first: the rebuild reaching its record calls (the gate
++    // then holds it), or the rebuild completing without ever making one. No
++    // timer — a rebuild that never records still answers this race.
++    const winner = await Promise.race([
++      firstRecord.then(() => "record" as const),
++      pending.then(() => "rebuild" as const),
++    ]);
++    expect(winner).toBe("record");
++    // While the record is pending, the handle still serves the OLD registry.
++    expect(handle.extensions).toBe(before);
++    expect(handle.extensions.workflowIdentity("wf2")).toBeUndefined();
++
++    release();
++    const summary = await pending;
++    expect(summary.workflows.sort()).toEqual(["wf", "wf2"]);
++    expect(handle.extensions).not.toBe(before);
++    const digest = handle.extensions.workflowIdentity("wf2")!.digest;
++    expect(await handle.store.recordedDistributions()).toContain(digest);
++  });
++
+   test("drops a removed workflow and parks a non-live work task on it", async () => {
+     write(extFile(proj), wfExt("rm"));
+     const handle = await mgr.open(await canonicalize(proj));
+@@ -272,4 +370,84 @@ describe("a project serves the code its open tasks were admitted under", () => {
+     expect(handle.extensions.workflowIdentity("wb")!.digest).toBe(b1.digest);
+     expect(handle.extensions.workflowNames().sort()).toEqual(["wa", "wb"]);
+   });
++
++  test("a task pinned to a distribution first served by a reload keeps its code after an upgrade and a restart", async () => {
++    write(extFile(proj), wfExt("wf"));
++    const root = await canonicalize(proj);
++    const handle = await mgr.open(root);
++
++    // A new extension is served by the swap alone — nothing recorded it at open.
++    write(join(proj, ".autosk/extensions/wf2.ts"), wfExt("wf2"));
++    await mgr.rebuildRegistry(root);
++    const v1 = handle.extensions.workflowIdentity("wf2")!.digest;
++
++    const task = await handle.store.createTask({ title: "admitted under wf2 v1" });
++    await handle.store.setPosition(
++      task.id,
++      { status: "work", workflow: "wf2", step: "go" },
++      { pinRuntimeIdentity: { workflow: "wf2", digest: v1, graph: handle.extensions.workflowGraph("wf2")! } },
++    );
++
++    // The installed code changes; a fresh manager + engine over the same
++    // project stand in for a daemon restart.
++    write(
++      join(proj, ".autosk/extensions/wf2.ts"),
++      wfExt("wf2").replace("async (ctx)", "async (ctx) /* v2 */"),
++    );
++    const mgr2 = new ProjectManager({
++      registry: new ProjectRegistry(join(home, ".autosk", "projects.json")),
++      store: { watch: false },
++      extensions: { home },
++      logger: new CapturingLogger(),
++    });
++    const engine2 = new Engine({ rescanMs: 0, logger: new CapturingLogger() });
++    try {
++      const h2 = await mgr2.open(root);
++      await engine2.addProject({ root, store: h2.store, registry: h2.extensions });
++
++      const served = h2.extensions.workflowIdentity("wf2")!;
++      expect(served.digest).toBe(v1);
++      expect(served.root).toContain("/runtime/v1/code/");
++      expect(
++        h2.extensions.diagnostics.some((d) => /serving held distribution/.test(d.error)),
++      ).toBe(true);
++      expect(h2.extensions.diagnostics.some((d) => /does not hold/.test(d.error))).toBe(false);
++    } finally {
++      // Nothing a test starts may outlive it: the engine scans as soon as it
++      // gets the project, so it is stopped before the store it would write to
++      // is closed and the test dir removed.
++      engine2.stop();
++      await mgr2.close();
++    }
++  });
++
++  test("a pinned distribution with a recorded owner is not reported ownerless once its extension is gone, through the daemon's own wiring", async () => {
++    write(extFile(proj), wfExt("wf"));
++    const root = await canonicalize(proj);
++    const handle = await mgr.open(root);
++    const v1 = handle.extensions.workflowIdentity("wf")!;
++
++    // Record with the owner taken from the admission — not a literal — then pin.
++    await handle.store.recordDistribution(
++      v1.digest,
++      canonicalDistribution(v1.entries),
++      v1.root,
++      handle.extensions.workflowAdmission("wf")!.owner,
++    );
++    const task = await handle.store.createTask({ title: "admitted under v1" });
++    await handle.store.setPosition(
++      task.id,
++      { status: "work", workflow: "wf", step: "go" },
++      { pinRuntimeIdentity: { workflow: "wf", digest: v1.digest, graph: handle.extensions.workflowGraph("wf")! } },
++    );
++
++    // The owning extension disappears; the held record's owner must keep the
++    // digest out of the ownerless set.
++    rmSync(extFile(proj));
++    const summary = await mgr.rebuildRegistry(root);
++
++    const ownerless = (ds: { error: string }[]) => ds.filter((d) => /no recorded owner/.test(d.error));
++    expect(ownerless(summary.diagnostics)).toEqual([]);
++    expect(ownerless(handle.extensions.diagnostics)).toEqual([]);
++  });
+ });
+diff --git a/daemon/core/test/rpc.reload.test.ts b/daemon/core/test/rpc.reload.test.ts
+index 2bd82b1..9c933cc 100644
+--- a/daemon/core/test/rpc.reload.test.ts
++++ b/daemon/core/test/rpc.reload.test.ts
+@@ -109,6 +109,20 @@ describe("extension hot-reload (live daemon)", () => {
+     await waitFor(async () => (await c.call<TaskView>("task.get", { cwd: proj, id: task.id })).status === "done");
+   });
+ 
++  test("a distribution first served by a reload is recorded and held in the project's store", async () => {
++    const proj = await td.makeProject("proj");
++    await c.call("registry.workflow.list", { cwd: proj }); // open + engine-register
++
++    write(join(proj, ".autosk/extensions/hot.ts"), wfExt("hot-wf"));
++    const reload = await c.call<ExtensionReloadResult>("extension.reload", { cwd: proj });
++    expect(reload.workflows).toContain("hot-wf");
++
++    const handle = await td.handle(proj);
++    const digest = handle.extensions.workflowIdentity("hot-wf")!.digest;
++    expect(await handle.store.recordedDistributions()).toContain(digest);
++    expect(await handle.store.readHeldDistribution(digest)).not.toBeNull();
++  });
++
+   test("a bad extension on reload is a diagnostic, not a crash; good workflows stay schedulable", async () => {
+     const proj = await td.makeProject("proj");
+     await c.call("registry.workflow.list", { cwd: proj }); // open + engine-register
