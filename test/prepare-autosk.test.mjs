@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "75589888700972cc39cd1aab8baa978028e56d22");
+  assert.equal(manifest.result_tree, "e2fc5e40d34b2b0a7e7eb3c15995f635f5986857");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -174,6 +174,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0045-graph-digest-refused-before-a-pin.patch",
       "patches/0046-held-distribution-served-to-its-owner.patch",
       "patches/0047-registry-swap-records-served-distributions.patch",
+      "patches/0048-registration-refuses-mistyped-fields.patch",
     ],
   );
 });
