@@ -64,7 +64,8 @@ apply in the listed order, each producing the tree beside it:
 | `0042-sealed-receipt-refuses-a-replan.patch` | `976b91a85ed574d813f9c3d20588cf5589766cae` |
 | `0043-store-declines-return-as-refusals.patch` | `90dd4d1dbe36998e208efae1dcf02513fef67329` |
 | `0044-migrate-refusals-documented-and-escaped.patch` | `cf83781de2a445b9b5e4e8c56903844feeec98ae` |
-| `0045-graph-digest-refused-before-a-pin.patch` | `900c174c9f803f1e10d26712163c2feddaa14169` — the current `result_tree` |
+| `0045-graph-digest-refused-before-a-pin.patch` | `900c174c9f803f1e10d26712163c2feddaa14169` |
+| `0046-held-distribution-served-to-its-owner.patch` | `d480f2bc9e28814bfd36472c651b3d31d0f2f9a3` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

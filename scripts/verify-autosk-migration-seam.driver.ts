@@ -161,7 +161,8 @@ await store.open();
 // loader asks this project's own store which distributions open tasks are
 // pinned to and where a held copy can be put back.
 const pinnedCode = {
-  pinned: () => store.referencedDistributions(),
+  pinned: (owner: string) => store.referencedDistributionsForOwner(owner),
+  ownerless: () => store.ownerlessReferencedDistributions(),
   restore: (digest: string) => store.materializeDistribution(digest),
 };
 

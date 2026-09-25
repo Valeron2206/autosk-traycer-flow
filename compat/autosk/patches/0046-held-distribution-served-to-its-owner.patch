@@ -1,0 +1,968 @@
+diff --git a/daemon/core/src/engine/engine.ts b/daemon/core/src/engine/engine.ts
+index f6ff117..c367365 100644
+--- a/daemon/core/src/engine/engine.ts
++++ b/daemon/core/src/engine/engine.ts
+@@ -150,7 +150,7 @@ export class Engine implements SessionHost {
+    * swallowed.
+    */
+   private async recordDistributions(project: EngineProject): Promise<void> {
+-    const byDigest = new Map<string, { entries: string; root: string }>();
++    const byDigest = new Map<string, { entries: string; root: string; owner?: string }>();
+     for (const name of project.registry.workflowNames()) {
+       const admitted = project.registry.workflowAdmission(name);
+       if (!admitted || byDigest.has(admitted.distribution.digest)) continue;
+@@ -159,11 +159,15 @@ export class Engine implements SessionHost {
+         // The resolved root the digest was taken over, so the store can hold the
+         // files as well as the listing (issue #10, criterion 3).
+         root: admitted.distribution.root,
++        // The extension the distribution belongs to — the ENTRY's install root,
++        // so a record written while a held copy is served still names the
++        // extension, not the materialized tree it is running from.
++        owner: admitted.owner,
+       });
+     }
+-    for (const [digest, { entries, root }] of byDigest) {
++    for (const [digest, { entries, root, owner }] of byDigest) {
+       try {
+-        await project.store.recordDistribution(digest, entries, root);
++        await project.store.recordDistribution(digest, entries, root, owner);
+       } catch (e) {
+         this.logger.error(`recording distribution ${digest}: ${errMsg(e)}`);
+       }
+diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
+index 9a4c33a..fc006be 100644
+--- a/daemon/core/src/extensions/loader.ts
++++ b/daemon/core/src/extensions/loader.ts
+@@ -76,12 +76,50 @@ export interface ExtensionEnv {
+  * "which code is installed" depend on a project being open.
+  */
+ export interface PinnedCodeSource {
+-  /** The distributions this project's OPEN tasks are pinned to. */
+-  pinned(): Promise<Set<string>>;
++  /**
++   * The distributions this project's OPEN tasks are pinned to that belong to the
++   * extension identified by `owner` ({@link distributionOwnerKey}). A held
++   * distribution is served only to the extension that owns it: a digest recorded
++   * under another extension's key — or under none — is not in the answer.
++   */
++  pinned(owner: string): Promise<Set<string>>;
++  /**
++   * The pinned digests whose records name no owner (written before ownership
++   * existed). They are never served to any extension; the loader reports them.
++   */
++  ownerless(): Promise<Set<string>>;
+   /** Where a held distribution was put back, or `null` when it is not held. */
+   restore(digest: string): Promise<string | null>;
+ }
+ 
++/**
++ * The owner key a distribution record is written and read under: the entry's
++ * install root, relative to the project root when it lies inside the project and
++ * absolute otherwise. It survives an in-place upgrade (a rewritten directory, a
++ * package reinstalled under the same `packages/<name>` root) and a move of the
++ * project directory, and it differs between two extensions.
++ *
++ * It is deliberately NOT the entry's `source` label: a directory source's label
++ * is an absolute path (which breaks on a project move), and an npm entry's label
++ * is the settings spec `npm:<name>` (which carries a version the install root
++ * does not). {@link relativeWithin} realpaths both ends, so the key does not
++ * depend on which spelling of the project path the daemon was given.
++ */
++export function distributionOwnerKey(projectRoot: string, entryRoot: string): string {
++  // The project directory itself is keyed ".": relativeWithin reports a root
++  // equal to the project root by the directory's basename, which a rename of
++  // the project would change.
++  const entry = realpathSync(entryRoot);
++  try {
++    if (entry === realpathSync(projectRoot)) return ".";
++  } catch {
++    // A project root that cannot be resolved — moved mid-load or missing
++    // entirely — is not a failure: the key falls back to the entry's absolute
++    // path, as it does for an extension installed outside the project.
++  }
++  return relativeWithin(projectRoot, entry) ?? entry;
++}
++
+ /**
+  * Decides which distribution a project should serve for one installed entry.
+  *
+@@ -106,11 +144,12 @@ async function resolveServedRoot(
+   source: string,
+   installed: DistributionIdentity,
+   pinnedCode: PinnedCodeSource | undefined,
++  owner: string,
+ ): Promise<{ root: string; entryPath: string } | null> {
+   if (pinnedCode === undefined) return null;
+   let pinned: Set<string>;
+   try {
+-    pinned = await pinnedCode.pinned();
++    pinned = await pinnedCode.pinned(owner);
+   } catch (e) {
+     registry.recordDiagnostic(source, `pinned distributions cannot be read: ${errMsg(e)}`);
+     return null;
+@@ -288,7 +327,8 @@ async function loadEntry(
+   registry: ExtensionRegistry,
+   entry: ExtensionEntry,
+   identities: Map<string, DistributionIdentity | Error>,
+-  pinnedCode?: PinnedCodeSource,
++  pinnedCode: PinnedCodeSource | undefined,
++  projectRoot: string,
+ ): Promise<void> {
+   // Identify the exact bytes before importing them (issue #10). A distribution
+   // that cannot be identified is refused rather than loaded unidentified: a
+@@ -319,6 +359,16 @@ async function loadEntry(
+     registry.recordDiagnostic(entry.source, `distribution cannot be identified: ${cached.message}`);
+     return;
+   }
++  // The owner this entry writes on its distribution records and asks the pinned
++  // question under: the install root, not the served tree — a held copy's root
++  // is the store's, and the record must still name the extension it belongs to.
++  let owner: string;
++  try {
++    owner = distributionOwnerKey(projectRoot, key);
++  } catch (e) {
++    registry.recordDiagnostic(entry.source, `entry root cannot be resolved: ${errMsg(e)}`);
++    return;
++  }
+   // The memo skips `distributionIdentity`'s own entry-in-tree check for a
+   // package's second and later entries, so it is repeated here.
+   const relative = relativeWithin(cached.root, entry.entryPath);
+@@ -335,7 +385,7 @@ async function loadEntry(
+   // open tasks were admitted under a version the install directory no longer
+   // has. `served` is where the code actually comes from; `entry.entryPath` is
+   // where it was installed, and after this point only `served` matters.
+-  const substitute = await resolveServedRoot(registry, entry.source, cached, pinnedCode);
++  const substitute = await resolveServedRoot(registry, entry.source, cached, pinnedCode, owner);
+   const servedEntryPath = substitute?.entryPath ?? entry.entryPath;
+   if (substitute !== null) {
+     try {
+@@ -388,7 +438,7 @@ async function loadEntry(
+   importedIdentities.set(resolvedEntry, identity);
+ 
+   const api: AutoskAPI = {
+-    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow, identity),
++    registerWorkflow: (workflow) => registry.addWorkflow(entry.source, workflow, identity, owner),
+     registerAgent: (registration) => registry.addAgent(entry.source, registration),
+   };
+   try {
+@@ -417,7 +467,33 @@ export async function loadProjectRegistry(
+   // first-registered wins a name collision deterministically.
+   const identities = new Map<string, DistributionIdentity | Error>();
+   for (const entry of entries) {
+-    await loadEntry(registry, entry, identities, env.pinnedCode);
++    await loadEntry(registry, entry, identities, env.pinnedCode, projectRoot);
++  }
++  // A pinned digest whose record names no owner — one written before ownership
++  // was recorded — is served to no extension at all, so it surfaces here rather
++  // than under an entry it does not belong to, and only when nothing served it.
++  if (env.pinnedCode !== undefined) {
++    let ownerless: Set<string>;
++    try {
++      ownerless = await env.pinnedCode.ownerless();
++    } catch (e) {
++      registry.recordDiagnostic(projectRoot, `pinned distributions cannot be read: ${errMsg(e)}`);
++      ownerless = new Set();
++    }
++    if (ownerless.size > 0) {
++      const provided = new Set<string>();
++      for (const name of registry.workflowNames()) {
++        const admitted = registry.workflowAdmission(name);
++        if (admitted) provided.add(admitted.distribution.digest);
++      }
++      for (const digest of [...ownerless].sort()) {
++        if (provided.has(digest)) continue;
++        registry.recordDiagnostic(
++          projectRoot,
++          `open tasks are pinned to ${digest}, which has no recorded owner: it is not served`,
++        );
++      }
++    }
+   }
+   return registry;
+ }
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index c03f6a1..c5b34e7 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -40,6 +40,12 @@ import type { DistributionIdentity } from "./identity.ts";
+  */
+ export interface WorkflowAdmission {
+   distribution: DistributionIdentity;
++  /**
++   * The extension the distribution belongs to — the entry's install root as an
++   * owner key ({@link distributionOwnerKey}), carried into the distribution
++   * record so a held copy is later served only to this extension.
++   */
++  owner?: string;
+   /** The digest of the declared shape; see `extensions/graph.ts`. */
+   graph: string;
+   /**
+@@ -131,7 +137,12 @@ export class ExtensionRegistry {
+    * wins on a collision. The definition is stored exactly as written — agents
+    * live inline in `steps`, so there is no harvest into a separate agent map.
+    */
+-  addWorkflow(source: string, workflow: WorkflowDefinition, identity?: DistributionIdentity): void {
++  addWorkflow(
++    source: string,
++    workflow: WorkflowDefinition,
++    identity?: DistributionIdentity,
++    owner?: string,
++  ): void {
+     const name = workflow?.name;
+     if (typeof name !== "string" || name.length === 0) {
+       this.recordDiagnostic(source, "registerWorkflow: workflow.name must be a non-empty string");
+@@ -216,6 +227,7 @@ export class ExtensionRegistry {
+         graph: workflowGraphDigest(workflow),
+       };
+       if (workflow.graphDigest !== undefined) admission.document = workflow.graphDigest;
++      if (owner !== undefined) admission.owner = owner;
+       this.workflowIdentities.set(name, admission);
+     }
+   }
+diff --git a/daemon/core/src/project/manager.ts b/daemon/core/src/project/manager.ts
+index c877a95..33a5406 100644
+--- a/daemon/core/src/project/manager.ts
++++ b/daemon/core/src/project/manager.ts
+@@ -269,7 +269,8 @@ export class ProjectManager {
+     return {
+       ...this.extensionsEnv,
+       pinnedCode: {
+-        pinned: () => store.referencedDistributions(),
++        pinned: (owner) => store.referencedDistributionsForOwner(owner),
++        ownerless: () => store.ownerlessReferencedDistributions(),
+         restore: (digest) => store.materializeDistribution(digest),
+       },
+     };
+diff --git a/daemon/core/src/store/distributions.ts b/daemon/core/src/store/distributions.ts
+index f987f4b..3c11497 100644
+--- a/daemon/core/src/store/distributions.ts
++++ b/daemon/core/src/store/distributions.ts
+@@ -51,6 +51,17 @@ export interface DistributionRecord {
+    * operator has to be able to read rather than infer from a missing feature.
+    */
+   not_held_reason?: string;
++  /**
++   * The extension this distribution belongs to: the entry's install root,
++   * relative to the project root when it lies inside the project and absolute
++   * otherwise (the loader's {@link distributionOwnerKey}).
++   *
++   * Optional in the shape because a record written before ownership existed does
++   * not carry it, and an absent owner is NOT "any extension's": the scoped
++   * question in {@link Store.referencedDistributionsForOwner} never returns a
++   * digest whose record lacks one.
++   */
++  owner?: string;
+ }
+ 
+ /** One member of a canonical distribution listing. */
+@@ -266,7 +277,13 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+     const item = entry as Record<string, unknown>;
+     const { digest, entries, recorded_at: recordedAt } = item;
+     const extra = Object.keys(item).filter(
+-      (k) => k !== "digest" && k !== "entries" && k !== "recorded_at" && k !== "bytes_held" && k !== "not_held_reason",
++      (k) =>
++        k !== "digest" &&
++        k !== "entries" &&
++        k !== "recorded_at" &&
++        k !== "bytes_held" &&
++        k !== "not_held_reason" &&
++        k !== "owner",
+     );
+     if (extra.length > 0) {
+       throw new DistributionIndexError(`runtime index entry has unexpected keys: ${extra.sort().join(", ")}`);
+@@ -306,9 +323,14 @@ export function parseDistributionIndex(raw: string | null): DistributionIndex {
+     if (reason !== undefined && held !== false) {
+       throw new DistributionIndexError(`runtime index entry ${digest} explains why bytes are not held but claims they are`);
+     }
++    const owner = item.owner;
++    if (owner !== undefined && (typeof owner !== "string" || owner.length === 0)) {
++      throw new DistributionIndexError("runtime index entry owner is not a non-empty string");
++    }
+     const result: DistributionRecord = { digest, entries, recorded_at: recordedAt };
+     if (held !== undefined) result.bytes_held = held;
+     if (reason !== undefined) result.not_held_reason = reason;
++    if (owner !== undefined) result.owner = owner;
+     return result;
+   });
+   const migrations = ((record.migrations ?? []) as unknown[]).map(parseReceipt);
+diff --git a/daemon/core/src/store/store.ts b/daemon/core/src/store/store.ts
+index 87e93e8..0089e4e 100644
+--- a/daemon/core/src/store/store.ts
++++ b/daemon/core/src/store/store.ts
+@@ -1218,6 +1218,37 @@ export class Store {
+     return this.accountFromCache().referenced;
+   }
+ 
++  /**
++   * The pinned distributions that belong to one extension — the loader's scoped
++   * question. A digest is in the answer only when its record carries `owner`
++   * equal to the key the entry loads under; a digest pinned by open tasks but
++   * owned by another extension, or recorded before ownership existed, is not
++   * this extension's to serve.
++   */
++  async referencedDistributionsForOwner(owner: string): Promise<Set<string>> {
++    return this.referencedWhere((record) => record.owner === owner);
++  }
++
++  /**
++   * Pinned digests whose record names no owner — written before ownership was
++   * recorded. They are served to no one; the loader reports them.
++   */
++  async ownerlessReferencedDistributions(): Promise<Set<string>> {
++    return this.referencedWhere((record) => record.owner === undefined);
++  }
++
++  /** The pinned digests whose runtime-index record satisfies `match`. */
++  private async referencedWhere(match: (record: DistributionRecord) => boolean): Promise<Set<string>> {
++    await this.reconcileAll();
++    const referenced = this.referencedFromCache();
++    if (referenced.size === 0) return new Set();
++    return withCreationLock(this.paths, async (io) => {
++      const index = parseDistributionIndex(await io.readRuntimeIndex());
++      const matching = new Set(index.distributions.filter(match).map((d) => d.digest));
++      return new Set([...referenced].filter((d) => matching.has(d)));
++    });
++  }
++
+   /**
+    * The reference set together with the open tasks whose pin could not be read.
+    *
+@@ -1259,7 +1290,12 @@ export class Store {
+    * plain `fs` because it is not project state — it is somebody else's install
+    * tree — while every write of the copy goes through the adapter.
+    */
+-  async recordDistribution(digest: string, entries: string, root?: string): Promise<void> {
++  async recordDistribution(
++    digest: string,
++    entries: string,
++    root?: string,
++    owner?: string,
++  ): Promise<void> {
+     // Checked before the write, not only on read. The parser refuses a pair that
+     // does not hash together, so writing one unvalidated would leave an index that
+     // every later distribution operation — including the one that would fix it —
+@@ -1268,19 +1304,35 @@ export class Store {
+     if (actual !== digest) {
+       throw new Error(`distribution ${digest} does not match the listing given for it (${actual})`);
+     }
++    if (owner !== undefined && (typeof owner !== "string" || owner.length === 0)) {
++      throw new Error(`distribution ${digest} owner is not a non-empty string`);
++    }
+     await withCreationLock(this.paths, async (io) => {
+       const raw = await io.readRuntimeIndex();
+       const index = parseDistributionIndex(raw);
+       const existing = index.distributions.find((d) => d.digest === digest);
+-      // Already recorded AND already held: there is nothing this call can add.
+-      if (existing?.bytes_held === true) return;
+-      const held = root === undefined ? notHeld("no distribution root was given") : await this.holdDistribution(io, entries, root);
++      // Already recorded AND already held, with ownership settled: there is
++      // nothing this call can add. A held record that still has no owner does
++      // take the caller's claim — the extension serving these bytes right now is
++      // evidence, not a guess.
++      if (existing?.bytes_held === true && (existing.owner !== undefined || owner === undefined)) return;
++      const held =
++        existing?.bytes_held === true
++          ? { held: true as const }
++          : root === undefined
++            ? notHeld("no distribution root was given")
++            : await this.holdDistribution(io, entries, root);
+       const record: DistributionRecord = {
+         digest,
+         entries,
+         recorded_at: existing?.recorded_at ?? this.clock(),
+         bytes_held: held.held,
+       };
++      // Once a record names an owner it does not move: the digest's identity is
++      // the same whoever serves it, and re-attributing it would orphan the tasks
++      // the recorded owner still owes it to.
++      const settledOwner = existing?.owner ?? owner;
++      if (settledOwner !== undefined) record.owner = settledOwner;
+       if (!held.held) record.not_held_reason = held.reason;
+       const distributions = existing
+         ? index.distributions.map((d) => (d.digest === digest ? record : d))
+diff --git a/daemon/core/test/engine.runtime-identity.test.ts b/daemon/core/test/engine.runtime-identity.test.ts
+index ae14b22..fc28594 100644
+--- a/daemon/core/test/engine.runtime-identity.test.ts
++++ b/daemon/core/test/engine.runtime-identity.test.ts
+@@ -15,7 +15,7 @@ import { helperBinaryDigest, withCreationLock } from "../src/store/creation.ts";
+ import { parseDistributionIndex } from "../src/store/distributions.ts";
+ import { ProjectPaths } from "../src/store/paths.ts";
+ import { loadProjectRegistry } from "../src/extensions/loader.ts";
+-import { distributionTreeIdentity } from "../src/extensions/identity.ts";
++import { canonicalDistribution, distributionTreeIdentity } from "../src/extensions/identity.ts";
+ import { createHash } from "node:crypto";
+ import { ExtensionRegistry } from "../src/extensions/registry.ts";
+ import { runtimeIdentityDecision } from "../src/engine/runtimeIdentity.ts";
+@@ -1222,6 +1222,90 @@ export default (api) => {
+     );
+     await waitFor(async () => !p.store.sessions.hasLiveSession(task.id));
+   });
++
++  test("a record written while a held copy is served keeps the extension's owner key", async () => {
++    // Debt 7g: the owner on a record is the entry's install root, taken from the
++    // admission — never the served tree, which here is a materialized held copy.
++    const p = await project("installed-v2");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const heldRoot = path.join(p.root, "held-v1");
++    mkdirSync(heldRoot, { recursive: true });
++    writeFileSync(path.join(heldRoot, "wf.js"), WORKFLOW_SOURCE("served-v1"));
++    const held = distributionTreeIdentity(heldRoot);
++    await p.store.recordDistribution(
++      held.digest,
++      canonicalDistribution(held.entries),
++      heldRoot,
++      ".autosk/extensions/wf.js",
++    );
++    const task = await p.store.createTask({ title: "pinned to held" });
++    forgePin(p.root, task.id, { workflow: "wf", digest: held.digest });
++
++    const pinnedCode = {
++      pinned: (owner: string) => p.store.referencedDistributionsForOwner(owner),
++      ownerless: () => p.store.ownerlessReferencedDistributions(),
++      restore: (digest: string) => p.store.materializeDistribution(digest),
++    };
++    const registry = await loadProjectRegistry(p.root, { pinnedCode });
++    expect(registry.workflowIdentity("wf")!.digest).toBe(held.digest);
++    expect(registry.workflowAdmission("wf")!.owner).toBe(".autosk/extensions/wf.js");
++
++    p.project.registry = registry;
++    await engine.addProject(p.project);
++
++    const raw = await withCreationLock(new ProjectPaths(p.root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    expect(index.distributions.find((d) => d.digest === held.digest)!.owner).toBe(
++      ".autosk/extensions/wf.js",
++    );
++
++    const again = await loadProjectRegistry(p.root, { pinnedCode });
++    expect(again.workflowIdentity("wf")!.digest).toBe(held.digest);
++  });
++
++  test("addProject writes the admission's owner key on the records it creates", async () => {
++    // The engine is the only production writer of distribution records, and
++    // the owner it writes is what scopes the loader's pinned question. This
++    // test writes no record itself: whatever owner the index ends up with came
++    // from addProject → recordDistributions → the admission.
++    const p = await project("installed-v2");
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const raw = await withCreationLock(new ProjectPaths(p.root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    const installed = p.project.registry.workflowIdentity("wf")!;
++    const record = index.distributions.find((d) => d.digest === installed.digest);
++    expect(record?.owner).toBe(".autosk/extensions/wf.js");
++    expect(record?.bytes_held).toBe(true);
++  });
++
++  test("addProject claims a held record with no owner when an admission serves its bytes as installed", async () => {
++    // Rule 4a through the production writer: a held record with no owner —
++    // written before ownership existed — is claimed by the extension whose
++    // admission serves those bytes as installed code, and by no one else.
++    const p = await project("installed-v2");
++    const installed = p.project.registry.workflowIdentity("wf")!;
++    await p.store.recordDistribution(
++      installed.digest,
++      canonicalDistribution(installed.entries),
++      installed.root,
++    );
++
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const raw = await withCreationLock(new ProjectPaths(p.root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    const record = index.distributions.find((d) => d.digest === installed.digest);
++    expect(record?.owner).toBe(".autosk/extensions/wf.js");
++    expect(record?.bytes_held).toBe(true);
++  });
+ });
+ 
+ describe("the store helper is part of the identity", () => {
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index 9907752..e1f72c3 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -10,7 +10,7 @@
+  */
+ 
+ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+-import { mkdirSync, writeFileSync } from "node:fs";
++import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+ import { basename, dirname, join } from "node:path";
+ 
+ import { loadProjectRegistry, resolveProjectEntries } from "../src/index.ts";
+@@ -493,15 +493,53 @@ describe("serving the code a project's open tasks were admitted under", () => {
+   afterEach(() => dir.cleanup());
+ 
+   /** A held distribution, put back the way the store would put it back. */
+-  function heldCopy(name: string, body: string): { root: string; digest: string } {
++  function heldCopy(name: string, body: string, file = "wf.ts"): { root: string; digest: string } {
+     const root = join(dir.path, "held", name);
+-    write(join(root, "wf.ts"), body);
++    write(join(root, file), body);
+     return { root, digest: distributionTreeIdentity(root).digest };
+   }
+ 
++  /**
++   * The pinned-code question, scoped to an owner. `owners` maps an owner key —
++   * the extension's install root relative to the project — to the distributions
++   * that extension's records claim. A caller that asks WITHOUT an owner gets
++   * the whole project set plus the ownerless digests: the question as it was
++   * asked before ownership existed, which is the defect these tests pin down.
++   */
++  function scopedSource(
++    owners: Record<string, string[]>,
++    held: Record<string, string>,
++    ownerless: string[] = [],
++  ) {
++    return {
++      pinned: async (owner?: string) =>
++        owner === undefined
++          ? new Set([...Object.values(owners).flat(), ...ownerless])
++          : new Set(owners[owner] ?? []),
++      ownerless: async () => new Set(ownerless),
++      restore: async (digest: string) => held[digest] ?? null,
++    };
++  }
++
++  /** A two-entry project fixture: ext-a and ext-b, one directory each. */
++  function writeTwoExtensions(aBody: string, bBody: string) {
++    write(join(proj, ".autosk/extensions/ext-a/index.js"), aBody);
++    write(join(proj, ".autosk/extensions/ext-b/index.js"), bBody);
++    return {
++      ownerA: ".autosk/extensions/ext-a",
++      ownerB: ".autosk/extensions/ext-b",
++      installedA: () => distributionTreeIdentity(join(proj, ".autosk/extensions/ext-a")).digest,
++      installedB: () => distributionTreeIdentity(join(proj, ".autosk/extensions/ext-b")).digest,
++    };
++  }
++
+   function source(pinned: string[], held: Record<string, string>) {
+     return {
+-      pinned: async () => new Set(pinned),
++      // These fixtures predate per-extension ownership: the test answers the
++      // scoped question with the whole set for any owner, which for the
++      // single-extension cases above is the same answer.
++      pinned: async (_owner?: string) => new Set(pinned),
++      ownerless: async () => new Set<string>(),
+       restore: async (digest: string) => held[digest] ?? null,
+     };
+   }
+@@ -622,6 +660,9 @@ describe("serving the code a project's open tasks were admitted under", () => {
+         pinned: async () => {
+           throw new Error("store is unreadable");
+         },
++        ownerless: async () => {
++          throw new Error("store is unreadable");
++        },
+         restore: async () => null,
+       },
+     });
+@@ -629,4 +670,220 @@ describe("serving the code a project's open tasks were admitted under", () => {
+     expect(registry.getWorkflowInfo("wf")?.description).toBe("installed");
+     expect(registry.diagnostics.some((d) => d.error.includes("pinned distributions cannot be read"))).toBe(true);
+   });
++
++  test("a held distribution is served only to the extension it belongs to", async () => {
++    // ext-a was upgraded while a task was open on its old version: that version
++    // is held, pinned, and owned by ext-a. ext-b's own code is installed and
++    // must not be replaced by it.
++    const fx = writeTwoExtensions(extFile("wa", { description: "a2" }), extFile("wb"));
++    const a1 = heldCopy("a1", extFile("wa", { description: "a1" }), "index.js");
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: scopedSource({ [fx.ownerA]: [a1.digest] }, { [a1.digest]: a1.root }),
++    });
++
++    expect(registry.workflowNames().sort()).toEqual(["wa", "wb"]);
++    expect(registry.workflowIdentity("wa")!.digest).toBe(a1.digest);
++    expect(registry.workflowIdentity("wb")!.digest).toBe(fx.installedB());
++    expect(
++      registry.diagnostics.some(
++        (d) => d.source.endsWith("ext-b") && d.error.includes("serving held distribution"),
++      ),
++    ).toBe(false);
++  });
++
++  test("an upgrade serves the owner's held copy, and the record written while it serves keeps that owner", async () => {
++    // c3: ext-a upgraded while its old version is pinned and held. The owner is
++    // taken from the entry's install root — not from the served tree — so the
++    // record written while the held copy is being served still names ext-a, and
++    // the next load answers the scoped question with it again.
++    const fx = writeTwoExtensions(extFile("wa", { description: "a2" }), extFile("wb"));
++    const a1 = heldCopy("a1", extFile("wa", { description: "a1" }), "index.js");
++    const env = {
++      home,
++      pinnedCode: scopedSource({ [fx.ownerA]: [a1.digest] }, { [a1.digest]: a1.root }),
++    };
++
++    const registry = await loadProjectRegistry(proj, env);
++    expect(registry.workflowNames().sort()).toEqual(["wa", "wb"]);
++    expect(registry.workflowIdentity("wa")!.digest).toBe(a1.digest);
++    expect(registry.workflowAdmission("wa")!.owner).toBe(fx.ownerA);
++    expect(registry.workflowAdmission("wb")!.owner).toBe(fx.ownerB);
++    expect(registry.workflowIdentity("wb")!.digest).toBe(fx.installedB());
++
++    const again = await loadProjectRegistry(proj, env);
++    expect(again.workflowIdentity("wa")!.digest).toBe(a1.digest);
++    expect(again.workflowIdentity("wb")!.digest).toBe(fx.installedB());
++  });
++
++  test("each extension serves its own held copy when several were upgraded with tasks open", async () => {
++    // c4: both extensions were upgraded with open tasks, and ext-b's new version
++    // renamed its workflow. Two pinned held copies with two owners are not a
++    // conflict: each extension gets its own.
++    const fx = writeTwoExtensions(extFile("wa", { description: "a2" }), extFile("wb2"));
++    const a1 = heldCopy("a1", extFile("wa", { description: "a1" }), "index.js");
++    const b1 = heldCopy("b1", extFile("wb"), "index.js");
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: scopedSource(
++        { [fx.ownerA]: [a1.digest], [fx.ownerB]: [b1.digest] },
++        { [a1.digest]: a1.root, [b1.digest]: b1.root },
++      ),
++    });
++
++    expect(registry.workflowNames().sort()).toEqual(["wa", "wb"]);
++    expect(registry.workflowIdentity("wa")!.digest).toBe(a1.digest);
++    expect(registry.workflowIdentity("wb")!.digest).toBe(b1.digest);
++    expect(
++      registry.diagnostics.some((d) => d.error.includes("different held distributions")),
++    ).toBe(false);
++  });
++
++  test("a multi-version conflict is reported on the extension that owns it and nowhere else", async () => {
++    // c6: two open tasks pinned to two held versions of ext-a. The conflict is
++    // ext-a's alone; ext-b keeps serving its installed code and hears nothing.
++    const fx = writeTwoExtensions(extFile("wa", { description: "a3" }), extFile("wb"));
++    const a1 = heldCopy("a1", extFile("wa", { description: "a1" }), "index.js");
++    const a2 = heldCopy("a2", extFile("wa", { description: "a2" }), "index.js");
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: scopedSource(
++        { [fx.ownerA]: [a1.digest, a2.digest] },
++        { [a1.digest]: a1.root, [a2.digest]: a2.root },
++      ),
++    });
++
++    const conflicts = registry.diagnostics.filter((d) =>
++      d.error.includes("different held distributions"),
++    );
++    expect(conflicts).toHaveLength(1);
++    expect(conflicts[0]!.source).toBe(join(proj, ".autosk/extensions/ext-a"));
++    expect(conflicts[0]!.error).toContain(a1.digest.slice(0, 12));
++    expect(conflicts[0]!.error).toContain(a2.digest.slice(0, 12));
++    expect(registry.workflowIdentity("wa")!.digest).toBe(fx.installedA());
++    expect(registry.workflowIdentity("wb")!.digest).toBe(fx.installedB());
++  });
++
++  test("a pinned distribution recorded without an owner is served to no one, and says so", async () => {
++    // The strict legacy rule: a record written before ownership existed is never
++    // served — not even to the extension the distribution probably came from —
++    // and project diagnostics name the digest.
++    const fx = writeTwoExtensions(extFile("wa", { description: "a2" }), extFile("wb"));
++    const a1 = heldCopy("a1", extFile("wa", { description: "a1" }), "index.js");
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: scopedSource({}, { [a1.digest]: a1.root }, [a1.digest]),
++    });
++
++    expect(registry.workflowIdentity("wa")!.digest).toBe(fx.installedA());
++    expect(registry.workflowIdentity("wb")!.digest).toBe(fx.installedB());
++    const ownerless = registry.diagnostics.filter(
++      (d) => d.error.includes("no recorded owner") && d.error.includes(a1.digest),
++    );
++    expect(ownerless).toHaveLength(1);
++  });
++
++  test("the owner key survives a project move and an npm spec change, and differs between extensions", async () => {
++    // The key is the entry's install root relative to the project. Moving the
++    // project moves the root AND the store together, so the key is unchanged;
++    // an npm spec that names the same package under a different version
++    // installs under the same packages/<name> root, so the key is unchanged.
++    writeTwoExtensions(extFile("wa"), extFile("wb"));
++    write(
++      join(proj, ".autosk/packages/node_modules/foo/index.js"),
++      extFile("wf"),
++    );
++    write(join(proj, ".autosk/settings.json"), JSON.stringify({ extensions: ["npm:foo@1"] }));
++
++    let registry = await loadProjectRegistry(proj, { home });
++    expect(registry.workflowAdmission("wa")!.owner).toBe(".autosk/extensions/ext-a");
++    expect(registry.workflowAdmission("wb")!.owner).toBe(".autosk/extensions/ext-b");
++    expect(registry.workflowAdmission("wf")!.owner).toBe(".autosk/packages/node_modules/foo");
++
++    write(join(proj, ".autosk/settings.json"), JSON.stringify({ extensions: ["npm:foo@2"] }));
++    registry = await loadProjectRegistry(proj, { home });
++    expect(registry.workflowAdmission("wf")!.owner).toBe(".autosk/packages/node_modules/foo");
++
++    const moved = join(dir.path, "moved");
++    renameSync(proj, moved);
++    registry = await loadProjectRegistry(moved, { home });
++    expect(registry.workflowAdmission("wa")!.owner).toBe(".autosk/extensions/ext-a");
++    expect(registry.workflowAdmission("wf")!.owner).toBe(".autosk/packages/node_modules/foo");
++  });
++
++  test("an extension installed at the project root itself keeps '.' across a rename", async () => {
++    // A settings-local entry whose path IS the project directory: install root
++    // and project root are the same directory, so the owner key is "." — the
++    // directory's own basename would change with every rename.
++    write(join(proj, "index.js"), extFile("wr"));
++    write(join(proj, ".autosk/settings.json"), JSON.stringify({ extensions: [proj] }));
++
++    let registry = await loadProjectRegistry(proj, { home });
++    expect(registry.workflowAdmission("wr")!.owner).toBe(".");
++
++    const moved = join(dir.path, "renamed-project");
++    renameSync(proj, moved);
++    write(join(moved, ".autosk/settings.json"), JSON.stringify({ extensions: [moved] }));
++    registry = await loadProjectRegistry(moved, { home });
++    expect(registry.workflowAdmission("wr")!.owner).toBe(".");
++  });
++
++  test("a pinned ownerless record whose digest an admission serves raises no ownerless diagnostic", async () => {
++    // The rollout path: a record written before ownership existed stays pinned,
++    // and the extension it belongs to may be serving those very bytes as
++    // installed code. Reporting it as unserved would be false, so the
++    // project-level line is suppressed for whatever an admission provides.
++    const fx = writeTwoExtensions(extFile("wa"), extFile("wb"));
++    const installedA = fx.installedA();
++
++    const registry = await loadProjectRegistry(proj, {
++      home,
++      pinnedCode: scopedSource({}, {}, [installedA]),
++    });
++
++    expect(registry.workflowIdentity("wa")!.digest).toBe(installedA);
++    expect(registry.diagnostics.some((d) => d.error.includes("no recorded owner"))).toBe(false);
++  });
++});
++
++describe("the registry build never throws", () => {
++  let dir: ReturnType<typeof tempDir>;
++  let proj: string;
++  let home: string;
++
++  beforeEach(() => {
++    dir = tempDir();
++    proj = join(dir.path, "proj");
++    home = join(dir.path, "home");
++  });
++  afterEach(() => dir.cleanup());
++
++  test("a project directory moved mid-load still returns the other entries", async () => {
++    // The stand-in for a concurrent `mv` during an open or an `ext reload`: a
++    // project-local factory that renames the project directory while the
++    // registry is being built.
++    write(
++      join(proj, ".autosk/extensions/a-mover.js"),
++      'import { renameSync } from "node:fs";\n' +
++        "export default function (autosk) {\n" +
++        '  autosk.registerWorkflow({ name: "wm", firstStep: "a", steps: { a: { status: "human" } } });\n' +
++        `  renameSync(${JSON.stringify(join(dir.path, "proj"))}, ${JSON.stringify(join(dir.path, "moved"))});\n` +
++        "}\n",
++    );
++    write(join(home, ".autosk/extensions/g.js"), extFile("wg"));
++
++    const registry = await loadProjectRegistry(proj, { home });
++    expect(registry.workflowNames().sort()).toEqual(["wg", "wm"]);
++  });
++
++  test("a project root that does not exist does not stop a global extension", async () => {
++    write(join(home, ".autosk/extensions/g.js"), extFile("wg"));
++
++    const registry = await loadProjectRegistry(join(dir.path, "no-such-project"), { home });
++    expect(registry.workflowNames()).toEqual(["wg"]);
++  });
+ });
+diff --git a/daemon/core/test/extensions.reload.test.ts b/daemon/core/test/extensions.reload.test.ts
+index c102f88..22a31da 100644
+--- a/daemon/core/test/extensions.reload.test.ts
++++ b/daemon/core/test/extensions.reload.test.ts
+@@ -195,10 +195,13 @@ describe("a project serves the code its open tasks were admitted under", () => {
+     const v1 = handle.extensions.workflowIdentity("wf")!.digest;
+ 
+     // Hold the bytes the way opening a project does, then pin a task to them.
++    // The record carries its owner — the entry's install root — so the scoped
++    // question finds it only for this extension.
+     await handle.store.recordDistribution(
+       v1,
+       canonicalDistribution(handle.extensions.workflowIdentity("wf")!.entries),
+       handle.extensions.workflowIdentity("wf")!.root,
++      ".autosk/extensions/wf.ts",
+     );
+     const task = await handle.store.createTask({ title: "admitted under v1" });
+     await handle.store.setPosition(
+@@ -232,4 +235,41 @@ describe("a project serves the code its open tasks were admitted under", () => {
+ 
+     expect(handle.extensions.workflowIdentity("wf")!.root).not.toContain("/runtime/v1/code/");
+   });
++
++  test("a held copy owned by one extension is not served to another, through the daemon's own wiring", async () => {
++    // The production wiring end to end: envFor asks the store the SCOPED
++    // question (referencedDistributionsForOwner), so ext-b must not see — and
++    // must not serve — the held copy ext-a's open task is pinned to.
++    write(join(proj, ".autosk/extensions/wf-a.ts"), wfExt("wa"));
++    write(join(proj, ".autosk/extensions/wf-b.ts"), wfExt("wb"));
++    const root = await canonicalize(proj);
++    const handle = await mgr.open(root);
++    const a1 = handle.extensions.workflowIdentity("wa")!;
++    const b1 = handle.extensions.workflowIdentity("wb")!;
++
++    // Hold ext-a's bytes under ext-a's owner key and pin a task to them.
++    await handle.store.recordDistribution(
++      a1.digest,
++      canonicalDistribution(a1.entries),
++      a1.root,
++      ".autosk/extensions/wf-a.ts",
++    );
++    const task = await handle.store.createTask({ title: "admitted under a1" });
++    await handle.store.setPosition(
++      task.id,
++      { status: "work", workflow: "wa", step: "go" },
++      { pinRuntimeIdentity: { workflow: "wa", digest: a1.digest, graph: handle.extensions.workflowGraph("wa")! } },
++    );
++
++    // ext-a is upgraded; ext-b is untouched.
++    write(
++      join(proj, ".autosk/extensions/wf-a.ts"),
++      wfExt("wa").replace("async (ctx)", "async (ctx) /* v2 */"),
++    );
++    await mgr.rebuildRegistry(root);
++
++    expect(handle.extensions.workflowIdentity("wa")!.digest).toBe(a1.digest);
++    expect(handle.extensions.workflowIdentity("wb")!.digest).toBe(b1.digest);
++    expect(handle.extensions.workflowNames().sort()).toEqual(["wa", "wb"]);
++  });
+ });
+diff --git a/daemon/core/test/store.distributions.test.ts b/daemon/core/test/store.distributions.test.ts
+index 4f90cf8..bfe91d6 100644
+--- a/daemon/core/test/store.distributions.test.ts
++++ b/daemon/core/test/store.distributions.test.ts
+@@ -230,6 +230,116 @@ describe("distribution reference accounting", () => {
+     expect(() => parseDistributionIndex("")).toThrow(/present but empty/);
+     expect(parseDistributionIndex(null).distributions).toEqual([]);
+   });
++
++  test("the owner round-trips through the index", async () => {
++    const { store, root } = await project();
++    await store.recordDistribution(A, ENTRIES_A, undefined, ".autosk/extensions/ext-a");
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const index = parseDistributionIndex(raw);
++    expect(index.distributions[0]!.owner).toBe(".autosk/extensions/ext-a");
++  });
++
++  test("a record written while a held copy is served still names the extension's install root", async () => {
++    // `root` here is the SERVED tree — a materialized held copy — while `owner`
++    // is the entry's install root. The record must carry the latter.
++    const { store, root } = await project();
++    const served = join(root, "held-copy");
++    await mkdir(served, { recursive: true });
++    await writeFile(join(served, "index.ts"), "anything");
++
++    await store.recordDistribution(A, ENTRIES_A, served, ".autosk/extensions/ext-a");
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const record = parseDistributionIndex(raw).distributions[0]!;
++    expect(record.owner).toBe(".autosk/extensions/ext-a");
++  });
++
++  test("a held record with no owner takes the owner that records it, and keeps it", async () => {
++    // Rule 4a: a held but ownerless record can only be claimed by the
++    // extension whose installed tree carries those bytes — the claim is
++    // evidence, not a guess. Once taken, the owner does not move.
++    const { store, root } = await project();
++    const bytes = "anything";
++    const entries = `file ${sha(bytes)} ${Buffer.from("index.ts").toString("base64")}\n`;
++    const digest = sha(entries);
++    const held = join(root, "held-src");
++    await mkdir(held, { recursive: true });
++    await writeFile(join(held, "index.ts"), bytes);
++
++    await store.recordDistribution(digest, entries, held);
++    await pinned(store, digest);
++    // Held and pinned, but ownerless: the scoped question answers for no one.
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-a"))]).toEqual([]);
++    expect([...(await store.ownerlessReferencedDistributions())]).toEqual([digest]);
++
++    await store.recordDistribution(digest, entries, held, ".autosk/extensions/ext-a");
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-a"))]).toEqual([digest]);
++    expect([...(await store.ownerlessReferencedDistributions())]).toEqual([]);
++
++    await store.recordDistribution(digest, entries, held, ".autosk/extensions/ext-b");
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    const record = parseDistributionIndex(raw).distributions[0]!;
++    expect(record.owner).toBe(".autosk/extensions/ext-a");
++    expect(record.bytes_held).toBe(true);
++  });
++
++  test("re-recording settles ownership once, in favour of the first writer", async () => {
++    const { store, root } = await project();
++    // A record written before ownership existed, then re-recorded by the
++    // extension actually serving it: the serving entry's claim lands because it
++    // is evidence, not a guess. A later claim does not move it.
++    await store.recordDistribution(A, ENTRIES_A);
++    await store.recordDistribution(A, ENTRIES_A, undefined, ".autosk/extensions/ext-a");
++    await store.recordDistribution(A, ENTRIES_A, undefined, ".autosk/extensions/ext-b");
++
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).distributions[0]!.owner).toBe(".autosk/extensions/ext-a");
++  });
++
++  test("the scoped question returns only what the owner's records claim", async () => {
++    const { store } = await project();
++    await store.recordDistribution(A, ENTRIES_A, undefined, ".autosk/extensions/ext-a");
++    await store.recordDistribution(B, ENTRIES_B, undefined, ".autosk/extensions/ext-b");
++    await pinned(store, A);
++    await pinned(store, B);
++
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-a"))]).toEqual([A]);
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-b"))]).toEqual([B]);
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-c"))]).toEqual([]);
++    // The project-wide question is unchanged for its other callers.
++    expect([...(await store.referencedDistributions())].sort()).toEqual([A, B].sort());
++  });
++
++  test("a record with no owner answers the scoped question for no one", async () => {
++    const { store } = await project();
++    await store.recordDistribution(A, ENTRIES_A);
++    await store.recordDistribution(B, ENTRIES_B, undefined, ".autosk/extensions/ext-b");
++    await pinned(store, A);
++    await pinned(store, B);
++
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-a"))]).toEqual([]);
++    expect([...(await store.referencedDistributionsForOwner(".autosk/extensions/ext-b"))]).toEqual([B]);
++    expect([...(await store.ownerlessReferencedDistributions())]).toEqual([A]);
++  });
++
++  test("an owner the index reader would refuse is refused at write time", async () => {
++    // The reader accepts only a non-empty string owner; a writer that stored
++    // anything else would leave the index unparseable for every later
++    // distribution operation — the same corruption the listing check prevents.
++    const { store, root } = await project();
++    await expect(store.recordDistribution(A, ENTRIES_A, undefined, "")).rejects.toThrow(
++      "non-empty string",
++    );
++    await expect(
++      store.recordDistribution(A, ENTRIES_A, undefined, 42 as unknown as string),
++    ).rejects.toThrow("non-empty string");
++
++    // The index stayed readable: a valid write still lands.
++    await store.recordDistribution(A, ENTRIES_A, undefined, ".autosk/extensions/ext-a");
++    const raw = await withCreationLock(new ProjectPaths(root), (io) => io.readRuntimeIndex());
++    expect(parseDistributionIndex(raw).distributions[0]!.owner).toBe(".autosk/extensions/ext-a");
++  });
+ });
+ 
+ describe("what a distribution record may claim", () => {
