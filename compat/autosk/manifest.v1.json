@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "d480f2bc9e28814bfd36472c651b3d31d0f2f9a3",
+  "result_tree": "75589888700972cc39cd1aab8baa978028e56d22",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -182,6 +182,10 @@
     {
       "file": "patches/0046-held-distribution-served-to-its-owner.patch",
       "sha256": "cf8c19829ef101b942db8de71cfa8d21d534e5930e1d4daeec5b3cfe3990b876"
+    },
+    {
+      "file": "patches/0047-registry-swap-records-served-distributions.patch",
+      "sha256": "76de3032b8a059e3ea7eaa693435844508bd7db8c640042aadf777acb20017b2"
     }
   ],
   "license": {
