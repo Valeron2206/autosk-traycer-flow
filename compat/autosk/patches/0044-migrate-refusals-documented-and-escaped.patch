@@ -1,0 +1,230 @@
+diff --git a/daemon/core/src/engine/migration.ts b/daemon/core/src/engine/migration.ts
+index 2be3b92..9956e95 100644
+--- a/daemon/core/src/engine/migration.ts
++++ b/daemon/core/src/engine/migration.ts
+@@ -123,7 +123,7 @@ export function planMigration(
+   if (admitted.document !== undefined && !DIGEST_PATTERN.test(admitted.document)) {
+     return {
+       supported: false,
+-      reason: `${workflow} serves a document that is not a lowercase sha256 (${admitted.document})`,
++      reason: `${workflow} serves a document that is not a lowercase sha256 (${JSON.stringify(admitted.document)})`,
+       impact,
+     };
+   }
+diff --git a/daemon/core/test/engine.migration-runner.test.ts b/daemon/core/test/engine.migration-runner.test.ts
+index ae339c0..7785434 100644
+--- a/daemon/core/test/engine.migration-runner.test.ts
++++ b/daemon/core/test/engine.migration-runner.test.ts
+@@ -1559,8 +1559,12 @@ describe("migration runner", () => {
+     "e".repeat(63),
+     "e".repeat(65),
+     "",
+-    `${DOC_T}\n`,
++    `${DOC_T}\u001b[31m`,
+     "g".repeat(64),
++    // every C0 control code point, individually
++    ...Array.from({ length: 0x20 }, (_, code) => `${DOC_T}${String.fromCharCode(code)}`),
++    // a double quote and a backslash pin the JSON quoting
++    `${DOC_T}"\\`,
+   ];
+   for (const document of MALFORMED_DOCUMENTS) {
+     test(`a plan refuses a served document that is not a lowercase sha256 (${JSON.stringify(document)})`, async () => {
+@@ -1574,7 +1578,8 @@ describe("migration runner", () => {
+         OLD,
+       );
+       expect(plan.supported).toBe(false);
+-      expect(plan.reason).toContain(document);
++      expect(plan.reason).not.toMatch(/[\u0000-\u001f]/);
++      expect(plan.reason).toContain(`(${JSON.stringify(document)})`);
+       expect(plan.reason).toContain("not a lowercase sha256");
+       expect(plan.impact.map((item) => item.taskId)).toEqual([id]);
+     });
+diff --git a/docs/cli.md b/docs/cli.md
+index 4dcf809..5cb5837 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -647,74 +647,133 @@ refuses an ambiguous or unknown one rather than guessing.
+ All four honor `--json`. Exit codes:
+ 
+ - `0` — success (an empty `migrate list` is a success with zero rows).
+-- `1` — failure: transport or daemon error, or an apply/rollback that started
+-  and could not finish (the receipt stays open; see below).
+-- `2` — refusal: the daemon answered but declined the operation. In `--json`
+-  mode the refusal result is printed to stdout first, so a script can read
+-  `supported`/`reason` or `ok`/`reason` and still branch on the code.
+-
+-**Continuation.** A migration that dies between `apply` and its seal leaves an
+-*open receipt* — `migrate list` shows it with `SEALED` = `open`. The next
+-`autosk migrate apply <workflow>` does not re-plan: it finds the open receipt
+-and finishes exactly that migration (re-planning over the remaining tasks
+-would name a different migration). The same holds for an interrupted
+-`rollback`. `apply` refuses rather than guess when several receipts are open,
+-when `--from` does not match the open receipt's source, or when the workflow
+-no longer serves the receipt's target — restore the target distribution or
+-resolve the open receipts first.
+-
+-**Refusals** (exit `2`). `plan` and `apply` decline when:
++- `1` — failure: the daemon did not answer with a decline. A transport
++  error or a daemon that died mid-call, a filesystem error such as EACCES,
++  a corrupt runtime index or receipt, or a command run outside a project.
++- `2` — refusal: the daemon answered but declined the operation, whether it
++  declined before any write or after an apply/rollback had already begun
++  moving tasks. In `--json` mode the refusal result is printed to stdout
++  first, so a script can read `supported`/`reason` or `ok`/`reason` and
++  still branch on the code.
++
++Either class can leave a migration receipt open — the receipt's being open
++says the operation did not finish, not which of the two the command
++returned.
++
++**Continuation.** A migration that dies between `apply` and its seal leaves
++an *open receipt* — `migrate list` shows it with `SEALED` = `open`. The next
++`autosk migrate apply <workflow>` does not re-plan: it finds the open
++receipt and finishes exactly that migration (re-planning over the remaining
++tasks would name a different migration). The same holds for an interrupted
++`rollback`. A decline can also arrive while the receipt is open — the store
++re-checks every task's pin, document, shape and helper as it moves and on
++read-back — and it leaves the receipt open the same way: once the cause is
++removed, the next `apply` continues the same migration. `apply` refuses
++rather than guess when several receipts are open, when `--from` does not
++match the open receipt's source, or when the workflow no longer serves the
++receipt's target — restore the target distribution or resolve the open
++receipts first.
++
++**Refusals** (exit `2`). `plan` and `apply` decline when planning finds:
+ 
+ - no open tasks of the workflow are pinned to a distribution and `--from` is
+   not given — `no open tasks pinned to a distribution for workflow <w>`;
+ - the open tasks are pinned to more than one distribution — `open tasks are
+   pinned to N distributions for <w>; name --from`;
+-- the source digest is not recorded — `source distribution <d> is not recorded`;
+-- the distribution the workflow serves is not recorded — `target distribution
+-  <d> is not recorded`;
++- an open task's runtime identity pin is unreadable — `cannot read the pin
++  of N open task(s) (<ids>)`;
++- a task's pin and its position name different workflows — `N open task(s)
++  name different workflows in their pin and their position (<ids>)`;
++- the open tasks on the source were admitted under more than one document —
++  `open tasks on <d> came from N documents (<ds>); a migration can only
++  claim one source`;
++- the source digest is not recorded — `source distribution <d> is not
++  recorded`;
+ - the workflow has no registered distribution — `<w> has no identified
+   distribution to migrate to`, or `<w> is not registered`;
++- the document the workflow serves is malformed — `<w> serves a document
++  that is not a lowercase sha256 ("<d>")`; the document prints JSON-escaped,
++  so a value with control characters stays on the operator's line (this
++  refusal is checked on `rollback` too);
++- the distribution the workflow serves is not recorded — `target
++  distribution <d> is not recorded`;
+ - the workflow already serves the source — `<w> already serves <d>`;
+-- a task's step does not exist in the target — `N task(s) cannot move: <id>:
+-  <step> does not exist in the target`;
+-- an open task's runtime identity pin is unreadable — `cannot read the pin of
+-  N open task(s)`;
+-- a task's pin and its position name different workflows — `N open task(s)
+-  name different workflows in their pin and their position`;
+-- receipts are already open — `N migrations are still open for <w>`;
+-- `--from` does not match the open receipt — `open migration <id> moves from
+-  <from>, not <f>`;
++- a task's step does not exist in the target — `N task(s) cannot move:
++  <id> (step <s> does not exist in the target)`;
++- the planned migration was already sealed — `migration <id> is already
++  sealed; <rid> reversed it` when a sealed receipt reverses it, else
++  `migration <id> is already sealed and nothing has reversed it`; the
++  advice after ` — ` is `autosk migrate rollback <wid> moves the tasks
++  again` when a rollback qualifies (`<wid>` names that receipt and can
++  differ from `<rid>`), else `no single rollback moves these tasks onto
++  <to> now` (`rollback` checks the same condition).
++
++`apply` also declines while a receipt is open:
++
++- several migrations are open — `N migrations are still open for <w>
++  (<ids>)`;
++- `--from` does not match the open receipt — `open migration <id> moves
++  from <from>, not <f>`;
+ - the open receipt's target is not served any more, in any of its three
+   recorded components — `open migration <id> targets <to>, but <w> serves
+-  <served>` (distribution), `open migration <id> declares graph <g>, but <w>
+-  serves <g'>` (declared shape), or `open migration <id> declares document
+-  <d>, but <w> serves <d'>` (target document; checked only when the receipt
+-  records one), or `has no identified distribution` when the workflow serves
+-  nothing.
++  <served>` (distribution), `open migration <id> declares graph <g>, but
++  <w> serves <g'>` (declared shape), or `open migration <id> declares
++  document <d>, but <w> serves <d'>` (target document; checked only when
++  the receipt records one);
++- the workflow serves nothing — `open migration <id> cannot continue: <w>
++  has no identified distribution`.
+ 
+ `rollback` declines when:
+ 
+ - the id names no migration — `migration <id> was never opened`;
+ - the prefix matches several — `migration id <id> is ambiguous (N matches)`;
+-- the migration was never sealed — `migration <id> is not completed, there is
+-  nothing settled to reverse`;
+-- the registry still serves the migrated-to distribution, or serves neither —
+-  `rolling back <id> needs <w> to serve <from>; it serves <served>`;
+-- several reversals of the same migration are open — `N rollbacks of <id> are
+-  still open`;
++- the migration was never sealed — `migration <id> is not completed, there
++  is nothing settled to reverse`;
++- the reverse plan's receipt is already sealed — the same `migration <id>
++  is already sealed` refusals listed for `plan`/`apply` above;
++- the registry still serves the migrated-to distribution, or serves neither
++  — `rolling back <id> needs <w> to serve <from>; it serves <served>, so
++  the registry does not serve the distribution it came from`;
++- the registry serves the right distribution under a different document —
++  `rolling back <id> needs <w> to serve document <d>; it serves <d'>`;
++- the served document is malformed — the same `serves a document that is
++  not a lowercase sha256` refusal listed for `plan`/`apply` above;
++- several reversals of the same migration are open — `N rollbacks of <id>
++  are still open (<ids>)`;
+ - an open reversal cannot continue — the same `cannot continue`, `targets`,
+   `declares graph`, and `declares document` refusals as `apply`;
+-- the reverse plan hits any of the planner refusals listed for `plan`/`apply`
+-  above, evaluated on the reverse direction (the original's `to` as source,
+-  the original's `from` as target) — including unrecorded distributions,
+-  stranded or unreadably pinned tasks, and split workflow pins.
+-
+-**Known limitation.** `resume` on a migrated task fails with
+-`extension_version_mismatch: <w> has no recorded store helper for this task` —
+-`apply` drops the helper half of the pin (a separate recorded defect, not this
+-command's doing). The remedy is `autosk enroll <task> --workflow <w>` (lands
+-on the workflow's first step; `--step` names another) and then `resume`; the
+-task continues on the migrated distribution.
++- the reverse plan hits any of the planner refusals listed for
++  `plan`/`apply` above, evaluated on the reverse direction (the original's
++  `to` as source, the original's `from` as target) — including unrecorded
++  distributions, stranded or unreadably pinned tasks, split workflow pins
++  and split source documents.
++
++The store itself can still decline an apply, rollback or continuation:
++
++- the plan names no tasks — `migration names no tasks` (checked before
++  any receipt is written: nothing is written, so no receipt stays open);
++- a task was re-pinned or unpinned since the receipt opened — `migration
++  <id>: <task> is no longer pinned to <from>, refusing to continue`;
++- a task's pin document no longer matches the receipt's claim — `migration
++  <id>: <task> came from document <d>, and the receipt claims <d'>`;
++- a task did not read back on the target — `migration <id>: <task> did not
++  read back on <to>`;
++- a task read back on the wrong document — `migration <id>: <task> read
++  back on document <d>, expected <d'>`;
++- a task read back on the wrong shape — `migration <id>: <task> read back
++  on shape <g>, expected <g'>`;
++- a task already on the target has no helper snapshot to check against —
++  `migration <id>: <task> is already on <to> and nothing predating the
++  write records the helper it should carry`;
++- a task read back on the wrong store helper — `migration <id>: <task>
++  read back on store helper <h>, expected <h'>`;
++- a re-opened receipt disagrees with how it was opened — `migration <id>
++  was opened with <field> <old> and is now asked for <new>` (raised when
++  the open receipt is re-checked, not while a task moves).
++
++Every decline above but `migration names no tasks` leaves the receipt
++open, and the next `apply` continues the same migration once the cause is
++removed.
+ 
+ ```text
+ $ autosk migrate plan feature-dev
