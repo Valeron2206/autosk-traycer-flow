@@ -204,7 +204,7 @@ Contest disposition терминален для canonical finding ID и exact ca
 
 Arena включается, когда Tech Plan помечает решение как arena и задаёт причину плюс 3–6 измеримых критериев, либо когда пользователь просит её явно.
 
-Полный контракт Arena — `docs/contracts/arena.md`; ниже поток, а не он. Arena и Debate — разные пути, и выбор между ними решает один вопрос из `docs/contracts/debate.md` §3: существует ли артефакт, постройка которого ответила бы на него. Если да — это Arena, и Debate отвергается (`debate_empirical_question`); ниже описана именно Arena. Debate — для non-empirical one-way-door решений, у него собственный ростер из трёх–пяти позиций, собственные два gate'а и собственный контракт; он не заменяет ни Arena, ни четырёхмодельную панель.
+Полный контракт Arena — `docs/contracts/arena.md`; ниже поток, а не он. Arena и Debate — разные пути, и выбор между ними решает один вопрос из `docs/contracts/debate.md` §3: существует ли артефакт, постройка которого ответила бы на него. Если да — это Arena, и Debate отвергается (`debate_empirical_question`); ниже описана именно Arena. Debate — для non-empirical one-way-door решений, у него собственный ростер из трёх–пяти позиций, собственные два gate'а и собственный контракт; он не заменяет ни Arena, ни четырёхмодельную панель. В v1 Debate неактивен: матрица классифицирует #31 как `planned_after_v1`, его workflow не зарегистрирован и не выбирается, и non-empirical one-way-door решение в v1 принимает пользователь обычным human decision (`docs/contracts/human-decision.md`), без Debate.
 
 ~~~text
 approved arena framing

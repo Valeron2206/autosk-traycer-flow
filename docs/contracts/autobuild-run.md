@@ -2,7 +2,7 @@
 
 <!-- autobuild-run-contract:v1 -->
 
-Status: issue #28 design contract. The workflow registration, the Generator/Evaluator sessions and the host-side enforcement remain `required_for_v1`; this pins what must be approved before a run starts, what may never change during one, and what stops it.
+Status: issue #28 design contract. The workflow registration, the Generator/Evaluator sessions and the host-side enforcement are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release); this pins what must be approved before a run starts, what may never change during one, and what stops it.
 
 ## 1. Authority
 
@@ -86,4 +86,4 @@ Every one of those is needed to answer "what happened, and may it resume" after 
 
 Decided: that the run is opt-in and starts only from an approved contract digest; the twelve things that approval covers; that the rubric, limits and finish predicate are immutable for the life of a contract; that budgets and non-improvement are host-side and computed; that the pair is independent and the Evaluator read-only; that a sprint is an ordinary Ticket with the ordinary gates; that a major discovery leaves through the revision path; and that the trail is append-only and inert.
 
-Deferred and named: the workflow registration in autosk, the Generator and Evaluator runtimes, the negotiation protocol between them, and the host-side budget meter. Those are `required_for_v1` and are not claimed here.
+Deferred and named: the workflow registration in autosk, the Generator and Evaluator runtimes, the negotiation protocol between them, and the host-side budget meter. Those are `planned_after_v1` and are not claimed here.

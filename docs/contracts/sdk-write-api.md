@@ -2,7 +2,7 @@
 
 <!-- sdk-write-api-contract:v1 -->
 
-Status: issue #38 design contract. The upstream primitives, the migration of correctness-critical call sites and the fault-injection suite remain open; this pins the write surface, what a capability may reach, and the outcomes a caller must be able to tell apart.
+Status: issue #38 design contract. The upstream primitives, the migration of correctness-critical call sites and the fault-injection suite remain open and are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release); this pins the write surface, what a capability may reach, and the outcomes a caller must be able to tell apart.
 
 ## 1. Authority
 

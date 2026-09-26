@@ -2,7 +2,7 @@
 
 <!-- housekeeping-contract:v1 -->
 
-Status: issue #30 design contract. The inventory collector, the classifier and the deletion driver remain `required_for_v1`; this pins what may be proposed, what a green classification has to be derived from, and what happens between the report and the delete.
+Status: issue #30 design contract. The inventory collector, the classifier and the deletion driver are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release); this pins what may be proposed, what a green classification has to be derived from, and what happens between the report and the delete.
 
 ## 1. Authority
 
@@ -69,4 +69,4 @@ Running housekeeping twice over an unchanged host proposes nothing the second ti
 
 Decided: that housekeeping is a named command and not a side effect; the inventory's scope and per-object ownership proof; the seven classes and which three may be proposed; that classification is derived from three-state signals and that any unavailable signal forces `unknown`; that age never classifies; that submodule work blocks a green class; that size is measured; that approval names exact objects; that every object is revalidated immediately before its delete; that deletion goes through the trusted adapter one object at a time; and that the outcome is three exact lists.
 
-Deferred and named: the inventory collector, the classifier implementation, the deletion driver and the CLI surface. Those are `required_for_v1` and are not claimed here.
+Deferred and named: the inventory collector, the classifier implementation, the deletion driver and the CLI surface. Those are `planned_after_v1` and are not claimed here.

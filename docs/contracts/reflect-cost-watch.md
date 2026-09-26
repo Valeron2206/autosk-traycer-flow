@@ -2,7 +2,7 @@
 
 <!-- reflect-cost-watch-contract:v1 -->
 
-Status: issue #29 design contract. The orchestrator, the three reviewer lenses and the registry writer remain `required_for_v1`; this pins what a pass may read, what may become a rule, and what the registry must detect.
+Status: issue #29 design contract. The orchestrator, the three reviewer lenses and the registry writer are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release); this pins what a pass may read, what may become a rule, and what the registry must detect.
 
 ## 1. Authority
 
@@ -83,4 +83,4 @@ Executable checks are preferred to prose, and the budget is where that preferenc
 
 Decided: the identity of a pass and what a retry means; that reviewers read the cleared extract and nothing else; that all three lenses run; that a new rule needs an observed failure with a locator and a theoretical gap goes to the backlog; that repeated friction becomes tooling; that accepted is not active without the panel; the registry's append-only guarantee and the four things its checkpoint detects; and the governance size budget.
 
-Deferred and named: the orchestrator that assembles the extract, the reviewer runtimes, the registry writer with its lock, and the panel dispatch for an accepted change. Those are `required_for_v1` and are not claimed here.
+Deferred and named: the orchestrator that assembles the extract, the reviewer runtimes, the registry writer with its lock, and the panel dispatch for an accepted change. Those are `planned_after_v1` and are not claimed here.
