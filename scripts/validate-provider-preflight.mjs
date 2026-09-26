@@ -30,6 +30,39 @@ export const ARCH_PATH = "02-architecture.md";
  * the live roster.
  */
 export const PANEL_HISTORICAL_MARKER = "<!-- panel-roster-historical:v1 -->";
+/**
+ * 01 §3 carries the same historical routes as 02 §9 — the seat table and the
+ * author-set table — and §6 states the master order in prose. Panel round 5
+ * (R5-15) found §3 presenting them as the panel with no marking, so the two
+ * load-bearing documents disagreed about who sits on it.
+ */
+export const FLOWS_PATH = "01-core-flows.md";
+const FLOWS_ROSTER_HEADING = "## 3. Четырёхмодельная панель";
+const FLOWS_MASTER_ORDER_LEAD = "Мастер-порядок здесь тот же, что в §3 — ";
+/** Stands in for the marker once every other HTML comment is stripped. */
+const SENTINEL = "\u0000panel-roster-historical\u0000";
+/**
+ * Lines that do not render as a claim: a link reference definition, an HTML
+ * tag, indented code, a fence. Diagnosis, not closure — a list of named
+ * constructs loses to the next one — so a failure says why a claim that is
+ * present in the bytes was not counted.
+ */
+const DISALLOWED_LINE = [
+  ["a link reference definition", /^ {0,3}\[[^\]]+\]:/],
+  ["an HTML tag", /<[a-zA-Z/!?]/],
+  ["an indented code line", /^(?: {4}|\t)/],
+  ["a code fence", /^ {0,3}(?:```|~~~)/],
+];
+
+/**
+ * The marker held as a sentinel and every other comment stripped, so no
+ * comment can satisfy a check of a visible claim. An unterminated comment
+ * strips to the end of the input — in CommonMark it hides everything after
+ * it.
+ */
+function visibleText(text) {
+  return text.replaceAll(PANEL_HISTORICAL_MARKER, SENTINEL).replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+}
 
 /**
  * The whole of §9, byte for byte — from the "## 9. Модели" heading through the
@@ -92,7 +125,7 @@ export function modelOf(routeId) {
  * "family" was a naming convention nothing pinned, so a partition that quietly
  * put two seats in one family would have left the gate looking intact. A
  * partition keyed on the route prefix reopens the same hole the moment one
- * harness serves two families — `cursor/` serves both Grok and Kimi — so the
+ * harness serves several families — `cursor/` serves Grok, Kimi and Muse — so the
  * partition names each family's model ids, and a model it does not name
  * belongs to none.
  */
@@ -177,9 +210,90 @@ export function routeAvailability(route, { nowMs, downDomains = [] } = {}) {
   return "available";
 }
 
+/**
+ * Whether 01 §3 marks its roster tables as 02 §9 marks its own: the marker
+ * once, before the first table row of the section, followed by a visible
+ * statement that the tables are historical target intent and that the live
+ * roster is `REQUIRED_PANEL`.
+ */
+export function flowsRosterMarkingErrors(text) {
+  // A literal NUL could impersonate the sentinel, so it is refused outright.
+  if (text.includes("\u0000")) {
+    return [`${FLOWS_PATH}: contains a literal NUL — it could impersonate the marking sentinel`];
+  }
+  const parts = visibleText(text).split(FLOWS_ROSTER_HEADING);
+  if (parts.length !== 2) {
+    return [`${FLOWS_PATH}: "${FLOWS_ROSTER_HEADING}" must occur exactly once — the roster section cannot be scoped`];
+  }
+  if (!parts[1].includes("\n## 4.")) {
+    return [`${FLOWS_PATH} §3: no following "## 4." boundary — the section cannot be scoped`];
+  }
+  const section = parts[1].split("\n## 4.")[0];
+  const markers = section.split(SENTINEL).length - 1;
+  if (markers === 0) {
+    return [`${FLOWS_PATH} §3: the roster tables lack their historical-intent marking (${PANEL_HISTORICAL_MARKER})`];
+  }
+  if (markers > 1) {
+    return [`${FLOWS_PATH} §3: ${PANEL_HISTORICAL_MARKER} must occur once in the section`];
+  }
+  const lines = section.split("\n");
+  const markerLine = lines.findIndex((line) => line.includes(SENTINEL));
+  const firstRow = lines.findIndex((line) => line.trimStart().startsWith("|"));
+  if (firstRow !== -1 && firstRow < markerLine) {
+    return [`${FLOWS_PATH} §3: ${PANEL_HISTORICAL_MARKER} must sit before the roster tables, not after them`];
+  }
+  const errors = [];
+  const kept = [];
+  for (const line of lines.slice(markerLine + 1, firstRow === -1 ? lines.length : firstRow)) {
+    if (line.trim() === "") continue;
+    const hit = DISALLOWED_LINE.find(([, pattern]) => pattern.test(line));
+    if (hit) {
+      errors.push(`${FLOWS_PATH} §3: the marking holds ${hit[0]} — a claim is pinned only where it renders`);
+    } else {
+      kept.push(line);
+    }
+  }
+  const claims = kept.join("\n");
+  if (!claims.includes("историческое целевое намерение")) {
+    errors.push(`${FLOWS_PATH} §3: the marking must declare the tables историческое целевое намерение, not the live roster`);
+  }
+  if (!claims.includes("`REQUIRED_PANEL`")) {
+    errors.push(`${FLOWS_PATH} §3: the marking must name \`REQUIRED_PANEL\` as the source of the live roster`);
+  }
+  return errors;
+}
+
+/**
+ * Whether the master order 01 §6 states in prose is the partition's, family
+ * for family, by display name. §3 and §6 both rest on this order, and a
+ * second copy that drifted would give one author/fixer set two different
+ * lawful reviewers.
+ */
+export function masterOrderProseErrors(text, partition) {
+  const expected = partition.master_order.map(
+    (family) => partition.families.find((entry) => entry.family === family)?.display ?? family,
+  );
+  const visible = visibleText(text);
+  const at = visible.indexOf(FLOWS_MASTER_ORDER_LEAD);
+  if (at === -1) {
+    return [`${FLOWS_PATH} §6: "${FLOWS_MASTER_ORDER_LEAD.trim()}" is missing — the master order cannot be compared`];
+  }
+  const listed = /^\*\*([^*\n]+)\*\*/u.exec(visible.slice(at + FLOWS_MASTER_ORDER_LEAD.length));
+  if (!listed) {
+    return [`${FLOWS_PATH} §6: the master order must follow "${FLOWS_MASTER_ORDER_LEAD.trim()}" as a bold list`];
+  }
+  const stated = listed[1].split(",").map((name) => name.trim());
+  if (stated.join(",") !== expected.join(",")) {
+    return [
+      `${FLOWS_PATH} §6: the master order reads ${stated.join(", ")}; ${FAMILY_PARTITION_PATH} orders ${expected.join(", ")}`,
+    ];
+  }
+  return [];
+}
+
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, UNAVAILABLE_EXAMPLE_PATH, FAMILY_PARTITION_PATH, ARCH_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, UNAVAILABLE_EXAMPLE_PATH, FAMILY_PARTITION_PATH, ARCH_PATH, FLOWS_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -229,7 +343,12 @@ export function validateRoute(route, schema) {
 
 export function validateProviderPreflightDesign(files) {
   const errors = [];
-  errors.push(...partitionErrors(JSON.parse(files[FAMILY_PARTITION_PATH])));
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  errors.push(...partitionErrors(partition));
+  // 01 carries the same historical routes in §3 and the master order in §6;
+  // both are held to what this file and the partition say.
+  errors.push(...flowsRosterMarkingErrors(files[FLOWS_PATH]));
+  errors.push(...masterOrderProseErrors(files[FLOWS_PATH], partition));
   // §9's route table stays in the architecture document as historical target
   // intent, with REQUIRED_PANEL the only source of the live roster. While the
   // table stands, the marking that stops it reading as live must stand too —
@@ -259,10 +378,7 @@ export function validateProviderPreflightDesign(files) {
   if (sectionTenAt === -1 || files[ARCH_PATH].slice(sectionNineAt, sectionTenAt) !== SECTION_NINE_MARKING) {
     errors.push(`${ARCH_PATH}: §9 differs from the pinned text — update SECTION_NINE_MARKING in scripts/validate-provider-preflight.mjs only if the change is intended`);
   }
-  const SENTINEL = "\u0000panel-roster-historical\u0000";
-  const visible = files[ARCH_PATH]
-    .replaceAll(PANEL_HISTORICAL_MARKER, SENTINEL)
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  const visible = visibleText(files[ARCH_PATH]);
   const afterNine = visible.split("## 9. Модели")[1] ?? "";
   if (afterNine !== "" && !afterNine.includes("## 10.")) {
     errors.push(`${ARCH_PATH}: §9 has no following "## 10." boundary — the section cannot be scoped`);
@@ -277,17 +393,11 @@ export function validateProviderPreflightDesign(files) {
     if (tableAt !== -1 && markerAt > tableAt) {
       errors.push(`${ARCH_PATH} §9: ${PANEL_HISTORICAL_MARKER} must sit before the route table, not after it`);
     }
-    // Diagnosis, not closure: the pin above is the closure, and this list is
-    // not exhaustive — a list of named constructs loses to the next one. It
-    // exists so a failure says why: a marking line that is a link reference
-    // definition, an HTML tag, indented code, or a fence is refused by name
-    // instead of being searched for a claim it cannot render.
-    const DISALLOWED_LINE = [
-      ["a link reference definition", /^ {0,3}\[[^\]]+\]:/],
-      ["an HTML tag", /<[a-zA-Z/!?]/],
-      ["an indented code line", /^(?: {4}|\t)/],
-      ["a code fence", /^ {0,3}(?:```|~~~)/],
-    ];
+    // Diagnosis, not closure: the pin above is the closure, and
+    // DISALLOWED_LINE is not exhaustive. It exists so a failure says why: a
+    // marking line that is a link reference definition, an HTML tag, indented
+    // code, or a fence is refused by name instead of being searched for a
+    // claim it cannot render.
     const kept = [];
     for (const line of marking.split("\n")) {
       if (line.trim() === "") continue;
