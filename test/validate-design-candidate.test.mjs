@@ -16,6 +16,7 @@ import test from "node:test";
 
 import {
   CANDIDATE_PATH,
+  CLOUD_PANEL,
   ROOT,
   GROUP_A,
   GROUP_B,
@@ -119,7 +120,7 @@ test("every recorded round is checked against the roster it ran under", () => {
   // and the two are genuinely different now, which is what the coupling hid.
   assert.notDeepEqual(PANEL_BY_ROUND[1], REQUIRED_PANEL);
   const recorded = readdirSync(path.join(ROOT, PANEL_DIR)).filter((name) => name.endsWith(".json")).sort();
-  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json", "round-4.json"]);
+  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json", "round-4.json", "round-5.json"]);
   for (const name of recorded) {
     const round = JSON.parse(readFileSync(path.join(ROOT, PANEL_DIR, name), "utf8"));
     assert.deepEqual(validatePanelRound(round), [], name);
@@ -147,6 +148,31 @@ test("round 4 is the first recorded under a different roster, and the first with
   // falsified; a third correction withdraws §2's class clause and states the
   // operative membership rule.
   assert.equal(round.anchor_corrections.length, 3);
+});
+
+test("round 5 is the cloud round, and nothing about it counts toward the attestation", () => {
+  // The owner replaced the anchor-21 panel for this round with four Claude Code
+  // processes on one route. The record is history; it must not be mistaken for
+  // the required panel, and its verdicts must not reach the attestation.
+  const round = readRound(5);
+  assert.deepEqual(validatePanelRound(round), []);
+  assert.equal(PANEL_BY_ROUND[5], CLOUD_PANEL);
+  const tuple = (entry) => [entry.seat, entry.harness, entry.route, entry.effort].join(" ");
+  const required = new Set(REQUIRED_PANEL.map(tuple));
+  for (const entry of CLOUD_PANEL) assert.equal(required.has(tuple(entry)), false, tuple(entry));
+  for (const entry of CLOUD_PANEL) {
+    assert.equal(REQUIRED_PANEL.some((seat) => seat.seat === entry.seat), false, entry.seat);
+  }
+  // The digest round 5 reviewed, spelled out, as round 4's is: the archive is
+  // not recoupled to the live candidate.
+  assert.equal(round.candidate_digest, "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124");
+  assert.deepEqual(round.seats.map((seat) => seat.verdict), ["fail", "fail", "fail", "fail"]);
+  assert.equal(new Set(round.seats.map((seat) => seat.session_id)).size, 4);
+  // Not a member: recording it moves no digest, and no attestation verdict names it.
+  assert.equal(candidate().files.some((file) => file.path === `${PANEL_DIR}/round-5.json`), false);
+  const sessions = new Set(round.seats.map((seat) => seat.session_id));
+  assert.equal(candidate().attestation.verdicts.some((verdict) => sessions.has(verdict.session_id)), false);
+  assert.equal(computeAttestationState(candidate()), "pending_final_panel");
 });
 
 test("a round recorded with a roster nobody required is refused", () => {
@@ -233,10 +259,10 @@ test("a round that records no decision is refused", () => {
 test("a round with no pinned roster cannot be validated", () => {
   // A round file can only be checked against what was required when it ran, so a
   // round whose requirement was never pinned is refused rather than waved
-  // through. Recording round 4 meant pinning the roster it ran under; round 5 is
-  // not pinned because it has not run.
-  assert.deepEqual(validatePanelRound({ round: 5, seats: [] }), [
-    "round 5: no roster is pinned for it, so what it ran under is unknown",
+  // through. Recording rounds 4 and 5 meant pinning the rosters they ran under;
+  // round 6 is not pinned because it has not run.
+  assert.deepEqual(validatePanelRound({ round: 6, seats: [] }), [
+    "round 6: no roster is pinned for it, so what it ran under is unknown",
   ]);
 });
 
