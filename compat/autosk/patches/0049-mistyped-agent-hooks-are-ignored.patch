@@ -1,0 +1,879 @@
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index eab22ba..2f3a370 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -440,14 +440,16 @@ export class SessionRuntime {
+   /**
+    * Routes a `session.input` to `onSteer` / `onFollowup` (plan §3.4). Returns
+    * `{ handled:false }` when the session has not started running yet (still
+-   * queued), has already ended, or the agent has no matching hook (the caller
+-   * maps that to `unsupported_by_agent`). Writes an `autosk:steer` structural
+-   * entry only when the message is delivered to a live run.
++   * queued), has already ended, or the agent has no matching hook — a hook that
++   * is not a function counts as absent, matching the registration diagnostic
++   * and the shape digest (the caller maps that to `unsupported_by_agent`).
++   * Writes an `autosk:steer` structural entry only when the message is
++   * delivered to a live run.
+    */
+   async input(kind: "steer" | "followup", message: string): Promise<{ handled: boolean }> {
+     if (!this.started || this.settled) return { handled: false };
+     const hook = kind === "steer" ? this.agent.onSteer : this.agent.onFollowup;
+-    if (!hook || !this.ctx) return { handled: false };
++    if (typeof hook !== "function" || !this.ctx) return { handled: false };
+     this.transcript.steer(kind, message);
+     await this.transcript.flush();
+     try {
+@@ -508,7 +510,7 @@ export class SessionRuntime {
+     // `onAbort` runs only when the agent declares it AND the run had started; a
+     // still-queued (or mid-acquire) session is sealed WITHOUT onAbort/onRun, and
+     // pump() then drops the settled runtime via isSettled().
+-    if (this.started && this.agent.onAbort && this.ctx) {
++    if (this.started && typeof this.agent.onAbort === "function" && this.ctx) {
+       try {
+         await this.agent.onAbort(this.ctx);
+       } catch (e) {
+@@ -533,7 +535,7 @@ export class SessionRuntime {
+     if (this.settled) return { handled: false };
+     this.ending = true;
+     this.controller.abort();
+-    if (this.started && this.agent.onAbort && this.ctx) {
++    if (this.started && typeof this.agent.onAbort === "function" && this.ctx) {
+       try {
+         await this.agent.onAbort(this.ctx);
+       } catch (e) {
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index f50dcec..8d45a40 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -133,9 +133,13 @@ export class ExtensionRegistry {
+    * name, an absent `steps`, a `firstStep` that is not a declared step, or a
+    * step value that is neither an agent (`onRun`) nor a valid `statusStep`
+    * (`status` ∈ {done,cancel,human}) are each recorded as a diagnostic and skip
+-   * the registration (never throw — the factory keeps running). First-registered
+-   * wins on a collision. The definition is stored exactly as written — agents
+-   * live inline in `steps`, so there is no harvest into a separate agent map.
++   * the registration (never throw — the factory keeps running). A `description`
++   * that is not a string, and an agent-step `onSteer`/`onFollowup`/`onAbort`
++   * that is truthy but not a function, are each diagnosed and ignored instead —
++   * the workflow registers, and only a registration that lands records them.
++   * First-registered wins on a collision. The definition is stored exactly as
++   * written — agents live inline in `steps`, so there is no harvest into a
++   * separate agent map.
+    */
+   addWorkflow(
+     source: string,
+@@ -218,14 +222,6 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" graphDigest must be a string`);
+       return;
+     }
+-    // `description` reaches the wire only as a string — `renderWorkflowInfo`
+-    // emits no other value. Any other value is diagnosed here and ignored:
+-    // the workflow registers, because a task may already be pinned to the
+-    // name and refusing it would strand the task. The readers that decode a
+-    // string never see one that is not.
+-    if (workflow.description !== undefined && typeof workflow.description !== "string") {
+-      this.recordDiagnostic(source, `registerWorkflow: "${name}" description must be a string`);
+-    }
+     // The engine calls `onTransit` on every transition only when it is
+     // truthy, while the shape digest folds it as `typeof === "function"`
+     // (graph.ts:56) — so a truthy non-function would throw on first use
+@@ -235,6 +231,42 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" onTransit must be a function`);
+       return;
+     }
++    // From here on the registration lands. `description` reaches the wire
++    // only as a string — `renderWorkflowInfo` emits no other value — so any
++    // other value is diagnosed and ignored: the workflow registers, because
++    // a task may already be pinned to the name and refusing it would strand
++    // the task. The optional agent-step hooks follow the same rule: the
++    // engine's call sites treat anything that is not a function as absent,
++    // which is exactly what the shape digest folds them as (graph.ts), so a
++    // truthy non-function hook is diagnosed and ignored while a falsy one is
++    // absent without a diagnostic. Recording here — after every refusal —
++    // is what keeps an ignore line from outliving the registration it
++    // describes: a refused workflow records its refusal and nothing else.
++    if (workflow.description !== undefined && typeof workflow.description !== "string") {
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" description must be a string; it is ignored`);
++    }
++    for (const [stepName, step] of Object.entries(workflow.steps)) {
++      if (isStatusStep(step)) continue;
++      for (const hook of ["onSteer", "onFollowup", "onAbort"] as const) {
++        // Reading the hook may run extension code — an accessor over run-time
++        // state, a strict Proxy — and a registration must never throw (the
++        // loader would record "factory threw" and lose the rest of the
++        // factory). A hook that cannot be read here is left unread: the call
++        // sites' typeof guard judges it when it is actually called.
++        let value: unknown;
++        try {
++          value = step[hook];
++        } catch {
++          continue;
++        }
++        if (value && typeof value !== "function") {
++          this.recordDiagnostic(
++            source,
++            `registerWorkflow: "${name}" step "${stepName}" ${hook} must be a function; it is ignored`,
++          );
++        }
++      }
++    }
+     this.workflows.set(name, workflow);
+     if (identity) {
+       // Both digests come from this one site, because they are two projections of
+@@ -253,8 +285,10 @@ export class ExtensionRegistry {
+    * Registers a named agent on behalf of `source` (plan §3.3, §4.1). An empty
+    * name, a missing `onRun`, or a duplicate name are each recorded as a
+    * diagnostic and skip the registration (never throw — the factory keeps
+-   * running). A `description` that is present and not a string is diagnosed
+-   * and ignored: the agent registers and the field never renders.
++   * running). A `description` that is not a string, and an
++   * `onSteer`/`onFollowup`/`onAbort` that is truthy but not a function, are
++   * each diagnosed and ignored instead — the agent registers, and only a
++   * registration that lands records them.
+    * First-registered wins on a collision, so the higher-priority source
+    * (project beats global) keeps the name.
+    */
+@@ -269,16 +303,35 @@ export class ExtensionRegistry {
+       this.recordDiagnostic(source, `registerAgent: "${name}" agent must define an onRun function`);
+       return;
+     }
+-    // `description` reaches `registry.agent.list` only as a string —
+-    // `renderAgentInfo` emits no other value. Any other value is diagnosed
+-    // here and ignored: the agent registers, like a workflow's description.
+-    if (registration.description !== undefined && typeof registration.description !== "string") {
+-      this.recordDiagnostic(source, `registerAgent: "${name}" description must be a string`);
+-    }
+     if (this.agents.has(name)) {
+       this.recordDiagnostic(source, `duplicate agent name: ${name}`);
+       return;
+     }
++    // From here on the registration lands. `description` reaches
++    // `registry.agent.list` only as a string — `renderAgentInfo` emits no
++    // other value — so any other value is diagnosed and ignored, like a
++    // workflow's description. The optional hooks follow the same rule the
++    // workflow's agent steps do: a truthy non-function is diagnosed and
++    // ignored — the engine's call sites treat anything that is not a
++    // function as absent — while a falsy value is absent without a
++    // diagnostic. Recording here keeps a refused registration free of ignore
++    // lines.
++    if (registration.description !== undefined && typeof registration.description !== "string") {
++      this.recordDiagnostic(source, `registerAgent: "${name}" description must be a string; it is ignored`);
++    }
++    for (const hook of ["onSteer", "onFollowup", "onAbort"] as const) {
++      // Same guarded read as the workflow loop above: a throwing accessor is
++      // skipped without a diagnostic — the call sites judge it.
++      let value: unknown;
++      try {
++        value = agent[hook];
++      } catch {
++        continue;
++      }
++      if (value && typeof value !== "function") {
++        this.recordDiagnostic(source, `registerAgent: "${name}" ${hook} must be a function; it is ignored`);
++      }
++    }
+     this.agents.set(name, registration);
+   }
+ 
+diff --git a/daemon/core/test/engine.hookguards.test.ts b/daemon/core/test/engine.hookguards.test.ts
+new file mode 100644
+index 0000000..074c763
+--- /dev/null
++++ b/daemon/core/test/engine.hookguards.test.ts
+@@ -0,0 +1,324 @@
++/**
++ * Mistyped agent hooks at call time (patch 0049): a truthy non-function
++ * onSteer / onFollowup / onAbort counts as absent. sessionInput answers
++ * {handled:false} with no transcript write and no warning; abort() and end()
++ * act as they do for an agent without onAbort — no warning either. Covers an
++ * inline agent step (task session) and a registered agent (interactive
++ * session), matching the registration diagnostics in
++ * extensions.registry.test.ts.
++ */
++
++import { afterEach, describe, expect, test } from "bun:test";
++import type { AgentDefinition, WorkflowDefinition } from "@autosk/sdk";
++
++import type { Engine, CapturingLogger } from "../src/index.ts";
++import { gate, makeEngine, makeProject, type TestProject } from "./engineHarness.ts";
++import { waitFor } from "./helpers.ts";
++
++/** An inline agent whose onRun blocks on the abort signal, keeping the session live. */
++function waitingAgent(started: { open(): void }, extra: Record<string, unknown> = {}): AgentDefinition {
++  return {
++    async onRun(ctx) {
++      started.open();
++      await new Promise<void>((resolve) => {
++        if (ctx.signal.aborted) return resolve();
++        ctx.signal.addEventListener("abort", () => resolve(), { once: true });
++      });
++    },
++    ...extra,
++  } as AgentDefinition;
++}
++
++describe("engine — a mistyped agent hook counts as absent", () => {
++  const cleanups: (() => void)[] = [];
++  const engines: { stop(): void }[] = [];
++  afterEach(() => {
++    for (const e of engines.splice(0)) e.stop();
++    for (const c of cleanups.splice(0)) c();
++  });
++
++  /** Enrolls a task on a one-step workflow and returns its live session id. */
++  async function taskSession(
++    hook: "onSteer" | "onFollowup" | "onAbort" | null,
++    value: unknown,
++  ): Promise<{ p: TestProject; engine: Engine; logger: CapturingLogger; sessionId: string }> {
++    const started = gate();
++    const wf: WorkflowDefinition = {
++      name: `w-${hook}`,
++      firstStep: "do",
++      steps: { do: waitingAgent(started, hook === null ? {} : { [hook]: value }) },
++    };
++    const p = await makeProject({ workflows: [wf] });
++    cleanups.push(p.cleanup);
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const task = await p.store.createTask({ title: "hook guard" });
++    await engine.enroll(p.root, task.id, { workflow: wf.name });
++    await started.wait;
++    await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
++    return { p, engine, logger, sessionId: p.store.sessions.liveSessionsForTask(task.id)[0]!.id };
++  }
++
++  /** Starts an interactive session on a registered agent and returns its id. */
++  async function interactiveSession(
++    hook: "onSteer" | "onFollowup" | "onAbort" | null,
++    value: unknown,
++  ): Promise<{ p: TestProject; engine: Engine; logger: CapturingLogger; sessionId: string }> {
++    const started = gate();
++    const p = await makeProject();
++    cleanups.push(p.cleanup);
++    p.registry.addAgent("test", { name: "chat", agent: waitingAgent(started, hook === null ? {} : { [hook]: value }) });
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const meta = await engine.createInteractiveSession(p.root, "chat");
++    await started.wait;
++    return { p, engine, logger, sessionId: meta.id };
++  }
++
++  async function expectNoSteerEntry(p: TestProject, sessionId: string): Promise<void> {
++    const { lines } = await p.store.sessions.readTranscript(sessionId);
++    expect(
++      lines.some((l) => (l as { customType?: string }).customType === "autosk:steer"),
++    ).toBe(false);
++  }
++
++  test("steer and followup on a truthy non-function hook answer handled:false and warn nothing (inline step)", async () => {
++    for (const hook of ["onSteer", "onFollowup"] as const) {
++      const { p, engine, logger, sessionId } = await taskSession(hook, 7);
++      const res = await engine.sessionInput(p.root, sessionId, {
++        kind: hook === "onSteer" ? "steer" : "followup",
++        message: "m",
++      });
++      expect(res).toEqual({ handled: false });
++      expect(logger.warns).toEqual([]);
++      await expectNoSteerEntry(p, sessionId);
++      await engine.sessionAbort(p.root, sessionId);
++    }
++  });
++
++  test("steer and followup on a truthy non-function hook answer handled:false and warn nothing (registered agent)", async () => {
++    for (const hook of ["onSteer", "onFollowup"] as const) {
++      const { p, engine, logger, sessionId } = await interactiveSession(hook, 7);
++      const res = await engine.sessionInput(p.root, sessionId, {
++        kind: hook === "onSteer" ? "steer" : "followup",
++        message: "m",
++      });
++      expect(res).toEqual({ handled: false });
++      expect(logger.warns).toEqual([]);
++      await expectNoSteerEntry(p, sessionId);
++      await engine.sessionEnd(p.root, sessionId);
++    }
++  });
++
++  test("abort() and end() on a truthy non-function onAbort warn nothing and still act", async () => {
++    // Task session: abort seals the session aborted and parks the task.
++    const task = await taskSession("onAbort", 7);
++    const aborted = await task.engine.sessionAbort(task.p.root, task.sessionId);
++    expect(aborted).toEqual({ handled: true });
++    await waitFor(async () => (await task.p.store.sessions.getMeta(task.sessionId))?.status === "aborted");
++    expect(task.logger.warns).toEqual([]);
++
++    // Interactive session: end seals done, abort seals aborted, no warnings.
++    const end = await interactiveSession("onAbort", 7);
++    expect(await end.engine.sessionEnd(end.p.root, end.sessionId)).toEqual({ handled: true });
++    await waitFor(async () => (await end.p.store.sessions.getMeta(end.sessionId))?.status === "done");
++    expect(end.logger.warns).toEqual([]);
++
++    const ab = await interactiveSession("onAbort", "x");
++    expect(await ab.engine.sessionAbort(ab.p.root, ab.sessionId)).toEqual({ handled: true });
++    await waitFor(async () => (await ab.p.store.sessions.getMeta(ab.sessionId))?.status === "aborted");
++    expect(ab.logger.warns).toEqual([]);
++  });
++
++  test("a lazy accessor hook registers and answers handled:true once onRun has started", async () => {
++    // A class whose onSteer getter reads run-time state: reading it before
++    // onRun throws, so registration skips it; once the run sets the driver,
++    // the same read returns the function and steer works.
++    const started = gate();
++    const ran = gate();
++    class LazyChat {
++      #driver: { steer: NonNullable<AgentDefinition["onSteer"]> } | null = null;
++      async onRun(ctx: { signal: AbortSignal }) {
++        const self = this;
++        this.#driver = {
++          steer: async (_ctx, m) => {
++            self.steered = m;
++            ran.open();
++          },
++        };
++        started.open();
++        await new Promise<void>((r) => ctx.signal.addEventListener("abort", () => r(), { once: true }));
++      }
++      steered: string | null = null;
++      get onSteer() {
++        return this.#driver!.steer;
++      }
++    }
++    const p = await makeProject();
++    cleanups.push(p.cleanup);
++    p.registry.addAgent("test", { name: "lazy", agent: new LazyChat() });
++    expect(p.registry.diagnostics).toEqual([]);
++    const { engine } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const meta = await engine.createInteractiveSession(p.root, "lazy");
++    await started.wait;
++    expect(await engine.sessionInput(p.root, meta.id, { kind: "steer", message: "m" })).toEqual({
++      handled: true,
++    });
++    await ran.wait;
++    await engine.sessionEnd(p.root, meta.id);
++  });
++
++  test("abort() and end() still act when the mistyped onAbort's onRun ignores the signal", async () => {
++    // onRun never resolves — not even on abort: abort must seal the session
++    // and park the task without waiting on the run or the hook.
++    const never = { async onRun() { await new Promise(() => {}); }, onAbort: 7 };
++    const p = await makeProject({
++      workflows: [
++        {
++          name: "w-deaf",
++          firstStep: "do",
++          steps: { do: never as unknown as AgentDefinition, park: { status: "human" } as never },
++        },
++      ],
++    });
++    cleanups.push(p.cleanup);
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const task = await p.store.createTask({ title: "deaf abort" });
++    await engine.enroll(p.root, task.id, { workflow: "w-deaf" });
++    await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
++    const sid = p.store.sessions.liveSessionsForTask(task.id)[0]!.id;
++    expect(await engine.sessionAbort(p.root, sid)).toEqual({ handled: true });
++    await waitFor(async () => (await p.store.sessions.getMeta(sid))?.status === "aborted");
++    await waitFor(async () => (await p.store.taskView(task.id))?.status === "human");
++    expect(logger.warns).toEqual([]);
++
++    const q = await makeProject();
++    cleanups.push(q.cleanup);
++    q.registry.addAgent("test", { name: "deaf", agent: never as unknown as AgentDefinition });
++    const { engine: e2, logger: l2 } = makeEngine();
++    engines.push(e2);
++    await e2.addProject(q.project);
++    const meta = await e2.createInteractiveSession(q.root, "deaf");
++    await waitFor(async () => (await q.store.sessions.getMeta(meta.id))?.status === "running");
++    expect(await e2.sessionEnd(q.root, meta.id)).toEqual({ handled: true });
++    await waitFor(async () => (await q.store.sessions.getMeta(meta.id))?.status === "done");
++    expect(l2.warns).toEqual([]);
++  });
++
++  test("a function hook that throws keeps its try/catch warning", async () => {
++    const boom = (what: string) => async () => {
++      throw new Error(`boom-${what}`);
++    };
++    const started = gate();
++    const agent = {
++      ...waitingAgent(started),
++      onSteer: boom("steer"),
++      onFollowup: boom("followup"),
++      onAbort: boom("abort"),
++    };
++    const p = await makeProject();
++    cleanups.push(p.cleanup);
++    p.registry.addAgent("test", { name: "thrower", agent });
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++
++    const steer = await engine.createInteractiveSession(p.root, "thrower");
++    await started.wait;
++    await engine.sessionInput(p.root, steer.id, { kind: "steer", message: "m" });
++    expect(logger.warns.some((w) => w.includes("steer hook threw (boom-steer)"))).toBe(true);
++    await engine.sessionEnd(p.root, steer.id);
++    expect(logger.warns.some((w) => w.includes("onAbort threw during end (boom-abort)"))).toBe(true);
++
++    const followup = await engine.createInteractiveSession(p.root, "thrower");
++    await waitFor(async () => (await p.store.sessions.getMeta(followup.id))?.status === "running");
++    await engine.sessionInput(p.root, followup.id, { kind: "followup", message: "m" });
++    expect(logger.warns.some((w) => w.includes("followup hook threw (boom-followup)"))).toBe(true);
++    await engine.sessionAbort(p.root, followup.id);
++    expect(logger.warns.some((w) => w.includes("onAbort threw (boom-abort)"))).toBe(true);
++  });
++
++  test("a function hook still runs and an absent hook still answers handled:false", async () => {
++    // Function onSteer: the message is delivered, recorded, and handled.
++    const steered = gate();
++    const got: { v: string | null } = { v: null };
++    const started = gate();
++    const wf: WorkflowDefinition = {
++      name: "w-fn",
++      firstStep: "do",
++      steps: {
++        do: {
++          async onRun(ctx) {
++            started.open();
++            await new Promise<void>((r) => ctx.signal.addEventListener("abort", () => r(), { once: true }));
++          },
++          async onSteer(_ctx, m) {
++            got.v = m as string;
++            steered.open();
++          },
++        } as AgentDefinition,
++      },
++    };
++    const p = await makeProject({ workflows: [wf] });
++    cleanups.push(p.cleanup);
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const task = await p.store.createTask({ title: "fn hook" });
++    await engine.enroll(p.root, task.id, { workflow: "w-fn" });
++    await started.wait;
++    await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
++    const sid = p.store.sessions.liveSessionsForTask(task.id)[0]!.id;
++    expect(await engine.sessionInput(p.root, sid, { kind: "steer", message: "real" })).toEqual({ handled: true });
++    await steered.wait;
++    expect(got.v).toBe("real");
++    expect(logger.warns).toEqual([]);
++
++    // Absent hook: same handled:false as a mistyped one, no transcript write.
++    const absent = await taskSession(null, undefined);
++    const res = await absent.engine.sessionInput(absent.p.root, absent.sessionId, { kind: "steer", message: "m" });
++    expect(res).toEqual({ handled: false });
++    expect(absent.logger.warns).toEqual([]);
++    await expectNoSteerEntry(absent.p, absent.sessionId);
++    await absent.engine.sessionAbort(absent.p.root, absent.sessionId);
++
++    // Function onAbort still runs on abort.
++    const abortRan = gate();
++    const started2 = gate();
++    const p2 = await makeProject({
++      workflows: [
++        {
++          name: "w-abort-fn",
++          firstStep: "do",
++          steps: {
++            do: {
++              async onRun(ctx) {
++                started2.open();
++                await new Promise<void>((r) => ctx.signal.addEventListener("abort", () => r(), { once: true }));
++              },
++              async onAbort() {
++                abortRan.open();
++              },
++            } as AgentDefinition,
++          },
++        },
++      ],
++    });
++    cleanups.push(p2.cleanup);
++    const { engine: e2 } = makeEngine();
++    engines.push(e2);
++    await e2.addProject(p2.project);
++    const t2 = await p2.store.createTask({ title: "fn abort" });
++    await e2.enroll(p2.root, t2.id, { workflow: "w-abort-fn" });
++    await started2.wait;
++    await waitFor(() => p2.store.sessions.liveSessionsForTask(t2.id).length === 1);
++    await e2.sessionAbort(p2.root, p2.store.sessions.liveSessionsForTask(t2.id)[0]!.id);
++    await abortRan.wait;
++  });
++});
+diff --git a/daemon/core/test/extensions.registry.test.ts b/daemon/core/test/extensions.registry.test.ts
+index b2b64f3..4f14270 100644
+--- a/daemon/core/test/extensions.registry.test.ts
++++ b/daemon/core/test/extensions.registry.test.ts
+@@ -10,6 +10,7 @@
+ import { describe, expect, test } from "bun:test";
+ 
+ import { ExtensionRegistry, renderWorkflowInfo } from "../src/index.ts";
++import { canonicalWorkflowGraph } from "../src/extensions/graph.ts";
+ import { statusStep, type AgentDefinition, type StepDef, type WorkflowDefinition } from "@autosk/sdk";
+ 
+ const agentStep = (): AgentDefinition => ({ async onRun() {} });
+@@ -211,7 +212,7 @@ describe("ExtensionRegistry registration", () => {
+           withIdentity ? identity : undefined,
+         );
+         expect(r.diagnostics).toEqual([
+-          { source: "ext", error: `registerWorkflow: "${name}" description must be a string` },
++          { source: "ext", error: `registerWorkflow: "${name}" description must be a string; it is ignored` },
+         ]);
+         // The workflow registers — the admission included under an identity —
+         // and the mistyped field never reaches either wire projection.
+@@ -306,7 +307,7 @@ describe("ExtensionRegistry registration", () => {
+       const name = `bad-agent-${label}`;
+       r.addAgent("ext", { name, description: value, agent: agentStep() } as never);
+       expect(r.diagnostics).toEqual([
+-        { source: "ext", error: `registerAgent: "${name}" description must be a string` },
++        { source: "ext", error: `registerAgent: "${name}" description must be a string; it is ignored` },
+       ]);
+       // The agent registers, and the mistyped field never reaches the wire.
+       expect(r.listAgents()).toEqual([{ name }]);
+@@ -344,6 +345,295 @@ describe("ExtensionRegistry registration", () => {
+     expect(r.diagnostics).toEqual([]);
+   });
+ 
++  test("a truthy non-function hook on an inline agent step is diagnosed, ignored, and the workflow lands", () => {
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const hooks = ["onSteer", "onFollowup", "onAbort"] as const;
++    const values: [string, unknown][] = [
++      ["number", 7],
++      ["string", "x"],
++      ["object", {}],
++      ["array", []],
++      ["true", true],
++      ["bigint", 10n],
++      ["symbol", Symbol("s")],
++      ["boxed-false", new Boolean(false)],
++    ];
++    for (const withIdentity of [true, false]) {
++      for (const hook of hooks) {
++        for (const [label, value] of values) {
++          const r = new ExtensionRegistry();
++          const name = `bad-hook-${withIdentity ? "id" : "noid"}-${hook}-${label}`;
++          r.addWorkflow(
++            "ext",
++            {
++              ...wf(name),
++              steps: { dev: { ...agentStep(), [hook]: value }, accept: statusStep("human") },
++            } as never,
++            withIdentity ? identity : undefined,
++          );
++          expect(r.diagnostics).toEqual([
++            {
++              source: "ext",
++              error: `registerWorkflow: "${name}" step "dev" ${hook} must be a function; it is ignored`,
++            },
++          ]);
++          // The workflow registers — the admission included under an identity.
++          expect(r.workflowNames()).toEqual([name]);
++          if (withIdentity) expect(r.workflowAdmission(name)).toBeDefined();
++          // The stored definition is unchanged — the call-time guard, not a
++          // rewrite, is what keeps the mistyped value out of the run.
++          expect((r.resolveWorkflow(name)!.steps.dev as unknown as Record<string, unknown>)[hook]).toBe(value);
++          // The factory keeps running: a later registration still lands.
++          r.addWorkflow("ext", wf(`later-${name}`), withIdentity ? identity : undefined);
++          expect(r.workflowNames()).toEqual([name, `later-${name}`]);
++        }
++      }
++    }
++  });
++
++  test("a truthy non-function hook on a registered agent is diagnosed, ignored, and the agent lands", () => {
++    const hooks = ["onSteer", "onFollowup", "onAbort"] as const;
++    const values: [string, unknown][] = [
++      ["number", 7],
++      ["string", "x"],
++      ["object", {}],
++      ["array", []],
++      ["true", true],
++      ["bigint", 10n],
++      ["symbol", Symbol("s")],
++      ["boxed-false", new Boolean(false)],
++    ];
++    for (const hook of hooks) {
++      for (const [label, value] of values) {
++        const r = new ExtensionRegistry();
++        const name = `bad-agent-hook-${hook}-${label}`;
++        r.addAgent("ext", { name, agent: { ...agentStep(), [hook]: value } } as never);
++        expect(r.diagnostics).toEqual([
++          { source: "ext", error: `registerAgent: "${name}" ${hook} must be a function; it is ignored` },
++        ]);
++        // The agent registers, its stored definition unchanged — the
++        // call-time guard, not a rewrite, keeps the mistyped value out.
++        expect(r.listAgents()).toEqual([{ name }]);
++        expect((r.resolveAgent(name) as unknown as Record<string, unknown>)[hook]).toBe(value);
++        r.addAgent("ext", { name: `later-${name}`, agent: agentStep() });
++        expect(r.listAgents()).toEqual([{ name }, { name: `later-${name}` }]);
++      }
++    }
++  });
++
++  test("a falsy agent hook counts as absent: registers with no diagnostic, and the graph line agrees", () => {
++    const stepLine = (step: AgentDefinition): string =>
++      canonicalWorkflowGraph({ name: "w", firstStep: "dev", steps: { dev: step } })
++        .split("\n")
++        .find((l) => l.startsWith("step "))!;
++    const absent = stepLine(agentStep());
++    const falsy: [string, unknown][] = [
++      ["null", null],
++      ["false", false],
++      ["zero", 0],
++      ["negative-zero", -0],
++      ["nan", NaN],
++      ["empty-string", ""],
++      ["zero-bigint", 0n],
++      ["undefined", undefined],
++    ];
++    for (const hook of ["onSteer", "onFollowup", "onAbort"] as const) {
++      for (const [label, value] of falsy) {
++        const step = { ...agentStep(), [hook]: value } as unknown as AgentDefinition;
++        const r = new ExtensionRegistry();
++        const wname = `falsy-hook-${hook}-${label}`;
++        r.addWorkflow("ext", { ...wf(wname), steps: { dev: step, accept: statusStep("human") } } as never);
++        expect(r.diagnostics).toEqual([]);
++        expect(r.workflowNames()).toEqual([wname]);
++        const aname = `falsy-agent-${hook}-${label}`;
++        r.addAgent("ext", { name: aname, agent: step } as never);
++        expect(r.diagnostics).toEqual([]);
++        expect(r.listAgents()).toEqual([{ name: aname }]);
++        // Falsy reads the same as absent on the shape identity, and so does a
++        // mistyped truthy value: only functions change the line.
++        expect(stepLine(step)).toBe(absent);
++        expect(stepLine({ ...agentStep(), [hook]: 7 } as unknown as AgentDefinition)).toBe(absent);
++      }
++      // A function hook registers with no diagnostic and joins the graph line.
++      const fn = { ...agentStep(), [hook]: async () => {} } as AgentDefinition;
++      const r = new ExtensionRegistry();
++      const wname = `fn-hook-${hook}`;
++      r.addWorkflow("ext", { ...wf(wname), steps: { dev: fn, accept: statusStep("human") } });
++      expect(r.diagnostics).toEqual([]);
++      expect(r.workflowNames()).toEqual([wname]);
++      const aname = `fn-agent-${hook}`;
++      r.addAgent("ext", { name: aname, agent: fn });
++      expect(r.diagnostics).toEqual([]);
++      expect(r.listAgents()).toEqual([{ name: aname }]);
++      expect(stepLine(fn)).not.toBe(absent);
++    }
++    // A statusStep is not an agent: hooks it happens to carry are out of
++    // scope entirely, diagnosed or not.
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", {
++      ...wf("status-hook"),
++      steps: { dev: { ...statusStep("done"), onSteer: 7 } as never, accept: statusStep("human") },
++    } as never);
++    expect(r.diagnostics).toEqual([]);
++    expect(r.workflowNames()).toEqual(["status-hook"]);
++  });
++
++  test("an agent hook inherited from a prototype is diagnosed like an own one", () => {
++    const proto = { onSteer: 7 };
++    const step = Object.assign(Object.create(proto), agentStep()) as AgentDefinition;
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", { ...wf("inh"), steps: { dev: step, accept: statusStep("human") } } as never);
++    expect(r.diagnostics).toEqual([
++      { source: "ext", error: 'registerWorkflow: "inh" step "dev" onSteer must be a function; it is ignored' },
++    ]);
++    const a = new ExtensionRegistry();
++    a.addAgent("ext", { name: "inh", agent: Object.assign(Object.create(proto), agentStep()) } as never);
++    expect(a.diagnostics).toEqual([
++      { source: "ext", error: 'registerAgent: "inh" onSteer must be a function; it is ignored' },
++    ]);
++  });
++
++  test("a hook whose read throws is skipped at registration — no diagnostic, the registration lands", () => {
++    // A lazy accessor that throws when read before its run: registration must
++    // not throw — on the base it never read the hook — and must not diagnose
++    // an extension whose hook works by the time the call site reaches it.
++    const throwing = () => ({
++      async onRun() {},
++      get onSteer(): unknown {
++        throw new Error("onSteer read before the driver exists");
++      },
++      get onFollowup(): unknown {
++        throw new Error("onFollowup read before the driver exists");
++      },
++      get onAbort(): unknown {
++        throw new Error("onAbort read before the driver exists");
++      },
++    });
++    const r = new ExtensionRegistry();
++    r.addAgent("ext", { name: "chat", agent: throwing() } as never);
++    expect(r.diagnostics).toEqual([]);
++    expect(r.listAgents()).toEqual([{ name: "chat" }]);
++    // The factory keeps running: a later registration still lands.
++    r.addAgent("ext", { name: "zz-after", agent: agentStep() });
++    expect(r.listAgents()).toEqual([{ name: "chat" }, { name: "zz-after" }]);
++
++    const w = new ExtensionRegistry();
++    // Without an identity — the shape digest's own read of a step hook under
++    // an identity is debt 7k and still throws.
++    w.addWorkflow("ext", {
++      ...wf("w"),
++      steps: { dev: throwing() as unknown as AgentDefinition, accept: statusStep("human") },
++    } as never);
++    expect(w.diagnostics).toEqual([]);
++    expect(w.workflowNames()).toEqual(["w"]);
++    w.addWorkflow("ext", wf("zz-after"));
++    expect(w.workflowNames()).toEqual(["w", "zz-after"]);
++  });
++
++  test("an ignore diagnostic is recorded only for a registration that lands", () => {
++    // A refused registration records its refusal and nothing else.
++    let r = new ExtensionRegistry();
++    r.addWorkflow("ext", { ...wf("both"), description: 7, onTransit: 7 } as never);
++    expect(r.diagnostics).toEqual([
++      { source: "ext", error: 'registerWorkflow: "both" onTransit must be a function' },
++    ]);
++    expect(r.workflowNames()).toEqual([]);
++
++    r = new ExtensionRegistry();
++    r.addWorkflow("ext", {
++      ...wf("hook-transit"),
++      onTransit: 7,
++      steps: { dev: { ...agentStep(), onSteer: 7 }, accept: statusStep("human") },
++    } as never);
++    expect(r.diagnostics).toEqual([
++      { source: "ext", error: 'registerWorkflow: "hook-transit" onTransit must be a function' },
++    ]);
++    expect(r.workflowNames()).toEqual([]);
++
++    r = new ExtensionRegistry();
++    r.addWorkflow("ext", {
++      ...wf("hook-exits"),
++      exits: ["bogus" as never],
++      steps: { dev: { ...agentStep(), onAbort: 7 }, accept: statusStep("human") },
++    } as never);
++    expect(r.diagnostics).toEqual([
++      {
++        source: "ext",
++        error: 'registerWorkflow: "hook-exits" status_unknown: exits must be a subset of done|cancel|human',
++      },
++    ]);
++    expect(r.workflowNames()).toEqual([]);
++
++    // A landing registration records the ignore line with the new wording.
++    r = new ExtensionRegistry();
++    r.addWorkflow("ext", { ...wf("desc-only"), description: 7 } as never);
++    expect(r.diagnostics).toEqual([
++      { source: "ext", error: 'registerWorkflow: "desc-only" description must be a string; it is ignored' },
++    ]);
++    expect(r.workflowNames()).toEqual(["desc-only"]);
++
++    // A refused agent records only its refusal, mistyped fields notwithstanding.
++    for (const [label, extra] of [
++      ["description", { description: 7 }],
++      ["hook", { agent: { ...agentStep(), onAbort: 7 } }],
++    ] as [string, Record<string, unknown>][]) {
++      r = new ExtensionRegistry();
++      r.addAgent("one", { name: "a", agent: agentStep() });
++      r.addAgent("two", { name: "a", ...extra, agent: extra.agent ?? agentStep() } as never);
++      expect(r.diagnostics).toEqual([{ source: "two", error: "duplicate agent name: a" }]);
++      expect(r.listAgents()).toEqual([{ name: "a" }]);
++      void label;
++    }
++  });
++
++  test("ignore lines of one registration record in their fixed order", () => {
++    // Hooks are declared in reverse and steps carry integer-like names — the
++    // recorded order is still the step loop's (2, 10, z), and within each step
++    // and each agent onSteer, onFollowup, onAbort.
++    const r = new ExtensionRegistry();
++    const mistyped = { onAbort: 7, onFollowup: "x", onSteer: {} };
++    r.addWorkflow("ext", {
++      ...wf("order"),
++      description: 7,
++      firstStep: "2",
++      steps: {
++        z: { ...agentStep(), ...mistyped } as never,
++        "10": { ...agentStep(), ...mistyped } as never,
++        "2": { ...agentStep(), ...mistyped } as never,
++        accept: statusStep("human"),
++      },
++    } as never);
++    const lines = (step: string) =>
++      ["onSteer", "onFollowup", "onAbort"].map(
++        (hook) => `registerWorkflow: "order" step "${step}" ${hook} must be a function; it is ignored`,
++      );
++    expect(r.diagnostics).toEqual([
++      { source: "ext", error: 'registerWorkflow: "order" description must be a string; it is ignored' },
++      ...["2", "10", "z"].flatMap((step) => lines(step).map((error) => ({ source: "ext", error }))),
++    ]);
++    expect(r.workflowNames()).toEqual(["order"]);
++
++    const a = new ExtensionRegistry();
++    a.addAgent("ext", {
++      name: "ao",
++      description: 7,
++      agent: { ...agentStep(), onAbort: 7, onFollowup: 7, onSteer: {} } as never,
++    } as never);
++    expect(a.diagnostics).toEqual([
++      { source: "ext", error: 'registerAgent: "ao" description must be a string; it is ignored' },
++      { source: "ext", error: 'registerAgent: "ao" onSteer must be a function; it is ignored' },
++      { source: "ext", error: 'registerAgent: "ao" onFollowup must be a function; it is ignored' },
++      { source: "ext", error: 'registerAgent: "ao" onAbort must be a function; it is ignored' },
++    ]);
++    expect(a.listAgents()).toEqual([{ name: "ao" }]);
++  });
++
+   test("a sparse exits array is the same status_unknown diagnostic, not a throw", () => {
+     const identity = {
+       root: "/ext/dist",
+diff --git a/docs/extensions.md b/docs/extensions.md
+index 8af7f72..d216090 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -68,11 +68,15 @@ natively (it runs on Bun), so an extension can be plain `.ts` — no build step.
+ 
+ ### What a valid registration requires
+ 
+-Both methods **validate** what you hand them. A violation is never fatal: the
+-offending registration is **skipped** and recorded as a
+-[`project.diagnostics`](#error-isolation--projectdiagnostics) entry, while the
+-rest of the same factory keeps running. So one bad workflow in a factory that
+-registers three leaves the other two registered.
++Both methods **validate** what you hand them. A violation is never fatal, and
++comes in two kinds — both recorded as a
++[`project.diagnostics`](#error-isolation--projectdiagnostics) entry while the
++rest of the same factory keeps running. A violation that invalidates the
++registration **skips** it: one bad workflow in a factory that registers three
++leaves the other two registered. A violation in a field the runtime can do
++without — a mistyped `description`, or a truthy `onSteer` / `onFollowup` /
++`onAbort` that is not a function — is **ignored**: the registration lands,
++and the project diagnostics name it.
+ 
+ `registerWorkflow(workflow)` requires:
+ 
+@@ -93,6 +97,9 @@ registers three leaves the other two registered.
+ - `onTransit` — a **function**; a truthy value that is not a function is
+   refused (the engine calls a truthy `onTransit` on every transition). A falsy
+   value counts as absent.
++- `onSteer` / `onFollowup` / `onAbort` — on an agent step, **functions** when
++  truthy; a truthy value that is not a function is **ignored** and named in
++  the project diagnostics; a falsy value counts as absent.
+ - `exits` — when present, an **array** drawn from `done` / `cancel` / `human`
+   (the statuses a `task.resume` relocation may name).
+ 
+@@ -102,6 +109,10 @@ registers three leaves the other two registered.
+ - `agent.onRun` — a **function** (the same `onRun` an inline agent step uses).
+ - `description` — when present, a **string**; any other value is **ignored**
+   and named in the project diagnostics.
++- `agent.onSteer` / `agent.onFollowup` / `agent.onAbort` — the same rule as an
++  agent step's hooks: a **function** when truthy; a truthy value that is not a
++  function is **ignored** and named in the project diagnostics; a falsy value
++  counts as absent.
+ 
+ ## Discovery order
+ 

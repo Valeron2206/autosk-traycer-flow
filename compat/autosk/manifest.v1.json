@@ -5,7 +5,7 @@
     "commit": "5163f00dd25005480dc7f3e40a0c40d18248857a",
     "tree": "5b94439a30e5dfe9db008082e9184f4699219c82"
   },
-  "result_tree": "e2fc5e40d34b2b0a7e7eb3c15995f635f5986857",
+  "result_tree": "16712dc4197f31444262405c824c984d9df6fee8",
   "patches": [
     {
       "file": "patches/0001-atomic-task-creation.patch",
@@ -190,6 +190,10 @@
     {
       "file": "patches/0048-registration-refuses-mistyped-fields.patch",
       "sha256": "52dc6588e6042519a9981f1cbfee0bd29f4646c4c6767934239c45629631f196"
+    },
+    {
+      "file": "patches/0049-mistyped-agent-hooks-are-ignored.patch",
+      "sha256": "468f854d776bf0003784461c0cbaa0321af66c51eb924078a55103e5888ff036"
     }
   ],
   "license": {
