@@ -1058,3 +1058,46 @@ test("a round pinned with harnesses refuses a seat that sat through another one"
     "round 99 opus: harness codex is not claude",
   ]);
 });
+
+// -- debt 8c: one session per seat, one verdict per seat ----------------------
+
+test("four passes recorded from one session are not four seats", () => {
+  // A session is one reviewer. Four seats answered by one session is one
+  // review under four names, however exact each seat's tuple is.
+  const value = attestedBy(ANCHOR_21, { state: "pass" });
+  for (const entry of value.attestation.verdicts) entry.session_id = "one-session";
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+  assertRejects(value, /attestation: session one-session answered for opus, devin, muse and deepseek/u);
+});
+
+test("two seats sharing one session are one reviewer, even when the other two are distinct", () => {
+  const value = attestedBy(ANCHOR_21, { state: "pass" });
+  for (const entry of value.attestation.verdicts) {
+    if (entry.seat === "devin" || entry.seat === "muse") entry.session_id = "shared";
+  }
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+  assertRejects(value, /attestation: session shared answered for devin and muse/u);
+});
+
+test("a session that recorded one seat twice is named once, as the seat's double verdict", () => {
+  const value = attestedBy(ANCHOR_21);
+  value.attestation.verdicts.push({ ...value.attestation.verdicts[0], verdict: "non_verdict" });
+  const errors = validateCandidate(value, schema);
+  assert.ok(errors.includes("attestation: seat opus carries 2 counted verdicts"), errors.join("\n"));
+  assert.ok(!errors.some((message) => /answered for opus and opus/u.test(message)), errors.join("\n"));
+});
+
+test("a seat that holds a pass and another verdict has not passed", () => {
+  // Which of two verdicts is the seat's answer is exactly what the record must
+  // not leave open: the seat counts only when it carries one counted verdict.
+  const value = attestedBy(ANCHOR_21, { state: "pass" });
+  value.attestation.verdicts.push({ ...value.attestation.verdicts[0], verdict: "non_verdict", session_id: "anchor-21-lead-again" });
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+  assertRejects(value, /attestation: seat opus carries 2 counted verdicts/u);
+});
+
+test("a counted refusal still blocks when the same seat also recorded a pass", () => {
+  const value = attestedBy(ANCHOR_21);
+  value.attestation.verdicts.push({ ...value.attestation.verdicts[1], verdict: "fail", session_id: "anchor-21-devin-again" });
+  assert.equal(computeAttestationState(value), "blocked");
+});
