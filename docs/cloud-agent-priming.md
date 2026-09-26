@@ -193,3 +193,35 @@ The owner's machine holds the orchestration ledger, the evidence directory of ev
   - This container runs as uid 0. Two tests fail here deterministically and pass on CI: `a read made unreachable by chmod refuses the measurement by name` (`npm test`) and `an I/O failure mid-move still throws` (daemon). With `AUTOSK_NO_AUTO_INSTALL=1` set as §5 requires, the five first-run bootstrap tests fail too; they pass with it unset (their installer is injected). The isolated `HOME` lives under `/tmp/ak.*`, because a unix socket path is limited to 108 bytes.
   - Debt 7l: patch `0051` makes one formatter total, `errMsg` in `engine/types.ts`, used by the RPC mapping, the loader, the served-distribution recorder, the registry and the daemon's reload/shutdown/idle catches, and closes R7k-8, R7k-9 and R7k-10. `result_tree` `dbc2a8d2e4fc2bc5c1ce97ab24fa9487e03f3256`, 49 patches, lock `requirements=25` `counted_across=49` with the same `lock_digest`, `candidate_digest` `7dc17b70b22f7a8f11d1f1ced1b7ca3ab214b1a5944b463894c2a0a715140d13`.
   - Found on the way, candidate debt 7m, to be measured first: a definition field that starts throwing after registration (a `steps` accessor) is read by the hazard pass. At first open (`applyLoadedRegistry`) the throw fails the project open; on an `ext add`/`remove` reload it now degrades to not-reloaded (0051), and an explicit `extension.reload` answers the error. This is not a formatting failure, so it is outside 7l.
+- 2026-09-26: debt 7l merged (#246, merge `a24fe2f`). CI on `main` is green; its mutation job gives the §1 baseline unchanged. The owner approved one substitute: this session's GitHub integration cannot start `workflow_dispatch` (403 `Resource not accessible by integration`), so for a PR that leaves `src/host` alone, `npm run mutation-report` is run locally on the PR head and compared with §1, and `main`'s mutation job runs after the merge. A PR that touches `src/host` runs the mutation job inside the PR (`host-changes`). The same entry carries Low R7l-5 into the next patch that edits `docs/extensions.md`: the doc names `task.enroll` as the one place a Proxy's trap error reaches the caller, and `runOnTransit` serves `task.resume` too.
+- 2026-09-26: item 8 (§2.2), slice s6-migration re-measured on the final series: 49 patches, `result_tree` `dbc2a8d2e4fc2bc5c1ce97ab24fa9487e03f3256`. Every suite ran in a prepared tree with an isolated `HOME`. All five criteria are carried; criterion 3 is carried per task, and the Epic-level lock is deferred as before.
+  1. **An unsupported pair fails closed, with no partial writes.**
+     - Carriers: `daemon/core/test/engine.migration.test.ts:315`, "a refused plan writes nothing at all" (patch `0007`), and `:272`, "a refused rollback writes nothing either" (`0009`).
+     - `bun test test/engine.migration.test.ts -t 'writes nothing'`: 2 pass, 0 fail.
+  2. **A crash at every phase is recoverable, and every phase has a test.**
+     - The phases are those of `Store.applyMigration` (`daemon/core/src/store/store.ts:1733`, listed at `:1720`), after `beginMigration` (`:1616`):
+       - open: `test/store.migration.test.ts:70`, "reopening finds the same one", and `test/engine.migration-runner.test.ts:155`, "an open receipt is finished, not re-planned";
+       - move: `store.migration.test.ts:83` and `:214`;
+       - read back: `:112`, "died after the moves, before sealing", and `:165`, "read-back refuses a task that never reached the target";
+       - seal: `:138`, "applying twice changes nothing the second time";
+       - an open reversal: `engine.migration-runner.test.ts:247`.
+     - Those tests: 6 pass, then 2 pass, 0 fail.
+  3. **An active Epic continues on its admitted graph or stops.**
+     - Per task, the lock anchors `graph_digest_compared` (`0005`, `engine/runtimeIdentity.ts`) and `document_digest_in_shape` (`0032`, `extensions/graph.ts`) hold: `validate:runtime-identity-lock` gives `requirements=25 counted_across=49`, `lock_digest` unchanged.
+     - Behaviour, all in `test/engine.runtime-identity.test.ts`:
+       - `:603`, "a workflow built from data outside its distribution cannot change under a task";
+       - `:790`, "a hot reload between two steps does not let the task continue on new code";
+       - `:455`, "a registry swapped mid-session parks the task";
+       - `:895`, "two Epics run concurrently on different distributions, each on its own";
+       - `:271`, "dispatch parks a work task whose distribution changed under it".
+       - Result: 5 pass, 0 fail.
+     - The Epic-level lock stays deferred by `docs/contracts/workflow-graph.md:17` ("the lock that binds an Epic to a graph").
+  4. **Rollback does not substitute the identity.**
+     - Carriers: `daemon/core/src/engine/migration-runner.ts:278` (rollback) and `daemon/core/src/store/store.ts:1765` (apply) refuse a task whose document is not the receipt's source.
+     - Tests: `test/engine.migration-runner.test.ts:313` and `:377`, 2 pass, 0 fail.
+  5. **A mutation run is mandatory when host modules change.**
+     - Carriers: `.github/workflows/validate-traycer-parity.yml:217-244` (the `host-changes` gate) and `:254` (the `mutation` condition).
+     - The gate, reproduced on local commits over `a24fe2f` (never pushed): a docs-only commit gives `runs=false`, and a commit touching `src/host/quick-flow.mjs` gives `runs=true`.
+     - `scripts/mutation-report.mjs:247`, `pairs()`, refuses an unpaired host module by name: `Error: host modules with no paired runtime test: src/host/zz-untested.mjs`, exit 1.
+     - On `main` `a24fe2f` the mutation job ran and gave the §1 baseline.
+  - Moving the slice to done is the owner's call.
