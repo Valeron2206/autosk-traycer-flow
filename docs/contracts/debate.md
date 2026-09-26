@@ -2,7 +2,7 @@
 
 <!-- debate-contract:v1 -->
 
-Status: issue #31 design contract. The workflow registration, the participant and mediator runtimes and the round driver remain `required_for_v1`; this pins when a Debate may start, what a roster has to be, and what a synthesis may claim.
+Status: issue #31 design contract. The workflow registration, the participant and mediator runtimes and the round driver are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release), and Debate is inactive in v1; this pins when a Debate may start, what a roster has to be, and what a synthesis may claim.
 
 ## 1. Authority
 
@@ -92,4 +92,4 @@ The manifest carries the question, the scope, the perspective definitions, the m
 
 Decided: the one question that separates Arena from Debate; that a Debate starts only on an explicit user request; the two gates and their order; the roster's size, distinctness and route fidelity; that round 1 is independent and later rounds cross-examine named claims; that the mediator records disagreement and keeps minority views; that rounds and budget are host-enforced; that a Debate produces no PASS and replaces no review; that `accepted` requires the user's decision; and that a material accepted decision enters the revision path.
 
-Deferred and named: the workflow registration, the participant and mediator runtimes, the round driver and the packet hand-off. Those are `required_for_v1` and are not claimed here.
+Deferred and named: the workflow registration, the participant and mediator runtimes, the round driver and the packet hand-off. Those are `planned_after_v1` and are not claimed here.

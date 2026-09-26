@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -16,7 +16,9 @@ import {
   parseJson,
   renderDocumentation,
   sha256,
+  readContracts,
   validateAll,
+  validateContractStatuses,
   validateDocumentation,
   validateInventory,
   validateMatrix,
@@ -414,4 +416,68 @@ test("schema and data files are present under the dedicated program-capabilities
   ]) {
     assert.equal(readFileSync(path.join(ROOT, relative), "utf8").length > 0, true, relative);
   }
+});
+
+test("every contract states the lifecycle the matrix gives its issue", () => {
+  // Round 5 of #39 (R5-10, R5-11): five post-v1 contracts said their runtime
+  // "remains `required_for_v1`" while the matrix classifies #28–#33 as
+  // `planned_after_v1`, and #47, outside the #3–#39 inventory, claimed
+  // `required_for_v1` with no successor matrix.
+  const contracts = readContracts();
+  assert.ok(contracts.length >= 40, `read ${contracts.length} contracts`);
+  assert.deepEqual(validateContractStatuses(parseJson(MATRIX_PATH), contracts), []);
+});
+
+test("a contract claiming another lifecycle than the matrix, or claiming one outside it, is refused", () => {
+  const matrix = parseJson(MATRIX_PATH);
+  const contract = (status, deferred = "") => ({
+    path: "docs/contracts/x.md",
+    text: `# X\n\n${status}\n\n## 1. Body\n\n${deferred}\n`,
+  });
+  // A post-v1 issue claiming v1.
+  assert.match(messages(validateContractStatuses(matrix, [
+    contract("Status: issue #28 design contract. The runtime remains `required_for_v1`."),
+  ])), /claims `required_for_v1` for issue #28, which matrix v1 classifies `planned_after_v1`/u);
+  // The claim is read on the deferral line too, not only on the status line.
+  assert.match(messages(validateContractStatuses(matrix, [
+    contract("Status: issue #29 design contract.", "Deferred and named: the runtime. Those are `required_for_v1` and are not claimed here."),
+  ])), /claims `required_for_v1` for issue #29/u);
+  // A v1 issue claiming post-v1.
+  assert.match(messages(validateContractStatuses(matrix, [
+    contract("Status: issue #9 design contract. Runtime implementation remains `planned_after_v1`."),
+  ])), /claims `planned_after_v1` for issue #9, which matrix v1 classifies `required_for_v1`/u);
+  // An issue outside the inventory may claim no lifecycle of matrix v1 at all.
+  assert.match(messages(validateContractStatuses(matrix, [
+    contract("Status: issue #47 design contract. The adapter remains `required_for_v1`."),
+  ])), /issue #47 is outside matrix v1, so its contract may not claim `required_for_v1`/u);
+  // A status naming no issue may not state a lifecycle; it is refused, not skipped.
+  assert.match(messages(validateContractStatuses(matrix, [
+    contract("Status: ticket 15 design contract. This is `required_for_v1`."),
+  ])), /its status names no issue, so it may not claim `required_for_v1`/u);
+  // Every issue a status names is held to the claim, whichever comes first, and
+  // the word is matched case-insensitively.
+  assert.match(messages(validateContractStatuses(matrix, [
+    contract("Status: issue #9 and Issue #31 design contract. The runtime remains `required_for_v1`."),
+  ])), /claims `required_for_v1` for issue #31, which matrix v1 classifies `planned_after_v1`/u);
+  // What agrees with the matrix passes, including a status naming several issues
+  // of one lifecycle, and a status naming no issue and stating nothing.
+  assert.deepEqual(validateContractStatuses(matrix, [
+    contract("Status: issue #28 design contract. The runtime is `planned_after_v1`."),
+    contract("Status: issue #9 design contract. Runtime implementation remains `required_for_v1` after design gate #39."),
+    contract("Status: issue #9 and issue #4 runtime contract. Both remain `required_for_v1`."),
+    contract("Status: ticket 15 design contract. It states no lifecycle."),
+  ]), []);
+});
+
+test("the contracts read are every contract in the directory", () => {
+  const onDisk = readdirSync(path.join(ROOT, "docs/contracts")).filter((name) => name.endsWith(".md")).sort();
+  assert.deepEqual(readContracts().map((entry) => path.basename(entry.path)).sort(), onDisk);
+});
+
+test("the whole validation reads the contracts it is given", () => {
+  // The CLI passes every contract to `validateAll`; a status check that only a
+  // direct call could reach would leave the command green on a stale contract.
+  const stale = { path: "docs/contracts/x.md", text: "Status: issue #30 design contract. The runtime remains `required_for_v1`.\n" };
+  assert.match(messages(validateAll({ ...fixture(), contracts: [stale] })), /claims `required_for_v1` for issue #30/u);
+  assert.deepEqual(validateAll({ ...fixture(), contracts: readContracts() }), []);
 });

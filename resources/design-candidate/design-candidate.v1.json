@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "b2fe6ce6f66af3f1ab51132f859a6e578a3f2d252424839a09e4fbdd4a87df1b"
+      "sha256": "450127ab77b69070f933af309be1f77eaf0cff9c40e2514aef7daecac5d78858"
     },
     {
       "path": "02-architecture.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "898f69a4254fd9eb842a0b6a495f88fc157cba3c3f5f85d87d04537085e5c3e0"
+      "sha256": "879e91ea5ac43ca97214e9099e55bb5e41043e80833256a02c9062813a772c05"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -60,7 +60,7 @@
     },
     {
       "path": "docs/contracts/autobuild-run.md",
-      "sha256": "3737532054bead035ee0802266ac4d9831c196b1d53de9dbe59873463d229270"
+      "sha256": "f953f9849bf07c99a926dea5a63055189eba138dfae25f63e41819dd1dd8c5e1"
     },
     {
       "path": "docs/contracts/bounded-loop.md",
@@ -80,7 +80,7 @@
     },
     {
       "path": "docs/contracts/debate.md",
-      "sha256": "24bd5abf331c75f9f4f305ee68e85229b3fd63242fc5ec1f1c41f5f8ed80fbb5"
+      "sha256": "75a12780c12162c682449b72ccf87ff4b53e6cf5336aa3e2b29c0d2d9a81e400"
     },
     {
       "path": "docs/contracts/delivery-profile.md",
@@ -124,7 +124,7 @@
     },
     {
       "path": "docs/contracts/housekeeping.md",
-      "sha256": "4bbd5a97e0794cabe0bbf93fc7d3c6437f0734e9f2e26414216883e95598d8ac"
+      "sha256": "2b53aa88e61dda1d57f299ac1b7e27929f2f0a18dafb3924ce86309d628313c5"
     },
     {
       "path": "docs/contracts/human-decision.md",
@@ -156,7 +156,7 @@
     },
     {
       "path": "docs/contracts/reflect-cost-watch.md",
-      "sha256": "431a7f74d2c28013544e88af27da467afd6b8f14b43f6d93ab4d82618d6293c9"
+      "sha256": "37a5142e21e0d391bc87951bfd5c214cc827169290cea605b8d8c955593cd18b"
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
@@ -172,7 +172,7 @@
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
-      "sha256": "c112c458dddb0f624364110dce9cdf20043836dab1b3834c5a08da49054c355b"
+      "sha256": "94620303676fc9c98f19f2eb17190b1700bcb89cff18075141a5c9dd0f7b06fc"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -180,7 +180,7 @@
     },
     {
       "path": "docs/contracts/static-analysis.md",
-      "sha256": "0d69fdae1659f738242b1b451df9278e172776f37c3b1742e70db15064ba328d"
+      "sha256": "e086735f75e941443c98dd8072d4773154c7437bb4a962945c5420f4fb53cf2c"
     },
     {
       "path": "docs/contracts/tickets-manifest.md",
@@ -192,7 +192,7 @@
     },
     {
       "path": "docs/contracts/walkthrough.md",
-      "sha256": "86fe325b2658b34ce01e193917d400713592c51c2e33f55c99d15de02d0fdce9"
+      "sha256": "e54a45ebdff1ef6a136ec29cb38f7ded6edbe1f5361dcdb6ae3f311043db06cb"
     },
     {
       "path": "docs/contracts/work-type-gates.md",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "b4b631be657d447df26b504765177394541ca95bddbd3f9aa76c7bd2ac3cc057",
+  "candidate_digest": "e3a0147f8acbe21674acba4f9a099ca7e9f589e668028ce94a2399f26dd4a77c",
   "dispositions": [
     {
       "issue": 3,

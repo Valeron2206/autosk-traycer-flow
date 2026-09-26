@@ -2,7 +2,7 @@
 
 <!-- static-analysis-contract:v1 -->
 
-Status: issue #47 design contract. The adapter, the pilot and the webhook receiver remain `required_for_v1`; this pins the provider-neutral interface, the policy, the identities a result is bound to, and what may never be read as a PASS.
+Status: issue #47 design contract. #47 is outside matrix v1 (issues #3–#39): it is a candidate for a successor matrix version and blocks neither v1 nor the release until a successor matrix classifies it. The adapter, the pilot and the webhook receiver are not implemented; the two artifact classes this contract registers in the #14 registry (`static_analysis_policy`, `static_analysis_result`) have no artifact at their paths and no v1 producer that writes them; this pins the provider-neutral interface, the policy, the identities a result is bound to, and what may never be read as a PASS.
 
 ## 1. Authority
 
@@ -98,4 +98,4 @@ The doctor reports the gate's readiness through the same preflight implementatio
 
 Decided: that the analyzer is a deterministic gate and not a fifth model; that the interface is provider-neutral and an unsupported mode is absent rather than approximated; the three enforcement states and that no run silently downgrades; the seven conditions and which four apply to a pull request; that the small-change fudge factor is off by default or compensated host-side; the five identities a result is bound to; that input reports carry provenance; that hotspot and false-positive dispositions are not the implementer's; the webhook's authentication, matching, idempotence and ordering; and that hosted delivery is a recorded decision.
 
-Deferred and named: the adapter, the Free-plan pilot on the public repository, the webhook receiver, the offline fake provider for #36, and the doctor check. Those are `required_for_v1` and are not claimed here. **No account, plan or purchase is created by this contract.**
+Deferred and named: the adapter, the Free-plan pilot on the public repository, the webhook receiver, the offline fake provider for #36, and the doctor check. Those are not claimed here and block nothing until a successor matrix classifies #47. **No account, plan or purchase is created by this contract.**

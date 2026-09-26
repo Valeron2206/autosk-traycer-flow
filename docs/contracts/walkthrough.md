@@ -2,7 +2,7 @@
 
 <!-- walkthrough-contract:v1 -->
 
-Status: issue #33 design contract. The generator, the offer point and the writing-quality pass remain `required_for_v1`; this pins when a walkthrough may exist, what its facts are checked against, and what it may never become.
+Status: issue #33 design contract. The generator, the offer point and the writing-quality pass are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release); this pins when a walkthrough may exist, what its facts are checked against, and what it may never become.
 
 ## 1. Authority
 
@@ -77,4 +77,4 @@ aggregate PASS
 
 Decided: that a walkthrough is explanatory, creates no PASS and blocks nothing when declined; that it is offered after an aggregate PASS and generated only on consent; that it is bound to the exact final staging identity and goes stale on a semantic change; that a target binding may not change a semantic claim; that the review order is risk-based; that performed and remaining checks are separate; that every fact is validated against canonical records and a mismatch prevents publication as current; and that absolute paths and private content never appear.
 
-Deferred and named: the generator, the offer heuristic for "substantive", the writing-quality review and the publication path. Those are `required_for_v1` and are not claimed here.
+Deferred and named: the generator, the offer heuristic for "substantive", the writing-quality review and the publication path. Those are `planned_after_v1` and are not claimed here.

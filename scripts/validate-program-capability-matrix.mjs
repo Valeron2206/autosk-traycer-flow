@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,7 @@ export const INVENTORY_PATH = path.join(ROOT, "resources/program-capabilities/is
 export const PARITY_PATH = path.join(ROOT, "resources/traycer-parity/registry.v1.json");
 export const DOC_PATH = path.join(ROOT, "docs/program-capability-matrix.md");
 export const README_PATH = path.join(ROOT, "README.md");
+export const CONTRACTS_DIR = path.join(ROOT, "docs/contracts");
 
 export const ISSUE_MIN = 3;
 export const ISSUE_MAX = 39;
@@ -567,7 +568,62 @@ export function validateReadme(matrix, readme) {
   return errors;
 }
 
-export function validateAll({ matrix, inventory, parityRegistry, documentation, readme }) {
+/** The lifecycle tokens a contract may state about its own runtime. */
+const LIFECYCLE_TOKEN = /`(required_for_v1|planned_after_v1|intentionally_deferred)`/gu;
+
+/** Every design contract, as repository-relative path and text. */
+export function readContracts(directory = CONTRACTS_DIR) {
+  return readdirSync(directory)
+    .filter((name) => name.endsWith(".md"))
+    .sort()
+    .map((name) => ({
+      path: path.relative(ROOT, path.join(directory, name)).split(path.sep).join("/"),
+      text: readFileSync(path.join(directory, name), "utf8"),
+    }));
+}
+
+/**
+ * A contract's own claim about when its runtime is required must be the matrix's.
+ *
+ * Round 5 of #39 (R5-10, R5-11) found five post-v1 contracts saying their runtime
+ * "remains `required_for_v1`" while the matrix classifies them `planned_after_v1`,
+ * and #47, outside the #3–#39 inventory, claiming `required_for_v1` with no
+ * successor matrix: the one question the classification exists to settle, answered
+ * two ways. The claim is read where a contract makes it — its `Status:` line and
+ * its `Deferred and named:` lines — against the issue its status line names first.
+ * An issue the matrix does not classify may not claim a lifecycle of this matrix.
+ * Every issue the status line names is held to the claim, so a status naming two
+ * issues of different lifecycles cannot state one of them; and a status naming no
+ * issue at all may not state a lifecycle, rather than being skipped.
+ */
+export function validateContractStatuses(matrix, contracts) {
+  const errors = [];
+  const lifecycleOf = new Map((matrix?.records ?? []).map((record) => [record.issue_number, record.lifecycle]));
+  for (const { path: contractPath, text } of contracts) {
+    const lines = text.split("\n");
+    const status = lines.find((line) => line.startsWith("Status:"));
+    if (status === undefined) continue;
+    const numbers = [...new Set([...status.matchAll(/issue #(\d+)/giu)].map((match) => Number(match[1])))];
+    const claims = [status, ...lines.filter((line) => line.startsWith("Deferred and named:"))]
+      .flatMap((line) => [...line.matchAll(LIFECYCLE_TOKEN)].map((match) => match[1]));
+    for (const claim of new Set(claims)) {
+      if (numbers.length === 0) {
+        errors.push(`${contractPath}: its status names no issue, so it may not claim \`${claim}\``);
+      }
+      for (const number of numbers) {
+        const lifecycle = lifecycleOf.get(number);
+        if (lifecycle === undefined) {
+          errors.push(`${contractPath}: issue #${number} is outside matrix v1, so its contract may not claim \`${claim}\``);
+        } else if (claim !== lifecycle) {
+          errors.push(`${contractPath}: claims \`${claim}\` for issue #${number}, which matrix v1 classifies \`${lifecycle}\``);
+        }
+      }
+    }
+  }
+  return errors;
+}
+
+export function validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts = [] }) {
   const inventoryErrors = validateInventory(inventory);
   const matrixErrors = validateMatrix(matrix, inventory, parityRegistry);
   const errors = [...inventoryErrors, ...matrixErrors];
@@ -575,6 +631,7 @@ export function validateAll({ matrix, inventory, parityRegistry, documentation, 
     matrix.records.every((record) => record && typeof record === "object" && !Array.isArray(record));
   if (typeof documentation === "string" && canRender) errors.push(...validateDocumentation(matrix, documentation));
   if (canRender) errors.push(...validateReadme(matrix, readme));
+  if (canRender) errors.push(...validateContractStatuses(matrix, contracts));
   return errors;
 }
 
@@ -627,7 +684,8 @@ function run(argv) {
   if (args.writeDocs) writeFileSync(args.docPath, renderDocumentation(matrix), "utf8");
   const documentation = existsSync(args.docPath) ? readFileSync(args.docPath, "utf8") : null;
   const readme = existsSync(README_PATH) ? readFileSync(README_PATH, "utf8") : null;
-  const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme });
+  const contracts = existsSync(CONTRACTS_DIR) ? readContracts() : [];
+  const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts });
   if (documentation === null) errors.push(`missing documentation: ${args.docPath}`);
   if (errors.length) return fail(errors);
   console.log(`OK: ${matrix.records.length} program issues; ${matrix.summary.required_for_v1} required_for_v1; ${matrix.summary.planned_after_v1} planned_after_v1; digest ${matrix.canonical_digest}`);
