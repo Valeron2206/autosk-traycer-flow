@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "450127ab77b69070f933af309be1f77eaf0cff9c40e2514aef7daecac5d78858"
+      "sha256": "8c08592802ded53ccefa8b5faca79950333f89679561c21538f347686e538330"
     },
     {
       "path": "02-architecture.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "d0ab24efe11c5246e0c8193f2554afe1f90850c60ca330cd7bce8107e5932931"
+      "sha256": "ed724e67babb29a7c578b3433ff6afd345adf6f4be6ce4f8b982ae307f0b0339"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "879e91ea5ac43ca97214e9099e55bb5e41043e80833256a02c9062813a772c05"
+      "sha256": "67c6b050298f91c71c1a506c7bb893c8576445da2294efe87097f9dde0986c8c"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "8aa481dcee68ac63da279c3a2892f32538d90dd2d67be7cf2b06fa29322f73b0"
+      "sha256": "ae49050f531462a00deabe6165939610bf998e177953e9fa6449f5437d0dbf3f"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -532,7 +532,7 @@
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
-      "sha256": "690a7aec30a0e1b7ce9024548f8e33930d783f1bb367ddc4b71333d975dbc815"
+      "sha256": "45b4d754c6d3df23a222ba95741cf35763ae4248b494f9e868ef4a8a095a1eb9"
     },
     {
       "path": "resources/planning-publication/audit-candidate-housekeeping-operation.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "e3a0147f8acbe21674acba4f9a099ca7e9f589e668028ce94a2399f26dd4a77c",
+  "candidate_digest": "afe7d77db2b53cb9d2572b6993ad35ab3c6ee72fef70628c00e31cb2267af532",
   "dispositions": [
     {
       "issue": 3,

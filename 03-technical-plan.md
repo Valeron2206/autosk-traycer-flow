@@ -1078,6 +1078,8 @@ For kind=tickets protected metadata records exactly one current `tickets_validat
 
 Содержит parent_task, run_id, seat, route, role, author_families, собственную autosk_flow.session запись общей схемы и полную frozen artifact identity. Dispatcher копирует выбранный parent panel.seats record в child autosk_flow.session до enroll. Seat task не может изменить identity или session binding.
 
+Таблица Lead ниже — историческое целевое намерение для записанного состава GPT/Kimi/Grok/Opus, как в 01 §3 и 02 §9: действующий состав задаёт только `REQUIRED_PANEL` в `scripts/validate-provider-preflight.mjs`, семью места — `resources/panel-roster/family-partition.v1.json` по модели, и место Intent в нём занимает Muse (`meta/muse-spark-1.3-contributor`), а не Kimi.
+
 Route binding — исполняемый protocol data, а не свободный выбор агента:
 
 | Author set | Lead | Дополнительные места |
@@ -1088,7 +1090,7 @@ Route binding — исполняемый protocol data, а не свободны
 | Kimi | GPT | Kimi supplementary intent, Grok feasibility, Opus architecture |
 | Human/outside | GPT | Kimi intent, Grok feasibility, Opus architecture |
 
-Mixed author set выбирает Lead по мастер-порядку GPT -> Kimi -> Grok -> Opus, оставляя только семьи вне union author/fixer set и с доступным exact route. Если список пуст, dispatch запрещён и задача переходит в human. Выбранный Lead и его provider session фиксируются до первого dispatch и не меняются между раундами без формального replacement.
+Mixed author set выбирает Lead по мастер-порядку GPT -> Kimi -> Muse -> Grok -> Opus (`master_order` в `resources/panel-roster/family-partition.v1.json`), оставляя только семьи вне union author/fixer set, с местом в действующем составе и с доступным exact route. Если список пуст, dispatch запрещён и задача переходит в human. Выбранный Lead и его provider session фиксируются до первого dispatch и не меняются между раундами без формального replacement.
 
 Code reviewer routing использует union author_families + fixer_families:
 

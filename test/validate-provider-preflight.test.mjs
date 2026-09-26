@@ -14,12 +14,16 @@ import {
   CONTRACT_PATH,
   EXAMPLE_PATH,
   FAMILY_PARTITION_PATH,
+  FLOWS_PATH,
+  PANEL_HISTORICAL_MARKER,
   REFUSALS,
   REQUIRED_PANEL,
   SCHEMA_PATH,
   UNAVAILABLE_EXAMPLE_PATH,
   familyOf,
+  flowsRosterMarkingErrors,
   loadFiles,
+  masterOrderProseErrors,
   partitionErrors,
   preflightDesignDigest,
   routeAvailability,
@@ -124,7 +128,7 @@ test("an attestation that expires before it was taken attests nothing", () => {
 });
 
 test("a failure domain takes its routes down together and leaves the others alone", () => {
-  // Cursor going down takes Grok and Kimi; Codex and Claude are unaffected.
+  // Cursor going down takes Grok; Codex, Claude and Meta are unaffected.
   const routes = panel().routes;
   const down = ["cursor"];
   for (const route of routes) {
@@ -198,20 +202,105 @@ test("a zero exit without a structured result is not a pass", () => {
 });
 
 test("a family is a property of the model, not of the harness serving it", () => {
-  // `cursor/` serves both Grok and Kimi, so a partition keyed on the route
-  // prefix calls a kimi model grok and nothing notices.
+  // `cursor/` serves Grok, Kimi and Muse, so a partition keyed on the route
+  // prefix calls a kimi model grok and nothing notices. The same holds the
+  // other way round: Meta's Muse is Muse whether `meta/` or `cursor/` serves
+  // it, and filing it under another vendor's family (panel round 5, R5-14)
+  // lets a Kimi-authored artifact exclude an unrelated reviewer.
   const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
   assert.equal(familyOf("anthropic/claude-opus-5", partition), "opus");
   assert.equal(familyOf("openai-codex/gpt-6-astra", partition), "gpt");
-  assert.equal(familyOf("cursor/muse-spark-1.3", partition), "kimi");
+  assert.equal(familyOf("cursor/muse-spark-1.3", partition), "muse");
   assert.equal(familyOf("cursor/cursor-grok-4.6", partition), "grok");
   assert.equal(familyOf("cursor/cursor-kimi-2.5", partition), "kimi");
-  assert.equal(familyOf("meta/muse-spark-1.3-contributor", partition), "kimi");
+  assert.equal(familyOf("meta/muse-spark-1.3-contributor", partition), "muse");
+});
+
+test("the product roster spans four declared families, Meta's in its own", () => {
+  // The Intent seat serves Meta's Muse; counting it as Kimi made four
+  // distinct families out of a vendor relabelled to fill the fourth.
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  assert.deepEqual(REQUIRED_PANEL.map((seat) => familyOf(seat.route_id, partition)).sort(), ["gpt", "grok", "muse", "opus"]);
+  assert.deepEqual(partition.master_order, ["gpt", "kimi", "muse", "grok", "opus"]);
+  assert.deepEqual(partitionErrors(partition), []);
+});
+
+test("01 §3 marks its roster tables historical, as 02 §9 does", () => {
+  // Panel round 5 (R5-15): 02 §9 marked the GPT-5.6 Sol / Kimi K3 / Opus 5
+  // routes historical while 01 §3 still presented them as the panel.
+  const flows = files[FLOWS_PATH];
+  assert.deepEqual(flowsRosterMarkingErrors(flows), []);
+  const unmarked = flows.replace(`${PANEL_HISTORICAL_MARKER}\n\n`, "");
+  assert.notEqual(unmarked, flows);
+  assert.ok(flowsRosterMarkingErrors(unmarked).some((message) => /lack their historical-intent marking/u.test(message)));
+  assert.ok(
+    validateProviderPreflightDesign({ ...files, [FLOWS_PATH]: unmarked }).some((message) =>
+      /lack their historical-intent marking/u.test(message),
+    ),
+  );
+  const seatHeader = "| Место | Маршрут | Фокус |";
+  const late = unmarked.replace(seatHeader, `${seatHeader}\n\n${PANEL_HISTORICAL_MARKER}\n`);
+  assert.notEqual(late, unmarked);
+  assert.ok(flowsRosterMarkingErrors(late).some((message) => /must sit before the roster tables/u.test(message)));
+  // A marker with no visible claim marks nothing, and a claim a comment
+  // hides does not render.
+  const claim = /\*\*Обе таблицы ниже — историческое целевое намерение[^\n]*/u;
+  assert.match(flows, claim);
+  const silent = flows.replace(claim, "");
+  assert.ok(flowsRosterMarkingErrors(silent).some((message) => /историческое целевое намерение/u.test(message)));
+  assert.ok(flowsRosterMarkingErrors(silent).some((message) => /`REQUIRED_PANEL`/u.test(message)));
+  const hidden = flows.replace(claim, (text) => `<!-- ${text} -->`);
+  assert.ok(flowsRosterMarkingErrors(hidden).some((message) => /историческое целевое намерение/u.test(message)));
+});
+
+test("01 §3's marking is scoped to the section and counted only where it renders", () => {
+  const flows = files[FLOWS_PATH];
+  const claim = /\*\*Обе таблицы ниже — историческое целевое намерение[^\n]*/u;
+  assert.ok(flowsRosterMarkingErrors(`${flows}\u0000`).some((message) => /literal NUL/u.test(message)));
+  const heading = "## 3. Четырёхмодельная панель";
+  assert.ok(flowsRosterMarkingErrors(`${flows}\n${heading}\n`).some((message) => /must occur exactly once/u.test(message)));
+  const unbounded = flows.replace("\n## 4.", "\n## Four.");
+  assert.notEqual(unbounded, flows);
+  assert.ok(flowsRosterMarkingErrors(unbounded).some((message) => /no following "## 4\." boundary/u.test(message)));
+  const twice = flows.replace("\n**Supplementary**", `\n${PANEL_HISTORICAL_MARKER}\n\n**Supplementary**`);
+  assert.notEqual(twice, flows);
+  assert.ok(flowsRosterMarkingErrors(twice).some((message) => /must occur once in the section/u.test(message)));
+  // A claim above the marker is not the marking.
+  const [line] = flows.match(claim);
+  const above = flows.replace(`${PANEL_HISTORICAL_MARKER}\n\n${line}`, `${line}\n\n${PANEL_HISTORICAL_MARKER}`);
+  assert.notEqual(above, flows);
+  assert.ok(flowsRosterMarkingErrors(above).some((message) => /историческое целевое намерение/u.test(message)));
+  const indented = flows.replace(claim, (text) => `    ${text}`);
+  const errors = flowsRosterMarkingErrors(indented);
+  assert.ok(errors.some((message) => /an indented code line/u.test(message)));
+  assert.ok(errors.some((message) => /историческое целевое намерение/u.test(message)));
+});
+
+test("01 §6's master order is the partition's", () => {
+  // Two orders — one in the partition, one in prose — would give one
+  // author/fixer set different lawful reviewers depending on which was read.
+  const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
+  const flows = files[FLOWS_PATH];
+  assert.deepEqual(masterOrderProseErrors(flows, partition), []);
+  const shuffled = { ...partition, master_order: ["gpt", "muse", "kimi", "grok", "opus"] };
+  assert.ok(masterOrderProseErrors(flows, shuffled).some((message) => /master order/u.test(message)));
+  const stale = flows.replace("**GPT, Kimi, Muse, Grok, Opus**", "**GPT, Kimi, Grok, Opus**");
+  assert.notEqual(stale, flows);
+  assert.ok(validateProviderPreflightDesign({ ...files, [FLOWS_PATH]: stale }).some((message) => /master order/u.test(message)));
+  const unlisted = flows.replace("**GPT, Kimi, Muse, Grok, Opus**", "GPT, Kimi, Muse, Grok, Opus");
+  assert.notEqual(unlisted, flows);
+  assert.ok(masterOrderProseErrors(unlisted, partition).some((message) => /master order/u.test(message)));
+  // An order a comment holds is not stated.
+  const lead = "Мастер-порядок здесь тот же, что в §3 — **GPT, Kimi, Muse, Grok, Opus**";
+  assert.ok(flows.includes(lead));
+  const commented = flows.replace(lead, `<!-- ${lead} -->`);
+  assert.ok(masterOrderProseErrors(commented, partition).some((message) => /is missing/u.test(message)));
 });
 
 test("a second family on an already-used prefix is a data row, not a rule change", () => {
-  // The one-harness-two-families case is pinned by routes the shipped data
-  // already carries: two kimi models and a grok model all stand on `cursor/`.
+  // The one-harness-several-families case is pinned by routes the shipped
+  // data already carries: a grok, a kimi and a muse model all stand on
+  // `cursor/`.
   const partition = JSON.parse(files[FAMILY_PARTITION_PATH]);
   const panel = [
     { route_id: "cursor/cursor-grok-4.6", effort: "xhigh" },
@@ -219,7 +308,7 @@ test("a second family on an already-used prefix is a data row, not a rule change
     { route_id: "cursor/muse-spark-1.3", effort: "max" },
   ];
   const resolved = panel.map((seat) => familyOf(seat.route_id, partition));
-  assert.deepEqual(new Set(resolved), new Set(["grok", "kimi"]));
+  assert.deepEqual(new Set(resolved), new Set(["grok", "kimi", "muse"]));
   assert.ok(partitionErrors(partition, panel).every((message) => !/belongs to no declared family/u.test(message)));
 });
 
