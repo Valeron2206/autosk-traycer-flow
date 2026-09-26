@@ -72,7 +72,8 @@ Computed, not judged:
 - every confirmed `medium` has a disposition, `fixed` or `deferred`;
 - a `deferred` medium creates a debt Ticket with identity, owner and reason, and stays open as tracked debt;
 - `low` does not block — but a `low` that is really an understated `high` is caught by triage, not by the gate, which is why `confirmed_higher_severity` exists;
-- a finding closes only on a re-review disposition of `resolved`. Having made an edit is not a disposition.
+- a finding closes only on a re-review disposition of `resolved`. Having made an edit is not a disposition;
+- a `critical` or `high` that only Supplementary seats raised holds the gate until Lead rules. `roles` records the Lead seat and the Supplementary seats, both derived from the author and fixer families through the family partition (01 §3). A Supplementary seat belongs to one of those families, and the Lead seat belongs to none of them. Only a `lead_ruling` from the `roles.lead` seat with outcome `disagreed` lifts the finding. `confirmed` is Lead's own vote for it, and a ruling from any other seat is refused. If any other seat also raised the finding, no ruling lifts it. The runtime gate and the design check call one predicate, `liftedByLead` in `src/host/finding-registry.mjs`. The design check refuses a Lead that is also Supplementary, and a ruling that can decide nothing: one on a finding a seat outside Supplementary also raised, or one on a finding below `high`. A ruling and the roles, like a contest, bind the candidate. Supersession drops both, and the next candidate's roles are recomputed from its own author and fixer set. No host primitive records a ruling yet; that is an implementation obligation.
 
 ## 8. Late findings
 
@@ -99,6 +100,7 @@ Closed set: `unknown_severity`, `unmergeable_finding`, `missing_citable_basis`, 
 - a medium fixed, a medium deferred with its debt Ticket, and a medium left undispositioned blocking the PASS;
 - a late critical before integration, after integration, and after release;
 - a stale finding against a superseded identity does not block;
+- a Supplementary-only high blocks until Lead rules. Lead's disagreement lifts it. A ruling from the Supplementary seat does not lift it, and neither does Lead's confirmation or a second originating seat;
 - an open finding survives a restart and a review replacement.
 
 ## 11. Acceptance mapping

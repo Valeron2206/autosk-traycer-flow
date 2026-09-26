@@ -13,6 +13,7 @@
 import { demand, immutable } from '../runtime/contracts.mjs';
 
 import { clearForDispatch, assertSendMatches } from './clearance.mjs';
+import { excludedFamilies, familyOf } from './cross-family-review.mjs';
 import { canonicalMerge, computeGate } from './finding-registry.mjs';
 import { evaluateRun } from './gate-projection.mjs';
 import { applySubmission } from './model-result.mjs';
@@ -157,6 +158,45 @@ export function runSeat(seat, deps) {
 }
 
 /**
+ * Who leads the panel, and which seats are Supplementary.
+ *
+ * Lead is the first family in the partition's master order that neither
+ * authored nor fixed the candidate and holds a seat; a family with no seat is
+ * skipped. A Supplementary seat is one whose family did author or fix it: it
+ * answers like the others, and its Critical or High goes to Lead rather than
+ * blocking on its own (finding-registry `liftedByLead`). Panel round 5 (R5-17)
+ * found both rules only in 01 §3, with every seat treated the same.
+ *
+ * A Lead recorded by an earlier round stays Lead while its family stays
+ * outside — Lead does not change between rounds without a replacement — and is
+ * refused once a fixer from its family has made it an author.
+ */
+export function panelRoles({ partition, seats, authors, fixers = [], lead }) {
+  const excluded = excludedFamilies({ partition, authors, fixers });
+  const seated = seats.map((seat) => {
+    const family = familyOf(seat.route.route_id, partition);
+    demand(family !== null, 'review_family_unknown', 'A seat resolves to a declared family through the partition',
+      { seat: seat.seat, route: seat.route.route_id });
+    return Object.freeze({ seat: seat.seat, family });
+  });
+  const chosen = partition.master_order
+    .filter((family) => !excluded.includes(family))
+    .map((family) => seated.find((entry) => entry.family === family))
+    .find((entry) => entry !== undefined);
+  demand(chosen !== undefined, 'panel_lead_not_external',
+    'No seated family is outside every author and fixer', { excluded });
+  if (lead !== undefined) {
+    const recorded = seated.find((entry) => entry.seat === lead);
+    demand(recorded !== undefined && !excluded.includes(recorded.family), 'panel_lead_not_external',
+      'The recorded Lead is a seat from a family outside every author and fixer', { lead, excluded });
+  }
+  return Object.freeze({
+    lead: lead ?? chosen.seat,
+    supplementary: immutable(seated.filter((entry) => excluded.includes(entry.family)).map((entry) => entry.seat).sort()),
+  });
+}
+
+/**
  * Runs the panel.
  *
  * Seats are independent: one seat's refusal does not stop the others, because
@@ -164,6 +204,15 @@ export function runSeat(seat, deps) {
  */
 export function runPanel(seats, deps) {
   demand(Array.isArray(seats) && seats.length > 0, 'seat_non_verdict', 'A panel has seats');
+  // Before any seat runs: a panel whose Lead cannot be named, or whose seats
+  // resolve to no family, is not a panel whose verdict could be read.
+  const roles = panelRoles({
+    partition: deps.partition,
+    seats,
+    authors: deps.authors,
+    fixers: deps.fixers,
+    lead: deps.lead,
+  });
   const results = seats.map((seat) => runSeat(seat, deps));
   const answered = results.filter((result) => result.outcome === 'answered');
 
@@ -176,13 +225,14 @@ export function runPanel(seats, deps) {
     result.findings.map((finding) => ({ ...finding, seat: result.seat })),
   );
   const canonical = canonicalMerge(raw);
-  const findingsGate = computeGate({ canonical_findings: canonical });
+  const findingsGate = computeGate({ canonical_findings: canonical, roles });
   const verdict = panelVerdict(results, findingsGate);
 
   return Object.freeze({
     seats: immutable(results),
     canonical_findings: immutable(canonical),
     findings_gate: findingsGate,
+    roles,
     verdict: verdict.verdict,
     reason: verdict.reason,
     // Reported rather than asserted: whether the answered seats saw the same

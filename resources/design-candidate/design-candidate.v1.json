@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "f962b8f1a03715f4cfdf2aecb903615477f0369feb0cfca4892e574d1fc89511"
+      "sha256": "9b5790dc7dd4be2cd4bc41604945e8b184ba0c077cc104e40fc8f0c22c7cc6f3"
     },
     {
       "path": "02-architecture.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "9814e249e01cedc48a9963f614863fb31d1f04ce02300de58a08cf559f8c37d1"
+      "sha256": "42009a65dc19b31241fdff46d3e1c7c3d6cc6c77b97f9e6ab3e4a82f7238d617"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "b7065dbda387b591dc8c7126db8f3aa98c375419cea1217cab08b9b27503f73c"
+      "sha256": "0dbef6f2ad9405c1e18a0e24b29db533dd30b6f488678afb5d82fc39c37d635b"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -112,7 +112,7 @@
     },
     {
       "path": "docs/contracts/finding-registry.md",
-      "sha256": "f9dcbe204508a01aab86f4f0c3322c62628439f081310a526d0caab7e1714532"
+      "sha256": "d237f944d0b7de805483fdb139e72a9a0638e1c65d5314605e1822961119e07c"
     },
     {
       "path": "docs/contracts/gate-store-projection.md",
@@ -416,7 +416,7 @@
     },
     {
       "path": "resources/finding-registry/finding-registry.schema.json",
-      "sha256": "4d5f6bc7e205576a191ed31b8bc21d9ed6a3caef26c286c14f8949831bbe7e6d"
+      "sha256": "f20b2a96780688166a10aa357dd3b732df7e8969adae2ff841e9541681f40405"
     },
     {
       "path": "resources/gate-store-projection/gate-store-projection.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "0673201c83273b6e127f6d07d6a6bbf5143d569f536eea4753534b5801489edc",
+  "candidate_digest": "7b25c7b526ae8e97152e1a77fdadfae915afe6478008a616fa8fbf613706bd2b",
   "dispositions": [
     {
       "issue": 3,

@@ -36,6 +36,30 @@
         "pattern": "^[a-z][a-z0-9_-]{1,32}$"
       }
     },
+    "roles": {
+      "description": "Lead and the Supplementary seats, from the author and fixer families through the family partition (01 §3). Lead is a seat outside every author and fixer family; a Supplementary seat is one inside, and its critical or high blocks until Lead rules.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lead",
+        "supplementary"
+      ],
+      "properties": {
+        "lead": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+        },
+        "supplementary": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+          }
+        }
+      }
+    },
     "raw_findings": {
       "type": "array",
       "maxItems": 4096,
@@ -229,6 +253,33 @@
                   "type": "string",
                   "maxLength": 2048
                 }
+              }
+            }
+          },
+          "lead_ruling": {
+            "description": "Lead's ruling on a critical or high only Supplementary seats raised: `confirmed` is Lead's own vote for it, `disagreed` lifts it.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "seat",
+              "outcome",
+              "reason"
+            ],
+            "properties": {
+              "seat": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{1,32}$"
+              },
+              "outcome": {
+                "enum": [
+                  "confirmed",
+                  "disagreed"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
               }
             }
           },

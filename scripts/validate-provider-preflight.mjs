@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { familyOf, modelOf } from "../src/host/cross-family-review.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -110,30 +111,10 @@ export const REQUIRED_PANEL = Object.freeze([
 
 export const FAMILY_PARTITION_PATH = "resources/panel-roster/family-partition.v1.json";
 
-/** The model a route serves: everything after the harness prefix. */
-export function modelOf(routeId) {
-  const slash = routeId.indexOf("/");
-  return slash === -1 ? routeId : routeId.slice(slash + 1);
-}
-
-/**
- * The family each route belongs to, answered by the model and not by the
- * harness that serves it.
- *
- * Cross-family independence is the mechanism behind the panel gate, behind Lead
- * selection and behind `arena_judge_family_conflict`. Panel round 3 found that
- * "family" was a naming convention nothing pinned, so a partition that quietly
- * put two seats in one family would have left the gate looking intact. A
- * partition keyed on the route prefix reopens the same hole the moment one
- * harness serves several families — `cursor/` serves Grok, Kimi and Muse — so the
- * partition names each family's model ids, and a model it does not name
- * belongs to none.
- */
-export function familyOf(routeId, partition) {
-  const model = modelOf(routeId);
-  const match = partition.families.find((entry) => Array.isArray(entry.models) && entry.models.includes(model));
-  return match ? match.family : null;
-}
+// The family resolver lives with the host's cross-family review, which reads
+// every author, fixer and panel seat through it. This validator holds the
+// roster to the same function rather than to a second reading of the rule.
+export { familyOf, modelOf };
 
 /** Whether the required panel really is four distinct families. */
 export function partitionErrors(partition, panel = REQUIRED_PANEL) {

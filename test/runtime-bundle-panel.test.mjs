@@ -24,6 +24,9 @@ import { ROOT } from "../scripts/validate-planning-ref-design.mjs";
 const carrierRegistry = JSON.parse(
   await readFile(path.join(ROOT, "resources/stage-carriers/stage-carriers.v1.json"), "utf8"),
 );
+const partition = JSON.parse(
+  await readFile(path.join(ROOT, "resources/panel-roster/family-partition.v1.json"), "utf8"),
+);
 
 const NOW = Date.parse("2026-09-08T17:00:00.000Z");
 const BINDING = "sha256:" + "a".repeat(58);
@@ -161,6 +164,10 @@ function deps(overrides = {}) {
     },
     nowMs: NOW,
     home: "/home/operator",
+    // Lead and Supplementary are read from the author set through the
+    // partition; the #37 seats themselves are the contract's and unchanged.
+    partition,
+    authors: ["human"],
     ...overrides,
   };
 }
@@ -291,6 +298,13 @@ test("four passes produce an attestation the contract admits", () => {
   assert.deepEqual([...result.unavailable], []);
   assert.deepEqual(attestationErrors(result.attestation, CANDIDATE), []);
   assert.equal(result.attestation.release_actor, "owner");
+  // The contract's four seats keep their routes; who leads them is read from
+  // the author set, and an Opus-authored bundle makes the Opus seat
+  // Supplementary without taking it out of the four.
+  assert.equal(result.panel.roles.lead, "astra");
+  const opusAuthored = runBundlePanel(bundleDeps(seats, answeringProvider(seats), { authors: ["anthropic/claude-opus-5"] }));
+  assert.deepEqual([...opusAuthored.panel.roles.supplementary], ["opus"]);
+  assert.equal(opusAuthored.attestation.verdicts.length, 4);
 });
 
 test("a seat that did not answer produces no verdict, and the attestation is incomplete", () => {

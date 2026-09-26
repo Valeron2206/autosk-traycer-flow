@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { liftedByLead } from "../src/host/finding-registry.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,6 +81,10 @@ export function registryDigest(registry) {
       canonicalValue(registry.seats),
       canonicalValue(registry.raw_findings),
       canonicalValue(registry.canonical_findings),
+      // Recorded roles decide whose ruling lifts a Supplementary-only finding,
+      // so they are covered once recorded. A registry without them keeps the
+      // digest it had.
+      ...(registry.roles === undefined ? [] : [canonicalValue(registry.roles)]),
     ].join(""),
   );
 }
@@ -100,7 +105,13 @@ export function effectiveSeverity(finding) {
   return finding.triage.severity ?? finding.reported_severity;
 }
 
-/** The gate of section 7, computed from the findings rather than asserted. */
+/**
+ * The gate of section 7, computed from the findings rather than asserted.
+ *
+ * A critical or high only Supplementary seats raised is lifted by Lead's
+ * recorded disagreement and by nothing else — the host's own predicate, so the
+ * design check and the runtime cannot read the rule two ways.
+ */
 export function computeGate(registry) {
   let blockingOpen = 0;
   let undispositionedMedium = 0;
@@ -108,7 +119,7 @@ export function computeGate(registry) {
     if (finding.state !== "open") continue;
     if (finding.triage.decision === "rejected") continue;
     const severity = effectiveSeverity(finding);
-    if (severity === "critical" || severity === "high") blockingOpen += 1;
+    if ((severity === "critical" || severity === "high") && !liftedByLead(finding, registry.roles)) blockingOpen += 1;
     if (severity === "medium" && finding.disposition === undefined) undispositionedMedium += 1;
   }
   return {
@@ -123,6 +134,18 @@ export function validateRegistry(registry, schema) {
   if (errors.length > 0) return errors;
 
   const seats = new Set(registry.seats);
+  // Lead is a seat from a family outside every author and fixer; a
+  // Supplementary seat is one from inside. One seat cannot be both.
+  const roles = registry.roles;
+  if (roles !== undefined) {
+    if (!seats.has(roles.lead)) errors.push(`roles.lead ${roles.lead} is not one of the declared seats`);
+    if (roles.supplementary.includes(roles.lead)) {
+      errors.push(`roles.lead ${roles.lead} is also supplementary (panel_lead_not_external)`);
+    }
+    for (const seat of roles.supplementary) {
+      if (!seats.has(seat)) errors.push(`roles.supplementary ${seat} is not one of the declared seats`);
+    }
+  }
   const rawByKey = new Map();
   for (const raw of registry.raw_findings) {
     const key = `${raw.seat}:${raw.raw_id}`;
@@ -205,6 +228,29 @@ export function validateRegistry(registry, schema) {
         if (!contested.has(seat)) {
           errors.push(`${at}: contest is incomplete — ${seat} originated it and has no outcome (contest_incomplete)`);
         }
+      }
+    }
+
+    // Only Lead rules, and only on a critical or high that Supplementary seats
+    // alone raised. A ruling from any other seat is the author's family voting
+    // on its own artifact; a ruling anywhere else can lift nothing, and
+    // recording it would read as if it had.
+    if (finding.lead_ruling !== undefined) {
+      if (roles === undefined) errors.push(`${at}: a lead ruling with no recorded Lead`);
+      else {
+        if (finding.lead_ruling.seat !== roles.lead) {
+          errors.push(`${at}: ${finding.lead_ruling.seat} ruled, but Lead is ${roles.lead}`);
+        }
+        const outside = finding.originators
+          .map((originator) => originator.split(":")[0])
+          .filter((seat) => !roles.supplementary.includes(seat));
+        if (outside.length > 0) {
+          errors.push(`${at}: a lead ruling on a finding a seat outside Supplementary raised (${[...new Set(outside)].sort().join(", ")})`);
+        }
+      }
+      const severity = effectiveSeverity(finding);
+      if (severity !== "critical" && severity !== "high") {
+        errors.push(`${at}: a lead ruling on a ${severity} finding; Lead rules only on a critical or high`);
       }
     }
 

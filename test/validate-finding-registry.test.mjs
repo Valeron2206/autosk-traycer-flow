@@ -29,6 +29,7 @@ import {
   validateFindingRegistryDesign,
   validateRegistry,
 } from "../scripts/validate-finding-registry.mjs";
+import { computeGate as hostGate } from "../src/host/finding-registry.mjs";
 
 const files = loadFiles();
 const schema = JSON.parse(files[SCHEMA_PATH]);
@@ -324,4 +325,136 @@ test("the design digest changes when any of the three files changes", () => {
   const before = findingRegistryDesignDigest(files);
   const after = findingRegistryDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
+});
+
+/** An open high only the Supplementary seat raised, with Lead and Supplementary recorded. */
+function supplementaryHigh(draft, ruling) {
+  draft.roles = { lead: "astra", supplementary: ["opus"] };
+  draft.raw_findings.push({
+    seat: "opus",
+    raw_id: "F9",
+    severity: "high",
+    claim: "the author's own family reports its own artifact",
+    evidence_locator: "daemon/core/src/engine/engine.ts:enroll",
+    violated_anchor: "tech_plan#supplementary",
+    affected_scope: ["daemon/core/src/engine/**"],
+    attempt: 1,
+  });
+  draft.canonical_findings.push({
+    canonical_id: "C005",
+    originators: ["opus:F9"],
+    reported_severity: "high",
+    triage: { decision: "confirmed" },
+    contest: [{ seat: "opus", outcome: "upheld" }],
+    state: "open",
+    ...(ruling ? { lead_ruling: ruling } : {}),
+  });
+}
+
+test("a Supplementary seat's high blocks until Lead disagrees, computed the same way as the host", () => {
+  // Panel round 5 (R5-17): the rule existed only as description in 01 §3.
+  const waiting = mutated((draft) => supplementaryHigh(draft));
+  assert.deepEqual(validateRegistry(waiting, schema), []);
+  assert.equal(waiting.gate.blocking_open, 1);
+  assert.equal(waiting.gate.verdict, "blocked");
+
+  const ruled = mutated((draft) => supplementaryHigh(draft, { seat: "astra", outcome: "disagreed", reason: "unreachable path" }));
+  assert.deepEqual(validateRegistry(ruled, schema), []);
+  assert.equal(ruled.gate.blocking_open, 0);
+  assert.equal(ruled.gate.verdict, "pass");
+
+  const confirmed = mutated((draft) => supplementaryHigh(draft, { seat: "astra", outcome: "confirmed", reason: "reproduced" }));
+  assert.deepEqual(validateRegistry(confirmed, schema), []);
+  assert.equal(confirmed.gate.verdict, "blocked");
+
+  // One predicate, not two readings of the rule: the host's gate agrees.
+  for (const value of [waiting, ruled, confirmed]) {
+    assert.equal(hostGate(value).blocking_open, value.gate.blocking_open);
+  }
+});
+
+test("Lead is a seat outside Supplementary, and only Lead rules", () => {
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft, { seat: "opus", outcome: "disagreed", reason: "our own artifact is fine" });
+    }),
+    /C005: opus ruled, but Lead is astra/u,
+  );
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft);
+      draft.roles = { lead: "opus", supplementary: ["opus"] };
+    }),
+    /roles\.lead opus is also supplementary \(panel_lead_not_external\)/u,
+  );
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft);
+      draft.roles = { lead: "sol", supplementary: ["opus"] };
+    }),
+    /roles\.lead sol is not one of the declared seats/u,
+  );
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft);
+      draft.roles = { lead: "astra", supplementary: ["kimi"] };
+    }),
+    /roles\.supplementary kimi is not one of the declared seats/u,
+  );
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft, { seat: "astra", outcome: "disagreed", reason: "unreachable path" });
+      delete draft.roles;
+    }),
+    /C005: a lead ruling with no recorded Lead/u,
+  );
+  // A ruling states its reason; a disagreement nobody explained is a waiver.
+  assertRejects(
+    mutated((draft) => supplementaryHigh(draft, { seat: "astra", outcome: "disagreed" })),
+    /schema: /u,
+  );
+});
+
+test("a lead ruling is recorded only where it can decide something", () => {
+  // The 9f review (R9f-5): a ruling on a finding another seat also raised, or
+  // on one below high, can lift nothing, and recording it silently reads as if
+  // it had.
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft, { seat: "astra", outcome: "disagreed", reason: "unreachable path" });
+      draft.roles = { lead: "astra", supplementary: ["muse"] };
+    }),
+    /C005: a lead ruling on a finding a seat outside Supplementary raised \(opus\)/u,
+  );
+  assertRejects(
+    mutated((draft) => {
+      supplementaryHigh(draft, { seat: "astra", outcome: "disagreed", reason: "unreachable path" });
+      const finding = findingNamed(draft, "C005");
+      finding.triage = {
+        decision: "confirmed_lower_severity",
+        severity: "medium",
+        basis: { kind: "anchor", reference: "tech_plan#supplementary" },
+      };
+      finding.disposition = "fixed";
+    }),
+    /C005: a lead ruling on a medium finding/u,
+  );
+  // The ones it can decide stay admitted: a high, and a critical.
+  assert.deepEqual(
+    validateRegistry(mutated((draft) => supplementaryHigh(draft, { seat: "astra", outcome: "confirmed", reason: "reproduced" })), schema),
+    [],
+  );
+  const critical = mutated((draft) => {
+    supplementaryHigh(draft, { seat: "astra", outcome: "disagreed", reason: "unreachable path" });
+    draft.raw_findings.find((entry) => entry.raw_id === "F9").severity = "critical";
+    findingNamed(draft, "C005").reported_severity = "critical";
+  });
+  assert.deepEqual(validateRegistry(critical, schema), []);
+  assert.equal(critical.gate.verdict, "pass");
+});
+
+test("the recorded roles are part of what the digest covers", () => {
+  const value = mutated((draft) => supplementaryHigh(draft, { seat: "astra", outcome: "disagreed", reason: "unreachable path" }));
+  value.roles = { lead: "grok", supplementary: ["opus"] };
+  assertRejects(value, /registry_digest does not recompute/u);
 });
