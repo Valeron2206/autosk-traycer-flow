@@ -310,16 +310,33 @@ export function candidateDigest(candidate) {
  * The attestation state, computed.
  *
  * `pass` requires one verdict per required seat, each on the exact harness,
- * route and effort, each `pass`, and each bound to THIS candidate digest. A refusal
+ * route and effort, each `pass`, and each bound to THIS candidate digest. Each
+ * required seat holds exactly one counted verdict — a seat's retry on the same
+ * digest replaces its earlier entry, and a record holding both is invalid in
+ * every state — and no session answers for two seats. A refusal
  * outranks an incomplete panel: one counted `fail` is `blocked` wherever the
  * seat sits in the order, so a seat that could not review cannot hide the
  * seats that refused. Anything else is `pending_final_panel` — including three
  * passes and a silence, which is the case most likely to be rounded up.
  */
 export function computeAttestationState(candidate) {
+  const counted = countedVerdicts(candidate);
+  if (counted.some((entry) => entry.verdict === "fail")) return "blocked";
+  // A seat is one reviewer's one answer. Two counted verdicts for a seat leave
+  // its answer open, and one session answering for two seats is one reviewer
+  // under two names — neither is a seat that passed.
+  if (sharedSessions(counted).length > 0) return "pending_final_panel";
+  const perSeat = seatCounts(counted);
+  const passed = new Set(
+    counted.filter((entry) => entry.verdict === "pass" && perSeat.get(entry.seat) === 1).map((entry) => entry.seat),
+  );
+  return REQUIRED_PANEL.every((required) => passed.has(required.seat)) ? "pass" : "pending_final_panel";
+}
+
+/** The verdicts that count: on a required seat's exact tuple and on THIS digest. */
+function countedVerdicts(candidate) {
   const digest = candidateDigest(candidate);
-  const verdicts = candidate.attestation.verdicts ?? [];
-  const counted = verdicts.filter(
+  return (candidate.attestation.verdicts ?? []).filter(
     (entry) =>
       REQUIRED_PANEL.some(
         (required) =>
@@ -329,9 +346,29 @@ export function computeAttestationState(candidate) {
           entry.effort === required.effort,
       ) && entry.candidate_digest === digest,
   );
-  if (counted.some((entry) => entry.verdict === "fail")) return "blocked";
-  const passed = new Set(counted.filter((entry) => entry.verdict === "pass").map((entry) => entry.seat));
-  return REQUIRED_PANEL.every((required) => passed.has(required.seat)) ? "pass" : "pending_final_panel";
+}
+
+function seatCounts(counted) {
+  const counts = new Map();
+  for (const entry of counted) counts.set(entry.seat, (counts.get(entry.seat) ?? 0) + 1);
+  return counts;
+}
+
+/**
+ * Sessions that answered for more than one seat, with those seats. A session
+ * that recorded one seat twice is the seat-count error's case, not this one.
+ */
+function sharedSessions(counted) {
+  const bySession = new Map();
+  for (const entry of counted) {
+    if (!bySession.has(entry.session_id)) bySession.set(entry.session_id, new Set());
+    bySession.get(entry.session_id).add(entry.seat);
+  }
+  return [...bySession].map(([session, seats]) => [session, [...seats]]).filter(([, seats]) => seats.length > 1);
+}
+
+function listed(names) {
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 export function validateCandidate(candidate, schema, { readFile } = {}) {
@@ -444,6 +481,14 @@ export function validateCandidate(candidate, schema, { readFile } = {}) {
     } else if (seat.harness !== required.harness) {
       errors.push(`required_panel ${required.seat}: harness ${seat.harness} is not ${required.harness}`);
     }
+  }
+
+  const counted = countedVerdicts(candidate);
+  for (const [seat, count] of seatCounts(counted)) {
+    if (count > 1) errors.push(`attestation: seat ${seat} carries ${count} counted verdicts`);
+  }
+  for (const [session, seats] of sharedSessions(counted)) {
+    errors.push(`attestation: session ${session} answered for ${listed(seats)}`);
   }
 
   const computed = computeAttestationState(candidate);

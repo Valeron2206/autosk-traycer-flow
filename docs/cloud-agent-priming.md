@@ -244,3 +244,10 @@ The owner's machine holds the orchestration ledger, the evidence directory of ev
   - Measured live on `dbc2a8d2` with an isolated `HOME`: a task pinned to workflow `h`, and `h`'s `steps` accessor armed by a flag file once registration has landed. The first open answers `-32603 "an unprintable value"` and the daemon stays up. The next request opens the project without `h`.
   - If the installed copy changes instead, the held distribution the task was admitted under is served, and the new code is not loaded.
   - This is the limitation `docs/extensions.md` already states (patch `0050`): "An extension object whose fields start throwing after it was registered is outside it". Since `0051` it no longer crashes the daemon and no longer breaks `ext add`. Carried Low R7l-5 is unchanged.
+- 2026-09-26: debt 8a merged (#248, merge `9744d36`).
+- 2026-09-26: debt 8c, a gap in the attestation (R8a-4). A seat's `pass` is counted only when that seat has exactly one counted verdict, and the counted verdicts must come from distinct sessions.
+  - Measured on `c1e397e` before the fix: four passes recorded from one session computed `pass` with no error, and so did a lead holding both `pass` and `non_verdict`.
+  - `validateCandidate` now names each violation (`seat X carries N counted verdicts`, `session S answered for …`). A counted `fail` still blocks.
+  - A record holding two counted verdicts for one seat is invalid in every state; a seat's retry on the same digest replaces its earlier entry.
+  - Review (same-family): approved with four Lows, all fixed here. They were the rule's wording, a two-of-four shared-session test, de-duplicated seats in the session message, and the doc comment.
+  - 3 tests (2 red on the base); 5 hand-made mutants die on the test file and on `npm test`.
