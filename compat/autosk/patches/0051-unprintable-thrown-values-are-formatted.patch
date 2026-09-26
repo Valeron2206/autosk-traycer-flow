@@ -209,6 +209,53 @@ index d361548..011de33 100644
 -function errMsg(e: unknown): string {
 -  return e instanceof Error ? e.message : String(e);
 -}
+diff --git a/daemon/core/src/rpc/daemon.ts b/daemon/core/src/rpc/daemon.ts
+index feeb9a5..864f09e 100644
+--- a/daemon/core/src/rpc/daemon.ts
++++ b/daemon/core/src/rpc/daemon.ts
+@@ -37,6 +37,7 @@ import {
+ } from "@autosk/sdk";
+ 
+ import { Engine, type EngineEvent } from "../engine/index.ts";
++import { errMsg } from "../engine/types.ts";
+ import {
+   applyProjectMigration,
+   listProjectMigrations,
+@@ -164,7 +165,7 @@ export class Daemon {
+       try {
+         hook?.();
+       } catch (e) {
+-        this.logger.error(`shutdown hook threw: ${errStr(e)}`);
++        this.logger.error(`shutdown hook threw: ${errMsg(e)}`);
+       }
+     }, this.shutdownDelayMs);
+     timer.unref?.();
+@@ -323,7 +324,7 @@ export class Daemon {
+       const { reloaded } = await this.applyExtensionReload(root);
+       return reloaded;
+     } catch (e) {
+-      this.logger.warn(`extension reload failed for ${root}: ${errStr(e)}`);
++      this.logger.warn(`extension reload failed for ${root}: ${errMsg(e)}`);
+       return false;
+     }
+   }
+@@ -369,7 +370,7 @@ export class Daemon {
+     try {
+       busy = this.connections.size > 0 || (await this.hasPendingWork());
+     } catch (e) {
+-      this.logger.warn(`idle check failed: ${errStr(e)}`);
++      this.logger.warn(`idle check failed: ${errMsg(e)}`);
+       return;
+     }
+     if (busy) {
+@@ -1118,7 +1119,3 @@ async function mapTaskNotFound<T>(fn: () => Promise<T>): Promise<T> {
+     throw e;
+   }
+ }
+-
+-function errStr(e: unknown): string {
+-  return e instanceof Error ? e.message : String(e);
+-}
 diff --git a/daemon/core/src/rpc/errors.ts b/daemon/core/src/rpc/errors.ts
 index c76317a..a508b0e 100644
 --- a/daemon/core/src/rpc/errors.ts
@@ -802,8 +849,60 @@ index d0bc406..61a7a0e 100644
 +    expect(typeof version.version).toBe("string");
 +  });
 +});
+diff --git a/daemon/core/test/rpc.reload.test.ts b/daemon/core/test/rpc.reload.test.ts
+index 9c933cc..65d4046 100644
+--- a/daemon/core/test/rpc.reload.test.ts
++++ b/daemon/core/test/rpc.reload.test.ts
+@@ -71,6 +71,47 @@ describe("extension hot-reload (live daemon)", () => {
+     expect(names(w2)).toContain("global-wf");
+   });
+ 
++  test("a reload that fails on a value no message can be made of degrades to not-reloaded; the other projects still reload", async () => {
++    // tryReload's contract: the disk change has already committed, so a
++    // reload failure must neither reject the install nor stop the global loop.
++    // Here the failure is extension code: a `steps` accessor that starts
++    // throwing a null-prototype object once its registration has landed, read
++    // by the hazard pass for a task positioned on that workflow. Formatting
++    // that value for the warning must not throw out of the catch.
++    const p1 = await td.makeProject("p1");
++    const p2 = await td.makeProject("p2");
++    await c.call("registry.workflow.list", { cwd: p1 });
++    await c.call("registry.workflow.list", { cwd: p2 });
++
++    const store = (await td.handle(p1)).store;
++    const task = await store.createTask({ title: "positioned on h" });
++    await store.setPosition(task.id, { status: "human", workflow: "h", step: "go" });
++    write(
++      join(p1, ".autosk/extensions/h.ts"),
++      [
++        "let armed = false;",
++        "export default function (autosk) {",
++        "  const steps = { go: { onRun: async () => {} } };",
++        '  autosk.registerWorkflow({ name: "h", firstStep: "go", get steps() { if (armed) throw Object.create(null); return steps; } });',
++        "  queueMicrotask(() => { armed = true; });",
++        "}",
++        "",
++      ].join("\n"),
++    );
++
++    const extFile = join(td.dir, "global-ext", "wf.ts");
++    write(extFile, wfExt("global-wf"));
++    const res = await c.call<ExtensionInstallResult>("extension.install", { cwd: p1, source: extFile });
++    expect(res.scope).toBe("global");
++    expect(res.reloaded_projects).toBe(1);
++
++    const failed = td.logger.warns.filter((w) => w.startsWith("extension reload failed for "));
++    expect(failed).toHaveLength(1);
++    expect(failed[0]).toEndWith(": an unprintable value");
++    const w2 = await c.call<WorkflowInfo[]>("registry.workflow.list", { cwd: p2 });
++    expect(names(w2)).toContain("global-wf");
++  });
++
+   test("a project-scoped (-l) ext add hot-reloads only that project", async () => {
+     const p1 = await td.makeProject("p1");
+     const p2 = await td.makeProject("p2");
 diff --git a/docs/extensions.md b/docs/extensions.md
-index c210646..03d4ee3 100644
+index c210646..f896fc4 100644
 --- a/docs/extensions.md
 +++ b/docs/extensions.md
 @@ -753,11 +753,12 @@ recorded, and the rest of the registry stays usable:
@@ -839,7 +938,7 @@ index c210646..03d4ee3 100644
  - a hook that cannot be read at a call counts as absent: `session.input`
    answers `unsupported_by_agent` for it, and `abort`/`end` skip `onAbort` and
    always seal the session — an unreadable hook never keeps a session running.
-@@ -781,6 +784,16 @@ half-built at registration time:
+@@ -781,6 +784,19 @@ half-built at registration time:
    thrown value that cannot be turned into a message is described by a fixed
    placeholder in its place.
  
@@ -851,7 +950,10 @@ index c210646..03d4ee3 100644
 +`an unprintable value`: a factory or module that throws one is recorded as
 +`factory threw: an unprintable value` or `failed to import: an unprintable
 +value`, and an RPC call it reaches answers `INTERNAL_ERROR` (-32603) with the
-+placeholder as its message. The daemon and the connection stay up.
++placeholder as its message. One exception: when the engine inspects a thrown
++value before it is formatted — an `onTransit` hook's throw at `task.enroll` —
++a Proxy's throwing trap fires there, and the trap's own error is what the
++caller sees. Either way the daemon and the connection stay up.
 +
  Each failure becomes a load diagnostic tagged with the offending source (a path,
  or an npm package name). Surface them with:
