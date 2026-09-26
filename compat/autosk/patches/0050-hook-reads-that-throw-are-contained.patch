@@ -1,0 +1,1490 @@
+diff --git a/daemon/core/src/engine/session.ts b/daemon/core/src/engine/session.ts
+index 2f3a370..7000679 100644
+--- a/daemon/core/src/engine/session.ts
++++ b/daemon/core/src/engine/session.ts
+@@ -442,13 +442,22 @@ export class SessionRuntime {
+    * `{ handled:false }` when the session has not started running yet (still
+    * queued), has already ended, or the agent has no matching hook — a hook that
+    * is not a function counts as absent, matching the registration diagnostic
+-   * and the shape digest (the caller maps that to `unsupported_by_agent`).
++   * and the shape digest, and so does a hook whose read throws, with one
++   * warning naming it (the caller maps that to `unsupported_by_agent`).
+    * Writes an `autosk:steer` structural entry only when the message is
+    * delivered to a live run.
+    */
+   async input(kind: "steer" | "followup", message: string): Promise<{ handled: boolean }> {
+     if (!this.started || this.settled) return { handled: false };
+-    const hook = kind === "steer" ? this.agent.onSteer : this.agent.onFollowup;
++    // Reading the hook runs extension code — an accessor may throw — so the
++    // read is guarded too: a hook that cannot be read counts as absent.
++    let hook: unknown;
++    try {
++      hook = kind === "steer" ? this.agent.onSteer : this.agent.onFollowup;
++    } catch (e) {
++      this.host.logger.warn(`session ${this.id}: ${kind} hook cannot be read (${errMsg(e)})`);
++      return { handled: false };
++    }
+     if (typeof hook !== "function" || !this.ctx) return { handled: false };
+     this.transcript.steer(kind, message);
+     await this.transcript.flush();
+@@ -495,7 +504,9 @@ export class SessionRuntime {
+    *
+    * Return value (round-5 BLOCKER): abort ALWAYS takes effect on a live session —
+    * the signal fires, the meta is sealed `aborted`, the task is parked — whether
+-   * or not the agent declares `onAbort` and whether or not the run had started.
++   * or not the agent declares `onAbort`, whether or not reading it throws,
++   * whatever a throw left behind (a value no message can be made of is logged
++   * as a placeholder), and whether or not the run had started.
+    * So `handled` means "the abort acted", NOT "the agent has an onAbort hook": an
+    * onAbort-less abort is never `unsupported_by_agent` (unlike steer/followup,
+    * where an absent hook genuinely cannot deliver the message). Only an already
+@@ -509,12 +520,22 @@ export class SessionRuntime {
+     this.controller.abort();
+     // `onAbort` runs only when the agent declares it AND the run had started; a
+     // still-queued (or mid-acquire) session is sealed WITHOUT onAbort/onRun, and
+-    // pump() then drops the settled runtime via isSettled().
+-    if (this.started && typeof this.agent.onAbort === "function" && this.ctx) {
++    // pump() then drops the settled runtime via isSettled(). The read itself is
++    // extension code too — a throwing read is skipped like a non-function, and
++    // the session seals regardless.
++    if (this.started && this.ctx) {
++      let onAbort: unknown;
+       try {
+-        await this.agent.onAbort(this.ctx);
++        onAbort = this.agent.onAbort;
+       } catch (e) {
+-        this.host.logger.warn(`session ${this.id}: onAbort threw (${errMsg(e)})`);
++        this.host.logger.warn(`session ${this.id}: onAbort cannot be read (${errMsg(e)})`);
++      }
++      if (typeof onAbort === "function") {
++        try {
++          await onAbort.call(this.agent, this.ctx);
++        } catch (e) {
++          this.host.logger.warn(`session ${this.id}: onAbort threw (${errMsg(e)})`);
++        }
+       }
+     }
+     await this.finalizeAborted();
+@@ -535,11 +556,19 @@ export class SessionRuntime {
+     if (this.settled) return { handled: false };
+     this.ending = true;
+     this.controller.abort();
+-    if (this.started && typeof this.agent.onAbort === "function" && this.ctx) {
++    if (this.started && this.ctx) {
++      let onAbort: unknown;
+       try {
+-        await this.agent.onAbort(this.ctx);
++        onAbort = this.agent.onAbort;
+       } catch (e) {
+-        this.host.logger.warn(`session ${this.id}: onAbort threw during end (${errMsg(e)})`);
++        this.host.logger.warn(`session ${this.id}: onAbort cannot be read during end (${errMsg(e)})`);
++      }
++      if (typeof onAbort === "function") {
++        try {
++          await onAbort.call(this.agent, this.ctx);
++        } catch (e) {
++          this.host.logger.warn(`session ${this.id}: onAbort threw during end (${errMsg(e)})`);
++        }
+       }
+     }
+     await this.finalizeDone();
+diff --git a/daemon/core/src/engine/types.ts b/daemon/core/src/engine/types.ts
+index c8c436b..5afddcd 100644
+--- a/daemon/core/src/engine/types.ts
++++ b/daemon/core/src/engine/types.ts
+@@ -138,7 +138,18 @@ export class EngineError extends Error {
+   }
+ }
+ 
+-/** Normalises an unknown thrown value to a message string. */
++/**
++ * Normalises an unknown thrown value to a message string. The value is
++ * extension code: `Object.create(null)` has no toString, a Proxy's
++ * getPrototypeOf trap throws under `instanceof`, and an Error's `message`
++ * getter can throw — so a value no message can be made of degrades to the
++ * fixed placeholder rather than throwing out of the catch that asked.
++ */
+ export function errMsg(e: unknown): string {
+-  return e instanceof Error ? e.message : String(e);
++  try {
++    const m = e instanceof Error ? e.message : String(e);
++    return typeof m === "string" ? m : "an unprintable value";
++  } catch {
++    return "an unprintable value";
++  }
+ }
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index 8d45a40..400dadb 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -133,7 +133,11 @@ export class ExtensionRegistry {
+    * name, an absent `steps`, a `firstStep` that is not a declared step, or a
+    * step value that is neither an agent (`onRun`) nor a valid `statusStep`
+    * (`status` ∈ {done,cancel,human}) are each recorded as a diagnostic and skip
+-   * the registration (never throw — the factory keeps running). A `description`
++   * the registration (never throw — the factory keeps running). Two outcomes
++   * are new here: a read that throws anywhere before the workflow is stored
++   * skips the registration with `could not be read`, and a shape digest that
++   * cannot be computed under an identity registers the workflow without an
++   * admission, its tasks enrolling unpinned. A `description`
+    * that is not a string, and an agent-step `onSteer`/`onFollowup`/`onAbort`
+    * that is truthy but not a function, are each diagnosed and ignored instead —
+    * the workflow registers, and only a registration that lands records them.
+@@ -147,18 +151,91 @@ export class ExtensionRegistry {
+     identity?: DistributionIdentity,
+     owner?: string,
+   ): void {
+-    const name = workflow?.name;
++    // Every field on the definition is extension code — a field may be an
++    // accessor that runs, and throws, when read. The name gets its own try so
++    // the refusal can still carry the workflow's name whenever that read lands.
++    let name: unknown;
++    try {
++      name = workflow?.name;
++    } catch (error) {
++      this.recordDiagnostic(source, `registerWorkflow: workflow.name could not be read: ${errMsg(error)}`);
++      return;
++    }
+     if (typeof name !== "string" || name.length === 0) {
+       this.recordDiagnostic(source, "registerWorkflow: workflow.name must be a non-empty string");
+       return;
+     }
++    // Every other read sits behind one boundary: a throw anywhere in the
++    // validation pass skips the registration, and whatever the pass had
++    // already recorded goes with it — a skipped registration records its
++    // refusal and nothing else.
++    const mark = this.loadErrors.length;
++    try {
++      if (!this.validateWorkflow(source, name, workflow)) return;
++    } catch (error) {
++      this.loadErrors.length = mark;
++      this.recordDiagnostic(source, `registerWorkflow: "${name}" could not be read: ${errMsg(error)}`);
++      return;
++    }
++    this.workflows.set(name, workflow);
++    if (identity) {
++      // The whole admission sits behind one boundary: the digest and every
++      // read the block still makes of the definition — `graphDigest` twice on
++      // the pinned line — are extension code too, and an accessor may start
++      // throwing between reads. A throw anywhere in the block registers the
++      // workflow without an admission: unadmitted is the shape a workflow
++      // whose shape digest cannot be computed always carried, and its tasks
++      // enroll unpinned.
++      try {
++        this.admitWorkflow(name, workflow, identity, owner);
++      } catch (error) {
++        this.recordDiagnostic(
++          source,
++          `registerWorkflow: "${name}" registered without an admission — the shape digest cannot be computed: ${errMsg(error)}`,
++        );
++      }
++    }
++  }
++
++  /**
++   * The post-store half of {@link addWorkflow} under an identity: computes the
++   * shape digest and writes the admission. `workflowIdentities.set` stays the
++   * last statement, so a throw — any read in the block is extension code — is
++   * never a partial admission, and the caller's boundary turns it into the
++   * unadmitted diagnostic.
++   */
++  private admitWorkflow(
++    name: string,
++    workflow: WorkflowDefinition,
++    identity: DistributionIdentity,
++    owner: string | undefined,
++  ): void {
++      // Both digests come from this one site, because they are two projections of
++      // the same definition and a second write site is how they would drift apart.
++      const admission: WorkflowAdmission = {
++        distribution: identity,
++        graph: workflowGraphDigest(workflow),
++      };
++      if (workflow.graphDigest !== undefined) admission.document = workflow.graphDigest;
++      if (owner !== undefined) admission.owner = owner;
++      this.workflowIdentities.set(name, admission);
++  }
++
++  /**
++   * The pre-store half of {@link addWorkflow}: every check that reads
++   * extension-owned fields before the workflow lands. Returns `false` for a
++   * refusal — its diagnostic is already recorded — and lets a throwing read
++   * escape to the caller's boundary, which records the registration as
++   * unreadable.
++   */
++  private validateWorkflow(source: string, name: string, workflow: WorkflowDefinition): boolean {
+     if (this.workflows.has(name)) {
+       this.recordDiagnostic(source, `duplicate workflow name: ${name}`);
+-      return;
++      return false;
+     }
+     if (!workflow.steps || typeof workflow.steps !== "object") {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" has no steps`);
+-      return;
++      return false;
+     }
+     // Reachability is decided with `in` and property access, which walk the
+     // prototype chain, while every projection of the workflow — the rendered info
+@@ -169,27 +246,27 @@ export class ExtensionRegistry {
+     const proto = Object.getPrototypeOf(workflow.steps);
+     if (proto !== Object.prototype && proto !== null) {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" steps must be a plain object`);
+-      return;
++      return false;
+     }
+     // `firstStep` is coerced by `in`, so a numeric one passes this check and then
+     // fails far away — inside the shape digest, which only runs under the real
+     // loader. A registration must never throw, so the type is checked here.
+     if (typeof workflow.firstStep !== "string") {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" firstStep must be a string`);
+-      return;
++      return false;
+     }
+     if (!(workflow.firstStep in workflow.steps)) {
+       this.recordDiagnostic(
+         source,
+         `registerWorkflow: "${name}" firstStep "${workflow.firstStep}" is not a declared step`,
+       );
+-      return;
++      return false;
+     }
+     for (const [stepName, step] of Object.entries(workflow.steps)) {
+       const err = validateStep(name, stepName, step);
+       if (err) {
+         this.recordDiagnostic(source, err);
+-        return;
++        return false;
+       }
+     }
+     // `exits` is the register the CLI reads: the statuses a `task.resume`
+@@ -210,7 +287,7 @@ export class ExtensionRegistry {
+           source,
+           `registerWorkflow: "${name}" status_unknown: exits must be a subset of done|cancel|human`,
+         );
+-        return;
++        return false;
+       }
+     }
+     // `graphDigest` is carried into the admission and the pin verbatim, under
+@@ -220,7 +297,7 @@ export class ExtensionRegistry {
+     // array into bytes the reader would later refuse.
+     if (workflow.graphDigest !== undefined && typeof workflow.graphDigest !== "string") {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" graphDigest must be a string`);
+-      return;
++      return false;
+     }
+     // The engine calls `onTransit` on every transition only when it is
+     // truthy, while the shape digest folds it as `typeof === "function"`
+@@ -229,9 +306,9 @@ export class ExtensionRegistry {
+     // for both readers: it registers without a diagnostic.
+     if (workflow.onTransit && typeof workflow.onTransit !== "function") {
+       this.recordDiagnostic(source, `registerWorkflow: "${name}" onTransit must be a function`);
+-      return;
++      return false;
+     }
+-    // From here on the registration lands. `description` reaches the wire
++    // Once this method returns true, the registration lands. `description` reaches the wire
+     // only as a string — `renderWorkflowInfo` emits no other value — so any
+     // other value is diagnosed and ignored: the workflow registers, because
+     // a task may already be pinned to the name and refusing it would strand
+@@ -248,11 +325,12 @@ export class ExtensionRegistry {
+     for (const [stepName, step] of Object.entries(workflow.steps)) {
+       if (isStatusStep(step)) continue;
+       for (const hook of ["onSteer", "onFollowup", "onAbort"] as const) {
+-        // Reading the hook may run extension code — an accessor over run-time
+-        // state, a strict Proxy — and a registration must never throw (the
+-        // loader would record "factory threw" and lose the rest of the
+-        // factory). A hook that cannot be read here is left unread: the call
+-        // sites' typeof guard judges it when it is actually called.
++        // Reading the hook may run extension code — a Proxy's get trap or a
++        // lazy accessor can still be throwing — so the read sits inside a try
++        // and a throw skips the hook without a diagnostic (a strict Proxy step
++        // never gets this far: an earlier read in this pass already refused
++        // the registration). The call site reads the hook again and counts a
++        // throwing read as absent.
+         let value: unknown;
+         try {
+           value = step[hook];
+@@ -267,25 +345,16 @@ export class ExtensionRegistry {
+         }
+       }
+     }
+-    this.workflows.set(name, workflow);
+-    if (identity) {
+-      // Both digests come from this one site, because they are two projections of
+-      // the same definition and a second write site is how they would drift apart.
+-      const admission: WorkflowAdmission = {
+-        distribution: identity,
+-        graph: workflowGraphDigest(workflow),
+-      };
+-      if (workflow.graphDigest !== undefined) admission.document = workflow.graphDigest;
+-      if (owner !== undefined) admission.owner = owner;
+-      this.workflowIdentities.set(name, admission);
+-    }
++    return true;
+   }
+ 
+   /**
+    * Registers a named agent on behalf of `source` (plan §3.3, §4.1). An empty
+    * name, a missing `onRun`, or a duplicate name are each recorded as a
+    * diagnostic and skip the registration (never throw — the factory keeps
+-   * running). A `description` that is not a string, and an
++   * running); so does a read that throws anywhere before the agent is stored,
++   * recorded as `could not be read` with the pass's own diagnostics rolled
++   * back. A `description` that is not a string, and an
+    * `onSteer`/`onFollowup`/`onAbort` that is truthy but not a function, are
+    * each diagnosed and ignored instead — the agent registers, and only a
+    * registration that lands records them.
+@@ -293,21 +362,46 @@ export class ExtensionRegistry {
+    * (project beats global) keeps the name.
+    */
+   addAgent(source: string, registration: AgentRegistration): void {
+-    const name = registration?.name;
++    // Same rule as addWorkflow: the registration object and the agent are
++    // extension code, so every read sits behind a boundary.
++    let name: unknown;
++    try {
++      name = registration?.name;
++    } catch (error) {
++      this.recordDiagnostic(source, `registerAgent: registration.name could not be read: ${errMsg(error)}`);
++      return;
++    }
+     if (typeof name !== "string" || name.length === 0) {
+       this.recordDiagnostic(source, "registerAgent: registration.name must be a non-empty string");
+       return;
+     }
++    const mark = this.loadErrors.length;
++    try {
++      if (!this.validateAgent(source, name, registration)) return;
++    } catch (error) {
++      this.loadErrors.length = mark;
++      this.recordDiagnostic(source, `registerAgent: "${name}" could not be read: ${errMsg(error)}`);
++      return;
++    }
++    this.agents.set(name, registration);
++  }
++
++  /**
++   * The pre-store half of {@link addAgent}, with the same contract as
++   * {@link validateWorkflow}: `false` for a refusal whose diagnostic is
++   * already recorded, a throwing read escapes to the caller's boundary.
++   */
++  private validateAgent(source: string, name: string, registration: AgentRegistration): boolean {
+     const agent = registration.agent;
+     if (!agent || typeof agent.onRun !== "function") {
+       this.recordDiagnostic(source, `registerAgent: "${name}" agent must define an onRun function`);
+-      return;
++      return false;
+     }
+     if (this.agents.has(name)) {
+       this.recordDiagnostic(source, `duplicate agent name: ${name}`);
+-      return;
++      return false;
+     }
+-    // From here on the registration lands. `description` reaches
++    // Once this method returns true, the registration lands. `description` reaches
+     // `registry.agent.list` only as a string — `renderAgentInfo` emits no
+     // other value — so any other value is diagnosed and ignored, like a
+     // workflow's description. The optional hooks follow the same rule the
+@@ -321,7 +415,7 @@ export class ExtensionRegistry {
+     }
+     for (const hook of ["onSteer", "onFollowup", "onAbort"] as const) {
+       // Same guarded read as the workflow loop above: a throwing accessor is
+-      // skipped without a diagnostic — the call sites judge it.
++      // skipped without a diagnostic — the call site reads it again there.
+       let value: unknown;
+       try {
+         value = agent[hook];
+@@ -332,7 +426,7 @@ export class ExtensionRegistry {
+         this.recordDiagnostic(source, `registerAgent: "${name}" ${hook} must be a function; it is ignored`);
+       }
+     }
+-    this.agents.set(name, registration);
++    return true;
+   }
+ 
+   // -- resolution (engine-facing) ------------------------------------------
+@@ -464,3 +558,19 @@ export function renderWorkflowInfo(wf: WorkflowDefinition): WorkflowInfo {
+   if (typeof wf.description === "string") info.description = wf.description;
+   return info;
+ }
++
++/**
++ * The thrown value is extension code too: `Object.create(null)` has no
++ * toString, a Proxy's getPrototypeOf trap throws under `instanceof`, and an
++ * Error's `message` getter can throw. Formatting must never throw — a caller's
++ * catch would then throw in turn — so a value no message can be made of
++ * degrades to the fixed placeholder.
++ */
++function errMsg(e: unknown): string {
++  try {
++    const m = e instanceof Error ? e.message : String(e);
++    return typeof m === "string" ? m : "an unprintable value";
++  } catch {
++    return "an unprintable value";
++  }
++}
+diff --git a/daemon/core/test/engine.hookguards.test.ts b/daemon/core/test/engine.hookguards.test.ts
+index 074c763..a10ccf1 100644
+--- a/daemon/core/test/engine.hookguards.test.ts
++++ b/daemon/core/test/engine.hookguards.test.ts
+@@ -174,8 +174,20 @@ describe("engine — a mistyped agent hook counts as absent", () => {
+ 
+   test("abort() and end() still act when the mistyped onAbort's onRun ignores the signal", async () => {
+     // onRun never resolves — not even on abort: abort must seal the session
+-    // and park the task without waiting on the run or the hook.
+-    const never = { async onRun() { await new Promise(() => {}); }, onAbort: 7 };
++    // and park the task without waiting on the run or the hook. The gate opens
++    // inside onRun so the abort is proven to land on a STARTED session — the
++    // live-sessions count alone can pass while the session is still queued
++    // (R7j-4).
++    const started = gate();
++    const started2 = gate();
++    const never = {
++      async onRun() { started.open(); await new Promise(() => {}); },
++      onAbort: 7,
++    };
++    const never2 = {
++      async onRun() { started2.open(); await new Promise(() => {}); },
++      onAbort: 7,
++    };
+     const p = await makeProject({
+       workflows: [
+         {
+@@ -191,6 +203,7 @@ describe("engine — a mistyped agent hook counts as absent", () => {
+     await engine.addProject(p.project);
+     const task = await p.store.createTask({ title: "deaf abort" });
+     await engine.enroll(p.root, task.id, { workflow: "w-deaf" });
++    await started.wait;
+     await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
+     const sid = p.store.sessions.liveSessionsForTask(task.id)[0]!.id;
+     expect(await engine.sessionAbort(p.root, sid)).toEqual({ handled: true });
+@@ -200,11 +213,12 @@ describe("engine — a mistyped agent hook counts as absent", () => {
+ 
+     const q = await makeProject();
+     cleanups.push(q.cleanup);
+-    q.registry.addAgent("test", { name: "deaf", agent: never as unknown as AgentDefinition });
++    q.registry.addAgent("test", { name: "deaf", agent: never2 as unknown as AgentDefinition });
+     const { engine: e2, logger: l2 } = makeEngine();
+     engines.push(e2);
+     await e2.addProject(q.project);
+     const meta = await e2.createInteractiveSession(q.root, "deaf");
++    await started2.wait;
+     await waitFor(async () => (await q.store.sessions.getMeta(meta.id))?.status === "running");
+     expect(await e2.sessionEnd(q.root, meta.id)).toEqual({ handled: true });
+     await waitFor(async () => (await q.store.sessions.getMeta(meta.id))?.status === "done");
+@@ -244,6 +258,208 @@ describe("engine — a mistyped agent hook counts as absent", () => {
+     expect(logger.warns.some((w) => w.includes("onAbort threw (boom-abort)"))).toBe(true);
+   });
+ 
++  test("a hook whose read throws at steer/followup counts as absent: handled:false, one warning, no transcript", async () => {
++    // The read itself runs extension code — a lazy accessor that has not been
++    // initialised yet, or a strict Proxy — so it is guarded like the call. The
++    // answer is the same as an absent hook, plus one warning naming it.
++    const reads = { n: 0 };
++    const throwingHook = (hook: "onSteer" | "onFollowup") => ({
++      enumerable: true,
++      get() {
++        reads.n++;
++        throw new Error(`${hook} read before the driver exists`);
++      },
++    });
++    for (const hook of ["onSteer", "onFollowup"] as const) {
++      const kind = hook === "onSteer" ? "steer" : "followup";
++
++      // Inline agent step (task session).
++      {
++        const started = gate();
++        const agent = waitingAgent(started);
++        Object.defineProperty(agent, hook, throwingHook(hook));
++        const wf: WorkflowDefinition = {
++          name: `w-read-${hook}`,
++          firstStep: "do",
++          steps: { do: agent },
++        };
++        const p = await makeProject({ workflows: [wf] });
++        cleanups.push(p.cleanup);
++        const { engine, logger } = makeEngine();
++        engines.push(engine);
++        await engine.addProject(p.project);
++        const task = await p.store.createTask({ title: "read throw" });
++        await engine.enroll(p.root, task.id, { workflow: wf.name });
++        await started.wait;
++        await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
++        const sid = p.store.sessions.liveSessionsForTask(task.id)[0]!.id;
++        const before = reads.n;
++        const res = await engine.sessionInput(p.root, sid, { kind, message: "m" });
++        expect(res).toEqual({ handled: false });
++        // One read per call — a double read is a regression (mutant m11).
++        expect(reads.n).toBe(before + 1);
++        expect(logger.warns).toHaveLength(1);
++        expect(logger.warns[0]).toContain(`session ${sid}`);
++        expect(logger.warns[0]).toContain(`${kind} hook cannot be read`);
++        expect(logger.warns[0]).toContain(`${hook} read before the driver exists`);
++        await expectNoSteerEntry(p, sid);
++        await engine.sessionAbort(p.root, sid);
++      }
++
++      // Registered agent (interactive session).
++      {
++        const started = gate();
++        const agent = waitingAgent(started);
++        Object.defineProperty(agent, hook, throwingHook(hook));
++        const p = await makeProject();
++        cleanups.push(p.cleanup);
++        p.registry.addAgent("test", { name: "chat", agent });
++        const { engine, logger } = makeEngine();
++        engines.push(engine);
++        await engine.addProject(p.project);
++        const meta = await engine.createInteractiveSession(p.root, "chat");
++        await started.wait;
++        const before = reads.n;
++        const res = await engine.sessionInput(p.root, meta.id, { kind, message: "m" });
++        expect(res).toEqual({ handled: false });
++        expect(reads.n).toBe(before + 1);
++        expect(logger.warns).toHaveLength(1);
++        expect(logger.warns[0]).toContain(`${kind} hook cannot be read`);
++        await expectNoSteerEntry(p, meta.id);
++        await engine.sessionEnd(p.root, meta.id);
++      }
++    }
++  });
++
++  test("abort() and end() seal the session when the onAbort read throws and onRun is deaf", async () => {
++    // The abort invariant: the read of onAbort is extension code too — a
++    // throwing read must not keep the session running. The gate opens inside
++    // onRun so the session is proven started before the abort lands.
++    const reads = { n: 0 };
++    const onAbortProp = () => ({
++      enumerable: true,
++      get() {
++        reads.n++;
++        throw new Error("onAbort read throws");
++      },
++    });
++    const started = gate();
++    const deaf = {
++      async onRun() {
++        started.open();
++        await new Promise(() => {});
++      },
++    };
++    Object.defineProperty(deaf, "onAbort", onAbortProp());
++    const p = await makeProject({
++      workflows: [
++        {
++          name: "w-deaf-throw",
++          firstStep: "do",
++          steps: { do: deaf, park: { status: "human" } as never },
++        },
++      ],
++    });
++    cleanups.push(p.cleanup);
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const task = await p.store.createTask({ title: "deaf abort" });
++    await engine.enroll(p.root, task.id, { workflow: "w-deaf-throw" });
++    await started.wait;
++    await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
++    const sid = p.store.sessions.liveSessionsForTask(task.id)[0]!.id;
++    const before = reads.n;
++    expect(await engine.sessionAbort(p.root, sid)).toEqual({ handled: true });
++    expect(reads.n).toBe(before + 1);
++    await waitFor(async () => (await p.store.sessions.getMeta(sid))?.status === "aborted");
++    await waitFor(async () => (await p.store.taskView(task.id))?.status === "human");
++    expect(logger.warns).toHaveLength(1);
++    expect(logger.warns[0]).toContain(`session ${sid}`);
++    expect(logger.warns[0]).toContain("onAbort cannot be read");
++    expect(logger.warns[0]).toContain("onAbort read throws");
++
++    // Interactive session → end(): the same throwing read seals `done`.
++    const started2 = gate();
++    const deaf2 = {
++      async onRun() {
++        started2.open();
++        await new Promise(() => {});
++      },
++    };
++    Object.defineProperty(deaf2, "onAbort", onAbortProp());
++    const q = await makeProject();
++    cleanups.push(q.cleanup);
++    q.registry.addAgent("test", { name: "deaf", agent: deaf2 });
++    const { engine: e2, logger: l2 } = makeEngine();
++    engines.push(e2);
++    await e2.addProject(q.project);
++    const meta = await e2.createInteractiveSession(q.root, "deaf");
++    await started2.wait;
++    const before2 = reads.n;
++    expect(await e2.sessionEnd(q.root, meta.id)).toEqual({ handled: true });
++    expect(reads.n).toBe(before2 + 1);
++    await waitFor(async () => (await q.store.sessions.getMeta(meta.id))?.status === "done");
++    expect(l2.warns).toHaveLength(1);
++    expect(l2.warns[0]).toContain("onAbort cannot be read");
++
++    // And abort on an interactive session seals `aborted` the same way.
++    const started3 = gate();
++    const deaf3 = {
++      async onRun() {
++        started3.open();
++        await new Promise(() => {});
++      },
++    };
++    Object.defineProperty(deaf3, "onAbort", onAbortProp());
++    const r = await makeProject();
++    cleanups.push(r.cleanup);
++    r.registry.addAgent("test", { name: "deaf3", agent: deaf3 });
++    const { engine: e3 } = makeEngine();
++    engines.push(e3);
++    await e3.addProject(r.project);
++    const meta3 = await e3.createInteractiveSession(r.root, "deaf3");
++    await started3.wait;
++    expect(await e3.sessionAbort(r.root, meta3.id)).toEqual({ handled: true });
++    await waitFor(async () => (await r.store.sessions.getMeta(meta3.id))?.status === "aborted");
++  });
++
++  test("a call site reads a function-returning accessor exactly once", async () => {
++    // Rule 5's "one read": the guarded read is also the value that is called.
++    // A getter returning a function counts the call-site reads — a mutant that
++    // reads once for the guard and again for the call lands at two.
++    const abortReads = { n: 0 };
++    const ran = { n: 0 };
++    const started = gate();
++    const step = waitingAgent(started);
++    Object.defineProperty(step, "onAbort", {
++      enumerable: true,
++      get() {
++        abortReads.n++;
++        return async () => {
++          ran.n++;
++        };
++      },
++    });
++    const p = await makeProject({
++      workflows: [{ name: "w-once", firstStep: "do", steps: { do: step } }],
++    });
++    cleanups.push(p.cleanup);
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const task = await p.store.createTask({ title: "one read" });
++    await engine.enroll(p.root, task.id, { workflow: "w-once" });
++    await started.wait;
++    await waitFor(() => p.store.sessions.liveSessionsForTask(task.id).length === 1);
++    const sid = p.store.sessions.liveSessionsForTask(task.id)[0]!.id;
++    const before = abortReads.n;
++    expect(await engine.sessionAbort(p.root, sid)).toEqual({ handled: true });
++    expect(abortReads.n).toBe(before + 1);
++    expect(ran.n).toBe(1);
++    expect(logger.warns).toEqual([]);
++  });
++
+   test("a function hook still runs and an absent hook still answers handled:false", async () => {
+     // Function onSteer: the message is delivered, recorded, and handled.
+     const steered = gate();
+@@ -321,4 +537,215 @@ describe("engine — a mistyped agent hook counts as absent", () => {
+     await e2.sessionAbort(p2.root, p2.store.sessions.liveSessionsForTask(t2.id)[0]!.id);
+     await abortRan.wait;
+   });
++  test("a hook read or call that throws a value no message can be made of still answers and seals", async () => {
++    // Formatting the thrown value is itself fallible: a null-prototype object
++    // has no toString, a throwing getPrototypeOf trap breaks `instanceof`, and
++    // a throwing message getter breaks `.message`. Each lands as the fixed
++    // placeholder inside one warning, and the session still seals.
++    const unprintables: [label: string, boom: () => unknown][] = [
++      ["nullproto", () => Object.create(null)],
++      [
++        "proxyproto",
++        () =>
++          new Proxy(
++            {},
++            {
++              getPrototypeOf() {
++                throw new Error("proxy getPrototypeOf trap");
++              },
++            },
++          ),
++      ],
++      [
++        "errmsg",
++        () => {
++          const e = new Error("unreachable");
++          Object.defineProperty(e, "message", {
++            get() {
++              throw new Error("message getter throws");
++            },
++          });
++          return e;
++        },
++      ],
++    ];
++    for (const [vlabel, boom] of unprintables) {
++      // steer/followup: the READ throws the value.
++      for (const kind of ["steer", "followup"] as const) {
++        const started = gate();
++        const agent = waitingAgent(started);
++        Object.defineProperty(agent, kind === "steer" ? "onSteer" : "onFollowup", {
++          enumerable: true,
++          get() {
++            throw boom();
++          },
++        });
++        const p = await makeProject();
++        cleanups.push(p.cleanup);
++        p.registry.addAgent("test", { name: `u-read-${vlabel}-${kind}`, agent });
++        const { engine, logger } = makeEngine();
++        engines.push(engine);
++        await engine.addProject(p.project);
++        const meta = await engine.createInteractiveSession(p.root, `u-read-${vlabel}-${kind}`);
++        await started.wait;
++        const res = await engine.sessionInput(p.root, meta.id, { kind, message: "m" });
++        expect(res).toEqual({ handled: false });
++        const readWarns = logger.warns.filter((w) => w.includes(`${kind} hook cannot be read`));
++        expect(readWarns).toHaveLength(1);
++        expect(readWarns[0]).toContain("an unprintable value");
++        await expectNoSteerEntry(p, meta.id);
++        await engine.sessionEnd(p.root, meta.id);
++      }
++      // abort/end: deaf onRun + the onAbort READ throws the value -> seal.
++      for (const act of ["abort", "end"] as const) {
++        const started = gate();
++        const agent = {
++          async onRun() {
++            started.open();
++            await new Promise(() => {});
++          },
++        };
++        Object.defineProperty(agent, "onAbort", {
++          enumerable: true,
++          get() {
++            throw boom();
++          },
++        });
++        const p = await makeProject();
++        cleanups.push(p.cleanup);
++        p.registry.addAgent("test", { name: `u-rd-${vlabel}-${act}`, agent });
++        const { engine, logger } = makeEngine();
++        engines.push(engine);
++        await engine.addProject(p.project);
++        const meta = await engine.createInteractiveSession(p.root, `u-rd-${vlabel}-${act}`);
++        await started.wait;
++        const res =
++          act === "abort"
++            ? await engine.sessionAbort(p.root, meta.id)
++            : await engine.sessionEnd(p.root, meta.id);
++        expect(res).toEqual({ handled: true });
++        await waitFor(
++          async () =>
++            (await p.store.sessions.getMeta(meta.id))?.status ===
++            (act === "abort" ? "aborted" : "done"),
++        );
++        const readWarns = logger.warns.filter((w) => w.includes("onAbort cannot be read"));
++        expect(readWarns).toHaveLength(1);
++        expect(readWarns[0]).toContain("an unprintable value");
++      }
++      // abort/end: a FUNCTION onAbort that throws the value -> seal.
++      for (const act of ["abort", "end"] as const) {
++        const started = gate();
++        const agent = {
++          async onRun() {
++            started.open();
++            await new Promise(() => {});
++          },
++          async onAbort() {
++            throw boom();
++          },
++        };
++        const p = await makeProject();
++        cleanups.push(p.cleanup);
++        p.registry.addAgent("test", { name: `u-fn-${vlabel}-${act}`, agent });
++        const { engine, logger } = makeEngine();
++        engines.push(engine);
++        await engine.addProject(p.project);
++        const meta = await engine.createInteractiveSession(p.root, `u-fn-${vlabel}-${act}`);
++        await started.wait;
++        const res =
++          act === "abort"
++            ? await engine.sessionAbort(p.root, meta.id)
++            : await engine.sessionEnd(p.root, meta.id);
++        expect(res).toEqual({ handled: true });
++        await waitFor(
++          async () =>
++            (await p.store.sessions.getMeta(meta.id))?.status ===
++            (act === "abort" ? "aborted" : "done"),
++        );
++        const threwWarns = logger.warns.filter((w) => w.includes("onAbort threw"));
++        expect(threwWarns).toHaveLength(1);
++        expect(threwWarns[0]).toContain("an unprintable value");
++      }
++    }
++  });
++
++  test("steer, followup and end read a function-returning accessor exactly once, on its receiver", async () => {
++    // The guarded read is also the value that is called: a counting getter
++    // exposes a second read (x5/x6), and a function that uses `this` exposes a
++    // dropped receiver (x7).
++    const reads = { steer: 0, followup: 0, abort: 0 };
++    class Pinned {
++      readonly saw: string[] = [];
++      constructor(private readonly started: { open(): void }) {}
++      async onRun(ctx: { signal: AbortSignal }) {
++        this.started.open();
++        await new Promise<void>((r) =>
++          ctx.signal.addEventListener("abort", () => r(), { once: true }),
++        );
++      }
++      get onSteer() {
++        reads.steer++;
++        return async function (this: Pinned, _ctx: unknown, m: unknown) {
++          this.saw.push(`steer:${String(m)}`);
++        };
++      }
++      get onFollowup() {
++        reads.followup++;
++        return async function (this: Pinned, _ctx: unknown, m: unknown) {
++          this.saw.push(`followup:${String(m)}`);
++        };
++      }
++      get onAbort() {
++        reads.abort++;
++        return async function (this: Pinned) {
++          this.saw.push("abort");
++        };
++      }
++    }
++    const started = gate();
++    const agent = new Pinned(started);
++    const p = await makeProject();
++    cleanups.push(p.cleanup);
++    p.registry.addAgent("test", { name: "pinned", agent });
++    const { engine, logger } = makeEngine();
++    engines.push(engine);
++    await engine.addProject(p.project);
++    const meta = await engine.createInteractiveSession(p.root, "pinned");
++    await started.wait;
++
++    // The registration pass already read each hook once; only the call-site
++    // delta is asserted — one read per call.
++    let before = reads.steer;
++    expect(await engine.sessionInput(p.root, meta.id, { kind: "steer", message: "s1" })).toEqual({
++      handled: true,
++    });
++    expect(reads.steer).toBe(before + 1);
++    expect(agent.saw).toEqual(["steer:s1"]);
++
++    before = reads.followup;
++    expect(await engine.sessionInput(p.root, meta.id, { kind: "followup", message: "f1" })).toEqual({
++      handled: true,
++    });
++    expect(reads.followup).toBe(before + 1);
++    expect(agent.saw).toEqual(["steer:s1", "followup:f1"]);
++
++    before = reads.abort;
++    expect(await engine.sessionEnd(p.root, meta.id)).toEqual({ handled: true });
++    expect(reads.abort).toBe(before + 1);
++    expect(agent.saw).toEqual(["steer:s1", "followup:f1", "abort"]);
++    await waitFor(async () => (await p.store.sessions.getMeta(meta.id))?.status === "done");
++
++    // abort() invokes the hook through the same captured value on the same
++    // receiver — a second session on the agent exercises that call site.
++    const meta2 = await engine.createInteractiveSession(p.root, "pinned");
++    await waitFor(async () => (await p.store.sessions.getMeta(meta2.id))?.status === "running");
++    before = reads.abort;
++    expect(await engine.sessionAbort(p.root, meta2.id)).toEqual({ handled: true });
++    expect(reads.abort).toBe(before + 1);
++    expect(agent.saw).toEqual(["steer:s1", "followup:f1", "abort", "abort"]);
++    await waitFor(async () => (await p.store.sessions.getMeta(meta2.id))?.status === "aborted");
++    expect(logger.warns).toEqual([]);
++  });
++
+ });
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index e1f72c3..e7296c2 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -205,6 +205,46 @@ describe("extension loader — error isolation (daemon stays up)", () => {
+     expect(registry.diagnostics).toHaveLength(3);
+   });
+ 
++  test("an accessor that throws mid-registration is skipped; the factory and its later registrations survive", async () => {
++    // A throwing read must not reach the loader's "factory threw" catch: the
++    // unreadable registration is refused, a workflow whose shape digest cannot
++    // be computed registers without its admission, and everything after them
++    // still lands.
++    const ext = (p: string) => join(proj, ".autosk/extensions", p);
++    write(
++      ext("a-accessors.ts"),
++      [
++        "export default function (autosk) {",
++        // w-lazy: a step hook getter that throws before the run — the digest
++        // cannot be computed, so it registers without an admission.
++        '  autosk.registerWorkflow({ name: "w-lazy", firstStep: "do", steps: { do: { async onRun() {}, get onSteer() { throw new Error("onSteer read before the driver exists"); } }, done: { status: "done" } } });',
++        // w-transit: a workflow field getter that throws pre-store — skipped.
++        '  autosk.registerWorkflow({ name: "w-transit", firstStep: "do", get onTransit() { throw new Error("onTransit always throws"); }, steps: { do: { async onRun() {} }, done: { status: "done" } } });',
++        '  autosk.registerWorkflow({ name: "w-plain", firstStep: "do", steps: { do: { async onRun() {} }, done: { status: "done" } } });',
++        '  autosk.registerAgent({ name: "a-plain", agent: { async onRun() {} } });',
++        "}",
++        "",
++      ].join("\n"),
++    );
++
++    const registry = await loadProjectRegistry(proj, { home });
++
++    expect(registry.workflowNames()).toEqual(["w-lazy", "w-plain"]);
++    expect(registry.workflowAdmission("w-lazy")).toBeUndefined();
++    expect(registry.workflowAdmission("w-plain")).toBeDefined();
++    expect(registry.resolveAgent("a-plain")).toBeDefined();
++    expect(registry.diagnostics).toEqual([
++      {
++        source: ext("a-accessors.ts"),
++        error: 'registerWorkflow: "w-lazy" registered without an admission — the shape digest cannot be computed: onSteer read before the driver exists',
++      },
++      {
++        source: ext("a-accessors.ts"),
++        error: 'registerWorkflow: "w-transit" could not be read: onTransit always throws',
++      },
++    ]);
++  });
++
+   test("a malformed agent registration or a string agent step surfaces a diagnostic", async () => {
+     const ext = (p: string) => join(proj, ".autosk/extensions", p);
+     // (a) registerAgent with no valid agent definition (the registration's
+diff --git a/daemon/core/test/extensions.registry.test.ts b/daemon/core/test/extensions.registry.test.ts
+index 4f14270..b22ce3c 100644
+--- a/daemon/core/test/extensions.registry.test.ts
++++ b/daemon/core/test/extensions.registry.test.ts
+@@ -10,7 +10,7 @@
+ import { describe, expect, test } from "bun:test";
+ 
+ import { ExtensionRegistry, renderWorkflowInfo } from "../src/index.ts";
+-import { canonicalWorkflowGraph } from "../src/extensions/graph.ts";
++import { canonicalWorkflowGraph, workflowGraphDigest } from "../src/extensions/graph.ts";
+ import { statusStep, type AgentDefinition, type StepDef, type WorkflowDefinition } from "@autosk/sdk";
+ 
+ const agentStep = (): AgentDefinition => ({ async onRun() {} });
+@@ -501,8 +501,8 @@ describe("ExtensionRegistry registration", () => {
+ 
+   test("a hook whose read throws is skipped at registration — no diagnostic, the registration lands", () => {
+     // A lazy accessor that throws when read before its run: registration must
+-    // not throw — on the base it never read the hook — and must not diagnose
+-    // an extension whose hook works by the time the call site reaches it.
++    // not throw — a 0049 registration never read the hook — and must not
++    // diagnose an extension whose hook works by the time the call site reaches it.
+     const throwing = () => ({
+       async onRun() {},
+       get onSteer(): unknown {
+@@ -524,8 +524,9 @@ describe("ExtensionRegistry registration", () => {
+     expect(r.listAgents()).toEqual([{ name: "chat" }, { name: "zz-after" }]);
+ 
+     const w = new ExtensionRegistry();
+-    // Without an identity — the shape digest's own read of a step hook under
+-    // an identity is debt 7k and still throws.
++    // Without an identity there is no digest, so the guarded registration read
++    // is the only one that sees the throwing getter; the identity case — the
++    // digest read — is the test above ("registers without an admission").
+     w.addWorkflow("ext", {
+       ...wf("w"),
+       steps: { dev: throwing() as unknown as AgentDefinition, accept: statusStep("human") },
+@@ -675,6 +676,463 @@ describe("ExtensionRegistry registration", () => {
+     }
+   });
+ 
++  test("a step hook getter that throws under an identity leaves the workflow registered without an admission", () => {
++    // The shape digest runs after `workflows.set`, so a hook read that throws
++    // there must not take the registration down: the workflow stays, carries
++    // no admission, and the diagnostic says both halves.
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    for (const hook of ["onSteer", "onAbort"] as const) {
++      const r = new ExtensionRegistry();
++      const name = `lazy-hook-${hook}`;
++      const step = agentStep();
++      Object.defineProperty(step, hook, {
++        enumerable: true,
++        get() {
++          throw new Error(`${hook} read before the driver exists`);
++        },
++      });
++      r.addWorkflow(
++        "ext",
++        { ...wf(name), steps: { dev: step as unknown as AgentDefinition, accept: statusStep("human") } },
++        identity,
++      );
++      expect(r.workflowNames()).toEqual([name]);
++      expect(r.workflowAdmission(name)).toBeUndefined();
++      expect(r.diagnostics).toEqual([
++        {
++          source: "ext",
++          error: `registerWorkflow: "${name}" registered without an admission — the shape digest cannot be computed: ${hook} read before the driver exists`,
++        },
++      ]);
++      // The factory keeps running: a later registration still lands.
++      r.addWorkflow("ext", wf(`after-${name}`), identity);
++      expect(r.workflowNames()).toEqual([`after-${name}`, name]);
++      expect(r.workflowAdmission(`after-${name}`)).toBeDefined();
++    }
++  });
++
++  test("a workflow or agent whose reads throw before it is stored is skipped with a diagnostic", () => {
++    // Every field read ahead of `workflows.set` is extension code: a read that
++    // throws refuses the registration like any other refusal — nothing is
++    // stored, the diagnostic names the method and the error, and the factory
++    // keeps running.
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const boom = (what: string) => () => {
++      throw new Error(`${what} always throws`);
++    };
++    const cases: [label: string, make: (name: string) => WorkflowDefinition][] = [
++      [
++        "onRun getter on a step",
++        (name) => ({
++          ...wf(name),
++          steps: {
++            dev: { get onRun() { throw new Error("onRun always throws"); } },
++            accept: statusStep("human"),
++          },
++        }) as never,
++      ],
++      ["onTransit getter", (name) => ({ ...wf(name), get onTransit(): unknown { throw new Error("onTransit always throws"); } }) as never],
++      ["exits getter", (name) => ({ ...wf(name), get exits(): unknown { throw new Error("exits always throws"); } }) as never],
++      ["description getter", (name) => ({ ...wf(name), get description(): unknown { throw new Error("description always throws"); } }) as never],
++      ["graphDigest getter", (name) => ({ ...wf(name), get graphDigest(): unknown { throw new Error("graphDigest always throws"); } }) as never],
++      [
++        "status getter on a step",
++        (name) => ({
++          ...wf(name),
++          steps: {
++            dev: { get status() { throw new Error("status always throws"); } },
++            accept: statusStep("human"),
++          },
++        }) as never,
++      ],
++      [
++        "strict Proxy step",
++        (name) => ({
++          ...wf(name),
++          steps: {
++            dev: new Proxy({}, { get: boom("strict proxy") }),
++            accept: statusStep("human"),
++          },
++        }) as never,
++      ],
++    ];
++    for (const withIdentity of [true, false]) {
++      for (const [label, make] of cases) {
++        const r = new ExtensionRegistry();
++        const name = `throws-${withIdentity ? "id" : "noid"}-${label.replaceAll(" ", "-")}`;
++        r.addWorkflow(
++          "ext",
++          make(name),
++          withIdentity ? identity : undefined,
++        );
++        // The registration is skipped, nothing is stored, the diagnostic is
++        // exactly the unreadable-registration line.
++        expect(r.workflowNames()).toEqual([]);
++        expect(r.workflowAdmission(name)).toBeUndefined();
++        const match = r.diagnostics.map((d) => d.error);
++        expect(match).toHaveLength(1);
++        expect(match[0]).toMatch(/^registerWorkflow: "[^"]+" could not be read: /);
++        // The factory keeps running: a later registration still lands.
++        r.addWorkflow("ext", wf(`after-${name}`), withIdentity ? identity : undefined);
++        expect(r.workflowNames()).toEqual([`after-${name}`]);
++      }
++    }
++    // A name getter that throws leaves no name to quote: the diagnostic reads
++    // like the non-empty-name refusal beside it.
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", { ...wf("w"), get name() { throw new Error("name always throws"); } } as never);
++    expect(r.diagnostics.map((d) => d.error)).toEqual([
++      "registerWorkflow: workflow.name could not be read: name always throws",
++    ]);
++    expect(r.workflowNames()).toEqual([]);
++    r.addWorkflow("ext", wf("after-throw"));
++    expect(r.workflowNames()).toEqual(["after-throw"]);
++
++    // The same two reads on the agent side: a throwing onRun and a throwing
++    // name each refuse the registration, and a later agent still lands.
++    const a = new ExtensionRegistry();
++    a.addAgent("ext", {
++      name: "lazy-run",
++      agent: { get onRun() { throw new Error("onRun always throws"); } } as never,
++    });
++    expect(a.diagnostics.map((d) => d.error)).toEqual([
++      'registerAgent: "lazy-run" could not be read: onRun always throws',
++    ]);
++    expect(a.listAgents()).toEqual([]);
++    a.addAgent("ext", {
++      get name() { throw new Error("name always throws"); },
++      agent: agentStep(),
++    } as never);
++    expect(a.diagnostics.map((d) => d.error).at(-1)).toBe(
++      "registerAgent: registration.name could not be read: name always throws",
++    );
++    a.addAgent("ext", { name: "after-throw", agent: agentStep() });
++    expect(a.listAgents()).toEqual([{ name: "after-throw" }]);
++  });
++
++  test("a graphDigest accessor that starts throwing inside the admission registers the workflow without it", () => {
++    // The admission reads `graphDigest` three more times after `workflows.set`
++    // — once inside the shape digest and twice on the pinned assignment — so a
++    // getter that goes unreadable mid-registration must still land the
++    // unadmitted shape: stored, no admission, exactly the rule-3 diagnostic,
++    // and the factory keeps running.
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    for (const failAt of [5, 6]) {
++      let reads = 0;
++      const w = {
++        ...wf(`late-gd-${failAt}`),
++        get graphDigest() {
++          reads++;
++          if (reads >= failAt) throw new Error(`graphDigest went unreadable at read ${reads}`);
++          return "c".repeat(64);
++        },
++      } as never;
++      const r = new ExtensionRegistry();
++      r.addWorkflow("ext", w, identity);
++      expect(r.workflowNames()).toEqual([`late-gd-${failAt}`]);
++      expect(r.workflowAdmission(`late-gd-${failAt}`)).toBeUndefined();
++      expect(r.diagnostics).toEqual([
++        {
++          source: "ext",
++          error: `registerWorkflow: "late-gd-${failAt}" registered without an admission — the shape digest cannot be computed: graphDigest went unreadable at read ${failAt}`,
++        },
++      ]);
++      r.addWorkflow("ext", wf(`after-gd-${failAt}`), identity);
++      expect(r.workflowNames()).toEqual([`after-gd-${failAt}`, `late-gd-${failAt}`]);
++      expect(r.workflowAdmission(`after-gd-${failAt}`)).toBeDefined();
++    }
++  });
++
++  test("a read that throws a value no message can be made of records a placeholder, never throws", () => {
++    // Three values errMsg cannot format without throwing itself: a
++    // null-prototype object (no toString for String()), a Proxy whose
++    // getPrototypeOf trap throws under `instanceof`, and an Error whose
++    // message getter throws. Whatever they are thrown from, the registration
++    // returns, one diagnostic carries the fixed placeholder, and a later
++    // registration still lands.
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const unprintables: [label: string, boom: () => unknown][] = [
++      ["null-prototype-object", () => Object.create(null)],
++      [
++        "proxy-getPrototypeOf",
++        () =>
++          new Proxy(
++            {},
++            {
++              getPrototypeOf() {
++                throw new Error("proxy getPrototypeOf trap");
++              },
++            },
++          ),
++      ],
++      [
++        "error-throwing-message",
++        () => {
++          const e = new Error("unreachable");
++          Object.defineProperty(e, "message", {
++            get() {
++              throw new Error("message getter throws");
++            },
++          });
++          return e;
++        },
++      ],
++    ];
++    const positions: [label: string, make: (name: string, boom: () => unknown) => WorkflowDefinition][] = [
++      [
++        "name-getter",
++        (name, boom) =>
++          ({
++            ...wf(name),
++            get name() {
++              throw boom();
++            },
++          }) as never,
++      ],
++      [
++        "steps-getter",
++        (name, boom) =>
++          ({
++            ...wf(name),
++            get steps() {
++              throw boom();
++            },
++          }) as never,
++      ],
++      [
++        "onTransit-getter",
++        (name, boom) =>
++          ({
++            ...wf(name),
++            get onTransit() {
++              throw boom();
++            },
++          }) as never,
++      ],
++      [
++        "step-hook-getter",
++        (name, boom) =>
++          ({
++            ...wf(name),
++            steps: {
++              dev: {
++                async onRun() {},
++                get onSteer() {
++                  throw boom();
++                },
++              },
++              accept: statusStep("human"),
++            },
++          }) as never,
++      ],
++    ];
++    for (const [vlabel, boom] of unprintables) {
++      for (const [plabel, make] of positions) {
++        const r = new ExtensionRegistry();
++        const name = `u-${vlabel}-${plabel}`;
++        r.addWorkflow("ext", make(name, boom), identity);
++        const diags = r.diagnostics.map((d) => d.error);
++        expect(diags).toHaveLength(1);
++        expect(diags[0]).toContain("an unprintable value");
++        r.addWorkflow("ext", wf(`after-${name}`), identity);
++        expect(r.workflowNames()).toEqual(
++          plabel === "step-hook-getter" ? [`after-${name}`, name] : [`after-${name}`],
++        );
++      }
++    }
++    // The same three values through the agent boundary: a `name` getter and a
++    // `agent` getter each refuse with the placeholder and nothing stored.
++    for (const [vlabel, boom] of unprintables) {
++      const a = new ExtensionRegistry();
++      a.addAgent("ext", {
++        get name() {
++          throw boom();
++        },
++        agent: agentStep(),
++      } as never);
++      expect(a.diagnostics.map((d) => d.error)).toEqual([
++        "registerAgent: registration.name could not be read: an unprintable value",
++      ]);
++      expect(a.listAgents()).toEqual([]);
++      const b = new ExtensionRegistry();
++      b.addAgent("ext", {
++        name: `u-${vlabel}-agent`,
++        get agent() {
++          throw boom();
++        },
++      } as never);
++      expect(b.diagnostics.map((d) => d.error)).toEqual([
++        `registerAgent: "u-${vlabel}-agent" could not be read: an unprintable value`,
++      ]);
++      expect(b.listAgents()).toEqual([]);
++      b.addAgent("ext", { name: `after-${vlabel}`, agent: agentStep() });
++      expect(b.listAgents()).toEqual([{ name: `after-${vlabel}` }]);
++    }
++  });
++
++  test("a skipped registration rolls back the diagnostics its validation pass recorded", () => {
++    // `description: 42` records an ignore line mid-pass; a `steps` getter that
++    // then throws when the hook loop reads it escapes to the boundary — the
++    // refusal must be the only line that survives the rollback. The pass reads
++    // `steps` five times before the hook loop, so the sixth read throws there.
++    const steps = { dev: agentStep(), accept: statusStep("human") };
++    let stepReads = 0;
++    const w = { ...wf("rollback-w"), description: 42 };
++    Object.defineProperty(w, "steps", {
++      enumerable: true,
++      get() {
++        stepReads++;
++        if (stepReads >= 6) throw new Error("steps went unreadable mid-pass");
++        return steps;
++      },
++    });
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", w as never);
++    expect(r.diagnostics.map((d) => d.error)).toEqual([
++      'registerWorkflow: "rollback-w" could not be read: steps went unreadable mid-pass',
++    ]);
++    expect(r.workflowNames()).toEqual([]);
++    r.addWorkflow("ext", wf("after-rb"));
++    expect(r.workflowNames()).toEqual(["after-rb"]);
++
++    // addAgent's boundary does the same: a `description` getter that throws on
++    // its second read refuses with one line and no ignore line.
++    const a = new ExtensionRegistry();
++    let dReads = 0;
++    a.addAgent("ext", {
++      name: "rollback-a",
++      agent: agentStep(),
++      get description() {
++        dReads++;
++        if (dReads >= 2) throw new Error("description went unreadable mid-check");
++        return 42;
++      },
++    } as never);
++    expect(a.diagnostics.map((d) => d.error)).toEqual([
++      'registerAgent: "rollback-a" could not be read: description went unreadable mid-check',
++    ]);
++    expect(a.listAgents()).toEqual([]);
++    a.addAgent("ext", { name: "after-rb-a", agent: agentStep() });
++    expect(a.listAgents()).toEqual([{ name: "after-rb-a" }]);
++  });
++
++  test("computable shape digests are byte-identical to their pinned pre-0050 values", () => {
++    // The fix must not move a digest that was computable before: these values
++    // were recorded on the unmodified 0049 tree.
++    const plain = wf("feature-dev");
++    const accessor = {
++      ...wf("feature-dev"),
++      steps: {
++        dev: (() => {
++          const s = agentStep();
++          Object.defineProperty(s, "onSteer", { enumerable: true, get: () => async () => {} });
++          return s;
++        })(),
++        review: agentStep(),
++        accept: statusStep("human"),
++      },
++    };
++    const bare: WorkflowDefinition = { name: "bare", firstStep: "do", steps: { do: agentStep() } };
++    const full = {
++      ...wf("feature-dev"),
++      description: "d",
++      onTransit: async () => null,
++      exits: ["done"],
++      graphDigest: "f".repeat(64),
++    } as never;
++    expect(workflowGraphDigest(plain)).toBe("ae72410a351d2e12b22539f58739114c3297f1820ddd63e33dbf176af77ba490");
++    expect(workflowGraphDigest(accessor)).toBe("66e446d224c57e3da23fbf3a2579746dfa709a708897b6043b4a5150480df94e");
++    expect(workflowGraphDigest(bare)).toBe("9c726e35a4d43abdc14ac6963acf75110f1f3369946afe595d81fc9c54c72e35");
++    expect(workflowGraphDigest(full)).toBe("9159adcd83ecd73fb10c37f2aadc9066ffc290002bb02c6cd206ffda65253a68");
++  });
++
++  test("a throwing hook read skips only that hook — later mistyped hooks are still diagnosed", () => {
++    // One guarded read per hook: a throwing getter must not stop the loop, so
++    // the readable mistyped hooks keep their diagnostics (kills p3/p12).
++    const step = {
++      async onRun() {},
++      get onSteer(): unknown {
++        throw new Error("onSteer read before the driver exists");
++      },
++      onFollowup: 7,
++      onAbort: "x",
++    } as unknown as AgentDefinition;
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", { ...wf("mixed-step"), steps: { dev: step, accept: statusStep("human") } } as never);
++    expect(r.diagnostics.map((d) => d.error)).toEqual([
++      'registerWorkflow: "mixed-step" step "dev" onFollowup must be a function; it is ignored',
++      'registerWorkflow: "mixed-step" step "dev" onAbort must be a function; it is ignored',
++    ]);
++    expect(r.workflowNames()).toEqual(["mixed-step"]);
++
++    const a = new ExtensionRegistry();
++    a.addAgent("ext", {
++      name: "mixed-agent",
++      agent: {
++        async onRun() {},
++        get onSteer(): unknown {
++          throw new Error("onSteer read before the driver exists");
++        },
++        onFollowup: 7,
++        onAbort: "x",
++      } as never,
++    });
++    expect(a.diagnostics.map((d) => d.error)).toEqual([
++      'registerAgent: "mixed-agent" onFollowup must be a function; it is ignored',
++      'registerAgent: "mixed-agent" onAbort must be a function; it is ignored',
++    ]);
++    expect(a.listAgents()).toEqual([{ name: "mixed-agent" }]);
++  });
++
++  test("a hook is read exactly once at registration", () => {
++    // A counting getter proves one read per hook — a double read inside the
++    // try (mutant p6) records two.
++    const reads = { onSteer: 0, onFollowup: 0, onAbort: 0 };
++    const counted = (): AgentDefinition => {
++      const step: Record<string, unknown> = { async onRun() {} };
++      for (const hook of ["onSteer", "onFollowup", "onAbort"] as const) {
++        Object.defineProperty(step, hook, {
++          enumerable: true,
++          get() {
++            reads[hook]++;
++            return 7;
++          },
++        });
++      }
++      return step as unknown as AgentDefinition;
++    };
++    const r = new ExtensionRegistry();
++    r.addWorkflow("ext", { ...wf("counted"), steps: { dev: counted(), accept: statusStep("human") } } as never);
++    expect(reads).toEqual({ onSteer: 1, onFollowup: 1, onAbort: 1 });
++    const a = new ExtensionRegistry();
++    a.addAgent("ext", { name: "counted", agent: counted() });
++    expect(reads).toEqual({ onSteer: 2, onFollowup: 2, onAbort: 2 });
++  });
++
+   test("diagnostics getter returns a defensive copy", () => {
+     const r = new ExtensionRegistry();
+     r.recordDiagnostic("a", "boom");
+diff --git a/docs/extensions.md b/docs/extensions.md
+index d216090..c210646 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -753,9 +753,34 @@ recorded, and the rest of the registry stays usable:
+ - the factory throws;
+ - it registers a workflow or agent name that collides with an already-registered one;
+ - a workflow step is neither an inline agent (`onRun`) nor a `statusStep`;
++- a workflow or agent object whose required fields throw when read — the name,
++  `steps`, `firstStep`, `onRun`, and the rest of the shape — is skipped, and
++  nothing is stored. An optional hook (`onSteer`/`onFollowup`/`onAbort`) whose
++  read throws is skipped alone: the registration lands, and the hook counts as
++  absent when it is called.
++
++  The fields are read when the registration is made, so this isolation covers
++  what a registration reads. An extension object whose fields start throwing
++  after it was registered is outside it;
+ - a `settings.json` entry is listed but not installed / declares no extension, or
+   is neither `npm:`-prefixed nor a path (an invalid entry).
+ 
++Two reads are softer on purpose, because they can be about code that is only
++half-built at registration time:
++
++- a workflow whose shape digest cannot be computed — a hook or field accessor
++  that throws while the shape is read — still registers, but carries no
++  admission: its tasks enroll unpinned, and the diagnostic says so. When a
++  later load can compute the digest the workflow is admitted then, and an
++  unpinned task on it parks at resume (`extension_version_mismatch`) until it
++  is re-enrolled at its first step;
++- a hook that cannot be read at a call counts as absent: `session.input`
++  answers `unsupported_by_agent` for it, and `abort`/`end` skip `onAbort` and
++  always seal the session — an unreadable hook never keeps a session running.
++  Each of these logs one daemon warning naming the hook and the error; a
++  thrown value that cannot be turned into a message is described by a fixed
++  placeholder in its place.
++
+ Each failure becomes a load diagnostic tagged with the offending source (a path,
+ or an npm package name). Surface them with:
+ 
