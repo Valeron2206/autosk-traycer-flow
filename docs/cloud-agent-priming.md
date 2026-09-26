@@ -180,3 +180,16 @@ The owner's machine holds the orchestration ledger, the evidence directory of ev
 ## 8. Handoff log
 
 - 2026-09-26: local orchestration paused on the owner's instruction at the start of debt 7l; `main` is `dd29a03`, green. Next: debt 7l (§2.1).
+- 2026-09-26, cloud session. `main` is `c917b32`: the merge of this file (#245) on top of `dd29a03`; no code moved.
+  - Owner decisions for this session:
+    - Cross-family review (§3, step 5) is waived for the remaining debts: a debt merges once CI is green. Each debt still gets an independent review by a fresh reviewer of the same family, and the PR says so.
+    - The anchor-21 harnesses are not reachable from the cloud, so final panel #39 runs as a cloud round: four fresh Claude Code seats on `opus`, effort `medium`, one lens each, recorded with the routes they actually ran on. The attestation stays what the validator computes (`pending_final_panel`); no `pass` is written.
+    - No deadline.
+  - Where this file and the repository disagree (the repository wins):
+    - `scripts/prepare-autosk.mjs` resolves the output path with `path.resolve`; it does not compare real paths.
+    - The rosters pinned in `scripts/validate-governance-bundle.mjs`, `src/host/governance-bundle.mjs` and `scripts/validate-provider-preflight.mjs` are the rounds 1 to 3 owner roster (opus, astra `high`, grok, muse `max`), not `REQUIRED_PANEL`.
+    - Debt 8a needs the schema: the route and effort enums of `design-candidate.schema.json` refuse the anchor-21 seats before the validator's roster is consulted.
+    - On linux-x64 the `autoskd` sha256 of a tree depends on the `--outfile` name, so `3ae1a649…` does not reproduce here.
+  - This container runs as uid 0. Two tests fail here deterministically and pass on CI: `a read made unreachable by chmod refuses the measurement by name` (`npm test`) and `an I/O failure mid-move still throws` (daemon). With `AUTOSK_NO_AUTO_INSTALL=1` set as §5 requires, the five first-run bootstrap tests fail too; they pass with it unset (their installer is injected). The isolated `HOME` lives under `/tmp/ak.*`, because a unix socket path is limited to 108 bytes.
+  - Debt 7l: patch `0051` makes one formatter total, `errMsg` in `engine/types.ts`, used by the RPC mapping, the loader, the served-distribution recorder, the registry and the daemon's reload/shutdown/idle catches, and closes R7k-8, R7k-9 and R7k-10. `result_tree` `dbc2a8d2e4fc2bc5c1ce97ab24fa9487e03f3256`, 49 patches, lock `requirements=25` `counted_across=49` with the same `lock_digest`, `candidate_digest` `7dc17b70b22f7a8f11d1f1ced1b7ca3ab214b1a5944b463894c2a0a715140d13`.
+  - Found on the way, candidate debt 7m, to be measured first: a definition field that starts throwing after registration (a `steps` accessor) is read by the hazard pass. At first open (`applyLoadedRegistry`) the throw fails the project open; on an `ext add`/`remove` reload it now degrades to not-reloaded (0051), and an explicit `extension.reload` answers the error. This is not a formatting failure, so it is outside 7l.
