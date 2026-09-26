@@ -5,8 +5,8 @@
  *
  * Two things have to be impossible here, and they are the two the issue's own
  * negative checks name first: a candidate that changed between seats, and an
- * attestation that says PASS without four real verdicts on the exact routes and
- * efforts the owner specified. So this validator reads the design-pack bytes off
+ * attestation that says PASS without four real verdicts on the exact harnesses,
+ * routes and efforts the owner specified. So this validator reads the design-pack bytes off
  * disk and recomputes them, and it computes the attestation state rather than
  * accepting the one written down.
  */
@@ -42,15 +42,24 @@ export const MEMBERSHIP_EXCEPTIONS = new Map();
 export const REQUIRED_MEMBERS = Object.freeze(["src/host/workflow-graph-canonical.mjs"]);
 
 /**
- * The panel the owner specified, exactly. A route or an effort that differs is
- * not a smaller panel — it is a different one, and a PASS from it is a PASS
- * about a question nobody asked.
+ * The panel the owner specified, exactly: the seats of the guide in force since
+ * 2026-09-25 (anchor 21). A route, an effort or a harness that differs is not a
+ * smaller panel — it is a different one, and a PASS from it is a PASS about a
+ * question nobody asked.
+ *
+ * The harness is part of the seat. Two seats sit on the same `pi` harness, and
+ * the lead's route is the bare alias its harness takes, so seat, route and
+ * effort alone would not say where a verdict came from. Devin's effort is part
+ * of its model id; `in_model_id` records that, and claims no effort knob.
+ * The lead's route is the owner's spelling, the alias `opus`, which the `claude`
+ * harness resolves (Opus 5.5 when the guide was pinned); a round records the
+ * model it observed next to it.
  */
 export const REQUIRED_PANEL = Object.freeze([
-  { seat: "astra", route: "openai-codex/gpt-6-astra", effort: "low" },
-  { seat: "grok", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
-  { seat: "muse", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
-  { seat: "deepseek", route: "deepseek/deepseek-flash", effort: "max" },
+  { seat: "opus", harness: "claude", route: "opus", effort: "max" },
+  { seat: "devin", harness: "devin", route: "swe-2-max", effort: "in_model_id" },
+  { seat: "muse", harness: "pi", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
+  { seat: "deepseek", harness: "pi", route: "deepseek/deepseek-flash", effort: "max" },
 ]);
 
 export const PANEL_DIR = "resources/design-candidate/panel";
@@ -81,10 +90,10 @@ const OWNER_PANEL = Object.freeze([
  * a later amendment breaks the record of a round that already ran.
  */
 const GUIDE_PANEL = Object.freeze([
-  { seat: "astra", route: "openai-codex/gpt-6-astra", effort: "low" },
-  { seat: "grok", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
-  { seat: "muse", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
-  { seat: "deepseek", route: "deepseek/deepseek-flash", effort: "max" },
+  { seat: "astra", harness: "codex", route: "openai-codex/gpt-6-astra", effort: "low" },
+  { seat: "grok", harness: "cursor", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
+  { seat: "muse", harness: "pi", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
+  { seat: "deepseek", harness: "pi", route: "deepseek/deepseek-flash", effort: "max" },
 ]);
 
 export const PANEL_BY_ROUND = Object.freeze({
@@ -133,6 +142,11 @@ export function validatePanelRound(round, required = PANEL_BY_ROUND[round.round]
       errors.push(
         `round ${round.round} ${wanted.seat}: ${seat.route}/${seat.effort} is not ${wanted.route}/${wanted.effort}`,
       );
+    }
+    // A roster pinned before harnesses were recorded (rounds 1 to 3) names none,
+    // and its records are checked as they were written; round 4 recorded them.
+    if (wanted.harness !== undefined && seat.harness !== wanted.harness) {
+      errors.push(`round ${round.round} ${wanted.seat}: harness ${seat.harness} is not ${wanted.harness}`);
     }
     // A record with no session is a claim that a seat sat. The verdict is what
     // the record exists to preserve, so it is checked before anything is derived
@@ -295,8 +309,8 @@ export function candidateDigest(candidate) {
 /**
  * The attestation state, computed.
  *
- * `pass` requires one verdict per required seat, each on the exact route and
- * effort, each `pass`, and each bound to THIS candidate digest. A refusal
+ * `pass` requires one verdict per required seat, each on the exact harness,
+ * route and effort, each `pass`, and each bound to THIS candidate digest. A refusal
  * outranks an incomplete panel: one counted `fail` is `blocked` wherever the
  * seat sits in the order, so a seat that could not review cannot hide the
  * seats that refused. Anything else is `pending_final_panel` — including three
@@ -310,6 +324,7 @@ export function computeAttestationState(candidate) {
       REQUIRED_PANEL.some(
         (required) =>
           entry.seat === required.seat &&
+          entry.harness === required.harness &&
           entry.route === required.route &&
           entry.effort === required.effort,
       ) && entry.candidate_digest === digest,
@@ -426,6 +441,8 @@ export function validateCandidate(candidate, schema, { readFile } = {}) {
       errors.push(
         `required_panel ${required.seat}: ${seat.route}/${seat.effort} is not ${required.route}/${required.effort}`,
       );
+    } else if (seat.harness !== required.harness) {
+      errors.push(`required_panel ${required.seat}: harness ${seat.harness} is not ${required.harness}`);
     }
   }
 
