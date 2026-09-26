@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { requireDaemonCapabilities, REQUIRED_DAEMON_CAPABILITIES } from '../src/host/daemon-preflight.mjs';
+import {
+  PINNED_DAEMON_CAPABILITIES, readCapabilityReport, requireDaemonCapabilities, REQUIRED_DAEMON_CAPABILITIES,
+  UNPINNED_DAEMON_PRIMITIVES,
+} from '../src/host/daemon-preflight.mjs';
 import { loadAutoskManifest } from '../scripts/prepare-autosk.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -10,6 +13,9 @@ import { join } from 'node:path';
 const report = (overrides = {}) => ({
   capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'], ...overrides }],
 });
+// No daemon is admitted while two primitives are unpinned, so a report that reads
+// cleanly is checked with `readCapabilityReport`, which admits nothing.
+const read = (input) => readCapabilityReport(input);
 const refuses = (input, code, message) => {
   assert.throws(() => requireDaemonCapabilities(input), (error) => {
     assert.equal(error.name, 'FlowError');
@@ -22,18 +28,80 @@ const refuses = (input, code, message) => {
   });
 };
 
-test('a daemon with the required capability is admitted and the report is pinned', () => {
-  const admitted = requireDaemonCapabilities(report());
-  assert.deepEqual(admitted, { schema_version: 1,
+test('a readable report is returned pinned, and reading it admits nothing', () => {
+  const pinned = read(report());
+  assert.deepEqual(pinned, { schema_version: 1,
     capabilities: [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] }] });
-  assert.ok(Object.isFrozen(admitted));
-  assert.ok(Object.isFrozen(admitted.capabilities[0]));
+  assert.ok(Object.isFrozen(pinned));
+  assert.ok(Object.isFrozen(pinned.capabilities[0]));
+  refuses(report(), 'daemon_capability_missing');
 });
 
-test('the required set is exactly what #11 delivers, at the revision this flow was written for', () => {
-  assert.deepEqual([...REQUIRED_DAEMON_CAPABILITIES],
+test('the pinned set is exactly what #11 delivers, at the revision this flow was written for', () => {
+  assert.deepEqual([...PINNED_DAEMON_CAPABILITIES],
     [{ name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] }]);
+  assert.ok(Object.isFrozen(PINNED_DAEMON_CAPABILITIES));
+});
+
+test('the required set names all three primitives, and two of them are not pinned yet', () => {
+  // 02-architecture.md §3: no model workflow runs unless ADR-014, ADR-023 and
+  // ADR-025 are all present in the loaded build. Only ADR-014 has a daemon
+  // surface; the other two are named so the preflight refuses rather than
+  // passing a daemon that has neither.
+  assert.deepEqual([...UNPINNED_DAEMON_PRIMITIVES],
+    [{ name: 'authority.user-decision', adr: 'ADR-023' }, { name: 'workflow.custody', adr: 'ADR-025' }]);
+  assert.ok(Object.isFrozen(UNPINNED_DAEMON_PRIMITIVES));
+  assert.deepEqual(REQUIRED_DAEMON_CAPABILITIES.map((want) => want.name),
+    ['task.creation-binding', 'authority.user-decision', 'workflow.custody']);
   assert.ok(Object.isFrozen(REQUIRED_DAEMON_CAPABILITIES));
+});
+
+test('the preflight refuses the daemon the pinned series builds', () => {
+  // The series supplies ADR-014 and neither ADR-023 nor ADR-025, so a daemon that
+  // reports everything it has is still missing two primitives this flow requires.
+  assert.throws(() => requireDaemonCapabilities(report()), (error) => {
+    assert.equal(error.name, 'FlowError');
+    assert.equal(error.code, 'daemon_capability_missing');
+    assert.deepEqual(error.details.missing, ['authority.user-decision', 'workflow.custody']);
+    return true;
+  });
+});
+
+test('the requirement cannot be narrowed by the caller', () => {
+  // A second argument used to replace the required set, so passing the pinned set,
+  // or nothing at all, admitted the daemon the series builds. There is no such
+  // argument now, and passing one changes nothing.
+  for (const narrowed of [PINNED_DAEMON_CAPABILITIES, []]) {
+    assert.throws(() => requireDaemonCapabilities(report(), narrowed), (error) => {
+      assert.equal(error.code, 'daemon_capability_missing');
+      assert.deepEqual(error.details.missing, ['authority.user-decision', 'workflow.custody']);
+      return true;
+    });
+  }
+  assert.equal(requireDaemonCapabilities.length, 1);
+});
+
+test('a pinned capability at the wrong revision is named before the unpinned ones are', () => {
+  // The unpinned primitives are missing from every daemon today. Checking them
+  // first would report only that, and hide a revision or method mismatch on the
+  // one capability that can be checked.
+  refuses(report({ version: 1 }), 'daemon_capability_version_mismatch');
+  refuses(report({ methods: ['task.create_unbound'] }), 'daemon_capability_method_mismatch');
+});
+
+test('an unpinned primitive cannot be satisfied by any report', () => {
+  // Nothing says which revision or which methods would implement it, so a daemon
+  // that reports the name has made a claim this flow has no way to check.
+  const claiming = { capabilities: [
+    { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+    { name: 'authority.user-decision', version: 1, methods: ['decision.append'] },
+    { name: 'workflow.custody', version: 1, methods: ['task.metadata_cas'] },
+  ] };
+  assert.throws(() => requireDaemonCapabilities(claiming), (error) => {
+    assert.equal(error.code, 'daemon_capability_missing');
+    assert.deepEqual(error.details.missing, ['authority.user-decision', 'workflow.custody']);
+    return true;
+  });
 });
 
 test('a required capability implemented by a different method is refused', () => {
@@ -64,7 +132,7 @@ test('every bound is tested at the bound, not near it', () => {
   // boundary: `<= 128` could have been `< 128`, `>= 1` could have been `> 1`,
   // and `> 0` could have been `>= 0`, with the whole suite still green. A bound
   // nobody tests at the bound is a number in a comment.
-  const ok = (value) => assert.doesNotThrow(() => requireDaemonCapabilities(value));
+  const ok = (value) => assert.doesNotThrow(() => read(value));
 
   // A name of exactly 128 characters is admitted; 129 is not.
   const longName = `task.${'a'.repeat(123)}`;
@@ -203,7 +271,7 @@ function shippedFile(relativePath) {
   }
 }
 
-test('what this flow requires is what the shipped daemon source declares', () => {
+test('the pinned set is what the shipped daemon declares, and no unpinned primitive is declared', () => {
   // The required set and the daemon's declaration live in two repositories. This
   // compares against the source the pinned series actually produces, so a rename,
   // a revision bump, a reformat or an outright deletion in ANY patch fails here
@@ -217,7 +285,7 @@ test('what this flow requires is what the shipped daemon source declares', () =>
     version: Number(version),
     methods: methods.split(',').map((m) => m.trim().replace(/^"|"$/gu, '')).filter((m) => m.length > 0),
   }));
-  for (const want of REQUIRED_DAEMON_CAPABILITIES) {
+  for (const want of PINNED_DAEMON_CAPABILITIES) {
     const have = declared.filter((entry) => entry.name === want.name);
     assert.equal(have.length, 1, `expected exactly one declaration of ${want.name} in the shipped source`);
     assert.deepEqual(have[0], { name: want.name, version: want.version, methods: [...want.methods] },
@@ -228,4 +296,10 @@ test('what this flow requires is what the shipped daemon source declares', () =>
   // which `requireDaemonCapabilities` refuses at runtime too.
   const claimed = declared.flatMap((entry) => entry.methods);
   assert.equal(new Set(claimed).size, claimed.length, 'two declared capabilities share a method');
+  // An unpinned primitive the shipped daemon starts declaring has to be pinned
+  // here, at the revision and methods it declares; until then it stays refused.
+  for (const primitive of UNPINNED_DAEMON_PRIMITIVES) {
+    assert.equal(declared.some((entry) => entry.name === primitive.name), false,
+      `${primitive.name} (${primitive.adr}) is declared by the shipped daemon and must be pinned`);
+  }
 });

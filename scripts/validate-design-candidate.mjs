@@ -96,11 +96,26 @@ const GUIDE_PANEL = Object.freeze([
   { seat: "deepseek", harness: "pi", route: "deepseek/deepseek-flash", effort: "max" },
 ]);
 
+/**
+ * Round 5 ran in the cloud session by the owner's decision of 2026-09-26: four
+ * fresh Claude Code processes on the `opus` alias at effort `medium`, one lens
+ * each. It is not the anchor-21 panel, and nothing here makes it count as one:
+ * its seats are named by lens, no tuple equals a `REQUIRED_PANEL` tuple, and its
+ * verdicts are a record, never attestation verdicts.
+ */
+export const CLOUD_PANEL = Object.freeze([
+  { seat: "lead-lens", harness: "claude-code-cli", route: "opus", effort: "medium" },
+  { seat: "feasibility-lens", harness: "claude-code-cli", route: "opus", effort: "medium" },
+  { seat: "intent-lens", harness: "claude-code-cli", route: "opus", effort: "medium" },
+  { seat: "architecture-lens", harness: "claude-code-cli", route: "opus", effort: "medium" },
+]);
+
 export const PANEL_BY_ROUND = Object.freeze({
   1: OWNER_PANEL,
   2: OWNER_PANEL,
   3: OWNER_PANEL,
   4: GUIDE_PANEL,
+  5: CLOUD_PANEL,
 });
 
 /**

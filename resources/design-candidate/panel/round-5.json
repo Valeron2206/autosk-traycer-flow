@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "round": 5,
+  "attempt": 1,
+  "candidate_digest": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
+  "frozen_commit": "0dc7856cb367f2c271c39c389d8b7ce37a0190a3",
+  "frozen_tree": "d79cf3c7a7a21cecc32c31377df6ffe2ef0bf155",
+  "package_sha256": "bdc364707c678e84eced366a574ccce5ec4e4b2c84b7d1398496ea1017a9ae05",
+  "package_inputs": {
+    "clean-room.json": "2aea848a6f2c99775a101a9246c79b80a28fbcd78e13079af62bb62dd36dcc6f",
+    "migration-seam.json": "2cb1e646ec50fc6d8abaa5b4d6dfe8349fbed1bf9c8d5875ea494b1510fd437f",
+    "mutation.json": "a3d0894afe052f9485c61ec4c597b06eaf212f320eb7d6791d980031b9715438",
+    "produced.json": "f93daebc8de47febf73857c351f8e3e7992587648b9494512479f2a4639700f0"
+  },
+  "runner": "Claude Code cloud session: four fresh `claude -p --model opus --effort medium` processes, one per seat, started together, read-only tools on a worktree of the frozen commit; by the owner's decision of 2026-09-26 this is not the anchor-21 panel, and its verdicts are not attestation verdicts",
+  "seats": [
+    {
+      "seat": "lead-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "4ed368dc-6ff3-44a2-b1ff-f6057332545c",
+      "lens_prompt_sha256": "d79c7fde46b7555336837a4d8e44febd1c147378b89675e384468ceb561b3fac",
+      "verdict": "fail",
+      "seat_echoed": "lead-lens",
+      "candidate_digest_echoed": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "resources/workflow-graph/workflow-graph.v1.json (t_352–t_369; cond_258, cond_262, cond_265, cond_274) vs 01-core-flows.md §7 and docs/contracts/epic-staging.md §1–§6",
+          "what": "The workflow graph is a candidate member, and its digest is pinned into task identity, but its Epic integration path is still the old order that round 1 flagged: ticket_join → accept → integrate (a self-loop over transitions until 'все Tickets integrated') → aggregate_verify → cleanup ('все epic-критерии PASS — cleanup'). It has no staging step, no acceptance of the verified staging identity, no single target CAS after aggregate PASS and no post-CAS read-back. So either the target moves before aggregate verification, which breaks the invariant §7 calls the reason staging exists, or the Epic reaches cleanup/done without the target ever moving. The fix was made in the prose only, not in the state machine the daemon runs. This blocks."
+        },
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §7 steps 6 and 10; workflow-graph.v1.json; refusal-vocabulary.v1.json",
+          "what": "The graph has no delivery-profile branch: no step where the host opens a PR or queues the merge instead of moving the branch, and no step that waits for the profile's completion predicate. `completion_predicate_unmet` is neither a park reason in the graph nor an entry in the refusal vocabulary, and none of epic-staging's 11 closed classes (for example staging_moved_after_pass, post_cas_mismatch, acceptance_stale) appears in the graph or the vocabulary. The terminal state that §7 step 10 adds so that a PR or merge-queue Epic can finish exists only in prose, and those refusals have no step to park at."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §7 preamble and step 7; workflow-graph.v1.json cond_262; epic-staging.md §6",
+          "what": "§7 contradicts itself on how the target moves. The preamble and cond_262 describe an authorization over 'ordered ref transitions' with a completed prefix and the remaining transitions after a partial CAS. Step 7 and epic-staging require exactly one target CAS whose expected old value equals the recorded base, and with a single CAS there is no partial prefix to keep."
+        },
+        {
+          "severity": "medium",
+          "where": "src/host/cross-family-review.mjs:19-56 vs 01-core-flows.md §3 and §6",
+          "what": "In the code, REVIEWER_ORDER is ['gpt','kimi','grok'] and never offers Opus, while the §6 table routes Codex, Grok, Kimi and Human authorship to Opus. Families also arrive as caller-supplied strings: the code maps anthropic→'claude' where the partition calls the family 'opus', and it never consults family-partition.v1.json. The claim that 'the family is derived from the model, not the harness' is therefore enforced only for REQUIRED_PANEL. An author label such as 'cursor' or 'meta' excludes no reviewer."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §3 (Lead by author/fixer set; Supplementary seat)",
+          "what": "Nothing evaluates the rule that Lead must come from a family outside every author and fixer, and nothing evaluates the rule that a Supplementary seat's Critical or High cannot block on its own. A search of src/ and scripts/ finds no Lead selection and no 'supplementary'; panel.mjs and the finding gate treat all four seats the same. Both are load-bearing rules that exist only as description."
+        },
+        {
+          "severity": "low",
+          "where": "resources/panel-roster/family-partition.v1.json; 01-core-flows.md §3 tables",
+          "what": "The partition files Meta's muse-spark-1.3(-contributor) under the 'kimi' family. Separately, the §3 seat table still gives GPT-5.6 Sol, Kimi K3 and Opus 5 routes without the 'historical' marker that 02 §9 attaches to the same routes, and 02 §9 says the partition refuses three of those four routes."
+        }
+      ],
+      "read": "The whole package. From the frozen tree: resources/design-candidate/design-candidate.v1.json (required_panel, attestation, candidate_digest field); the Epic and Quick integration transitions and the conditions cond_257–cond_274 and cond_363–cond_364 in resources/workflow-graph/workflow-graph.v1.json; searches of the graph and the refusal vocabulary for the staging, delivery-profile and protocol-lock park reasons; the text of docs/contracts/epic-staging.md; resources/panel-roster/family-partition.v1.json; REQUIRED_PANEL and the partition checks in scripts/validate-provider-preflight.mjs; src/host/cross-family-review.mjs lines 1–95; the header of src/host/panel.mjs; the field list in gate-projection.mjs; findings from panel rounds 1–4, to check what was already raised.",
+      "not_read": "I did not recompute the candidate digest or any file sha256 (shell execution was not approved in this session), and I did not run npm test, the mutation report, produce:refusals, the clean-room run or the migration-seam measurer. The section 5 evidence is therefore judged only on its internal consistency, not reproduced. Not read: 03-technical-plan.md, 04-decisions.md, the 41 contracts other than epic-staging, all schemas and examples except those named above, the compat patch series, and the host modules other than those named above."
+    },
+    {
+      "seat": "feasibility-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "137df9e9-e689-435e-bf33-3b3094e5d905",
+      "lens_prompt_sha256": "79a9721ae26b60897c9c6ddf39799832a949208abe324eaa8d5db99c120b2fd9",
+      "verdict": "fail",
+      "seat_echoed": "feasibility-lens",
+      "candidate_digest_echoed": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
+      "findings": [
+        {
+          "severity": "critical",
+          "where": "package §1 'What is being delivered'; 02-architecture.md §2 (autoskd) and §3; 04-decisions.md ADR-023/ADR-025",
+          "what": "The package says the pinned series 'supplies' ADR-023 and ADR-025, but no patch in compat/autosk/patches implements a signed UserDecisionRecord, user-presence nonce, consumed_nonce/authority/dependency/intent/integration_authorization/result heads, appendIntentEvent, authorityGuard, integrateApproved, orchestrateChildBatch, step-capability metadata CAS or gate-result receipts (a grep of all 49 patches for these names finds nothing), so the user-authority chain and workflow custody that the design rests on do not exist in the daemon it declares it runs on."
+        },
+        {
+          "severity": "high",
+          "where": "02-architecture.md §3–§4 ('MVP preflight forbids any model workflow if any primitive is absent'); src/host/daemon-preflight.mjs:22",
+          "what": "REQUIRED_DAEMON_CAPABILITIES lists only 'task.creation-binding' (ADR-014), and patch 0013's meta.capabilities reports only that capability, so the preflight cannot refuse a daemon that lacks the ADR-023/025 primitives, and 'mutable fallback forbidden' is not enforced by the mechanism the text names."
+        },
+        {
+          "severity": "high",
+          "where": "02-architecture.md §2 Git and §3 patch mapping ('custody helper and its protocol (0016–0022, 0024)'); src/git/ref-custody-helper.ts",
+          "what": "Patches 0016–0022/0024 implement the store-lock helper (cmd/autosk-store-lock, daemon/core/src/store/creation.ts), not the Git ref-custody helper, and no patch touches refs/autosk; src/git/ref-custody-helper.ts does not exist, so the sole-writer ref custody, separate-account boundary, peer-credential check and denied-probe bootstrap are only described, with no code in the repo or the series."
+        },
+        {
+          "severity": "medium",
+          "where": "package §5 'What is not claimed'",
+          "what": "The deferral list does not say that the ADR-023/025 daemon primitives and the Git ref-custody helper are absent, while it does name much smaller gaps (the Sonar pilot, the missing class-to-mutant mapping), so a reader of §5 would take the missing core primitives to be delivered."
+        },
+        {
+          "severity": "medium",
+          "where": "package §5 fault matrix F017–F020; 02-architecture.md §2 planning publication adapter",
+          "what": "The planning-publication fault groups run in the extension's fault harness against Git directly; because no helper or daemon custody path exists, they cannot show that the helper-mediated CAS or the separate-account boundary behaves as the design says."
+        }
+      ],
+      "read": "The whole package, including 01-core-flows.md and 02-architecture.md in full. In the frozen repository: the patch file list (49 patches, 0001–0051 minus 0035/0036); greps across all patches for the ADR-023/025 primitive names, refs/autosk and signer/nonce terms; the +++ file headers of patches 0016, 0020 and 0023; the capability declarations in patch 0013; ADR-014, ADR-023 and ADR-025 in 04-decisions.md; REQUIRED_DAEMON_CAPABILITIES in src/host/daemon-preflight.mjs; a search for ref-custody implementation outside the markdown docs.",
+      "not_read": "The individual contracts under docs/contracts, 03-technical-plan.md, the JSON schemas and examples, and most patch bodies beyond their headers. I did not rebuild the upstream tree, re-run npm test, the mutation report or the clean-room run, and did not recompute the candidate digest. I did not check platform-support details for macOS."
+    },
+    {
+      "seat": "intent-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "44e6f5f8-03f7-44ed-be04-fb2a4b45e5c0",
+      "lens_prompt_sha256": "b86f01521c7497c54231b46aa4838db89ce47e14f6098d6ab23a4b4962d67257",
+      "verdict": "fail",
+      "seat_echoed": "intent-lens",
+      "candidate_digest_echoed": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "docs/contracts/autobuild-run.md, reflect-cost-watch.md, housekeeping.md, debate.md, walkthrough.md (Status lines, debate.md:95) vs resources/program-capabilities/matrix.v1.json and docs/program-capability-matrix.md",
+          "what": "The matrix classifies #28, #29, #30, #31 and #33 as planned_after_v1 and says they do not block release, but each of those five contracts says its runtime 'remain[s] `required_for_v1`'. The candidate therefore gives two opposite answers to the one question the owner asked the classification to settle: what blocks the autonomous MVP."
+        },
+        {
+          "severity": "high",
+          "where": "docs/contracts/static-analysis.md:5, 04-decisions.md ADR-067, docs/program-capability-matrix.md 'Эволюция матрицы'",
+          "what": "Issue #47 (SonarQube) is outside the pinned #3–#39 inventory, yet its contract calls its adapter, pilot and webhook receiver `required_for_v1` and adds two classes to the #14 registry. The matrix rule forbids an issue outside the inventory from becoming a v1 or release blocker without a successor matrix version, and matrix.v1 is still the only version, so this is exactly the silent promotion the owner's rule was written to stop."
+        },
+        {
+          "severity": "medium",
+          "where": "resources/panel-roster/family-partition.v1.json:12",
+          "what": "The 'kimi' family lists Meta's muse-spark-1.3 and muse-spark-1.3-contributor models, so the required Intent route (meta/muse-spark-1.3-contributor) counts as the Kimi family. The same file says family is a property of the model and not a label, and relabeling a different vendor's model to fill the fourth family weakens the four-distinct-families guarantee the owner asked the panel to have. This is not the product-roster difference dispositioned as debt 8b."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §3 (seat table and author-family tables) vs 02-architecture.md §9",
+          "what": "02-architecture.md §9 marks the GPT-5.6 Sol / Grok 4.6 / Kimi K3 / Opus 5 routes as historical and says the live roster comes only from REQUIRED_PANEL. 01-core-flows.md §3 still presents those same routes as the panel, with no historical marker, so the two load-bearing documents disagree about who sits on the panel."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md §4",
+          "what": "The Arena flow presents Debate as a selectable path with its own roster and gates and never says that Debate is inactive in v1. The matrix obligation for #31 before #39 was to mark Debate inactive_in_v1 'without false capability claims'."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/{autobuild-run,reflect-cost-watch,housekeeping,debate,walkthrough,sdk-write-api}.md",
+          "what": "Six post-v1 capabilities carry complete closed refusal sets (81 classes) inside the v1 design gate. For #29, #30, #31 and #33 the matrix obligation before #39 was only to document that the capability is inactive, and #28 asked only for an explicit post-v1 contract, so this is design weight beyond what #39 asked for, although it is harmless if it is correctly labeled post-v1."
+        }
+      ],
+      "read": "Package sections 1–7 in full, including the full text of 01-core-flows.md and 02-architecture.md. From the frozen repository: README.md (status, matrix summary), docs/program-capability-matrix.md (policy, classification table, planned_after_v1 entries), 04-decisions.md ADR-067 (#47), the Status lines and v1-classification lines of every contract (grep), the #39/#40 references across the repository, and resources/panel-roster/family-partition.v1.json with the REQUIRED_PANEL lines of scripts/validate-provider-preflight.mjs.",
+      "not_read": "The GitHub issue text of #39 and #40 themselves (I have no network access to them; I inferred owner intent from the matrix, the README and 04-decisions). The contract bodies beyond their status and deferral lines, 03-technical-plan.md, the schemas and examples, the src/ modules, and the patch series. I did not recompute the candidate digest and did not re-run tests, mutation, produce:refusals or the clean-room evidence."
+    },
+    {
+      "seat": "architecture-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "bf581818-703c-48fc-adae-067b223539c8",
+      "lens_prompt_sha256": "0827a569f6cb585559cbd0270d5b10ca323542fdaa57dddbc756d87edd657434",
+      "verdict": "fail",
+      "seat_echoed": "architecture-lens",
+      "candidate_digest_echoed": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
+      "findings": [
+        {
+          "severity": "critical",
+          "where": "02-architecture.md §2/§3/§5/§7; package §1; compat/autosk/patches/0001–0051; src/host/daemon-preflight.mjs:22",
+          "what": "The package (§1) and 02 §3 say the pinned patch series provides ADR-023 and ADR-025, but none of the 49 patches contains the signed UserDecisionRecord journal, the authority/dependency/intent/consumed-nonce/result/integration_authorization heads, authorityGuard, appendIntentEvent, gate-result receipts, orchestrateChildBatch or integrateApproved (grep finds 0 matches; 0023 signs a creation grant, not user authority), and REQUIRED_DAEMON_CAPABILITIES demands only `task.creation-binding` v2. So the stated fail-closed rule (04 ADR-001, README #16, 02 §3/§4: no model workflow unless all three primitives are loaded) is not what the preflight checks, and the whole user-authority and custody chain the design relies on has no mechanism on the daemon side of the boundary."
+        },
+        {
+          "severity": "high",
+          "where": "docs/contracts/integration-authorization.md; 01-core-flows.md §7; resources/refusal-vocabulary/refusal-vocabulary.v1.json:688",
+          "what": "The only gate before the irreversible target-branch CAS (IntegrationAuthorizationRecord, protected integration_authorization_head, `integration_authorization_*` refusals) has no evaluator in src/ or in the patch series. The vocabulary records `integration_authorization_required` as producer=host with producer_files set to `scripts/validate-integration-authorization.mjs`, a script that validates the contract document. That lets the producer-missing check pass on a document validator (11 entries name a validate-* script as producer), and section 5 does not list this gap among what is not claimed."
+        },
+        {
+          "severity": "medium",
+          "where": "package §4 / §5 'What is not claimed' (17 contracts 'no link measured')",
+          "what": "The package leaves it to the seats to decide whether load-bearing contracts such as integration-authorization, material-decisions (the alignment projector gate), platform-support and sdk-write-api are unimplemented or only unlinked. Grepping src/ and compat/ for their refusal classes finds nothing, so at least these contracts are design obligations with no evaluator on either side of the host/daemon boundary."
+        },
+        {
+          "severity": "medium",
+          "where": "resources/panel-roster/family-partition.v1.json",
+          "what": "The partition says family is 'a property of the model', yet it files the Meta models muse-spark-1.3 and muse-spark-1.3-contributor under the `kimi` family next to cursor-kimi-2.5. Cross-family independence, Lead selection and the master order GPT→Kimi→Grok→Opus (01 §3/§6) therefore rest on a vendor assignment that is factually wrong: a Kimi-authored artifact would exclude an unrelated Meta reviewer, and the intent seat reported as 'Kimi' is not Kimi."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md §2; 02-architecture.md §5 (security.signer_boundary)",
+          "what": "The root of trust for every user-authority record is a probe that both documents say does not attest isolation, and platform attestation is deferred. This is disclosed honestly, but combined with the missing ADR-023 journal the user-authority guarantee currently has neither an enforced boundary nor a daemon-side mechanism."
+        },
+        {
+          "severity": "low",
+          "where": "package §5 fault matrix F001–F003",
+          "what": "The three crash-harness groups have no un-faulted control, so for them the package cannot show the guard is specific (disclosed)."
+        }
+      ],
+      "read": "The full package text, including 01-core-flows.md and 02-architecture.md. From the frozen repository: I confirmed HEAD commit and tree match §1, and I read family-partition.v1.json, REQUIRED_PANEL in scripts/validate-provider-preflight.mjs, the required_panel and candidate_digest fields of design-candidate.v1.json, src/host/daemon-preflight.mjs lines 1–99, the list of patch files, and targeted greps of compat/autosk/patches, src/ and refusal-vocabulary.v1.json for the ADR-023/025 primitives, integration authorization, protocol_lock_invalid and signer_boundary.",
+      "not_read": "I did not recompute the candidate digest or per-file hashes because the node command was not approved. I did not read patch bodies beyond grep, 03-technical-plan.md or 04-decisions.md beyond grep hits, the 42 contracts in full, the schemas, or the other src modules. I did not re-run npm test, the mutation report, the clean-room e2e or produce:refusals."
+    }
+  ]
+}

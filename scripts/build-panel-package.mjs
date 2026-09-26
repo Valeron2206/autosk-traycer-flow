@@ -26,6 +26,7 @@ import { digestOf, sourceDrift } from './lib/produced-source.mjs';
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
 import { panelVerdicts } from './validate-design-candidate.mjs';
 import { classifySeam } from './verify-autosk-migration-seam.mjs';
+import { UNPINNED_DAEMON_PRIMITIVES } from '../src/host/daemon-preflight.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -581,7 +582,8 @@ is a verdict about a claim.
 The extension is this repository. The daemon it runs against is **not** upstream
 \`autosk\` as published: it is upstream plus a pinned patch series, and the
 distinction matters because the design rests on three primitives (ADR-014,
-ADR-023, ADR-025) that upstream does not implement — the series supplies them.
+ADR-023, ADR-025) that upstream does not implement — the series supplies the first of them and not the other two.
+Section 5 names what is missing and what refuses to run without it.
 
 | field | value |
 | --- | --- |
@@ -861,6 +863,23 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
 
 ### What is not claimed
 
+- Two of the three daemon primitives the design rests on are implemented
+  nowhere. The pinned series supplies ADR-014 (\`task.creation-binding\` v2). It
+  does not supply ADR-023 — the signed \`UserDecisionRecord\` journal, the
+  protected authority, dependency, intent and result heads, \`authorityGuard\`,
+  \`integrateApproved\` — or ADR-025 — step-capability metadata CAS,
+  \`orchestrateChildBatch\`, gate-result receipts — and no module in this
+  repository implements either. The ref-custody helper of 02 §2
+  (\`src/git/ref-custody-helper.ts\`) does not exist: patches \`0016\`–\`0022\` and
+  \`0024\` are the store-lock helper, its protocol and trusted-state write fixes,
+  and no patch touches \`refs/autosk\`, so the planning-publication fault groups
+  (${matrix.groups.filter((group) => group.boundary === 'planning_publication').map((group) => `\`${group.id}\``).join(', ')})
+  exercise Git directly and show nothing about a helper-mediated CAS or the
+  separate-account boundary. The preflight names
+  ${UNPINNED_DAEMON_PRIMITIVES.map((primitive) => `\`${primitive.name}\` (${primitive.adr})`).join(' and ')} as required and unpinned — no revision, no
+  methods — so the preflight refuses every daemon today, including the one this series builds;
+  nothing calls it before a model launch yet. All of this is implementation work
+  under #40, not a delivered capability.
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries

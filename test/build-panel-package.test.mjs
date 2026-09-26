@@ -20,6 +20,7 @@ import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, names
 import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
+import { UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
 
@@ -158,6 +159,22 @@ test("the package names the delivered source as upstream plus the patch series",
   assert.match(text, new RegExp(compat.upstream.commit, "u"));
   assert.match(text, new RegExp(`${compat.patches.length}, each SHA-256 pinned`, "u"));
   assert.match(text, new RegExp(compat.result_tree, "u"));
+});
+
+test("the package says which primitives the series supplies and which it does not", async () => {
+  // Round 5 of #39 (R5-1): the package said the series supplies ADR-014, ADR-023
+  // and ADR-025. It supplies the first; the other two, and the ref-custody
+  // helper, exist nowhere, and the preflight refuses every daemon until they do.
+  const { text } = await build();
+  assert.doesNotMatch(text, /the series supplies them/u);
+  assert.match(text, /the series supplies the first of them and not the other two/u);
+  assert.equal(UNPINNED_DAEMON_PRIMITIVES.length, 2);
+  for (const primitive of UNPINNED_DAEMON_PRIMITIVES) {
+    assert.ok(text.includes(`\`${primitive.name}\` (${primitive.adr})`), primitive.name);
+  }
+  assert.ok(text.includes("planning-publication fault groups\n  (`F017`, `F018`, `F019`, `F020`)"));
+  assert.ok(text.includes("`src/git/ref-custody-helper.ts`) does not exist"));
+  assert.match(text, /the preflight refuses every daemon today, including the one this series builds/u);
 });
 
 test("the fault matrix is stated with its denominator and its groups", async () => {
