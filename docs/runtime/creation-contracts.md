@@ -197,9 +197,16 @@ build that lost the implementation cannot keep claiming the guarantee — which 
 the only reason asking is worth anything. A hand-written "yes" would pass on the
 very daemon the preflight exists to reject.
 
-`requireDaemonCapabilities` decides admission from that report. Every rejection
-stops the flow rather than downgrading it, because an unreadable report says
-nothing about the daemon and nothing is not evidence:
+`readCapabilityReport` reads and pins that report and admits nothing;
+`requireDaemonCapabilities` decides admission from it against
+`REQUIRED_DAEMON_CAPABILITIES`, which is not a parameter. The required set is the
+pinned `task.creation-binding` v2 plus two primitives that are not pinned yet —
+`authority.user-decision` (ADR-023) and `workflow.custody` (ADR-025), which the
+series does not implement (`02-architecture.md` §3). An unpinned primitive is
+missing whatever the daemon reports, so today every daemon is refused; a pinned
+capability's revision or method mismatch is reported before the missing ones.
+Every rejection stops the flow rather than downgrading it, because an unreadable
+report says nothing about the daemon and nothing is not evidence:
 
 | Observation | Outcome |
 | --- | --- |
@@ -223,14 +230,16 @@ enforced inside `enroll`/`resume`/`dispatch`, whose methods exist in an unpatche
 daemon too, so declaring it through this mechanism would be a claim the mechanism
 cannot check. It is deliberately absent rather than reported optimistically.
 
-The required set pins the **methods** too, not only the name and revision. Refusing
+A pinned requirement pins the **methods** too, not only the name and revision. Refusing
 an empty method list because it could not have been derived, and then never looking
 at the one non-empty list the daemon hands over, would let a renamed method through
 the check written to notice it.
 
-What remains: the required set and the daemon's declaration live in two
+What remains: the pinned set and the daemon's declaration live in two
 repositories. A test rebuilds `capabilities.ts` from the shipped patch series —
-which the manifest pins by SHA-256 — and compares the declaration in that source.
+which the manifest pins by SHA-256 — and compares the declaration in that source
+with the pinned set, and fails if the daemon declares an unpinned primitive, which
+would then have to be pinned here.
 Reading the patch text instead would not work: patches are append-only, so the
 lines that introduced the declaration keep matching for ever, and a rename, bump,
 reformat or deletion in a *later* patch would pass unnoticed. Calling the preflight

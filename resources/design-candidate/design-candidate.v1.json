@@ -12,7 +12,7 @@
     },
     {
       "path": "02-architecture.md",
-      "sha256": "2342777680104c57fadc235f5984ad883ecfa3739911a2a91a2d286668a30f9d"
+      "sha256": "db9637940e09092838f07232e081dc9619e9fd4ad12c5b3a857c792cc7266710"
     },
     {
       "path": "03-technical-plan.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "6fb4346650aaba0fa87f310bdaf265b5b064cabb87b77bf543a0e0f18c648393"
+      "sha256": "898f69a4254fd9eb842a0b6a495f88fc157cba3c3f5f85d87d04537085e5c3e0"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -76,7 +76,7 @@
     },
     {
       "path": "docs/contracts/creation-grant.md",
-      "sha256": "b8e802e965dca968a3eaee06d3dbd0c6b0a66fdb9863c3db34d7447c6449b148"
+      "sha256": "b3abe514b78b46c65c4c58104b4cbf356fb6ea84e8f33790b4ebc838ade46bdb"
     },
     {
       "path": "docs/contracts/debate.md",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
+  "candidate_digest": "b4b631be657d447df26b504765177394541ca95bddbd3f9aa76c7bd2ac3cc057",
   "dispositions": [
     {
       "issue": 3,

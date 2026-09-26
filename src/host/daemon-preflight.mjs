@@ -8,7 +8,7 @@
 import { closedRecord, demand, immutable, compareCodePoints } from '../runtime/contracts.mjs';
 import { types } from 'node:util';
 
-/** What autosk-flow cannot run without, at the exact contract revision it was written against.
+/** The one required capability with a daemon surface, pinned at the exact contract revision this flow was written against.
  * `task.creation-binding` v2: write-once `creation_key` + `creation_binding_hash` under the
  * cross-process project lock, exact retry returns the same task, a different binding conflicts,
  * and neither field can be edited afterwards. Without it, child fan-out would have to find a
@@ -19,8 +19,27 @@ import { types } from 'node:util';
  * and not "v1 or later": a daemon on v1 accepts unattributable creates, which is the gap, and
  * accepting it here would make the requirement a description rather than a precondition.
  */
-export const REQUIRED_DAEMON_CAPABILITIES = immutable([
+export const PINNED_DAEMON_CAPABILITIES = immutable([
   { name: 'task.creation-binding', version: 2, methods: ['task.create_bound'] },
+]);
+
+/** The other two primitives the flow cannot run without (02-architecture.md §3):
+ * ADR-023 signed user authority and ADR-025 workflow custody. The pinned series
+ * does not implement either, and no revision or method set has been specified
+ * for them, so they are named here without one. A name with nothing to compare
+ * against cannot be satisfied by any report — a daemon that claims it has made
+ * a claim this flow cannot check — so the requirement refuses every
+ * daemon until each is specified, implemented, and moved into the pinned set.
+ */
+export const UNPINNED_DAEMON_PRIMITIVES = immutable([
+  { name: 'authority.user-decision', adr: 'ADR-023' },
+  { name: 'workflow.custody', adr: 'ADR-025' },
+]);
+
+/** Everything a model workflow requires. An entry without `methods` is unpinned. */
+export const REQUIRED_DAEMON_CAPABILITIES = immutable([
+  ...PINNED_DAEMON_CAPABILITIES,
+  ...UNPINNED_DAEMON_PRIMITIVES.map(({ name: primitive }) => ({ name: primitive, version: null, methods: null })),
 ]);
 
 const MAX_CAPABILITIES = 64;
@@ -28,11 +47,12 @@ const name = (value, field) => demand(typeof value === 'string'
   && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(value) && value.length <= 128,
 'daemon_capability_invalid', 'Invalid capability name', { field });
 
-/** Validates the observed report and returns it pinned, or throws `FlowError`.
- * Every rejection is a refusal to start, never a downgrade: an unreadable report says
+/** Reads the observed report and returns it pinned, or throws `FlowError`.
+ * This admits nothing: it says what the daemon reported, not whether the flow may
+ * start. Every rejection is a refusal, never a downgrade: an unreadable report says
  * nothing about the daemon, and "nothing" is not evidence of the guarantee.
  */
-export function requireDaemonCapabilities(report, required = REQUIRED_DAEMON_CAPABILITIES) {
+export function readCapabilityReport(report) {
   closedRecord(report, ['capabilities']);
   const list = report.capabilities;
   demand(!types.isProxy(list) && Array.isArray(list) && Object.getPrototypeOf(list) === Array.prototype
@@ -70,12 +90,27 @@ export function requireDaemonCapabilities(report, required = REQUIRED_DAEMON_CAP
     }
     observed.set(entry.name, entry);
   }
+  return immutable({ schema_version: 1, capabilities: [...observed.values()] });
+}
+
+/** Admits the daemon only if its report carries everything a model workflow needs.
+ * The requirement is `REQUIRED_DAEMON_CAPABILITIES` and nothing else: it is not a
+ * parameter, because a caller that could pass a narrower set could pass the pinned
+ * one and admit a daemon without ADR-023 or ADR-025, which is the defect this
+ * refusal exists to prevent. A pinned capability at the wrong revision or with the
+ * wrong methods is named before a missing one, so the unpinned primitives, which
+ * are always missing today, do not hide it.
+ */
+export function requireDaemonCapabilities(report) {
+  const pinned = readCapabilityReport(report);
+  const observed = new Map(pinned.capabilities.map((entry) => [entry.name, entry]));
   const missing = [];
   const wrongVersion = [];
   const wrongMethods = [];
-  for (const want of required) {
+  for (const want of REQUIRED_DAEMON_CAPABILITIES) {
     const have = observed.get(want.name);
-    if (!have) { missing.push(want.name); continue; }
+    // Unpinned: a report can name it, but nothing says what would prove it.
+    if (!have || want.methods === null) { missing.push(want.name); continue; }
     // Exact, not a minimum: the revision is incremented precisely when a client
     // must notice, so accepting a later one accepts the change it warns about.
     if (have.version !== want.version) wrongVersion.push(`${want.name} is v${have.version}, this flow is written for v${want.version}`);
@@ -87,14 +122,14 @@ export function requireDaemonCapabilities(report, required = REQUIRED_DAEMON_CAP
       wrongMethods.push(`${want.name} v${want.version} is implemented by [${have.methods.join(', ')}], this flow is written for [${want.methods.join(', ')}]`);
     }
   }
-  demand(missing.length === 0, 'daemon_capability_missing',
-    'This daemon does not have a capability autosk-flow cannot run without',
-    { missing: missing.sort(compareCodePoints) });
   demand(wrongVersion.length === 0, 'daemon_capability_version_mismatch',
     'This daemon offers a different revision of a required capability',
     { mismatched: wrongVersion.sort(compareCodePoints) });
   demand(wrongMethods.length === 0, 'daemon_capability_method_mismatch',
     'A required capability is implemented by different methods than this flow expects',
     { mismatched: wrongMethods.sort(compareCodePoints) });
-  return immutable({ schema_version: 1, capabilities: [...observed.values()] });
+  demand(missing.length === 0, 'daemon_capability_missing',
+    'This daemon does not have a capability autosk-flow cannot run without',
+    { missing: missing.sort(compareCodePoints) });
+  return pinned;
 }

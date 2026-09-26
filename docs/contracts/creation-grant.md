@@ -44,7 +44,7 @@ Until the extension entry point exists, this is a decision waiting for its call 
 
 ## 6. What a refusal looks like
 
-A grant that fails verification is refused with the reason, and the refusal is not retried: an unsigned or wrongly-signed grant is not a transient condition. A daemon missing a capability parks the extension load with the capability name, the version found and the version required.
+A grant that fails verification is refused with the reason, and the refusal is not retried: an unsigned or wrongly-signed grant is not a transient condition. A daemon missing a capability parks the extension load naming the capability. A pinned capability at another revision, or implemented by other methods, is refused separately, naming the version found and the version required, or the methods; that refusal is reported before a missing one. The two primitives that are not pinned yet — ADR-023 user authority and ADR-025 workflow custody (`02-architecture.md` §3) — are named as missing whatever the daemon reports, so the load parks on every daemon until they are specified and pinned.
 
 ## 7. Park reasons
 
