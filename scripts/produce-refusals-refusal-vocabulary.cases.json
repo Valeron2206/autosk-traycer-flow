@@ -3,33 +3,33 @@
     "class": "refusal_vocabulary_drift",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#driftErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/code", "value": "probe_drift_code" }] },
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/3/code", "value": "probe_drift_code" }] },
     "note": "a vocabulary row the plan and graph park table does not extract"
   },
   {
     "class": "refusal_vocabulary_unknown_step",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#stepErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/named_at/0", "value": "no_such_step" }] }
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/3/named_at/0", "value": "no_such_step" }] }
   },
   {
     "class": "refusal_vocabulary_unknown_class",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#stepErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "add", "path": "/park_reasons/0/named_at_classes/-", "value": "no_such_class" }] }
+    "drive": { "kind": "vocab", "mutate": [{ "op": "add", "path": "/park_reasons/3/named_at_classes/-", "value": "no_such_class" }] }
   },
   {
     "class": "refusal_vocabulary_producer_missing",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#producerErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/13/producer_files", "value": [] }] },
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/16/producer_files", "value": [] }] },
     "note": "a host-declared entry naming no producing file"
   },
   {
     "class": "refusal_vocabulary_producer_misdeclared",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#producerErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/producer_files", "value": ["scripts/build-panel-package.mjs"] }] },
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/3/producer_files", "value": ["scripts/build-panel-package.mjs"] }] },
     "note": "a daemon-declared entry naming host files is the misdeclared shape"
   },
   {
@@ -50,7 +50,7 @@
     "class": "refusal_vocabulary_owner_missing",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#ownerErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "remove", "path": "/park_reasons/0/closed_by" }] }
+    "drive": { "kind": "vocab", "mutate": [{ "op": "remove", "path": "/park_reasons/3/closed_by" }] }
   },
   {
     "class": "refusal_vocabulary_owner_ambiguous",

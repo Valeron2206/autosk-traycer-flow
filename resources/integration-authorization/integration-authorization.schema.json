@@ -14,9 +14,8 @@
     "target_ref",
     "initial_target_oid",
     "ordered_ticket_commit_oids",
-    "ordered_ref_transitions",
+    "ref_transition",
     "final_tree_oid",
-    "remaining_start_index",
     "integration_plan_hash",
     "controlling_anchor_digest",
     "classifier_proof_hash",
@@ -85,45 +84,28 @@
         "pattern": "^[a-f0-9]{40}$"
       }
     },
-    "ordered_ref_transitions": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 512,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "index",
-          "from_oid",
-          "to_oid"
-        ],
-        "properties": {
-          "index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "from_oid": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{40}$"
-          },
-          "to_oid": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{40}$"
-          }
+    "ref_transition": {
+      "description": "The one movement of the target this record authorizes: from the recorded target base to the commit that carries the accepted identity — an Epic's accepted staging commit, a Quick run's integration commit. The target moves by one CAS, so there is no ordered plan, no start index and no completed prefix.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_oid",
+        "to_oid"
+      ],
+      "properties": {
+        "from_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "to_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
         }
       }
     },
     "final_tree_oid": {
       "type": "string",
       "pattern": "^[a-f0-9]{40}$"
-    },
-    "remaining_start_index": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "completed_prefix_receipt_hash": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
     },
     "integration_plan_hash": {
       "type": "string",

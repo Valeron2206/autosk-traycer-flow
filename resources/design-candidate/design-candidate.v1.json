@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "8c08592802ded53ccefa8b5faca79950333f89679561c21538f347686e538330"
+      "sha256": "f962b8f1a03715f4cfdf2aecb903615477f0369feb0cfca4892e574d1fc89511"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "db9637940e09092838f07232e081dc9619e9fd4ad12c5b3a857c792cc7266710"
+      "sha256": "553c3ba60fc0f2e9efeb650f7a3ad509c3a0d82992102908a943c60896a70c2e"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "ed724e67babb29a7c578b3433ff6afd345adf6f4be6ce4f8b982ae307f0b0339"
+      "sha256": "9814e249e01cedc48a9963f614863fb31d1f04ce02300de58a08cf559f8c37d1"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "67c6b050298f91c71c1a506c7bb893c8576445da2294efe87097f9dde0986c8c"
+      "sha256": "b7065dbda387b591dc8c7126db8f3aa98c375419cea1217cab08b9b27503f73c"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "d9eaa45166bb6fab9d6fdc957c02a1d69781e058aedba29d702dfeeb6ad88018"
+      "sha256": "0ba9184bc57bedf3904b85d4f5d688bf5e52ef811746059f514e187f9306a39d"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -132,7 +132,7 @@
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "1fa57fe4dee5906dd3d3b2f4f194599cb47ce1f67d889a495808f7aca6612a4f"
+      "sha256": "4e71b49eeb1a5f84c73ba1c5f9d1ebaa9aea29ba6b00c44f1e4882c27be6e620"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "1862c9e16ceba53a5511861fc99fd9010cba36a89cb35ff2aa62884b2caa777d"
+      "sha256": "1c0f18266530ea78f60b12c068ba498dbef1c9943a2d491c67066131a747ed69"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -200,11 +200,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "504b522081552f418060dac200760673b2d091588daa8445342af990fc1b9391"
+      "sha256": "a40032707ed38c6458f6e18e44d254f229cb37da47f9b6dfe062de7155fb5e17"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "bd198e545601a20de33fdfcece5671da5e6abf7fdff806e64abc6cd773adb696"
+      "sha256": "153b24c4b1da111d48c28b8461e99f9ba947877a031291cad399d11e1e1c42e0"
     },
     {
       "path": "docs/program-capability-matrix.md",
@@ -476,15 +476,15 @@
     },
     {
       "path": "resources/integration-authorization/integration-authorization.example.json",
-      "sha256": "2cfadfc85321d716aaee56c819d250d2065fbdcf0f2fc13ed08d3495bf8eaaca"
+      "sha256": "2fd6301490834a6001579bec5b6919dbe318323e1f64fd68833e9ac17b845ca7"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.refused.example.json",
-      "sha256": "1aae8e264d89da87ddf1fa9646fd4507c5d3e67b3e40f0d785ea55e16a67489d"
+      "sha256": "b0c8f081a1d8b9a751890cbd3d4ae727854eb6a9e074ad19e17208d80fc6378c"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.schema.json",
-      "sha256": "32b1dce3e47d7be443e93480384f8da5f32e40299edc878dcb5a5a6d8bb1b264"
+      "sha256": "cc711fd618ebd9e1b2f42590e7ed0f758acb69c1dc56e98af4c45fa6f0263223"
     },
     {
       "path": "resources/iteration-result/iteration-result.escalated.example.json",
@@ -768,7 +768,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "f3060ef9eb48d35512ff92c66c7f2d0c3dd0d07fdda2cf23a5287136a7b95985"
+      "sha256": "952a0d4ece33ab04ac6b279dfe9258ede9ce1830ee1fcdb8be122f698b69589d"
     },
     {
       "path": "resources/requirement-revision/revision-record.example.json",
@@ -928,15 +928,15 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "674241d16cd468d67c5bcbed3cfff46fcc9e1249e81c241cc0950e0c35594c10"
+      "sha256": "06de242ff27bac048cc66f1ff92397d06dc92d0c936d68e565ef522c3a3e3995"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "3e0d2b46b18acf78f859d00d6c77400966fc473ded8074acd42016cf87c04315"
+      "sha256": "041b8edda2bf8879fe28956bfdeb1d0a0e5f2fd819b40bbb6ceebdf7a93499cc"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
-      "sha256": "8368fbbb2e090cdbd786d223f5ab68d7e83bc2dd58a4660fe8a015f520ecbffb"
+      "sha256": "db7ca3575bd15ded68327fb4f8ae4d48fe7536490deb9e313b6e711094b16170"
     },
     {
       "path": "scripts/produce-refusals-runtime-identity-lock.cases.json",
@@ -948,14 +948,14 @@
     },
     {
       "path": "scripts/produce-refusals-workflow-graph.cases.json",
-      "sha256": "31c8d6019aa8043de0c910eb2b8dd1c4f53605f3ca9a0419734da12b81413557"
+      "sha256": "cca8d7584689774cac96e0a24d3b183b046abb385def7394a18836971388ba3f"
     },
     {
       "path": "src/host/workflow-graph-canonical.mjs",
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "afe7d77db2b53cb9d2572b6993ad35ab3c6ee72fef70628c00e31cb2267af532",
+  "candidate_digest": "0673201c83273b6e127f6d07d6a6bbf5143d569f536eea4753534b5801489edc",
   "dispositions": [
     {
       "issue": 3,

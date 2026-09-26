@@ -1,0 +1,1039 @@
+/**
+ * The Epic's integration order, read from the graph the daemon runs.
+ *
+ * Panel #39 round 5 found the order fixed in prose and not in the state
+ * machine (R5-7): the workflow graph — a design-candidate member whose digest
+ * is pinned into task identity — still ran ticket_join → accept → integrate,
+ * moving the target once per Ticket, and only then aggregate_verify → cleanup.
+ * No private staging, no acceptance of the verified staging identity, no single
+ * target CAS after aggregate PASS, no post-CAS read-back, and no branch for a
+ * delivery profile that hands the final movement to a PR or a merge queue
+ * (R5-8). Core flows §7 and the accept predicate spoke of a completed prefix
+ * and remaining transitions while epic-staging requires exactly one CAS
+ * (R5-9). Issue #230 asks for the same order in the plan and the graph.
+ *
+ * So the order is asserted as properties of the graph rather than as a picture
+ * of it: the two steps that end an Epic's integration — the one CAS and the
+ * hand-off to the delivery profile — are unreachable without the aggregate PASS
+ * gate and without the acceptance gate, each gate reads the identity it binds,
+ * the CAS is read back before cleanup, and no resume lands after acceptance
+ * from a stop before it. Each property is shown to fail on a graph mutated to
+ * break exactly it, so a check that passes because it cannot see is caught too.
+ */
+
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+import { verifyAggregate } from "../src/host/aggregate-driver.mjs";
+import { aggregateErrors, casAdmission } from "../src/host/epic-staging.mjs";
+import { createStaging, observeTarget, readRef, stagingRef } from "../src/host/staging-driver.mjs";
+import { readChains } from "../scripts/check-workflow-chains.mjs";
+import { DOCUMENT_PATH, parseStrict, producedAt } from "../scripts/validate-workflow-graph.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
+const shipped = () => parseStrict(read(DOCUMENT_PATH));
+const vocabulary = () => JSON.parse(read("resources/refusal-vocabulary/refusal-vocabulary.v1.json"));
+
+/** The steps that end an Epic's integration: the one CAS, and the hand-off to the profile. */
+export const TERMINAL_MOVES = Object.freeze(["integrate_staging", "deliver_staging"]);
+/** Everything after acceptance: the terminal moves and the CAS read-back. */
+export const AFTER_ACCEPTANCE = Object.freeze([...TERMINAL_MOVES, "verify_target"]);
+/** The Epic's own integration steps. */
+export const EPIC_STEPS = Object.freeze(["apply_staging", "accept_staging", ...AFTER_ACCEPTANCE]);
+/** The aggregate PASS gate: the only way into acceptance. */
+export const PASS_GATE = Object.freeze({ from: "aggregate_verify", to: "accept_staging" });
+/** What the PASS gate binds: the exact staging identity the aggregate ran on. */
+export const PASS_READS = Object.freeze(["aggregate_binding", "staging_commit_oid", "staging_tree_oid"]);
+/** What an acceptance gate binds: the accepted identity, its aggregate and the delivery plan. */
+export const ACCEPTANCE_READS = Object.freeze([
+  "aggregate_binding",
+  "delivery_plan",
+  "staging_acceptance",
+  "staging_commit_oid",
+  "staging_tree_oid",
+]);
+/** The old order, pair by pair: a target moved per Ticket before any aggregate ran. */
+export const OLD_ORDER = Object.freeze([
+  ["ticket_join", "accept"],
+  ["ticket_join", "integrate"],
+  ["integrate", "aggregate_verify"],
+  ["aggregate_verify", "cleanup"],
+  ["aggregate_verify", "done"],
+]);
+/** The per-candidate integration Quick keeps, which no Epic step may enter. */
+const QUICK_INTEGRATION = Object.freeze(["accept", "integrate", "integration_recovery"]);
+
+/**
+ * The Epic's own steps: those the autosk-planned chain in 03 §2 draws and no
+ * other workflow's chain does. Read from the chains rather than listed here,
+ * so a step joining the Epic joins this set with it. The steps the Epic shares
+ * — intake, cleanup, done, human, the repair steps, dispatch_narrow_review —
+ * are not in it: a stop there belongs to every workflow standing there.
+ */
+export function epicSteps(plan = read("03-technical-plan.md"), graph = shipped()) {
+  const { edges } = readChains(plan, new Set(graph.steps.map((step) => step.name)));
+  const drawn = new Map();
+  for (const edge of edges) {
+    for (const name of [edge.from, edge.to]) {
+      if (!drawn.has(name)) drawn.set(name, new Set());
+      drawn.get(name).add(edge.workflow);
+    }
+  }
+  return [...drawn].filter(([, workflows]) => workflows.size === 1 && workflows.has("autosk-planned"))
+    .map(([name]) => name).sort();
+}
+
+/**
+ * The Epic's integration segment, from where the execution chain starts to
+ * acceptance: select_next, where an aggregate NOT_PASS returns the Epic, the
+ * Ticket DAG and its join, the private staging, the aggregate and its
+ * remediation, and acceptance itself.
+ */
+export const INTEGRATION_SEGMENT = Object.freeze([
+  "select_next",
+  "dispatch_ticket_dag",
+  "resume_repaired_tickets",
+  "ticket_join",
+  "ticket_join_wait",
+  "apply_staging",
+  "aggregate_verify",
+  "record_aggregate_remediation",
+  "accept_staging",
+]);
+
+/**
+ * The steps an Epic shares with other workflows and stands on before
+ * acceptance: human, where every park lands, the entry, the daemon's repair
+ * steps and the narrow-review dispatch the planning cycle shares with code
+ * review. cleanup and done are shared too, but an Epic reaches them only after
+ * the read-back or the delivery predicate.
+ */
+export const SHARED_BEFORE_ACCEPTANCE = Object.freeze([
+  "authority_recovery",
+  "dispatch_narrow_review",
+  "human",
+  "intake",
+  "repair_protocol_snapshot",
+]);
+
+/**
+ * Reasons an Epic cannot record at a shared step: every edge producing them is
+ * guarded by a predicate reading the task's workflow and naming Quick or
+ * Ticket, and no step produces them as its own. The test checks that, rather
+ * than trusting this list.
+ */
+export const EPIC_CANNOT_RECORD = Object.freeze(["no_external_reviewer"]);
+
+/** Where a resume may not land from a stop before acceptance, nor one edge before. */
+export const RESUME_FORBIDDEN = Object.freeze([
+  "cleanup",
+  "done",
+  "verify_target",
+  ...TERMINAL_MOVES,
+  ...QUICK_INTEGRATION,
+]);
+
+/**
+ * Planning-phase rows excused from the rule below. There are none.
+ *
+ * Five used to be named here: the three planning-ref reasons, which park at
+ * cleanup beside the Epic's planning steps and lent cleanup and done to every
+ * one of them, and artifact_mapping_required and review_cap, which share a row
+ * with Quick's freeze and record_code_verdict and lent the Epic's planning
+ * stops Quick's steps and done (R9c-14, R9c-15). The planning-ref rows are
+ * origin-scoped now, review_cap resumes only along the edges out of its origin,
+ * and artifact_mapping_required no longer lists done. The list stays, empty,
+ * so the stale check pins it at zero: a row added here that does not leak
+ * fails as stale, and one that does is refused anyway, since an excused leak
+ * into any forbidden step is still a finding.
+ */
+export const KNOWN_PLANNING_RESUME_LEAKS = Object.freeze([]);
+
+/** Every step reachable from the graph's declared entries over the given edges. */
+function reachable(graph, edges) {
+  const seeds = [graph.first_step, ...(graph.entry_steps ?? []).map((entry) => entry.step)];
+  const outgoing = new Map();
+  for (const edge of edges) {
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    outgoing.get(edge.from).push(edge.to);
+  }
+  const reached = new Set();
+  const queue = [...seeds];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (reached.has(current)) continue;
+    reached.add(current);
+    for (const next of outgoing.get(current) ?? []) queue.push(next);
+  }
+  return reached;
+}
+
+/**
+ * Every way the graph departs from the Epic order epic-staging §1 fixes.
+ *
+ * Returned as named findings rather than asserted in place, so the negative
+ * controls below can show that each finding fires on exactly the mutation that
+ * earns it.
+ */
+export function epicIntegrationErrors(graph, options = {}) {
+  const errors = [];
+  const steps = new Map(graph.steps.map((step) => [step.name, step]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const edges = graph.transitions;
+  const between = (from, to) => edges.filter((edge) => edge.from === from && edge.to === to);
+  const has = (from, to) => between(from, to).length > 0;
+  const readsOf = (edge) =>
+    new Set(edge.guards.flatMap((id) => predicates.get(guards.get(id)?.predicate)?.reads ?? []));
+
+  for (const name of EPIC_STEPS) {
+    if (steps.get(name)?.kind !== "agent") errors.push(`epic_step_missing: ${name}`);
+  }
+
+  // 1. The old order is gone, and the new one starts at the private staging.
+  for (const [from, to] of OLD_ORDER) {
+    if (has(from, to)) errors.push(`old_order: ${from} -> ${to}`);
+  }
+  for (const from of [...EPIC_STEPS, "aggregate_verify"]) {
+    for (const to of QUICK_INTEGRATION) {
+      if (has(from, to)) errors.push(`old_order: ${from} -> ${to}`);
+    }
+  }
+  if (!has("ticket_join", "apply_staging")) errors.push("staging_not_entered: ticket_join -> apply_staging");
+  if (!has("apply_staging", "aggregate_verify")) errors.push("staging_not_verified: apply_staging -> aggregate_verify");
+
+  // 2 and 3. The terminal moves are unreachable without the PASS gate and
+  // without the acceptance gate: removing either set of edges strands them.
+  const everything = reachable(graph, edges);
+  const withoutPass = reachable(graph, edges.filter((edge) => !(edge.from === PASS_GATE.from && edge.to === PASS_GATE.to)));
+  const withoutAcceptance = reachable(
+    graph,
+    edges.filter((edge) => !(edge.from === "accept_staging" && TERMINAL_MOVES.includes(edge.to))),
+  );
+  for (const move of TERMINAL_MOVES) {
+    if (!everything.has(move)) errors.push(`terminal_unreachable: ${move}`);
+    if (withoutPass.has(move)) errors.push(`bypasses_aggregate: ${move} is reachable without ${PASS_GATE.from} -> ${PASS_GATE.to}`);
+    if (withoutAcceptance.has(move)) errors.push(`bypasses_acceptance: ${move} is reachable without accept_staging -> ${move}`);
+  }
+
+  // 4. The gates read what they bind, and acceptance is entered only through PASS.
+  const passEdges = between(PASS_GATE.from, PASS_GATE.to);
+  if (passEdges.length === 0) errors.push(`pass_gate_missing: ${PASS_GATE.from} -> ${PASS_GATE.to}`);
+  for (const edge of passEdges) {
+    const reads = readsOf(edge);
+    for (const token of PASS_READS) {
+      if (!reads.has(token)) errors.push(`gate_blind: ${edge.from} -> ${edge.to} does not read ${token}`);
+    }
+  }
+  for (const edge of edges) {
+    if (edge.to === "accept_staging" && edge.from !== "accept_staging" && edge.from !== PASS_GATE.from) {
+      errors.push(`acceptance_entered_elsewhere: ${edge.from} -> accept_staging`);
+    }
+  }
+  for (const move of TERMINAL_MOVES) {
+    const gates = between("accept_staging", move);
+    if (gates.length === 0) errors.push(`acceptance_gate_missing: accept_staging -> ${move}`);
+    for (const edge of gates) {
+      if (edge.guards.length === 0 || edge.guards.some((id) => guards.get(id)?.authority?.actor !== "human")) {
+        errors.push(`acceptance_not_human: accept_staging -> ${move}`);
+      }
+      const reads = readsOf(edge);
+      for (const token of ACCEPTANCE_READS) {
+        if (!reads.has(token)) errors.push(`gate_blind: accept_staging -> ${move} does not read ${token}`);
+      }
+    }
+    for (const edge of edges) {
+      if (edge.to === move && edge.from !== move && edge.from !== "accept_staging") {
+        errors.push(`acceptance_bypassed: ${edge.from} -> ${move}`);
+      }
+    }
+  }
+
+  // 5. One CAS, read back before anything else happens.
+  if (!has("integrate_staging", "verify_target")) errors.push("read_back_missing: integrate_staging -> verify_target");
+  for (const to of ["cleanup", "done"]) {
+    if (has("integrate_staging", to)) errors.push(`no_read_back: integrate_staging -> ${to}`);
+  }
+  for (const edge of edges) {
+    if (edge.to === "verify_target" && edge.from !== "integrate_staging") {
+      errors.push(`read_back_entered_elsewhere: ${edge.from} -> verify_target`);
+    }
+  }
+  if (!has("verify_target", "cleanup")) errors.push("read_back_unfinished: verify_target -> cleanup");
+  for (const to of ["apply_staging", "accept_staging", ...TERMINAL_MOVES]) {
+    if (has("verify_target", to)) errors.push(`second_cas: verify_target -> ${to}`);
+  }
+
+  // 6. The delivery-profile branch: the host hands the movement over and waits
+  // for the profile's completion predicate, and never moves the branch itself.
+  if (!has("deliver_staging", "cleanup")) errors.push("delivery_unfinished: deliver_staging -> cleanup");
+  for (const to of ["integrate_staging", "verify_target", ...QUICK_INTEGRATION]) {
+    if (has("deliver_staging", to)) errors.push(`delivery_moves_target: deliver_staging -> ${to}`);
+  }
+  const produced = producedAt(graph);
+  if (!produced.get("completion_predicate_unmet")?.has("deliver_staging")) {
+    errors.push("completion_unparked: deliver_staging does not park completion_predicate_unmet");
+  }
+
+  // 7b. Nor one that lands on cleanup, done, the read-back, a target move or
+  // Quick's integration, or one edge before any of them. What a stop may resume
+  // into is its row's targets — the union the row lends every step it names —
+  // unless the row is origin-scoped, where the stop resumes only into the step
+  // the park recorded as its origin, which for a stop standing at a step is
+  // that step. Two edges are no way around the order one edge before a
+  // forbidden step: the acceptance gates, which a resume into accept_staging
+  // must pass, and an edge whose guards read the task's creation-bound
+  // workflow, which the landing's own selection evaluates. A direct landing is
+  // never excused: it runs no guard at all.
+  const outgoing = new Map();
+  for (const edge of edges) {
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    outgoing.get(edge.from).push(edge);
+  }
+  const forbidden = new Set(RESUME_FORBIDDEN);
+  const isGate = (edge) => edge.from === "accept_staging" && TERMINAL_MOVES.includes(edge.to);
+  const keyedByWorkflow = (edge) => edge.guards.length > 0
+    && edge.guards.every((id) => predicates.get(guards.get(id)?.predicate)?.reads.includes("workflow"));
+  // Origin-scoped: the stand itself. Scoped to the origin's edges: the stand
+  // and the steps an edge out of it reaches. Neither lends a target across the
+  // steps the row names; only the union does.
+  const effective = (row, stand) => {
+    if (row.resume_scope === "origin") return row.resume_targets.filter((target) => target === stand);
+    if (row.resume_scope === "origin_edges") {
+      return row.resume_targets.filter((target) =>
+        target === stand || (outgoing.get(stand) ?? []).some((edge) => edge.to === target));
+    }
+    return row.resume_targets;
+  };
+  const leaksOf = (targets) => {
+    const leaks = new Set();
+    for (const target of targets) {
+      if (forbidden.has(target)) leaks.add(target);
+      for (const edge of outgoing.get(target) ?? []) {
+        if (!isGate(edge) && !keyedByWorkflow(edge) && forbidden.has(edge.to)) leaks.add(`${target} -> ${edge.to}`);
+      }
+    }
+    return [...leaks].sort();
+  };
+  const epic = new Set(options.epicSteps ?? epicSteps(options.plan, graph));
+  const segment = new Set(INTEGRATION_SEGMENT);
+  const sharedBefore = new Set(SHARED_BEFORE_ACCEPTANCE);
+  const cannot = new Set(options.cannot ?? EPIC_CANNOT_RECORD);
+  const known = new Set(options.known ?? KNOWN_PLANNING_RESUME_LEAKS);
+  const beforePass = (name) => (epic.has(name) && name !== "accept_staging" && !AFTER_ACCEPTANCE.includes(name))
+    || sharedBefore.has(name);
+  const leaking = new Set();
+  for (const row of graph.recovery) {
+    const stands = [...row.parks_at, ...(row.handled_at ?? [])];
+    const strict = [];
+    const planning = [];
+    for (const stand of stands) {
+      const epicStand = segment.has(stand) || (sharedBefore.has(stand) && !cannot.has(row.reason));
+      const planningStand = epic.has(stand) && !AFTER_ACCEPTANCE.includes(stand) && !segment.has(stand);
+      if (!epicStand && !planningStand) continue;
+      const targets = effective(row, stand);
+      const leaks = leaksOf(targets);
+      if (leaks.length > 0) (epicStand ? strict : planning).push({ stand, leaks });
+      if (beforePass(stand) && targets.includes("accept_staging") && !cannot.has(row.reason)) {
+        errors.push(`resume_skips_pass: ${row.reason} resumes into accept_staging from ${stand}`);
+      }
+      if (targets.includes("aggregate_verify") && !["aggregate_verify", "accept_staging"].includes(stand)
+        && !["aggregate_verify_failed", "aggregate_remediation_required"].includes(row.reason)
+        && (epic.has(stand) || sharedBefore.has(stand)) && !cannot.has(row.reason)) {
+        errors.push(`resume_reaggregates: ${row.reason} resumes into aggregate_verify from ${stand}`);
+      }
+    }
+    const describe = (found) => `${[...new Set(found.flatMap((entry) => entry.leaks))].sort().join(", ")} from ${found.map((entry) => entry.stand).join(", ")}`;
+    if (strict.length > 0) {
+      leaking.add(row.reason);
+      errors.push(`resume_leak: ${row.reason} resumes into ${describe(strict)}`);
+    }
+    if (planning.length > 0) {
+      leaking.add(row.reason);
+      if (!known.has(row.reason)) errors.push(`resume_leak_unnamed: ${row.reason} resumes into ${describe(planning)}`);
+      // Naming a row excuses no landing on a forbidden step: cleanup and done
+      // end an Epic as surely as a target move does (R9c-14).
+      else if (planning.some((entry) => entry.leaks.some((leak) => RESUME_FORBIDDEN.some((move) => leak.endsWith(move))))) {
+        errors.push(`resume_leak_forbidden: ${row.reason} resumes into ${describe(planning)}`);
+      }
+    }
+  }
+  for (const reason of known) {
+    if (!leaking.has(reason)) errors.push(`resume_leak_stale: ${reason} is named and no longer leaks`);
+  }
+  // A reason the Epic cannot record is excused at the shared steps only
+  // because every edge that produces it is keyed away from the Planned workflow.
+  for (const reason of cannot) {
+    const producing = edges.filter((edge) => steps.get(edge.to)?.status === "human"
+      && edge.guards.some((id) => guards.get(id)?.park_reason === reason));
+    const keyed = producing.every((edge) => edge.guards.every((id) => {
+      const predicate = predicates.get(guards.get(id)?.predicate);
+      return predicate?.reads.includes("workflow") && /workflow=autosk-(quick|ticket)/u.test(predicate.description);
+    }));
+    const stepProduced = graph.steps.some((step) => step.no_transition_reason === reason);
+    if (producing.length === 0 || !keyed || stepProduced) errors.push(`epic_cannot_record_unkeyed: ${reason}`);
+  }
+
+  // 7c. And a stop the daemon records for an Epic has a row that can recover
+  // it by re-entering where it stood: the Epic's boundary row is origin-scoped,
+  // names every Epic step, human and the shared steps an Epic stands on before
+  // acceptance, and lists every Epic agent step as a target of its own. The
+  // shared boundary row is origin-scoped too and names no Epic step.
+  const boundary = graph.recovery.find((row) => row.reason === "epic_boundary_invalid");
+  if (!boundary) {
+    errors.push("epic_boundary_missing: no row recovers a boundary stop at an Epic step");
+  } else {
+    if (boundary.resume_scope !== "origin") errors.push("epic_boundary_unscoped: epic_boundary_invalid lends its targets to every step it names");
+    const named = new Set([...boundary.parks_at, ...(boundary.handled_at ?? [])]);
+    if (!boundary.parks_at.includes("human")) errors.push("epic_boundary_unnamed: human");
+    for (const name of [...epic, ...EPIC_STEPS, ...sharedBefore]) {
+      if (!named.has(name)) errors.push(`epic_boundary_unnamed: ${name}`);
+    }
+    for (const name of [...epic, ...EPIC_STEPS]) {
+      if (steps.get(name)?.kind === "agent" && !boundary.resume_targets.includes(name)) {
+        errors.push(`epic_boundary_unrecoverable: a boundary stop at ${name} cannot resume into it`);
+      }
+    }
+    for (const target of boundary.resume_targets) {
+      if (!named.has(target)) errors.push(`epic_boundary_foreign_target: ${target}`);
+    }
+  }
+  const shared = graph.recovery.find((row) => row.reason === "project_boundary_invalid");
+  if (shared?.resume_scope !== "origin") errors.push("shared_boundary_unscoped: project_boundary_invalid lends its targets to every step it names");
+  for (const name of [...(shared?.parks_at ?? []), ...(shared?.handled_at ?? [])]) {
+    if (epic.has(name) || EPIC_STEPS.includes(name)) errors.push(`epic_boundary_shared: project_boundary_invalid names ${name}`);
+  }
+
+  // 7. No resume lands after acceptance from a stop before it.
+  const after = new Set(AFTER_ACCEPTANCE);
+  for (const row of graph.recovery) {
+    for (const stand of [...row.parks_at, ...(row.handled_at ?? [])]) {
+      if (after.has(stand) || steps.get(stand)?.kind === "status") continue;
+      const into = effective(row, stand).filter((target) => after.has(target));
+      if (into.length > 0) errors.push(`resume_skips_acceptance: ${row.reason} resumes into ${into.join(", ")} from ${stand}`);
+    }
+  }
+  return [...new Set(errors)].sort();
+}
+
+// --- the shipped graph ------------------------------------------------------
+
+test("the old order is gone: no target movement per Ticket before the aggregate runs", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(old_order|staging_not_|epic_step_missing)/u.test(message)), []);
+});
+
+test("the one CAS and the delivery hand-off are unreachable without the aggregate PASS gate", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(terminal_unreachable|bypasses_aggregate|pass_gate_missing)/u.test(message)), []);
+});
+
+test("the one CAS and the delivery hand-off are unreachable without acceptance", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(bypasses_acceptance|acceptance_gate_missing|acceptance_bypassed)/u.test(message)), []);
+});
+
+test("each gate reads the identity it binds, and acceptance is a person's", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(
+    errors.filter((message) =>
+      /^(gate_blind|acceptance_not_human|acceptance_entered_elsewhere|pass_gate_missing|acceptance_gate_missing)/u.test(message)),
+    [],
+  );
+});
+
+test("the target moves by one CAS, and the CAS is read back before cleanup", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(read_back_|no_read_back|second_cas)/u.test(message)), []);
+});
+
+test("a delivery profile that hands the movement over has a branch, and it ends", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(delivery_|completion_unparked)/u.test(message)), []);
+});
+
+test("no stop in the Epic's integration segment resumes past the gates, into cleanup or done, or into Quick's integration", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => message.startsWith("resume_leak:")), []);
+});
+
+test("nor does a stop at human or at a step the Epic shares, and a reason it cannot record there is keyed away from it", () => {
+  // R9c-9: the Epic stands at human after most of its parks, and at intake,
+  // dispatch_narrow_review and the daemon's repair steps it shares with other
+  // workflows; the rows naming those steps are held to the same rule.
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(resume_leak:|epic_cannot_record_unkeyed)/u.test(message)), []);
+});
+
+test("no stop before the aggregate PASS resumes into acceptance, and only a stop past the apply re-enters the aggregate", () => {
+  // R9c-10 and R9c-11: accept_staging is entered only through the PASS edge,
+  // and aggregate_verify is re-entered only where the staging was applied and
+  // its receipts and lineage checked — the aggregate itself, acceptance, or
+  // the NOT_PASS remediation that keeps the staging the aggregate ran on.
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^resume_(skips_pass|reaggregates)/u.test(message)), []);
+});
+
+test("no planning-phase stop resumes into cleanup, done, the read-back, a target move or Quick's integration, and none is excused", () => {
+  // R9c-14 and R9c-15: the list of excused rows is empty, and stays so.
+  assert.deepEqual(KNOWN_PLANNING_RESUME_LEAKS, []);
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^resume_leak_(unnamed|stale|forbidden)/u.test(message)), []);
+});
+
+test("the planning-ref reasons resume only into the recorded helper-calling step", () => {
+  // R9c-14. Each parks at cleanup beside the Epic's planning steps, and under
+  // the union a stop at freeze_artifact could resume into cleanup and reach
+  // done with no Tickets, no aggregate PASS and no acceptance. Origin-scoped,
+  // a stop resumes into the step it stood at and into nothing else, and every
+  // target is a step the row names.
+  const graph = shipped();
+  for (const reason of ["planning_candidate_keepalive_invalid", "planning_ref_capability_missing", "planning_ref_foreign_movement"]) {
+    const row = graph.recovery.find((entry) => entry.reason === reason);
+    assert.equal(row.resume_scope, "origin", `${reason} is not origin-scoped`);
+    const named = new Set([...row.parks_at, ...(row.handled_at ?? [])]);
+    assert.deepEqual(row.resume_targets.filter((target) => !named.has(target)), [], `${reason} lists a target it does not name`);
+    assert.ok(!row.resume_targets.includes("done"), `${reason} still lists done`);
+  }
+});
+
+test("review_cap and artifact_mapping_required lend an Epic planning stop no Quick step, cleanup or done", () => {
+  // R9c-15. review_cap parks at narrow_review_join for the Planned cap and at
+  // record_code_verdict for the Quick and Ticket one; resuming along the edges
+  // out of the step the park stood at gives each its own recovery and neither
+  // the other's. artifact_mapping_required keeps the union, and done — lent
+  // only by Quick's invalidate_quick_classification — is gone from it.
+  const graph = shipped();
+  const epic = new Set(epicSteps());
+  // A Quick step: one the Quick or Ticket chain draws and the Planned chain does not.
+  const { edges: chains } = readChains(read("03-technical-plan.md"), new Set(graph.steps.map((step) => step.name)));
+  const drawnBy = (name) => new Set(chains.filter((edge) => edge.from === name || edge.to === name).map((edge) => edge.workflow));
+  const foreign = (name) => {
+    const drawn = drawnBy(name);
+    return ["cleanup", "done"].includes(name)
+      || ((drawn.has("autosk-quick") || drawn.has("autosk-ticket")) && !drawn.has("autosk-planned"));
+  };
+  const cap = graph.recovery.find((entry) => entry.reason === "review_cap");
+  assert.equal(cap.resume_scope, "origin_edges");
+  const mapping = graph.recovery.find((entry) => entry.reason === "artifact_mapping_required");
+  assert.equal(mapping.resume_scope, undefined, "artifact_mapping_required keeps the union");
+  const out = (name) => graph.transitions.filter((edge) => edge.from === name).map((edge) => edge.to);
+  const stands = [...cap.parks_at, ...(cap.handled_at ?? [])].filter((name) => epic.has(name));
+  assert.ok(stands.length > 0, "review_cap names an Epic step");
+  for (const stand of stands) {
+    const admitted = cap.resume_targets.filter((target) => target === stand || out(stand).includes(target));
+    assert.deepEqual(admitted.filter(foreign), [], `review_cap lends a Quick step, cleanup or done to ${stand}`);
+  }
+  assert.deepEqual(mapping.resume_targets.filter(foreign), [], "artifact_mapping_required lends a Quick step, cleanup or done to every step it names");
+});
+
+test("a boundary stop at an Epic step has its own row and resumes where the gates still hold", () => {
+  const errors = epicIntegrationErrors(shipped());
+  assert.deepEqual(errors.filter((message) => /^(epic_boundary_|shared_boundary_)/u.test(message)), []);
+  // The segment is the Epic's own: every step of it is one only the Planned chain draws.
+  const epic = new Set(epicSteps());
+  for (const name of INTEGRATION_SEGMENT) assert.ok(epic.has(name), `${name} is not an Epic step`);
+  for (const name of EPIC_STEPS) assert.ok(epic.has(name), `${name} is not an Epic step`);
+});
+
+test("the Epic boundary row claims the anchor and acceptance re-check only where a guard reads them", () => {
+  // R9c-16. integrate_staging's edges read the acceptance and the anchor;
+  // verify_target's read the post-CAS observation and deliver_staging's the
+  // completion predicate, so an origin resume into either re-checks neither.
+  // The row and the park table said all three did; risk 8 names the hand-off
+  // window that leaves.
+  const graph = shipped();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const reads = (from) => new Set(graph.transitions.filter((edge) => edge.from === from)
+    .flatMap((edge) => edge.guards.flatMap((id) => predicates.get(guards.get(id)?.predicate)?.reads ?? [])));
+  const rechecks = AFTER_ACCEPTANCE.filter((name) =>
+    reads(name).has("staging_acceptance") && reads(name).has("controlling_anchor_digest"));
+  assert.deepEqual(rechecks, ["integrate_staging"]);
+  const row = graph.recovery.find((entry) => entry.reason === "epic_boundary_invalid");
+  assert.doesNotMatch(row.required_state, /verify_target and deliver_staging that step's guards re-check/u);
+  assert.match(row.required_state, /re-checked at integrate_staging only/u);
+  const plan = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("| epic_boundary_invalid |")) ?? "";
+  assert.doesNotMatch(plan, /verify_target и deliver_staging, чьи guards заново сверяют/u);
+  assert.match(plan, /сверяются заново только в integrate_staging/u);
+  const risks = read("04-decisions.md").split("\n").find((line) => line.startsWith("8. (ADR-084)")) ?? "";
+  assert.match(risks, /deliver_staging[^\n]*окно/u, "risk 8 names the deliver_staging hand-off window");
+});
+
+test("the vocabulary's epic_step class is the set only the Planned chain draws", () => {
+  const found = vocabulary().step_classes.find((entry) => entry.class === "epic_step");
+  assert.ok(found, "the vocabulary declares no epic_step class");
+  assert.deepEqual([...found.members].sort(), epicSteps());
+});
+
+test("project_boundary_invalid is named at the deterministic steps that are not the Epic's", () => {
+  // R9c-12: the two boundary reasons are named at disjoint classes, so the
+  // table no longer names both at the 41 Epic steps.
+  const classes = new Map(vocabulary().step_classes.map((entry) => [entry.class, entry.members]));
+  const epic = new Set(classes.get("epic_step") ?? []);
+  const expected = (classes.get("deterministic_step") ?? []).filter((name) => !epic.has(name)).sort();
+  assert.deepEqual([...(classes.get("non_epic_deterministic_step") ?? [])].sort(), expected);
+  const entry = vocabulary().park_reasons.find((reason) => reason.code === "project_boundary_invalid");
+  assert.deepEqual(entry.named_at_classes, ["non_epic_deterministic_step"]);
+  const plan = read("03-technical-plan.md").split("\n");
+  const boundary = plan.find((line) => line.startsWith("| Project boundary/path guard не прошёл |")) ?? "";
+  assert.match(boundary, /epic_boundary_invalid/u, "03's generic boundary row names the Epic's reason");
+  const authority = plan.find((line) => line.startsWith("| authority_recovery | integration authorization file/head")) ?? "";
+  assert.match(authority, /acceptance_stale|autosk-planned/u, "03's authority-recovery row qualifies the Quick park for an Epic");
+});
+
+test("no resume lands after acceptance from a stop before it", () => {
+  const graph = shipped();
+  const errors = epicIntegrationErrors(graph);
+  assert.deepEqual(errors.filter((message) => message.startsWith("resume_skips_acceptance")), []);
+  // Not vacuous: a stop after acceptance does resume into the step it stopped
+  // at — the CAS after a conflict, the hand-off while its predicate is unmet.
+  for (const move of TERMINAL_MOVES) {
+    assert.ok(
+      graph.recovery.some((row) => row.resume_targets.includes(move) && row.parks_at.includes(move)),
+      `no row parked at ${move} resumes into it`,
+    );
+  }
+});
+
+test("the shipped graph departs from the Epic order in no way at all", () => {
+  assert.deepEqual(epicIntegrationErrors(shipped()), []);
+});
+
+// --- negative controls: each finding fires on the mutation that earns it -----
+
+/** A mutated copy of the shipped graph; the helper never reads the digest. */
+function mutated(mutate) {
+  const graph = structuredClone(shipped());
+  mutate(graph);
+  return graph;
+}
+
+/** An edge with the guards of an existing one, so only its endpoints change. */
+function edgeLike(graph, from, to, template) {
+  const source = graph.transitions.find((edge) => edge.from === template.from && edge.to === template.to);
+  assert.ok(source, `the shipped graph declares ${template.from} -> ${template.to}`);
+  graph.transitions.push({ id: `t_control_${from}_${to}`, from, to, priority: 999, guards: [...source.guards] });
+}
+
+const CONTROLS = [
+  {
+    name: "the old order put back: the target moves before the aggregate",
+    mutate: (graph) => edgeLike(graph, "aggregate_verify", "cleanup", PASS_GATE),
+    finding: /^old_order: aggregate_verify -> cleanup$/u,
+  },
+  {
+    name: "a staging that skips the aggregate straight into acceptance",
+    mutate: (graph) => edgeLike(graph, "apply_staging", "accept_staging", PASS_GATE),
+    finding: /^bypasses_aggregate: integrate_staging /u,
+  },
+  {
+    name: "an aggregate PASS that moves the target with nobody accepting",
+    mutate: (graph) => edgeLike(graph, "aggregate_verify", "integrate_staging", PASS_GATE),
+    finding: /^bypasses_acceptance: integrate_staging /u,
+  },
+  {
+    name: "an acceptance an agent may give",
+    mutate: (graph) => {
+      const gate = graph.transitions.find((edge) => edge.from === "accept_staging" && edge.to === "integrate_staging");
+      for (const id of gate.guards) graph.guards.find((guard) => guard.id === id).authority = { actor: "agent" };
+    },
+    finding: /^acceptance_not_human: accept_staging -> integrate_staging$/u,
+  },
+  {
+    name: "an acceptance that does not read the tree it accepts",
+    mutate: (graph) => {
+      const gate = graph.transitions.find((edge) => edge.from === "accept_staging" && edge.to === "integrate_staging");
+      for (const id of gate.guards) {
+        const predicate = graph.predicates.find((entry) => entry.id === graph.guards.find((guard) => guard.id === id).predicate);
+        predicate.reads = predicate.reads.filter((token) => token !== "staging_tree_oid");
+      }
+    },
+    finding: /^gate_blind: accept_staging -> integrate_staging does not read staging_tree_oid$/u,
+  },
+  {
+    name: "a CAS that goes to cleanup without being read back",
+    mutate: (graph) => edgeLike(graph, "integrate_staging", "cleanup", { from: "verify_target", to: "cleanup" }),
+    finding: /^no_read_back: integrate_staging -> cleanup$/u,
+  },
+  {
+    name: "a stop before acceptance that resumes into the CAS",
+    mutate: (graph) => {
+      graph.recovery.find((row) => row.reason === "delta_stale").resume_targets.push("integrate_staging");
+    },
+    finding: /^resume_skips_acceptance: delta_stale resumes into integrate_staging from apply_staging$/u,
+  },
+  {
+    name: "the Epic's boundary row lends its targets to every step it names",
+    mutate: (graph) => { delete graph.recovery.find((row) => row.reason === "epic_boundary_invalid").resume_scope; },
+    finding: /^resume_leak: epic_boundary_invalid resumes into .*cleanup.* from /u,
+  },
+  {
+    name: "the shared boundary row lends Quick's integration and cleanup to an Epic standing at human",
+    mutate: (graph) => { delete graph.recovery.find((row) => row.reason === "project_boundary_invalid").resume_scope; },
+    finding: /^resume_leak: project_boundary_invalid resumes into accept, .*cleanup.*integrate.* from .*human/u,
+  },
+  {
+    name: "a stop at human that resumes into cleanup",
+    mutate: (graph) => { graph.recovery.find((row) => row.reason === "no_external_panel_lead").resume_targets.push("cleanup"); },
+    finding: /^resume_leak: no_external_panel_lead resumes into cleanup, .* from .*human/u,
+  },
+  {
+    name: "a stop in the segment that resumes into Quick's integrate",
+    mutate: (graph) => { graph.recovery.find((row) => row.reason === "aggregate_binding_void").resume_targets.push("integrate"); },
+    finding: /^resume_leak: aggregate_binding_void resumes into .*integrate/u,
+  },
+  {
+    name: "an anchor stop in the segment that resumes one unguarded edge before done",
+    mutate: (graph) => { graph.recovery.find((row) => row.reason === "blocked_anchor").resume_targets.push("invalidate_quick_classification"); },
+    finding: /^resume_leak: blocked_anchor resumes into invalidate_quick_classification -> done /u,
+  },
+  {
+    name: "a stop before the aggregate PASS that resumes into acceptance",
+    mutate: (graph) => { graph.recovery.find((row) => row.reason === "delta_stale").resume_targets.push("accept_staging"); },
+    finding: /^resume_skips_pass: delta_stale resumes into accept_staging from apply_staging$/u,
+  },
+  {
+    name: "a stop before the apply that re-enters the aggregate",
+    mutate: (graph) => { graph.recovery.find((row) => row.reason === "receipt_missing").resume_targets.push("aggregate_verify"); },
+    finding: /^resume_reaggregates: receipt_missing resumes into aggregate_verify from apply_staging$/u,
+  },
+  {
+    name: "a reason excused at the shared steps whose producing edge stops reading the workflow",
+    mutate: (graph) => {
+      for (const predicate of graph.predicates) {
+        if (/нет reviewer семьи/u.test(predicate.description)) predicate.reads = predicate.reads.filter((token) => token !== "workflow");
+      }
+    },
+    finding: /^epic_cannot_record_unkeyed: no_external_reviewer$/u,
+  },
+  {
+    name: "a row named as a planning leak that does not leak is caught as stale",
+    mutate: () => {},
+    options: { known: ["planning_ref_capability_missing"] },
+    finding: /^resume_leak_stale: planning_ref_capability_missing /u,
+  },
+  {
+    name: "a planning-ref row that lends its targets again reaches cleanup and done",
+    mutate: (graph) => { delete graph.recovery.find((row) => row.reason === "planning_ref_capability_missing").resume_scope; },
+    finding: /^resume_leak_unnamed: planning_ref_capability_missing resumes into cleanup, cleanup -> cleanup, cleanup -> done/u,
+  },
+  {
+    name: "naming a planning row does not excuse its landing on cleanup",
+    mutate: (graph) => { delete graph.recovery.find((row) => row.reason === "planning_candidate_keepalive_invalid").resume_scope; },
+    options: { known: ["planning_candidate_keepalive_invalid"] },
+    finding: /^resume_leak_forbidden: planning_candidate_keepalive_invalid resumes into cleanup/u,
+  },
+  {
+    name: "review_cap lending its Quick targets to the Planned stop again",
+    mutate: (graph) => { delete graph.recovery.find((row) => row.reason === "review_cap").resume_scope; },
+    finding: /^resume_leak_unnamed: review_cap resumes into invalidate_quick_classification -> done from narrow_review_join/u,
+  },
+  {
+    name: "artifact_mapping_required listing done again",
+    mutate: (graph) => { graph.recovery.find((row) => row.reason === "artifact_mapping_required").resume_targets.push("done"); },
+    finding: /^resume_leak_unnamed: artifact_mapping_required resumes into done from /u,
+  },
+  {
+    name: "a delivery hand-off that moves the branch after all",
+    mutate: (graph) => edgeLike(graph, "deliver_staging", "integrate_staging", { from: "deliver_staging", to: "cleanup" }),
+    finding: /^delivery_moves_target: deliver_staging -> integrate_staging$/u,
+  },
+];
+
+for (const control of CONTROLS) {
+  test(`negative control — ${control.name}`, () => {
+    const clean = epicIntegrationErrors(shipped());
+    assert.ok(!clean.some((message) => control.finding.test(message)), `the shipped graph already carries ${control.finding}`);
+    const errors = epicIntegrationErrors(mutated(control.mutate), control.options);
+    assert.ok(
+      errors.some((message) => control.finding.test(message)),
+      `expected ${control.finding}, got:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  });
+}
+
+// --- review findings on the first pass (R9c-2, R9c-3, R9c-5, R9c-1's forward half, R9c-6) ---
+
+/** The guards and their predicates' reads on the edges from one step to another. */
+function edgeReads(graph, from, to, reason) {
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  return graph.transitions
+    .filter((edge) => edge.from === from && edge.to === to)
+    .filter((edge) => reason === undefined || edge.guards.some((id) => guards.get(id)?.park_reason === reason))
+    .map((edge) => ({
+      edge,
+      reads: new Set(edge.guards.flatMap((id) => predicates.get(guards.get(id)?.predicate)?.reads ?? [])),
+      says: edge.guards.map((id) => predicates.get(guards.get(id)?.predicate)?.description ?? "").join(" "),
+    }));
+}
+
+test("an authorization that lapses before the CAS makes the acceptance stale where the CAS would run", () => {
+  // R9c-2. integrateApproved re-resolves the authorization under the mutex; an
+  // expired, revoked, replaced or head-mismatched one is refused there, and the
+  // edge that classifies the refusal is integrate_staging's acceptance_stale
+  // park, which resumes at accept_staging for a new acceptance.
+  const graph = shipped();
+  const [stale] = edgeReads(graph, "integrate_staging", "human", "acceptance_stale");
+  assert.ok(stale, "integrate_staging parks acceptance_stale");
+  assert.ok(stale.reads.has("integration_authorization"), `reads ${[...stale.reads].join(", ")}`);
+  assert.match(stale.says, /expired|истек/u);
+  const row = graph.recovery.find((entry) => entry.reason === "acceptance_stale");
+  assert.ok(row.parks_at.includes("integrate_staging"));
+  assert.deepEqual([...row.resume_targets].sort(), ["accept_staging", "human"]);
+  // And the prose says the same for an Epic: the Quick park is not the Epic's.
+  const contract = read("docs/contracts/integration-authorization.md");
+  const section5 = contract.slice(contract.indexOf("## 5."), contract.indexOf("## 6."));
+  assert.match(section5, /acceptance_stale/u);
+  const architecture = read("02-architecture.md").split("\n").find((line) => line.startsWith("`IntegrationAuthorizationRecord` authoritative source")) ?? "";
+  assert.match(architecture, /acceptance_stale/u);
+  const plan = read("03-technical-plan.md");
+  assert.ok(!/makes the auto-policy acceptance stale at accept_staging/u.test(plan), "03 still places the stale acceptance at accept_staging");
+});
+
+test("a staging that moved after PASS is re-applied before it is re-aggregated", () => {
+  // R9c-3. The move is one nobody recorded, so the staging goes back through
+  // apply_staging's receipt and lineage check rather than straight into a new
+  // aggregate over a commit nobody accounted for.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "staging_moved_after_pass");
+  assert.deepEqual([...row.resume_targets].sort(), ["apply_staging", "human"]);
+  // R9c-11: at aggregate_verify too, the same move is the same reason.
+  assert.deepEqual([...row.parks_at].sort(), ["accept_staging", "aggregate_verify"]);
+  for (const from of ["accept_staging", "aggregate_verify"]) {
+    const [back] = edgeReads(graph, from, "apply_staging");
+    assert.ok(back, `${from} declares the resume edge into apply_staging`);
+    assert.ok(back.reads.has("integration_receipts"), `${from} -> apply_staging does not read integration_receipts`);
+  }
+  const [void_] = edgeReads(graph, "aggregate_verify", "human", "aggregate_binding_void");
+  for (const token of ["staging_commit_oid", "staging_tree_oid"]) {
+    assert.ok(!void_.reads.has(token), `aggregate_binding_void at aggregate_verify still reads ${token}: a moved staging is staging_moved_after_pass`);
+  }
+  const [onward] = edgeReads(graph, "apply_staging", "aggregate_verify");
+  for (const token of ["integration_receipts", "recorded_target_base"]) {
+    assert.ok(onward.reads.has(token), `apply_staging -> aggregate_verify does not read ${token}`);
+  }
+});
+
+test("the CAS edge reads the acceptance and the anchor it acts under", () => {
+  // R9c-5. The pre-CAS checks are in the graph, not only in the step's prose.
+  const [cas] = edgeReads(shipped(), "integrate_staging", "verify_target");
+  for (const token of ["staging_acceptance", "controlling_anchor_digest", "cas_receipt", "recorded_target_base"]) {
+    assert.ok(cas.reads.has(token), `integrate_staging -> verify_target does not read ${token}`);
+  }
+});
+
+test("every edge into Quick's integration is guarded by the workflow the task was created in", () => {
+  // The forward half of R9c-1. Planned reaches record_code_verdict and
+  // record_editorial_exemption through review steps it shares with Quick and
+  // Ticket, and from there the graph draws edges into Quick's accept and
+  // integrate. What stops an Epic there is a guard reading the task's
+  // creation-bound workflow, and every such edge must carry one.
+  const graph = shipped();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const unguarded = [];
+  for (const edge of graph.transitions) {
+    if (!QUICK_INTEGRATION.includes(edge.to) || QUICK_INTEGRATION.includes(edge.from)) continue;
+    const bound = edge.guards.some((id) => {
+      const predicate = predicates.get(guards.get(id)?.predicate);
+      return predicate?.reads.includes("workflow") && /workflow=autosk-quick/u.test(predicate.description);
+    });
+    if (!bound) unguarded.push(`${edge.id} ${edge.from} -> ${edge.to}`);
+  }
+  assert.deepEqual(unguarded, []);
+});
+
+test("the graph contracts and the validator cite only ids the document declares", () => {
+  // R9c-6: ids deleted with the per-Ticket order must not be cited as present.
+  const graph = shipped();
+  const declared = new Set([
+    ...graph.transitions.map((edge) => edge.id),
+    ...graph.guards.map((guard) => guard.id),
+    ...graph.predicates.map((entry) => entry.id),
+  ]);
+  const cited = [];
+  for (const relative of ["docs/contracts/workflow-graph.md", "docs/contracts/workflow-factory.md", "scripts/validate-workflow-graph.mjs"]) {
+    for (const [id] of read(relative).matchAll(/\b(?:t|guard|cond)_\d{3}\b/gu)) {
+      if (!declared.has(id)) cited.push(`${relative}: ${id}`);
+    }
+  }
+  assert.deepEqual([...new Set(cited)], []);
+});
+
+// --- the park reasons the order needs are the graph's own -------------------
+
+/** A contract's closed refusal set, read the way the vocabulary validator reads it. */
+function closedSet(relative) {
+  const text = read(relative);
+  const inline = /Closed set[^:]*:\s*(.+?)(?:\n\n|\.\s*\n)/su.exec(text);
+  return [...(inline?.[1] ?? "").matchAll(/`([a-z][a-z0-9_]{4,})`/gu)].map((match) => match[1]);
+}
+
+test("epic-staging's park reasons and the profile's completion predicate are park reasons of the graph", () => {
+  const graph = shipped();
+  const produced = producedAt(graph);
+  const rows = new Set(graph.recovery.map((row) => row.reason));
+  const owned = new Map(vocabulary().park_reasons.map((entry) => [entry.code, entry]));
+  const missing = [];
+  const staging = closedSet("docs/contracts/epic-staging.md");
+  assert.equal(staging.length, 11, "epic-staging closes eleven classes");
+  const expected = [
+    ...staging.filter((code) => code !== "aggregate_failed").map((code) => [code, "docs/contracts/epic-staging.md"]),
+    ["completion_predicate_unmet", "docs/contracts/delivery-profile.md"],
+    ["unsupported_integration_mode", "docs/contracts/delivery-profile.md"],
+    ["delta_stale", "docs/contracts/approved-delta.md"],
+  ];
+  for (const [code, owner] of expected) {
+    if (!produced.has(code)) missing.push(`${code}: the graph parks it nowhere`);
+    if (!rows.has(code)) missing.push(`${code}: no recovery row`);
+    if (owned.get(code)?.closed_by !== owner) missing.push(`${code}: the vocabulary does not record ${owner} as its owner`);
+  }
+  // aggregate_failed is the one class with no park reason of its own: the graph
+  // already stops a failed aggregate as aggregate_verify_failed, and the
+  // contract says so rather than leaving two names for one stop.
+  if (!produced.get("aggregate_verify_failed")?.has("aggregate_verify")) {
+    missing.push("aggregate_failed: aggregate_verify does not park aggregate_verify_failed");
+  }
+  if (!/`aggregate_failed`[^\n]*`aggregate_verify_failed`/u.test(read("docs/contracts/epic-staging.md").split("## 8.")[1] ?? "")) {
+    missing.push("aggregate_failed: epic-staging §8 does not say which graph reason carries it");
+  }
+  assert.deepEqual(missing, []);
+});
+
+// --- one target CAS, not a completed prefix ------------------------------------
+
+const PREFIX_WORDING = /completed[- ]prefix|remaining (?:ref )?transitions|ordered ref transitions|receipt\/prefix/iu;
+
+test("neither the graph nor core flows §7 speaks of a completed prefix or remaining transitions", () => {
+  const graph = shipped();
+  const said = [
+    ...graph.predicates.map((entry) => [`predicate ${entry.id}`, entry.description]),
+    ...graph.recovery.map((row) => [`recovery ${row.reason}`, row.required_state]),
+    ...graph.views.flatMap((view) => view.rows.map((row, index) => [`${view.id} row ${index + 1}`, row.cells.join(" | ")])),
+  ].filter(([, text]) => PREFIX_WORDING.test(text)).map(([where]) => where);
+  const flows = read("01-core-flows.md");
+  const section = flows.slice(flows.indexOf("## 7. "), flows.indexOf("## 8. "));
+  if (PREFIX_WORDING.test(section)) said.push("01-core-flows.md §7");
+  assert.deepEqual(said, []);
+  assert.ok(section.includes("один ref transition"), "core flows §7 names the one ref transition the record authorizes");
+});
+
+// --- the host already does this; the graph now asks it to --------------------
+
+const execFileAsync = promisify(execFile);
+
+const gitIn = (root) => async (args, { cwd } = {}) =>
+  execFileAsync("git", args, {
+    cwd: cwd ?? root,
+    env: {
+      PATH: process.env.PATH,
+      HOME: root,
+      GIT_AUTHOR_NAME: "autosk test",
+      GIT_AUTHOR_EMAIL: "test@autosk.invalid",
+      GIT_COMMITTER_NAME: "autosk test",
+      GIT_COMMITTER_EMAIL: "test@autosk.invalid",
+    },
+  }).then(
+    ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+    (error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? String(error) }),
+  );
+
+const runner = async (command, args, { cwd, env }) =>
+  execFileAsync(command, args, { cwd, env: { PATH: process.env.PATH, ...env } }).then(
+    ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
+    (error) => ({
+      code: error.code === "ENOENT" ? null : (typeof error.code === "number" ? error.code : 1),
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? String(error),
+    }),
+  );
+
+test("two individually green Tickets that regress together leave the target where it was", async (t) => {
+  // Characterization of the host the graph now routes through: each Ticket
+  // alone passes the check, the two together fail it, and the aggregate on the
+  // private staging refuses the CAS — so the user's branch never holds the
+  // combination. Under the old order the first Ticket was already on it.
+  const root = await mkdtemp(path.join(tmpdir(), "autosk-epic-order-"));
+  t.after(async () => {
+    await execFileAsync("chmod", ["-R", "u+w", root]).catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  });
+  const git = gitIn(root);
+  await git(["init", "--quiet", "--initial-branch=main"]);
+  const check = "#!/bin/sh\nif [ \"$(cat a.txt)\" = new ] && [ \"$(cat b.txt)\" = new ]; then exit 1; fi\nexit 0\n";
+  await writeFile(path.join(root, "check.sh"), check, { mode: 0o755 });
+  await writeFile(path.join(root, "a.txt"), "old\n");
+  await writeFile(path.join(root, "b.txt"), "old\n");
+  await git(["add", "check.sh", "a.txt", "b.txt"]);
+  await git(["commit", "--quiet", "-m", "base"]);
+  const base = (await git(["rev-parse", "HEAD"])).stdout.trim();
+
+  const commit = async (parent, changes, message) => {
+    await git(["read-tree", parent]);
+    for (const [file, content] of changes) {
+      await writeFile(path.join(root, ".blob"), `${content}\n`);
+      const blob = (await git(["hash-object", "-w", ".blob"])).stdout.trim();
+      await git(["update-index", "--cacheinfo", `100644,${blob},${file}`]);
+    }
+    const tree = (await git(["write-tree"])).stdout.trim();
+    const oid = (await git(["commit-tree", tree, "-p", parent, "-m", message])).stdout.trim();
+    await git(["read-tree", base]);
+    return { oid, tree };
+  };
+  const identity = (commitOid, tree, tickets) => ({
+    project_identity: `sha256:${"0".repeat(58)}`,
+    epic_id: "epic-order",
+    staging_commit_oid: commitOid,
+    staging_tree_oid: tree,
+    receipts: tickets.map((ticket_id) => ({ ticket_id })),
+    aggregate: { verification_config_digest: "c".repeat(64), instruction_lock_digest: "d".repeat(64) },
+  });
+  const checks = [{ id: "unit", command: "./check.sh" }];
+
+  // Each Ticket is green on its own.
+  const first = await commit(base, [["a.txt", "new"]], "T-1");
+  const second = await commit(base, [["b.txt", "new"]], "T-2");
+  for (const [ticket, alone] of [["T-1", first], ["T-2", second]]) {
+    const verdict = await verifyAggregate({
+      git, run: runner, state: identity(alone.oid, alone.tree, [ticket]), checks, dir: path.join(root, `alone-${ticket}`),
+    });
+    assert.equal(verdict.outcome, "pass", `${ticket} is green alone`);
+  }
+
+  // Both applied to the private staging: the aggregate fails.
+  await createStaging(git, { epicId: "epic-order", base });
+  const together = await commit(first.oid, [["b.txt", "new"]], "T-2 on staging");
+  assert.equal((await git(["update-ref", stagingRef("epic-order"), together.oid, base])).code, 0);
+  const state = identity(together.oid, together.tree, ["T-1", "T-2"]);
+  const aggregate = await verifyAggregate({ git, run: runner, state, checks, dir: path.join(root, "aggregate") });
+  assert.equal(aggregate.outcome, "fail");
+  assert.equal(aggregate.environment_outcome, "ok", "a regression is a product failure, not a machine that could not run");
+  assert.ok(aggregateErrors({ ...state, aggregate }).some((error) => error.reason === "aggregate_failed"));
+
+  // The CAS is refused, and the target is untouched.
+  const staged = { ...state, recorded_target_base: base, aggregate, post_cas: { expected_new_oid: together.oid } };
+  const observed = await observeTarget(git, { ref: "refs/heads/main", recorded: [base] });
+  const admission = casAdmission(staged, observed, ["T-1", "T-2"]);
+  assert.equal(admission.decision, "refused");
+  assert.ok(admission.reasons.some((entry) => entry.reason === "aggregate_failed"));
+  assert.equal(await readRef(git, "refs/heads/main"), base);
+
+  // And the graph stops the same failure where the host does: the aggregate's
+  // NOT_PASS edges never lead into acceptance or a target movement.
+  const graph = shipped();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const failing = graph.transitions.filter((edge) =>
+    edge.from === "aggregate_verify" && edge.guards.some((id) => guards.get(id)?.park_reason === "aggregate_verify_failed"));
+  assert.ok(failing.length > 0, "aggregate_verify parks a failed aggregate");
+  for (const edge of failing) assert.ok(!["accept_staging", ...AFTER_ACCEPTANCE].includes(edge.to), `${edge.id} -> ${edge.to}`);
+});

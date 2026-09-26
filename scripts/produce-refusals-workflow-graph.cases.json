@@ -128,7 +128,7 @@
     "class": "graph_recovery_missing",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery/80" }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery/93" }] },
     "note": "drops the tickets_manifest_stale row; its reason is still produced by guard_181"
   },
   {
@@ -141,35 +141,35 @@
     "class": "graph_recovery_terminal_resume",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/10/parks_at/-", "value": "done" }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/13/parks_at/-", "value": "done" }] },
     "note": "arena_candidate_failed's row already permits resume into done; parking it there makes a terminal step both stand and target"
   },
   {
     "class": "graph_recovery_parks_at_incomplete",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery/80/parks_at/1" }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "remove", "path": "/recovery/93/parks_at/1" }] },
     "note": "removes freeze_artifact from the row's parks_at while edge t_175 still produces the reason there"
   },
   {
     "class": "graph_recovery_parks_at_unproduced",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/parks_at/-", "value": "implement" }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/93/parks_at/-", "value": "implement" }] },
     "note": "lists an agent step where nothing in the graph produces the reason"
   },
   {
     "class": "graph_recovery_handled_at_parks",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/handled_at", "value": ["freeze_artifact"] }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/93/handled_at", "value": ["freeze_artifact"] }] },
     "note": "freeze_artifact produces the reason (t_175); calling it handled-only is refused"
   },
   {
     "class": "graph_recovery_lists_overlap",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/parks_at/-", "value": "human" }, { "op": "add", "path": "/recovery/80/handled_at", "value": ["human"] }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/93/parks_at/-", "value": "human" }, { "op": "add", "path": "/recovery/93/handled_at", "value": ["human"] }] },
     "note": "the same step in both lists of one row — the status kind keeps the unproduced check silent so overlap is the code that fires"
   },
   {
@@ -229,7 +229,7 @@
     "class": "resume_target_not_permitted",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/resume_targets/-", "value": "done" }] },
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/93/resume_targets/-", "value": "done" }] },
     "note": "tickets_manifest_stale's row permits done, and no edge from its parks_at or handled_at steps reaches done"
   },
   {

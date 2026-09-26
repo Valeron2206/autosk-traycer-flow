@@ -11,20 +11,11 @@
     "cccccccccccccccccccccccccccccccccccccccc",
     "dddddddddddddddddddddddddddddddddddddddd"
   ],
-  "ordered_ref_transitions": [
-    {
-      "index": 0,
-      "from_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "to_oid": "cccccccccccccccccccccccccccccccccccccccc"
-    },
-    {
-      "index": 1,
-      "from_oid": "cccccccccccccccccccccccccccccccccccccccc",
-      "to_oid": "dddddddddddddddddddddddddddddddddddddddd"
-    }
-  ],
+  "ref_transition": {
+    "from_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "to_oid": "ffffffffffffffffffffffffffffffffffffffff"
+  },
   "final_tree_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-  "remaining_start_index": 2,
   "integration_plan_hash": "1111111111111111111111111111111111111111111111111111111111111111",
   "controlling_anchor_digest": "2222222222222222222222222222222222222222222222222222222222222222",
   "classifier_proof_hash": "3333333333333333333333333333333333333333333333333333333333333333",

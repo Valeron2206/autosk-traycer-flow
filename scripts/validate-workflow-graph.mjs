@@ -447,9 +447,11 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   //
   // A status is carried by a step that drives it or by an entry in `external_operations`,
   // and never by both. `human` and `done` are carried by steps. `cancel` was carried by
-  // nothing: `cond_272` said the outcome of an unresolved foreign movement is "human or
-  // cancel", the graph drew the human half as `t_367` and the cancel half as nothing at
-  // all, and the views described a status operation without naming what performs it — so a
+  // nothing: the Epic's per-Ticket recovery edge (deleted with that order, ADR-084) said the
+  // outcome of an unresolved foreign movement is "human or cancel", the graph drew only the
+  // human half — as it still does, by `t_481` for Quick and `t_567` for the Epic — and the
+  // cancel half as nothing at all, and the views described a status operation without
+  // naming what performs it — so a
   // task under that reason stood with an exit the document promised and could not
   // execute. Both halves are refused here because either one alone is a document that
   // contradicts itself: a status with no carrier promises what nothing performs, and a
@@ -828,6 +830,15 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
         errors.push(
           `resume_target_not_permitted: ${row.reason} resumes at ${target}, ` +
             `which is not a declared edge from ${named.join(" or ")}`,
+        );
+      }
+      // An origin-scoped row resumes only into the step its park stood at, and a
+      // park stands only at a step its row names, so a target outside them is one
+      // no resume could ever reach — a promise the row cannot keep.
+      if (row.resume_scope === "origin" && !named.includes(target)) {
+        errors.push(
+          `resume_target_not_permitted: ${row.reason} resumes by origin at ${target}, ` +
+            "which is not a step its row names, so no park could have stood there",
         );
       }
     }

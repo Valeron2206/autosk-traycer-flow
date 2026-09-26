@@ -339,6 +339,21 @@ export function permitsResume(state, reason, target, park = {}, visits = {}) {
       `${reason} permits ${row.resume_targets.join(", ")} and not ${target}`,
     );
   }
+  // A scoped row lends none of its targets across its steps. Under `origin`
+  // the one it permits is the step the park recorded as its origin, which the
+  // park record carries because recordPark writes it before the reason; under
+  // `origin_edges` also a step an edge out of that origin reaches. A park with
+  // no origin recorded has none, and no edge to go by, so it permits nothing.
+  if (
+    row.resume_scope !== undefined &&
+    park.origin !== target &&
+    !(row.resume_scope === "origin_edges" && (state.outgoing.get(park.origin) ?? []).some((edge) => edge.to === target))
+  ) {
+    throw new GraphRefusal(
+      "resume_target_not_permitted",
+      `${reason} resumes only from the step its park stood at (${park.origin ?? "none recorded"}), not into ${target}`,
+    );
+  }
   // A target the row names among its own steps is the recovery surface itself —
   // resuming INTO a handled_at step is how the reason gets dealt with — so it
   // owes no further evidence. Anything else is permitted through an edge out of
@@ -405,7 +420,7 @@ export function admit(state, context, to, evaluate) {
   // where a flow starts, and starting is not continuing.
   //
   // Measured rather than assumed, because admitting entries could have re-opened the
-  // bypass: of the eighty-five recovery rows exactly one names an entry step among
+  // bypass: of the ninety-nine recovery rows exactly one names an entry step among
   // its targets — one row names `implement` — and that row permits
   // it while the task is parked anyway, so nothing is reachable here that was not
   // reachable before.
@@ -659,10 +674,10 @@ async function run(state, step, work, deciding, ctx) {
     // all, and a resume the reason permits was refused because no reason was
     // there.
     if (parks(state, decision.take.to)) {
-      await recordPark(ctx, parkReasonFor(state, decision.take));
-    } else if (park?.reason !== undefined && !rowNames(row, decision.take.to)) {
-      // A take to a step the reason's row does not name leaves the park
-      // behind, and the reason that described it has to leave with it: until
+      await recordPark(ctx, parkReasonFor(state, decision.take), step.name);
+    } else if (park?.reason !== undefined && !onSurface(row, park, decision.take.to)) {
+      // A take off the reason's surface leaves the park behind, and the
+      // reason that described it has to leave with it — the origin too: until
       // this ran, the record kept saying why a stop that is over happened, and
       // a later engine-side park — which writes no reason of its own — found
       // one already recorded, closing the no-permission re-entry operation 2
@@ -679,7 +694,7 @@ async function run(state, step, work, deciding, ctx) {
     await ctx.transit({ step: decision.take.to });
     return;
   }
-  await recordPark(ctx, decision.park);
+  await recordPark(ctx, decision.park, step.name);
   await ctx.transit({ status: "human" });
 }
 
@@ -690,13 +705,19 @@ export function parks(state, name) {
 }
 
 /**
- * Whether `name` is a step the recovery row names — the surface the reason's
- * episode runs on, `parks_at` and `handled_at` together, the same union
- * operation 2 reads as `named`. The row may be absent: a reason with no
- * recovery row names no surface at all.
+ * Whether `name` is on the surface the reason's episode runs on. For a union
+ * row that is every step the row names — `parks_at` and `handled_at` together,
+ * the same union operation 2 reads as `named`. A scoped row permits nothing
+ * lent across its steps, so its surface is the park's origin alone: a take
+ * anywhere else leaves the park, and a reason and origin kept past it would
+ * later refuse re-entry where an engine park stopped the task and admit only
+ * the old origin behind it. The row may be absent: a reason with no recovery
+ * row names no surface at all.
  */
-function rowNames(row, name) {
-  return row !== undefined && (row.parks_at.includes(name) || (row.handled_at ?? []).includes(name));
+function onSurface(row, park, name) {
+  if (row === undefined) return false;
+  if (row.resume_scope !== undefined) return name === park.origin;
+  return row.parks_at.includes(name) || (row.handled_at ?? []).includes(name);
 }
 
 /**
@@ -737,41 +758,46 @@ export function nameable(state, edge) {
 }
 
 /**
- * Records why the flow parked, before it parks.
+ * Records where the flow parked and why, before it parks.
  *
  * A park whose reason is not recorded cannot be resumed: operation 2 reads
  * permission off the reason, so losing it would leave the task parked with
  * nothing able to say where it may go. That is why a failed write throws instead
- * of parking anyway.
+ * of parking anyway. The origin — the step the flow stood at — is what an
+ * origin-scoped reason resumes into, and it is written first: a reason written
+ * over an origin that did not land would pair with an earlier park's origin.
  */
-async function recordPark(ctx, reason) {
-  const result = await ctx.exec(["autosk", "metadata", "set", ctx.tasks.currentId, "park.reason", reason], {
-    cwd: ctx.projectRoot,
-    env: { ...process.env, AUTOSK_CWD: ctx.projectRoot, AUTOSK_SESSION_TOKEN: ctx.sessionToken },
-  });
-  if (result.code !== 0) {
-    throw new Error(`recording park reason ${reason} failed with ${result.code}: ${result.stderr}`);
+async function recordPark(ctx, reason, origin) {
+  for (const [leaf, value] of [["park.origin", origin], ["park.reason", reason]]) {
+    const result = await ctx.exec(["autosk", "metadata", "set", ctx.tasks.currentId, leaf, value], {
+      cwd: ctx.projectRoot,
+      env: { ...process.env, AUTOSK_CWD: ctx.projectRoot, AUTOSK_SESSION_TOKEN: ctx.sessionToken },
+    });
+    if (result.code !== 0) {
+      throw new Error(`recording ${leaf.replace(".", " ")} ${value} failed with ${result.code}: ${result.stderr}`);
+    }
   }
 }
 
 /**
- * Removes the reason once the flow has left the park it described.
+ * Removes the reason and its origin once the flow has left the park they described.
  *
- * `metadata unset` deletes the leaf and prunes the parents it leaves empty, so
- * `park.receipts` — the sibling the receipt write lives under — is untouched:
- * the receipts carry their own watermark and re-scope themselves, which is why
- * they can outlive the reason. A failed write throws for the same reason
- * recordPark's does: a reason that could not be cleared is a stop the record
- * still describes, and moving anyway would park the next stop under a reason
- * that is not its own.
+ * `metadata unset` deletes the leaves it is given in one write and prunes the
+ * parents they leave empty, so `park.receipts` — the sibling the receipt write
+ * lives under — is untouched: the receipts carry their own watermark and
+ * re-scope themselves, which is why they can outlive the reason. The origin
+ * goes with the reason: left behind, it would be the origin a later reason
+ * pairs with. A failed write throws for the same reason recordPark's does: a
+ * reason that could not be cleared is a stop the record still describes, and
+ * moving anyway would park the next stop under a reason that is not its own.
  */
 async function clearParkReason(ctx) {
-  const result = await ctx.exec(["autosk", "metadata", "unset", ctx.tasks.currentId, "park.reason"], {
+  const result = await ctx.exec(["autosk", "metadata", "unset", ctx.tasks.currentId, "park.reason", "park.origin"], {
     cwd: ctx.projectRoot,
     env: { ...process.env, AUTOSK_CWD: ctx.projectRoot, AUTOSK_SESSION_TOKEN: ctx.sessionToken },
   });
   if (result.code !== 0) {
-    throw new Error(`clearing park reason failed with ${result.code}: ${result.stderr}`);
+    throw new Error(`clearing park reason and origin failed with ${result.code}: ${result.stderr}`);
   }
 }
 

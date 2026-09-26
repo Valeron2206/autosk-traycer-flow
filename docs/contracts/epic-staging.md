@@ -95,6 +95,8 @@ A retry of the final CAS is idempotent: if the target already holds the recorded
 
 Closed set: `aggregate_failed`, `aggregate_binding_void`, `staging_moved_after_pass`, `target_moved`, `foreign_target_movement`, `acceptance_missing`, `acceptance_stale`, `cas_conflict`, `post_cas_mismatch`, `environment_failure`, `receipt_missing`.
 
+In the workflow graph, `aggregate_failed` is the one class with no park reason of its own: a failed aggregate stops at `aggregate_verify` as `aggregate_verify_failed`, the reason the resume contract in `03-technical-plan.md` §7 already owns and whose recovery opens the remediation choice, so a second name for the same stop would give a caller two codes to branch on for one condition. The other ten are park reasons of the graph under the names above, each with its recovery row: `apply_staging` stops with `receipt_missing` (and with `approved-delta.md`'s `delta_stale`), `aggregate_verify` with `environment_failure` and `aggregate_binding_void`, `accept_staging` with `staging_moved_after_pass`, `aggregate_binding_void`, `acceptance_stale` and `acceptance_missing`, `integrate_staging` — the one target CAS — with `acceptance_stale`, `target_moved`, `foreign_target_movement` and `cas_conflict`, and `verify_target`, the read-back after it, with `post_cas_mismatch`.
+
 ## 9. Required implementation tests
 
 - two individually green Tickets that regress in aggregate;
