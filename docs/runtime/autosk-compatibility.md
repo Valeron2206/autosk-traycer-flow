@@ -69,7 +69,8 @@ apply in the listed order, each producing the tree beside it:
 | `0047-registry-swap-records-served-distributions.patch` | `75589888700972cc39cd1aab8baa978028e56d22` |
 | `0048-registration-refuses-mistyped-fields.patch` | `e2fc5e40d34b2b0a7e7eb3c15995f635f5986857` |
 | `0049-mistyped-agent-hooks-are-ignored.patch` | `16712dc4197f31444262405c824c984d9df6fee8` |
-| `0050-hook-reads-that-throw-are-contained.patch` | `3f3051a76a9a94858c910411df645d7d7ee2cb40` — the current `result_tree` |
+| `0050-hook-reads-that-throw-are-contained.patch` | `3f3051a76a9a94858c910411df645d7d7ee2cb40` |
+| `0051-unprintable-thrown-values-are-formatted.patch` | `da7b8870835b5da9c26f63a627f053547e35504a` — the current `result_tree` |
 
 A patch that has reached `main` is never edited in place; a new change is a new
 numbered patch. The tip patch of an open PR is still being written and may be

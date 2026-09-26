@@ -125,7 +125,7 @@ test("distributed patches are excluded from line-ending conversion", () => {
 
 test("committed manifest and license match the exact distributed patch", () => {
   const { manifest } = loadAutoskManifest();
-  assert.equal(manifest.result_tree, "3f3051a76a9a94858c910411df645d7d7ee2cb40");
+  assert.equal(manifest.result_tree, "da7b8870835b5da9c26f63a627f053547e35504a");
   assert.deepEqual(
     manifest.patches.map((patch) => patch.file),
     [
@@ -177,6 +177,7 @@ test("committed manifest and license match the exact distributed patch", () => {
       "patches/0048-registration-refuses-mistyped-fields.patch",
       "patches/0049-mistyped-agent-hooks-are-ignored.patch",
       "patches/0050-hook-reads-that-throw-are-contained.patch",
+      "patches/0051-unprintable-thrown-values-are-formatted.patch",
     ],
   );
 });

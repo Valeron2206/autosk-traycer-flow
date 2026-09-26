@@ -1,0 +1,858 @@
+diff --git a/daemon/core/src/engine/types.ts b/daemon/core/src/engine/types.ts
+index 5afddcd..2dbf03b 100644
+--- a/daemon/core/src/engine/types.ts
++++ b/daemon/core/src/engine/types.ts
+@@ -139,16 +139,17 @@ export class EngineError extends Error {
+ }
+ 
+ /**
+- * Normalises an unknown thrown value to a message string. The value is
+- * extension code: `Object.create(null)` has no toString, a Proxy's
+- * getPrototypeOf trap throws under `instanceof`, and an Error's `message`
+- * getter can throw — so a value no message can be made of degrades to the
+- * fixed placeholder rather than throwing out of the catch that asked.
++ * Normalises an unknown thrown value to a message string — the one formatter
++ * every catch of an extension-thrown value uses. The value is extension code:
++ * `Object.create(null)` has no toString, a Proxy's getPrototypeOf trap throws
++ * under `instanceof`, and an Error's `message` getter can throw. An Error's
++ * message that is not a string is shown as `String(message)`; only a value
++ * whose conversion throws degrades to the fixed placeholder, so formatting
++ * never throws out of the catch that asked.
+  */
+ export function errMsg(e: unknown): string {
+   try {
+-    const m = e instanceof Error ? e.message : String(e);
+-    return typeof m === "string" ? m : "an unprintable value";
++    return String(e instanceof Error ? e.message : e);
+   } catch {
+     return "an unprintable value";
+   }
+diff --git a/daemon/core/src/extensions/loader.ts b/daemon/core/src/extensions/loader.ts
+index fc006be..249850a 100644
+--- a/daemon/core/src/extensions/loader.ts
++++ b/daemon/core/src/extensions/loader.ts
+@@ -46,6 +46,7 @@ const importedIdentities = new Map<string, DistributionIdentity>();
+ 
+ import type { AutoskAPI, ExtensionFactory, ExtensionLoadError } from "@autosk/sdk";
+ 
++import { errMsg } from "../engine/types.ts";
+ import { AUTOSK_DIR } from "../store/paths.ts";
+ import { discoverDir, resolveLocalPath, resolvePackageEntries, type ExtensionEntry } from "./discovery.ts";
+ import { ExtensionRegistry } from "./registry.ts";
+@@ -294,10 +295,6 @@ export function resolveProjectEntries(
+   return { entries, discoveryDiagnostics };
+ }
+ 
+-function errMsg(e: unknown): string {
+-  return e instanceof Error ? e.message : String(e);
+-}
+-
+ /**
+  * Imports one entry module and runs its factory into `registry`. Every failure
+  * mode is caught + recorded as a diagnostic — this never throws. Bun imports
+diff --git a/daemon/core/src/extensions/registry.ts b/daemon/core/src/extensions/registry.ts
+index 400dadb..0331b0d 100644
+--- a/daemon/core/src/extensions/registry.ts
++++ b/daemon/core/src/extensions/registry.ts
+@@ -28,6 +28,7 @@ import {
+   type WorkflowStepInfo,
+ } from "@autosk/sdk";
+ 
++import { errMsg } from "../engine/types.ts";
+ import { workflowGraphDigest } from "./graph.ts";
+ import type { DistributionIdentity } from "./identity.ts";
+ 
+@@ -133,14 +134,16 @@ export class ExtensionRegistry {
+    * name, an absent `steps`, a `firstStep` that is not a declared step, or a
+    * step value that is neither an agent (`onRun`) nor a valid `statusStep`
+    * (`status` ∈ {done,cancel,human}) are each recorded as a diagnostic and skip
+-   * the registration (never throw — the factory keeps running). Two outcomes
+-   * are new here: a read that throws anywhere before the workflow is stored
+-   * skips the registration with `could not be read`, and a shape digest that
+-   * cannot be computed under an identity registers the workflow without an
+-   * admission, its tasks enrolling unpinned. A `description`
+-   * that is not a string, and an agent-step `onSteer`/`onFollowup`/`onAbort`
+-   * that is truthy but not a function, are each diagnosed and ignored instead —
+-   * the workflow registers, and only a registration that lands records them.
++   * the registration (never throw — the factory keeps running). A read that
++   * throws before the workflow is stored — the name, `description`, or any
++   * field of the shape — skips the registration with `could not be read`; an
++   * agent-step `onSteer`/`onFollowup`/`onAbort` whose read throws is skipped
++   * alone, without a diagnostic, and the registration lands. A shape digest
++   * that cannot be computed under an identity registers the workflow without
++   * an admission, its tasks enrolling unpinned. A `description` that is not a
++   * string, and an agent-step `onSteer`/`onFollowup`/`onAbort` that is truthy
++   * but not a function, are each diagnosed and ignored instead — the workflow
++   * registers, and only a registration that lands records them.
+    * First-registered wins on a collision. The definition is stored exactly as
+    * written — agents live inline in `steps`, so there is no harvest into a
+    * separate agent map.
+@@ -178,38 +181,30 @@ export class ExtensionRegistry {
+       return;
+     }
+     this.workflows.set(name, workflow);
+-    if (identity) {
+-      // The whole admission sits behind one boundary: the digest and every
+-      // read the block still makes of the definition — `graphDigest` twice on
+-      // the pinned line — are extension code too, and an accessor may start
+-      // throwing between reads. A throw anywhere in the block registers the
+-      // workflow without an admission: unadmitted is the shape a workflow
+-      // whose shape digest cannot be computed always carried, and its tasks
+-      // enroll unpinned.
+-      try {
+-        this.admitWorkflow(name, workflow, identity, owner);
+-      } catch (error) {
+-        this.recordDiagnostic(
+-          source,
+-          `registerWorkflow: "${name}" registered without an admission — the shape digest cannot be computed: ${errMsg(error)}`,
+-        );
+-      }
+-    }
++    this.admitWorkflow(source, name, workflow, identity, owner);
+   }
+ 
+   /**
+-   * The post-store half of {@link addWorkflow} under an identity: computes the
+-   * shape digest and writes the admission. `workflowIdentities.set` stays the
+-   * last statement, so a throw — any read in the block is extension code — is
+-   * never a partial admission, and the caller's boundary turns it into the
+-   * unadmitted diagnostic.
++   * The post-store half of {@link addWorkflow}: under an identity, computes the
++   * shape digest and writes the admission; without one there is nothing to
++   * admit. The whole admission sits behind one boundary: the digest and every
++   * read the block makes of the definition — `graphDigest` twice on the pinned
++   * line — are extension code, and an accessor may start throwing between
++   * reads. A throw anywhere in the block registers the workflow without an
++   * admission: unadmitted is the shape a workflow whose shape digest cannot be
++   * computed always carried, and its tasks enroll unpinned.
++   * `workflowIdentities.set` stays the last statement, so a throw is never a
++   * partial admission.
+    */
+   private admitWorkflow(
++    source: string,
+     name: string,
+     workflow: WorkflowDefinition,
+-    identity: DistributionIdentity,
++    identity: DistributionIdentity | undefined,
+     owner: string | undefined,
+   ): void {
++    if (!identity) return;
++    try {
+       // Both digests come from this one site, because they are two projections of
+       // the same definition and a second write site is how they would drift apart.
+       const admission: WorkflowAdmission = {
+@@ -219,6 +214,12 @@ export class ExtensionRegistry {
+       if (workflow.graphDigest !== undefined) admission.document = workflow.graphDigest;
+       if (owner !== undefined) admission.owner = owner;
+       this.workflowIdentities.set(name, admission);
++    } catch (error) {
++      this.recordDiagnostic(
++        source,
++        `registerWorkflow: "${name}" registered without an admission — the shape digest cannot be computed: ${errMsg(error)}`,
++      );
++    }
+   }
+ 
+   /**
+@@ -352,9 +353,11 @@ export class ExtensionRegistry {
+    * Registers a named agent on behalf of `source` (plan §3.3, §4.1). An empty
+    * name, a missing `onRun`, or a duplicate name are each recorded as a
+    * diagnostic and skip the registration (never throw — the factory keeps
+-   * running); so does a read that throws anywhere before the agent is stored,
+-   * recorded as `could not be read` with the pass's own diagnostics rolled
+-   * back. A `description` that is not a string, and an
++   * running); so does a read that throws before the agent is stored — the
++   * name, `agent`, `onRun` or `description` — recorded as `could not be read`
++   * with the pass's own diagnostics rolled back. An `onSteer`/`onFollowup`/
++   * `onAbort` whose read throws is skipped alone, without a diagnostic, and
++   * the agent registers. A `description` that is not a string, and an
+    * `onSteer`/`onFollowup`/`onAbort` that is truthy but not a function, are
+    * each diagnosed and ignored instead — the agent registers, and only a
+    * registration that lands records them.
+@@ -558,19 +561,3 @@ export function renderWorkflowInfo(wf: WorkflowDefinition): WorkflowInfo {
+   if (typeof wf.description === "string") info.description = wf.description;
+   return info;
+ }
+-
+-/**
+- * The thrown value is extension code too: `Object.create(null)` has no
+- * toString, a Proxy's getPrototypeOf trap throws under `instanceof`, and an
+- * Error's `message` getter can throw. Formatting must never throw — a caller's
+- * catch would then throw in turn — so a value no message can be made of
+- * degrades to the fixed placeholder.
+- */
+-function errMsg(e: unknown): string {
+-  try {
+-    const m = e instanceof Error ? e.message : String(e);
+-    return typeof m === "string" ? m : "an unprintable value";
+-  } catch {
+-    return "an unprintable value";
+-  }
+-}
+diff --git a/daemon/core/src/extensions/servedDistributions.ts b/daemon/core/src/extensions/servedDistributions.ts
+index d361548..011de33 100644
+--- a/daemon/core/src/extensions/servedDistributions.ts
++++ b/daemon/core/src/extensions/servedDistributions.ts
+@@ -4,6 +4,7 @@
+  * project's runtime index with their files held.
+  */
+ 
++import { errMsg } from "../engine/types.ts";
+ import type { Logger } from "../store/logger.ts";
+ import type { Store } from "../store/store.ts";
+ import { canonicalDistribution } from "./identity.ts";
+@@ -60,7 +61,3 @@ export async function recordServedDistributions(
+     }
+   }
+ }
+-
+-function errMsg(e: unknown): string {
+-  return e instanceof Error ? e.message : String(e);
+-}
+diff --git a/daemon/core/src/rpc/errors.ts b/daemon/core/src/rpc/errors.ts
+index c76317a..a508b0e 100644
+--- a/daemon/core/src/rpc/errors.ts
++++ b/daemon/core/src/rpc/errors.ts
+@@ -6,12 +6,13 @@
+  * proto-v2 code already, so its code passes straight through; the project
+  * resolver's typed errors map onto `PROJECT_NOT_FOUND` / `INVALID_PROJECT`; an
+  * {@link RpcError} thrown by a handler carries its own code; everything else is
+- * an `INTERNAL_ERROR`.
++ * an `INTERNAL_ERROR`. The mapping never throws: the thrown value may be
++ * extension code, and a throw here would escape the connection's catch.
+  */
+ 
+ import { ErrorCodes, type RpcError as RpcErrorPayload } from "@autosk/sdk";
+ 
+-import { EngineError } from "../engine/types.ts";
++import { EngineError, errMsg } from "../engine/types.ts";
+ import { InvalidExtensionSourceError } from "../extensions/source.ts";
+ import { InvalidProjectError, ProjectNotFoundError } from "../project/resolve.ts";
+ import { TaskCreationError } from "../store/creation.ts";
+@@ -29,8 +30,21 @@ export class RpcError extends Error {
+   }
+ }
+ 
+-/** Normalises any thrown value onto the wire {@link RpcErrorPayload}. */
++/**
++ * Normalises any thrown value onto the wire {@link RpcErrorPayload}, and never
++ * throws. A value no typed branch can read — a Proxy whose getPrototypeOf trap
++ * throws under `instanceof`, a typed error whose field throws when read — maps
++ * to `INTERNAL_ERROR` with whatever message {@link errMsg} can make of it.
++ */
+ export function toRpcError(e: unknown): RpcErrorPayload {
++  try {
++    return typedRpcError(e);
++  } catch {
++    return { code: ErrorCodes.INTERNAL_ERROR, message: errMsg(e) };
++  }
++}
++
++function typedRpcError(e: unknown): RpcErrorPayload {
+   if (e instanceof RpcError) {
+     return e.details !== undefined
+       ? { code: e.code, message: e.message, details: e.details }
+@@ -53,7 +67,7 @@ export function toRpcError(e: unknown): RpcErrorPayload {
+   if (e instanceof ReservedMetadataKeyError) {
+     return { code: ErrorCodes.INVALID_PARAMS, message: e.message };
+   }
+-  return { code: ErrorCodes.INTERNAL_ERROR, message: e instanceof Error ? e.message : String(e) };
++  return { code: ErrorCodes.INTERNAL_ERROR, message: errMsg(e) };
+ }
+ 
+ function taskCreationErrorPayload(e: unknown): RpcErrorPayload | null {
+diff --git a/daemon/core/test/engine.behaviour.test.ts b/daemon/core/test/engine.behaviour.test.ts
+index 415c5df..9feb517 100644
+--- a/daemon/core/test/engine.behaviour.test.ts
++++ b/daemon/core/test/engine.behaviour.test.ts
+@@ -159,6 +159,43 @@ describe("engine — behavioural", () => {
+     expect(comments.some((c) => c.text === "agent_did_not_transit")).toBe(true);
+   });
+ 
++  test("an onRun that rejects with an Error whose message is not a string parks with String(message)", async () => {
++    // The failure text is what the operator reads on the session and in the
++    // park comment. A printable message that is not a string is shown as
++    // String(message); only a value whose conversion throws gets a placeholder.
++    const cases: [message: unknown, shown: string][] = [
++      [404, "404"],
++      [undefined, "undefined"],
++      [null, "null"],
++      [{ a: 1 }, "[object Object]"],
++    ];
++    for (const [message, shown] of cases) {
++      const failing: AgentDefinition = {
++        async onRun() {
++          const e = new Error("replaced");
++          Object.defineProperty(e, "message", { value: message });
++          throw e;
++        },
++      };
++      const wf: WorkflowDefinition = { name: "w", firstStep: "do", steps: { do: failing } };
++      const p = track(await makeProject({ workflows: [wf] }));
++      const { engine } = makeEngine();
++      engines.push(engine);
++      await engine.addProject(p.project);
++
++      const task = await p.store.createTask({ title: shown });
++      await engine.enroll(p.root, task.id, { workflow: "w" });
++      await waitForComplete(p.store, task.id, "human");
++
++      const sessions = p.store.sessions.sessionsForTask(task.id);
++      expect(sessions).toHaveLength(1);
++      expect(sessions[0]!.status).toBe("failed");
++      expect(sessions[0]!.error).toBe(shown);
++      const comments = await p.store.listComments(task.id);
++      expect(comments.some((c) => c.text === shown)).toBe(true);
++    }
++  });
++
+   // -- worker-pool cap -----------------------------------------------------
+ 
+   test("the global worker-pool cap is honoured across two projects", async () => {
+diff --git a/daemon/core/test/engine.errmsg.test.ts b/daemon/core/test/engine.errmsg.test.ts
+new file mode 100644
+index 0000000..d8522c1
+--- /dev/null
++++ b/daemon/core/test/engine.errmsg.test.ts
+@@ -0,0 +1,102 @@
++/**
++ * `errMsg` is the one formatter every catch of an extension-thrown value uses
++ * (debt 7l). It never throws, a value that formats keeps the text the upstream
++ * expression `e instanceof Error ? e.message : String(e)` gave it, an Error
++ * whose message is not a string is shown as `String(message)`, and only a
++ * value whose conversion throws becomes the fixed placeholder.
++ */
++
++import { describe, expect, test } from "bun:test";
++
++import { errMsg } from "../src/engine/types.ts";
++
++const PLACEHOLDER = "an unprintable value";
++
++function errorWithMessage(message: unknown): Error {
++  const e = new Error("replaced");
++  Object.defineProperty(e, "message", { value: message, enumerable: false, configurable: true });
++  return e;
++}
++
++function errorWithThrowingMessage(): Error {
++  const e = new Error("unreachable");
++  Object.defineProperty(e, "message", {
++    get() {
++      throw new Error("message getter throws");
++    },
++  });
++  return e;
++}
++
++function proxyWithThrowingPrototype(): object {
++  return new Proxy(
++    {},
++    {
++      getPrototypeOf() {
++        throw new Error("proxy getPrototypeOf trap");
++      },
++    },
++  );
++}
++
++describe("errMsg", () => {
++  test("a value the upstream expression formats keeps exactly that text", () => {
++    const upstream = (e: unknown): string => (e instanceof Error ? e.message : String(e));
++    const formattable: unknown[] = [
++      new Error("boom"),
++      new TypeError("bad type"),
++      new Error(""),
++      "a string",
++      "",
++      42,
++      0,
++      null,
++      undefined,
++      true,
++      { a: 1 },
++      [1, 2],
++      Symbol("s"),
++      10n,
++      new Proxy(new Error("through a transparent proxy"), {}),
++    ];
++    for (const value of formattable) {
++      expect(errMsg(value)).toBe(upstream(value));
++    }
++  });
++
++  test("an Error whose message is not a string is shown as String(message)", () => {
++    const cases: [message: unknown, shown: string][] = [
++      [404, "404"],
++      [undefined, "undefined"],
++      [null, "null"],
++      [{ a: 1 }, "[object Object]"],
++      [10n, "10"],
++      [Symbol("s"), "Symbol(s)"],
++      [false, "false"],
++    ];
++    for (const [message, shown] of cases) {
++      expect(errMsg(errorWithMessage(message))).toBe(shown);
++    }
++  });
++
++  test("a value no message can be made of becomes the placeholder, and errMsg never throws", () => {
++    const untostringable = new Error("untostringable");
++    Object.defineProperty(untostringable, "message", {
++      value: {
++        toString() {
++          throw new Error("toString throws");
++        },
++      },
++    });
++    const unprintables: unknown[] = [
++      Object.create(null),
++      proxyWithThrowingPrototype(),
++      errorWithThrowingMessage(),
++      errorWithMessage(Object.create(null)),
++      untostringable,
++    ];
++    for (const value of unprintables) {
++      expect(errMsg(value)).toBe(PLACEHOLDER);
++    }
++  });
++});
+diff --git a/daemon/core/test/extensions.loader.test.ts b/daemon/core/test/extensions.loader.test.ts
+index e7296c2..90fb9b1 100644
+--- a/daemon/core/test/extensions.loader.test.ts
++++ b/daemon/core/test/extensions.loader.test.ts
+@@ -205,6 +205,47 @@ describe("extension loader — error isolation (daemon stays up)", () => {
+     expect(registry.diagnostics).toHaveLength(3);
+   });
+ 
++  test("a factory or a module that throws a value no message can be made of is diagnosed; the project still loads", async () => {
++    // The loader formats what the extension threw into its diagnostic. A value
++    // whose formatting throws must not escape the loader's own catch: the
++    // entry is diagnosed with the placeholder and every later entry loads.
++    const ext = (p: string) => join(proj, ".autosk/extensions", p);
++    const factoryThrowing = (value: string) => `export default function () { throw ${value}; }\n`;
++    write(ext("a-nullproto.ts"), factoryThrowing("Object.create(null)"));
++    write(
++      ext("b-proxyproto.ts"),
++      factoryThrowing('new Proxy({}, { getPrototypeOf() { throw new Error("trap"); } })'),
++    );
++    write(
++      ext("c-errmsg.ts"),
++      factoryThrowing(
++        '(() => { const e = new Error("x"); Object.defineProperty(e, "message", { get() { throw new Error("getter"); } }); return e; })()',
++      ),
++    );
++    write(
++      ext("d-symbol.ts"),
++      factoryThrowing('(() => { const e = new Error("x"); Object.defineProperty(e, "message", { value: Symbol("s") }); return e; })()'),
++    );
++    write(
++      ext("e-number.ts"),
++      factoryThrowing('(() => { const e = new Error("x"); Object.defineProperty(e, "message", { value: 404 }); return e; })()'),
++    );
++    write(ext("f-import-nullproto.ts"), "throw Object.create(null);\nexport default function () {}\n");
++    write(ext("z-good.ts"), extFile("good"));
++
++    const registry = await loadProjectRegistry(proj, { home });
++
++    expect(registry.workflowNames()).toEqual(["good"]);
++    const bySource = Object.fromEntries(registry.diagnostics.map((d) => [d.source, d.error]));
++    expect(bySource[ext("a-nullproto.ts")]).toBe("factory threw: an unprintable value");
++    expect(bySource[ext("b-proxyproto.ts")]).toBe("factory threw: an unprintable value");
++    expect(bySource[ext("c-errmsg.ts")]).toBe("factory threw: an unprintable value");
++    expect(bySource[ext("d-symbol.ts")]).toBe("factory threw: Symbol(s)");
++    expect(bySource[ext("e-number.ts")]).toBe("factory threw: 404");
++    expect(bySource[ext("f-import-nullproto.ts")]).toBe("failed to import: an unprintable value");
++    expect(registry.diagnostics).toHaveLength(6);
++  });
++
+   test("an accessor that throws mid-registration is skipped; the factory and its later registrations survive", async () => {
+     // A throwing read must not reach the loader's "factory threw" catch: the
+     // unreadable registration is refused, a workflow whose shape digest cannot
+diff --git a/daemon/core/test/extensions.registry.test.ts b/daemon/core/test/extensions.registry.test.ts
+index b22ce3c..5d53231 100644
+--- a/daemon/core/test/extensions.registry.test.ts
++++ b/daemon/core/test/extensions.registry.test.ts
+@@ -823,9 +823,10 @@ describe("ExtensionRegistry registration", () => {
+   });
+ 
+   test("a graphDigest accessor that starts throwing inside the admission registers the workflow without it", () => {
+-    // The admission reads `graphDigest` three more times after `workflows.set`
+-    // — once inside the shape digest and twice on the pinned assignment — so a
+-    // getter that goes unreadable mid-registration must still land the
++    // The validation pass reads `graphDigest` twice (reads 1-2); the admission
++    // reads it four more times after `workflows.set` — twice inside the shape
++    // digest (3-4) and twice on the pinned assignment (5-6) — so a getter that
++    // goes unreadable at any of those four reads must still land the
+     // unadmitted shape: stored, no admission, exactly the rule-3 diagnostic,
+     // and the factory keeps running.
+     const identity = {
+@@ -835,7 +836,7 @@ describe("ExtensionRegistry registration", () => {
+       bytes: 0,
+       digest: "a".repeat(64),
+     };
+-    for (const failAt of [5, 6]) {
++    for (const failAt of [3, 4, 5, 6]) {
+       let reads = 0;
+       const w = {
+         ...wf(`late-gd-${failAt}`),
+@@ -994,6 +995,77 @@ describe("ExtensionRegistry registration", () => {
+     }
+   });
+ 
++  test("a read that throws an Error whose message is not a string shows String(message), not the placeholder", () => {
++    // Only a value whose conversion throws earns the placeholder. An Error
++    // whose message is a number, undefined, null or an object is printable:
++    // the diagnostic shows String(message).
++    const identity = {
++      root: "/ext/dist",
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: "a".repeat(64),
++    };
++    const withMessage = (message: unknown): Error => {
++      const e = new Error("replaced");
++      Object.defineProperty(e, "message", { value: message });
++      return e;
++    };
++    const byName = new ExtensionRegistry();
++    byName.addWorkflow(
++      "ext",
++      {
++        ...wf("n-404"),
++        get name() {
++          throw withMessage(404);
++        },
++      } as never,
++      identity,
++    );
++    const bySteps = new ExtensionRegistry();
++    bySteps.addWorkflow(
++      "ext",
++      {
++        ...wf("s-undefined"),
++        get steps() {
++          throw withMessage(undefined);
++        },
++      } as never,
++      identity,
++    );
++    let reads = 0;
++    const byDigest = new ExtensionRegistry();
++    byDigest.addWorkflow(
++      "ext",
++      {
++        ...wf("d-null"),
++        get graphDigest() {
++          reads++;
++          if (reads >= 5) throw withMessage(null);
++          return "c".repeat(64);
++        },
++      } as never,
++      identity,
++    );
++    const byAgent = new ExtensionRegistry();
++    byAgent.addAgent("ext", {
++      get name() {
++        throw withMessage({ a: 1 });
++      },
++      agent: agentStep(),
++    } as never);
++    expect([...byName.diagnostics, ...bySteps.diagnostics, ...byDigest.diagnostics, ...byAgent.diagnostics]).toEqual([
++      { source: "ext", error: "registerWorkflow: workflow.name could not be read: 404" },
++      { source: "ext", error: 'registerWorkflow: "s-undefined" could not be read: undefined' },
++      {
++        source: "ext",
++        error:
++          'registerWorkflow: "d-null" registered without an admission — the shape digest cannot be computed: null',
++      },
++      { source: "ext", error: "registerAgent: registration.name could not be read: [object Object]" },
++    ]);
++  });
++
+   test("a skipped registration rolls back the diagnostics its validation pass recorded", () => {
+     // `description: 42` records an ignore line mid-pass; a `steps` getter that
+     // then throws when the hook loop reads it escapes to the boundary — the
+@@ -1019,8 +1091,11 @@ describe("ExtensionRegistry registration", () => {
+     r.addWorkflow("ext", wf("after-rb"));
+     expect(r.workflowNames()).toEqual(["after-rb"]);
+ 
+-    // addAgent's boundary does the same: a `description` getter that throws on
+-    // its second read refuses with one line and no ignore line.
++    // addAgent's boundary refuses the same way: a `description` getter that
++    // throws on its second read — inside the ignore check, before an ignore
++    // line is recorded — refuses with the one line. Nothing is recorded
++    // mid-pass on this side, so the rollback itself is not observable here;
++    // the workflow case above is where it is exercised.
+     const a = new ExtensionRegistry();
+     let dReads = 0;
+     a.addAgent("ext", {
+diff --git a/daemon/core/test/extensions.reload.test.ts b/daemon/core/test/extensions.reload.test.ts
+index 63eee82..afd0dca 100644
+--- a/daemon/core/test/extensions.reload.test.ts
++++ b/daemon/core/test/extensions.reload.test.ts
+@@ -19,6 +19,9 @@ import {
+   ProjectRegistry,
+ } from "../src/index.ts";
+ import { canonicalDistribution } from "../src/extensions/identity.ts";
++import { ExtensionRegistry } from "../src/extensions/registry.ts";
++import { recordServedDistributions } from "../src/extensions/servedDistributions.ts";
++import type { Store } from "../src/store/store.ts";
+ import { tempDir } from "./helpers.ts";
+ 
+ /** A local extension file registering a one-step `go → done` workflow named `name`. */
+@@ -451,3 +454,32 @@ describe("a project serves the code its open tasks were admitted under", () => {
+     expect(ownerless(handle.extensions.diagnostics)).toEqual([]);
+   });
+ });
++
++describe("recordServedDistributions — a failure it cannot print (debt 7l)", () => {
++  test("a rejection no message can be made of is logged with the placeholder; the next digest is still recorded", async () => {
++    const identity = (d: string) => ({
++      root: `/ext/${d}`,
++      entry: "index.js",
++      entries: [],
++      bytes: 0,
++      digest: d.repeat(64),
++    });
++    const registry = new ExtensionRegistry();
++    const step = { go: { onRun: async () => {} } };
++    registry.addWorkflow("ext", { name: "one", firstStep: "go", steps: step }, identity("a"));
++    registry.addWorkflow("ext", { name: "two", firstStep: "go", steps: step }, identity("b"));
++    const recorded: string[] = [];
++    const store = {
++      async recordDistribution(digest: string): Promise<void> {
++        if (digest === "a".repeat(64)) throw Object.create(null);
++        recorded.push(digest);
++      },
++    } as unknown as Store;
++    const logger = new CapturingLogger();
++
++    await recordServedDistributions(store, registry, logger);
++
++    expect(logger.errors).toEqual([`recording distribution ${"a".repeat(64)}: an unprintable value`]);
++    expect(recorded).toEqual(["b".repeat(64)]);
++  });
++});
+diff --git a/daemon/core/test/rpc.errors.test.ts b/daemon/core/test/rpc.errors.test.ts
+index d0bc406..61a7a0e 100644
+--- a/daemon/core/test/rpc.errors.test.ts
++++ b/daemon/core/test/rpc.errors.test.ts
+@@ -9,8 +9,14 @@
+ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+ import { join } from "node:path";
+ 
+-import { ErrorCodes, statusStep } from "@autosk/sdk";
++import { ErrorCodes, statusStep, type WorkflowDefinition } from "@autosk/sdk";
+ 
++import { EngineError } from "../src/engine/types.ts";
++import { InvalidExtensionSourceError } from "../src/extensions/source.ts";
++import { InvalidProjectError, ProjectNotFoundError } from "../src/project/resolve.ts";
++import { RpcError, toRpcError } from "../src/rpc/errors.ts";
++import { TaskCreationError } from "../src/store/creation.ts";
++import { ReservedMetadataKeyError } from "../src/store/metadata.ts";
+ import { startTestDaemon, type TestDaemon } from "./rpcHarness.ts";
+ 
+ describe("RPC error mapping", () => {
+@@ -120,3 +126,146 @@ describe("RPC error mapping", () => {
+     expect(typeof version.version).toBe("string");
+   });
+ });
++
++const PLACEHOLDER = "an unprintable value";
++
++function errorWithMessage(message: unknown): Error {
++  const e = new Error("replaced");
++  Object.defineProperty(e, "message", { value: message, enumerable: false, configurable: true });
++  return e;
++}
++
++function errorWithThrowingMessage(): Error {
++  const e = new Error("unreachable");
++  Object.defineProperty(e, "message", {
++    get() {
++      throw new Error("message getter throws");
++    },
++  });
++  return e;
++}
++
++function proxyWithThrowingPrototype(): object {
++  return new Proxy(
++    {},
++    {
++      getPrototypeOf() {
++        throw new Error("proxy getPrototypeOf trap");
++      },
++    },
++  );
++}
++
++describe("toRpcError is total (debt 7l)", () => {
++  test("every value that formats today keeps its payload byte for byte", () => {
++    // What the handler threw, and the payload the mapping has always produced
++    // for it. Pinned literally so a change to any branch shows here.
++    const creation = new TaskCreationError("creation_binding_conflict", "bound elsewhere", {
++      outcome: "conflict",
++      reason: "creation_binding_conflict",
++      creation_key: "k",
++    });
++    const cases: [thrown: unknown, payload: unknown][] = [
++      [new RpcError(ErrorCodes.NOT_FOUND, "no such thing"), { code: ErrorCodes.NOT_FOUND, message: "no such thing" }],
++      [
++        new RpcError(ErrorCodes.INVALID_PARAMS, "bad", { field: "x" }),
++        { code: ErrorCodes.INVALID_PARAMS, message: "bad", details: { field: "x" } },
++      ],
++      [creation, { code: ErrorCodes.CONFLICT, message: "bound elsewhere", details: creation.details }],
++      [new EngineError(ErrorCodes.CONFLICT, "task is done"), { code: ErrorCodes.CONFLICT, message: "task is done" }],
++      [new ProjectNotFoundError("no project"), { code: ErrorCodes.PROJECT_NOT_FOUND, message: "no project" }],
++      [new InvalidProjectError("bad cwd"), { code: ErrorCodes.INVALID_PROJECT, message: "bad cwd" }],
++      [new InvalidExtensionSourceError("bad source"), { code: ErrorCodes.INVALID_PARAMS, message: "bad source" }],
++      [new ReservedMetadataKeyError("reserved"), { code: ErrorCodes.INVALID_PARAMS, message: "reserved" }],
++      [new Error("boom"), { code: ErrorCodes.INTERNAL_ERROR, message: "boom" }],
++      [new TypeError("bad type"), { code: ErrorCodes.INTERNAL_ERROR, message: "bad type" }],
++      ["a string", { code: ErrorCodes.INTERNAL_ERROR, message: "a string" }],
++      [42, { code: ErrorCodes.INTERNAL_ERROR, message: "42" }],
++      [null, { code: ErrorCodes.INTERNAL_ERROR, message: "null" }],
++      [undefined, { code: ErrorCodes.INTERNAL_ERROR, message: "undefined" }],
++      [{ a: 1 }, { code: ErrorCodes.INTERNAL_ERROR, message: "[object Object]" }],
++      [[1, 2], { code: ErrorCodes.INTERNAL_ERROR, message: "1,2" }],
++      [Symbol("s"), { code: ErrorCodes.INTERNAL_ERROR, message: "Symbol(s)" }],
++      [new Proxy(new Error("through a proxy"), {}), { code: ErrorCodes.INTERNAL_ERROR, message: "through a proxy" }],
++    ];
++    for (const [thrown, payload] of cases) {
++      expect(toRpcError(thrown)).toEqual(payload as never);
++    }
++  });
++
++  test("a value no message can be made of maps to INTERNAL_ERROR with the placeholder", () => {
++    for (const thrown of [Object.create(null), proxyWithThrowingPrototype(), errorWithThrowingMessage()]) {
++      expect(toRpcError(thrown)).toEqual({ code: ErrorCodes.INTERNAL_ERROR, message: PLACEHOLDER });
++    }
++  });
++
++  test("an Error whose message is not a string carries String(message), so the frame always serializes", () => {
++    const cases: [message: unknown, shown: string][] = [
++      [404, "404"],
++      [undefined, "undefined"],
++      [null, "null"],
++      [{ a: 1 }, "[object Object]"],
++      [10n, "10"],
++    ];
++    for (const [message, shown] of cases) {
++      const payload = toRpcError(errorWithMessage(message));
++      expect(payload).toEqual({ code: ErrorCodes.INTERNAL_ERROR, message: shown });
++      expect(() => JSON.stringify({ id: 1, error: payload })).not.toThrow();
++    }
++  });
++
++  test("a typed error whose own field throws when read still maps, to INTERNAL_ERROR with its message", () => {
++    const engine = new EngineError(ErrorCodes.CONFLICT, "engine said no");
++    const unreadableCode = new Proxy(engine, {
++      get(target, key, receiver) {
++        if (key === "code") throw new Error("code getter throws");
++        return Reflect.get(target, key, receiver);
++      },
++    });
++    expect(toRpcError(unreadableCode)).toEqual({ code: ErrorCodes.INTERNAL_ERROR, message: "engine said no" });
++  });
++});
++
++describe("a hook that throws a value no message can be made of answers, and the connection lives (debt 7l)", () => {
++  let td: TestDaemon;
++  let cwd: string;
++  const thrown: [workflow: string, value: () => unknown, message: string][] = [
++    ["w-nullproto", () => Object.create(null), PLACEHOLDER],
++    ["w-throwing-message", errorWithThrowingMessage, PLACEHOLDER],
++    ["w-bigint-message", () => errorWithMessage(10n), "10"],
++  ];
++
++  beforeEach(async () => {
++    td = await startTestDaemon();
++    cwd = await td.makeProject("hostile");
++    const handle = await td.handle(cwd);
++    for (const [name, value] of thrown) {
++      const wf: WorkflowDefinition = {
++        name,
++        firstStep: "do",
++        steps: { do: { onRun: async () => {} } },
++        onTransit() {
++          throw value();
++        },
++      };
++      handle.extensions.addWorkflow("test", wf);
++    }
++  });
++  afterEach(async () => {
++    await td.cleanup();
++  });
++
++  test("enroll answers INTERNAL_ERROR, the same connection answers the next request, and a new one connects", async () => {
++    const client = await td.client();
++    for (const [workflow, , message] of thrown) {
++      const task = await client.call<{ id: string }>("task.create", { cwd, title: workflow });
++      const frame = await client.callRaw("task.enroll", { cwd, id: task.id, workflow });
++      expect(frame.error).toEqual({ code: ErrorCodes.INTERNAL_ERROR, message });
++      const view = await client.call<{ status: string }>("task.get", { cwd, id: task.id });
++      expect(view.status).toBe("new");
++    }
++    const fresh = await td.client();
++    const version = await fresh.call<{ version: string }>("meta.version", null);
++    expect(typeof version.version).toBe("string");
++  });
++});
+diff --git a/docs/extensions.md b/docs/extensions.md
+index c210646..03d4ee3 100644
+--- a/docs/extensions.md
++++ b/docs/extensions.md
+@@ -753,11 +753,12 @@ recorded, and the rest of the registry stays usable:
+ - the factory throws;
+ - it registers a workflow or agent name that collides with an already-registered one;
+ - a workflow step is neither an inline agent (`onRun`) nor a `statusStep`;
+-- a workflow or agent object whose required fields throw when read — the name,
+-  `steps`, `firstStep`, `onRun`, and the rest of the shape — is skipped, and
+-  nothing is stored. An optional hook (`onSteer`/`onFollowup`/`onAbort`) whose
+-  read throws is skipped alone: the registration lands, and the hook counts as
+-  absent when it is called.
++- a workflow or agent object whose fields throw when read before it is stored —
++  the name, `description`, `steps`, `firstStep`, `exits`, `graphDigest`,
++  `onTransit`, `onRun`, and the rest of the shape — is skipped, and nothing is
++  stored. An optional hook (`onSteer`/`onFollowup`/`onAbort`) whose read throws
++  is skipped alone: the registration lands, and the hook counts as absent when
++  it is called.
+ 
+   The fields are read when the registration is made, so this isolation covers
+   what a registration reads. An extension object whose fields start throwing
+@@ -771,9 +772,11 @@ half-built at registration time:
+ - a workflow whose shape digest cannot be computed — a hook or field accessor
+   that throws while the shape is read — still registers, but carries no
+   admission: its tasks enroll unpinned, and the diagnostic says so. When a
+-  later load can compute the digest the workflow is admitted then, and an
+-  unpinned task on it parks at resume (`extension_version_mismatch`) until it
+-  is re-enrolled at its first step;
++  later load can compute the digest the workflow is admitted then, and a task
++  enrolled unpinned on it does not continue under that admission: a parked one
++  is refused at resume (`extension_version_mismatch`, CONFLICT 1004), a working
++  one parks at its next dispatch once no session is live on it, and either runs
++  again once it is re-enrolled at its first step;
+ - a hook that cannot be read at a call counts as absent: `session.input`
+   answers `unsupported_by_agent` for it, and `abort`/`end` skip `onAbort` and
+   always seal the session — an unreadable hook never keeps a session running.
+@@ -781,6 +784,16 @@ half-built at registration time:
+   thrown value that cannot be turned into a message is described by a fixed
+   placeholder in its place.
+ 
++Whatever extension code throws is turned into text for the diagnostic, the log
++line or the RPC error it lands in. An Error whose `message` is not a string is
++shown as `String(message)`. A value no message can be made of — a
++null-prototype object, a Proxy whose `getPrototypeOf` trap throws, an Error
++whose `message` getter throws — is shown as the fixed placeholder
++`an unprintable value`: a factory or module that throws one is recorded as
++`factory threw: an unprintable value` or `failed to import: an unprintable
++value`, and an RPC call it reaches answers `INTERNAL_ERROR` (-32603) with the
++placeholder as its message. The daemon and the connection stay up.
++
+ Each failure becomes a load diagnostic tagged with the offending source (a path,
+ or an npm package name). Surface them with:
+ 
