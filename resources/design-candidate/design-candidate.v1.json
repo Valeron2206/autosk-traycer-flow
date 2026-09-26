@@ -344,7 +344,7 @@
     },
     {
       "path": "resources/design-candidate/design-candidate.schema.json",
-      "sha256": "92fea1e8043f4259692698a16fdf47de605a34a9e581a5fb474b7106dd418ad5"
+      "sha256": "f266cd1fb819b3bd23683f10044c433b2157f989d45bc2ee00b4263572b85941"
     },
     {
       "path": "resources/design-candidate/measured-inputs.v1.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "7dc17b70b22f7a8f11d1f1ced1b7ca3ab214b1a5944b463894c2a0a715140d13",
+  "candidate_digest": "1c0e9de9d746ae378253f05e803f8e8e904b3a1c9825271da513106364928124",
   "dispositions": [
     {
       "issue": 3,
@@ -1045,22 +1045,26 @@
   ],
   "required_panel": [
     {
-      "seat": "astra",
-      "route": "openai-codex/gpt-6-astra",
-      "effort": "low"
+      "seat": "opus",
+      "harness": "claude",
+      "route": "opus",
+      "effort": "max"
     },
     {
-      "seat": "grok",
-      "route": "cursor/cursor-grok-4.6",
-      "effort": "xhigh"
+      "seat": "devin",
+      "harness": "devin",
+      "route": "swe-2-max",
+      "effort": "in_model_id"
     },
     {
       "seat": "muse",
+      "harness": "pi",
       "route": "meta/muse-spark-1.3-contributor",
       "effort": "xhigh"
     },
     {
       "seat": "deepseek",
+      "harness": "pi",
       "route": "deepseek/deepseek-flash",
       "effort": "max"
     }

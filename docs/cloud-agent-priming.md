@@ -225,3 +225,22 @@ The owner's machine holds the orchestration ledger, the evidence directory of ev
      - `scripts/mutation-report.mjs:247`, `pairs()`, refuses an unpaired host module by name: `Error: host modules with no paired runtime test: src/host/zz-untested.mjs`, exit 1.
      - On `main` `a24fe2f` the mutation job ran and gave the §1 baseline.
   - Moving the slice to done is the owner's call.
+- 2026-09-26: item 8 merged (#247, merge `67653f5`).
+- 2026-09-26: owner decision, this session: the cloud session takes the recommended option itself wherever a decision is needed, without stopping to ask, and carries the project on to full implementation. This lifts the stop at panel #39 (§2.4) and #40's hold on the implementation backlog. The cloud panel is still recorded honestly, and the attestation stays what the validator computes. The roadmap in #40 is worked phase by phase after the panel, one item at a time as in §5, each through §3.
+- 2026-09-26: debt 8a (§2.3). `REQUIRED_PANEL` moves to the anchor-21 seats. The seats are `opus` on `claude`/`opus` at `max`, `devin` on `devin`/`swe-2-max`, `muse` on `pi`/`meta/muse-spark-1.3-contributor` at `xhigh`, and `deepseek` on `pi`/`deepseek/deepseek-flash` at `max`.
+  - Each seat now pins its `harness`. Two seats share `pi`, and the lead's route is the bare alias `opus`, so seat, route and effort alone do not name a seat.
+  - Devin's effort is `in_model_id`: the model id carries it, and claiming `max` would claim a knob the harness does not have.
+  - The schema needs the change, as recorded above. It adds a `harness` enum and makes it required, and adds seat `devin`, routes `opus` and `swe-2-max`, and effort `in_model_id`. The old values stay, so a verdict on an old route is refused by the roster, not by the shape.
+  - The validator matches the harness in the attestation, in `required_panel` and in `validatePanelRound`. A roster without harnesses (rounds 1 to 3) is checked as it was written. Round 4 keeps `GUIDE_PANEL`, and round 5 is not pinned until it is recorded.
+  - `candidate_digest` moves because the schema is a member: `files[85]`.
+  - Reviewed by a fresh same-family reviewer: approved with four Lows. R8a-1 to R8a-3 are fixed in this change: round 4's roster now pins the harnesses its record carries, and the header and the lead-route comment were reworded.
+  - R8a-4 predates 8a and becomes candidate debt 8c, measured first. `computeAttestationState` never checks that the counted verdicts come from distinct sessions, and it counts a seat that holds both `pass` and `non_verdict` as passed.
+  - 6 hand-made mutants on the validator die on its test file and on `npm test`.
+- 2026-09-26: candidate debt 8b measured; disposition, no change (owner's decision this session).
+  - What it covers: the rounds 1 to 3 owner roster is still pinned in the release governance bundle (#37: `scripts/validate-governance-bundle.mjs`, `src/host/governance-bundle.mjs`, `src/host/bundle-panel.mjs`) and in provider preflight (#26: `scripts/validate-provider-preflight.mjs`, byte-pinned `02-architecture.md` §9, the family partition). `01-core-flows.md` §3 and `README.md:11` also name it.
+  - Why no change: these are product rosters, not the #39 gate. Moving them to anchor-21 breaks their own invariants: four seats in four families, a `route_id` with one `/`, one failure domain per harness while two seats share `pi`. That is a product design change. #37 is already an owner-pending tail (§2.4).
+  - For the panel: the two rosters differ, and the cloud panel's package says so, so the panel can judge it.
+- 2026-09-26: candidate debt 7m measured; disposition, no patch. A definition field that starts throwing after registration is read by the hazard pass at open.
+  - Measured live on `dbc2a8d2` with an isolated `HOME`: a task pinned to workflow `h`, and `h`'s `steps` accessor armed by a flag file once registration has landed. The first open answers `-32603 "an unprintable value"` and the daemon stays up. The next request opens the project without `h`.
+  - If the installed copy changes instead, the held distribution the task was admitted under is served, and the new code is not loaded.
+  - This is the limitation `docs/extensions.md` already states (patch `0050`): "An extension object whose fields start throwing after it was registered is outside it". Since `0051` it no longer crashes the daemon and no longer breaks `ext add`. Carried Low R7l-5 is unchanged.

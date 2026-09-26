@@ -718,7 +718,7 @@ test("a downgraded effort is not a smaller panel, it is a different one", () => 
     draft.attestation.state = "pending_final_panel";
   });
   const verdicts = fullPanel(value.candidate_digest);
-  verdicts.find((entry) => entry.seat === "grok").effort = "high";
+  verdicts.find((entry) => entry.seat === "muse").effort = "high";
   value.attestation.verdicts = verdicts;
   assert.equal(computeAttestationState(value), "pending_final_panel");
 });
@@ -728,7 +728,7 @@ test("a substituted route is not the panel either", () => {
     draft.attestation.state = "pending_final_panel";
   });
   const verdicts = fullPanel(value.candidate_digest);
-  verdicts.find((entry) => entry.seat === "astra").route = "anthropic/claude-opus-5";
+  verdicts.find((entry) => entry.seat === "opus").route = "anthropic/claude-opus-5";
   value.attestation.verdicts = verdicts;
   assert.equal(computeAttestationState(value), "pending_final_panel");
 });
@@ -756,17 +756,18 @@ test("one fail blocks, and blocking must say why", () => {
 });
 
 test("a refusal outranks a seat that could not review", () => {
-  // Round 4's actual shape: astra recorded non_verdict and the three seats
-  // that could review refused the candidate. The walk returned
-  // pending_final_panel at astra — first in REQUIRED_PANEL — before any fail
-  // was read, so three refusals were invisible unless astra pretended to pass.
+  // Round 4's shape: the seat first in the roster recorded non_verdict and
+  // the three seats that could review refused the candidate. The walk returned
+  // pending_final_panel at that first seat before any fail was read, so three
+  // refusals were invisible unless it pretended to pass.
+  const first = REQUIRED_PANEL[0].seat;
   const value = mutated((draft) => {
     draft.attestation.state = "blocked";
     draft.attestation.blocked_reason = "three seats refused the candidate";
   });
   value.attestation.verdicts = fullPanel(value.candidate_digest).map((entry) => ({
     ...entry,
-    verdict: entry.seat === "astra" ? "non_verdict" : "fail",
+    verdict: entry.seat === first ? "non_verdict" : "fail",
   }));
   assert.equal(computeAttestationState(value), "blocked");
   assert.deepEqual(validateCandidate(value, schema), []);
@@ -804,8 +805,9 @@ test("a seat missing altogether does not hide a refusal", () => {
     draft.attestation.blocked_reason = "the panel refused";
   });
   value.attestation.verdicts = fullPanel(value.candidate_digest)
-    .filter((entry) => entry.seat !== "astra")
+    .filter((entry) => entry.seat !== REQUIRED_PANEL[0].seat)
     .map((entry) => ({ ...entry, verdict: "fail" }));
+  assert.equal(value.attestation.verdicts.length, REQUIRED_PANEL.length - 1);
   assert.equal(computeAttestationState(value), "blocked");
 });
 
@@ -817,9 +819,9 @@ test("a refusal bound to another candidate's digest is rejected", () => {
     draft.attestation.state = "pending_final_panel";
   });
   const verdicts = fullPanel(value.candidate_digest);
-  const astra = verdicts.find((entry) => entry.seat === "astra");
-  astra.candidate_digest = createHash("sha256").update("round 4's candidate").digest("hex");
-  astra.verdict = "fail";
+  const lead = verdicts.find((entry) => entry.seat === "opus");
+  lead.candidate_digest = createHash("sha256").update("round 4's candidate").digest("hex");
+  lead.verdict = "fail";
   value.attestation.verdicts = verdicts;
   assert.equal(computeAttestationState(value), "pending_final_panel");
 });
@@ -832,7 +834,8 @@ test("round 4's verdicts bound to their own digest stay rejected", () => {
   const value = mutated((draft) => {
     draft.attestation.state = "pending_final_panel";
   });
-  value.attestation.verdicts = fullPanel(
+  value.attestation.verdicts = passesOn(
+    ROUND_4_SEATS,
     "6a3a1213eb657d3aad1d2d1eb9f34f7e4a11eb7360ec61b011f08ae4ac335ea5",
   ).map((entry) => ({ ...entry, verdict: entry.seat === "astra" ? "non_verdict" : "fail" }));
   assert.equal(computeAttestationState(value), "pending_final_panel");
@@ -845,9 +848,9 @@ test("a refusal on a route the panel never required is not this panel's verdict"
     draft.attestation.state = "pending_final_panel";
   });
   const verdicts = fullPanel(value.candidate_digest);
-  const astra = verdicts.find((entry) => entry.seat === "astra");
-  astra.route = "anthropic/claude-opus-5";
-  astra.verdict = "fail";
+  const lead = verdicts.find((entry) => entry.seat === "opus");
+  lead.route = "anthropic/claude-opus-5";
+  lead.verdict = "fail";
   value.attestation.verdicts = verdicts;
   assert.equal(computeAttestationState(value), "pending_final_panel");
 });
@@ -924,9 +927,9 @@ test("a rejection or a deferral must be justified", () => {
 test("the declared panel is the owner's, exactly", () => {
   assertRejects(
     mutated((value) => {
-      value.required_panel.find((entry) => entry.seat === "astra").effort = "high";
+      value.required_panel.find((entry) => entry.seat === "opus").effort = "high";
     }),
-    /is not openai-codex\/gpt-6-astra\/low/u,
+    /required_panel opus: opus\/high is not opus\/max/u,
   );
 });
 
@@ -944,4 +947,114 @@ test("the design pack is in the candidate", () => {
   ]) {
     assert.ok(listed.has(required), `${required} is not in the candidate`);
   }
+});
+
+// -- debt 8a: the roster of the guide in force since 2026-09-25 (anchor 21) ----
+
+/**
+ * The anchor-21 roster, spelled out here rather than read from REQUIRED_PANEL,
+ * so a change to the requirement cannot pass by changing the test with it.
+ */
+const ANCHOR_21 = [
+  { seat: "opus", harness: "claude", route: "opus", effort: "max" },
+  { seat: "devin", harness: "devin", route: "swe-2-max", effort: "in_model_id" },
+  { seat: "muse", harness: "pi", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
+  { seat: "deepseek", harness: "pi", route: "deepseek/deepseek-flash", effort: "max" },
+];
+
+/** Round 4's roster as it sat, harnesses included. */
+const ROUND_4_SEATS = [
+  { seat: "astra", harness: "codex", route: "openai-codex/gpt-6-astra", effort: "low" },
+  { seat: "grok", harness: "cursor", route: "cursor/cursor-grok-4.6", effort: "xhigh" },
+  { seat: "muse", harness: "pi", route: "meta/muse-spark-1.3-contributor", effort: "xhigh" },
+  { seat: "deepseek", harness: "pi", route: "deepseek/deepseek-flash", effort: "max" },
+];
+
+function passesOn(seats, digest) {
+  return seats.map((seat, index) => ({
+    ...seat,
+    candidate_digest: digest,
+    verdict: "pass",
+    session_id: `anchor-21-${index + 1}`,
+    recorded_at: "2026-09-26T12:00:00Z",
+  }));
+}
+
+function attestedBy(seats, { state } = {}) {
+  const value = mutated(() => {});
+  value.attestation.verdicts = passesOn(seats, value.candidate_digest);
+  if (state) value.attestation.state = state;
+  return value;
+}
+
+test("the required panel is the anchor-21 roster, harness included", () => {
+  assert.deepEqual(REQUIRED_PANEL, ANCHOR_21);
+  assert.deepEqual(candidate().required_panel, ANCHOR_21);
+});
+
+test("four passes on the anchor-21 seats attest pass", () => {
+  const value = attestedBy(ANCHOR_21, { state: "pass" });
+  assert.equal(computeAttestationState(value), "pass");
+  assert.deepEqual(validateCandidate(value, schema), []);
+});
+
+test("four passes on round 4's routes are not counted toward the attestation", () => {
+  const value = attestedBy(ROUND_4_SEATS);
+  assert.equal(computeAttestationState(value), "pending_final_panel");
+  assertRejects(attestedBy(ROUND_4_SEATS, { state: "pass" }), /attestation state is pass, computed pending_final_panel/u);
+});
+
+test("the right route and effort through another harness is not the seat", () => {
+  // Two seats share the pi harness and the lead's route is a bare alias, so the
+  // harness is part of what names a seat: muse through cursor is another panel.
+  const seats = ANCHOR_21.map((seat) => (seat.seat === "muse" ? { ...seat, harness: "cursor" } : seat));
+  assert.equal(computeAttestationState(attestedBy(seats)), "pending_final_panel");
+});
+
+test("devin's effort is carried by its model id, so a claimed max is not the seat", () => {
+  const seats = ANCHOR_21.map((seat) => (seat.seat === "devin" ? { ...seat, effort: "max" } : seat));
+  assert.equal(computeAttestationState(attestedBy(seats)), "pending_final_panel");
+});
+
+test("a panel entry or a verdict without a harness is refused by the schema", () => {
+  assertRejects(
+    mutated((value) => {
+      delete value.required_panel[0].harness;
+    }),
+    /^schema: .*harness/u,
+  );
+  const value = attestedBy(ANCHOR_21);
+  delete value.attestation.verdicts[1].harness;
+  assertRejects(value, /^schema: .*harness/u);
+});
+
+test("required_panel names a seat's harness as well as its route and effort", () => {
+  assertRejects(
+    mutated((value) => {
+      value.required_panel.find((entry) => entry.seat === "deepseek").harness = "cursor";
+    }),
+    /required_panel deepseek: harness cursor is not pi/u,
+  );
+});
+
+test("round 4 keeps the roster it sat, harnesses included, which is no longer the requirement", () => {
+  assert.deepEqual(PANEL_BY_ROUND[4], ROUND_4_SEATS);
+  assert.notDeepEqual(PANEL_BY_ROUND[4], REQUIRED_PANEL);
+  assert.deepEqual(validatePanelRound(readRound(4)), []);
+  const moved = readRound(4);
+  moved.seats.find((seat) => seat.seat === "grok").harness = "pi";
+  assert.deepEqual(validatePanelRound(moved), ["round 4 grok: harness pi is not cursor"]);
+});
+
+test("a round pinned with harnesses refuses a seat that sat through another one", () => {
+  const seats = ANCHOR_21.map((seat, index) => ({
+    ...seat,
+    harness: seat.seat === "opus" ? "codex" : seat.harness,
+    session_id: `s-${index}`,
+    verdict: "pass",
+    findings: [],
+  }));
+  assert.deepEqual(validatePanelRound({ round: 99, seats }, ANCHOR_21), [
+    "round 99 opus: harness codex is not claude",
+  ]);
 });
