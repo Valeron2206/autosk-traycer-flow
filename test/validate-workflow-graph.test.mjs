@@ -378,7 +378,7 @@ test("the shipped cap predicates each declare the quantity they compare with cap
   // The union rule cannot see this half of the criterion: the vocabulary
   // accepts the quantity declared anywhere, so a cap predicate could compare
   // with `transition_takings` while never declaring it — removing it from one
-  // predicate's `reads` left every check green, and even the 293 count did
+  // predicate's `reads` left every check green, and even the 320 count did
   // not move. The ticket's bar is the narrower one: each of the four carries
   // the quantity in its OWN `reads`, and its description compares that name
   // with `cap`.
@@ -1112,19 +1112,19 @@ test("the quantity rule binds the cap's predicates only, not every description n
   // The negative half, and the measurement that chose it. A predicate's
   // `reads` declares the state it inspects, not every word its sentence may
   // use: most descriptions name a word of the vocabulary their own list does
-  // not carry — 293 of the shipped document's 410, counted at identifier
+  // not carry — 320 of the shipped document's 432, counted at identifier
   // boundaries, which is the tokenization this measurement is stated in. A
   // rule keyed on per-predicate disagreement would redden that lawful
   // majority and could never go green. What is refused is the narrower shape:
   // a cap predicate comparing `cap` with a quantity ABSENT FROM THE WHOLE
   // VOCABULARY — which is what `round` was until it was named. The shipped
-  // document passes the check while carrying all 293.
+  // document passes the check while carrying all 320.
   const graph = document();
   const vocabulary = new Set(graph.predicates.flatMap((entry) => entry.reads));
   const atBoundary = (word) => new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`, "u");
   const broad = graph.predicates.filter((entry) =>
     [...vocabulary].some((word) => !entry.reads.includes(word) && atBoundary(word).test(entry.description)));
-  assert.equal(broad.length, 293, "the broad-rule population moved — remeasure before blaming the check");
+  assert.equal(broad.length, 320, "the broad-rule population moved — remeasure before blaming the check");
   assert.deepEqual(
     validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
     [],
@@ -1258,8 +1258,10 @@ test("an entry naming a step the document never declares is refused", () => {
 test("a reason may name a whole step class without exceeding the schema's bound", () => {
   const graph = document();
   // The bound is on each field, and what has to fit is how many steps one reason
-  // names between them: the split moved 46 of `project_boundary_invalid`'s 68 into
-  // `handled_at` without any of them ceasing to be a step the row is about.
+  // names between them: the split moved 46 of `project_boundary_invalid`'s then 68
+  // into `handled_at` without any of them ceasing to be a step the row is about, and
+  // the widest row is now `epic_boundary_invalid`'s: the Epic's own 41 steps,
+  // human, and the five steps it shares with other workflows.
   const width = (row) => row.parks_at.length + (row.handled_at?.length ?? 0);
   const widest = graph.recovery.reduce((a, b) => (width(a) >= width(b) ? a : b));
   assert.ok(
@@ -1400,6 +1402,65 @@ test("graph_park_reason_ambiguous: a parking edge no guard gives a reason", () =
  * `record_alignment` is where the reason is handled, not where the graph parks it,
  * and putting it back in `parks_at` is refused by a different check entirely.
  */
+test("resume_scope is closed: origin and origin_edges are admitted, and any other scope is a shape the schema refuses", () => {
+  // An origin-scoped row permits a resume only into the step its park recorded
+  // as its origin. `artifact_freeze_invalid` resumes into the one step it names.
+  const scoped = mutated((graph) => {
+    graph.recovery.find((row) => row.reason === "artifact_freeze_invalid").resume_scope = "origin";
+  });
+  assert.deepEqual(validateGraph(scoped, schema), []);
+  // Scoped to the origin's edges, a row may list a step an edge out of one of
+  // its own reaches, as the union does; what narrows is the resume, at run time.
+  const edges = mutated((graph) => {
+    graph.recovery.find((row) => row.reason === "artifact_pass_invalid").resume_scope = "origin_edges";
+  });
+  assert.deepEqual(validateGraph(edges, schema), []);
+  assertRefuses(
+    mutated((graph) => {
+      graph.recovery.find((row) => row.reason === "artifact_freeze_invalid").resume_scope = "anywhere";
+    }),
+    "graph_schema",
+  );
+});
+
+test("an origin-scoped row that names a target outside its own steps is refused", () => {
+  // Under origin scope a target is only ever the step a park stood at, and a
+  // park stands only at a step its row names; a target outside them is one no
+  // resume could reach, so the document is refused rather than the target
+  // left dead. `artifact_pass_invalid` resumes into freeze_artifact, which it
+  // does not name.
+  const errors = validateGraph(
+    mutated((graph) => {
+      graph.recovery.find((row) => row.reason === "artifact_pass_invalid").resume_scope = "origin";
+    }),
+    schema,
+  );
+  assert.ok(
+    errors.some((message) => message.startsWith("resume_target_not_permitted: artifact_pass_invalid resumes by origin at freeze_artifact")),
+    errors.join("\n") || "(no findings)",
+  );
+});
+
+test("an origin_edges row may list only what its own steps or their edges reach (R9c-18)", () => {
+  // Under origin_edges a resume admits the origin and the steps an edge out of
+  // it reaches, and the origin is always a step the row names. So the rule the
+  // row has to keep is exactly the union check: every target is the destination
+  // of an edge out of one of its own steps. A target no such edge reaches is
+  // refused, scoped or not; this pins that the scope does not relax it.
+  const errors = validateGraph(
+    mutated((graph) => {
+      const row = graph.recovery.find((candidate) => candidate.reason === "review_cap");
+      row.resume_scope = "origin_edges";
+      row.resume_targets = [...row.resume_targets, "intake"].sort();
+    }),
+    schema,
+  );
+  assert.ok(
+    errors.some((message) => message.startsWith("resume_target_not_permitted: review_cap resumes at intake")),
+    errors.join("\n") || "(no findings)",
+  );
+});
+
 test("the union is deliberate: a target reachable from one named step and not another is accepted", () => {
   const graph = mutated((entry) => {
     const row = entry.recovery.find((candidate) => candidate.reason === "quick_classification_invalid");
@@ -1431,16 +1492,19 @@ test("no edge in the working example parks without saying why", async () => {
  *
  * The predicate descriptions are the rows of section 2 as extracted, so a guard
  * whose reason the description does not name is a reason nobody wrote down.
- * Seven edges are named here because their rows name no reason at all: two are
- * drawn by a chain the tables give no condition for, four state a destination
+ * Five edges are named here because their rows name no reason at all: two are
+ * drawn by a chain the tables give no condition for, two state a destination
  * chosen "by classification" without saying what the stop is called, and
  * `t_456` is a SUCCESS path — row 504 ends "park human" and names nothing —
  * carrying `anchor_resume_intent_invalid`, which row 510 gives to a different
  * condition. That one is the open question this ticket does not close; it is
- * named here so it stays visible rather than passing as silence.
+ * named here so it stays visible rather than passing as silence. There were
+ * seven until the Epic stopped integrating per Ticket: `t_366` and `t_367` were
+ * the Epic halves of the two "by classification" rows, and the staging steps
+ * that replaced them name every reason they park with.
  */
 const PARKS_WITHOUT_A_NAMED_REASON = Object.freeze([
-  "t_366", "t_367", "t_456", "t_478", "t_481", "t_511", "t_517",
+  "t_456", "t_478", "t_481", "t_511", "t_517",
 ]);
 
 /**
@@ -1732,9 +1796,11 @@ test("every status step the shipped document names in a parks_at rests on the ex
       );
     }
   }
-  // Eight, and the count is asserted so that the claim "none of the eight is
-  // produced" cannot quietly become a claim about some other number.
-  assert.equal(references.length, 8, references.join(", "));
+  // Nine, and the count is asserted so that the claim "none of the nine is
+  // produced" cannot quietly become a claim about some other number. The ninth
+  // is the Epic's boundary reason at human: the daemon records it for an
+  // autosk-planned task wherever it stands, the graph never parks it there.
+  assert.equal(references.length, 9, references.join(", "));
 });
 
 test("the shipped document lists every step the graph parks a reason at", () => {
@@ -1807,8 +1873,9 @@ test("no row of the shipped document stands a step with no way out in both of it
 
 test("graph_external_outcome_uncarried: a status the document may name and nothing performs", () => {
   // The defect this closed, asked as «who executes» rather than «where is it
-  // mentioned»: `cond_272` said the outcome of an unresolved foreign movement is
-  // human or cancel, the graph drew the human half as `t_367` and the cancel half
+  // mentioned»: the Epic's per-Ticket recovery edge (deleted with that order,
+  // ADR-084) said the outcome of an unresolved foreign movement is human or
+  // cancel, the graph drew the human half — today `t_481` and `t_567` — and the cancel half
   // as nothing, and the views described a status operation without naming what
   // performs it. On the base document — both the shipped one and the working
   // example — this refusal fired once and named `cancel`. The statuses come from
@@ -1862,7 +1929,9 @@ test("graph_external_outcome_uncarried: a status the document may name and nothi
 
 test("a terminal step stays a lawful resume target of every row that does not park there", () => {
   // The fix removed the intersection, not the union: `done` is still a resume
-  // target of the rows that never park at it (ten, measured when it landed),
+  // target of the rows that never park at it (ten when it landed; six since the
+  // three planning-ref rows and artifact_mapping_required stopped lending it to
+  // an Epic's planning stop, R9c-14 and R9c-15),
   // `ticket_done` of the two commit rows — now under the ordinary rule, since
   // it gained the exit to `done` — and `human` of every row whose park
   // is an ordinary stop for a person. A row in that shape is legitimate; a row
@@ -1878,7 +1947,7 @@ test("a terminal step stays a lawful resume target of every row that does not pa
     }
   }
   const targeting = (name) => graph.recovery.filter((row) => row.resume_targets.includes(name)).map((row) => row.reason);
-  assert.ok(targeting("done").length >= 10, `done stopped being a target the union intends: ${targeting("done")}`);
+  assert.ok(targeting("done").length >= 6, `done stopped being a target the union intends: ${targeting("done")}`);
   for (const reason of ["commit_cas_failed", "commit_foreign_movement"]) {
     assert.ok(targeting("ticket_done").includes(reason), `${reason} no longer resumes into ticket_done`);
   }

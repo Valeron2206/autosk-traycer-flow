@@ -38,8 +38,10 @@
       "class": "deterministic_step",
       "members": [
         "accept",
+        "accept_staging",
         "aggregate_verify",
         "apply_arena_decision",
+        "apply_staging",
         "arena_join",
         "arena_join_wait",
         "authority_recovery",
@@ -52,6 +54,7 @@
         "complete_anchor_handoff",
         "contest_join",
         "contest_join_wait",
+        "deliver_staging",
         "dispatch_arena",
         "dispatch_contest",
         "dispatch_narrow_review",
@@ -71,6 +74,7 @@
         "init_planning_ref",
         "intake",
         "integrate",
+        "integrate_staging",
         "integration_recovery",
         "invalidate_quick_classification",
         "narrow_review_join",
@@ -104,12 +108,139 @@
         "validate_tickets_manifest",
         "validate_verdict",
         "verify",
-        "verify_candidate"
+        "verify_candidate",
+        "verify_target"
       ],
       "derivation": "complement:gate_model_step"
+    },
+    {
+      "class": "epic_step",
+      "members": [
+        "accept_staging",
+        "aggregate_verify",
+        "apply_arena_decision",
+        "apply_staging",
+        "arena_join",
+        "arena_join_wait",
+        "await_alignment",
+        "await_anchor_impact_approval",
+        "clarify_alignment",
+        "contest_join",
+        "contest_join_wait",
+        "deliver_staging",
+        "dispatch_arena",
+        "dispatch_contest",
+        "dispatch_panel",
+        "dispatch_ticket_dag",
+        "draft_artifact",
+        "fix_artifact",
+        "freeze_artifact",
+        "init_planning_ref",
+        "integrate_staging",
+        "narrow_review_join",
+        "narrow_review_join_wait",
+        "panel_join",
+        "panel_join_wait",
+        "prepare_anchor_impact",
+        "present_tickets_breakdown",
+        "publish_artifact_pass",
+        "publish_planning_invalidation",
+        "rebuild_anchor",
+        "record_aggregate_remediation",
+        "record_alignment",
+        "record_anchor_impact_approval",
+        "record_artifact_pass",
+        "resume_repaired_tickets",
+        "select_next",
+        "synthesize_panel",
+        "ticket_join",
+        "ticket_join_wait",
+        "validate_tickets_manifest",
+        "verify_target"
+      ],
+      "derivation": "listed"
+    },
+    {
+      "class": "non_epic_deterministic_step",
+      "members": [
+        "accept",
+        "authority_recovery",
+        "build_candidate",
+        "cleanup",
+        "commit_on_pass",
+        "complete_anchor_handoff",
+        "dispatch_narrow_review",
+        "dispatch_review",
+        "done",
+        "emit_blocked_anchor",
+        "fix",
+        "freeze",
+        "freeze_candidate",
+        "human",
+        "implement",
+        "intake",
+        "integrate",
+        "integration_recovery",
+        "invalidate_quick_classification",
+        "rebuild_code_anchor",
+        "record_code_verdict",
+        "record_editorial_exemption",
+        "repair_anchor_handoff",
+        "repair_protocol_snapshot",
+        "review_join",
+        "review_join_wait",
+        "ticket_done",
+        "validate_disposition",
+        "validate_judgment",
+        "validate_verdict",
+        "verify",
+        "verify_candidate"
+      ],
+      "derivation": "listed"
     }
   ],
   "park_reasons": [
+    {
+      "code": "acceptance_missing",
+      "named_at": [
+        "accept_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs",
+        "src/host/staging-acceptance.mjs"
+      ]
+    },
+    {
+      "code": "acceptance_stale",
+      "named_at": [
+        "accept_staging",
+        "integrate_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs",
+        "src/host/staging-acceptance.mjs"
+      ]
+    },
+    {
+      "code": "aggregate_binding_void",
+      "named_at": [
+        "accept_staging",
+        "aggregate_verify"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/aggregate-driver.mjs",
+        "src/host/epic-staging.mjs"
+      ]
+    },
     {
       "code": "aggregate_remediation_required",
       "named_at": [
@@ -424,12 +555,15 @@
       "code": "blocked_anchor",
       "named_at": [
         "accept",
+        "accept_staging",
         "aggregate_verify",
+        "apply_staging",
         "commit_on_pass",
         "dispatch_ticket_dag",
         "done",
         "freeze",
         "integrate",
+        "integrate_staging",
         "prepare_anchor_impact",
         "rebuild_code_anchor",
         "record_artifact_pass",
@@ -465,6 +599,19 @@
       "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
+    },
+    {
+      "code": "cas_conflict",
+      "named_at": [
+        "integrate_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs",
+        "src/host/staging-driver.mjs"
+      ]
     },
     {
       "code": "child_creation_key_invalid",
@@ -518,6 +665,18 @@
       "producer_files": []
     },
     {
+      "code": "completion_predicate_unmet",
+      "named_at": [
+        "deliver_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/delivery-profile.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/delivery-profile.mjs"
+      ]
+    },
+    {
       "code": "contest_join_invalid",
       "named_at": [
         "contest_join",
@@ -544,6 +703,51 @@
       "named_at": [],
       "named_at_classes": [
         "gate_model_step"
+      ],
+      "closed_by": "03-technical-plan.md",
+      "producer": "daemon",
+      "producer_files": []
+    },
+    {
+      "code": "delta_stale",
+      "named_at": [
+        "apply_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/approved-delta.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/approved-delta.mjs",
+        "src/host/delta-driver.mjs"
+      ]
+    },
+    {
+      "code": "environment_failure",
+      "named_at": [
+        "aggregate_verify"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/aggregate-driver.mjs",
+        "src/host/delta-driver.mjs",
+        "src/host/epic-staging.mjs",
+        "src/host/staging-driver.mjs"
+      ]
+    },
+    {
+      "code": "epic_boundary_invalid",
+      "named_at": [
+        "authority_recovery",
+        "cleanup",
+        "dispatch_narrow_review",
+        "human",
+        "intake",
+        "repair_protocol_snapshot"
+      ],
+      "named_at_classes": [
+        "epic_step"
       ],
       "closed_by": "03-technical-plan.md",
       "producer": "daemon",
@@ -588,6 +792,19 @@
       "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
+    },
+    {
+      "code": "foreign_target_movement",
+      "named_at": [
+        "integrate_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs",
+        "src/host/staging-lineage.mjs"
+      ]
     },
     {
       "code": "freeze_candidate_invalid",
@@ -911,10 +1128,22 @@
       ]
     },
     {
+      "code": "post_cas_mismatch",
+      "named_at": [
+        "verify_target"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs"
+      ]
+    },
+    {
       "code": "project_boundary_invalid",
       "named_at": [],
       "named_at_classes": [
-        "deterministic_step"
+        "non_epic_deterministic_step"
       ],
       "closed_by": "03-technical-plan.md",
       "producer": "daemon",
@@ -940,6 +1169,18 @@
       "producer": "host",
       "producer_files": [
         "src/host/quick-flow.mjs"
+      ]
+    },
+    {
+      "code": "receipt_missing",
+      "named_at": [
+        "apply_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs"
       ]
     },
     {
@@ -979,6 +1220,32 @@
       "closed_by": "03-technical-plan.md",
       "producer": "daemon",
       "producer_files": []
+    },
+    {
+      "code": "staging_moved_after_pass",
+      "named_at": [
+        "accept_staging",
+        "aggregate_verify"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs",
+        "src/host/staging-driver.mjs"
+      ]
+    },
+    {
+      "code": "target_moved",
+      "named_at": [
+        "integrate_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/epic-staging.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/epic-staging.mjs"
+      ]
     },
     {
       "code": "tech_plan_readiness_required",
@@ -1098,6 +1365,18 @@
       ]
     },
     {
+      "code": "unsupported_integration_mode",
+      "named_at": [
+        "accept_staging"
+      ],
+      "named_at_classes": [],
+      "closed_by": "docs/contracts/delivery-profile.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/delivery-profile.mjs"
+      ]
+    },
+    {
       "code": "verification_cap",
       "named_at": [
         "fix",
@@ -1140,5 +1419,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "587ec19fe5a745dac134a77a8661081635edcd2f24cf8a9c98bdb7f8fefb337a"
+  "vocabulary_digest": "cbbf78d07271e605e6ab7c60e58971e0358449c63f8277380499289cf0ff6ae5"
 }

@@ -304,6 +304,130 @@ test("a target outside the reason's resume targets is refused", () => {
   assert.equal(permitsResume(state, row.reason, row.resume_targets[0], receipted(row)), true);
 });
 
+test("an origin-scoped reason resumes only into the step its park recorded as its origin", () => {
+  // R9c-10. A union row lends every target to every step it names, so a stop
+  // before the aggregate PASS could resume into acceptance on the same reason.
+  // An origin-scoped row permits one target: the step the park stood at.
+  const graph = resealed((entry) => {
+    for (const row of entry.recovery) {
+      if (row.reason === "epic_boundary_invalid" || row.reason === "project_boundary_invalid") row.resume_scope = "origin";
+    }
+  });
+  const state = index(graph);
+  const reason = "epic_boundary_invalid";
+  const origin = { origin: "ticket_join" };
+  assert.equal(permitsResume(state, reason, "ticket_join", origin), true);
+  assert.equal(refusalOf(() => permitsResume(state, reason, "select_next", origin)).reason, "resume_target_not_permitted");
+  // With no origin recorded, nothing is the origin, so nothing is permitted.
+  assert.equal(refusalOf(() => permitsResume(state, reason, "ticket_join", {})).reason, "resume_target_not_permitted");
+  // The scope narrows and never widens: the origin must still be a target.
+  assert.equal(
+    refusalOf(() => permitsResume(state, reason, "intake", { origin: "intake" })).reason,
+    "resume_target_not_permitted",
+  );
+  // And a union row is untouched by an origin in the record: it still lends
+  // a target that is not where the park stood.
+  assert.equal(permitsResume(state, "aggregate_binding_void", "aggregate_verify", { origin: "accept_staging" }), true);
+
+  // Through the veto: a task parked at human carries the origin of the park
+  // that took it there, and resumes only into it.
+  const workflow = buildWorkflow(graph, { evaluate: always });
+  const task = { id: "t-o", step: "human", status: "human", metadata: { park: { reason, origin: "aggregate_verify" } } };
+  return (async () => {
+    await workflow.onTransit(context(task).ctx, { step: "aggregate_verify" });
+    await assert.rejects(
+      () => workflow.onTransit(context(task).ctx, { step: "accept_staging" }),
+      (error) => error.reason === "resume_target_not_permitted",
+    );
+  })();
+});
+
+test("a row scoped to its origin's edges admits the origin and what an edge out of it reaches, and nothing another step lends", () => {
+  // R9c-15. review_cap parks the Planned cap at narrow_review_join and the
+  // Quick and Ticket one at record_code_verdict. Under the union each stop was
+  // lent the other's targets — the Planned stop Quick's
+  // invalidate_quick_classification, one unguarded edge before done. Scoped to
+  // the origin's edges, a stop resumes into its origin or along an edge out of
+  // it, and the row's list still bounds both.
+  const graph = document();
+  const state = index(graph);
+  const reason = "review_cap";
+  assert.equal(state.recovery.get(reason).resume_scope, "origin_edges");
+  const planned = { origin: "narrow_review_join" };
+  assert.equal(permitsResume(state, reason, "fix_artifact", planned), true);
+  for (const target of ["fix", "invalidate_quick_classification", "rebuild_code_anchor"]) {
+    assert.equal(refusalOf(() => permitsResume(state, reason, target, planned)).reason, "resume_target_not_permitted", target);
+  }
+  const code = { origin: "record_code_verdict" };
+  for (const target of ["fix", "invalidate_quick_classification", "rebuild_code_anchor", "human"]) {
+    assert.equal(permitsResume(state, reason, target, code), true, target);
+  }
+  assert.equal(refusalOf(() => permitsResume(state, reason, "fix_artifact", code)).reason, "resume_target_not_permitted");
+  // The list still bounds it: record_code_verdict has an edge into Quick's
+  // accept, and the row does not list accept.
+  assert.ok(state.outgoing.get("record_code_verdict").some((edge) => edge.to === "accept"));
+  assert.equal(refusalOf(() => permitsResume(state, reason, "accept", code)).reason, "resume_target_not_permitted");
+  // With no origin recorded there is no edge to go by, so nothing is admitted.
+  assert.equal(refusalOf(() => permitsResume(state, reason, "fix_artifact", {})).reason, "resume_target_not_permitted");
+  // And origin scope proper admits the origin alone, not its edges.
+  const strict = index(resealed((entry) => {
+    entry.recovery.find((row) => row.reason === reason).resume_scope = "origin";
+  }));
+  assert.equal(refusalOf(() => permitsResume(strict, reason, "fix_artifact", planned)).reason, "resume_target_not_permitted");
+});
+
+test("a Quick or Ticket stop under review_cap or artifact_mapping_required still resumes where its own workflow recovers", async () => {
+  // R9c-15's other half: narrowing what a Planned stop is lent must not take
+  // away what a Quick or Ticket stop was admitted into. Both workflows stop at
+  // the same two steps, freeze and record_code_verdict.
+  const graph = document();
+  const state = index(graph);
+  const workflow = buildWorkflow(graph, { evaluate: always });
+
+  // review_cap at record_code_verdict: a new fix round — the step the table
+  // names for Quick and Ticket, which the union could not list without lending
+  // it to the Planned stop — the anchor rebuild and, for Quick, the hand-off
+  // out of the Quick classification. The Planned fixer is not theirs.
+  const capped = { id: "t-q", step: "human", status: "human", metadata: { park: { reason: "review_cap", origin: "record_code_verdict" } } };
+  for (const target of ["fix", "rebuild_code_anchor", "invalidate_quick_classification"]) {
+    await workflow.onTransit(context(capped).ctx, { step: target });
+  }
+  await assert.rejects(
+    () => workflow.onTransit(context(capped).ctx, { step: "fix_artifact" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+
+  // artifact_mapping_required at freeze: dropping done took nothing a Quick
+  // or Ticket stop could reach. done was lent only by
+  // invalidate_quick_classification's completion receipt, and nothing the
+  // reason admits from freeze runs there while the reason is recorded: it is
+  // not a target, and no step the flow can stand on under the reason has an
+  // edge into it. What such a stop is admitted into is what it was admitted
+  // into before.
+  const row = state.recovery.get("artifact_mapping_required");
+  const named = new Set([...row.parks_at, ...(row.handled_at ?? [])]);
+  const admitted = row.resume_targets.filter((target) => {
+    try {
+      return permitsResume(state, row.reason, target, { origin: "freeze" });
+    } catch {
+      return false;
+    }
+  });
+  assert.deepEqual(admitted, ["draft_artifact", "human"]);
+  const running = new Set();
+  const queue = admitted.filter((name) => !parks(state, name));
+  while (queue.length > 0) {
+    const name = queue.shift();
+    if (running.has(name)) continue;
+    running.add(name);
+    for (const edge of state.outgoing.get(name) ?? []) {
+      if (named.has(edge.to) && !parks(state, edge.to) && !row.parks_at.includes(edge.to)) queue.push(edge.to);
+    }
+  }
+  assert.ok(!row.resume_targets.includes("invalidate_quick_classification"));
+  assert.ok(!running.has("invalidate_quick_classification"), [...running].join(", "));
+});
+
 test("permission is read off the reason and not off the step it parked at", () => {
   // The counterexample the ticket asks for, taken from the shipped document
   // rather than from a fixture: two reasons parking at one step, each permitting
@@ -312,7 +436,9 @@ test("permission is read off the reason and not off the step it parked at", () =
   const graph = document();
   const state = index(graph);
   const byStep = new Map();
-  for (const row of graph.recovery) {
+  // Union rows only: an origin-scoped row permits the step its park stood at
+  // and nothing else, which is a narrower question the next test asks.
+  for (const row of graph.recovery.filter((entry) => entry.resume_scope === undefined)) {
     for (const step of row.parks_at) byStep.set(step, [...(byStep.get(step) ?? []), row]);
   }
 
@@ -667,9 +793,9 @@ test("a flow parked on a step with no way out cannot resume into one", () => {
     );
   }
   assert.equal(
-    permitsResume(state, "project_boundary_invalid", "implement"),
+    permitsResume(state, "project_boundary_invalid", "implement", { origin: "implement" }),
     true,
-    "the reason still permits a target with a way out",
+    "the reason still permits a target with a way out, from a park that stood there",
   );
   // The other two rows carried the same intersection at human: a task standing
   // there with the reason resumed into it. That arrival is refused too.
@@ -860,7 +986,7 @@ test("and every refusal it produces is one some contract closes", () => {
 test("a relayed park reason is the document's and not this factory's", () => {
   // The reasons a flow parks with come from the park vocabulary through the
   // document. Keeping them out of REFUSALS is what stops this factory from
-  // looking like the owner of eighty-five codes it merely passes on.
+  // looking like the owner of ninety-nine codes it merely passes on.
   const graph = document();
   const state = index(graph);
   const declared = new Set(graph.recovery.map((row) => row.reason));
@@ -1246,7 +1372,7 @@ test("a transition out of the park clears the reason it recorded, so an engine-s
   await workflow.steps.draft_artifact.onRun(move.ctx);
   assert.equal(task.step, "freeze_artifact");
   assert.equal(task.metadata.park?.reason, undefined, "the reason described a stop that is over");
-  assert.deepEqual(move.calls.execs, [["autosk", "metadata", "unset", "t-1", "park.reason"]]);
+  assert.deepEqual(move.calls.execs, [["autosk", "metadata", "unset", "t-1", "park.reason", "park.origin"]]);
   // The delete is leaf-level: the sibling receipts the same record carries are
   // untouched, and re-scope themselves by watermark from there on.
   assert.equal(
@@ -1258,6 +1384,96 @@ test("a transition out of the park clears the reason it recorded, so an engine-s
   // no-permission move — re-entering the step the flow stands at — is open.
   task.status = "human";
   await workflow.onTransit(context(task).ctx, { step: "freeze_artifact" });
+});
+
+test("a take out of an origin-scoped park's origin clears the reason and the origin, so an engine park after it re-enters freely", async () => {
+  // R9c-13. A boundary park at aggregate_verify, resumed there; aggregate_verify
+  // takes t_369 into accept_staging, a step the Epic's boundary row names.
+  // Under the union's surface the reason stayed, and so did the origin, so a
+  // later engine park at accept_staging could not re-enter it and could only
+  // rewind to aggregate_verify, before the PASS.
+  const graph = document();
+  const pass = graph.transitions.find((edge) => edge.id === "t_369");
+  assert.deepEqual([pass.from, pass.to], ["aggregate_verify", "accept_staging"]);
+  const row = graph.recovery.find((entry) => entry.reason === "epic_boundary_invalid");
+  const named = [...row.parks_at, ...(row.handled_at ?? [])];
+  assert.ok(named.includes("aggregate_verify") && named.includes("accept_staging"), "the take stays inside the row");
+  const predicate = graph.guards.find((guard) => guard.id === pass.guards[0]).predicate;
+  const workflow = buildWorkflow(graph, { evaluate: (id) => id === predicate });
+  const task = {
+    id: "t-b",
+    step: "aggregate_verify",
+    status: "human",
+    metadata: { park: { reason: "epic_boundary_invalid", origin: "aggregate_verify" } },
+  };
+  await workflow.onTransit(context(task).ctx, { step: "aggregate_verify" });
+  await context(task).ctx.transit({ step: "aggregate_verify" });
+
+  const move = context(task);
+  await workflow.steps.aggregate_verify.onRun(move.ctx);
+  assert.equal(task.step, "accept_staging");
+  assert.deepEqual(move.calls.execs, [["autosk", "metadata", "unset", "t-b", "park.reason", "park.origin"]]);
+  assert.equal(task.metadata.park?.reason, undefined);
+  assert.equal(task.metadata.park?.origin, undefined);
+
+  task.status = "human"; // the engine's own park: no reason, no origin
+  await workflow.onTransit(context(task).ctx, { step: "accept_staging" });
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "aggregate_verify" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+});
+
+test("the contract says what an engine park leaves behind and what a daemon-side writer owes", () => {
+  // R9c-13. An engine park writes neither leaf, so "the origin of the park
+  // that took it there" was not true of it, and a writer that left an origin
+  // in place could pair a new reason with an unrelated park's origin.
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/workflow-factory.md"), "utf8");
+  const section = contract.slice(contract.indexOf("## 4."), contract.indexOf("## 5."));
+  assert.doesNotMatch(section, /leaves an origin already recorded/u);
+  assert.match(section, /engine-side park writes neither/u);
+  assert.match(section, /writes the step the task stands at as `park\.origin`/u);
+});
+
+test("an origin-scoped park keeps its reason on a take back into its origin, and a union park on a take inside its row", async () => {
+  // The other side of R9c-13: the surface of an origin-scoped row is its
+  // origin, so a self-loop at the origin is still the park's own step; a
+  // union row's surface is still every step it names.
+  const graph = document();
+  const loop = graph.transitions.find((edge) => edge.id === "t_012");
+  assert.deepEqual([loop.from, loop.to], ["freeze_artifact", "freeze_artifact"]);
+  const loopPredicate = graph.guards.find((guard) => guard.id === loop.guards[0]).predicate;
+  const looping = buildWorkflow(graph, { evaluate: (id) => id === loopPredicate });
+  const scoped = {
+    id: "t-l",
+    step: "freeze_artifact",
+    status: "work",
+    metadata: { park: { reason: "epic_boundary_invalid", origin: "freeze_artifact" } },
+  };
+  const stay = context(scoped);
+  await looping.steps.freeze_artifact.onRun(stay.ctx);
+  assert.deepEqual(stay.calls.transits, [{ step: "freeze_artifact" }]);
+  assert.deepEqual(stay.calls.execs, []);
+  assert.equal(scoped.metadata.park.reason, "epic_boundary_invalid");
+
+  const inside = graph.transitions.find((edge) => edge.id === "t_507");
+  assert.deepEqual([inside.from, inside.to], ["verify_candidate", "freeze_candidate"]);
+  const union = graph.recovery.find((entry) => entry.reason === "arena_candidate_failed");
+  assert.equal(union.resume_scope, undefined);
+  assert.ok(union.parks_at.includes("build_candidate") && union.parks_at.includes("freeze_candidate"));
+  const insidePredicate = graph.guards.find((guard) => guard.id === inside.guards[0]).predicate;
+  const moving = buildWorkflow(graph, { evaluate: (id) => id === insidePredicate });
+  const task = {
+    id: "t-u",
+    step: "verify_candidate",
+    status: "work",
+    metadata: { park: { reason: "arena_candidate_failed", origin: "build_candidate" } },
+  };
+  const run = context(task);
+  await moving.steps.verify_candidate.onRun(run.ctx);
+  assert.equal(task.step, "freeze_candidate");
+  assert.deepEqual(run.calls.execs, [], "a take inside a union row's surface clears nothing, origin or not");
+  assert.equal(task.metadata.park.reason, "arena_candidate_failed");
 });
 
 test("the built onRun goes where the graph says, and records why when it parks", async () => {
@@ -1281,15 +1497,37 @@ test("the built onRun goes where the graph says, and records why when it parks",
   const parking = context({ id: "t-9", step: stranded.name, status: "work", metadata: {} });
   await cornered.steps[stranded.name].onRun(parking.ctx);
   assert.deepEqual(parking.calls.execs, [
+    ["autosk", "metadata", "set", "t-9", "park.origin", stranded.name],
     ["autosk", "metadata", "set", "t-9", "park.reason", stranded.no_transition_reason],
   ]);
   assert.deepEqual(parking.calls.transits, [{ status: "human" }]);
 });
 
+test("a park records where it stood before why, and an origin that could not be recorded refuses the park", async () => {
+  // The origin an origin-scoped reason resumes into is the step the park
+  // stood at, written before the reason: a reason recorded over an origin
+  // that failed to land would pair with an earlier park's origin.
+  const stranded = document().steps.find((step) => step.kind === "agent");
+  const graph = resealed((entry) => {
+    entry.transitions = entry.transitions.filter((edge) => edge.from !== stranded.name);
+  });
+  const workflow = buildWorkflow(graph, { evaluate: always });
+  const task = { id: "t-7", step: stranded.name, status: "work", metadata: { park: { origin: "stale" } } };
+  const failing = context(task, { failLeaf: "park.origin" });
+  await assert.rejects(() => workflow.steps[stranded.name].onRun(failing.ctx), /park origin/u);
+  assert.deepEqual(failing.calls.transits, [], "the flow must not have parked");
+  assert.equal(task.metadata.park.reason, undefined, "no reason was recorded over an origin that did not land");
+  const landing = context(task);
+  await workflow.steps[stranded.name].onRun(landing.ctx);
+  assert.equal(task.metadata.park.origin, stranded.name);
+  assert.equal(task.metadata.park.reason, stranded.no_transition_reason);
+});
+
 test("a park whose reason could not be recorded refuses rather than parking anyway", async () => {
   // A parked task whose reason was lost is a task operation 2 can never move,
   // so the write failing has to stop the park rather than be swallowed. It is
-  // the park record's only write — the record it leaves is no record at all,
+  // the last of the park record's two writes — the origin lands first — and the
+  // record it leaves has no reason at all,
   // and that is fail-closed: `parkedWith` reads undefined and operation 2
   // refuses every target.
   const stranded = document().steps.find((step) => step.kind === "agent");
@@ -1335,6 +1573,7 @@ test("a declared edge into a parking step records the reason the document names"
   });
   await workflow.steps.init_planning_ref.onRun(parking.ctx);
   assert.deepEqual(parking.calls.execs, [
+    ["autosk", "metadata", "set", "t-2", "park.origin", "init_planning_ref"],
     ["autosk", "metadata", "set", "t-2", "park.reason", guard.park_reason],
   ]);
   assert.deepEqual(parking.calls.transits, [{ step: "human" }]);
@@ -1343,7 +1582,13 @@ test("a declared edge into a parking step records the reason the document names"
   // which is what the review measured going wrong end to end.
   const row = graph.recovery.find((entry) => entry.reason === guard.park_reason);
   assert.ok(row.parks_at.includes("init_planning_ref"));
-  assert.equal(permitsResume(state, guard.park_reason, "init_planning_ref"), true);
+  // Origin-scoped (R9c-14): the one target is the helper-calling step the
+  // park recorded, and cleanup — a step the row also names — is not it.
+  assert.equal(permitsResume(state, guard.park_reason, "init_planning_ref", { origin: "init_planning_ref" }), true);
+  assert.equal(
+    refusalOf(() => permitsResume(state, guard.park_reason, "cleanup", { origin: "init_planning_ref" })).reason,
+    "resume_target_not_permitted",
+  );
 });
 
 test("an edge that parks with more than one reason refuses rather than choosing", () => {

@@ -2000,16 +2000,10 @@
     {
       "id": "cond_257",
       "reads": [
+        "approved_deltas",
         "disposition"
       ],
-      "description": "все Tickets done + current code review disposition=pass|waived + commit OID, signed `IntegrationAuthorizationRecord` exact run/target/base/ordered commits/resulting tree/digest current — integrate"
-    },
-    {
-      "id": "cond_258",
-      "reads": [
-        "disposition"
-      ],
-      "description": "все Tickets done + current code review disposition=pass|waived + commit OID, integration authorization отсутствует/невалидна — accept statusStep(\"human\")"
+      "description": "все Tickets done + current code review disposition=pass|waived + commit OID и approved delta каждого Ticket записана — apply_staging; target ref не читается и не меняется"
     },
     {
       "id": "cond_259",
@@ -2026,88 +2020,12 @@
       "description": "ожидаемый Ticket status=human — обеспечить exact blocker edge, transit ticket_join_wait"
     },
     {
-      "id": "cond_261",
-      "reads": [
-        "task_record"
-      ],
-      "description": "current controlling digest mismatch — ensure pending_anchor, human с blocked_anchor"
-    },
-    {
-      "id": "cond_262",
-      "reads": [
-        "pending_anchor"
-      ],
-      "description": "resume --to integrate, current IntegrationAuthorizationRecord связывает current target OID, completed-prefix receipt и exact remaining transitions/digest, pending_anchor отсутствует — integrate"
-    },
-    {
-      "id": "cond_263",
-      "reads": [
-        "phase"
-      ],
-      "description": "daemon integration operation receipt phase=pending/indeterminate — integration_recovery до проверки expiry или нового Git side effect"
-    },
-    {
-      "id": "cond_264",
-      "reads": [
-        "pending_anchor"
-      ],
-      "description": "controlling digest/pending_anchor/anchor mismatch — atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до Git side effect"
-    },
-    {
-      "id": "cond_265",
-      "reads": [
-        "task_record"
-      ],
-      "description": "все Tickets integrated и pending operation отсутствует — aggregate_verify"
-    },
-    {
-      "id": "cond_266",
-      "reads": [
-        "task_record"
-      ],
-      "description": "IntegrationAuthorizationRecord missing/mismatched/expired — accept statusStep(\"human\") с park.reason=integration_authorization_required"
-    },
-    {
       "id": "cond_267",
       "reads": [
+        "resume_intent",
         "task_record"
       ],
-      "description": "next integration step plan/current authorization валидны — success -> integrate"
-    },
-    {
-      "id": "cond_268",
-      "reads": [
-        "task_record"
-      ],
-      "description": "precondition — human с park.reason=integration_precondition"
-    },
-    {
-      "id": "cond_269",
-      "reads": [
-        "task_record"
-      ],
-      "description": "obstruction — human с park.reason=integration_obstruction"
-    },
-    {
-      "id": "cond_270",
-      "reads": [
-        "task_record"
-      ],
-      "description": "foreign movement/indeterminate/reattach — integration_recovery или human по классификации"
-    },
-    {
-      "id": "cond_271",
-      "reads": [
-        "task_record"
-      ],
-      "description": "foreign movement/indeterminate/reattach — integration_recovery или human по классификации"
-    },
-    {
-      "id": "cond_272",
-      "reads": [
-        "task_record"
-      ],
-      "description": "состояние осталось foreign/indeterminate — human или cancel"
+      "description": "resume --to integrate под park.reason=integration_obstruction|integration_precondition: помеха перемещена либо предусловие устранено и доказательство записано, Quick classification valid, signed IntegrationAuthorizationRecord current, pending operation отсутствует — integrate"
     },
     {
       "id": "cond_273",
@@ -2119,9 +2037,12 @@
     {
       "id": "cond_274",
       "reads": [
-        "task_record"
+        "aggregate_binding",
+        "aggregate_outcome",
+        "staging_commit_oid",
+        "staging_tree_oid"
       ],
-      "description": "все epic-критерии PASS — cleanup"
+      "description": "aggregate outcome=PASS на exact staging commit/tree, record связан с этими commit/tree, verification config digest, instruction lock и включённым набором Tickets/deltas, staging не двигался после PASS — accept_staging; target ref не двигается"
     },
     {
       "id": "cond_275",
@@ -2466,9 +2387,10 @@
     {
       "id": "cond_319",
       "reads": [
-        "task_record"
+        "task_record",
+        "workflow"
       ],
-      "description": "нет reviewer семьи вне union author/fixer set — human с park.reason=no_external_reviewer"
+      "description": "workflow=autosk-quick|autosk-ticket, нет reviewer семьи вне union author/fixer set — human с park.reason=no_external_reviewer"
     },
     {
       "id": "cond_320",
@@ -2639,16 +2561,18 @@
     {
       "id": "cond_343",
       "reads": [
-        "task_record"
+        "task_record",
+        "workflow"
       ],
-      "description": "classification/identity/path set current, повторная проверка editorial, signed IntegrationAuthorizationRecord exact candidate валиден — atomically full flags reset + exemption record, integrate"
+      "description": "workflow=autosk-quick, classification/identity/path set current, повторная проверка editorial, signed IntegrationAuthorizationRecord exact candidate валиден — atomically full flags reset + exemption record, integrate"
     },
     {
       "id": "cond_344",
       "reads": [
-        "task_record"
+        "task_record",
+        "workflow"
       ],
-      "description": "classification/identity/path set current, повторная проверка editorial, integration authorization отсутствует/невалидна — atomically full flags reset + exemption record, accept"
+      "description": "workflow=autosk-quick, classification/identity/path set current, повторная проверка editorial, integration authorization отсутствует/невалидна — atomically full flags reset + exemption record, accept"
     },
     {
       "id": "cond_345",
@@ -2839,7 +2763,7 @@
       "reads": [
         "task_record"
       ],
-      "description": "pending receipt proves exact new OID — finalize daemon receipt/prefix, cleanup"
+      "description": "pending receipt proves exact new OID — finalize daemon receipt, cleanup"
     },
     {
       "id": "cond_370",
@@ -3216,6 +3140,306 @@
         "task_record"
       ],
       "description": "все ticket work items terminal — done"
+    },
+    {
+      "id": "cond_423",
+      "reads": [
+        "controlling_anchor_digest",
+        "pending_anchor"
+      ],
+      "description": "controlling digest/pending_anchor/anchor mismatch — atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до staging apply; target ref не читается и не меняется"
+    },
+    {
+      "id": "cond_424",
+      "reads": [
+        "approved_deltas",
+        "recorded_target_base",
+        "staging_commit_oid"
+      ],
+      "description": "approved delta, перепроверенная против текущей staging base в момент применения, к ней больше не применяется так, как одобрена — human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется"
+    },
+    {
+      "id": "cond_425",
+      "reads": [
+        "approved_deltas",
+        "integration_receipts"
+      ],
+      "description": "у применённой approved delta нет durable integration receipt либо lineage от recorded target base до staging head содержит неучтённый коммит — human с park.reason=receipt_missing"
+    },
+    {
+      "id": "cond_426",
+      "reads": [
+        "approved_deltas",
+        "integration_receipts",
+        "recorded_target_base",
+        "staging_commit_oid"
+      ],
+      "description": "очередная approved delta применена к приватному staging ref, созданному от recorded target base, expected-old CAS, durable integration receipt записан, неприменённые approved deltas остаются — apply_staging"
+    },
+    {
+      "id": "cond_427",
+      "reads": [
+        "approved_deltas",
+        "integration_receipts",
+        "recorded_target_base",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "все approved deltas применены, каждый integration receipt verified, lineage от recorded target base до staging head без неучтённых коммитов, staging commit/tree записаны, target ref не двигался — aggregate_verify"
+    },
+    {
+      "id": "cond_428",
+      "reads": [
+        "aggregate_outcome"
+      ],
+      "description": "aggregate check не смог запуститься или окружение отказало: outcome=indeterminate — это не verdict о продукте; human с park.reason=environment_failure; target ref не двигается"
+    },
+    {
+      "id": "cond_429",
+      "reads": [
+        "aggregate_binding"
+      ],
+      "description": "aggregate PASS записан на current staging commit/tree, но binding не пересчитывается от verification config digest, instruction lock или набора Tickets/deltas — human с park.reason=aggregate_binding_void; сдвиг самого staging — staging_moved_after_pass"
+    },
+    {
+      "id": "cond_430",
+      "reads": [
+        "aggregate_binding",
+        "resume_intent"
+      ],
+      "description": "resume --to aggregate_verify под park.reason=environment_failure|aggregate_binding_void: окружение восстановлено либо void записан, aggregate заново на exact current staging commit/tree без model run — aggregate_verify"
+    },
+    {
+      "id": "cond_431",
+      "reads": [
+        "controlling_anchor_digest",
+        "pending_anchor"
+      ],
+      "description": "controlling digest/pending_anchor/anchor mismatch — atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor; acceptance не запрашивается, target ref не двигается"
+    },
+    {
+      "id": "cond_432",
+      "reads": [
+        "aggregate_binding",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "staging ref OID/tree больше не равен identity, на которой записан aggregate PASS, — привязка аннулирована; human с park.reason=staging_moved_after_pass; target ref не двигается"
+    },
+    {
+      "id": "cond_433",
+      "reads": [
+        "aggregate_binding"
+      ],
+      "description": "aggregate binding не пересчитывается от verification config digest, instruction lock или включённого набора Tickets/deltas — human с park.reason=aggregate_binding_void"
+    },
+    {
+      "id": "cond_434",
+      "reads": [
+        "aggregate_binding",
+        "delivery_profile_digest",
+        "recorded_target_base",
+        "staging_acceptance",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "acceptance record человека или закреплённой auto-policy называет не current staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base или delivery profile digest — human с park.reason=acceptance_stale"
+    },
+    {
+      "id": "cond_435",
+      "reads": [
+        "aggregate_binding",
+        "delivery_plan",
+        "delivery_profile_digest",
+        "recorded_target_base",
+        "staging_acceptance",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base и delivery profile digest: принял человек, либо закреплённая auto-policy сверила эту identity с signed IntegrationAuthorizationRecord; finalIntegrationPlan action=move_target — integrate_staging"
+    },
+    {
+      "id": "cond_436",
+      "reads": [
+        "aggregate_binding",
+        "delivery_plan",
+        "delivery_profile_digest",
+        "recorded_target_base",
+        "staging_acceptance",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base и delivery profile digest: принял человек, либо закреплённая auto-policy сверила эту identity с signed IntegrationAuthorizationRecord; finalIntegrationPlan action=open_pull_request|enqueue: финальное движение не наше — deliver_staging"
+    },
+    {
+      "id": "cond_437",
+      "reads": [
+        "delivery_plan",
+        "delivery_profile_digest"
+      ],
+      "description": "finalIntegrationPlan action=park: mode не разрешён профилем, либо прямое движение запрещено или не принадлежит host, а PR/merge-queue путь не выбран — human с park.reason=unsupported_integration_mode; target ref не двигается"
+    },
+    {
+      "id": "cond_438",
+      "reads": [
+        "staging_acceptance"
+      ],
+      "description": "acceptance record отсутствует или отклонён: decision packet (#35) предъявлен с exact staging identity как candidate, auto-policy без signed IntegrationAuthorizationRecord не принимает — human с park.reason=acceptance_missing"
+    },
+    {
+      "id": "cond_439",
+      "reads": [
+        "resume_intent",
+        "staging_acceptance"
+      ],
+      "description": "resume --to accept_staging под park.reason=acceptance_missing|acceptance_stale|unsupported_integration_mode: новый acceptance record либо исправленный delivery plan записан против current staging identity — accept_staging"
+    },
+    {
+      "id": "cond_440",
+      "reads": [
+        "aggregate_binding",
+        "resume_intent"
+      ],
+      "description": "resume --to aggregate_verify под park.reason=aggregate_binding_void: void старой привязки записан, aggregate заново на exact current staging commit/tree — aggregate_verify"
+    },
+    {
+      "id": "cond_441",
+      "reads": [
+        "cas_receipt",
+        "controlling_anchor_digest",
+        "recorded_target_base",
+        "staging_acceptance",
+        "staging_commit_oid"
+      ],
+      "description": "daemon `integrateApproved` под project mutex заново сверил current acceptance и controlling anchor и выполнил один target CAS: expected_old=recorded target base, new=accepted staging commit, cas receipt committed; target, уже держащий accepted staging commit, — завершённый повтор, а не конфликт — verify_target"
+    },
+    {
+      "id": "cond_442",
+      "reads": [
+        "cas_receipt",
+        "recorded_target_base"
+      ],
+      "description": "pending CAS receipt phase=pending/indeterminate — разрешить по exact target ref/reflog до проверки authorization expiry и до нового Git side effect — integrate_staging"
+    },
+    {
+      "id": "cond_443",
+      "reads": [
+        "controlling_anchor_digest",
+        "pending_anchor"
+      ],
+      "description": "controlling digest/pending_anchor/anchor mismatch — atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до target CAS"
+    },
+    {
+      "id": "cond_444",
+      "reads": [
+        "integration_authorization",
+        "staging_acceptance",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо authorization, на которой она стоит (signed IntegrationAuthorizationRecord auto-policy либо acceptance decision человека), expired/revoked/replaced или не сходится с integration_authorization_head — CAS не выполняется, human с park.reason=acceptance_stale; target ref не двигается"
+    },
+    {
+      "id": "cond_445",
+      "reads": [
+        "recorded_target_base",
+        "target"
+      ],
+      "description": "target ref не на recorded target base, и движение атрибутируемо этому Epic — CAS не выполняется, human с park.reason=target_moved; base перезаписывается до следующего шага"
+    },
+    {
+      "id": "cond_446",
+      "reads": [
+        "recorded_target_base",
+        "target"
+      ],
+      "description": "target ref не на recorded target base, и движение этому Epic не атрибутируемо — ref не трогается, human с park.reason=foreign_target_movement; cancel — отдельная status-операция"
+    },
+    {
+      "id": "cond_447",
+      "reads": [
+        "cas_receipt"
+      ],
+      "description": "git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки — human с park.reason=cas_conflict; retry без расследования запрещён"
+    },
+    {
+      "id": "cond_448",
+      "reads": [
+        "recorded_target_base",
+        "resume_intent"
+      ],
+      "description": "resume --to apply_staging под park.reason=target_moved: новая target base записана, staging пересобирается от неё, прежние aggregate PASS и acceptance void — apply_staging"
+    },
+    {
+      "id": "cond_449",
+      "reads": [
+        "post_cas",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "после CAS перечитаны target OID = accepted staging commit, target tree = accepted tree, containment записанного результата и reflog delta ровно одно движение — cleanup"
+    },
+    {
+      "id": "cond_450",
+      "reads": [
+        "post_cas"
+      ],
+      "description": "read-back target OID/tree/containment/reflog delta не совпадает с accepted staging identity — CAS, сообщивший успех, не доказательство; human с park.reason=post_cas_mismatch; история не переписывается"
+    },
+    {
+      "id": "cond_451",
+      "reads": [
+        "completion_predicate",
+        "delivery_receipt",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "PR или merge queue из delivery receipt доставил exact accepted staging commit/tree, и completion predicate профиля выполнен на нём — cleanup; ветку host не двигал"
+    },
+    {
+      "id": "cond_452",
+      "reads": [
+        "completion_predicate",
+        "delivery_receipt"
+      ],
+      "description": "PR открыт или merge поставлен в очередь, delivery receipt записан, completion predicate ещё не выполнен и читается — deliver_staging"
+    },
+    {
+      "id": "cond_453",
+      "reads": [
+        "completion_predicate",
+        "delivery_receipt"
+      ],
+      "description": "completion predicate не выполнен, не читается или выполнен не на accepted staging identity — human с park.reason=completion_predicate_unmet; ветку host не двигает"
+    },
+    {
+      "id": "cond_454",
+      "reads": [
+        "integration_receipts",
+        "recorded_target_base",
+        "resume_intent",
+        "staging_commit_oid"
+      ],
+      "description": "resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано; apply_staging заново проверяет receipts и lineage от recorded target base либо пересобирает staging от неё, прежние aggregate PASS и acceptance void — apply_staging"
+    },
+    {
+      "id": "cond_455",
+      "reads": [
+        "aggregate_binding",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "description": "aggregate PASS записан, но staging ref OID/tree больше не равен identity, на которой он записан, — привязка аннулирована; human с park.reason=staging_moved_after_pass; target ref не двигается"
+    },
+    {
+      "id": "cond_456",
+      "reads": [
+        "integration_receipts",
+        "recorded_target_base",
+        "resume_intent",
+        "staging_commit_oid"
+      ],
+      "description": "resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано; apply_staging заново проверяет receipts и lineage от recorded target base либо пересобирает staging от неё, прежний aggregate PASS void — apply_staging"
     }
   ],
   "steps": [
@@ -3225,14 +3449,24 @@
       "no_transition_reason": "integration_authorization_required"
     },
     {
+      "name": "accept_staging",
+      "kind": "agent",
+      "no_transition_reason": "acceptance_missing"
+    },
+    {
       "name": "aggregate_verify",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "apply_arena_decision",
       "kind": "agent",
       "no_transition_reason": "arena_fallback_required"
+    },
+    {
+      "name": "apply_staging",
+      "kind": "agent",
+      "no_transition_reason": "receipt_missing"
     },
     {
       "name": "arena_join",
@@ -3242,7 +3476,7 @@
     {
       "name": "arena_join_wait",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "authority_recovery",
@@ -3292,7 +3526,12 @@
     {
       "name": "contest_join_wait",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
+    },
+    {
+      "name": "deliver_staging",
+      "kind": "agent",
+      "no_transition_reason": "completion_predicate_unmet"
     },
     {
       "name": "dispatch_arena",
@@ -3390,6 +3629,11 @@
       "no_transition_reason": "integration_obstruction"
     },
     {
+      "name": "integrate_staging",
+      "kind": "agent",
+      "no_transition_reason": "cas_conflict"
+    },
+    {
       "name": "integration_recovery",
       "kind": "agent",
       "no_transition_reason": "foreign_movement"
@@ -3412,7 +3656,7 @@
     {
       "name": "narrow_review_join_wait",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "panel_join",
@@ -3422,7 +3666,7 @@
     {
       "name": "panel_join_wait",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "prepare_anchor_impact",
@@ -3527,7 +3771,7 @@
     {
       "name": "select_next",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "synthesize_panel",
@@ -3542,12 +3786,12 @@
     {
       "name": "ticket_join",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "ticket_join_wait",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "validate_disposition",
@@ -3562,7 +3806,7 @@
     {
       "name": "validate_tickets_manifest",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "epic_boundary_invalid"
     },
     {
       "name": "validate_verdict",
@@ -3578,6 +3822,11 @@
       "name": "verify_candidate",
       "kind": "agent",
       "no_transition_reason": "arena_candidate_failed"
+    },
+    {
+      "name": "verify_target",
+      "kind": "agent",
+      "no_transition_reason": "post_cas_mismatch"
     }
   ],
   "guards": [
@@ -4411,7 +4660,7 @@
       "authority": {
         "actor": "human"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_105",
@@ -4459,7 +4708,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_111",
@@ -4467,7 +4716,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_112",
@@ -4475,7 +4724,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_113",
@@ -4483,7 +4732,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_114",
@@ -4491,7 +4740,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_115",
@@ -4499,7 +4748,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_116",
@@ -4507,7 +4756,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_117",
@@ -4515,7 +4764,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_118",
@@ -4639,7 +4888,7 @@
       "authority": {
         "actor": "human"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_136",
@@ -4651,7 +4900,7 @@
         ],
         "policy_scope": "The recorded project policy standing in for a user decision, bounded by the derived classifier rules it covers; a policy that does not cover them is out of scope and the flow parks instead."
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_137",
@@ -4659,7 +4908,7 @@
       "authority": {
         "actor": "human"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_138",
@@ -4667,7 +4916,7 @@
       "authority": {
         "actor": "human"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_139",
@@ -4759,7 +5008,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_150",
@@ -4767,7 +5016,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_151",
@@ -5211,7 +5460,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_204",
@@ -5331,7 +5580,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_219",
@@ -5451,7 +5700,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_234",
@@ -5819,7 +6068,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_280",
@@ -5883,7 +6132,7 @@
       "authority": {
         "actor": "human"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_288",
@@ -6379,7 +6628,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_350",
@@ -6387,7 +6636,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_351",
@@ -6395,7 +6644,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_352",
@@ -6403,7 +6652,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_353",
@@ -6411,7 +6660,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_354",
@@ -6419,7 +6668,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_355",
@@ -6443,7 +6692,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_358",
@@ -6451,7 +6700,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_359",
@@ -6459,15 +6708,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
-    },
-    {
-      "id": "guard_360",
-      "predicate": "cond_258",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_361",
@@ -6483,55 +6724,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
-    },
-    {
-      "id": "guard_363",
-      "predicate": "cond_261",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "blocked_anchor"
-    },
-    {
-      "id": "guard_364",
-      "predicate": "cond_262",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_authorization_required"
-    },
-    {
-      "id": "guard_365",
-      "predicate": "cond_263",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_obstruction"
-    },
-    {
-      "id": "guard_366",
-      "predicate": "cond_264",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "blocked_anchor"
-    },
-    {
-      "id": "guard_367",
-      "predicate": "cond_265",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_obstruction"
-    },
-    {
-      "id": "guard_368",
-      "predicate": "cond_266",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_authorization_required"
+      "park_reason": "epic_boundary_invalid"
     },
     {
       "id": "guard_369",
@@ -6540,46 +6733,6 @@
         "actor": "agent"
       },
       "park_reason": "integration_obstruction"
-    },
-    {
-      "id": "guard_370",
-      "predicate": "cond_268",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_precondition"
-    },
-    {
-      "id": "guard_371",
-      "predicate": "cond_269",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_obstruction"
-    },
-    {
-      "id": "guard_372",
-      "predicate": "cond_270",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_obstruction"
-    },
-    {
-      "id": "guard_373",
-      "predicate": "cond_271",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "integration_obstruction"
-    },
-    {
-      "id": "guard_374",
-      "predicate": "cond_272",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "foreign_movement"
     },
     {
       "id": "guard_375",
@@ -6595,7 +6748,7 @@
       "authority": {
         "actor": "agent"
       },
-      "park_reason": "project_boundary_invalid"
+      "park_reason": "aggregate_binding_void"
     },
     {
       "id": "guard_377",
@@ -7988,6 +8141,278 @@
         "actor": "agent"
       },
       "park_reason": "ticket_completed"
+    },
+    {
+      "id": "guard_548",
+      "predicate": "cond_423",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "blocked_anchor"
+    },
+    {
+      "id": "guard_549",
+      "predicate": "cond_424",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "delta_stale"
+    },
+    {
+      "id": "guard_550",
+      "predicate": "cond_425",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "receipt_missing"
+    },
+    {
+      "id": "guard_551",
+      "predicate": "cond_426",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "receipt_missing"
+    },
+    {
+      "id": "guard_552",
+      "predicate": "cond_427",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "receipt_missing"
+    },
+    {
+      "id": "guard_553",
+      "predicate": "cond_428",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "environment_failure"
+    },
+    {
+      "id": "guard_554",
+      "predicate": "cond_429",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "aggregate_binding_void"
+    },
+    {
+      "id": "guard_555",
+      "predicate": "cond_430",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "environment_failure"
+    },
+    {
+      "id": "guard_556",
+      "predicate": "cond_431",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "blocked_anchor"
+    },
+    {
+      "id": "guard_557",
+      "predicate": "cond_432",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "staging_moved_after_pass"
+    },
+    {
+      "id": "guard_558",
+      "predicate": "cond_433",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "aggregate_binding_void"
+    },
+    {
+      "id": "guard_559",
+      "predicate": "cond_434",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "acceptance_stale"
+    },
+    {
+      "id": "guard_560",
+      "predicate": "cond_435",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "acceptance_missing"
+    },
+    {
+      "id": "guard_561",
+      "predicate": "cond_436",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "acceptance_missing"
+    },
+    {
+      "id": "guard_562",
+      "predicate": "cond_437",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "unsupported_integration_mode"
+    },
+    {
+      "id": "guard_563",
+      "predicate": "cond_438",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "acceptance_missing"
+    },
+    {
+      "id": "guard_564",
+      "predicate": "cond_439",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "acceptance_missing"
+    },
+    {
+      "id": "guard_565",
+      "predicate": "cond_440",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "aggregate_binding_void"
+    },
+    {
+      "id": "guard_566",
+      "predicate": "cond_441",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "cas_conflict"
+    },
+    {
+      "id": "guard_567",
+      "predicate": "cond_442",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "cas_conflict"
+    },
+    {
+      "id": "guard_568",
+      "predicate": "cond_443",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "blocked_anchor"
+    },
+    {
+      "id": "guard_569",
+      "predicate": "cond_444",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "acceptance_stale"
+    },
+    {
+      "id": "guard_570",
+      "predicate": "cond_445",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "target_moved"
+    },
+    {
+      "id": "guard_571",
+      "predicate": "cond_446",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "foreign_target_movement"
+    },
+    {
+      "id": "guard_572",
+      "predicate": "cond_447",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "cas_conflict"
+    },
+    {
+      "id": "guard_573",
+      "predicate": "cond_448",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "target_moved"
+    },
+    {
+      "id": "guard_574",
+      "predicate": "cond_449",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "post_cas_mismatch"
+    },
+    {
+      "id": "guard_575",
+      "predicate": "cond_450",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "post_cas_mismatch"
+    },
+    {
+      "id": "guard_576",
+      "predicate": "cond_451",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "completion_predicate_unmet"
+    },
+    {
+      "id": "guard_577",
+      "predicate": "cond_452",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "completion_predicate_unmet"
+    },
+    {
+      "id": "guard_578",
+      "predicate": "cond_453",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "completion_predicate_unmet"
+    },
+    {
+      "id": "guard_579",
+      "predicate": "cond_454",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "staging_moved_after_pass"
+    },
+    {
+      "id": "guard_580",
+      "predicate": "cond_455",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "staging_moved_after_pass"
+    },
+    {
+      "id": "guard_581",
+      "predicate": "cond_456",
+      "authority": {
+        "actor": "human"
+      },
+      "park_reason": "staging_moved_after_pass"
     }
   ],
   "transitions": [
@@ -11315,19 +11740,10 @@
     {
       "id": "t_352",
       "from": "ticket_join",
-      "to": "integrate",
+      "to": "apply_staging",
       "priority": 9,
       "guards": [
         "guard_359"
-      ]
-    },
-    {
-      "id": "t_353",
-      "from": "ticket_join",
-      "to": "accept",
-      "priority": 10,
-      "guards": [
-        "guard_360"
       ]
     },
     {
@@ -11349,111 +11765,12 @@
       ]
     },
     {
-      "id": "t_356",
-      "from": "accept",
-      "to": "human",
-      "priority": 0,
-      "guards": [
-        "guard_363"
-      ]
-    },
-    {
-      "id": "t_357",
-      "from": "accept",
-      "to": "integrate",
-      "priority": 1,
-      "guards": [
-        "guard_364"
-      ]
-    },
-    {
-      "id": "t_358",
-      "from": "integrate",
-      "to": "integration_recovery",
-      "priority": 0,
-      "guards": [
-        "guard_365"
-      ]
-    },
-    {
-      "id": "t_359",
-      "from": "integrate",
-      "to": "human",
-      "priority": 1,
-      "guards": [
-        "guard_366"
-      ]
-    },
-    {
-      "id": "t_360",
-      "from": "integrate",
-      "to": "aggregate_verify",
-      "priority": 2,
-      "guards": [
-        "guard_367"
-      ]
-    },
-    {
-      "id": "t_361",
-      "from": "integrate",
-      "to": "accept",
-      "priority": 3,
-      "guards": [
-        "guard_368"
-      ]
-    },
-    {
       "id": "t_362",
       "from": "integrate",
       "to": "integrate",
-      "priority": 4,
+      "priority": 18,
       "guards": [
         "guard_369"
-      ]
-    },
-    {
-      "id": "t_363",
-      "from": "integrate",
-      "to": "human",
-      "priority": 5,
-      "guards": [
-        "guard_370"
-      ]
-    },
-    {
-      "id": "t_364",
-      "from": "integrate",
-      "to": "human",
-      "priority": 6,
-      "guards": [
-        "guard_371"
-      ]
-    },
-    {
-      "id": "t_365",
-      "from": "integrate",
-      "to": "integration_recovery",
-      "priority": 7,
-      "guards": [
-        "guard_372"
-      ]
-    },
-    {
-      "id": "t_366",
-      "from": "integrate",
-      "to": "human",
-      "priority": 8,
-      "guards": [
-        "guard_373"
-      ]
-    },
-    {
-      "id": "t_367",
-      "from": "integration_recovery",
-      "to": "human",
-      "priority": 0,
-      "guards": [
-        "guard_374"
       ]
     },
     {
@@ -11468,7 +11785,7 @@
     {
       "id": "t_369",
       "from": "aggregate_verify",
-      "to": "cleanup",
+      "to": "accept_staging",
       "priority": 1,
       "guards": [
         "guard_376"
@@ -12877,6 +13194,312 @@
       "guards": [
         "guard_547"
       ]
+    },
+    {
+      "id": "t_544",
+      "from": "apply_staging",
+      "to": "human",
+      "priority": 0,
+      "guards": [
+        "guard_548"
+      ]
+    },
+    {
+      "id": "t_545",
+      "from": "apply_staging",
+      "to": "human",
+      "priority": 1,
+      "guards": [
+        "guard_549"
+      ]
+    },
+    {
+      "id": "t_546",
+      "from": "apply_staging",
+      "to": "human",
+      "priority": 2,
+      "guards": [
+        "guard_550"
+      ]
+    },
+    {
+      "id": "t_547",
+      "from": "apply_staging",
+      "to": "apply_staging",
+      "priority": 3,
+      "guards": [
+        "guard_551"
+      ]
+    },
+    {
+      "id": "t_548",
+      "from": "apply_staging",
+      "to": "aggregate_verify",
+      "priority": 4,
+      "guards": [
+        "guard_552"
+      ]
+    },
+    {
+      "id": "t_549",
+      "from": "aggregate_verify",
+      "to": "human",
+      "priority": 4,
+      "guards": [
+        "guard_553"
+      ]
+    },
+    {
+      "id": "t_550",
+      "from": "aggregate_verify",
+      "to": "human",
+      "priority": 5,
+      "guards": [
+        "guard_554"
+      ]
+    },
+    {
+      "id": "t_551",
+      "from": "aggregate_verify",
+      "to": "aggregate_verify",
+      "priority": 6,
+      "guards": [
+        "guard_555"
+      ]
+    },
+    {
+      "id": "t_552",
+      "from": "accept_staging",
+      "to": "human",
+      "priority": 0,
+      "guards": [
+        "guard_556"
+      ]
+    },
+    {
+      "id": "t_553",
+      "from": "accept_staging",
+      "to": "human",
+      "priority": 1,
+      "guards": [
+        "guard_557"
+      ]
+    },
+    {
+      "id": "t_554",
+      "from": "accept_staging",
+      "to": "human",
+      "priority": 2,
+      "guards": [
+        "guard_558"
+      ]
+    },
+    {
+      "id": "t_555",
+      "from": "accept_staging",
+      "to": "human",
+      "priority": 3,
+      "guards": [
+        "guard_559"
+      ]
+    },
+    {
+      "id": "t_556",
+      "from": "accept_staging",
+      "to": "integrate_staging",
+      "priority": 4,
+      "guards": [
+        "guard_560"
+      ]
+    },
+    {
+      "id": "t_557",
+      "from": "accept_staging",
+      "to": "deliver_staging",
+      "priority": 5,
+      "guards": [
+        "guard_561"
+      ]
+    },
+    {
+      "id": "t_558",
+      "from": "accept_staging",
+      "to": "human",
+      "priority": 6,
+      "guards": [
+        "guard_562"
+      ]
+    },
+    {
+      "id": "t_559",
+      "from": "accept_staging",
+      "to": "human",
+      "priority": 7,
+      "guards": [
+        "guard_563"
+      ]
+    },
+    {
+      "id": "t_560",
+      "from": "accept_staging",
+      "to": "accept_staging",
+      "priority": 8,
+      "guards": [
+        "guard_564"
+      ]
+    },
+    {
+      "id": "t_561",
+      "from": "accept_staging",
+      "to": "aggregate_verify",
+      "priority": 9,
+      "guards": [
+        "guard_565"
+      ]
+    },
+    {
+      "id": "t_562",
+      "from": "integrate_staging",
+      "to": "verify_target",
+      "priority": 0,
+      "guards": [
+        "guard_566"
+      ]
+    },
+    {
+      "id": "t_563",
+      "from": "integrate_staging",
+      "to": "integrate_staging",
+      "priority": 1,
+      "guards": [
+        "guard_567"
+      ]
+    },
+    {
+      "id": "t_564",
+      "from": "integrate_staging",
+      "to": "human",
+      "priority": 2,
+      "guards": [
+        "guard_568"
+      ]
+    },
+    {
+      "id": "t_565",
+      "from": "integrate_staging",
+      "to": "human",
+      "priority": 3,
+      "guards": [
+        "guard_569"
+      ]
+    },
+    {
+      "id": "t_566",
+      "from": "integrate_staging",
+      "to": "human",
+      "priority": 4,
+      "guards": [
+        "guard_570"
+      ]
+    },
+    {
+      "id": "t_567",
+      "from": "integrate_staging",
+      "to": "human",
+      "priority": 5,
+      "guards": [
+        "guard_571"
+      ]
+    },
+    {
+      "id": "t_568",
+      "from": "integrate_staging",
+      "to": "human",
+      "priority": 6,
+      "guards": [
+        "guard_572"
+      ]
+    },
+    {
+      "id": "t_569",
+      "from": "integrate_staging",
+      "to": "apply_staging",
+      "priority": 7,
+      "guards": [
+        "guard_573"
+      ]
+    },
+    {
+      "id": "t_570",
+      "from": "verify_target",
+      "to": "cleanup",
+      "priority": 0,
+      "guards": [
+        "guard_574"
+      ]
+    },
+    {
+      "id": "t_571",
+      "from": "verify_target",
+      "to": "human",
+      "priority": 1,
+      "guards": [
+        "guard_575"
+      ]
+    },
+    {
+      "id": "t_572",
+      "from": "deliver_staging",
+      "to": "cleanup",
+      "priority": 0,
+      "guards": [
+        "guard_576"
+      ]
+    },
+    {
+      "id": "t_573",
+      "from": "deliver_staging",
+      "to": "deliver_staging",
+      "priority": 1,
+      "guards": [
+        "guard_577"
+      ]
+    },
+    {
+      "id": "t_574",
+      "from": "deliver_staging",
+      "to": "human",
+      "priority": 2,
+      "guards": [
+        "guard_578"
+      ]
+    },
+    {
+      "id": "t_575",
+      "from": "accept_staging",
+      "to": "apply_staging",
+      "priority": 10,
+      "guards": [
+        "guard_579"
+      ]
+    },
+    {
+      "id": "t_576",
+      "from": "aggregate_verify",
+      "to": "human",
+      "priority": 7,
+      "guards": [
+        "guard_580"
+      ]
+    },
+    {
+      "id": "t_577",
+      "from": "aggregate_verify",
+      "to": "apply_staging",
+      "priority": 8,
+      "guards": [
+        "guard_581"
+      ]
     }
   ],
   "caps": [
@@ -12894,6 +13517,41 @@
     }
   ],
   "recovery": [
+    {
+      "reason": "acceptance_missing",
+      "parks_at": [
+        "accept_staging"
+      ],
+      "resume_targets": [
+        "accept_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at accept_staging: decision packet binds the exact staging identity — commit/tree, aggregate record hash, Tickets/deltas, target ref/base, delivery profile digest; human с park.reason=acceptance_missing; target ref не читается и не меняется"
+    },
+    {
+      "reason": "acceptance_stale",
+      "parks_at": [
+        "accept_staging",
+        "integrate_staging"
+      ],
+      "resume_targets": [
+        "accept_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at accept_staging, integrate_staging: the accepted identity is not the current staging identity; human с park.reason=acceptance_stale; CAS не выполняется, target ref не двигается"
+    },
+    {
+      "reason": "aggregate_binding_void",
+      "parks_at": [
+        "accept_staging",
+        "aggregate_verify"
+      ],
+      "resume_targets": [
+        "aggregate_verify",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at aggregate_verify, accept_staging: the aggregate binding does not recompute from the verification config digest, instruction lock and Tickets/deltas while the staging commit/tree are unchanged — a moved staging is staging_moved_after_pass; human с park.reason=aggregate_binding_void; target ref не двигается"
+    },
     {
       "reason": "aggregate_remediation_required",
       "parks_at": [
@@ -13262,7 +13920,6 @@
       ],
       "resume_targets": [
         "await_alignment",
-        "done",
         "draft_artifact",
         "human",
         "record_alignment",
@@ -13306,7 +13963,9 @@
       "reason": "blocked_anchor",
       "parks_at": [
         "accept",
+        "accept_staging",
         "aggregate_verify",
+        "apply_staging",
         "arena_join",
         "commit_on_pass",
         "contest_join",
@@ -13314,6 +13973,7 @@
         "done",
         "freeze",
         "integrate",
+        "integrate_staging",
         "narrow_review_join",
         "panel_join",
         "record_artifact_pass",
@@ -13338,7 +13998,6 @@
         "panel_join_wait",
         "rebuild_code_anchor",
         "record_artifact_pass",
-        "record_code_verdict",
         "review_join_wait",
         "synthesize_panel",
         "verify"
@@ -13371,6 +14030,17 @@
         "verify"
       ],
       "required_state": "Section 2 parks with this reason at fix: human с park.reason=candidate_changed"
+    },
+    {
+      "reason": "cas_conflict",
+      "parks_at": [
+        "integrate_staging"
+      ],
+      "resume_targets": [
+        "human",
+        "integrate_staging"
+      ],
+      "required_state": "Section 2 parks with this reason at integrate_staging: git refused the one target CAS at write time or the outcome stayed indeterminate; human с park.reason=cas_conflict; ref не перезаписывается, retry только после exact ref/reflog resolution"
     },
     {
       "reason": "child_creation_key_invalid",
@@ -13452,6 +14122,17 @@
       "required_state": "Section 2 parks with this reason at commit_on_pass: human с park.reason=commit_foreign_movement"
     },
     {
+      "reason": "completion_predicate_unmet",
+      "parks_at": [
+        "deliver_staging"
+      ],
+      "resume_targets": [
+        "deliver_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at deliver_staging: PR/merge-queue delivery receipt recorded, completion predicate unmet or unreadable on the accepted staging identity; human с park.reason=completion_predicate_unmet; host ветку не двигает"
+    },
+    {
       "reason": "contest_join_invalid",
       "parks_at": [
         "contest_join",
@@ -13491,6 +14172,129 @@
         "validate_verdict"
       ],
       "required_state": "Recorded by daemon at judge, review_artifact, review_candidate, review_disposition; a resume requires the identity the park recorded to still be current."
+    },
+    {
+      "reason": "delta_stale",
+      "parks_at": [
+        "apply_staging"
+      ],
+      "resume_targets": [
+        "apply_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at apply_staging: approved delta rechecked against the current staging base at apply time and refused; human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется"
+    },
+    {
+      "reason": "environment_failure",
+      "parks_at": [
+        "aggregate_verify"
+      ],
+      "resume_targets": [
+        "aggregate_verify",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at aggregate_verify: aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; human с park.reason=environment_failure; target ref не двигается"
+    },
+    {
+      "reason": "epic_boundary_invalid",
+      "parks_at": [
+        "aggregate_verify",
+        "arena_join_wait",
+        "await_alignment",
+        "await_anchor_impact_approval",
+        "contest_join_wait",
+        "human",
+        "narrow_review_join_wait",
+        "panel_join_wait",
+        "select_next",
+        "ticket_join",
+        "ticket_join_wait",
+        "validate_tickets_manifest"
+      ],
+      "handled_at": [
+        "accept_staging",
+        "apply_arena_decision",
+        "apply_staging",
+        "arena_join",
+        "authority_recovery",
+        "clarify_alignment",
+        "cleanup",
+        "contest_join",
+        "deliver_staging",
+        "dispatch_arena",
+        "dispatch_contest",
+        "dispatch_narrow_review",
+        "dispatch_panel",
+        "dispatch_ticket_dag",
+        "draft_artifact",
+        "fix_artifact",
+        "freeze_artifact",
+        "init_planning_ref",
+        "intake",
+        "integrate_staging",
+        "narrow_review_join",
+        "panel_join",
+        "prepare_anchor_impact",
+        "present_tickets_breakdown",
+        "publish_artifact_pass",
+        "publish_planning_invalidation",
+        "rebuild_anchor",
+        "record_aggregate_remediation",
+        "record_alignment",
+        "record_anchor_impact_approval",
+        "record_artifact_pass",
+        "repair_protocol_snapshot",
+        "resume_repaired_tickets",
+        "synthesize_panel",
+        "verify_target"
+      ],
+      "resume_targets": [
+        "accept_staging",
+        "aggregate_verify",
+        "apply_arena_decision",
+        "apply_staging",
+        "arena_join",
+        "arena_join_wait",
+        "await_alignment",
+        "await_anchor_impact_approval",
+        "clarify_alignment",
+        "cleanup",
+        "contest_join",
+        "contest_join_wait",
+        "deliver_staging",
+        "dispatch_arena",
+        "dispatch_contest",
+        "dispatch_narrow_review",
+        "dispatch_panel",
+        "dispatch_ticket_dag",
+        "draft_artifact",
+        "fix_artifact",
+        "freeze_artifact",
+        "init_planning_ref",
+        "integrate_staging",
+        "narrow_review_join",
+        "narrow_review_join_wait",
+        "panel_join",
+        "panel_join_wait",
+        "prepare_anchor_impact",
+        "present_tickets_breakdown",
+        "publish_artifact_pass",
+        "publish_planning_invalidation",
+        "rebuild_anchor",
+        "record_aggregate_remediation",
+        "record_alignment",
+        "record_anchor_impact_approval",
+        "record_artifact_pass",
+        "resume_repaired_tickets",
+        "select_next",
+        "synthesize_panel",
+        "ticket_join",
+        "ticket_join_wait",
+        "validate_tickets_manifest",
+        "verify_target"
+      ],
+      "resume_scope": "origin",
+      "required_state": "Recorded by the daemon for an autosk-planned task wherever it stands — every Epic step (the vocabulary's epic_step class), human, and the shared steps an Epic stands on: project binding/path fixed and the pre-side-effect assert PASS again. A resume re-enters only the step the park recorded as its origin, so no resume lands past a gate, on cleanup or done before the read-back, or in Quick's integration. Acceptance and anchor are re-checked at integrate_staging only, whose guards read them and whose CAS is idempotent; verify_target re-reads the target after the CAS and deliver_staging the completion predicate, so an origin resume into deliver_staging re-runs the hand-off without re-checking the anchor (04 risk 8)."
     },
     {
       "reason": "fix_provider_unavailable",
@@ -13542,6 +14346,16 @@
         "integrate"
       ],
       "required_state": "Recorded by daemon at integration_recovery; a resume requires the identity the park recorded to still be current."
+    },
+    {
+      "reason": "foreign_target_movement",
+      "parks_at": [
+        "integrate_staging"
+      ],
+      "resume_targets": [
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at integrate_staging: target moved away from the recorded base and the movement is not attributable to this Epic; human с park.reason=foreign_target_movement; ref не трогается, cancel — отдельная status-операция"
     },
     {
       "reason": "freeze_candidate_invalid",
@@ -13687,7 +14501,7 @@
         "integrate",
         "invalidate_quick_classification"
       ],
-      "required_state": "Section 2 parks with this reason at accept: atomically сохранить completed ref-transition prefix/current target OID в integration-state; accept statusStep(\"human\") с park.reason=integration_authorization_required; target ref дальше не читается/не меняется"
+      "required_state": "Section 2 parks with this reason at accept: Quick integrate prologue нашёл IntegrationAuthorizationRecord missing/mismatched/expired до чтения target ref; accept statusStep(\"human\") с park.reason=integration_authorization_required; target ref не читался/не менялся. Epic этот park не использует: его ветку двигает только integrate_staging после aggregate PASS и acceptance"
     },
     {
       "reason": "integration_obstruction",
@@ -13696,7 +14510,6 @@
       ],
       "resume_targets": [
         "accept",
-        "aggregate_verify",
         "cleanup",
         "human",
         "integrate",
@@ -13712,7 +14525,6 @@
       ],
       "resume_targets": [
         "accept",
-        "aggregate_verify",
         "cleanup",
         "human",
         "integrate",
@@ -13848,31 +14660,18 @@
         "synthesize_panel"
       ],
       "resume_targets": [
-        "clarify_alignment",
         "cleanup",
-        "dispatch_arena",
-        "dispatch_contest",
-        "dispatch_narrow_review",
-        "dispatch_panel",
-        "done",
-        "draft_artifact",
         "fix_artifact",
         "freeze_artifact",
-        "human",
         "narrow_review_join",
-        "narrow_review_join_wait",
-        "prepare_anchor_impact",
-        "present_tickets_breakdown",
         "publish_artifact_pass",
         "publish_planning_invalidation",
         "rebuild_anchor",
         "record_artifact_pass",
-        "resume_repaired_tickets",
-        "select_next",
-        "synthesize_panel",
-        "ticket_join"
+        "synthesize_panel"
       ],
-      "required_state": "Section 2 parks with this reason at cleanup, fix_artifact, freeze_artifact, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: human с park.reason=planning_candidate_keepalive_invalid; no new candidate/helper retry under another operation ID"
+      "resume_scope": "origin",
+      "required_state": "Section 2 parks with this reason at cleanup, fix_artifact, freeze_artifact, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: human с park.reason=planning_candidate_keepalive_invalid; no new candidate/helper retry under another operation ID; resume only into the step the park recorded as its origin, the step whose recorded operation failed"
     },
     {
       "reason": "planning_publication_corrupt",
@@ -13930,31 +14729,17 @@
         "synthesize_panel"
       ],
       "resume_targets": [
-        "clarify_alignment",
         "cleanup",
-        "dispatch_arena",
-        "dispatch_contest",
-        "dispatch_narrow_review",
-        "dispatch_panel",
-        "done",
-        "draft_artifact",
-        "fix_artifact",
         "freeze_artifact",
-        "human",
         "init_planning_ref",
         "narrow_review_join",
-        "narrow_review_join_wait",
-        "prepare_anchor_impact",
-        "present_tickets_breakdown",
         "publish_artifact_pass",
         "publish_planning_invalidation",
         "rebuild_anchor",
         "record_artifact_pass",
-        "resume_repaired_tickets",
-        "select_next",
-        "synthesize_panel",
-        "ticket_join"
+        "synthesize_panel"
       ],
+      "resume_scope": "origin",
       "required_state": "Section 2 parks with this reason at cleanup, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: retain every candidate_keepalive; human с park.reason=planning_ref_capability_missing; model/ref/cleanup side effects absent; resume only the recorded helper-calling step"
     },
     {
@@ -13974,32 +14759,19 @@
         "record_artifact_pass"
       ],
       "resume_targets": [
-        "clarify_alignment",
         "cleanup",
-        "dispatch_arena",
-        "dispatch_contest",
-        "dispatch_narrow_review",
-        "dispatch_panel",
-        "done",
-        "draft_artifact",
         "fix_artifact",
         "freeze_artifact",
-        "human",
         "init_planning_ref",
         "narrow_review_join",
-        "narrow_review_join_wait",
-        "prepare_anchor_impact",
-        "present_tickets_breakdown",
         "publish_artifact_pass",
         "publish_planning_invalidation",
         "rebuild_anchor",
         "record_artifact_pass",
-        "resume_repaired_tickets",
-        "select_next",
-        "synthesize_panel",
-        "ticket_join"
+        "synthesize_panel"
       ],
-      "required_state": "Section 2 parks with this reason at cleanup, fix_artifact, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: human с park.reason=planning_ref_foreign_movement at the recorded helper-calling step; zero ref/reflog side effects"
+      "resume_scope": "origin",
+      "required_state": "Section 2 parks with this reason at cleanup, fix_artifact, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: human с park.reason=planning_ref_foreign_movement at the recorded helper-calling step; zero ref/reflog side effects; resume only into the helper-calling step the park recorded as its origin"
     },
     {
       "reason": "planning_ref_init_invalid",
@@ -14027,143 +14799,80 @@
       "required_state": "Section 2 parks with this reason at record_artifact_pass: human с park.reason=planning_signing_unavailable; ArtifactPassRecord/publication operation/Git side effects отсутствуют"
     },
     {
+      "reason": "post_cas_mismatch",
+      "parks_at": [
+        "verify_target"
+      ],
+      "resume_targets": [
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at verify_target: read-back of target OID/tree/containment/reflog delta disagrees with the accepted staging identity; human с park.reason=post_cas_mismatch; история не переписывается"
+    },
+    {
       "reason": "project_boundary_invalid",
       "parks_at": [
-        "aggregate_verify",
-        "arena_join_wait",
-        "await_alignment",
-        "await_anchor_impact_approval",
-        "contest_join_wait",
         "done",
         "emit_blocked_anchor",
         "human",
         "intake",
-        "narrow_review_join_wait",
-        "panel_join_wait",
         "record_code_verdict",
         "record_editorial_exemption",
         "review_join_wait",
-        "select_next",
         "ticket_done",
-        "ticket_join",
-        "ticket_join_wait",
         "validate_disposition",
         "validate_judgment",
-        "validate_tickets_manifest",
         "validate_verdict"
       ],
       "handled_at": [
         "accept",
-        "apply_arena_decision",
-        "arena_join",
         "authority_recovery",
         "build_candidate",
-        "clarify_alignment",
         "cleanup",
         "commit_on_pass",
         "complete_anchor_handoff",
-        "contest_join",
-        "dispatch_arena",
-        "dispatch_contest",
         "dispatch_narrow_review",
-        "dispatch_panel",
         "dispatch_review",
-        "dispatch_ticket_dag",
-        "draft_artifact",
         "fix",
-        "fix_artifact",
         "freeze",
-        "freeze_artifact",
         "freeze_candidate",
         "implement",
-        "init_planning_ref",
         "integrate",
         "integration_recovery",
         "invalidate_quick_classification",
-        "narrow_review_join",
-        "panel_join",
-        "prepare_anchor_impact",
-        "present_tickets_breakdown",
-        "publish_artifact_pass",
-        "publish_planning_invalidation",
-        "rebuild_anchor",
         "rebuild_code_anchor",
-        "record_aggregate_remediation",
-        "record_alignment",
-        "record_anchor_impact_approval",
-        "record_artifact_pass",
         "repair_anchor_handoff",
         "repair_protocol_snapshot",
-        "resume_repaired_tickets",
         "review_join",
-        "synthesize_panel",
         "verify",
         "verify_candidate"
       ],
       "resume_targets": [
         "accept",
-        "aggregate_verify",
-        "apply_arena_decision",
-        "arena_join",
-        "arena_join_wait",
-        "await_alignment",
-        "await_anchor_impact_approval",
-        "clarify_alignment",
         "cleanup",
         "commit_on_pass",
-        "complete_anchor_handoff",
-        "contest_join",
-        "contest_join_wait",
-        "dispatch_arena",
-        "dispatch_contest",
         "dispatch_narrow_review",
-        "dispatch_panel",
         "dispatch_review",
-        "dispatch_ticket_dag",
-        "draft_artifact",
         "emit_blocked_anchor",
         "fix",
-        "fix_artifact",
         "freeze",
-        "freeze_artifact",
         "freeze_candidate",
         "implement",
-        "init_planning_ref",
         "integrate",
         "integration_recovery",
         "invalidate_quick_classification",
-        "narrow_review_join",
-        "narrow_review_join_wait",
-        "panel_join",
-        "panel_join_wait",
-        "prepare_anchor_impact",
-        "present_tickets_breakdown",
-        "publish_artifact_pass",
-        "publish_planning_invalidation",
-        "rebuild_anchor",
         "rebuild_code_anchor",
-        "record_aggregate_remediation",
-        "record_alignment",
-        "record_anchor_impact_approval",
-        "record_artifact_pass",
         "record_code_verdict",
         "record_editorial_exemption",
-        "repair_anchor_handoff",
-        "resume_repaired_tickets",
         "review_join",
         "review_join_wait",
-        "select_next",
-        "synthesize_panel",
-        "ticket_join",
-        "ticket_join_wait",
         "validate_disposition",
         "validate_judgment",
-        "validate_tickets_manifest",
         "validate_verdict",
         "verify",
         "verify_candidate"
       ],
-      "required_state": "Recorded by daemon at accept, aggregate_verify, apply_arena_decision, arena_join, arena_join_wait, authority_recovery, await_alignment, await_anchor_impact_approval, build_candidate, clarify_alignment, cleanup, commit_on_pass, complete_anchor_handoff, contest_join, contest_join_wait, dispatch_arena, dispatch_contest, dispatch_narrow_review, dispatch_panel, dispatch_review, dispatch_ticket_dag, done, draft_artifact, emit_blocked_anchor, fix, fix_artifact, freeze, freeze_artifact, freeze_candidate, human, implement, init_planning_ref, intake, integrate, integration_recovery, invalidate_quick_classification, narrow_review_join, narrow_review_join_wait, panel_join, panel_join_wait, prepare_anchor_impact, present_tickets_breakdown, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, rebuild_code_anchor, record_aggregate_remediation, record_alignment, record_anchor_impact_approval, record_artifact_pass, record_code_verdict, record_editorial_exemption, repair_anchor_handoff, repair_protocol_snapsho"
+      "resume_scope": "origin",
+      "required_state": "Recorded by daemon at accept, authority_recovery, build_candidate, cleanup, commit_on_pass, complete_anchor_handoff, dispatch_narrow_review, dispatch_review, done, emit_blocked_anchor, fix, freeze, freeze_candidate, human, implement, intake, integrate, integration_recovery, invalidate_quick_classification, rebuild_code_anchor, record_code_verdict, record_editorial_exemption, repair_anchor_handoff, repair_protocol_snapshot, review_join, review_join_wait, ticket_done, validate_disposition, validate_judgment, validate_verdict, verify, verify_candidate; a resume re-enters only the step the park recorded as its origin, once the binding is fixed. The daemon records epic_boundary_invalid instead for an autosk-planned task wherever it stands; this reason reaches an Epic only as the no-candidate reason of a shared step, where origin scope keeps it."
     },
     {
       "reason": "protocol_lock_invalid",
@@ -14188,6 +14897,17 @@
       "required_state": "Section 2 parks with this reason at invalidate_quick_classification: human с park.reason=quick_classification_invalid; Quick commit/integrate запрещены"
     },
     {
+      "reason": "receipt_missing",
+      "parks_at": [
+        "apply_staging"
+      ],
+      "resume_targets": [
+        "apply_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at apply_staging: an applied delta has no durable integration receipt or staging lineage carries an unaccounted commit; human с park.reason=receipt_missing; target ref не читается и не меняется"
+    },
+    {
       "reason": "review_cap",
       "parks_at": [
         "narrow_review_join",
@@ -14198,17 +14918,14 @@
         "fix_artifact"
       ],
       "resume_targets": [
-        "clarify_alignment",
-        "draft_artifact",
+        "fix",
         "fix_artifact",
-        "freeze_artifact",
         "human",
         "invalidate_quick_classification",
-        "present_tickets_breakdown",
-        "rebuild_code_anchor",
-        "verify"
+        "rebuild_code_anchor"
       ],
-      "required_state": "Section 2 parks with this reason at fix, fix_artifact: human с park.reason=review_cap"
+      "resume_scope": "origin_edges",
+      "required_state": "Section 2 parks with this reason at fix, fix_artifact: human с park.reason=review_cap; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join resumes into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification — and neither stop is lent the other's steps"
     },
     {
       "reason": "review_join_invalid",
@@ -14244,6 +14961,29 @@
         "record_editorial_exemption"
       ],
       "required_state": "Section 2 parks with this reason at freeze: human с park.reason=review_waiver_invalid; reviewer child не создаётся"
+    },
+    {
+      "reason": "staging_moved_after_pass",
+      "parks_at": [
+        "accept_staging",
+        "aggregate_verify"
+      ],
+      "resume_targets": [
+        "apply_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at aggregate_verify, accept_staging: staging moved after aggregate PASS, so the binding is void; human с park.reason=staging_moved_after_pass; resume goes back through apply_staging's receipt and lineage check; target ref не двигается"
+    },
+    {
+      "reason": "target_moved",
+      "parks_at": [
+        "integrate_staging"
+      ],
+      "resume_targets": [
+        "apply_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at integrate_staging: target moved away from the recorded base by a movement this Epic recorded; human с park.reason=target_moved; base re-recorded before anything else, prior PASS and acceptance void"
     },
     {
       "reason": "tech_plan_readiness_required",
@@ -14365,11 +15105,8 @@
         "draft_artifact",
         "freeze",
         "human",
-        "invalidate_quick_classification",
         "rebuild_code_anchor",
         "record_alignment",
-        "record_code_verdict",
-        "record_editorial_exemption",
         "validate_tickets_manifest"
       ],
       "required_state": "Section 2 parks with this reason at freeze, present_tickets_breakdown: human с park.reason=tickets_manifest_invalid либо tickets_manifest_stale; no graph/renderer exception and no candidate/Panel/task/blocker side effects"
@@ -14390,6 +15127,17 @@
         "validate_tickets_manifest"
       ],
       "required_state": "Section 2 parks with this reason at present_tickets_breakdown: human с park.reason=tickets_manifest_stale либо tickets_manifest_invalid according to binding versus byte/semantic failure; panel/waiver/PASS and candidate keepalive creation absent"
+    },
+    {
+      "reason": "unsupported_integration_mode",
+      "parks_at": [
+        "accept_staging"
+      ],
+      "resume_targets": [
+        "accept_staging",
+        "human"
+      ],
+      "required_state": "Section 2 parks with this reason at accept_staging: finalIntegrationPlan action=park — the profile allows neither moving the target nor a PR/merge-queue path for this mode; human с park.reason=unsupported_integration_mode; target ref не двигается"
     },
     {
       "reason": "verification_cap",
@@ -14590,7 +15338,7 @@
     "set_change_void_proposal_breakdown_panel",
     "signature_before_pass_operation_write",
     "signature_bytes_by_trusted_signer_under_locked_policy",
-    "signed_record_binds_target_prefix_transitions_tree",
+    "signed_record_binds_target_base_single_transition_tree",
     "stale_binding_via_recorded_owning_repair",
     "stale_signed_policy",
     "status_impact_map_reread",
@@ -14749,7 +15497,7 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "5306baee443df1bc367d039bc1bdf36db02d819da3631f41bf15f78175c4617e",
+          "binds": "21474e08cd55f7057aee0d387ed644bd8c0899cfc581719a9759f6dd0edc0a6e",
           "cells": [
             "tickets_manifest_invalid",
             "present_tickets_breakdown before freeze and after publication; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -14793,7 +15541,7 @@
           "covers": [
             "artifact_mapping_required"
           ],
-          "binds": "532a062bfc877e38711c1ce7b27f84b35b7db11cbe1ec65567a9df02caedc71b",
+          "binds": "b4f60574f20ff013a0f6db60dd74ca4cc1020ff900aac9d23664ba0ff7ad936a",
           "cells": [
             "artifact_mapping_required",
             "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick; also freeze, freeze_artifact",
@@ -14880,7 +15628,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "blocked_anchor, gate child",
             "`<gate_join_step>` после child done",
@@ -14904,7 +15652,7 @@
           ],
           "cells": [
             "blocked_anchor, нет gate-ребёнка",
-            "`accept`, `aggregate_verify`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join`",
+            "`accept`, `accept_staging`, `aggregate_verify`, `apply_staging`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `integrate_staging`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join`",
             "шаг сам atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor: gate-ребёнка, который бы это сделал, у него нет"
           ],
           "case": "no_gate_child",
@@ -14916,7 +15664,7 @@
             "admits": [],
             "excludes": []
           },
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a"
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a"
         },
         {
           "covers": [
@@ -14935,11 +15683,22 @@
           "covers": [
             "project_boundary_invalid"
           ],
-          "binds": "ee75994d60d87f4a00794718bc58cc9c33f9305eb1e9c3ec8b1e65c567819843",
+          "binds": "5b81445c6d463548768b7b32766554882d94f8502e3f47c231f10316c123f5e3",
           "cells": [
             "project_boundary_invalid",
-            "`<deterministic_step>`",
-            "project binding/path исправлены и повторный pre-side-effect assert PASS"
+            "`<non_epic_deterministic_step>`",
+            "project binding/path исправлены и повторный pre-side-effect assert PASS; resume только в шаг, где стоял park (origin); задача autosk-planned паркуется epic_boundary_invalid"
+          ]
+        },
+        {
+          "covers": [
+            "epic_boundary_invalid"
+          ],
+          "binds": "385af4a31a03d0967a3e7dbfb91f94866ef88bf39b110cd5d5afbbeb159a697c",
+          "cells": [
+            "epic_boundary_invalid",
+            "`<epic_step>`, human, intake, dispatch_narrow_review, cleanup, authority_recovery, repair_protocol_snapshot для задачи autosk-planned",
+            "project binding/path исправлены и повторный pre-side-effect assert PASS; resume только в шаг, где стоял park (origin); acceptance и anchor сверяются заново только в integrate_staging, чьи guards их читают, а CAS идемпотентен; verify_target перечитывает target после CAS, deliver_staging — completion predicate, и resume в deliver_staging повторяет передачу без сверки anchor (риск 8 в 04)"
           ]
         },
         {
@@ -14969,11 +15728,11 @@
           "covers": [
             "planning_ref_capability_missing"
           ],
-          "binds": "04518340d6d2a23b246293e6170bb1b17d5fb250648841939a3c88c66b89bc20",
+          "binds": "c5a9473bfbe896a3bc94e8952774cce7bf6c649b47a8526a61aa1e4fbc3be2db",
           "cells": [
             "planning_ref_capability_missing",
             "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
-            "required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged"
+            "required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged; resume only into the step the park stood at (origin)"
           ],
           "rule": {
             "requires": [
@@ -14991,11 +15750,11 @@
           "covers": [
             "planning_ref_foreign_movement"
           ],
-          "binds": "cf4e71cf36e6858ee8cf493e8c7ddf92684413ba1ad6fd79b5d018ea19def125",
+          "binds": "62c0bb2c1e9f0af6f4ad82dccfcd640affa182fffb58b10c97cf1f09c0720baa",
           "cells": [
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
-            "exact investigation record binds operation type/ID when present, detecting gate, ref/reflog observations and recorded target; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation"
+            "exact investigation record binds operation type/ID when present, detecting gate, ref/reflog observations and recorded target; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation; resume only into the helper-calling step the park stood at (origin)"
           ],
           "rule": {
             "requires": [
@@ -15012,11 +15771,11 @@
           "covers": [
             "planning_candidate_keepalive_invalid"
           ],
-          "binds": "36266929ada654ec0cc7e0ab09e495c9a2e5f57732e620563014f3889bebd6b1",
+          "binds": "7da85b4b766b1ebc52313e7bbe4ac53c5b3e78d7d9aafd4f5052ca80dedef375",
           "cells": [
             "planning_candidate_keepalive_invalid",
             "freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state",
-            "exact candidate identity, keepalive ref/create or audit/release receipt and full closure must be restored without moving another ref; moved foreign ref requires signed investigation or candidate supersession; cleanup remains forbidden until namespace enumeration matches current plus planning.candidate_history"
+            "exact candidate identity, keepalive ref/create or audit/release receipt and full closure must be restored without moving another ref; moved foreign ref requires signed investigation or candidate supersession; cleanup remains forbidden until namespace enumeration matches current plus planning.candidate_history; resume only into the step the park stood at (origin)"
           ],
           "rule": {
             "requires": [
@@ -15310,7 +16069,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "blocked_anchor, autosk-planned",
             "prepare_anchor_impact",
@@ -15428,7 +16187,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "blocked_anchor, standalone Quick",
             "rebuild_code_anchor",
@@ -15449,7 +16208,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "blocked_anchor, Ticket with parent",
             "rebuild_code_anchor",
@@ -15523,7 +16282,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "blocked_anchor, Ticket pending already absorbed by parent",
             "rebuild_code_anchor",
@@ -15693,11 +16452,11 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "29e427c42397554e251e1bf3579982826273ef73c352d9a3cd7287c243894ced",
+          "binds": "af544163602df1af528c8d1d5bbbf2f7088ff8ea712181dfb219426201be0552",
           "cells": [
             "review_cap",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
-            "новый daemon-attributed cap decision, сохранённые findings и identity"
+            "новый daemon-attributed cap decision, сохранённые findings и identity; resume только из шага, где стоял park: fix_artifact после narrow_review_join, fix после record_code_verdict"
           ],
           "rule": {
             "requires": [
@@ -15954,16 +16713,16 @@
           "covers": [
             "integration_authorization_required"
           ],
-          "binds": "4cef7e13cf0fee5769d9a4952b3366846ad190a7eff9b46f6bee87ac3d9d2ee0",
+          "binds": "fdd258f85beaa168c60e8657d3fea7b5fc4a1c276758aef0ba9cab6a74f56779",
           "cells": [
             "integration_authorization_required",
-            "accept",
-            "новый signed record связывает current target OID, completed-prefix receipt, exact remaining transitions, final tree, relevant authority/dependency/intent bindings и expiry"
+            "accept (Quick)",
+            "новый signed record связывает current target OID, один ref transition base → integration commit reviewed candidate, final tree, relevant authority/dependency/intent bindings и expiry; Epic этот park не использует"
           ],
           "rule": {
             "requires": [
               "authority_dependency_intent_bindings_and_expiry_included",
-              "signed_record_binds_target_prefix_transitions_tree"
+              "signed_record_binds_target_base_single_transition_tree"
             ],
             "admits": [],
             "excludes": []
@@ -15973,7 +16732,7 @@
           "covers": [
             "integration_obstruction"
           ],
-          "binds": "215c871d1d9638f688c275c2d3956845dbfa5068527251c49ccd2be47eea586c",
+          "binds": "9db2e1ba00dd5e2dfc88d84ade5ca3661a6122ba703ff84fb4af48c8c7825bd9",
           "cells": [
             "integration_obstruction",
             "integrate",
@@ -15991,7 +16750,7 @@
           "covers": [
             "integration_precondition"
           ],
-          "binds": "6121283c5abed7b57ae739d36f05ee54b0c100d09f0c6637061905be0eaef0d6",
+          "binds": "e4b489974368118600910426bc832e91134e88b8105a15ddd3b19c9a8db6665c",
           "cells": [
             "integration_precondition",
             "integrate",
@@ -16026,6 +16785,149 @@
               "ordinary_retry"
             ]
           }
+        },
+        {
+          "covers": [
+            "delta_stale"
+          ],
+          "binds": "5d4a90c33c5bb3d84f85ac2014ccb44b2e6f084300b0e63f01a66f50d7e8932c",
+          "cells": [
+            "delta_stale",
+            "apply_staging",
+            "approved delta перепроверена против текущей staging base и заново одобрена либо заменена; staging и target не двигались"
+          ]
+        },
+        {
+          "covers": [
+            "receipt_missing"
+          ],
+          "binds": "4169117c00dd79810862440420d83a1a33c93f5302a8adea9c3a38d640de6595",
+          "cells": [
+            "receipt_missing",
+            "apply_staging",
+            "durable integration receipt восстановлен для каждого применённого delta, lineage staging без неучтённых коммитов"
+          ]
+        },
+        {
+          "covers": [
+            "environment_failure"
+          ],
+          "binds": "2a7d48cd4334a862f2387db2f52476edfa4dca02b60e1814b639531e66ae9dbb",
+          "cells": [
+            "environment_failure",
+            "aggregate_verify",
+            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict"
+          ]
+        },
+        {
+          "covers": [
+            "aggregate_binding_void"
+          ],
+          "binds": "00811453fd1bc11e6900abc276fa516d71e69789e98e73c2eeebd15763adc1ab",
+          "cells": [
+            "aggregate_binding_void",
+            "aggregate_verify or accept_staging",
+            "void записан; aggregate заново на current staging commit/tree, verification config digest и instruction lock"
+          ]
+        },
+        {
+          "covers": [
+            "staging_moved_after_pass"
+          ],
+          "binds": "00e9a350728c412165c9a43fe3ababf0d28ba7b71ea6fa9044deb9e41269261a",
+          "cells": [
+            "staging_moved_after_pass",
+            "aggregate_verify or accept_staging",
+            "движение staging расследовано; staging заново проходит apply_staging: receipts и lineage от recorded base (или пересборка от неё), затем aggregate; старый PASS не переносится"
+          ]
+        },
+        {
+          "covers": [
+            "acceptance_missing"
+          ],
+          "binds": "4ed6fbd415aff354f7a1479f9785c7951a4e2cf70326287ce1824c90d212f612",
+          "cells": [
+            "acceptance_missing",
+            "accept_staging",
+            "decision packet на exact staging identity принят человеком либо auto-policy сверила её с signed IntegrationAuthorizationRecord"
+          ]
+        },
+        {
+          "covers": [
+            "acceptance_stale"
+          ],
+          "binds": "822507c7e38677fa33053eecd71899845fc0a63ab835754a1e9921c1bea2e0cd",
+          "cells": [
+            "acceptance_stale",
+            "accept_staging or integrate_staging",
+            "новая acceptance current staging identity, aggregate record hash, target base и delivery profile digest"
+          ]
+        },
+        {
+          "covers": [
+            "unsupported_integration_mode"
+          ],
+          "binds": "281e96d635304a56da54d6fc53b54e3a5ac634032be46311b7dae6c83a9025bd",
+          "cells": [
+            "unsupported_integration_mode",
+            "accept_staging",
+            "профиль или decision разрешает move_target либо PR/merge-queue путь; тихое переключение mode запрещено"
+          ]
+        },
+        {
+          "covers": [
+            "target_moved"
+          ],
+          "binds": "b63aad58d65b5c8bb3512eb540823f7b235ec94984eff3b0443888665a66a76a",
+          "cells": [
+            "target_moved",
+            "integrate_staging",
+            "новая target base записана; staging пересобирается от неё, прежние aggregate PASS и acceptance void"
+          ]
+        },
+        {
+          "covers": [
+            "foreign_target_movement"
+          ],
+          "binds": "8933d96e17b88190208b5e38290c9a293efaf42b89cbcb515b52467644daddf3",
+          "cells": [
+            "foreign_target_movement",
+            "integrate_staging",
+            "ref не тронут; решение после расследования; overwrite запрещён, cancel — отдельная status-операция"
+          ]
+        },
+        {
+          "covers": [
+            "cas_conflict"
+          ],
+          "binds": "d5e8cff66b061be3769fdf4c8383497521e523531d4ec1805b39a87517e4dd85",
+          "cells": [
+            "cas_conflict",
+            "integrate_staging",
+            "exact ref/reflog расследованы; повтор CAS только пока target на recorded base, уже применённый CAS не повторяется"
+          ]
+        },
+        {
+          "covers": [
+            "post_cas_mismatch"
+          ],
+          "binds": "3f2d492c2456bffb82adac5cb706c2542a4e911a8221656ca007f4ec3067652b",
+          "cells": [
+            "post_cas_mismatch",
+            "verify_target",
+            "read-back расследован; история не переписывается автоматически"
+          ]
+        },
+        {
+          "covers": [
+            "completion_predicate_unmet"
+          ],
+          "binds": "498db43dd1fff7babcf9dbb664560861726b1ab76845fcbb9a7d861492b564e8",
+          "cells": [
+            "completion_predicate_unmet",
+            "deliver_staging",
+            "completion predicate выполнен на exact accepted staging identity либо записано решение; host ветку не двигает"
+          ]
         }
       ],
       "coverage": "complete",
@@ -16064,6 +16966,7 @@
         "authority_journal_truncated",
         "child_creation_key_invalid",
         "correction_event_invalid",
+        "epic_boundary_invalid",
         "fix_provider_unavailable",
         "fix_result_invalid",
         "fix_scope_invalid",
@@ -16211,7 +17114,7 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "5306baee443df1bc367d039bc1bdf36db02d819da3631f41bf15f78175c4617e",
+          "binds": "21474e08cd55f7057aee0d387ed644bd8c0899cfc581719a9759f6dd0edc0a6e",
           "cells": [
             "tickets_manifest_invalid",
             "present_tickets_breakdown до freeze и после publication; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -16278,11 +17181,11 @@
           "covers": [
             "planning_ref_capability_missing"
           ],
-          "binds": "04518340d6d2a23b246293e6170bb1b17d5fb250648841939a3c88c66b89bc20",
+          "binds": "c5a9473bfbe896a3bc94e8952774cce7bf6c649b47a8526a61aa1e4fbc3be2db",
           "cells": [
             "planning_ref_capability_missing",
             "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
-            "pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged"
+            "pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged; resume only into the step the park stood at (origin)"
           ],
           "rule": {
             "requires": [
@@ -16300,11 +17203,11 @@
           "covers": [
             "planning_ref_foreign_movement"
           ],
-          "binds": "cf4e71cf36e6858ee8cf493e8c7ddf92684413ba1ad6fd79b5d018ea19def125",
+          "binds": "62c0bb2c1e9f0af6f4ad82dccfcd640affa182fffb58b10c97cf1f09c0720baa",
           "cells": [
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
-            "exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation"
+            "exact operation type/ID when present, detecting gate and ref/reflog observations bound; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation; resume only into the helper-calling step the park stood at (origin)"
           ],
           "rule": {
             "requires": [
@@ -16321,11 +17224,11 @@
           "covers": [
             "planning_candidate_keepalive_invalid"
           ],
-          "binds": "36266929ada654ec0cc7e0ab09e495c9a2e5f57732e620563014f3889bebd6b1",
+          "binds": "7da85b4b766b1ebc52313e7bbe4ac53c5b3e78d7d9aafd4f5052ca80dedef375",
           "cells": [
             "planning_candidate_keepalive_invalid",
             "freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state",
-            "exact candidate keepalive ref/create or audit/release receipt and complete object closure restored or candidate explicitly superseded; cleanup and publication remain blocked until namespace inventory matches metadata/history"
+            "exact candidate keepalive ref/create or audit/release receipt and complete object closure restored or candidate explicitly superseded; cleanup and publication remain blocked until namespace inventory matches metadata/history; resume only into the step the park stood at (origin)"
           ],
           "rule": {
             "requires": [
@@ -16586,7 +17489,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "BLOCKED_ANCHOR, Planned",
             "prepare_anchor_impact",
@@ -16646,7 +17549,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "BLOCKED_ANCHOR, standalone Quick",
             "rebuild_code_anchor",
@@ -16666,7 +17569,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "BLOCKED_ANCHOR, Ticket with parent",
             "rebuild_code_anchor",
@@ -16729,7 +17632,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "5e77d78ddbf2a9b6a6f515a243291fefa1efb56d173e963830aa5963aa54523a",
+          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
           "cells": [
             "Parent absorbed live Ticket anchor before suspension",
             "rebuild_code_anchor",
@@ -16824,11 +17727,11 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "29e427c42397554e251e1bf3579982826273ef73c352d9a3cd7287c243894ced",
+          "binds": "af544163602df1af528c8d1d5bbbf2f7088ff8ea712181dfb219426201be0552",
           "cells": [
             "Лимит review",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
-            "новый daemon-attributed cap decision, сохранённые findings и identity"
+            "новый daemon-attributed cap decision, сохранённые findings и identity; resume только из шага, где стоял park: fix_artifact после narrow_review_join, fix после record_code_verdict"
           ],
           "rule": {
             "requires": [
@@ -17073,17 +17976,17 @@
           "covers": [
             "integration_authorization_required"
           ],
-          "binds": "4cef7e13cf0fee5769d9a4952b3366846ad190a7eff9b46f6bee87ac3d9d2ee0",
+          "binds": "fdd258f85beaa168c60e8657d3fea7b5fc4a1c276758aef0ba9cab6a74f56779",
           "cells": [
-            "Integration authorization missing/expired",
+            "Quick integration authorization missing/expired",
             "accept",
-            "pending CAS receipt сначала resolved; новый signed record связывает current target, completed prefix, remaining transitions, final tree и current heads"
+            "pending CAS receipt сначала resolved; новый signed record связывает current target, один ref transition base → integration commit candidate, final tree и current heads"
           ],
           "rule": {
             "requires": [
               "current_heads_included",
               "pending_cas_receipt_resolved",
-              "signed_record_binds_target_prefix_transitions_tree"
+              "signed_record_binds_target_base_single_transition_tree"
             ],
             "admits": [],
             "excludes": []
@@ -17093,7 +17996,7 @@
           "covers": [
             "integration_obstruction"
           ],
-          "binds": "215c871d1d9638f688c275c2d3956845dbfa5068527251c49ccd2be47eea586c",
+          "binds": "9db2e1ba00dd5e2dfc88d84ade5ca3661a6122ba703ff84fb4af48c8c7825bd9",
           "cells": [
             "Integration obstruction",
             "integrate",
@@ -17111,7 +18014,7 @@
           "covers": [
             "integration_precondition"
           ],
-          "binds": "6121283c5abed7b57ae739d36f05ee54b0c100d09f0c6637061905be0eaef0d6",
+          "binds": "e4b489974368118600910426bc832e91134e88b8105a15ddd3b19c9a8db6665c",
           "cells": [
             "Integration precondition",
             "integrate",
@@ -17147,6 +18050,69 @@
               "ordinary_retry"
             ]
           }
+        },
+        {
+          "covers": [
+            "delta_stale",
+            "receipt_missing"
+          ],
+          "binds": "421ac53438c5e9c8587d71167a2b5dc3ef9f6b62d44505e2264bd1c37b829eaf",
+          "cells": [
+            "Staging apply: delta устарела или нет receipt",
+            "apply_staging",
+            "delta перепроверена против текущей staging base, receipt и lineage восстановлены; staging и target не двигались"
+          ]
+        },
+        {
+          "covers": [
+            "aggregate_binding_void",
+            "environment_failure",
+            "staging_moved_after_pass"
+          ],
+          "binds": "fe6abae2e32a69acb16ae88dd7f04a9de805a2c5fdb90939f5d4b468152d2b93",
+          "cells": [
+            "Aggregate не привязан к staging: окружение, void binding, staging сдвинут после PASS",
+            "aggregate_verify, accept_staging",
+            "aggregate заново на exact current staging commit/tree без model run; staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится"
+          ]
+        },
+        {
+          "covers": [
+            "acceptance_missing",
+            "acceptance_stale"
+          ],
+          "binds": "a8122be3d93be31d72edbe2a0c1d1cf9e1bab570fed0afb9488b4432188729cf",
+          "cells": [
+            "Staging acceptance отсутствует или устарела",
+            "accept_staging, integrate_staging",
+            "человек принимает exact staging identity, либо auto-policy сверяет её с signed IntegrationAuthorizationRecord; target до этого не двигается"
+          ]
+        },
+        {
+          "covers": [
+            "cas_conflict",
+            "foreign_target_movement",
+            "post_cas_mismatch",
+            "target_moved"
+          ],
+          "binds": "898f0f68cc36b017418c1814189f5cb30f01452e75ddd5449629fab64528e2cf",
+          "cells": [
+            "Target CAS: конфликт, чужое движение, сдвиг base, read-back mismatch",
+            "integrate_staging, verify_target",
+            "ref не перезаписывается; сдвиг base, записанный этим Epic, пересобирает staging от новой base, остальное — явное решение после расследования; cancel — отдельная status-операция"
+          ]
+        },
+        {
+          "covers": [
+            "completion_predicate_unmet",
+            "unsupported_integration_mode"
+          ],
+          "binds": "828a9c460b89eb4e5726787f46d4f548eb8db6edcbba0dbe3a85ef0e2648fa1c",
+          "cells": [
+            "Delivery profile: mode не поддержан или completion predicate не выполнен",
+            "accept_staging, deliver_staging",
+            "профиль или decision разрешает move_target либо PR/merge-queue путь; done только когда predicate выполнен на exact staging identity"
+          ]
         }
       ],
       "cases": [
@@ -17158,7 +18124,7 @@
       ]
     }
   ],
-  "canonical_digest": "2a38be312d323aee78d645acd6afdda22b678149bcffc262face868c334146cf",
+  "canonical_digest": "3646424fadc77b1707469c5c6d12a682a2b16b888995a6156ac59eb1b01b69d7",
   "external_operations": [
     {
       "status": "cancel",

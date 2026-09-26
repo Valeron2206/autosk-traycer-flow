@@ -227,7 +227,7 @@ Daemon сохраняет canonical signed challenge bytes, append'ит signed r
 
 Project policy issuance/revocation используют signed UserDecisionRecords; trusted client policy bytes authority не получают. Autoskd derives the single projection after journal/head commit. Git/comments are mirrors. Model-to-signer/secure-state OS boundary is a mandatory preflight assertion rather than a residual same-UID assumption — and an assertion is what it is. The preflight refuses an undeclared or unprobeable boundary; it does not attest isolation, and the attestation that would is named as deferred rather than implied.
 
-`IntegrationAuthorizationRecord` authoritative source is daemon-owned file above plus protected `integration_authorization_head`. Record identity binds scope, record ID, content hash, expiry, terminal revoke/replace disposition, authority/dependency/intent heads and integration plan. Restart lookup resolves by scope+record ID and reconciles file/head before use. Missing/changed/shortened record or head mismatch fail-closed to `integration_authorization_required`; recovery restores exact committed bytes only. `integration-state/<operation-id>.json` stores CAS operation/prefix/outcome only and never substitutes authorization authority.
+`IntegrationAuthorizationRecord` authoritative source is daemon-owned file above plus protected `integration_authorization_head`. Record identity binds scope, record ID, content hash, expiry, terminal revoke/replace disposition, authority/dependency/intent heads and integration plan. Restart lookup resolves by scope+record ID and reconciles file/head before use. Missing/changed/shortened record or head mismatch fail-closed — for Quick to `integration_authorization_required` at accept; for an Epic to `acceptance_missing` at accept_staging, or to `acceptance_stale` at integrate_staging when the record lapses before the CAS, resumed at accept_staging; recovery restores exact committed bytes only. `integration-state/<operation-id>.json` stores the CAS operation and its outcome only and never substitutes authorization authority; the target moves by one CAS, so there is no completed part of a plan to store.
 
 `bundle-manifest.json` описывает immutable governance bytes, а `protocol.lock.json` только связывает Epic с digest snapshot; они не дублируют task status. Машиночитаемая workflow-связь остаётся в namespaced metadata.autosk_flow, а человекочитаемая сводка и ссылки на доказательства — в comments.
 
@@ -292,7 +292,7 @@ Installer/cache хранит bundle versions content-addressed по digest, по
 <canonical-project-root>/.autosk/autosk-flow/integration-state/<operation-id>.json
 ~~~
 
-State file хранит only CAS operation/prefix/outcome and canonical root. Authorization authority is resolved separately from daemon `integration-authorizations/<scope-id>/<record-id>.json` under protected head; operation state cannot substitute it.
+State file хранит only CAS operation/outcome and canonical root. Authorization authority is resolved separately from daemon `integration-authorizations/<scope-id>/<record-id>.json` under protected head; operation state cannot substitute it.
 
 ### Изоляция параллельных проектов
 

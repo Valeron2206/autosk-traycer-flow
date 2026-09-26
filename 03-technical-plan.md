@@ -51,7 +51,8 @@ arena:
 
 execution:
   select_next -> dispatch_ticket_dag -> resume_repaired_tickets -> ticket_join
-  -> accept -> integrate -> aggregate_verify -> cleanup -> done
+  -> apply_staging -> aggregate_verify -> accept_staging -> integrate_staging -> verify_target -> cleanup -> done
+  accept_staging -> deliver_staging -> cleanup
   aggregate_verify -> record_aggregate_remediation
   select_next -> record_aggregate_remediation
   record_aggregate_remediation -> record_aggregate_remediation | aggregate_verify | dispatch_ticket_dag | draft_artifact | present_tickets_breakdown
@@ -71,7 +72,7 @@ recovery:
   ticket_join_wait -> ticket_join
   repair_protocol_snapshot -> recorded pre-failure step | human
   authority_recovery -> recorded pre-failure step | human
-  integration_recovery -> integrate | human
+  integrate_staging -> integrate_staging | apply_staging | human
   Quick integration_recovery -> integrate | cleanup | human
 ~~~
 
@@ -332,26 +333,46 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | ticket_join | любой другой ожидаемый Ticket status=new/work/human и соответствующий blocker отсутствует | восстановить exact blocker edge, transit ticket_join_wait |
 | ticket_join_wait | blockers ещё открыты | step не запускается scheduler |
 | ticket_join_wait | blockers terminal/removed | ticket_join |
-| ticket_join | все Tickets done + current code review disposition=pass\|waived + commit OID, signed `IntegrationAuthorizationRecord` exact run/target/base/ordered commits/resulting tree/digest current | integrate |
-| ticket_join | все Tickets done + current code review disposition=pass\|waived + commit OID, integration authorization отсутствует/невалидна | accept statusStep("human") |
+| ticket_join | все Tickets done + current code review disposition=pass\|waived + commit OID и approved delta каждого Ticket записана | apply_staging; target ref не читается и не меняется |
 | ticket_join | cancel/missing/done без binding | human с park.reason=ticket_join_invalid |
 | ticket_join | ожидаемый Ticket status=human | обеспечить exact blocker edge, transit ticket_join_wait; пользователь возобновляет child |
-| accept | current controlling digest mismatch | ensure pending_anchor, human с blocked_anchor; acceptance stale |
-| accept | resume --to integrate, current IntegrationAuthorizationRecord связывает current target OID, completed-prefix receipt и exact remaining transitions/digest, pending_anchor отсутствует | integrate |
-| integrate | daemon integration operation receipt phase=pending/indeterminate | integration_recovery до проверки expiry или нового Git side effect |
-| integrate | controlling digest/pending_anchor/anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до Git side effect |
-| integrate | все Tickets integrated и pending operation отсутствует | aggregate_verify |
-| integrate | IntegrationAuthorizationRecord missing/mismatched/expired | atomically сохранить completed ref-transition prefix/current target OID в integration-state; accept statusStep("human") с park.reason=integration_authorization_required; target ref дальше не читается/не меняется |
-| integrate | next integration step plan/current authorization валидны | вызвать daemon `integrateApproved(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest,authorization_id,target,expected_old,new_oid)`; daemon под mutex reconciles global journal, re-resolves relevant projection/heads/classifier/auth и Git CAS; success -> integrate |
-| integrate | precondition | human с park.reason=integration_precondition |
-| integrate | obstruction | human с park.reason=integration_obstruction |
-| integrate | foreign movement/indeterminate/reattach | integration_recovery или human по классификации |
-| integration_recovery | pending receipt + target/reflog proves exact new OID | daemon marks committed, atomically advances completed-prefix/current target; integrate (which may aggregate or require new authorization) |
-| integration_recovery | pending receipt + operation-bound reflog proves CAS never occurred and no movement after recorded watermark; target exact expected_old | daemon marks not_applied; integrate without advancing prefix |
-| integration_recovery | состояние осталось foreign/indeterminate | human или cancel; обычный retry запрещён |
+| apply_staging | controlling digest/pending_anchor/anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до staging apply; target ref не читается и не меняется |
+| apply_staging | approved delta, перепроверенная против текущей staging base в момент применения, к ней больше не применяется так, как одобрена | human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется |
+| apply_staging | у применённой approved delta нет durable integration receipt либо lineage от recorded target base до staging head содержит неучтённый коммит | human с park.reason=receipt_missing |
+| apply_staging | очередная approved delta применена к приватному `refs/autosk/epics/<epic_ref_key>/staging`, созданному от recorded target base, expected-old CAS; durable integration receipt записан; неприменённые approved deltas остаются | apply_staging |
+| apply_staging | все approved deltas применены, каждый integration receipt verified, lineage от recorded target base до staging head без неучтённых коммитов, staging commit/tree записаны, target ref не двигался | aggregate_verify |
 | aggregate_verify | controlling digest mismatch или pending_anchor | human с park.reason=blocked_anchor |
-| aggregate_verify | все epic-критерии PASS | cleanup |
+| aggregate_verify | aggregate outcome=PASS на exact staging commit/tree, record связан с этими commit/tree, verification config digest, instruction lock и включённым набором Tickets/deltas; staging не двигался после PASS | accept_staging; target ref не двигается |
 | aggregate_verify | NOT_PASS | first durable write создаёт aggregate_remediation с creation key/binding, old set digest, evidence hash, phase=proposed; select_next/dispatch уже fail-closed; human с park.reason=aggregate_verify_failed |
+| aggregate_verify | aggregate check не смог запуститься или окружение отказало: outcome=indeterminate | human с park.reason=environment_failure; это не verdict о продукте, target ref не двигается |
+| aggregate_verify | aggregate PASS записан на current staging commit/tree, но binding не пересчитывается от verification config digest, instruction lock или набора Tickets/deltas | human с park.reason=aggregate_binding_void; PASS относится к другой конфигурации, lock или набору |
+| aggregate_verify | resume --to aggregate_verify под park.reason=environment_failure\|aggregate_binding_void: окружение восстановлено либо void записан | aggregate заново на exact current staging commit/tree без model run; aggregate_verify |
+| aggregate_verify | aggregate PASS записан, но staging ref OID/tree больше не равен identity, на которой он записан | привязка аннулирована; human с park.reason=staging_moved_after_pass; target ref не двигается |
+| aggregate_verify | resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано | apply_staging заново проверяет receipts и lineage от recorded target base либо пересобирает staging от неё; прежний aggregate PASS void; apply_staging |
+| accept_staging | controlling digest/pending_anchor/anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor; acceptance не запрашивается, target ref не двигается |
+| accept_staging | staging ref OID/tree больше не равен identity, на которой записан aggregate PASS | привязка аннулирована; human с park.reason=staging_moved_after_pass; target ref не двигается |
+| accept_staging | aggregate binding не пересчитывается от verification config digest, instruction lock или включённого набора Tickets/deltas | human с park.reason=aggregate_binding_void |
+| accept_staging | acceptance record человека или закреплённой auto-policy называет не current staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base или delivery profile digest | human с park.reason=acceptance_stale |
+| accept_staging | acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base и delivery profile digest: принял человек, либо закреплённая auto-policy сверила эту identity с signed `IntegrationAuthorizationRecord`; `finalIntegrationPlan` action=move_target | integrate_staging |
+| accept_staging | та же acceptance; `finalIntegrationPlan` action=open_pull_request\|enqueue: финальное движение не наше | deliver_staging; host ветку не двигает |
+| accept_staging | `finalIntegrationPlan` action=park: mode не разрешён профилем, либо прямое движение запрещено или не принадлежит host, а PR/merge-queue путь не выбран | human с park.reason=unsupported_integration_mode; target ref не двигается |
+| accept_staging | acceptance record отсутствует или отклонён; auto-policy без signed `IntegrationAuthorizationRecord` не принимает | decision packet (#35) с exact staging identity как candidate; human с park.reason=acceptance_missing |
+| accept_staging | resume --to accept_staging под park.reason=acceptance_missing\|acceptance_stale\|unsupported_integration_mode: новый acceptance record либо исправленный delivery plan записан против current staging identity | accept_staging |
+| accept_staging | resume --to aggregate_verify под park.reason=aggregate_binding_void: void старой привязки записан | aggregate заново на exact current staging commit/tree; aggregate_verify |
+| accept_staging | resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано | apply_staging заново проверяет receipts и lineage от recorded target base либо пересобирает staging от неё; прежние aggregate PASS и acceptance void; apply_staging |
+| integrate_staging | daemon `integrateApproved(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest,authorization_id,target,expected_old,new_oid)` под project mutex заново сверил current acceptance и controlling anchor и с expected_old=recorded target base и new_oid=accepted staging commit выполнил **один** target CAS, cas receipt committed; target, уже держащий accepted staging commit, — завершённый повтор, а не конфликт | verify_target |
+| integrate_staging | pending CAS receipt phase=pending/indeterminate | разрешить по exact target ref/reflog до проверки authorization expiry и до нового Git side effect; integrate_staging |
+| integrate_staging | controlling digest/pending_anchor/anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до target CAS |
+| integrate_staging | до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо authorization, на которой она стоит (signed `IntegrationAuthorizationRecord` auto-policy либо acceptance decision человека), expired/revoked/replaced или не сходится с `integration_authorization_head` | CAS не выполняется; human с park.reason=acceptance_stale; resume в accept_staging за новой acceptance |
+| integrate_staging | target ref не на recorded target base, и движение атрибутируемо этому Epic | CAS не выполняется; human с park.reason=target_moved; base перезаписывается до следующего шага |
+| integrate_staging | target ref не на recorded target base, и движение этому Epic не атрибутируемо | ref не трогается; human с park.reason=foreign_target_movement; cancel — отдельная status-операция |
+| integrate_staging | git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки | human с park.reason=cas_conflict; retry без расследования запрещён |
+| integrate_staging | resume --to apply_staging под park.reason=target_moved: новая target base записана | staging пересобирается от неё, прежние aggregate PASS и acceptance void; apply_staging |
+| verify_target | после CAS target OID = accepted staging commit, target tree = accepted tree, записанный результат contained и reflog delta ровно одно движение | cleanup |
+| verify_target | read-back target OID/tree/containment/reflog delta не совпадает с accepted staging identity | CAS, сообщивший успех, не доказательство; human с park.reason=post_cas_mismatch; история не переписывается |
+| deliver_staging | PR или merge queue из delivery receipt доставил exact accepted staging commit/tree, и completion predicate профиля выполнен на нём | cleanup; ветку host не двигал |
+| deliver_staging | PR открыт или merge поставлен в очередь, delivery receipt записан, completion predicate ещё не выполнен и читается | deliver_staging |
+| deliver_staging | completion predicate не выполнен, не читается или выполнен не на accepted staging identity | human с park.reason=completion_predicate_unmet; ветку host не двигает |
 | record_aggregate_remediation | exact signed choice/current failure identity отсутствуют, choice вне `external_retry\|unchanged_dispatch\|set_changing` либо evidence drift | human с park.reason=aggregate_remediation_required; старые Tickets bindings не используются для нового set |
 | record_aggregate_remediation | phase=closed и recorded_target binding валиден | идемпотентно recorded_target |
 | record_aggregate_remediation | phase=proposed, choice=external_retry и evidence доказывает external retry | atomically phase=closed + recorded_target=aggregate_verify, clear park, aggregate_verify |
@@ -368,7 +389,7 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | authority_recovery | journal ahead содержит invalid/replayed/non-contiguous uncommitted tail | atomically quarantine exact tail bytes/hash, truncate только suffix без applied effects до secure head, nonce остаётся consumed; recorded pre-failure step |
 | authority_recovery | workflow=panel/contest/code-review/Arena child и committed restore невозможен либо recovery state malformed/unmatched | emit_blocked_anchor; host result read-back, validate/done, parent blocker снимается |
 | authority_recovery | dependency/intent protected head ahead, committed event missing/changed или projection/head mismatch | restore exact committed dependency/intent bytes из durable backup и re-derive projection; head rollback/recompute from task metadata запрещены; иначе human с park.reason=authority_journal_truncated |
-| authority_recovery | integration authorization file/head missing/changed/shortened | restore exact committed record/head binding or human integration_authorization_required; integration operation state cannot substitute authority |
+| authority_recovery | integration authorization file/head missing/changed/shortened | restore exact committed record/head binding or human integration_authorization_required (Quick; an autosk-planned task parks acceptance_stale at integrate_staging instead, `docs/contracts/integration-authorization.md` §5); integration operation state cannot substitute authority |
 | authority_recovery | secure head ahead, committed record missing/changed либо committed prefix shortened | восстановить exact signed committed bytes из durable backup и verify same head; иначе human с park.reason=authority_journal_truncated |
 | authority_recovery | destructive lost-key/reset exact user-presence recovery valid | new authority generation, void all prior approvals, prepare_anchor_impact |
 | authority_recovery | unmatched/malformed recovery state | human с park.reason=authority_journal_truncated; head rollback/recompute запрещены |
@@ -473,7 +494,7 @@ Parent Ticket блокируется review child и после разблоки
 | freeze | workflow=autosk-quick, review_cycle.full_review_required=true, full_review_reason=initial, editorial classification валидна, pending_anchor отсутствует, changed paths/bytes не затрагивают executable/config/schema/security/prompt/governance behavior | record_editorial_exemption |
 | freeze | review_cycle.full_review_required=true | dispatch_review |
 | freeze | review_cycle.full_review_required=false и candidate создан после confirmed fixes | dispatch_narrow_review |
-| dispatch_review / dispatch_narrow_review | нет reviewer семьи вне union author/fixer set | human с park.reason=no_external_reviewer |
+| dispatch_review / dispatch_narrow_review | workflow=autosk-quick\|autosk-ticket, нет reviewer семьи вне union author/fixer set | human с park.reason=no_external_reviewer |
 | dispatch_review / dispatch_narrow_review | child настроен/enrolled, parent blocked | review_join |
 | review_join | child new/work/human | join prologue обеспечивает exact blocker, review_join_wait; human child возобновляет пользователь |
 | review_join_wait | blocker активен | step не запускается scheduler |
@@ -498,8 +519,8 @@ Parent Ticket блокируется review child и после разблоки
 | fix | confirmed review или verification findings исправлены | verify |
 | record_editorial_exemption | pending_anchor появился после freeze | human с park.reason=blocked_anchor; exemption не записан |
 | record_editorial_exemption | повторная deterministic проверка больше не editorial | сохранить full_review_required=true/full_review_reason=initial, dispatch_review |
-| record_editorial_exemption | classification/identity/path set current, повторная проверка editorial, signed IntegrationAuthorizationRecord exact candidate валиден | atomically full flags reset + exemption record, integrate |
-| record_editorial_exemption | classification/identity/path set current, повторная проверка editorial, integration authorization отсутствует/невалидна | atomically full flags reset + exemption record, accept |
+| record_editorial_exemption | workflow=autosk-quick, classification/identity/path set current, повторная проверка editorial, signed IntegrationAuthorizationRecord exact candidate валиден | atomically full flags reset + exemption record, integrate |
+| record_editorial_exemption | workflow=autosk-quick, classification/identity/path set current, повторная проверка editorial, integration authorization отсутствует/невалидна | atomically full flags reset + exemption record, accept |
 | rebuild_code_anchor | parent_epic_task отсутствует (standalone Quick), pending anchor валиден | own anchor_version+1, clear pending_anchor, review_cycle.full_review_required=true/full_review_reason=anchor_rebuild, verify |
 | rebuild_code_anchor | parent_epic_task задан, waiting_parent_anchor=false, correction обоснована | daemon appendIntentEvent под project mutex + intent-head commit, void Ticket review binding, receipt phase=event_appended, park human, затем exact unblock parent; Epic metadata не писать |
 | complete_anchor_handoff | event hash/receipt валидны, Ticket human, parent edge ещё active | идемпотентно подтвердить human park, exact unblock parent, receipt phase=edge_suspended, park.reason=waiting_parent_anchor |
@@ -521,7 +542,7 @@ Quick `integrate` prologue до любого чтения target ref или др
 
 Quick tail:
 
-Эта таблица — единственная каноническая для Quick `integrate`; pending receipt безусловно разрешается раньше reclassification, authorization и handoff. Общая Quick/Ticket строка выше к integrate не применяется.
+Эта таблица — единственная каноническая для Quick `integrate`; pending receipt безусловно разрешается раньше reclassification, authorization и handoff. Общая Quick/Ticket строка выше к integrate не применяется. `accept`, `integrate` и `integration_recovery` принадлежат только Quick: Quick двигает target одним ref transition base → integration commit своего reviewed candidate, а Epic двигает свою целевую ветку только в `integrate_staging`, после aggregate PASS и acceptance, и ни одна строка этой таблицы к Epic не применяется.
 
 | Текущий шаг | Условие | Следующий шаг |
 | --- | --- | --- |
@@ -536,7 +557,8 @@ Quick tail:
 | integrate | precondition | human с integration_precondition |
 | integrate | obstruction | human с integration_obstruction |
 | integrate | foreign movement/indeterminate/reattach | integration_recovery или human по классификации |
-| integration_recovery | pending receipt proves exact new OID | finalize daemon receipt/prefix, cleanup |
+| integrate | resume --to integrate под park.reason=integration_obstruction\|integration_precondition: помеха перемещена либо предусловие устранено и доказательство записано, Quick classification valid, signed `IntegrationAuthorizationRecord` current, pending operation отсутствует | integrate |
+| integration_recovery | pending receipt proves exact new OID | finalize daemon receipt, cleanup |
 | integration_recovery | operation-bound reflog proves CAS never occurred, no movement after watermark, target=expected_old | mark not_applied, integrate |
 | integration_recovery | target returned new→expected_old, reflog absent/ambiguous or post-watermark movement | human foreign/indeterminate; retry forbidden |
 | integration_recovery | foreign/indeterminate сохраняется | human; cancel отдельной status-операцией |
@@ -957,7 +979,7 @@ Alignment record content write-once. Source enum закрыт: `user_decision|pr
 
 `waivers.panel` и `waivers.review` — null либо references на signed daemon record exact identity; boolean/comment и project policy недействительны. Panel waiver payload имеет closed `mode=full_skip|reduced_roster` и actual roster для второго; consumer принимает только свой mode. Review waiver всегда exact full-skip current tree, а resulting disposition сохраняет `waived_review_mode=full|narrow` и исходный reason. Каждый consumer перечитывает authority непосредственно перед side effect.
 
-`integration_authorization` — daemon-owned signed record stored at `.autosk/autosk-flow/integration-authorizations/<scope-id>/<record-id>.json`, chained under protected `integration_authorization_head`: `{schema,record_id,scope_id,project_root_sha256,epic_id|null,quick_task_id?,run_id,target_ref,initial_target_oid,completed_prefix_receipt_hash?,remaining_start_index,ordered_ticket_commit_oids,ordered_ref_transitions,final_tree_oid,integration_plan_hash,relevant_authority_projection_hash,dependency_head_hash,intent_head_hash,controlling_anchor_digest,classifier_proof_hash,expires_at,terminal_disposition,previous_authorization_head_hash,user_decision_record_id,user_decision_record_hash}`. Autoskd resolves by scope+ID and verifies file/head/expiry/revoke/replace. Missing/changed bytes restore only exact committed record or return integration_authorization_required. integration-state stores operation state only.
+`integration_authorization` — daemon-owned signed record stored at `.autosk/autosk-flow/integration-authorizations/<scope-id>/<record-id>.json`, chained under protected `integration_authorization_head`: `{schema,record_id,scope_id,project_root_sha256,epic_id|null,quick_task_id?,run_id,target_ref,initial_target_oid,ref_transition:{from_oid,to_oid},ordered_ticket_commit_oids,final_tree_oid,integration_plan_hash,relevant_authority_projection_hash,dependency_head_hash,intent_head_hash,controlling_anchor_digest,classifier_proof_hash,expires_at,terminal_disposition,previous_authorization_head_hash,user_decision_record_id,user_decision_record_hash}`. Autoskd resolves by scope+ID and verifies file/head/expiry/revoke/replace. Missing/changed bytes restore only exact committed record or return integration_authorization_required. integration-state stores operation state only. Record называет ровно один ref transition: `from_oid`=`initial_target_oid`=recorded target base, `to_oid` — accepted staging commit Epic либо integration commit Quick. Частичного CAS нет, поэтому у record нет ни ordered plan, ни start index, ни completed-prefix receipt, и схема отвергает record такой формы (`docs/contracts/integration-authorization.md` §4).
 
 `candidate_keepalive` lifecycle is closed: panel NOT_PASS, narrow NOT_PASS, terminal void or supersession runs the monotonic audit-first transfer and records phase=`audit_retained` only after audit-present/live-absent verification; verified publication records phase=`released` under the same rule. Audit-retained refs are valid cleanup state, while a current `prepared|ref_created|verified` ref without disposition is unresolved and blocks cleanup.
 
@@ -981,7 +1003,7 @@ Authority dependency history is an append-only daemon journal, not mutable Epic 
 
 `controlling_anchor_digest` = canonical hash protected dependency head + current projection/terminal dispositions + four alignment/material-manifest/classifier/projector bindings + protected Epic intent head/consumed watermark + anchor version + protocol. Authority record bytes first reconcile against authority head; only current Epic dependencies enter the digest, so unrelated project decisions do not stale it. Metadata projection/head mismatch fails closed. Ticket dispatch copies all head hashes/digest into task/candidate/verdict/commit; mismatch aborts live sessions and routes to rebuild.
 
-`authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest)` — daemon connection-bound project mutex. Daemon reconciles global authority head for integrity, then compares only relevant current projection + Epic heads. Competing appends wait; resume/enroll/block accept token. `integrateApproved` uses same mutex and CAS. Unrelated project authority append therefore does not stale an Epic after re-resolution.
+`authorityGuard(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest)` — daemon connection-bound project mutex. Daemon reconciles global authority head for integrity, then compares only relevant current projection + Epic heads. Competing appends wait; resume/enroll/block accept token. `integrateApproved` uses same mutex and CAS; it is the one target CAS, called for an Epic only from `integrate_staging` after aggregate PASS and acceptance, and for Quick after its reviewed candidate. Unrelated project authority append therefore does not stale an Epic after re-resolution.
 
 Workflow custody exposes `mutateAutoskFlow(own_step_capability,expected_head,patch)`, `orchestrateChildBatch(parent_step_capability,op_id,[{child_id,expected_head,allowed_patch}])` and `appendGateResult`. Batch capability is daemon-minted only for current parent repair/dispatch step, binds exact child creation identities/heads/closed patch schema, single-use, and records monotonic per-child receipts. It never impersonates a child workflow step. WorkAgent has no raw shell/.autosk/CLI.
 
@@ -1352,14 +1374,16 @@ Panel, contest, narrow Lead, code-review и Judge получают snapshot-root
 
 ### Integration
 
-Детерминированный autosk-owned adapter:
+Детерминированный autosk-owned adapter. Для Epic порядок — тот же, что в `docs/contracts/epic-staging.md` §1 и в цепочке execution §2, и целевая ветка в нём двигается один раз:
 
-1. берёт чистую целевую ветку и её recorded base OID;
-2. строит merge commit без движения целевой ref;
-3. вычисляет merge tree и сверяет approved tree;
-4. daemon under mutex writes pending operation receipt binding authorization, expected_old/new, heads, prefix and pre-CAS reflog watermark before Git CAS;
-5. performs update-ref, then marks committed/not_applied; crash recovery uses operation-bound reflog. not_applied requires proof CAS never occurred and no later movement; new→old/ambiguous is foreign;
-6. only committed advances prefix/next Ticket; foreign/indeterminate parks.
+1. `apply_staging` берёт recorded target base OID и применяет approved delta каждого Ticket к приватному `refs/autosk/epics/<epic_ref_key>/staging`, созданному от этой base expected-old CAS; delta перепроверяется против текущей staging base в момент применения, каждый apply пишет durable integration receipt; целевая ref не читается и не меняется;
+2. `aggregate_verify` проверяет exact staging commit/tree и связывает record с ними, с verification config digest и instruction lock; environment failure — не verdict, а любое движение staging после PASS аннулирует привязку;
+3. `accept_staging` принимает exact aggregate-verified staging identity — человек либо закреплённая auto-policy, сверяющая её с signed `IntegrationAuthorizationRecord`, — и delivery profile через `finalIntegrationPlan` выбирает `move_target`, `open_pull_request|enqueue` или park;
+4. только при `move_target` `integrate_staging` вызывает daemon `integrateApproved`: daemon под mutex пишет pending operation receipt, binding authorization, expected_old=recorded target base, new=accepted staging commit, heads и pre-CAS reflog watermark, затем выполняет **один** update-ref CAS и marks committed/not_applied; crash recovery uses operation-bound reflog, not_applied requires proof CAS never occurred and no later movement, new→old/ambiguous is foreign;
+5. `verify_target` перечитывает target OID/tree, containment записанного результата и reflog delta до cleanup;
+6. при `open_pull_request|enqueue` `deliver_staging` открывает PR либо ставит merge в очередь и ждёт completion predicate профиля на exact staging identity; ветку host не двигает.
+
+Промежуточных подвижек target по одному Ticket нет, поэтому нет и частично выполненного плана, который надо было бы продолжать: committed outcome завершает интеграцию Epic, foreign/indeterminate паркует. Quick интегрирует один reviewed candidate: integration commit строится по deterministic recipe (recorded base, reviewed candidate, approved tree), зафиксированному до подписи record — как expected commit OID у `commit_on_pass`, — поэтому record называет тот OID, который запишет CAS; adapter строит этот commit без движения target, сверяет его tree с approved tree, и тот же `integrateApproved` выполняет один ref transition base → этот commit.
 
 State path создаётся отдельно для каждой operation под `<canonical-project-root>/.autosk/autosk-flow/integration-state/` и связывается с project_root_sha256. Никакой integration state не хранится в глобальной пользовательской папке или соседнем проекте.
 
@@ -1431,7 +1455,7 @@ State path создаётся отдельно для каждой operation п�
 | Gate child обнаружил authority/dependency/intent mismatch | host пишет current-identity BLOCKED_ANCHOR result, child done; parent join снимает blocker и паркуется blocked_anchor |
 | Gate snapshot/store изменился | child human с gate_snapshot_mutated и blocking non-verdict |
 | Arena candidate build/verify/freeze не завершён | child human с точной arena_candidate_* причиной; candidate не считается live |
-| Project boundary/path guard не прошёл | human с project_boundary_invalid; side effects count=0 |
+| Project boundary/path guard не прошёл | human с project_boundary_invalid, а для задачи autosk-planned — с epic_boundary_invalid, где бы она ни стояла; resume только в шаг, где стоял park (origin); side effects count=0 |
 | Child create завершился частично | повторный dispatch находит задачу по daemon-owned creation_key даже после rename до metadata set |
 | Duplicate/malformed/colliding creation_key или binding hash mismatch | human с child_creation_key_invalid; ни один child не enroll |
 | Child task parked human | parent остаётся blocked; оператор возобновляет child в его существующем workflow либо cancel делает join ответственным за parent park; только anchor-repair parent step может автоматически resume Ticket по валидным receipts |
@@ -1477,13 +1501,14 @@ Resume contract:
 | gate_result_missing / gate_result_invalid | `<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict | invalid/nonexistent result не принят; attempt+1 и та же logical reviewer session с явным reminder схемы |
 | gate_snapshot_mutated | `<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict | новый immutable pinned snapshot того же candidate identity создан, pre-hashes совпадают, прежний response остаётся non-verdict |
 | blocked_anchor, gate child | `<gate_join_step>` после child done | immutable blocked result current identity; join ensures pending_anchor и не оставляет human child blocker |
-| blocked_anchor, нет gate-ребёнка | `accept`, `aggregate_verify`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join` | шаг сам atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor: gate-ребёнка, который бы это сделал, у него нет |
+| blocked_anchor, нет gate-ребёнка | `accept`, `accept_staging`, `aggregate_verify`, `apply_staging`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `integrate_staging`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join` | шаг сам atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor: gate-ребёнка, который бы это сделал, у него нет |
 | arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid | build_candidate, verify_candidate или freeze_candidate | тот же candidate attempt восстановим и identity неизменна; иначе новая Arena attempt через parent |
-| project_boundary_invalid | `<deterministic_step>` | project binding/path исправлены и повторный pre-side-effect assert PASS |
+| project_boundary_invalid | `<non_epic_deterministic_step>` | project binding/path исправлены и повторный pre-side-effect assert PASS; resume только в шаг, где стоял park (origin); задача autosk-planned паркуется epic_boundary_invalid |
+| epic_boundary_invalid | `<epic_step>`, human, intake, dispatch_narrow_review, cleanup, authority_recovery, repair_protocol_snapshot для задачи autosk-planned | project binding/path исправлены и повторный pre-side-effect assert PASS; resume только в шаг, где стоял park (origin); acceptance и anchor сверяются заново только в integrate_staging, чьи guards их читают, а CAS идемпотентен; verify_target перечитывает target после CAS, deliver_staging — completion predicate, и resume в deliver_staging повторяет передачу без сверки anchor (риск 8 в 04) |
 | planning_ref_init_invalid | init_planning_ref | valid-base corruption restores exact committed bytes; invalid/missing/non-commit/cross-store base requires a new daemon-attributed intake/base-selection record and fresh init operation, preserving the failed record as audit evidence; ref/reflog stay unchanged or absent; adopt/reset запрещены |
-| planning_ref_capability_missing | recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup | required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged |
-| planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition | exact investigation record binds operation type/ID when present, detecting gate, ref/reflog observations and recorded target; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation |
-| planning_candidate_keepalive_invalid | freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state | exact candidate identity, keepalive ref/create or audit/release receipt and full closure must be restored without moving another ref; moved foreign ref requires signed investigation or candidate supersession; cleanup remains forbidden until namespace enumeration matches current plus planning.candidate_history |
+| planning_ref_capability_missing | recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup | required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged; resume only into the step the park stood at (origin) |
+| planning_ref_foreign_movement | init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition | exact investigation record binds operation type/ID when present, detecting gate, ref/reflog observations and recorded target; ordinary retry/adopt/reset forbidden; unresolved movement permits only separate cancel status operation; resume only into the helper-calling step the park stood at (origin) |
+| planning_candidate_keepalive_invalid | freeze_artifact, fix_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass for artifact operation or publish_planning_invalidation for anchor_invalidation, or cleanup according to recorded candidate/operation state | exact candidate identity, keepalive ref/create or audit/release receipt and full closure must be restored without moving another ref; moved foreign ref requires signed investigation or candidate supersession; cleanup remains forbidden until namespace enumeration matches current plus planning.candidate_history; resume only into the step the park stood at (origin) |
 | planning_candidate_base_stale | draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets; also freeze_artifact | old candidate/verdict absent or void; new author base equals current verified planning head and pathspec identity is re-minted |
 | planning_publication_invalid | record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation | exact no-ref-side-effect proof and missing operation rebuilt only from committed bytes, or conflicting operation explicitly voided; otherwise remain human |
 | planning_publication_corrupt | publish_artifact_pass or publish_planning_invalidation recorded operation kind | exact committed recipe/receipt bytes restored, or missing pre-CAS object rewritable from persisted exact bytes with unchanged ref/reflog checkpoint; foreign/indeterminate state remains human |
@@ -1525,7 +1550,7 @@ Resume contract:
 | verification_cap | fix, verify | новый daemon-attributed cap decision и verification findings сохранены |
 | freeze_candidate_invalid | freeze | scope/candidate identity повторно mint'ится; stale review binding void |
 | artifact_pass_invalid | freeze_artifact, record_artifact_pass | старые bindings void, attempt+1, сохранённый full/narrow mode |
-| review_cap | fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict | новый daemon-attributed cap decision, сохранённые findings и identity |
+| review_cap | fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict | новый daemon-attributed cap decision, сохранённые findings и identity; resume только из шага, где стоял park: fix_artifact после narrow_review_join, fix после record_code_verdict |
 | arena_join_invalid | arena_join, dispatch_arena | новый arena attempt; старые judgments void |
 | arena_fallback_required | apply_arena_decision, arena_join | daemon `UserDecisionRecord` выбрал fallback; review_cycles.tech_plan narrow=false/full required |
 | arena_contract_invalid | fix_artifact, record_artifact_pass | исправленный autosk-arena block, review_cycles.tech_plan.narrow=false/full_panel_required=true |
@@ -1539,10 +1564,23 @@ Resume contract:
 | no_external_reviewer | freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review | waiver resume обязательно проходит freeze consumer; режим сохраняется |
 | no_external_panel_lead | freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review | waiver resume обязательно проходит freeze_artifact consumer; full/narrow сохраняется |
 | cleanup_dirty | cleanup | force=true разрешён явно или состояние сохранено |
-| integration_authorization_required | accept | новый signed record связывает current target OID, completed-prefix receipt, exact remaining transitions, final tree, relevant authority/dependency/intent bindings и expiry |
+| integration_authorization_required | accept (Quick) | новый signed record связывает current target OID, один ref transition base → integration commit reviewed candidate, final tree, relevant authority/dependency/intent bindings и expiry; Epic этот park не использует |
 | integration_obstruction | integrate | восстановимое перемещение помехи записано |
 | integration_precondition | integrate | нарушенное предусловие устранено, base/tree повторно записаны и доказательство приложено |
 | foreign_movement / indeterminate | integration_recovery | обычный retry запрещён; cancel — отдельная status-операция, не workflow step |
+| delta_stale | apply_staging | approved delta перепроверена против текущей staging base и заново одобрена либо заменена; staging и target не двигались |
+| receipt_missing | apply_staging | durable integration receipt восстановлен для каждого применённого delta, lineage staging без неучтённых коммитов |
+| environment_failure | aggregate_verify | окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict |
+| aggregate_binding_void | aggregate_verify or accept_staging | void записан; aggregate заново на current staging commit/tree, verification config digest и instruction lock |
+| staging_moved_after_pass | aggregate_verify or accept_staging | движение staging расследовано; staging заново проходит apply_staging: receipts и lineage от recorded base (или пересборка от неё), затем aggregate; старый PASS не переносится |
+| acceptance_missing | accept_staging | decision packet на exact staging identity принят человеком либо auto-policy сверила её с signed IntegrationAuthorizationRecord |
+| acceptance_stale | accept_staging or integrate_staging | новая acceptance current staging identity, aggregate record hash, target base и delivery profile digest |
+| unsupported_integration_mode | accept_staging | профиль или decision разрешает move_target либо PR/merge-queue путь; тихое переключение mode запрещено |
+| target_moved | integrate_staging | новая target base записана; staging пересобирается от неё, прежние aggregate PASS и acceptance void |
+| foreign_target_movement | integrate_staging | ref не тронут; решение после расследования; overwrite запрещён, cancel — отдельная status-операция |
+| cas_conflict | integrate_staging | exact ref/reflog расследованы; повтор CAS только пока target на recorded base, уже применённый CAS не повторяется |
+| post_cas_mismatch | verify_target | read-back расследован; история не переписывается автоматически |
+| completion_predicate_unmet | deliver_staging | completion predicate выполнен на exact accepted staging identity либо записано решение; host ветку не двигает |
 
 ## 8. Проверки
 
@@ -1596,7 +1634,7 @@ Resume contract:
 - direct dependency projection removal/reorder fails protected-head reconciliation; add/supersede current-set golden vectors preserve history without accepting revoked current records;
 - aggregate_remediation creation key/binding и phases fail-closed on every crash prefix; set-changing void precedes new proposal/breakdown;
 - waived code disposition сохраняет waived_review_mode/reason;
-- authorityGuard serializes resume/enroll/block batch, а integrateApproved serializes target CAS with authority/dependency/instruction/correction append;
+- authorityGuard serializes resume/enroll/block batch, а integrateApproved serializes target CAS with authority/dependency/instruction/correction append — for an Epic the one CAS `integrate_staging` makes after aggregate PASS and acceptance;
 - gate child authority mismatch emits validated BLOCKED_ANCHOR and reaches done, so parent join cannot remain blocked by human child;
 - daemon workflow custody rejects model/stale-host autosk_flow metadata/comment mutations; gate receipt replacement/truncation conflicts with protected result head;
 - orchestrateChildBatch accepts only current parent step/op exact child set, expected heads and closed repair patches; wrong child/field/stale head/forged child capability rejected;
@@ -1718,7 +1756,7 @@ Resume contract:
 - commit CAS failure без ref movement имеет отдельный recoverable park;
 - private branch same-tree/different-parent commit is foreign movement; only precomputed expected commit OID/recipe recovers crash CAS;
 - accept без signed exact IntegrationAuthorizationRecord действительно паркует human; resume требует authorization той же identity;
-- Planned authorization expiry after partial transition stores prefix/current ref and requires new record for remaining transitions before further Git read;
+- Planned target moves by exactly one CAS after aggregate PASS and acceptance: an authorization that expires, is revoked or replaced, or loses its head before the CAS parks acceptance_stale at integrate_staging with zero Git writes and resumes at accept_staging, and there is no partial transition, stored prefix or remaining-transition record;
 - authority revoke racing target update cannot commit between revalidation and CAS: integrateApproved serializes both under the project mutex, crash outcome resolves by exact target ref/reflog;
 - pending CAS followed by external new→expected_old ABA or ambiguous/missing operation-bound reflog is foreign/indeterminate, never not_applied/retry;
 - aggregate NOT_PASS set-changing choice atomically voids old Tickets PASS/alignment before present_tickets_breakdown; select_next cannot redispatch old DAG;

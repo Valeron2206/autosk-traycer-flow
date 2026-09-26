@@ -5,12 +5,17 @@
  *
  * The record is the only token that may skip the human stop before the one
  * irreversible step, so the checks here are about the ways it could authorize
- * something nobody signed: an expired record still being honoured, a plan whose
- * transitions do not chain, a prefix claimed without a receipt, a record issued
- * by a policy, and a terminal record that still reads as permission.
+ * something nobody signed: an expired record still being honoured, a transition
+ * that does not start where the record says the branch was or where the branch
+ * is, a record issued by a policy, and a terminal record that still reads as
+ * permission.
+ *
+ * The target moves by one CAS, so a record names exactly one transition. The
+ * per-Ticket order this validator was first written for — an ordered plan, a
+ * start index into it and a receipt for the completed prefix — is gone with that
+ * order, and the schema refuses a record shaped for it.
  */
 
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,8 +40,6 @@ export const REFUSALS = Object.freeze([
   "integration_authorization_terminal",
 ]);
 
-const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex");
-
 /**
  * What refuses this record, given when it is being read.
  *
@@ -44,7 +47,7 @@ const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex")
  * operator fixing them one round at a time learns the second only after fixing
  * the first.
  */
-export function recordRefusals(record, { nowMs, scopeId, targetOid, completedPrefixReceipt, authorizationHead }) {
+export function recordRefusals(record, { nowMs, scopeId, targetOid, authorizationHead }) {
   // Absent is its own refusal, and the one the workflow meets most often: the
   // integrate step asks for a record and there is none.
   if (!record) return [{ reason: "integration_authorization_required", detail: "no record" }];
@@ -58,8 +61,8 @@ export function recordRefusals(record, { nowMs, scopeId, targetOid, completedPre
     });
   }
   if (Date.parse(record.expires_at) <= nowMs) {
-    // Including mid-plan: an expired record does not still authorize the
-    // transitions it once did.
+    // Including before the CAS it was signed for: an expired record does not
+    // authorize the movement it once did.
     refusals.push({ reason: "integration_authorization_expired", detail: record.expires_at });
   }
   if (record.terminal_disposition !== "active") {
@@ -75,58 +78,37 @@ export function recordRefusals(record, { nowMs, scopeId, targetOid, completedPre
     // A policy cannot issue one, and neither can an absence.
     refusals.push({ reason: "integration_authorization_policy_issued", detail: "no signed decision record" });
   }
-  if (record.remaining_start_index > 0 && !record.completed_prefix_receipt_hash) {
+  if (targetOid !== undefined && record.ref_transition.from_oid !== targetOid) {
+    // The one transition starts where the record says the branch was. A branch
+    // that is somewhere else is a different branch state from the one signed
+    // for, and the record does not follow it there.
     refusals.push({
       reason: "integration_authorization_prefix_mismatch",
-      detail: `starts at ${record.remaining_start_index} with no completed-prefix receipt`,
+      detail: `starts from ${record.ref_transition.from_oid}, branch is at ${targetOid}`,
     });
-  }
-  if (record.completed_prefix_receipt_hash && completedPrefixReceipt !== undefined
-    && sha256(completedPrefixReceipt) !== record.completed_prefix_receipt_hash) {
-    refusals.push({ reason: "integration_authorization_prefix_mismatch", detail: "the receipt does not hash to the recorded prefix" });
-  }
-  if (record.remaining_start_index >= record.ordered_ref_transitions.length) {
-    refusals.push({
-      reason: "integration_authorization_prefix_mismatch",
-      detail: "the record authorizes no remaining transition",
-    });
-  }
-  const start = record.ordered_ref_transitions[record.remaining_start_index];
-  if (targetOid !== undefined && start && start.from_oid !== targetOid) {
-    // A new record after a partial CAS starts from where the branch IS.
-    refusals.push({ reason: "integration_authorization_prefix_mismatch", detail: `starts from ${start.from_oid}, branch is at ${targetOid}` });
   }
   return refusals;
 }
 
-/** Whether the plan is a chain rather than a set of hops that happen to exist. */
+/**
+ * Whether the record's one transition is the one it says it is.
+ *
+ * It starts at `initial_target_oid`, the branch state the signature was made
+ * against — the recorded base the one CAS expects to find.
+ */
 export function planErrors(record) {
   const errors = [];
-  const transitions = record.ordered_ref_transitions;
-  transitions.forEach((transition, position) => {
-    if (transition.index !== position) {
-      errors.push(`ordered_ref_transitions[${position}]: index ${transition.index} is out of order`);
-    }
-    if (position === 0) {
-      if (transition.from_oid !== record.initial_target_oid) {
-        errors.push("ordered_ref_transitions[0] does not start at initial_target_oid");
-      }
-      return;
-    }
-    if (transition.from_oid !== transitions[position - 1].to_oid) {
-      errors.push(`ordered_ref_transitions[${position}] does not continue the previous transition`);
-    }
-  });
-  if (transitions.length !== record.ordered_ticket_commit_oids.length) {
-    errors.push("the transitions and the ticket commits are not the same plan");
+  const transition = record.ref_transition;
+  if (transition.from_oid !== record.initial_target_oid) {
+    errors.push("ref_transition does not start at initial_target_oid");
   }
-  transitions.forEach((transition, position) => {
-    if (record.ordered_ticket_commit_oids[position] !== transition.to_oid) {
-      errors.push(`ordered_ref_transitions[${position}] does not land on the ticket commit at that position`);
-    }
-  });
   if (record.epic_id === null && !record.quick_task_id) {
     errors.push("a Quick authorization names its quick_task_id");
+  }
+  if (record.epic_id === null && record.ordered_ticket_commit_oids.length !== 1) {
+    // A Quick run integrates one reviewed candidate; a record naming several is
+    // about some other integration.
+    errors.push("a Quick authorization names its one reviewed candidate");
   }
   if (record.epic_id !== null && record.quick_task_id) {
     errors.push("an Epic authorization does not also name a Quick task");

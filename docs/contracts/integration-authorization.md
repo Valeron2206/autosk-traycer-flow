@@ -12,7 +12,7 @@ Nothing else may. A project policy may not issue one — policy covers schedulin
 
 ## 2. Boundaries
 
-This contract decides what the record binds, when it stops authorizing, and what a partial integration may do next. It does not decide how the CAS itself is performed (`docs/contracts/epic-staging.md` §6), who may move the branch at all (`docs/contracts/delivery-profile.md` §6a), or how the decision reaches the operator (`docs/contracts/human-decision.md`).
+This contract decides what the record binds, when it stops authorizing, and that it authorizes exactly one ref transition, so no partial integration is ever left for a later record to continue. It does not decide how the CAS itself is performed (`docs/contracts/epic-staging.md` §6), who may move the branch at all (`docs/contracts/delivery-profile.md` §6a), or how the decision reaches the operator (`docs/contracts/human-decision.md`).
 
 ## 3. What the record binds
 
@@ -20,10 +20,10 @@ The closed JSON Schema is `resources/integration-authorization/integration-autho
 
 - `record_id` and `scope_id` — the record is resolved by scope **and** id, so a record from another scope is not found by luck;
 - `project_root_sha256`, `epic_id` (or `null` with `quick_task_id` for a Quick run) and `run_id`;
-- `target_ref` and `initial_target_oid` — the branch and where it was when the record was signed;
-- `ordered_ticket_commit_oids` and `ordered_ref_transitions` — the plan, in order, not a permission to reach a state by any route;
+- `target_ref` and `initial_target_oid` — the branch and where it was when the record was signed: the recorded base the one CAS expects to find;
+- `ref_transition` — the one movement the record authorizes, with `from_oid` equal to `initial_target_oid` and `to_oid` the commit that carries the accepted identity: an Epic's accepted staging commit, or a Quick run's integration commit, which the adapter builds from a deterministic recipe — recorded base, reviewed candidate, approved tree — fixed before the record is signed, the way `commit_on_pass` fixes its expected commit OID, so the OID the record names is the one the CAS writes. A transition, not a permission to reach a state by any route (§4);
+- `ordered_ticket_commit_oids` — the reviewed commits that result is made of, in the order they were applied: the Tickets whose approved deltas the Epic's staging carries, or the Quick run's one reviewed candidate, and a Quick record naming any other number is refused;
 - `final_tree_oid` — what the branch is expected to hold afterwards;
-- `remaining_start_index` and `completed_prefix_receipt_hash` — where this record starts in that plan, and the proof of what a previous record already did;
 - `integration_plan_hash`, `controlling_anchor_digest`, `classifier_proof_hash`;
 - `relevant_authority_projection_hash`, `dependency_head_hash`, `intent_head_hash` — the heads the signature was made against;
 - `previous_authorization_head_hash` — the chain, so a record cannot be inserted behind one that already exists;
@@ -34,22 +34,24 @@ Every one of those is load-bearing: each names something that, if it changed, wo
 
 ## 4. Expiry is not a formality
 
-An expired record authorizes nothing, including the transitions it already authorized. This matters most in the case it is written for: expiry **after** a partial CAS.
+An expired record authorizes nothing. There is no partial integration for it to strand, because the branch moves by **one** ref transition: an Epic's from the recorded target base to the accepted staging commit, by the one CAS after aggregate PASS and acceptance (`docs/contracts/epic-staging.md` §6), and a Quick run's from its base to the commit that integrates its reviewed candidate. So the record names that one transition and nothing else: no ordered plan, no position inside one, no receipt for a part already done. The schema has no field that could say otherwise, and a record shaped for the per-Ticket order this contract was first written for — several transitions, a start index, a receipt for a completed part — is refused by the schema rather than read.
 
-The workflow then keeps the exact completed prefix, returns to `accept`, and a new record starts from the **current** target OID and covers only the remaining transitions. It does not resume the old plan from where it stopped, because the branch is no longer where the old record said it was — and a record that authorized moving `A → B → C` is not authority for moving `B → C` unless somebody signed that.
+A record that expires before the CAS leaves the branch where it was and the acceptance it backed stale: the Epic returns to `accept_staging`, and a new record binds the same recorded base and the same accepted identity or it binds nothing. After the CAS there is nothing left to authorize. A record that authorized moving `A → B` is still not authority for moving `A → C` unless somebody signed that.
 
 ## 5. Fail-closed, and what may not substitute
 
-A missing, changed, shortened or head-mismatched record refuses with `integration_authorization_required` and the target ref is not read again and not moved. Recovery restores exact committed bytes; it never reconstructs a record from what the operation appears to have been doing.
+A missing, changed, shortened or head-mismatched record refuses, and the target ref is not read again and not moved. For a Quick run the refusal parks at `accept` with `integration_authorization_required`. An Epic never parks with that code: its acceptance is what the record backs, so a record that is missing when acceptance is asked for is `acceptance_missing` at `accept_staging`, and one that has expired, been revoked or replaced, or no longer matches `integration_authorization_head` by the time `integrate_staging` would run the CAS is `acceptance_stale` there, resumed at `accept_staging` for a new acceptance. Recovery restores exact committed bytes; it never reconstructs a record from what the operation appears to have been doing.
 
-`integration-state/<operation-id>.json` stores the CAS operation, its prefix and its outcome. It is not authority and may not stand in for the record: operation state is what happened, and authorization is what was permitted, and inferring the second from the first is how an interrupted integration authorizes its own continuation.
+`integration-state/<operation-id>.json` stores the CAS operation and its outcome. It is not authority and may not stand in for the record: operation state is what happened, and authorization is what was permitted, and inferring the second from the first is how an interrupted CAS would authorize its own retry.
 
 ## 6. Refusal classes
 
 Closed set: `integration_authorization_required`, `integration_authorization_expired`, `integration_authorization_scope_mismatch`, `integration_authorization_prefix_mismatch`, `integration_authorization_head_mismatch`, `integration_authorization_policy_issued`, `integration_authorization_terminal`.
 
+`integration_authorization_prefix_mismatch` keeps the name it had under the per-Ticket order and refuses one case now: the branch is not where the record's one transition starts, so the record is about a branch state other than the one it would act on, and it does not follow the branch there.
+
 ## 7. What this contract decides, and what it defers
 
-Decided: what the record binds, that policy cannot issue it, that expiry ends it including mid-plan, that a new record after a partial CAS starts from the current target OID, and that operation state is not authority.
+Decided: what the record binds, that it authorizes exactly one ref transition from the recorded base — so no partial CAS exists for a later record to continue, and the schema has no field for one — that policy cannot issue it, that expiry ends it, and that operation state is not authority.
 
 Deferred, and named: the signer itself and the trusted client that displays the challenge — both are daemon-side and are covered by ADR-023.

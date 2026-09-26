@@ -329,7 +329,7 @@
             "$ref": "#/$defs/park_reason"
           },
           "parks_at": {
-            "description": "Exactly where the graph parks this reason, plus any status step a parked task stands on. What the graph produces is the step an edge leaves, so it names a park's origin and never its landing, which is the one thing it cannot check here. Everything else is checked in both directions. Bounded by the step count rather than by a smaller guess: one reason can name 68 steps across this field and handled_at together.",
+            "description": "Exactly where the graph parks this reason, plus any status step a parked task stands on. What the graph produces is the step an edge leaves, so it names a park's origin and never its landing, which is the one thing it cannot check here. Everything else is checked in both directions. Bounded by the step count rather than by a smaller guess: one reason can name 47 steps across this field and handled_at together.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
@@ -339,7 +339,7 @@
             }
           },
           "handled_at": {
-            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 61 of the 85 rows name none, and the widest holds 46 of project_boundary_invalid's 68. Bounded by the step count for the same reason as parks_at.",
+            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 74 of the 99 rows name none, and the widest holds 35 of the 47 steps its row names. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
@@ -357,6 +357,13 @@
             "items": {
               "$ref": "#/$defs/name"
             }
+          },
+          "resume_scope": {
+            "description": "Absent, a resume may go to any target this row lists, the union every step it names lends. `origin` narrows that to one: the step the park recorded as its origin — the step the task stood at when the graph parked it there, or where a daemon-side writer recorded the reason. Under it every target must be a step this row names, because a park only ever stands at one of them. `origin_edges` admits the origin and the steps an edge out of it reaches, for a row whose stops belong to different workflows and each recover along their own edges. Either way the list still bounds the resume.",
+            "enum": [
+              "origin",
+              "origin_edges"
+            ]
           },
           "required_state": {
             "type": "string",

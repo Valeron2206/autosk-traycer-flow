@@ -690,6 +690,10 @@ test("every count quoted in normative prose recomputes to the number the sentenc
   const boundaryHandled = boundary.handled_at ?? [];
   const boundaryUnion = new Set([...boundary.parks_at, ...boundaryHandled]).size;
   const widestHandled = Math.max(...rows.map((row) => (row.handled_at ?? []).length));
+  // The row holding the most handled steps, measured against its own union: the
+  // claim was once written against project_boundary_invalid's union, which stopped
+  // being the widest row when the Epic's boundary stops got a row of their own.
+  const widestHandledRow = rows.find((row) => (row.handled_at ?? []).length === widestHandled);
   const widestUnion = Math.max(...rows.map((row) => namedOf(row).size));
 
   // A status reference is a `parks_at` entry naming a step that carries a
@@ -1312,10 +1316,10 @@ test("every count quoted in normative prose recomputes to the number the sentenc
     // resources/workflow-graph/workflow-graph.schema.json — the descriptions
     // quote the same measurements the prose does.
     {
-      id: "schema `handled_at`: rows naming none, and the widest row's handled count against `project_boundary_invalid`'s union",
+      id: "schema `handled_at`: rows naming none, and the widest row's handled count against that row's own union",
       text: schemaProse,
-      pattern: /([\w,-]+) of the ([\w,-]+) rows name none, and the widest holds ([\w,-]+) of project_boundary_invalid's ([\w,-]+)/,
-      measured: [rows.length - handledRows.length, rows.length, widestHandled, boundaryUnion],
+      pattern: /([\w,-]+) of the ([\w,-]+) rows name none, and the widest holds ([\w,-]+) of the ([\w,-]+) steps its row names/,
+      measured: [rows.length - handledRows.length, rows.length, widestHandled, namedOf(widestHandledRow).size],
     },
     {
       id: "schema `parks_at`: the widest a reason's `parks_at ∪ handled_at` union runs",
