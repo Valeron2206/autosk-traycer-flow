@@ -13638,7 +13638,7 @@
         "present_tickets_breakdown",
         "record_aggregate_remediation"
       ],
-      "required_state": "Section 2 parks with this reason at record_aggregate_remediation: first durable write создаёт aggregate_remediation с creation key/binding, old set digest, evidence hash, phase=proposed; select_next/dispatch уже fail-closed; human с park.reason=aggregate_verify_failed"
+      "required_state": "Section 2 parks with this reason at aggregate_verify: first durable write создаёт aggregate_remediation с creation key/binding, old set digest, evidence hash, phase=proposed; select_next/dispatch уже fail-closed; human с park.reason=aggregate_verify_failed; в record_aggregate_remediation поток входит resume'ом из human, а не ребром"
     },
     {
       "reason": "alignment_policy_out_of_scope",
@@ -16690,7 +16690,7 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
+          "binds": "f069ffc759172c0ef0b700c15f4684d33480ed0069cd78e4471c1896ebe58930",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
@@ -17953,7 +17953,7 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "f4d8b8ba2922843883a615679eacd93435099e984c82d6f952233db9b2a7e1d6",
+          "binds": "f069ffc759172c0ef0b700c15f4684d33480ed0069cd78e4471c1896ebe58930",
           "cells": [
             "Aggregate verification failed",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
@@ -18180,7 +18180,7 @@
       ]
     }
   ],
-  "canonical_digest": "4e752de7c7d8de6eccbf806ccab7e2284a7ccd6d758a7ad89f773d2a5a2f8dd1",
+  "canonical_digest": "1a5f2aaf0e32bb3f6528da79a077bbb840162342850443a4de680081ad3cd20d",
   "external_operations": [
     {
       "status": "cancel",

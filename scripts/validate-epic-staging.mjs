@@ -35,6 +35,9 @@ export const PHASES = Object.freeze([
   "post_cas_verified",
 ]);
 
+/** The modes whose delivery is the one target CAS; the others hand it to a PR or queue. */
+export const DIRECT_MODES = Object.freeze(["merge", "squash", "rebase"]);
+
 /** Closed park reasons of section 8. */
 export const PARK_REASONS = Object.freeze([
   "aggregate_failed",
@@ -86,6 +89,18 @@ export function validateStaging(state, schema) {
     errors.push(`staging_ref is not this Epic's: ${state.staging_ref} is not named by the key of ${state.epic_id} in this project`);
   }
 
+  // The recorded base starts as the planning base; a re-stage re-records it,
+  // and its first commit is then the one planning replay commit a durable
+  // receipt binds (ADR-088). The receipt's own schema is #9 work; the record
+  // names it by digest.
+  if (state.recorded_target_base === state.planning_base_oid) {
+    if (state.planning_replay_receipt_sha256 !== undefined) {
+      errors.push("a first stage has no planning replay receipt: recorded_target_base is still the planning base");
+    }
+  } else if (state.planning_replay_receipt_sha256 === undefined) {
+    errors.push("a re-staged record names the planning replay receipt that binds its first commit");
+  }
+
   const ticketIds = state.receipts.map((receipt) => receipt.ticket_id);
   if (new Set(ticketIds).size !== ticketIds.length) {
     errors.push("a Ticket has more than one integration receipt");
@@ -113,6 +128,11 @@ export function validateStaging(state, schema) {
       // only one of them says anything about the product. Neither advances.
       if (aggregate.outcome !== "pass" && reached("accepted")) {
         errors.push(`aggregate outcome ${aggregate.outcome} cannot be accepted (aggregate_failed)`);
+      }
+      // `indeterminate` is the outcome of a run the machine could not finish,
+      // and only that: a failed check is `fail`, a verdict about the product.
+      if ((aggregate.outcome === "indeterminate") !== (aggregate.environment_outcome === "environment_failure")) {
+        errors.push("outcome indeterminate is exactly an environment failure (environment_failure)");
       }
     }
   } else if (state.aggregate) {
@@ -149,6 +169,17 @@ export function validateStaging(state, schema) {
       if (acceptance.kind === "human" && !acceptance.decision_id) {
         errors.push("a human acceptance must record the decision it came from");
       }
+      if (acceptance.kind === "pinned_auto_policy" && !acceptance.policy_ref) {
+        errors.push("a pinned auto-policy acceptance must name the policy that pinned it");
+      }
+      // Under squash the person accepts the commit that lands (ADR-088); the
+      // schema requires it there, and no other mode names a second commit.
+      if (
+        acceptance.delivery_mode !== "squash" &&
+        (acceptance.target_commit_oid !== undefined || acceptance.target_commit_recipe_sha256 !== undefined)
+      ) {
+        errors.push(`a ${acceptance.delivery_mode} delivery names no target commit`);
+      }
     }
   } else if (state.acceptance) {
     errors.push(`phase ${state.phase} records an acceptance that has not been given`);
@@ -161,6 +192,14 @@ export function validateStaging(state, schema) {
     if (!post) {
       errors.push(`phase ${state.phase} requires post-CAS verification`);
     } else {
+      const mode = state.acceptance?.delivery_mode;
+      if (mode === "squash" && post.target_oid !== state.acceptance.target_commit_oid) {
+        errors.push("the target does not hold the commit the squash acceptance named (post_cas_mismatch)");
+      } else if ((mode === "merge" || mode === "rebase") && post.target_oid !== state.staging_commit_oid) {
+        errors.push("the target does not hold the accepted staging commit (post_cas_mismatch)");
+      } else if (mode !== undefined && !DIRECT_MODES.includes(mode)) {
+        errors.push(`a ${mode} delivery never runs the target CAS: it completes by the delivery predicate`);
+      }
       if (post.target_tree_oid !== state.staging_tree_oid) {
         errors.push("the target does not hold the staging tree that was accepted (post_cas_mismatch)");
       }
@@ -201,12 +240,12 @@ export function validateEpicStagingDesign(files) {
     errors.push(`${SCHEMA_PATH}: phases must be exactly ${PHASES.join(", ")}`);
   }
   // A command failure and an environment failure must be representable
-  // separately, or the taxonomy cannot record the distinction the contract makes.
+  // separately, or the taxonomy cannot record the distinction the contract makes:
+  // `fail` and `indeterminate`, the names section 4 and the driver write, and
+  // no second name for either.
   const outcomes = schema.properties?.aggregate?.properties?.outcome?.enum ?? [];
-  for (const required of ["command_failure", "environment_failure"]) {
-    if (!outcomes.includes(required)) {
-      errors.push(`${SCHEMA_PATH}: aggregate outcome ${required} is not representable`);
-    }
+  if ([...outcomes].sort().join(",") !== ["fail", "indeterminate", "pass"].join(",")) {
+    errors.push(`${SCHEMA_PATH}: aggregate outcome must be exactly pass, fail, indeterminate`);
   }
 
   let example;

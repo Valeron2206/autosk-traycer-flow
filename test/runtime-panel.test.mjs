@@ -414,15 +414,15 @@ test("Lead is the first master-order family outside every author and fixer, and 
 
 test("with every seated family an author or fixer there is no Lead, and the panel says so", () => {
   const all = SEATS.map((spec) => spec.route.route_id);
-  assert.throws(() => panelRoles({ partition, seats: SEATS, authors: all }), code("panel_lead_not_external"));
+  assert.throws(() => panelRoles({ partition, seats: SEATS, authors: all }), code("no_external_panel_lead"));
   assert.throws(
     () => panelRoles({ partition, seats: SEATS, authors: all.slice(0, 2), fixers: all.slice(2) }),
-    code("panel_lead_not_external"),
+    code("no_external_panel_lead"),
   );
   // Kimi is outside the set but holds no seat: a family with no place is skipped.
   assert.throws(
     () => runPanel(SEATS, deps({ provider: allAnswering(), authors: all.slice(0, 3), fixers: all.slice(3) })),
-    code("panel_lead_not_external"),
+    code("no_external_panel_lead"),
   );
 });
 
@@ -458,10 +458,10 @@ test("a recorded Lead holds while it stays outside, and is refused once it is no
       fixers: ["openai-codex/gpt-6-astra"],
       lead: "astra",
     }),
-    code("panel_lead_not_external"),
+    code("no_external_panel_lead"),
   );
   // And a Lead that is no seat of this panel is not a Lead of it.
-  assert.throws(() => panelRoles({ partition, seats: SEATS, authors: ["human"], lead: "sol" }), code("panel_lead_not_external"));
+  assert.throws(() => panelRoles({ partition, seats: SEATS, authors: ["human"], lead: "sol" }), code("no_external_panel_lead"));
 });
 
 test("the panel carries its roles, and a Supplementary-only high waits for Lead", () => {

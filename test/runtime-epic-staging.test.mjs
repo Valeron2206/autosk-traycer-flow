@@ -59,34 +59,39 @@ function state(overrides = {}) {
   if (overrides.aggregate?.binding) base.aggregate.binding = overrides.aggregate.binding;
   base.acceptance = overrides.acceptance ?? {
     kind: "human",
-    approver: "owner",
+    decision_id: "dec-1",
     staging_commit_oid: base.staging_commit_oid,
     staging_tree_oid: base.staging_tree_oid,
     aggregate_record_hash: base.aggregate.record_hash,
-    tickets: ["T-101", "T-102"],
+    included_tickets: ["T-101", "T-102"],
     target_ref: base.target_ref,
     recorded_target_base: base.recorded_target_base,
     delivery_profile_digest: "6".repeat(64),
+    delivery_mode: "merge",
   };
   return base;
 }
 
 const TICKETS = ["T-101", "T-102"];
 
+// The delivery profile in force now. An acceptance of another profile is an
+// acceptance of another delivery.
+const CURRENT = Object.freeze({ deliveryProfileDigest: "6".repeat(64) });
+
 test("a complete, accepted staging may swap", () => {
-  const outcome = casAdmission(state(), { oid: oid("a") }, TICKETS);
+  const outcome = casAdmission(state(), { oid: oid("a") }, TICKETS, CURRENT);
   assert.equal(outcome.decision, "may_swap");
   assert.deepEqual(outcome.reasons, []);
 });
 
 test("the target does not move before aggregate PASS and acceptance", () => {
-  const noAggregate = casAdmission(state({ aggregate: { outcome: "fail" } }), { oid: oid("a") }, TICKETS);
+  const noAggregate = casAdmission(state({ aggregate: { outcome: "fail" } }), { oid: oid("a") }, TICKETS, CURRENT);
   assert.equal(noAggregate.decision, "refused");
   assert.ok(noAggregate.reasons.some((entry) => entry.reason === "aggregate_failed"));
 
   const unaccepted = state();
   delete unaccepted.acceptance;
-  const outcome = casAdmission(unaccepted, { oid: oid("a") }, TICKETS);
+  const outcome = casAdmission(unaccepted, { oid: oid("a") }, TICKETS, CURRENT);
   assert.ok(outcome.reasons.some((entry) => entry.reason === "acceptance_missing"));
 });
 
@@ -129,32 +134,32 @@ test("every applied Ticket leaves a receipt", () => {
 test("acceptance is of an identity, and a moved tree makes it stale", () => {
   const drifted = state();
   drifted.acceptance = { ...drifted.acceptance, staging_tree_oid: oid("9") };
-  assert.ok(acceptanceErrors(drifted).some((entry) => entry.reason === "acceptance_stale"));
+  assert.ok(acceptanceErrors(drifted, CURRENT).some((entry) => entry.reason === "acceptance_stale"));
 
   const otherAggregate = state();
   otherAggregate.acceptance = { ...otherAggregate.acceptance, aggregate_record_hash: "9".repeat(64) };
-  assert.ok(acceptanceErrors(otherAggregate).some((entry) => entry.reason === "acceptance_stale"));
+  assert.ok(acceptanceErrors(otherAggregate, CURRENT).some((entry) => entry.reason === "acceptance_stale"));
 
   const otherTickets = state();
-  otherTickets.acceptance = { ...otherTickets.acceptance, tickets: ["T-101"] };
-  assert.ok(acceptanceErrors(otherTickets).some((entry) => entry.reason === "acceptance_stale"));
+  otherTickets.acceptance = { ...otherTickets.acceptance, included_tickets: ["T-101"] };
+  assert.ok(acceptanceErrors(otherTickets, CURRENT).some((entry) => entry.reason === "acceptance_stale"));
 });
 
 test("a pinned auto-policy is held to the same binding as a person", () => {
   const auto = state();
-  auto.acceptance = { ...auto.acceptance, kind: "auto_policy", approver: undefined, policy_ref: "policy-7" };
-  assert.deepEqual(acceptanceErrors(auto), []);
+  auto.acceptance = { ...auto.acceptance, kind: "pinned_auto_policy", decision_id: undefined, policy_ref: "policy-7" };
+  assert.deepEqual(acceptanceErrors(auto, CURRENT), []);
   const unpinned = state();
-  unpinned.acceptance = { ...unpinned.acceptance, kind: "auto_policy", approver: undefined };
-  assert.ok(acceptanceErrors(unpinned).some((entry) => entry.reason === "acceptance_missing"));
+  unpinned.acceptance = { ...unpinned.acceptance, kind: "pinned_auto_policy", decision_id: undefined };
+  assert.ok(acceptanceErrors(unpinned, CURRENT).some((entry) => entry.reason === "acceptance_missing"));
   const anonymous = state();
-  anonymous.acceptance = { ...anonymous.acceptance, approver: undefined };
-  assert.ok(acceptanceErrors(anonymous).some((entry) => entry.reason === "acceptance_missing"));
+  anonymous.acceptance = { ...anonymous.acceptance, decision_id: undefined };
+  assert.ok(acceptanceErrors(anonymous, CURRENT).some((entry) => entry.reason === "acceptance_missing"));
 });
 
 test("a target that moved is a foreign movement, and the ref is not touched", () => {
   // Overwriting it is the one outcome that cannot be undone by retrying.
-  const outcome = casAdmission(state(), { oid: oid("f") }, TICKETS);
+  const outcome = casAdmission(state(), { oid: oid("f") }, TICKETS, CURRENT);
   assert.equal(outcome.decision, "refused");
   assert.ok(outcome.reasons.some((entry) => entry.reason === "foreign_target_movement"));
 });
@@ -162,9 +167,9 @@ test("a target that moved is a foreign movement, and the ref is not touched", ()
 test("an attributable move and a foreign one are different facts", () => {
   // The operator does different things about them: one re-records the base,
   // the other means someone else acted on that branch.
-  const foreign = casAdmission(state(), { oid: oid("f") }, TICKETS);
+  const foreign = casAdmission(state(), { oid: oid("f") }, TICKETS, CURRENT);
   assert.ok(foreign.reasons.some((entry) => entry.reason === "foreign_target_movement"));
-  const attributable = casAdmission(state(), { oid: oid("f"), attributed_to_this_epic: true }, TICKETS);
+  const attributable = casAdmission(state(), { oid: oid("f"), attributed_to_this_epic: true }, TICKETS, CURRENT);
   assert.ok(attributable.reasons.some((entry) => entry.reason === "target_moved"));
 });
 
@@ -185,7 +190,7 @@ test("the swap can still conflict, because the world moves between read and writ
 test("a retry of the final CAS is idempotent", () => {
   // If the target already holds the recorded result, the operation is complete
   // rather than in conflict.
-  const outcome = casAdmission(state(), { oid: oid("c") }, TICKETS);
+  const outcome = casAdmission(state(), { oid: oid("c") }, TICKETS, CURRENT);
   assert.equal(outcome.decision, "already_complete");
 });
 
@@ -208,7 +213,7 @@ test("a crash after the PASS resumes without another model run", () => {
   // an approval that was about the old ones.
   assert.equal(resumePlan(state({ phase: "aggregate_verified" })).requires_model_run, false);
   assert.equal(resumePlan(state({ phase: "accepted" })).requires_model_run, false);
-  assert.equal(resumePlan(state({ phase: "tickets_applied" })).requires_model_run, true);
+  assert.equal(resumePlan(state({ phase: "deltas_applied" })).requires_model_run, true);
   assert.equal(resumePlan(state({ phase: "post_cas_verified" })).next_phase, "complete");
   assert.equal(resumePlan(state({ phase: "accepted" })).next_phase, "target_advanced");
   assert.throws(() => resumePlan(state({ phase: "somewhere" })), code("aggregate_binding_void"));
@@ -250,12 +255,12 @@ test("every park reason the contract closes can be produced", () => {
   collect(receiptErrors(state({ receipts: [] }), TICKETS));
   const noAcceptance = state();
   delete noAcceptance.acceptance;
-  collect(acceptanceErrors(noAcceptance));
+  collect(acceptanceErrors(noAcceptance, CURRENT));
   const stale = state();
   stale.acceptance = { ...stale.acceptance, staging_tree_oid: oid("9") };
-  collect(acceptanceErrors(stale));
-  collect(casAdmission(state(), { oid: oid("f") }, TICKETS).reasons);
-  collect(casAdmission(state(), { oid: oid("f"), attributed_to_this_epic: true }, TICKETS).reasons);
+  collect(acceptanceErrors(stale, CURRENT));
+  collect(casAdmission(state(), { oid: oid("f") }, TICKETS, CURRENT).reasons);
+  collect(casAdmission(state(), { oid: oid("f"), attributed_to_this_epic: true }, TICKETS, CURRENT).reasons);
   const conflict = applySwap(state(), {
     expected_old_oid: oid("a"),
     observed_old_oid: oid("f"),
@@ -265,5 +270,106 @@ test("every park reason the contract closes can be produced", () => {
   collect(postCasErrors(state(), { oid: oid("9"), tree_oid: oid("d"), contains_recorded_result: true, reflog_entries: 1 }));
   for (const reason of PARK_REASONS) {
     assert.ok(produced.has(reason), `${reason} is documented and never produced`);
+  }
+});
+
+test("the phases are the staging record's phases", async () => {
+  // One name per phase: the record, its validator and the resume plan agree.
+  const { PHASES: RECORDED } = await import("../scripts/validate-epic-staging.mjs");
+  assert.deepEqual([...PHASES], [...RECORDED]);
+});
+
+test("the acceptance names the target, its base and the delivery profile in force", () => {
+  // R6-6, cond_434: an acceptance naming another target ref, base or profile
+  // digest is stale, whoever gave it.
+  for (const [field, value] of [
+    ["target_ref", "refs/heads/release"],
+    ["recorded_target_base", oid("9")],
+    ["delivery_profile_digest", "9".repeat(64)],
+  ]) {
+    const moved = state();
+    moved.acceptance = { ...moved.acceptance, [field]: value };
+    assert.deepEqual(acceptanceErrors(moved, CURRENT).map((entry) => entry.reason), ["acceptance_stale"], field);
+  }
+  // A profile that changed after the acceptance makes it stale too, and a CAS
+  // asked without saying which profile is in force is not admitted.
+  assert.deepEqual(
+    acceptanceErrors(state(), { deliveryProfileDigest: "9".repeat(64) }).map((entry) => entry.reason),
+    ["acceptance_stale"],
+  );
+  assert.equal(casAdmission(state(), { oid: oid("a") }, TICKETS).decision, "refused");
+  assert.equal(casAdmission(state(), { oid: oid("a") }, TICKETS, CURRENT).decision, "may_swap");
+});
+
+test("an acceptance is by a person or by a pinned auto-policy, and says which", () => {
+  for (const kind of ["auto_policy", "someone", undefined]) {
+    const other = state();
+    other.acceptance = { ...other.acceptance, kind, policy_ref: "policy-7" };
+    assert.deepEqual(acceptanceErrors(other, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], String(kind));
+  }
+  const emptyDecision = state();
+  emptyDecision.acceptance = { ...emptyDecision.acceptance, decision_id: "" };
+  assert.deepEqual(acceptanceErrors(emptyDecision, CURRENT).map((entry) => entry.reason), ["acceptance_missing"]);
+  const emptyPolicy = state();
+  emptyPolicy.acceptance = { ...emptyPolicy.acceptance, kind: "pinned_auto_policy", decision_id: undefined, policy_ref: "" };
+  assert.deepEqual(acceptanceErrors(emptyPolicy, CURRENT).map((entry) => entry.reason), ["acceptance_missing"]);
+});
+
+test("under squash the acceptance names the commit that lands, and only then", () => {
+  const squash = (extra) => {
+    const value = state();
+    value.acceptance = { ...value.acceptance, delivery_mode: "squash", ...extra };
+    return value;
+  };
+  const commit = { target_commit_oid: oid("7"), target_commit_recipe_sha256: "8".repeat(64) };
+  assert.deepEqual(acceptanceErrors(squash(commit), CURRENT), []);
+  for (const extra of [
+    {},
+    { target_commit_oid: oid("7") },
+    { target_commit_recipe_sha256: "8".repeat(64) },
+    { ...commit, target_commit_oid: "7" },
+    { ...commit, target_commit_recipe_sha256: "8" },
+  ]) {
+    assert.deepEqual(acceptanceErrors(squash(extra), CURRENT).map((entry) => entry.reason), ["acceptance_missing"], JSON.stringify(extra));
+  }
+  for (const extra of [commit, { target_commit_oid: oid("7") }, { target_commit_recipe_sha256: "8".repeat(64) }]) {
+    const merge = state();
+    merge.acceptance = { ...merge.acceptance, ...extra };
+    assert.deepEqual(acceptanceErrors(merge, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], JSON.stringify(extra));
+  }
+  for (const mode of ["force_push", undefined]) {
+    const unknown = state();
+    unknown.acceptance = { ...unknown.acceptance, delivery_mode: mode };
+    assert.deepEqual(acceptanceErrors(unknown, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], String(mode));
+  }
+});
+
+test("a profile digest missing on either side is a missing acceptance, not a match (review M1)", () => {
+  // undefined === undefined would admit a record with no profile when the
+  // caller named none either.
+  const noProfile = state();
+  noProfile.acceptance = { ...noProfile.acceptance, delivery_profile_digest: undefined };
+  for (const current of [{}, CURRENT, { deliveryProfileDigest: "6" }]) {
+    assert.ok(acceptanceErrors(noProfile, current).some((entry) => entry.reason === "acceptance_missing"), JSON.stringify(current));
+  }
+  assert.equal(casAdmission(noProfile, { oid: oid("a") }, TICKETS).decision, "refused");
+  assert.ok(casAdmission(noProfile, { oid: oid("a") }, TICKETS).reasons.some((entry) => entry.reason === "acceptance_missing"));
+  const shortProfile = state();
+  shortProfile.acceptance = { ...shortProfile.acceptance, delivery_profile_digest: "6" };
+  assert.deepEqual(acceptanceErrors(shortProfile, { deliveryProfileDigest: "6" }).map((entry) => entry.reason), ["acceptance_missing"]);
+  // The profile in force missing, or not a digest, is missing too.
+  for (const current of [{}, { deliveryProfileDigest: "6".repeat(63) }, { deliveryProfileDigest: 6 }]) {
+    assert.deepEqual(acceptanceErrors(state(), current).map((entry) => entry.reason), ["acceptance_missing"], JSON.stringify(current));
+  }
+});
+
+test("an acceptance names its target ref and base, not only fails to differ (review L3)", () => {
+  for (const field of ["target_ref", "recorded_target_base"]) {
+    const missing = state();
+    missing.acceptance = { ...missing.acceptance, [field]: undefined };
+    assert.deepEqual(acceptanceErrors(missing, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], field);
+    const bare = state({ [field]: undefined });
+    bare.acceptance = { ...bare.acceptance, [field]: undefined };
+    assert.deepEqual(acceptanceErrors(bare, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], `${field} absent on both sides`);
   }
 });

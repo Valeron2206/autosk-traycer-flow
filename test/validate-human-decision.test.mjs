@@ -209,3 +209,27 @@ test("the design digest changes when any shipped file changes", () => {
   const after = decisionDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
 });
+
+test("a packet's park_reason is the task's park.reason, one of the graph's recovery rows", async () => {
+  // R6-8: the enum named eight categories, none of them a reason the graph
+  // parks with, so no real park could produce a schema-valid packet.
+  const { readFileSync } = await import("node:fs");
+  const graph = JSON.parse(readFileSync(new URL("../resources/workflow-graph/workflow-graph.v1.json", import.meta.url), "utf8"));
+  const reasons = graph.recovery.map((row) => row.reason).sort();
+  assert.deepEqual(requestSchema.properties.park_reason.enum.slice().sort(), reasons);
+  assert.deepEqual([...PARK_REASONS].sort(), reasons);
+  assert.ok(reasons.includes(pending().park_reason));
+  assert.ok(reasons.includes("acceptance_missing"));
+  // A schema that drops one, or adds a category, is refused.
+  for (const edit of [
+    (schema) => schema.properties.park_reason.enum.pop(),
+    (schema) => schema.properties.park_reason.enum.push("panel_waiver"),
+  ]) {
+    const schema = JSON.parse(files[REQUEST_SCHEMA_PATH]);
+    edit(schema);
+    assert.ok(
+      validateHumanDecisionDesign({ ...files, [REQUEST_SCHEMA_PATH]: JSON.stringify(schema) })
+        .some((message) => /park reasons must be exactly the workflow graph's recovery reasons/u.test(message)),
+    );
+  }
+});

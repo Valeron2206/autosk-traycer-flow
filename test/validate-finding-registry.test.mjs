@@ -385,7 +385,7 @@ test("Lead is a seat outside Supplementary, and only Lead rules", () => {
       supplementaryHigh(draft);
       draft.roles = { lead: "opus", supplementary: ["opus"] };
     }),
-    /roles\.lead opus is also supplementary \(panel_lead_not_external\)/u,
+    /roles\.lead opus is also supplementary \(no_external_panel_lead\)/u,
   );
   assertRejects(
     mutated((draft) => {

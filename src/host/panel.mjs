@@ -183,11 +183,11 @@ export function panelRoles({ partition, seats, authors, fixers = [], lead }) {
     .filter((family) => !excluded.includes(family))
     .map((family) => seated.find((entry) => entry.family === family))
     .find((entry) => entry !== undefined);
-  demand(chosen !== undefined, 'panel_lead_not_external',
+  demand(chosen !== undefined, 'no_external_panel_lead',
     'No seated family is outside every author and fixer', { excluded });
   if (lead !== undefined) {
     const recorded = seated.find((entry) => entry.seat === lead);
-    demand(recorded !== undefined && !excluded.includes(recorded.family), 'panel_lead_not_external',
+    demand(recorded !== undefined && !excluded.includes(recorded.family), 'no_external_panel_lead',
       'The recorded Lead is a seat from a family outside every author and fixer', { lead, excluded });
   }
   return Object.freeze({

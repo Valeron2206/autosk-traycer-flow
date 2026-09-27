@@ -140,7 +140,7 @@ export function validateRegistry(registry, schema) {
   if (roles !== undefined) {
     if (!seats.has(roles.lead)) errors.push(`roles.lead ${roles.lead} is not one of the declared seats`);
     if (roles.supplementary.includes(roles.lead)) {
-      errors.push(`roles.lead ${roles.lead} is also supplementary (panel_lead_not_external)`);
+      errors.push(`roles.lead ${roles.lead} is also supplementary (no_external_panel_lead)`);
     }
     for (const seat of roles.supplementary) {
       if (!seats.has(seat)) errors.push(`roles.supplementary ${seat} is not one of the declared seats`);

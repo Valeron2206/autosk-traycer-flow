@@ -85,10 +85,11 @@ test("the aggregate must cover exactly the Tickets that were applied", () => {
 });
 
 test("a failing aggregate cannot be accepted", () => {
-  for (const outcome of ["fail", "command_failure", "environment_failure"]) {
+  for (const [outcome, environment] of [["fail", "ok"], ["indeterminate", "environment_failure"]]) {
     assertRejects(
       mutated((value) => {
         value.aggregate.outcome = outcome;
+        value.aggregate.environment_outcome = environment;
       }),
       new RegExp(`aggregate outcome ${outcome} cannot be accepted`, "u"),
     );
@@ -98,13 +99,32 @@ test("a failing aggregate cannot be accepted", () => {
 test("a command failure and an environment failure are separately representable", () => {
   // Collapsing them makes "the tests failed" indistinguishable from "the machine
   // could not run them", and only one of those says anything about the product.
+  // The names are the ones epic-staging §4, cond_428 and the aggregate driver
+  // write (R6-7): a failed check is `fail`, a machine that could not run it is
+  // `indeterminate` with environment_outcome=environment_failure.
   const outcomes = schema.properties.aggregate.properties.outcome.enum;
-  assert.ok(outcomes.includes("command_failure"));
-  assert.ok(outcomes.includes("environment_failure"));
-  assert.notEqual(
-    outcomes.indexOf("command_failure"),
-    outcomes.indexOf("environment_failure"),
+  assert.ok(outcomes.includes("fail"));
+  assert.ok(outcomes.includes("indeterminate"));
+  assert.ok(!outcomes.includes("command_failure") && !outcomes.includes("environment_failure"));
+  assert.deepEqual(
+    validateEpicStagingDesign({
+      ...files,
+      [SCHEMA_PATH]: files[SCHEMA_PATH].replace('"indeterminate"', '"environment_failure"'),
+    }).filter((message) => /aggregate outcome/u.test(message)).length > 0,
+    true,
   );
+});
+
+test("an indeterminate outcome and an environment failure are one fact, stated twice", () => {
+  for (const [outcome, environment] of [["indeterminate", "ok"], ["fail", "environment_failure"], ["pass", "environment_failure"]]) {
+    assertRejects(
+      mutated((value) => {
+        value.aggregate.outcome = outcome;
+        value.aggregate.environment_outcome = environment;
+      }),
+      /outcome indeterminate is exactly an environment failure/u,
+    );
+  }
 });
 
 test("acceptance is of an identity, not of a plan to produce one", () => {
@@ -155,6 +175,7 @@ test("a pinned auto-policy is held to the same binding as a human", () => {
   const auto = mutated((value) => {
     value.acceptance.kind = "pinned_auto_policy";
     delete value.acceptance.decision_id;
+    value.acceptance.policy_ref = "policy-4";
   });
   assert.deepEqual(validateStaging(auto, schema), []);
 
@@ -162,9 +183,18 @@ test("a pinned auto-policy is held to the same binding as a human", () => {
     mutated((value) => {
       value.acceptance.kind = "pinned_auto_policy";
       delete value.acceptance.decision_id;
+      value.acceptance.policy_ref = "policy-4";
       value.acceptance.staging_commit_oid = "9".repeat(40);
     }),
     /acceptance_stale/u,
+  );
+  // And it names the policy that pinned it, as a person names the decision.
+  assertRejects(
+    mutated((value) => {
+      value.acceptance.kind = "pinned_auto_policy";
+      delete value.acceptance.decision_id;
+    }),
+    /pinned auto-policy acceptance must name the policy that pinned it/u,
   );
 });
 
@@ -294,4 +324,97 @@ test("the staging ref in a record is named by a 64-hex epic_ref_key, never a dis
   assert.equal(pattern.test(`refs/autosk/epics/${"a".repeat(64)}/staging`), true);
   const example = JSON.parse(readFileSync(new URL("../resources/epic-staging/epic-staging.example.json", import.meta.url), "utf8"));
   assert.equal(pattern.test(example.staging_ref), true);
+});
+
+test("under squash the acceptance names the commit that lands (debt 10b)", () => {
+  // The example is a squash delivery: the target moves to one commit whose
+  // tree is the accepted staging tree, and the acceptance names that commit.
+  assert.equal(example().acceptance.delivery_mode, "squash");
+  for (const field of ["target_commit_oid", "target_commit_recipe_sha256"]) {
+    assertRejects(
+      mutated((value) => {
+        delete value.acceptance[field];
+      }),
+      new RegExp(`acceptance\\.${field} is required`, "u"),
+    );
+  }
+  // The squash fields are the squash mode's: a fast-forward names no second commit.
+  for (const mode of ["merge", "rebase"]) {
+    assertRejects(
+      mutated((value) => {
+        value.acceptance.delivery_mode = mode;
+        value.post_cas.target_oid = value.staging_commit_oid;
+      }),
+      new RegExp(`a ${mode} delivery names no target commit`, "u"),
+    );
+  }
+  assertRejects(
+    mutated((value) => {
+      delete value.acceptance.delivery_mode;
+    }),
+    /acceptance\.delivery_mode is required/u,
+  );
+});
+
+test("the target holds the commit the delivery mode moves it to", () => {
+  // Under squash, the squash commit the acceptance named; under merge or
+  // rebase, the accepted staging commit itself.
+  assertRejects(
+    mutated((value) => {
+      value.post_cas.target_oid = value.staging_commit_oid;
+    }),
+    /the target does not hold the commit the squash acceptance named \(post_cas_mismatch\)/u,
+  );
+  const merge = mutated((value) => {
+    value.acceptance.delivery_mode = "merge";
+    delete value.acceptance.target_commit_oid;
+    delete value.acceptance.target_commit_recipe_sha256;
+    value.post_cas.target_oid = value.staging_commit_oid;
+  });
+  assert.deepEqual(validateStaging(merge, schema), []);
+  assertRejects(
+    { ...merge, post_cas: { ...merge.post_cas, target_oid: "9".repeat(40) } },
+    /the target does not hold the accepted staging commit \(post_cas_mismatch\)/u,
+  );
+  // A PR or merge-queue delivery never runs the target CAS.
+  for (const mode of ["pull_request", "merge_queue", "fork_pull_request"]) {
+    assertRejects(
+      { ...merge, acceptance: { ...merge.acceptance, delivery_mode: mode } },
+      new RegExp(`a ${mode} delivery never runs the target CAS`, "u"),
+    );
+  }
+});
+
+test("the recorded base is the planning base on a first stage, and a receipted replay otherwise", () => {
+  // ADR-088: recorded_target_base starts equal to planning.base_oid; a
+  // re-stage re-records it, and its first commit is bound by a planning
+  // replay receipt the record names.
+  const first = example();
+  assert.equal(first.recorded_target_base, first.planning_base_oid);
+  assertRejects(
+    mutated((value) => {
+      value.planning_replay_receipt_sha256 = "7".repeat(64);
+    }),
+    /a first stage has no planning replay receipt/u,
+  );
+  const restaged = (mutate) => mutated((value) => {
+    const base = "8".repeat(40);
+    value.recorded_target_base = base;
+    value.acceptance.recorded_target_base = base;
+    value.planning_replay_receipt_sha256 = "7".repeat(64);
+    mutate?.(value);
+  });
+  assert.deepEqual(validateStaging(restaged(), schema), []);
+  assertRejects(
+    restaged((value) => {
+      delete value.planning_replay_receipt_sha256;
+    }),
+    /a re-staged record names the planning replay receipt that binds its first commit/u,
+  );
+  assertRejects(
+    mutated((value) => {
+      delete value.planning_base_oid;
+    }),
+    /planning_base_oid is required/u,
+  );
 });

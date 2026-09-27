@@ -6,6 +6,7 @@
   "target_ref": "refs/heads/main",
   "recorded_target_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "planning_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "planning_base_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "receipts": [
     {
       "ticket_id": "T01",
@@ -37,6 +38,7 @@
       "T03"
     ],
     "outcome": "pass",
+    "environment_outcome": "ok",
     "record_hash": "a6e0b829b7f35a820a9dcec98215ce87ee1094583b982d38de20d92b111816f3"
   },
   "acceptance": {
@@ -52,6 +54,9 @@
     "target_ref": "refs/heads/main",
     "recorded_target_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "delivery_profile_digest": "7510f35e54ac583f1ef6aa0b3c14d6bc7fad4d79f9450f217f08df951d1b167a",
+    "delivery_mode": "squash",
+    "target_commit_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "target_commit_recipe_sha256": "5c1d6a3a0f7e0b2d9e4c8b1a7f6e5d4c3b2a19087f6e5d4c3b2a190876543210",
     "decision_id": "dec-0042"
   },
   "post_cas": {

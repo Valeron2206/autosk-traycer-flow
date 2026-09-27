@@ -5,7 +5,7 @@
   "epic_id": "epic-2026-09-a",
   "task_id": "ask-4f21aa",
   "operation_id": "op-7731",
-  "park_reason": "panel_waiver",
+  "park_reason": "panel_waiver_required",
   "identities": {
     "anchor_version": 3,
     "candidate": "1111111111111111111111111111111111111111111111111111111111111111",

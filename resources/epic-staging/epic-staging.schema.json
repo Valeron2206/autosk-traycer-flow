@@ -13,6 +13,7 @@
     "target_ref",
     "recorded_target_base",
     "planning_head",
+    "planning_base_oid",
     "receipts",
     "phase",
     "staging_commit_oid",
@@ -45,6 +46,16 @@
     "planning_head": {
       "type": "string",
       "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "planning_base_oid": {
+      "description": "planning.base_oid: the target commit the planning ref was created from. On a first stage recorded_target_base equals it.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "planning_replay_receipt_sha256": {
+      "description": "After a re-stage (recorded_target_base differs from planning_base_oid): the digest of the durable planning-replay receipt that binds the one planning replay commit staging starts with. Absent on a first stage. The receipt's closed schema is #9 implementation work.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     },
     "receipts": {
       "type": "array",
@@ -101,6 +112,7 @@
         "instruction_lock_digest",
         "included_tickets",
         "outcome",
+        "environment_outcome",
         "record_hash"
       ],
       "properties": {
@@ -133,7 +145,12 @@
           "enum": [
             "pass",
             "fail",
-            "command_failure",
+            "indeterminate"
+          ]
+        },
+        "environment_outcome": {
+          "enum": [
+            "ok",
             "environment_failure"
           ]
         },
@@ -154,7 +171,8 @@
         "included_tickets",
         "target_ref",
         "recorded_target_base",
-        "delivery_profile_digest"
+        "delivery_profile_digest",
+        "delivery_mode"
       ],
       "properties": {
         "kind": {
@@ -196,11 +214,53 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "delivery_mode": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase",
+            "pull_request",
+            "merge_queue",
+            "fork_pull_request"
+          ]
+        },
+        "target_commit_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+        },
+        "target_commit_recipe_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "decision_id": {
           "type": "string",
           "minLength": 1
+        },
+        "policy_ref": {
+          "type": "string",
+          "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "delivery_mode"
+            ],
+            "properties": {
+              "delivery_mode": {
+                "const": "squash"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "target_commit_oid",
+              "target_commit_recipe_sha256"
+            ]
+          }
+        }
+      ]
     },
     "post_cas": {
       "type": "object",
