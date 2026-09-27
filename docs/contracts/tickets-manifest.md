@@ -236,7 +236,7 @@ Issue #6 design validators test at minimum:
 - initial revision numbering, prior-ID reservation and revised carry/revise/replace/split/merge/retirement lineage;
 - digest golden vectors;
 - distribution digest golden vector over `scripts/a.mjs="alpha\n"` and `scripts/b.mjs="beta\n"`: renderer domain `c3550938e8b680400e61b9e10ee59de200e6cc5ae6d05f8637c2bff73de1b73b`, validator domain `354f4a47981ce143b098e92e02b9ade2940bbfe3c846858932372123d5ff18a2`;
-- current v1 shipped tool digests: `renderer_distribution_digest=a27cc1bae9e05e3d9b2259fd192a220af2693e1861556819d4c774ae2bff9c13`, `validator_distribution_digest=18865a75b5a54af7ea480e60614ad819f7ea4a743e442b315983343843e558d6`;
+- current v1 shipped tool digests: `renderer_distribution_digest=a27cc1bae9e05e3d9b2259fd192a220af2693e1861556819d4c774ae2bff9c13`, `validator_distribution_digest=cc770ff462eb320a29b218d1401c6fac45d4282ff71a36947dfa399e3bf3c229`;
 - valid-at-limit and limit+1 sets;
 - renderer resistance to heading/table structural injection;
 - upgrade/downgrade/unknown version rejection and cross-project/candidate receipt-binding rejection.

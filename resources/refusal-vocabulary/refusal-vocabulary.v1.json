@@ -1052,6 +1052,7 @@
     {
       "code": "planning_ref_capability_missing",
       "named_at": [
+        "apply_staging",
         "cleanup",
         "freeze_artifact",
         "init_planning_ref",
@@ -1064,8 +1065,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/epic-planning-ref.md",
-      "producer": "none",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/ref-custody.mjs"
+      ]
     },
     {
       "code": "planning_ref_foreign_movement",
@@ -1400,5 +1403,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "ded7965f5add58defe345f77f07f064034fbc1d8eeedbb66201e33aa454ded4f"
+  "vocabulary_digest": "d848123f0dc2dbe62b64f973291b2963c5b7dcbd5f7170cea07020c142a698c4"
 }

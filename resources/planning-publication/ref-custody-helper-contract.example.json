@@ -288,6 +288,150 @@
         "response_shape_sha256": "6a6c6d66d1834add45759d24832269c1bcc823f2a7bf9b6dfffc99d01b3e3b29",
         "receipt_shape_sha256": "0a032032c537cb5f74e90b870bd4d08aa879039c8cbfb0ab2a440b8885e18ac0"
       }
+    },
+    {
+      "action": "create_staging",
+      "request_required": [
+        "action",
+        "authorization",
+        "body_sha256",
+        "candidate_identity",
+        "custody_generation",
+        "epic_id",
+        "epic_ref_key",
+        "expected_update_message",
+        "nonce",
+        "object_format",
+        "operation_id",
+        "packed_refs_sha256",
+        "policy_digest",
+        "project_root_sha256",
+        "ref_updates",
+        "reflog_checkpoints",
+        "reflog_producer",
+        "request_id",
+        "schema",
+        "transfer_mode"
+      ],
+      "response_required": [
+        "action",
+        "custody_generation",
+        "nonce",
+        "not_applied_reason",
+        "policy_digest",
+        "receipt_hash",
+        "ref_observations",
+        "reflog_observations",
+        "request_body_sha256",
+        "request_id",
+        "schema",
+        "status",
+        "transaction_value_observation_sha256"
+      ],
+      "request_domain": "autosk-flow/ref-custody/create_staging/request-shape/v1\u0000",
+      "observation_domain": "autosk-flow/ref-custody/create_staging/response-shape/v1\u0000",
+      "receipt_domain": "autosk-flow/ref-custody/create_staging/receipt-shape/v1\u0000",
+      "golden": {
+        "request_shape_sha256": "8a3e73739710fbb16b9e84cf021943585f6e8b520db9418c8f1e1cd9b0ac45f0",
+        "response_shape_sha256": "6ff64664fd946f4866da65bd97f8d5439a311dd3b849f56c6b0a32ee2c696c04",
+        "receipt_shape_sha256": "ed28a120a07aa57921522a3d5fc45ded04a1a565383d43cf602e488ff67dad10"
+      }
+    },
+    {
+      "action": "advance_staging",
+      "request_required": [
+        "action",
+        "authorization",
+        "body_sha256",
+        "candidate_identity",
+        "custody_generation",
+        "epic_id",
+        "epic_ref_key",
+        "expected_update_message",
+        "nonce",
+        "object_format",
+        "operation_id",
+        "packed_refs_sha256",
+        "policy_digest",
+        "project_root_sha256",
+        "ref_updates",
+        "reflog_checkpoints",
+        "reflog_producer",
+        "request_id",
+        "schema",
+        "transfer_mode"
+      ],
+      "response_required": [
+        "action",
+        "custody_generation",
+        "nonce",
+        "not_applied_reason",
+        "policy_digest",
+        "receipt_hash",
+        "ref_observations",
+        "reflog_observations",
+        "request_body_sha256",
+        "request_id",
+        "schema",
+        "status",
+        "transaction_value_observation_sha256"
+      ],
+      "request_domain": "autosk-flow/ref-custody/advance_staging/request-shape/v1\u0000",
+      "observation_domain": "autosk-flow/ref-custody/advance_staging/response-shape/v1\u0000",
+      "receipt_domain": "autosk-flow/ref-custody/advance_staging/receipt-shape/v1\u0000",
+      "golden": {
+        "request_shape_sha256": "e28a39b8ce6a52500c90a1c734981334a37391852ee44682350bf24213626837",
+        "response_shape_sha256": "d350e3dd7e8f91933b9f9e4d505fb7bb7f9479d46597701a5a763cc4e7e18897",
+        "receipt_shape_sha256": "3bece1d08ef8b621c07f28896ed8296583032b555e89cd5eda124e06c9053453"
+      }
+    },
+    {
+      "action": "delete_staging",
+      "request_required": [
+        "action",
+        "authorization",
+        "body_sha256",
+        "candidate_identity",
+        "custody_generation",
+        "epic_id",
+        "epic_ref_key",
+        "expected_update_message",
+        "nonce",
+        "object_format",
+        "operation_id",
+        "packed_refs_sha256",
+        "policy_digest",
+        "project_root_sha256",
+        "ref_updates",
+        "reflog_checkpoints",
+        "reflog_producer",
+        "request_id",
+        "schema",
+        "transfer_mode"
+      ],
+      "response_required": [
+        "action",
+        "custody_generation",
+        "nonce",
+        "not_applied_reason",
+        "policy_digest",
+        "receipt_hash",
+        "ref_observations",
+        "reflog_observations",
+        "request_body_sha256",
+        "request_id",
+        "schema",
+        "status",
+        "transaction_value_observation_sha256"
+      ],
+      "request_domain": "autosk-flow/ref-custody/delete_staging/request-shape/v1\u0000",
+      "observation_domain": "autosk-flow/ref-custody/delete_staging/response-shape/v1\u0000",
+      "receipt_domain": "autosk-flow/ref-custody/delete_staging/receipt-shape/v1\u0000",
+      "golden": {
+        "request_shape_sha256": "33be63053e98aa840751627cf9037039b2df8e483dfde4488ed2fb71538b0d4b",
+        "response_shape_sha256": "6f4de89e953e7a5e68c10d4b05daa5c9c9828a62843fcb6825981b39d2a2e678",
+        "receipt_shape_sha256": "e4cb2b8dcaf23ac313c75cda9b8f8861265df8e8692ec2f3ed0998742c895d45"
+      }
     }
   ]
 }

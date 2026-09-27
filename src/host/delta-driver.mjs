@@ -13,7 +13,8 @@
  * The injected `git(args, { env } = {})` runs one command and returns
  * `{ code, stdout, stderr }`, applying `env` on top of its own. `realpath` is
  * injected for the same reason: the module resolves paths, it does not read the
- * filesystem itself.
+ * filesystem itself. The staging ref is not written here at all: the apply
+ * asks the ref-custody helper to advance it (`custody`, ADR-095).
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 
@@ -24,7 +25,8 @@ import {
   revalidate,
   withinPathspec,
 } from './approved-delta.mjs';
-import { assertStagingRef, readRef, reflogDepth, swapTarget } from './staging-driver.mjs';
+import { NO_REF_CUSTODY, askCustody } from './ref-custody.mjs';
+import { assertStagingRef, readRef, reflogDepth } from './staging-driver.mjs';
 
 /** One git invocation. A command that could not run says nothing about the product. */
 async function ask(git, args, options = {}) {
@@ -194,11 +196,12 @@ export async function preservedPaths(git, { tree, paths, options = {} }) {
  * Applies one approved delta to the staging ref.
  *
  * The order is the one the contract requires: revalidate against the exact
- * base, refuse a collision rather than clear it, compose, commit, advance the
- * ref by compare-and-swap, and read back what the tree holds. Nothing here
- * resolves a conflict; a conflict is a refusal.
+ * base, refuse a collision rather than clear it, compose, commit, ask the
+ * helper to advance the ref by compare-and-swap, and read back what the tree
+ * holds. Nothing here resolves a conflict; a conflict is a refusal.
  */
 export async function applyDelta(git, {
+  custody = NO_REF_CUSTODY,
   delta,
   ref,
   base,
@@ -210,8 +213,9 @@ export async function applyDelta(git, {
   otherTicketPaths = [],
   options = {},
 }) {
-  // The host's CAS moves the private staging ref and nothing else; a target
-  // ref is the daemon's integrateApproved's to move (ADR-088).
+  // The apply asks for the private staging ref and nothing else: a target ref
+  // is the daemon's integrateApproved's to move (ADR-088), and the helper
+  // writes every ref under refs/autosk/** (ADR-095).
   assertStagingRef(ref);
   assertCleanEnvironment(env);
   // Revalidated immediately before the apply, not when it was approved: the
@@ -236,7 +240,11 @@ export async function applyDelta(git, {
   const depthBefore = await reflogDepth(git, ref);
   const tree = await composeTree(git, { delta, base: base.commit_oid, indexFile, realpath });
   const commit = await ask(git, ['commit-tree', tree, '-p', base.commit_oid, '-m', message], options);
-  const movement = await swapTarget(git, { ref, expectedOld: base.commit_oid, newOid: commit.stdout.trim() });
+  // The helper's refusal is the swap not happening; what the ref held instead
+  // is its observation, reported rather than taken as the reason.
+  const movement = await askCustody(custody, 'advance_staging',
+    [{ operation: 'update', ref, expected_old_oid: base.commit_oid, new_oid: commit.stdout.trim() }]);
+  const swapped = movement.status === 'committed';
   const observed = await readRef(git, ref);
 
   return Object.freeze({
@@ -244,7 +252,7 @@ export async function applyDelta(git, {
     base_commit_oid: delta.base_commit_oid,
     tree_oid: tree,
     commit_oid: commit.stdout.trim(),
-    applied: movement.swapped,
+    applied: swapped,
     applied_entries: await appliedEntries(git, { tree, baseTree: base.tree_oid, delta, options }),
     removed_paths: await removedPaths(git, { tree, baseTree: base.tree_oid, delta, options }),
     preserved_from_other_tickets: await preservedPaths(git, { tree, paths: otherTicketPaths, options }),
@@ -252,7 +260,7 @@ export async function applyDelta(git, {
     ref_movement: Object.freeze({
       ref,
       expected_old_oid: base.commit_oid,
-      observed_old_oid: movement.swapped ? base.commit_oid : movement.observed_old_oid,
+      observed_old_oid: swapped ? base.commit_oid : movement.ref_observations[0].observed_old_oid,
       post_state: observed === null ? 'unknown' : 'known',
       reflog_entries: (await reflogDepth(git, ref)) - depthBefore,
     }),

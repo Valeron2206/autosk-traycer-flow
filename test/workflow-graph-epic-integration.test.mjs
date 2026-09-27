@@ -34,6 +34,7 @@ import { promisify } from "node:util";
 import { verifyAggregate } from "../src/host/aggregate-driver.mjs";
 import { aggregateErrors, casAdmission } from "../src/host/epic-staging.mjs";
 import { createStaging, epicRefKey, observeTarget, readRef, stagingRef } from "../src/host/staging-driver.mjs";
+import { gitRefCustody } from "./support/git-ref-custody.mjs";
 import { readChains } from "../scripts/check-workflow-chains.mjs";
 import { DOCUMENT_PATH, parseStrict, producedAt } from "../scripts/validate-workflow-graph.mjs";
 
@@ -1245,9 +1246,15 @@ test("two individually green Tickets that regress together leave the target wher
 
   // Both applied to the private staging: the aggregate fails.
   const key = epicRefKey("0".repeat(64), "epic-order");
-  await createStaging(git, { epicRefKey: key, base });
+  // The helper writes the staging ref (ADR-095); the test hands its stand-in.
+  const custody = gitRefCustody(root);
+  await createStaging(custody, { epicRefKey: key, base });
   const together = await commit(first.oid, [["b.txt", "new"]], "T-2 on staging");
-  assert.equal((await git(["update-ref", stagingRef(key), together.oid, base])).code, 0);
+  const advanced = await custody.advance_staging({
+    action: "advance_staging",
+    ref_updates: [{ operation: "update", ref: stagingRef(key), expected_old_oid: base, new_oid: together.oid }],
+  });
+  assert.equal(advanced.status, "committed");
   const state = identity(together.oid, together.tree, ["T-1", "T-2"]);
   const aggregate = await verifyAggregate({ git, run: runner, state, checks, dir: path.join(root, "aggregate") });
   assert.equal(aggregate.outcome, "fail");
@@ -1300,4 +1307,85 @@ test("01 does not let a person raise the review cap the factory holds absolute",
   assert.doesNotMatch(row, /новый конечный предел/u);
   assert.match(row, /никто/u);
   assert.match(row, /capHolds/u);
+});
+
+// --- debt 11a: one custody model for refs/autosk/** --------------------------
+
+/** The one sentence every document that names a writer of refs/autosk/** carries (ADR-095). */
+const CUSTODY_EN = "The ref-custody helper writes every ref under `refs/autosk/**`, the staging ref included; the host only asks it, and the daemon's `integrateApproved` alone moves the target ref.";
+const CUSTODY_RU = "ref-custody helper пишет каждый ref под `refs/autosk/**`, включая staging ref; host только просит его, а target ref двигает только daemon `integrateApproved`.";
+
+test("the prose says one custody model: the helper writes refs/autosk/**, the host asks, integrateApproved moves the target (R7-1)", () => {
+  // Round 7 of #39, R7-1: 02 §2 made the separate-account helper the sole
+  // writer of refs/autosk/** while ADR-088, 02 §2/§7 and epic-staging §1 gave
+  // the staging ref to the host's applyDelta/swapTarget.
+  for (const relative of ["docs/contracts/epic-staging.md", "docs/contracts/epic-planning-ref.md", "src/host/ref-custody.mjs"]) {
+    assert.ok(read(relative).includes(CUSTODY_EN), `${relative} does not carry the custody sentence`);
+  }
+  for (const relative of ["01-core-flows.md", "02-architecture.md", "03-technical-plan.md", "04-decisions.md"]) {
+    assert.ok(read(relative).includes(CUSTODY_RU), `${relative} does not carry the custody sentence`);
+  }
+  assert.ok(sectionOf(read("02-architecture.md"), "### Git", "### Planning publication adapter").includes(CUSTODY_RU), "02 §2 Git");
+  assert.ok(sectionOf(read("01-core-flows.md"), "## 7. ", "## 8. ").includes(CUSTODY_RU), "01 §7");
+  assert.ok(sectionOf(read("docs/contracts/epic-staging.md"), "## 1.", "## 2.").includes(CUSTODY_EN), "epic-staging §1");
+  // No document still has the host write a ref under refs/autosk/**.
+  const stale = [
+    /in the host it has one caller/u,
+    /moves only the private staging ref/u,
+    /в host её единственный вызывающий/u,
+    /в host она двигает только приватный staging ref/u,
+    /host двигает только приватный staging ref/u,
+    /The host moves the staging ref and nothing else/u,
+  ];
+  for (const relative of [
+    "01-core-flows.md", "02-architecture.md", "03-technical-plan.md", "README.md",
+    "docs/contracts/epic-staging.md", "docs/contracts/epic-planning-ref.md", "docs/contracts/integration-authorization.md",
+    "src/host/staging-driver.mjs", "src/host/delta-driver.mjs", "src/host/planning-driver.mjs",
+  ]) {
+    for (const pattern of stale) assert.doesNotMatch(read(relative), pattern, `${relative}: ${pattern}`);
+  }
+  // ADR-088 keeps its text and points forward to the ADR that amends it.
+  const adr088 = sectionOf(read("04-decisions.md"), "## ADR-088:", "## ADR-089:");
+  assert.match(adr088, /ADR-095/u);
+  const adr095 = sectionOf(read("04-decisions.md"), "## ADR-095:", "## Оставшиеся риски");
+  assert.match(adr095, /изменяет ADR-088/u);
+  // The planning driver, which says it implements epic-planning-ref.md, asks too.
+  assert.doesNotMatch(read("src/host/planning-driver.mjs"), /['"]update-ref['"]/u);
+});
+
+test("a missing ref-custody capability parks at apply_staging and resumes there (review M2)", () => {
+  // The staging drivers raise planning_ref_capability_missing; the graph must
+  // route it where they run, as it does at every other helper-calling step.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "planning_ref_capability_missing");
+  assert.ok(row.parks_at.includes("apply_staging"));
+  assert.ok(row.resume_targets.includes("apply_staging"));
+  assert.ok(row.parks_at.includes("cleanup"), "the staging cleanup step already parks it");
+  assert.equal(row.resume_scope, "origin");
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const edges = graph.transitions.filter((edge) => edge.from === "apply_staging" && edge.to === "human"
+    && edge.guards.some((id) => guards.get(id)?.park_reason === "planning_ref_capability_missing"));
+  assert.equal(edges.length, 1);
+  // Before any delta is tried, after the anchor check.
+  const order = graph.transitions.filter((edge) => edge.from === "apply_staging").sort((a, b) => a.priority - b.priority)
+    .map((edge) => guards.get(edge.guards[0]).park_reason);
+  assert.deepEqual(order.slice(0, 3), ["blocked_anchor", "planning_ref_capability_missing", "delta_stale"]);
+  assert.match(read("03-technical-plan.md"), /\| apply_staging \| helper response status=not_applied[^\n]*planning_ref_capability_missing/u);
+  const vocabulary = JSON.parse(read("resources/refusal-vocabulary/refusal-vocabulary.v1.json"));
+  assert.ok(vocabulary.park_reasons.find((entry) => entry.code === "planning_ref_capability_missing").named_at.includes("apply_staging"));
+  // integrate_staging runs no helper action: the re-stage's delete and create
+  // run after the resume into apply_staging.
+  assert.ok(!row.parks_at.includes("integrate_staging"));
+});
+
+test("ADR-095 and README say which park answers a missing custody, and when (review M3)", () => {
+  const adr = sectionOf(read("04-decisions.md"), "## ADR-095:", "## Оставшиеся риски");
+  assert.match(adr, /нового кода словаря park-причин нет/u);
+  assert.match(adr, /единственное новое ребро графа — `apply_staging`/u);
+  assert.match(adr, /одна новая park-причина платформы — `ref_custody_unavailable`/u);
+  assert.match(adr, /`ref_custody_unavailable`[^\n]*при открытии проекта[^\n]*`planning_ref_capability_missing`[^\n]*внутри шага/u);
+  const readme = read("README.md");
+  const rule = readme.split("\n").find((line) => line.startsWith("19. ")) ?? "";
+  assert.match(rule, /обязательство #13/u);
+  assert.doesNotMatch(rule, /паркуется при открытии, до первого побочного эффекта\./u);
 });

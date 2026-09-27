@@ -28,6 +28,7 @@ import {
   stagingRef,
   swapTarget,
 } from "../src/host/staging-driver.mjs";
+import { gitRefCustody } from "./support/git-ref-custody.mjs";
 
 // epicRefKey("0".repeat(64), "e-1"), spelled out so a broken derivation fails a
 // test rather than the module load; the golden-vector test checks the derivation.
@@ -65,7 +66,8 @@ async function repository(t) {
   await git(["add", "a.txt"]);
   await git(["commit", "--quiet", "-m", "base"]);
   const head = (await git(["rev-parse", "HEAD"])).stdout.trim();
-  return { root, git, head };
+  // The helper's stand-in: every write under refs/autosk/** goes through it.
+  return { root, git, head, custody: gitRefCustody(root) };
 }
 
 /** A commit off the target branch, the way an Epic accumulates on staging. */
@@ -79,12 +81,12 @@ async function commitOnTop(git, root, { parent, file, content, message }) {
 }
 
 test("the staging ref is private, and creating it twice at the same base is a retry", async (t) => {
-  const { git, head } = await repository(t);
+  const { git, head, custody } = await repository(t);
   assert.equal(stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/staging`);
-  const created = await createStaging(git, { epicRefKey: EPIC_KEY, base: head });
+  const created = await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
   assert.deepEqual({ ...created }, { ref: `refs/autosk/epics/${EPIC_KEY}/staging`, oid: head, created: true });
   // A crash between creating the ref and recording it looks exactly like this.
-  const again = await createStaging(git, { epicRefKey: EPIC_KEY, base: head });
+  const again = await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
   assert.equal(again.created, false);
   assert.equal(await readRef(git, "refs/heads/main"), head);
   // And the ref is not a branch: nothing lists it as one.
@@ -93,10 +95,10 @@ test("the staging ref is private, and creating it twice at the same base is a re
 });
 
 test("a staging ref already at another commit is a conflict, not an overwrite", async (t) => {
-  const { git, root, head } = await repository(t);
+  const { git, root, head, custody } = await repository(t);
   const other = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "x\n", message: "other" });
-  await createStaging(git, { epicRefKey: EPIC_KEY, base: other.oid });
-  await assert.rejects(() => createStaging(git, { epicRefKey: EPIC_KEY, base: head }), code("cas_conflict"));
+  await createStaging(custody, { epicRefKey: EPIC_KEY, base: other.oid });
+  await assert.rejects(() => createStaging(custody, { epicRefKey: EPIC_KEY, base: head }), code("cas_conflict"));
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), other.oid);
 });
 
@@ -207,20 +209,20 @@ test("a crash after the aggregate passed resumes into the swap with no model run
 });
 
 test("cleanup removes the staging ref only while it holds what was recorded", async (t) => {
-  const { git, root, head } = await repository(t);
+  const { git, root, head, custody } = await repository(t);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
-  await createStaging(git, { epicRefKey: EPIC_KEY, base: staged.oid });
+  await createStaging(custody, { epicRefKey: EPIC_KEY, base: staged.oid });
   const moved = await commitOnTop(git, root, { parent: staged.oid, file: "c.txt", content: "late\n", message: "late" });
   await git(["update-ref", stagingRef(EPIC_KEY), moved.oid, staged.oid]);
 
   // Deleting whatever is there would destroy the evidence in the one case worth
   // keeping.
-  const refused = await cleanupStaging(git, { epicRefKey: EPIC_KEY, expectedOid: staged.oid });
+  const refused = await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: staged.oid });
   assert.equal(refused.deleted, false);
   assert.equal(refused.reason, "staging_moved_after_pass");
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), moved.oid);
 
-  const removed = await cleanupStaging(git, { epicRefKey: EPIC_KEY, expectedOid: moved.oid });
+  const removed = await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: moved.oid });
   assert.equal(removed.deleted, true);
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), null);
 });
@@ -375,4 +377,74 @@ test("the host moves only an Epic's staging ref: anything else is refused by nam
   ]) {
     assert.throws(() => assertStagingRef(ref), code("cas_conflict"), String(ref));
   }
+});
+
+// --- debt 11a: the helper writes the staging ref; the host asks ----------------
+
+test("creating and removing the staging ref are requests to the ref-custody helper", async (t) => {
+  // ADR-095. The separate-account helper is the only writer of refs/autosk/**:
+  // the driver forms the one request each action carries and reads the answer.
+  const { git, head, custody } = await repository(t);
+  const ref = stagingRef(EPIC_KEY);
+  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head });
+  assert.deepEqual(JSON.parse(JSON.stringify(custody.requests)), [
+    { action: "create_staging", ref_updates: [{ operation: "update", ref, expected_old_oid: null, new_oid: head }] },
+    { action: "delete_staging", ref_updates: [{ operation: "delete", ref, expected_old_oid: head, new_oid: null }] },
+  ]);
+  assert.equal(await readRef(git, ref), null);
+  // The helper created the ref's reflog, so the post-CAS check can count on it.
+  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  assert.equal(await reflogDepth(git, ref), 1);
+});
+
+test("with no helper the staging ref is neither created nor removed, and the host writes nothing itself", async (t) => {
+  // The product default client answers no action (the helper is #5 work), so
+  // the drivers refuse rather than fall back to a direct `git update-ref`.
+  const { git, head, custody } = await repository(t);
+  const ref = stagingRef(EPIC_KEY);
+  await assert.rejects(() => createStaging(undefined, { epicRefKey: EPIC_KEY, base: head }), code("planning_ref_capability_missing"));
+  assert.equal(await readRef(git, ref), null);
+  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  await assert.rejects(() => cleanupStaging(undefined, { epicRefKey: EPIC_KEY, expectedOid: head }), code("planning_ref_capability_missing"));
+  assert.equal(await readRef(git, ref), head);
+});
+
+test("a refused create reads what the ref holds from the helper's answer", async () => {
+  // No git runs in the driver at all: the answer carries the observation.
+  const held = "4".repeat(40);
+  const base = "5".repeat(40);
+  const refusing = {
+    create_staging: async (request) => ({
+      action: request.action,
+      status: "not_applied",
+      not_applied_reason: "expected_old_mismatch",
+      ref_observations: request.ref_updates.map((update) => ({
+        operation: update.operation,
+        ref: update.ref,
+        expected_old_oid: update.expected_old_oid,
+        requested_new_oid: update.new_oid,
+        observed_old_oid: held,
+        observed_new_oid: held,
+      })),
+    }),
+  };
+  await assert.rejects(() => createStaging(refusing, { epicRefKey: EPIC_KEY, base }), (error) =>
+    error.code === "cas_conflict" && error.details.held === held && error.details.expected === base);
+  const retried = await createStaging(refusing, { epicRefKey: EPIC_KEY, base: held });
+  assert.deepEqual({ ...retried }, { ref: stagingRef(EPIC_KEY), oid: held, created: false });
+});
+
+test("swapTarget refuses any ref under refs/autosk/**, which is the helper's alone (review L4)", async (t) => {
+  // ADR-095: the target-CAS mechanics the daemon's adapter carries move a
+  // target ref; a private ref under refs/autosk/** has one writer, the helper.
+  const { git, root, head, custody } = await repository(t);
+  const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
+  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  for (const ref of [stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/planning`, "refs/autosk/anything"]) {
+    await assert.rejects(() => swapTarget(git, { ref, expectedOld: head, newOid: staged.oid }), code("cas_conflict"), ref);
+  }
+  assert.equal(await readRef(git, stagingRef(EPIC_KEY)), head);
+  // A target ref is still swapped.
+  assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
 });

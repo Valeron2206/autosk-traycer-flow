@@ -23,7 +23,8 @@ import {
   integrationReceipt,
   worktreeState,
 } from "../src/host/delta-driver.mjs";
-import { readRef, stagingRef } from "../src/host/staging-driver.mjs";
+import { createStaging, readRef, reflogDepth, stagingRef } from "../src/host/staging-driver.mjs";
+import { gitRefCustody } from "./support/git-ref-custody.mjs";
 
 const execFileAsync = promisify(execFile);
 const code = (name) => (error) => error.code === name;
@@ -58,13 +59,17 @@ async function repository(t) {
   await git(["commit", "--quiet", "-m", "base"]);
   const commit_oid = (await git(["rev-parse", "HEAD"])).stdout.trim();
   const tree_oid = (await git(["rev-parse", "HEAD^{tree}"])).stdout.trim();
-  const ref = stagingRef("a916c907fd14e54bfb1f3591a573675ccb1fdfeb49a8875c3c10c6bc00c5fb37");
-  await git(["update-ref", ref, commit_oid, ""]);
+  const epicRefKey = "a916c907fd14e54bfb1f3591a573675ccb1fdfeb49a8875c3c10c6bc00c5fb37";
+  const ref = stagingRef(epicRefKey);
+  // The staging ref is the helper's to write (ADR-095); the tests hand every
+  // driver the helper's git-backed stand-in.
+  const custody = gitRefCustody(root);
+  await createStaging(custody, { epicRefKey, base: commit_oid });
   // Outside the project on purpose: an index file left inside it is untracked
   // state that looks like somebody's work.
   const indexFile = path.join(await mkdtemp(path.join(tmpdir(), "autosk-index-")), "apply.index");
   t.after(() => rm(path.dirname(indexFile), { recursive: true, force: true }));
-  return { root, git, ref, base: { commit_oid, tree_oid }, indexFile };
+  return { root, git, ref, base: { commit_oid, tree_oid }, indexFile, custody };
 }
 
 /** A blob that exists in the repository, the way a Ticket's approved bytes do. */
@@ -90,11 +95,11 @@ function delta(base, entries, overrides = {}) {
 }
 
 test("an approved delta lands as a staging commit, and the worktree is untouched", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "export const a = 1;\n");
   const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
 
-  const result = await applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  const result = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" });
   assert.equal(result.applied, true);
   assert.deepEqual([...result.applied_entries], [{ path: "src/a.ts", new_blob: oid, new_mode: "100644" }]);
   assert.deepEqual(integrationProof(d, result), []);
@@ -111,7 +116,7 @@ test("an approved delta lands as a staging commit, and the worktree is untouched
 });
 
 test("modes, symlinks and binary content survive the apply exactly", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const script = await blob(git, root, "#!/bin/sh\nexit 0\n");
   const link = await blob(git, root, "a.ts");
   const binary = await blob(git, root, Buffer.from([0, 1, 2, 250, 251, 0]));
@@ -121,7 +126,7 @@ test("modes, symlinks and binary content survive the apply exactly", async (t) =
     { path: "src/data.bin", status: "A", new_blob: binary, new_mode: "100644" },
   ]);
 
-  const result = await applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-2" });
+  const result = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-2" });
   const byPath = new Map(result.applied_entries.map((entry) => [entry.path, entry]));
   assert.equal(byPath.get("src/run.sh").new_mode, "100755");
   assert.equal(byPath.get("src/link").new_mode, "120000");
@@ -130,17 +135,17 @@ test("modes, symlinks and binary content survive the apply exactly", async (t) =
 });
 
 test("a second independent Ticket integrates without losing the first", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const first = await blob(git, root, "one\n");
   const second = await blob(git, root, "two\n");
   const d1 = delta(base, [{ path: "src/one.ts", status: "A", new_blob: first, new_mode: "100644" }]);
-  const r1 = await applyDelta(git, { delta: d1, realpath, ref, base, indexFile, message: "T-1" });
+  const r1 = await applyDelta(git, { custody, delta: d1, realpath, ref, base, indexFile, message: "T-1" });
 
   // The base for the second Ticket is where the first left staging: a full-tree
   // comparison here would call the first Ticket's file an unapproved change.
   const nextBase = { commit_oid: r1.commit_oid, tree_oid: r1.tree_oid };
   const d2 = delta(nextBase, [{ path: "src/two.ts", status: "A", new_blob: second, new_mode: "100644" }]);
-  const r2 = await applyDelta(git, {
+  const r2 = await applyDelta(git, { custody,
     delta: d2,
     realpath,
     ref,
@@ -155,24 +160,24 @@ test("a second independent Ticket integrates without losing the first", async (t
 });
 
 test("a delta prepared against an older base is refused before anything is written", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const first = await blob(git, root, "one\n");
   const d1 = delta(base, [{ path: "src/one.ts", status: "A", new_blob: first, new_mode: "100644" }]);
-  const r1 = await applyDelta(git, { delta: d1, realpath, ref, base, indexFile, message: "T-1" });
+  const r1 = await applyDelta(git, { custody, delta: d1, realpath, ref, base, indexFile, message: "T-1" });
 
   const stale = delta(base, [{ path: "src/two.ts", status: "A", new_blob: first, new_mode: "100644" }]);
   await assert.rejects(
-    () => applyDelta(git, { delta: stale, realpath, ref, base: { commit_oid: r1.commit_oid, tree_oid: r1.tree_oid }, indexFile, message: "T-2" }),
+    () => applyDelta(git, { custody, delta: stale, realpath, ref, base: { commit_oid: r1.commit_oid, tree_oid: r1.tree_oid }, indexFile, message: "T-2" }),
     code("delta_stale"),
   );
   assert.equal(await readRef(git, ref), r1.commit_oid);
 });
 
 test("deletions and renames move exactly what they name", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const content = await blob(git, root, "moved\n");
   const added = delta(base, [{ path: "src/old.ts", status: "A", new_blob: content, new_mode: "100644" }]);
-  const first = await applyDelta(git, { delta: added, realpath, ref, base, indexFile, message: "T-1" });
+  const first = await applyDelta(git, { custody, delta: added, realpath, ref, base, indexFile, message: "T-1" });
   const afterAdd = { commit_oid: first.commit_oid, tree_oid: first.tree_oid };
 
   const renamed = delta(afterAdd, [{
@@ -184,7 +189,7 @@ test("deletions and renames move exactly what they name", async (t) => {
     old_mode: "100644",
     new_mode: "100644",
   }]);
-  const second = await applyDelta(git, { delta: renamed, realpath, ref, base: afterAdd, indexFile, message: "T-2" });
+  const second = await applyDelta(git, { custody, delta: renamed, realpath, ref, base: afterAdd, indexFile, message: "T-2" });
   const paths = (await git(["ls-tree", "-r", "--name-only", second.tree_oid])).stdout.split("\n");
   assert.ok(paths.includes("src/new.ts"), paths.join(","));
   assert.ok(!paths.includes("src/old.ts"), paths.join(","));
@@ -197,7 +202,7 @@ test("deletions and renames move exactly what they name", async (t) => {
     old_blob: content,
     old_mode: "100644",
   }]);
-  const third = await applyDelta(git, { delta: deleted, realpath, ref, base: afterRename, indexFile, message: "T-3" });
+  const third = await applyDelta(git, { custody, delta: deleted, realpath, ref, base: afterRename, indexFile, message: "T-3" });
   const left = (await git(["ls-tree", "-r", "--name-only", third.tree_oid])).stdout;
   assert.ok(!left.includes("src/new.ts"), left);
   // A deletion is approved and absent, which is what the proof has to accept.
@@ -205,14 +210,14 @@ test("deletions and renames move exactly what they name", async (t) => {
 });
 
 test("a removal the delta did not approve is caught by the proof", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const first = await blob(git, root, "one\n");
   const second = await blob(git, root, "two\n");
   const seed = delta(base, [
     { path: "src/one.ts", status: "A", new_blob: first, new_mode: "100644" },
     { path: "src/two.ts", status: "A", new_blob: second, new_mode: "100644" },
   ]);
-  const seeded = await applyDelta(git, { delta: seed, realpath, ref, base, indexFile, message: "seed" });
+  const seeded = await applyDelta(git, { custody, delta: seed, realpath, ref, base, indexFile, message: "seed" });
   const next = { commit_oid: seeded.commit_oid, tree_oid: seeded.tree_oid };
 
   // The apply removes a second file nobody approved. Nothing in the resulting
@@ -222,18 +227,18 @@ test("a removal the delta did not approve is caught by the proof", async (t) => 
     { path: "src/one.ts", status: "D", old_blob: first, old_mode: "100644" },
     { path: "src/two.ts", status: "D", old_blob: second, old_mode: "100644" },
   ]);
-  const result = await applyDelta(git, { delta: wider, realpath, ref, base: next, indexFile, message: "T-2" });
+  const result = await applyDelta(git, { custody, delta: wider, realpath, ref, base: next, indexFile, message: "T-2" });
   assert.deepEqual([...result.removed_paths], ["src/one.ts", "src/two.ts"]);
   const errors = integrationProof(approved, result);
   assert.ok(errors.some((error) => /src\/two.ts: removed and not approved/u.test(error.detail)), JSON.stringify(errors));
 });
 
 test("an apply that loses another Ticket's work is caught by the proof", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const first = await blob(git, root, "one\n");
   const second = await blob(git, root, "two\n");
   const d1 = delta(base, [{ path: "src/one.ts", status: "A", new_blob: first, new_mode: "100644" }]);
-  const r1 = await applyDelta(git, { delta: d1, realpath, ref, base, indexFile, message: "T-1" });
+  const r1 = await applyDelta(git, { custody, delta: d1, realpath, ref, base, indexFile, message: "T-1" });
   const next = { commit_oid: r1.commit_oid, tree_oid: r1.tree_oid };
 
   // The second Ticket's delta removes the first Ticket's file along the way.
@@ -241,7 +246,7 @@ test("an apply that loses another Ticket's work is caught by the proof", async (
     { path: "src/two.ts", status: "A", new_blob: second, new_mode: "100644" },
     { path: "src/one.ts", status: "D", old_blob: first, old_mode: "100644" },
   ]);
-  const r2 = await applyDelta(git, {
+  const r2 = await applyDelta(git, { custody,
     delta: d2,
     realpath,
     ref,
@@ -257,19 +262,19 @@ test("an apply that loses another Ticket's work is caught by the proof", async (
 });
 
 test("a delta that does not validate is refused at apply time", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "a\n");
   // Outside the Ticket's pathspec: approved for one place, applied to another.
   const outside = delta(base, [{ path: "docs/a.md", status: "A", new_blob: oid, new_mode: "100644" }]);
   await assert.rejects(
-    () => applyDelta(git, { delta: outside, realpath, ref, base, indexFile, message: "T-1" }),
+    () => applyDelta(git, { custody, delta: outside, realpath, ref, base, indexFile, message: "T-1" }),
     code("scope_violation"),
   );
   assert.equal(await readRef(git, ref), base.commit_oid);
 });
 
 test("an untracked file at an approved path refuses the apply and is not destroyed", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "approved\n");
   await execFileAsync("mkdir", ["-p", path.join(root, "src")]);
   await writeFile(path.join(root, "src/a.ts"), "someone's uncommitted work\n");
@@ -278,7 +283,7 @@ test("an untracked file at an approved path refuses the apply and is not destroy
   assert.ok(worktree.untracked.includes("src/a.ts"));
 
   await assert.rejects(
-    () => applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1", worktree }),
+    () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1", worktree }),
     code("untracked_collision"),
   );
   // Fail-closed, and the file is still theirs.
@@ -287,11 +292,11 @@ test("an untracked file at an approved path refuses the apply and is not destroy
 });
 
 test("an inherited Git environment is refused rather than cleaned in place", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "a\n");
   const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
   await assert.rejects(
-    () => applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1", env: { GIT_DIR: "/elsewhere/.git" } }),
+    () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1", env: { GIT_DIR: "/elsewhere/.git" } }),
     code("inherited_git_env"),
   );
   assert.throws(() => assertCleanEnvironment({ GIT_INDEX_FILE: "/tmp/x" }), code("inherited_git_env"));
@@ -300,17 +305,17 @@ test("an inherited Git environment is refused rather than cleaned in place", asy
 });
 
 test("the staging ref moving under the apply is a refusal, not a retry", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "a\n");
   const foreign = await blob(git, root, "foreign\n");
   const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
 
   // Somebody advances staging between the recorded base and the apply.
   const other = delta(base, [{ path: "src/foreign.ts", status: "A", new_blob: foreign, new_mode: "100644" }]);
-  await applyDelta(git, { delta: other, realpath, ref, base, indexFile, message: "foreign" });
+  await applyDelta(git, { custody, delta: other, realpath, ref, base, indexFile, message: "foreign" });
 
   await assert.rejects(
-    () => applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1" }),
+    () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" }),
     code("foreign_ref_movement"),
   );
 });
@@ -421,10 +426,10 @@ test("a blob that is not in the repository cannot be composed into a tree", asyn
 });
 
 test("a receipt records the phase the operation actually reached", async (t) => {
-  const { git, root, ref, base, indexFile } = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "a\n");
   const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
-  const result = await applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  const result = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" });
   const receipt = integrationReceipt(d, result);
   assert.equal(receipt.phase, "ref_advanced");
   assert.equal(receipt.staging_commit_oid, result.commit_oid);
@@ -441,12 +446,12 @@ test("an apply refuses a ref that is not an Epic's staging ref, and moves nothin
   // ADR-088. The daemon's integrateApproved is the only writer of a target
   // ref; the host's expected-old CAS moves the private staging ref and nothing
   // else. Pointed at the user's branch, the apply is refused before any write.
-  const { git, root, base, indexFile } = await repository(t);
+  const { git, root, base, indexFile, custody } = await repository(t);
   const oid = await blob(git, root, "a\n");
   const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
   for (const ref of ["refs/heads/main", "refs/autosk/epics/e-1/staging", `refs/autosk/epics/${"a".repeat(64)}/planning`]) {
     await assert.rejects(
-      () => applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1" }),
+      () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" }),
       code("cas_conflict"),
       ref,
     );
@@ -454,11 +459,13 @@ test("an apply refuses a ref that is not an Epic's staging ref, and moves nothin
   assert.equal(await readRef(git, "refs/heads/main"), base.commit_oid);
 });
 
-test("no module under src/ calls swapTarget except applyDelta", async () => {
-  // The caller inventory is the enforcement: swapTarget is the CAS mechanics
-  // integrateApproved's adapter carries, and its own tests exercise it on a
-  // branch, so a guard inside it would refuse the one thing it is tested for.
-  // What must hold is that no host code reaches it with a target ref.
+test("no module under src/ calls swapTarget, and only swapTarget runs update-ref", async () => {
+  // ADR-095 amends ADR-088. The helper writes every ref under refs/autosk/**,
+  // the staging ref included, and the daemon's integrateApproved alone moves a
+  // target ref. So no host code writes a ref: swapTarget stays the target-CAS
+  // mechanics integrateApproved's adapter carries (ADR-012) and has no caller
+  // in src/, and it is the one place under src/ that names `update-ref`. A
+  // guard inside it is still not taken: its own tests exercise it on a branch.
   const { readdir } = await import("node:fs/promises");
   const src = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "src");
   const files = [];
@@ -470,18 +477,24 @@ test("no module under src/ calls swapTarget except applyDelta", async () => {
     }
   };
   await walk(src);
+  const owner = (text, index) => [...text.slice(0, index).matchAll(/export\s+(?:async\s+)?function\s+(\w+)/gu)].at(-1)?.[1];
   const calls = [];
+  const writers = [];
   for (const file of files.sort()) {
     const text = await readFile(file, "utf8");
     for (const match of text.matchAll(/\bswapTarget\s*\(/gu)) {
-      const before = text.slice(0, match.index);
-      if (/export\s+async\s+function\s+$/u.test(before)) continue;
-      const owner = [...before.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/gu)].at(-1)?.[1];
-      calls.push(`${path.relative(src, file)}:${owner}`);
+      if (/export\s+async\s+function\s+$/u.test(text.slice(0, match.index))) continue;
+      calls.push(`${path.relative(src, file)}:${owner(text, match.index)}`);
+    }
+    // Code, not prose: a comment may name the command in backticks, an
+    // argument is a quoted string.
+    for (const match of text.matchAll(/['"]update-ref['"]/gu)) {
+      writers.push(`${path.relative(src, file)}:${owner(text, match.index)}`);
     }
   }
-  assert.deepEqual(calls, ["host/delta-driver.mjs:applyDelta"]);
-  // And only delta-driver imports it, under its own name or an alias.
+  assert.deepEqual(calls, []);
+  assert.deepEqual(writers, ["host/staging-driver.mjs:swapTarget"]);
+  // And nothing imports it, under its own name, an alias or a namespace.
   const importers = [];
   for (const file of files) {
     const text = await readFile(file, "utf8");
@@ -492,5 +505,66 @@ test("no module under src/ calls swapTarget except applyDelta", async () => {
     }
     if (/import\s*\*\s*as\s+\w+\s*from\s*['"][^'"]*staging-driver\.mjs['"]/u.test(text)) importers.push(`${path.relative(src, file)} (namespace)`);
   }
-  assert.deepEqual(importers, ["host/delta-driver.mjs"]);
+  assert.deepEqual(importers, []);
+});
+
+// --- debt 11a: the helper moves the staging ref; the host asks ---------------
+
+test("an apply advances staging by asking the helper, with the recorded base as expected old", async (t) => {
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const result = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  assert.deepEqual(JSON.parse(JSON.stringify(custody.requests.at(-1))), {
+    action: "advance_staging",
+    ref_updates: [{ operation: "update", ref, expected_old_oid: base.commit_oid, new_oid: result.commit_oid }],
+  });
+  assert.equal(await readRef(git, ref), result.commit_oid);
+  assert.equal(result.ref_movement.reflog_entries, 1);
+});
+
+test("with no helper an apply commits nothing to staging and refuses as a missing capability", async (t) => {
+  // The product default: a host with no helper does not write the staging ref
+  // itself (ADR-095); the helper is #5 implementation work.
+  const { git, root, ref, base, indexFile } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const depth = await reflogDepth(git, ref);
+  await assert.rejects(
+    () => applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1" }),
+    code("planning_ref_capability_missing"),
+  );
+  assert.equal(await readRef(git, ref), base.commit_oid);
+  assert.equal(await reflogDepth(git, ref), depth);
+});
+
+test("a staging ref the helper finds moved is reported, not overwritten", async (t) => {
+  // The helper's expected-old mismatch is the swap not happening; the result
+  // carries what the ref held, from the helper's own observation.
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const foreign = "9".repeat(40);
+  const racing = {
+    advance_staging: async (request) => ({
+      action: request.action,
+      status: "not_applied",
+      not_applied_reason: "expected_old_mismatch",
+      ref_observations: request.ref_updates.map((update) => ({
+        operation: update.operation,
+        ref: update.ref,
+        expected_old_oid: update.expected_old_oid,
+        requested_new_oid: update.new_oid,
+        observed_old_oid: foreign,
+        observed_new_oid: foreign,
+      })),
+    }),
+  };
+  const result = await applyDelta(git, { custody: racing, delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  assert.equal(result.applied, false);
+  assert.equal(result.ref_movement.observed_old_oid, foreign);
+  assert.equal(result.ref_movement.expected_old_oid, base.commit_oid);
+  assert.equal(integrationReceipt(d, result).phase, "prepared");
+  assert.equal(await readRef(git, ref), base.commit_oid);
+  assert.equal(custody.requests.length, 1);
 });

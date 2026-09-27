@@ -10,7 +10,7 @@
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" },
-    "action": { "enum": ["init", "create_keepalive", "advance_planning", "ensure_audit_ref", "delete_live_ref", "delete_expired_audit"] },
+    "action": { "enum": ["init", "create_keepalive", "advance_planning", "ensure_audit_ref", "delete_live_ref", "delete_expired_audit", "create_staging", "advance_staging", "delete_staging"] },
     "phase": { "enum": ["prepared", "precondition_committed", "delivered", "receipt_committed"] },
     "intent": {
       "type": "object", "additionalProperties": false,
@@ -41,7 +41,7 @@
     "observation": {
       "type": "object", "additionalProperties": false,
       "required": ["ref", "operation", "present", "oid", "packed_entry_absent", "reflog_checkpoint_sha256"],
-      "properties": { "ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64})$" }, "operation": { "enum": ["verify", "update", "delete"] }, "present": { "type": "boolean" }, "oid": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }] }, "packed_entry_absent": { "const": true }, "reflog_checkpoint_sha256": { "$ref": "#/$defs/sha256" } },
+      "properties": { "ref": { "type": "string", "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64}|staging)$" }, "operation": { "enum": ["verify", "update", "delete"] }, "present": { "type": "boolean" }, "oid": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }] }, "packed_entry_absent": { "const": true }, "reflog_checkpoint_sha256": { "$ref": "#/$defs/sha256" } },
       "allOf": [{ "if": { "properties": { "present": { "const": true } } }, "then": { "properties": { "oid": { "type": "string" } } } }, { "if": { "properties": { "present": { "const": false } } }, "then": { "properties": { "oid": { "type": "null" } } } }]
     }
   }

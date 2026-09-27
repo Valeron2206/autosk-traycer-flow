@@ -557,7 +557,7 @@
         "keepalive",
         "binding"
       ],
-      "injection_note": "no process is killed: the commit object is written for real, and the guard is handed a written description of the state; the harness checks the ref beside the guard",
+      "injection_note": "no process is killed: the commit object is written for real, and the guard is handed a written description of the state; the harness checks the ref beside the guard; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "proofs": [
         {
           "kind": "application_proof",
@@ -595,7 +595,7 @@
         "keepalive",
         "binding"
       ],
-      "injection_note": "no process is killed: the harness moves the planning ref itself, and the guard is handed a written description of the state; the harness checks the ref and reflog beside the guard",
+      "injection_note": "no process is killed: the harness moves the planning ref itself, and the guard is handed a written description of the state; the harness checks the ref and reflog beside the guard; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "proofs": [
         {
           "kind": "application_proof",
@@ -633,7 +633,7 @@
         "keepalive",
         "binding"
       ],
-      "injection_note": "the harness deletes the keepalive ref itself, not a second process, and the guard is handed a written description of the state",
+      "injection_note": "the harness deletes the keepalive ref itself, not a second process, and the guard is handed a written description of the state; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "proofs": [
         {
           "kind": "application_proof",
@@ -671,7 +671,7 @@
         "keepalive",
         "binding"
       ],
-      "injection_note": "no process is killed: the harness writes the audit ref itself, and the guard is handed a written description of the state",
+      "injection_note": "no process is killed: the harness writes the audit ref itself, and the guard is handed a written description of the state; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "proofs": [
         {
           "kind": "application_proof",

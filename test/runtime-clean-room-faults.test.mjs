@@ -96,9 +96,9 @@ test("each case records the ref-writing git commands it ran, fixture and fault a
     F020: [fault.F020[0], fault.F020[1]],
   });
   assert.match(fault.F018[0], /^update-ref --create-reflog refs\/autosk\/epics\/[^ ]+\/planning$/u);
-  assert.match(fault.F019[0], /^update-ref -d refs\/autosk\/epics\/[^ ]+\/candidate$/u);
-  assert.match(fault.F020[0], /^update-ref --create-reflog refs\/autosk\/epics\/[^ ]+\/audit$/u);
-  assert.match(fault.F020[1], /^update-ref -d refs\/autosk\/epics\/[^ ]+\/candidate$/u);
+  assert.match(fault.F019[0], /^update-ref -d refs\/autosk\/epics\/[0-9a-f]{64}\/candidates\/[0-9a-f]{64}$/u);
+  assert.match(fault.F020[0], /^update-ref --create-reflog refs\/autosk\/epics\/[0-9a-f]{64}\/audit\/candidates\/[0-9a-f]{64}$/u);
+  assert.match(fault.F020[1], /^update-ref -d refs\/autosk\/epics\/[0-9a-f]{64}\/candidates\/[0-9a-f]{64}$/u);
   // Fixture setup is recorded too, and no OID leaks into a command.
   const fixture = Object.fromEntries(report.results.map((entry) => [entry.id, entry.git_ref_writes.fixture]));
   assert.deepEqual(fixture.F005, []);
@@ -155,4 +155,29 @@ test("a direct git call outside the recorder only reads", async () => {
   const recorder = [...source.matchAll(/execFileAsync\('git', args, \{/gu)].length;
   assert.equal(recorder, 1);
   assert.equal([...source.matchAll(/execFileAsync\('git'/gu)].length, direct.length + recorder);
+});
+
+test("every ref the harness writes under refs/autosk/** is one the helper's grammar has (R7-22)", async () => {
+  // Round 7 of #39, R7-22: F017-F020 wrote `.../candidate` and `.../audit`,
+  // names the helper's closed grammar never creates, so those rows were
+  // evidence about refs the design does not have. The harness's own git
+  // stands where the helper would write (the helper is #5 work); the names it
+  // writes are the helper's.
+  const { PROTECTED_REF } = await import("../src/host/ref-custody.mjs");
+  const written = new Set();
+  for (const entry of report.results) {
+    for (const command of [...entry.git_ref_writes.fixture, ...entry.git_ref_writes.fault]) {
+      for (const ref of command.split(" ").filter((part) => part.startsWith("refs/autosk/"))) written.add(ref);
+    }
+  }
+  assert.ok(written.size >= 4, [...written].join(", "));
+  for (const ref of written) assert.ok(PROTECTED_REF.test(ref), ref);
+  for (const kind of ["planning", "staging", "candidates/", "audit/candidates/"]) {
+    assert.ok([...written].some((ref) => ref.includes(`/${kind}`)), kind);
+  }
+  // And the matrix says why the harness, not the helper, writes them.
+  for (const id of ["F017", "F018", "F019", "F020"]) {
+    const group = matrix.groups.find((entry) => entry.id === id);
+    assert.match(group.injection_note, /stands in for the ref-custody helper/u, id);
+  }
 });

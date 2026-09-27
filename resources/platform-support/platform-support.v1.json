@@ -160,6 +160,44 @@
     "setuid_allowed": false,
     "setgid_allowed": false,
     "world_writable_install_allowed": false,
-    "digest_bound_to_runtime_identity": true
+    "digest_bound_to_runtime_identity": true,
+    "ref_custody_service": {
+      "component": "autosk-flow-ref-custody",
+      "source": "src/git/ref-custody-helper.ts",
+      "owner_issues": [
+        5,
+        13
+      ],
+      "runs_as": "dedicated_service_account",
+      "runs_as_installing_user": false,
+      "service_managers": [
+        "launchd",
+        "systemd"
+      ],
+      "peer_credential_apis": [
+        "getpeereid",
+        "SO_PEERCRED"
+      ],
+      "socket_accepts": "autoskd_capability_only",
+      "protected_ref_writer": "autosk-flow-ref-custody",
+      "git_directory_writers": [
+        "autosk-flow-ref-custody",
+        "autoskd"
+      ],
+      "user_account_git_writes": false,
+      "privileged_install": {
+        "requires_administrator": true,
+        "setuid_helper": false,
+        "effects": [
+          "creates the dedicated service account and registers the helper with launchd or systemd",
+          "makes the canonical project common Git directory the service-owned single object and ref database",
+          "gives every worktree a service-managed per-worktree Git directory behind a read-only gitfile and commondir link",
+          "makes every ancestor of the common Git directory root- or helper-owned and records their identities",
+          "migrates protected packed refs to loose form and pins gc.packRefs=false",
+          "records the bootstrap receipt bound into the ref-custody policy digest"
+        ]
+      },
+      "identity_pinned_by": "ref_custody_policy_digest"
+    }
   }
 }

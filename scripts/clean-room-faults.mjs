@@ -22,6 +22,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, realpath as osRealpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -498,9 +499,17 @@ function acceptedState({ head, staging }) {
 }
 
 
-/** The planning ref a publication advances, and its keepalive. */
+/**
+ * The planning ref a publication advances, its live candidate keepalive and
+ * that candidate's audit copy — named as the ref-custody helper's grammar
+ * names them (`candidates/<candidate_identity>`, `audit/candidates/<...>`), so
+ * the refs these cases write are refs the design has (round 7 of #39, R7-22).
+ * The harness's own git stands in for the helper, which is #5 work.
+ */
+const CANDIDATE_IDENTITY = createHash('sha256').update('autosk-flow/clean-room/candidate').digest('hex');
 const PLANNING_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/planning`;
-const KEEPALIVE_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/candidate`;
+const KEEPALIVE_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/candidates/${CANDIDATE_IDENTITY}`;
+const AUDIT_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/audit/candidates/${CANDIDATE_IDENTITY}`;
 
 /**
  * A real planning ref with a real candidate keepalive.
@@ -646,7 +655,7 @@ async function f019(root) {
  */
 async function f020(root) {
   const { repo, head } = await planningRepo(root, 'f020');
-  const audit = `refs/autosk/epics/${CLEAN_ROOM_KEY}/audit`;
+  const audit = AUDIT_REF;
   await git(repo, 'update-ref', '--create-reflog', audit, head);
   const bothPresent = (await refState(repo, audit, head)) && (await refState(repo, KEEPALIVE_REF, head));
   const decision = publicationDecision({

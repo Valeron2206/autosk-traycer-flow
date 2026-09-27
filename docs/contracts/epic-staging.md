@@ -31,7 +31,16 @@ Staging is first created at the verified `planning_head`, which descends from `p
 
 Re-staging — after `target_moved`, after `foreign_target_movement`, or after a PR or merge-queue delivery that is not merged while the target moved (`completion_predicate_unmet`) — rebuilds the line on the moved target. The staging record's `recorded_target_base` is re-recorded as the new target; the staging ref is rebuilt: `cleanupStaging` deletes it with the recorded staging OID as its expected value, and `createStaging` creates it at the new base. Its first commit is exactly one planning replay commit: its tree is the planning change (`planning.base_oid` → `planning_head`) applied onto the new base with pre-image revalidation, its single parent is the new `recorded_target_base`, and a durable planning-replay receipt binds it — `planning.base_oid`, `planning_head`, the change digest, the new base, and the replay commit and tree. Then every approved delta is re-applied with revalidation, and the prior aggregate PASS and acceptance are void. A planning change that does not apply to the new base parks `delta_stale`, and in v1 the only exits are cancel (a separate status operation) or a new Epic plan. The receipt's closed schema is implementation work under #9; the staging record carries `planning_base_oid` and, once re-staged, the receipt's digest as `planning_replay_receipt_sha256`, which the validator requires exactly when `recorded_target_base` differs from `planning_base_oid` (ADR-089). A re-stage is subject to `crossEpicErrors` (`src/host/staging-lineage.mjs`) like any staging line, and re-stages are serialized per target: when two unintegrated Epics on one target would re-record the same new base, the second waits until the first lands and then re-stages onto its result, so no two open lines share a `recorded_target_base` and none is staged from inside another's unintegrated lineage.
 
-The daemon's `integrateApproved` is the only writer of the target ref. The host's `swapTarget` is the expected-old CAS mechanics that adapter carries; in the host it has one caller, `applyDelta`, which moves only the private staging ref and refuses any other.
+The ref-custody helper writes every ref under `refs/autosk/**`, the staging ref included; the host only asks it, and the daemon's `integrateApproved` alone moves the target ref. The staging ref has three actions in the helper's closed protocol (`docs/contracts/epic-planning-ref.md`, ADR-095): `create_staging` creates it at an expected-absent ref, `advance_staging` moves it from an expected old commit to a new one, and `delete_staging` removes it by expected OID. The host forms each request through `askCustody` (`src/host/ref-custody.mjs`): `createStaging`, `applyDelta` and `cleanupStaging` hand it the one ref update their action carries, and `applyDelta` refuses any ref but the staging ref before it asks. The daemon's `integrateApproved` is the only writer of the target ref; the host's `swapTarget` stays the expected-old CAS mechanics that adapter carries, and no host code calls it. A product host with no helper refuses every such request (`planning_ref_capability_missing`) rather than write the ref itself.
+
+How the helper's answers are read:
+
+- `create_staging` refused with `expected_old_mismatch`: the ref exists; at the same base it is the retry of a create that already happened, at another commit it is `cas_conflict`, and nothing is overwritten;
+- `advance_staging` refused with `expected_old_mismatch`: the apply did not happen, `applied` is false and its receipt stays `prepared`, and the result reports what the ref held; a staging ref not at the recorded base before the apply asks is `foreign_ref_movement`;
+- `delete_staging` refused with `expected_old_mismatch`: cleanup keeps the ref and reports `staging_moved_after_pass` with what it holds;
+- any refusal for a capability reason (`packed_refs_drift`, `authorization_invalid`), no helper for the action, or an answer that does not answer the request: `planning_ref_capability_missing`, as for the helper's other actions. The flow parks it at `apply_staging` or `cleanup` and resumes into the same step; a project with no proven custody install parks `ref_custody_unavailable` at project open first (`platform-support.md` §5a, #13's obligation).
+
+A request the host cannot form — a ref outside the action's grammar, a missing keepalive, an absent or present value the action does not allow, an advance to the commit the ref already holds, two Epics or two object formats in one request — is refused before the helper is asked, as `cas_conflict`: like a staging ref not named by the Epic ref key (ADR-087), it is a request on which no expected-old CAS can be made, and no other code of this contract says that.
 
 Moving the target once per Ticket looks simpler and is not: two Tickets that are individually green can regress together, and by the time the second one is integrated the first is already on the user's branch. Aggregate verification exists because *individually green* is not a property of the set.
 
@@ -39,7 +48,7 @@ The closed JSON Schema is `resources/epic-staging/epic-staging.schema.json`.
 
 ## 2. Boundaries
 
-Issue #7 supplies the execution base, #8 the approved delta and its integration receipts, #17 says whether the target may be moved directly at all and by whom, #5 supplies `planning_head`, #6 the Tickets. This contract owns the staging ref, the aggregate binding, the acceptance record and the single final CAS.
+Issue #7 supplies the execution base, #8 the approved delta and its integration receipts, #17 says whether the target may be moved directly at all and by whom, #5 supplies `planning_head` and the ref-custody helper that writes the staging ref, #6 the Tickets. This contract owns the staging ref's lifecycle, the aggregate binding, the acceptance record and the single final CAS.
 
 ## 3. Invariants
 
@@ -100,7 +109,7 @@ What the CAS writes is set by the mode (`docs/contracts/delivery-profile.md` §6
 
 After the swap: the target OID is read back and must be the move's commit (the staging commit or the squash commit), its tree must be the accepted tree, containment of the recorded result is checked, and the reflog entry is confirmed. A CAS that reported success is not evidence that the ref holds what was intended.
 
-The compare-and-swap is git's own. `update-ref <ref> <new> <old>` fails if the ref does not hold `<old>` at write time; reading the ref and then writing it leaves exactly the window this contract exists to close, and passes every test that does not race. The driver therefore never reads to decide whether to write — it writes with the expected old value and reports what happened. The same holds for creating the staging ref (an old value of the empty string means *must not exist*) and for deleting it (an expected OID, so cleanup cannot destroy a staging ref that moved after the aggregate passed).
+The compare-and-swap is git's own. `update-ref <ref> <new> <old>` fails if the ref does not hold `<old>` at write time; reading the ref and then writing it leaves exactly the window this contract exists to close, and passes every test that does not race. The writer therefore never reads to decide whether to write — it writes with the expected old value and reports what happened. That holds for the daemon's target CAS and for the helper's staging actions alike: creating the staging ref is an update at an expected-absent ref, advancing it carries the recorded base as expected old, and deleting it carries an expected OID, so cleanup cannot destroy a staging ref that moved after the aggregate passed.
 
 The reflog check is a delta, not a total. A long-lived branch has a long reflog and that says nothing about this operation; what the invariant asks is whether the ref moved once during the window, which is the depth now minus the depth before.
 
@@ -128,7 +137,8 @@ In the workflow graph, `aggregate_failed` is the one class with no park reason o
 - cleanup before and after retention;
 - a squash-merged and a rebase-merged PR each complete delivery, and a delivered tree other than the accepted one does not;
 - a target movement re-staged onto the moved target, with a planning change or a delta that no longer applies parking `delta_stale`;
-- planning artifacts and approved code both present in the final staging tree.
+- planning artifacts and approved code both present in the final staging tree;
+- a direct write to the staging ref from the extension, model or project account fails, and every create, advance and delete goes through the helper's staging actions (`epic-planning-ref.md` obligation 39).
 
 ## 10. Acceptance mapping
 

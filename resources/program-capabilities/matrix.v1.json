@@ -107,7 +107,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify commit-on-PASS, CAS publication, foreign movement, recovery phases and retention in the design candidate.",
-      "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root.",
+      "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root; ship the `autosk-flow-ref-custody` helper (src/git/ref-custody-helper.ts, its client and the closed nine-action protocol, the Epic staging actions included) as the only writer of refs/autosk/**, which the host asks and never bypasses.",
       "release_blocking": true,
       "dependencies": [
         3,
@@ -380,7 +380,7 @@
       "owner": "autosk-flow filesystem maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Choose and document helper/addon strategy, threat model, API, packaging identity, capability matrix and residual risks.",
-      "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible.",
+      "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible, and the privileged install that runs `autosk-flow-ref-custody` under a dedicated service account, gives it the project's common Git directory and leaves the user's account no direct write to the project's .git (platform-support.md §5a).",
       "release_blocking": true,
       "dependencies": [
         10
@@ -1436,5 +1436,5 @@
       "delivery": "compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified"
     }
   ],
-  "canonical_digest": "bb76c12ab83305c88ac56052da06b5196d59f9f70a6d69280a3cb6473c8ae380"
+  "canonical_digest": "379ce55d3b70c7a7a749f013a07359a57552ff12d5fdeb31c69efb2a5da2a1ca"
 }

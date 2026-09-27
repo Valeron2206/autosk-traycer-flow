@@ -14,8 +14,8 @@
     },
     "actions": {
       "type": "array",
-      "minItems": 6,
-      "maxItems": 6,
+      "minItems": 9,
+      "maxItems": 9,
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/action_contract"
@@ -51,7 +51,10 @@
             "advance_planning",
             "ensure_audit_ref",
             "delete_live_ref",
-            "delete_expired_audit"
+            "delete_expired_audit",
+            "create_staging",
+            "advance_staging",
+            "delete_staging"
           ]
         },
         "request_required": {
@@ -197,6 +200,54 @@
             },
             "receipt_domain": {
               "const": "autosk-flow/ref-custody/delete_expired_audit/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "create_staging"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/create_staging/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/create_staging/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/create_staging/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "advance_staging"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/advance_staging/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/advance_staging/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/advance_staging/receipt-shape/v1\u0000"
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "delete_staging"
+            },
+            "request_domain": {
+              "const": "autosk-flow/ref-custody/delete_staging/request-shape/v1\u0000"
+            },
+            "observation_domain": {
+              "const": "autosk-flow/ref-custody/delete_staging/response-shape/v1\u0000"
+            },
+            "receipt_domain": {
+              "const": "autosk-flow/ref-custody/delete_staging/receipt-shape/v1\u0000"
             }
           }
         }

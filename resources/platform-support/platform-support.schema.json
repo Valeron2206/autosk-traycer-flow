@@ -149,7 +149,8 @@
         "setuid_allowed",
         "setgid_allowed",
         "world_writable_install_allowed",
-        "digest_bound_to_runtime_identity"
+        "digest_bound_to_runtime_identity",
+        "ref_custody_service"
       ],
       "properties": {
         "binaries": {
@@ -172,6 +173,116 @@
         },
         "digest_bound_to_runtime_identity": {
           "const": true
+        },
+        "ref_custody_service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "component",
+            "source",
+            "owner_issues",
+            "runs_as",
+            "runs_as_installing_user",
+            "service_managers",
+            "peer_credential_apis",
+            "socket_accepts",
+            "protected_ref_writer",
+            "git_directory_writers",
+            "user_account_git_writes",
+            "privileged_install",
+            "identity_pinned_by"
+          ],
+          "properties": {
+            "component": {
+              "const": "autosk-flow-ref-custody"
+            },
+            "source": {
+              "const": "src/git/ref-custody-helper.ts"
+            },
+            "owner_issues": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 3,
+                "maximum": 39
+              }
+            },
+            "runs_as": {
+              "const": "dedicated_service_account"
+            },
+            "runs_as_installing_user": {
+              "const": false
+            },
+            "service_managers": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "launchd",
+                  "systemd"
+                ]
+              }
+            },
+            "peer_credential_apis": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "getpeereid",
+                  "SO_PEERCRED"
+                ]
+              }
+            },
+            "socket_accepts": {
+              "const": "autoskd_capability_only"
+            },
+            "protected_ref_writer": {
+              "const": "autosk-flow-ref-custody"
+            },
+            "git_directory_writers": {
+              "const": [
+                "autosk-flow-ref-custody",
+                "autoskd"
+              ]
+            },
+            "user_account_git_writes": {
+              "const": false
+            },
+            "privileged_install": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "requires_administrator",
+                "setuid_helper",
+                "effects"
+              ],
+              "properties": {
+                "requires_administrator": {
+                  "const": true
+                },
+                "setuid_helper": {
+                  "const": false
+                },
+                "effects": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            },
+            "identity_pinned_by": {
+              "const": "ref_custody_policy_digest"
+            }
+          }
         }
       }
     }

@@ -58,7 +58,10 @@
         "advance_planning",
         "ensure_audit_ref",
         "delete_live_ref",
-        "delete_expired_audit"
+        "delete_expired_audit",
+        "create_staging",
+        "advance_staging",
+        "delete_staging"
       ]
     },
     "reflog_producer": {
@@ -135,7 +138,7 @@
         },
         "ref": {
           "type": "string",
-          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64})$"
+          "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64}|staging)$"
         },
         "expected_old_oid": {
           "$ref": "#/$defs/oid_or_null"
@@ -1009,12 +1012,105 @@
               }
             }
           }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "create_staging"
+            },
+            "request": {
+              "properties": {
+                "action": {
+                  "const": "create_staging"
+                },
+                "candidate_identity": {
+                  "type": "null"
+                }
+              }
+            },
+            "response": {
+              "properties": {
+                "action": {
+                  "const": "create_staging"
+                }
+              }
+            },
+            "journal": {
+              "properties": {
+                "action": {
+                  "const": "create_staging"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "advance_staging"
+            },
+            "request": {
+              "properties": {
+                "action": {
+                  "const": "advance_staging"
+                },
+                "candidate_identity": {
+                  "type": "null"
+                }
+              }
+            },
+            "response": {
+              "properties": {
+                "action": {
+                  "const": "advance_staging"
+                }
+              }
+            },
+            "journal": {
+              "properties": {
+                "action": {
+                  "const": "advance_staging"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "delete_staging"
+            },
+            "request": {
+              "properties": {
+                "action": {
+                  "const": "delete_staging"
+                },
+                "candidate_identity": {
+                  "type": "null"
+                }
+              }
+            },
+            "response": {
+              "properties": {
+                "action": {
+                  "const": "delete_staging"
+                }
+              }
+            },
+            "journal": {
+              "properties": {
+                "action": {
+                  "const": "delete_staging"
+                }
+              }
+            }
+          }
         }
       ]
     },
     "protected_ref": {
       "type": "string",
-      "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64})$"
+      "pattern": "^refs/autosk/epics/[0-9a-f]{64}/(?:planning|candidates/[0-9a-f]{64}|audit/candidates/[0-9a-f]{64}|staging)$"
     }
   }
 }

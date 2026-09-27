@@ -1,0 +1,359 @@
+/**
+ * Tests for asking the ref-custody helper to write under `refs/autosk/**`
+ * (debt 11a, ADR-095).
+ *
+ * The host writes no ref there itself. It forms the one request an action of
+ * the helper's closed protocol carries, hands it to a client, and reads the
+ * answer against the request it made. These tests use hand-written clients, so
+ * every way a request or an answer can be wrong is one assertion; the drivers'
+ * own tests run the git-backed client of `test/support/git-ref-custody.mjs`.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  HOST_REF_CUSTODY_ACTIONS,
+  NO_REF_CUSTODY,
+  PROTECTED_REF,
+  REF_CUSTODY_ACTIONS,
+  askCustody,
+} from "../src/host/ref-custody.mjs";
+
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const read = (relative) => JSON.parse(readFileSync(path.join(ROOT, relative), "utf8"));
+const code = (name) => (error) => error.code === name;
+
+const KEY = "a916c907fd14e54bfb1f3591a573675ccb1fdfeb49a8875c3c10c6bc00c5fb37";
+const OTHER_KEY = "b".repeat(64);
+const CANDIDATE = "c".repeat(64);
+const STAGING = `refs/autosk/epics/${KEY}/staging`;
+const PLANNING = `refs/autosk/epics/${KEY}/planning`;
+const LIVE = `refs/autosk/epics/${KEY}/candidates/${CANDIDATE}`;
+const A = "1".repeat(40);
+const B = "2".repeat(40);
+const C = "3".repeat(40);
+
+/** A client that answers every action with `respond(request)`, and remembers what it was asked. */
+function client(respond) {
+  const asked = [];
+  const handler = async (request) => {
+    asked.push(request);
+    return respond(request);
+  };
+  return {
+    asked,
+    custody: Object.fromEntries(HOST_REF_CUSTODY_ACTIONS.map((action) => [action, handler])),
+  };
+}
+
+/** The committed answer the helper gives when every expected old value held. */
+function committed(request) {
+  return {
+    action: request.action,
+    status: "committed",
+    not_applied_reason: null,
+    ref_observations: request.ref_updates.map((update) => ({
+      operation: update.operation,
+      ref: update.ref,
+      expected_old_oid: update.expected_old_oid,
+      requested_new_oid: update.new_oid,
+      observed_old_oid: update.expected_old_oid,
+      observed_new_oid: update.operation === "delete" ? null : update.new_oid,
+    })),
+  };
+}
+
+/** The refusal the helper gives when a ref did not hold its expected old value. */
+function mismatch(request, held = C) {
+  return {
+    action: request.action,
+    status: "not_applied",
+    not_applied_reason: "expected_old_mismatch",
+    ref_observations: request.ref_updates.map((update) => ({
+      operation: update.operation,
+      ref: update.ref,
+      expected_old_oid: update.expected_old_oid,
+      requested_new_oid: update.new_oid,
+      observed_old_oid: held,
+      observed_new_oid: held,
+    })),
+  };
+}
+
+const advance = [{ operation: "update", ref: STAGING, expected_old_oid: A, new_oid: B }];
+
+/** A well-formed request for each host action. */
+const VALID = {
+  init: [{ operation: "update", ref: PLANNING, expected_old_oid: null, new_oid: A }],
+  advance_planning: [
+    { operation: "verify", ref: LIVE, expected_old_oid: C, new_oid: C },
+    { operation: "update", ref: PLANNING, expected_old_oid: A, new_oid: B },
+  ],
+  create_staging: [{ operation: "update", ref: STAGING, expected_old_oid: null, new_oid: A }],
+  advance_staging: advance,
+  delete_staging: [{ operation: "delete", ref: STAGING, expected_old_oid: A, new_oid: null }],
+};
+
+test("the roster is the helper's closed protocol, and the host asks for five of its actions", () => {
+  const wire = read("resources/planning-publication/ref-custody-helper-wire.schema.json");
+  const intents = read("resources/planning-publication/ref-custody-helper-intents.schema.json");
+  const contract = read("resources/planning-publication/ref-custody-helper-contract.example.json");
+  assert.deepEqual([...REF_CUSTODY_ACTIONS], wire.$defs.action.enum);
+  assert.deepEqual([...REF_CUSTODY_ACTIONS], intents.$defs.action.enum);
+  assert.deepEqual([...REF_CUSTODY_ACTIONS], contract.actions.map((entry) => entry.action));
+  assert.deepEqual([...HOST_REF_CUSTODY_ACTIONS], ["init", "advance_planning", "create_staging", "advance_staging", "delete_staging"]);
+  for (const action of HOST_REF_CUSTODY_ACTIONS) assert.ok(REF_CUSTODY_ACTIONS.includes(action), action);
+});
+
+test("the ref grammar is the helper's, staging included, in every schema that names it", () => {
+  const wire = read("resources/planning-publication/ref-custody-helper-wire.schema.json");
+  const intents = read("resources/planning-publication/ref-custody-helper-intents.schema.json");
+  // A RegExp's source escapes `/`; the schemas' patterns do not need to.
+  const same = (pattern) => new RegExp(pattern, "u").source;
+  assert.equal(PROTECTED_REF.source, same(wire.$defs.protected_ref.pattern));
+  assert.equal(PROTECTED_REF.source, same(wire.$defs.ref_update.properties.ref.pattern));
+  assert.equal(PROTECTED_REF.source, same(intents.$defs.observation.properties.ref.pattern));
+  for (const ref of [PLANNING, LIVE, `refs/autosk/epics/${KEY}/audit/candidates/${CANDIDATE}`, STAGING]) {
+    assert.ok(PROTECTED_REF.test(ref), ref);
+  }
+  for (const ref of [
+    "refs/heads/main",
+    `refs/autosk/epics/${KEY}/candidate`,
+    `refs/autosk/epics/${KEY}/audit`,
+    "refs/autosk/epics/e-1/staging",
+    "refs/autosk/planning/e-1",
+    `refs/autosk/epics/${KEY}/staging/x`,
+  ]) {
+    assert.equal(PROTECTED_REF.test(ref), false, ref);
+  }
+});
+
+test("with no helper, every action is refused as a missing capability and nothing is asked", async () => {
+  // The product default: the helper is #5 implementation work, and a host
+  // with no helper does not fall back to writing the ref itself.
+  assert.deepEqual(Object.keys(VALID), [...HOST_REF_CUSTODY_ACTIONS]);
+  for (const action of HOST_REF_CUSTODY_ACTIONS) {
+    await assert.rejects(() => askCustody(NO_REF_CUSTODY, action, VALID[action]), code("planning_ref_capability_missing"), action);
+  }
+  await assert.rejects(() => askCustody(undefined, "advance_staging", advance), code("planning_ref_capability_missing"));
+  await assert.rejects(() => askCustody(null, "advance_staging", advance), code("planning_ref_capability_missing"));
+  // A client that has other actions but not this one is no helper for it.
+  const partial = { create_staging: async () => { throw new Error("must not be asked"); } };
+  await assert.rejects(() => askCustody(partial, "advance_staging", advance), code("planning_ref_capability_missing"));
+  assert.equal(Object.isFrozen(NO_REF_CUSTODY), true);
+  assert.deepEqual(Object.keys(NO_REF_CUSTODY), []);
+});
+
+test("the request the client receives is exactly the action and its ref updates, frozen", async () => {
+  const { asked, custody } = client(committed);
+  const answer = await askCustody(custody, "advance_staging", advance);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(asked[0])), { action: "advance_staging", ref_updates: advance });
+  assert.equal(Object.isFrozen(asked[0]), true);
+  assert.equal(Object.isFrozen(asked[0].ref_updates[0]), true);
+  assert.equal(answer.status, "committed");
+  assert.equal(answer.not_applied_reason, null);
+  assert.equal(answer.ref_observations[0].observed_new_oid, B);
+});
+
+test("each host action carries exactly the ref updates the helper's protocol gives it", async () => {
+  const { custody } = client(committed);
+  for (const [action, updates] of Object.entries(VALID)) {
+    const answer = await askCustody(custody, action, updates);
+    assert.equal(answer.status, "committed", action);
+  }
+  // SHA-256 object format, one width throughout, is the same request.
+  const wide = [{ operation: "update", ref: STAGING, expected_old_oid: "1".repeat(64), new_oid: "2".repeat(64) }];
+  assert.equal((await askCustody(custody, "advance_staging", wide)).status, "committed");
+});
+
+test("a request the helper's protocol does not have is refused before the client is asked", async () => {
+  const { asked, custody } = client(committed);
+  const refused = [
+    // An action the host does not ask for, and one that does not exist.
+    ["ensure_audit_ref", advance],
+    ["swap_target", advance],
+    ["toString", advance],
+    // Not a list, or the wrong number of updates.
+    ["advance_staging", undefined],
+    ["advance_staging", []],
+    ["advance_staging", [...advance, ...advance]],
+    // The wrong operation for the action.
+    ["advance_staging", [{ ...advance[0], operation: "delete" }]],
+    ["delete_staging", [{ operation: "update", ref: STAGING, expected_old_oid: A, new_oid: null }]],
+    // A ref outside the grammar, and a grammar ref of the wrong kind.
+    ["advance_staging", [{ ...advance[0], ref: "refs/heads/main" }]],
+    ["advance_staging", [{ ...advance[0], ref: "refs/autosk/epics/e-1/staging" }]],
+    ["advance_staging", [{ ...advance[0], ref: PLANNING }]],
+    ["init", [{ operation: "update", ref: STAGING, expected_old_oid: null, new_oid: A }]],
+    ["advance_planning", [
+      { operation: "verify", ref: PLANNING, expected_old_oid: C, new_oid: C },
+      { operation: "update", ref: PLANNING, expected_old_oid: A, new_oid: B },
+    ]],
+    // Two Epics in one request.
+    ["advance_planning", [
+      { operation: "verify", ref: `refs/autosk/epics/${OTHER_KEY}/candidates/${CANDIDATE}`, expected_old_oid: C, new_oid: C },
+      { operation: "update", ref: PLANNING, expected_old_oid: A, new_oid: B },
+    ]],
+    // Expected-absent and expected-present values the wrong way round.
+    ["create_staging", [{ operation: "update", ref: STAGING, expected_old_oid: A, new_oid: B }]],
+    ["advance_staging", [{ ...advance[0], expected_old_oid: null }]],
+    ["delete_staging", [{ operation: "delete", ref: STAGING, expected_old_oid: null, new_oid: null }]],
+    ["delete_staging", [{ operation: "delete", ref: STAGING, expected_old_oid: A, new_oid: B }]],
+    ["create_staging", [{ operation: "update", ref: STAGING, expected_old_oid: null, new_oid: null }]],
+    // A verify that would move the ref.
+    ["advance_planning", [
+      { operation: "verify", ref: LIVE, expected_old_oid: C, new_oid: B },
+      { operation: "update", ref: PLANNING, expected_old_oid: A, new_oid: B },
+    ]],
+    // Something that is not an OID, and two object formats in one request.
+    ["advance_staging", [{ ...advance[0], new_oid: "HEAD" }]],
+    ["advance_staging", [{ ...advance[0], expected_old_oid: "1".repeat(39) }]],
+    ["advance_staging", [{ ...advance[0], new_oid: "2".repeat(64) }]],
+    // An update that is not a plain record.
+    ["advance_staging", [null]],
+    ["advance_staging", ["update"]],
+  ];
+  for (const [action, updates] of refused) {
+    await assert.rejects(() => askCustody(custody, action, updates), code("cas_conflict"), `${action} ${JSON.stringify(updates)}`);
+  }
+  assert.equal(asked.length, 0);
+});
+
+test("an expected-old mismatch is an answer the caller reads, with what the ref holds", async () => {
+  const { custody } = client((request) => mismatch(request));
+  const answer = await askCustody(custody, "advance_staging", advance);
+  assert.equal(answer.status, "not_applied");
+  assert.equal(answer.not_applied_reason, "expected_old_mismatch");
+  assert.equal(answer.ref_observations[0].observed_old_oid, C);
+  assert.equal(Object.isFrozen(answer), true);
+  // An absent ref is an observation too.
+  const absent = await askCustody(client((request) => mismatch(request, null)).custody, "advance_staging", advance);
+  assert.equal(absent.ref_observations[0].observed_old_oid, null);
+});
+
+test("a helper refusing for a capability reason is a missing capability, not a movement", async () => {
+  // epic-planning-ref.md: `packed_refs_drift` and `authorization_invalid` map
+  // to `planning_ref_capability_missing`, whatever the action — even when the
+  // refs it observed did move, so the reason alone decides.
+  for (const reason of ["packed_refs_drift", "authorization_invalid"]) {
+    const { custody } = client((request) => ({ ...mismatch(request), not_applied_reason: reason }));
+    await assert.rejects(() => askCustody(custody, "advance_staging", advance), code("planning_ref_capability_missing"), reason);
+  }
+});
+
+test("an answer that does not answer the request is a missing capability", async () => {
+  const wrong = [
+    ["no answer", () => undefined],
+    ["another action", (request) => ({ ...committed(request), action: "create_staging" })],
+    ["unknown status", (request) => ({ ...committed(request), status: "done" })],
+    ["committed with a reason", (request) => ({ ...committed(request), not_applied_reason: "expected_old_mismatch" })],
+    ["refused without a reason", (request) => ({ ...mismatch(request), not_applied_reason: null })],
+    ["refused for a reason the protocol does not have", (request) => ({ ...mismatch(request), not_applied_reason: "busy" })],
+    ["no observations", (request) => ({ ...committed(request), ref_observations: undefined })],
+    ["too many observations", (request) => ({ ...committed(request), ref_observations: [...committed(request).ref_observations, ...committed(request).ref_observations] })],
+    ["too few observations", (request) => ({ ...committed(request), ref_observations: [] })],
+    ["an observation that is not a record", (request) => ({ ...committed(request), ref_observations: [null] })],
+    ["another operation", (request) => {
+      const answer = committed(request);
+      answer.ref_observations[0].operation = "verify";
+      return answer;
+    }],
+    ["another ref", (request) => {
+      const answer = committed(request);
+      answer.ref_observations[0].ref = PLANNING;
+      return answer;
+    }],
+    ["another expected old value", (request) => {
+      const answer = committed(request);
+      answer.ref_observations[0].expected_old_oid = C;
+      return answer;
+    }],
+    ["another requested value", (request) => {
+      const answer = committed(request);
+      answer.ref_observations[0].requested_new_oid = C;
+      return answer;
+    }],
+    ["committed from another old value", (request) => {
+      const answer = committed(request);
+      answer.ref_observations[0].observed_old_oid = C;
+      return answer;
+    }],
+    ["committed to another value", (request) => {
+      const answer = committed(request);
+      answer.ref_observations[0].observed_new_oid = C;
+      return answer;
+    }],
+    ["refused but moved", (request) => {
+      const answer = mismatch(request);
+      answer.ref_observations[0].observed_new_oid = B;
+      return answer;
+    }],
+    ["an observed value that is not an OID", (request) => {
+      const answer = mismatch(request);
+      answer.ref_observations[0].observed_old_oid = "HEAD";
+      answer.ref_observations[0].observed_new_oid = "HEAD";
+      return answer;
+    }],
+  ];
+  for (const [label, respond] of wrong) {
+    const { custody } = client(respond);
+    await assert.rejects(() => askCustody(custody, "advance_staging", advance), code("planning_ref_capability_missing"), label);
+  }
+});
+
+test("a committed delete observes the ref gone, and a committed verify observes it unmoved", async () => {
+  const del = [{ operation: "delete", ref: STAGING, expected_old_oid: A, new_oid: null }];
+  const gone = await askCustody(client(committed).custody, "delete_staging", del);
+  assert.equal(gone.ref_observations[0].observed_new_oid, null);
+  const kept = (request) => {
+    const answer = committed(request);
+    answer.ref_observations[0].observed_new_oid = A;
+    return answer;
+  };
+  await assert.rejects(() => askCustody(client(kept).custody, "delete_staging", del), code("planning_ref_capability_missing"));
+  const verify = [
+    { operation: "verify", ref: LIVE, expected_old_oid: C, new_oid: C },
+    { operation: "update", ref: PLANNING, expected_old_oid: A, new_oid: B },
+  ];
+  const answer = await askCustody(client(committed).custody, "advance_planning", verify);
+  assert.equal(answer.ref_observations[0].observed_new_oid, C);
+  assert.equal(answer.ref_observations[1].observed_new_oid, B);
+});
+
+// --- debt 11a review -----------------------------------------------------------
+
+test("an expected-old mismatch names a ref that did not hold its expected value (review L1)", async () => {
+  // A refusal whose every observation says the ref held exactly what was
+  // expected is not a mismatch the helper could have seen.
+  const lying = (request) => mismatch(request, request.ref_updates[0].expected_old_oid);
+  await assert.rejects(() => askCustody(client(lying).custody, "advance_staging", advance), code("planning_ref_capability_missing"));
+  // For advance_planning one differing ref is enough: the keepalive moved.
+  const keepaliveMoved = (request) => {
+    const answer = mismatch(request);
+    answer.ref_observations[0].observed_old_oid = B;
+    answer.ref_observations[0].observed_new_oid = B;
+    answer.ref_observations[1].observed_old_oid = A;
+    answer.ref_observations[1].observed_new_oid = A;
+    return answer;
+  };
+  const answer = await askCustody(client(keepaliveMoved).custody, "advance_planning", VALID.advance_planning);
+  assert.equal(answer.status, "not_applied");
+  // And for a create, an absent expected value that is still absent is no mismatch.
+  const create = VALID.create_staging;
+  await assert.rejects(() => askCustody(client((request) => mismatch(request, null)).custody, "create_staging", create),
+    code("planning_ref_capability_missing"));
+});
+
+test("an advance to the commit the ref already holds is refused before the client is asked (review L3)", async () => {
+  const { asked, custody } = client(committed);
+  await assert.rejects(() => askCustody(custody, "advance_staging", [{ ...advance[0], new_oid: A }]), code("cas_conflict"));
+  await assert.rejects(() => askCustody(custody, "advance_planning", [
+    VALID.advance_planning[0],
+    { ...VALID.advance_planning[1], new_oid: A },
+  ]), code("cas_conflict"));
+  assert.equal(asked.length, 0);
+});

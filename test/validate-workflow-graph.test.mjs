@@ -1113,22 +1113,24 @@ test("the quantity rule binds the cap's predicates only, not every description n
   // The negative half, and the measurement that chose it. A predicate's
   // `reads` declares the state it inspects, not every word its sentence may
   // use: most descriptions name a word of the vocabulary their own list does
-  // not carry — 322 of the shipped document's 433, counted at identifier
+  // not carry — 323 of the shipped document's 434, counted at identifier
   // boundaries, which is the tokenization this measurement is stated in. A
   // rule keyed on per-predicate disagreement would redden that lawful
   // majority and could never go green. What is refused is the narrower shape:
   // a cap predicate comparing `cap` with a quantity ABSENT FROM THE WHOLE
   // VOCABULARY — which is what `round` was until it was named. The shipped
-  // document passes the check while carrying all 322 (320 until debt 10b
+  // document passes the check while carrying all 323 (320 until debt 10b
   // added the foreign-movement and delivery re-stage resumes, whose
   // `park.reason=` names a word outside their reads the way target_moved's
-  // resume already did).
+  // resume already did; 323 since debt 11a parked a missing ref-custody
+  // capability at apply_staging, whose description says the staging `ref`
+  // and the `target` ref are untouched, as the other apply_staging rows do).
   const graph = document();
   const vocabulary = new Set(graph.predicates.flatMap((entry) => entry.reads));
   const atBoundary = (word) => new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`, "u");
   const broad = graph.predicates.filter((entry) =>
     [...vocabulary].some((word) => !entry.reads.includes(word) && atBoundary(word).test(entry.description)));
-  assert.equal(broad.length, 322, "the broad-rule population moved — remeasure before blaming the check");
+  assert.equal(broad.length, 323, "the broad-rule population moved — remeasure before blaming the check");
   assert.deepEqual(
     validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
     [],
