@@ -64,20 +64,23 @@
       "gate_role": "design_and_mvp_input",
       "rationale": "Human alignment is required so model-generated framing, behavior, architecture and Ticket decomposition cannot become user authority by self-approval.",
       "classification_risk": "Without runtime enforcement, the design-only completion could be mistaken for an active safety boundary.",
-      "owner": "autosk-flow maintainers",
+      "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Carry the signed UserDecisionRecord, stale identity, policy scope and four named alignment lifecycles into the #39 design candidate.",
-      "implementation_obligation_before_mvp": "Implement and test the four alignment gates, Quick→Planned reclassification, signed authority records and fail-closed resume behavior before MVP.",
+      "implementation_obligation_before_mvp": "Implement and test the four alignment gates, Quick→Planned reclassification, signed authority records and fail-closed resume behavior before MVP. The daemon side of `authority.user-decision` (ADR-023) and the signer behind `security.signer_boundary` are this issue's: the signer key pin set by trusted init, the signer in a separate OS boundary whose identity the daemon reports, the UserDecisionRecord journal, authority/nonce heads committed before projection or effects, and protected dependency/intent heads, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP.",
       "release_blocking": true,
       "dependencies": [
-        3
+        3,
+        10
       ],
       "downstream_blockers": [
         5,
+        9,
         12,
         14,
         25,
         31,
+        34,
         35,
         39
       ],
@@ -234,11 +237,13 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify staging lineage, receipts, integration-fix lifecycle, aggregate binding, acceptance identity and single final CAS.",
-      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy.",
+      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, delivered as compat/autosk patches 0052+.",
       "release_blocking": true,
       "dependencies": [
+        4,
         8,
-        17
+        17,
+        18
       ],
       "downstream_blockers": [
         33,
@@ -272,6 +277,7 @@
         3
       ],
       "downstream_blockers": [
+        4,
         11,
         13,
         15,
@@ -304,7 +310,7 @@
       "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Finalize the atomic create semantics, capability preflight, binding coverage, deletion policy and upstream dependency before #39.",
-      "implementation_obligation_before_mvp": "Implement the autoskd/API/CLI primitive, pin the compatible upstream commit and block fan-out when unavailable.",
+      "implementation_obligation_before_mvp": "Implement the autoskd/API/CLI primitive, pin the compatible upstream commit and block fan-out when unavailable. It carries `task.creation-binding` v2 (ADR-014): `task.create_bound`, delivered by patches 0001 and 0028.",
       "release_blocking": true,
       "dependencies": [
         10
@@ -555,16 +561,17 @@
       "gate_role": "design_and_mvp_input",
       "rationale": "Models should return closed structured outcomes while trusted host code validates identity/evidence and chooses exactly one transition.",
       "classification_risk": "Direct model transitions or task-store mutation create inconsistent trust and crash windows across providers.",
-      "owner": "autosk-flow maintainers",
+      "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define result schemas, role capabilities, record/read-back order, missing/multiple-submit handling and deterministic mappings.",
-      "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step.",
+      "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step. `workflow.custody` (ADR-025) is this issue's: step-capability metadata CAS against the expected protected head, write-once gate-result receipts under the result head, `orchestrateChildBatch` over the exact child set and heads with monotonic child receipts, and the daemon park.origin writer for daemon-produced scoped park reasons, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP.",
       "release_blocking": true,
       "dependencies": [
         10,
         12
       ],
       "downstream_blockers": [
+        9,
         15,
         16,
         19,
@@ -1101,9 +1108,10 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define read-only check registry, required check sets, provenance/expiry and JSON output in the v1 design.",
-      "implementation_obligation_before_mvp": "Implement doctor for autoskd, locks, filesystem, provider, Git/delivery, clearance, evidence and recovery state.",
+      "implementation_obligation_before_mvp": "Implement doctor for autoskd, locks, filesystem, provider, Git/delivery, clearance, evidence and recovery state. The `security.signer_boundary` check is this issue's: the signer boundary probe passes only once the daemon reports #4's signer (ADR-090).",
       "release_blocking": true,
       "dependencies": [
+        4,
         10,
         11,
         12,
@@ -1269,7 +1277,7 @@
       "owner": "autosk upstream and extension SDK maintainers",
       "activation_trigger": "Begin after issue #36 closes and the autonomous MVP release is attested.",
       "design_obligation_before_issue_39": "Before #39 document that any conditional SDK promotion requires an explicit user decision, a successor matrix classification, and a new full panel.",
-      "implementation_obligation_before_mvp": "No implementation before MVP. If a v1 atomic guarantee cannot be met, record an explicit user decision, split the exact typed primitive into a successor matrix, classify it required_for_v1, and pass a new full panel before implementation.",
+      "implementation_obligation_before_mvp": "No implementation before MVP. If a v1 atomic guarantee cannot be met, record an explicit user decision, split the exact typed primitive into a successor matrix, classify it required_for_v1, and pass a new full panel before implementation. The daemon primitives the v1 preflight requires are not this issue's: they are carried by #4, #9 and #18 through narrower daemon methods (ADR-092), and this issue later exposes them through the typed SDK.",
       "release_blocking": false,
       "dependencies": [
         11,
@@ -1328,5 +1336,105 @@
       "full_program_required": true
     }
   ],
-  "canonical_digest": "af0ee88f3adc63f7686d35406216ccb66a4b5d3eda89c1f40a2e8897be3de8f3"
+  "preflight_primitives": [
+    {
+      "capability": "authority.user-decision",
+      "requirement": "daemon_capability",
+      "decision": "ADR-023",
+      "owner_issues": [
+        4,
+        9
+      ],
+      "elements": [
+        {
+          "surface": "signer key pin",
+          "owner": 4
+        },
+        {
+          "surface": "UserDecisionRecord journal",
+          "owner": 4
+        },
+        {
+          "surface": "authority/nonce heads",
+          "owner": 4
+        },
+        {
+          "surface": "dependency/intent heads",
+          "owner": 4
+        },
+        {
+          "surface": "authorityGuard",
+          "owner": 9
+        },
+        {
+          "surface": "integrateApproved",
+          "owner": 9
+        }
+      ],
+      "delivery": "compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified"
+    },
+    {
+      "capability": "security.signer_boundary",
+      "requirement": "model_step_check",
+      "decision": "ADR-090",
+      "owner_issues": [
+        4,
+        34
+      ],
+      "elements": [
+        {
+          "surface": "signer in a separate OS boundary",
+          "owner": 4
+        },
+        {
+          "surface": "signer boundary probe",
+          "owner": 34
+        }
+      ],
+      "delivery": "the signer and its daemon report ship with authority.user-decision in compat/autosk patches 0052+; the check is the doctor's (src/host/doctor-checks.mjs)"
+    },
+    {
+      "capability": "task.creation-binding",
+      "requirement": "daemon_capability",
+      "decision": "ADR-014",
+      "owner_issues": [
+        11
+      ],
+      "elements": [
+        {
+          "surface": "task.create_bound",
+          "owner": 11
+        }
+      ],
+      "delivery": "compat/autosk patches 0001 and 0028, pinned as v2 with method task.create_bound"
+    },
+    {
+      "capability": "workflow.custody",
+      "requirement": "daemon_capability",
+      "decision": "ADR-025",
+      "owner_issues": [
+        18
+      ],
+      "elements": [
+        {
+          "surface": "step-capability metadata CAS",
+          "owner": 18
+        },
+        {
+          "surface": "write-once gate-result receipts",
+          "owner": 18
+        },
+        {
+          "surface": "orchestrateChildBatch",
+          "owner": 18
+        },
+        {
+          "surface": "park.origin writer",
+          "owner": 18
+        }
+      ],
+      "delivery": "compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified"
+    }
+  ],
+  "canonical_digest": "bb76c12ab83305c88ac56052da06b5196d59f9f70a6d69280a3cb6473c8ae380"
 }

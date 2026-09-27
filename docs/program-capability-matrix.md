@@ -34,12 +34,12 @@
 | Issue | Priority | Lifecycle | Target | Gate role | Depends on | Release blocker | Full program |
 | ---: | :---: | --- | --- | --- | --- | :---: | :---: |
 | #3 Создать полный migration/parity registry Traycer → autosk-flow | P0 | required_for_v1 | phase_0_complete | phase_0_gate | — | yes | yes |
-| #4 Добавить human alignment gates перед Brief, Core Flow, Tech Plan и Tickets | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3 | yes | yes |
+| #4 Добавить human alignment gates перед Brief, Core Flow, Tech Plan и Tickets | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #10 | yes | yes |
 | #5 Добавить Epic planning ref и commit-on-PASS для каждого планового артефакта | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #4 | yes | yes |
 | #6 Добавить канонический machine-readable Tickets manifest и JSON Schema | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #5 | yes | yes |
 | #7 Формировать execution base Ticket из approved transitive dependencies | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #5, #6 | yes | yes |
 | #8 Заменить full-tree equality на approved-delta integration и перенести adversarial CAS test suite | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #7 | yes | yes |
-| #9 Ввести private Epic staging ref и выполнять aggregate verification до final target CAS | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #8, #17 | yes | yes |
+| #9 Ввести private Epic staging ref и выполнять aggregate verification до final target CAS | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #8, #17, #18 | yes | yes |
 | #10 Закреплять extension/workflow code identity на весь Epic и добавить явную миграцию | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3 | yes | yes |
 | #11 Реализовать в autoskd атомарный creation_key + creation_binding_hash для idempotent child fan-out | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10 | yes | yes |
 | #12 Зафиксировать project instruction set и запретить неявную model-specific загрузку | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #4 | yes | yes |
@@ -64,12 +64,23 @@
 | #31 Добавить отдельный Debate workflow для non-empirical one-way-door решений | P1 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #4, #14, #16, #19, #20, #26, #35, #36 | no | yes |
 | #32 Перенести bounded loop protocol и четыре обязательных escalation trigger | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #18, #24, #26 | yes | yes |
 | #33 Добавить user-approved Changeset Walkthrough, привязанный к final staging identity | P2 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #9, #20, #27, #35, #36 | no | yes |
-| #34 Добавить `autosk-flow doctor` для fail-fast проверки проекта, runtime и recovery state | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #11, #12, #13, #17, #19, #20, #26, #27, #37 | yes | yes |
+| #34 Добавить `autosk-flow doctor` для fail-fast проверки проекта, runtime и recovery state | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #10, #11, #12, #13, #17, #19, #20, #26, #27, #37 | yes | yes |
 | #35 Добавить human decision queue и детерминированный status/reporting contract | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #12, #18 | yes | yes |
 | #36 Добавить clean-room E2E: полный flow без Traycer, multi-project isolation и crash recovery | P0 | required_for_v1 | autonomous_mvp | mvp_release_gate | #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #32, #34, #35, #37, #39 | yes | yes |
 | #37 Реализовать governance bundle import/build/release lifecycle с аттестацией | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #10, #12, #13, #14 | yes | yes |
 | #38 Расширить autosk extension SDK типизированным write API и убрать CLI из correctness-critical paths | P2 | planned_after_v1 | full_parity_post_v1 | post_v1_capability | #11, #18, #36 | no | yes |
 | #39 Пересобрать спецификацию и получить новый four-model PASS после архитектурных dispositions | P0 | required_for_v1 | design_ready | design_gate | #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18 | yes | yes |
+
+## Примитивы, которых требует preflight
+
+Preflight отказывает любому model workflow без каждой из этих capabilities (`REQUIRED_DAEMON_CAPABILITIES` в `src/host/daemon-preflight.mjs`, `MODEL_STEP_CHECKS` в `src/host/workflow-preflight.mjs`). Поэтому каждую несёт хотя бы одна запись `required_for_v1`, и `implementation_obligation_before_mvp` каждой такой записи называет её; validator сверяет список с этими двумя наборами в обе стороны, а каждая поверхность принадлежит одному владельцу и названа в его обязательстве. Проверки фаз (`PHASE_CHECKS`) — проверки хоста, которые doctor реализует сам (#34), и этой таблицей не покрываются (ADR-092).
+
+| Capability | Kind | ADR | Carried by | Surfaces | Delivery |
+| --- | --- | --- | --- | --- | --- |
+| `authority.user-decision` | daemon_capability | ADR-023 | #4, #9 | signer key pin (#4); UserDecisionRecord journal (#4); authority/nonce heads (#4); dependency/intent heads (#4); authorityGuard (#9); integrateApproved (#9) | compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified |
+| `security.signer_boundary` | model_step_check | ADR-090 | #4, #34 | signer in a separate OS boundary (#4); signer boundary probe (#34) | the signer and its daemon report ship with authority.user-decision in compat/autosk patches 0052+; the check is the doctor's (src/host/doctor-checks.mjs) |
+| `task.creation-binding` | daemon_capability | ADR-014 | #11 | task.create_bound (#11) | compat/autosk patches 0001 and 0028, pinned as v2 with method task.create_bound |
+| `workflow.custody` | daemon_capability | ADR-025 | #18 | step-capability metadata CAS (#18); write-once gate-result receipts (#18); orchestrateChildBatch (#18); park.origin writer (#18) | compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified |
 
 ## Planned after v1
 
@@ -143,7 +154,7 @@
 
 **Обязанность до #39:** Before #39 document that any conditional SDK promotion requires an explicit user decision, a successor matrix classification, and a new full panel.
 
-**Работа после MVP:** No implementation before MVP. If a v1 atomic guarantee cannot be met, record an explicit user decision, split the exact typed primitive into a successor matrix, classify it required_for_v1, and pass a new full panel before implementation.
+**Работа после MVP:** No implementation before MVP. If a v1 atomic guarantee cannot be met, record an explicit user decision, split the exact typed primitive into a successor matrix, classify it required_for_v1, and pass a new full panel before implementation. The daemon primitives the v1 preflight requires are not this issue's: they are carried by #4, #9 and #18 through narrower daemon methods (ADR-092), and this issue later exposes them through the typed SDK.
 
 ## Намеренно отложенные
 
@@ -165,5 +176,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `af0ee88f3adc63f7686d35406216ccb66a4b5d3eda89c1f40a2e8897be3de8f3`
+Matrix digest: `bb76c12ab83305c88ac56052da06b5196d59f9f70a6d69280a3cb6473c8ae380`
 

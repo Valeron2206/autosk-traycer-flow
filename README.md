@@ -112,6 +112,8 @@ Source parity и program delivery — разные измерения. Кано�
 - `planned_after_v1`: 6 — Autobuild (#28), Reflect (#29), Housekeeping (#30), Debate (#31), Changeset Walkthrough (#33) и полный typed SDK write API (#38) явно не обещаются v1, но остаются обязательными после #36;
 - `intentionally_deferred`: 0 — ни одна program capability не снята с обязательств.
 
+Каждую capability, без которой preflight не запускает model workflow, несёт запись `required_for_v1` (ADR-092): `task.creation-binding` — #11, `authority.user-decision` (ADR-023) — #4 и #9, `workflow.custody` (ADR-025) — #18, `security.signer_boundary` — #4 и #34. Демонские примитивы ADR-023 и ADR-025 поставляются патчами `0052`+; #38 остаётся полным typed SDK поверх них после v1.
+
 В source-parity registry одноимённая диспозиция `intentionally_deferred` означает только неактивный в v1 миграционный target; её program-lifecycle эквивалент — `planned_after_v1`. Освободить delivery obligation может только более строгая диспозиция program matrix.
 
 Машиночитаемая матрица находится в `resources/program-capabilities/matrix.v1.json`, pinned issue inventory и закрытые схемы — рядом, а детерминированная сводка — в `docs/program-capability-matrix.md`. Матрица не хранит текущий open/closed/PR state и не становится вторым roadmap: живой progress остаётся в GitHub issue #40.

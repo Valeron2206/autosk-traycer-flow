@@ -23,6 +23,7 @@ import {
   validateInventory,
   validateMatrix,
   validateReadme,
+  preflightRequirements,
 } from "../scripts/validate-program-capability-matrix.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -480,4 +481,168 @@ test("the whole validation reads the contracts it is given", () => {
   const stale = { path: "docs/contracts/x.md", text: "Status: issue #30 design contract. The runtime remains `required_for_v1`.\n" };
   assert.match(messages(validateAll({ ...fixture(), contracts: [stale] })), /claims `required_for_v1` for issue #30/u);
   assert.deepEqual(validateAll({ ...fixture(), contracts: readContracts() }), []);
+});
+
+// Debt 10f (round 6 of #39, R6-16 and a1): the preflight refuses every model
+// workflow without ADR-023's `authority.user-decision` and ADR-025's
+// `workflow.custody`, while no `required_for_v1` record carried their
+// implementation and #38 is `planned_after_v1`, so v1 as classified could not
+// be completed. The matrix now names who carries each capability the preflight
+// requires, and the requirement is read from the preflight, not restated.
+import { REQUIRED_DAEMON_CAPABILITIES, UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
+import { MODEL_STEP_CHECKS } from "../src/host/workflow-preflight.mjs";
+
+const PREFLIGHT_REQUIRED = [
+  ...REQUIRED_DAEMON_CAPABILITIES.map((want) => want.name),
+  ...MODEL_STEP_CHECKS,
+].sort();
+
+function primitiveErrors(data) {
+  return messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+}
+
+test("every capability a v1 workflow's preflight requires is carried by a required_for_v1 record", () => {
+  const data = fixture();
+  assert.ok(Array.isArray(data.matrix.preflight_primitives), "the matrix names the preflight's primitives");
+  assert.deepEqual(data.matrix.preflight_primitives.map((entry) => entry.capability).sort(), PREFLIGHT_REQUIRED);
+  assert.ok(PREFLIGHT_REQUIRED.includes("authority.user-decision"));
+  assert.ok(PREFLIGHT_REQUIRED.includes("workflow.custody"));
+  assert.ok(PREFLIGHT_REQUIRED.includes("security.signer_boundary"));
+  const lifecycle = new Map(data.matrix.records.map((record) => [record.issue_number, record.lifecycle]));
+  for (const entry of data.matrix.preflight_primitives) {
+    assert.ok(entry.owner_issues.length > 0, entry.capability);
+    for (const issue of entry.owner_issues) assert.equal(lifecycle.get(issue), "required_for_v1", `${entry.capability} → #${issue}`);
+  }
+  const byName = new Map(data.matrix.preflight_primitives.map((entry) => [entry.capability, entry]));
+  for (const { name, adr } of UNPINNED_DAEMON_PRIMITIVES) assert.equal(byName.get(name).decision, adr);
+  // The line with #38: its typed SDK stays after v1, and it carries none of them.
+  assert.ok(data.matrix.preflight_primitives.every((entry) => !entry.owner_issues.includes(38)));
+  assert.equal(data.matrix.records.find((record) => record.issue_number === 38).lifecycle, "planned_after_v1");
+  // The daemon side is upstream work, as #11's is.
+  for (const issue of [4, 18]) {
+    assert.match(data.matrix.records.find((record) => record.issue_number === issue).owner, /autosk upstream maintainer/u);
+  }
+});
+
+test("a capability the preflight requires and no record carries is refused", () => {
+  const data = fixture();
+  data.matrix.preflight_primitives = data.matrix.preflight_primitives.filter((entry) => entry.capability !== "workflow.custody");
+  assert.match(primitiveErrors(data), /`workflow\.custody` is required by the v1 preflight and carried by no required_for_v1 record/u);
+});
+
+test("a preflight primitive carried only after v1 is refused", () => {
+  const data = fixture();
+  data.matrix.preflight_primitives.find((entry) => entry.capability === "authority.user-decision").owner_issues = [38];
+  assert.match(primitiveErrors(data), /`authority\.user-decision` is carried by #38, which is planned_after_v1, not required_for_v1/u);
+  const empty = fixture();
+  empty.matrix.preflight_primitives.find((entry) => entry.capability === "workflow.custody").owner_issues = [];
+  assert.match(primitiveErrors(empty), /`workflow\.custody` names no owner issue/u);
+});
+
+test("a primitive the preflight does not require, or of the wrong kind or decision, is refused", () => {
+  const data = fixture();
+  data.matrix.preflight_primitives.push({ ...data.matrix.preflight_primitives[0], capability: "workflow.imaginary" });
+  assert.match(primitiveErrors(data), /`workflow\.imaginary` is not required by the v1 preflight/u);
+  const kind = fixture();
+  kind.matrix.preflight_primitives.find((entry) => entry.capability === "security.signer_boundary").requirement = "daemon_capability";
+  assert.match(primitiveErrors(kind), /`security\.signer_boundary` is a model_step_check of the preflight/u);
+  const decision = fixture();
+  decision.matrix.preflight_primitives.find((entry) => entry.capability === "workflow.custody").decision = "ADR-023";
+  assert.match(primitiveErrors(decision), /`workflow\.custody` is the preflight's ADR-025 primitive/u);
+  const twice = fixture();
+  twice.matrix.preflight_primitives.push(structuredClone(twice.matrix.preflight_primitives[1]));
+  assert.match(primitiveErrors(twice), /is named twice/u);
+});
+
+test("the owning record's implementation obligation names the primitive it carries", () => {
+  const data = fixture();
+  const custody = data.matrix.preflight_primitives.find((entry) => entry.capability === "workflow.custody");
+  const owner = data.matrix.records.find((record) => record.issue_number === custody.owner_issues[0]);
+  owner.implementation_obligation_before_mvp = owner.implementation_obligation_before_mvp.replaceAll("`workflow.custody`", "custody");
+  assert.match(primitiveErrors(data), new RegExp(`#${owner.issue_number} carries \`workflow\\.custody\` but its implementation_obligation_before_mvp does not name it`, "u"));
+});
+
+test("malformed preflight primitives return errors instead of throwing", () => {
+  for (const malformed of [undefined, null, "x", [null], [{ capability: "workflow.custody" }]]) {
+    const data = fixture();
+    if (malformed === undefined) delete data.matrix.preflight_primitives;
+    else data.matrix.preflight_primitives = malformed;
+    assert.doesNotThrow(() => validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+    assert.doesNotThrow(() => validateAll(data));
+    assert.notDeepEqual(validateMatrix(data.matrix, data.inventory, data.parityRegistry), []);
+  }
+});
+
+test("the matrix schema requires the preflight primitives in a closed shape", () => {
+  const schema = JSON.parse(readFileSync(path.join(ROOT, "resources/program-capabilities/matrix.schema.json"), "utf8"));
+  assert.ok(schema.required.includes("preflight_primitives"));
+  const entry = schema.$defs.preflightPrimitive;
+  assert.equal(entry.additionalProperties, false);
+  assert.deepEqual([...entry.required].sort(), ["capability", "decision", "delivery", "elements", "owner_issues", "requirement"]);
+  assert.deepEqual(entry.properties.requirement.enum, ["daemon_capability", "model_step_check"]);
+});
+
+test("the generated summary lists who carries each preflight primitive", () => {
+  const data = fixture();
+  for (const entry of data.matrix.preflight_primitives) {
+    assert.match(data.documentation, new RegExp(`\\| \`${entry.capability.replaceAll(".", "\\.")}\` \\|`, "u"));
+  }
+});
+
+test("the records that consume the preflight primitives depend on the records that carry them", () => {
+  // #9's final CAS runs `integrateApproved` over ADR-023's authority heads and
+  // admits only gate-result receipts of ADR-025; the doctor's signer check
+  // passes only on #4's signer.
+  // #4's daemon side ships in the pinned patch series whose identity #10 locks.
+  for (const [issue, dependency] of [[9, 4], [9, 18], [34, 4], [4, 10]]) {
+    const data = fixture();
+    const record = data.matrix.records.find((item) => item.issue_number === issue);
+    assert.ok(record.dependencies.includes(dependency), `#${issue} depends on #${dependency}`);
+    record.dependencies = record.dependencies.filter((item) => item !== dependency);
+    assert.match(primitiveErrors(data), new RegExp(`issue #${issue} must depend on #${dependency} by the canonical roadmap`, "u"));
+  }
+});
+
+test("a required_for_v1 record whose obligation claims a primitive is among its owners", () => {
+  const data = fixture();
+  const entry = data.matrix.preflight_primitives.find((item) => item.capability === "authority.user-decision");
+  entry.owner_issues = [4];
+  entry.elements = entry.elements.filter((element) => element.owner !== 9);
+  assert.match(primitiveErrors(data), /#9 names `authority\.user-decision` in its implementation obligation but is not among its owners/u);
+});
+
+test("every owner owns a surface of its primitive, named in its own obligation", () => {
+  const none = fixture();
+  const custody = none.matrix.preflight_primitives.find((item) => item.capability === "workflow.custody");
+  custody.elements = [];
+  assert.match(primitiveErrors(none), /#18 carries `workflow\.custody` but owns none of its surfaces/u);
+  const unnamed = fixture();
+  unnamed.matrix.preflight_primitives.find((item) => item.capability === "workflow.custody").elements[0].surface = "imaginary surface";
+  assert.match(primitiveErrors(unnamed), /surface "imaginary surface" of `workflow\.custody` is not named in #18's implementation_obligation_before_mvp/u);
+  const stranger = fixture();
+  stranger.matrix.preflight_primitives.find((item) => item.capability === "workflow.custody").elements[0].owner = 34;
+  assert.match(primitiveErrors(stranger), /is owned by #34, which is not among the owners of `workflow\.custody`/u);
+  const shape = fixture();
+  shape.matrix.preflight_primitives.find((item) => item.capability === "workflow.custody").elements[0] = "orchestrateChildBatch";
+  assert.doesNotThrow(() => primitiveErrors(shape));
+  assert.match(primitiveErrors(shape), /elements\[0\] must be a closed \{surface, owner\} object/u);
+});
+
+test("every preflight primitive's decision is pinned, not only the unpinned daemon ones", () => {
+  const binding = fixture();
+  binding.matrix.preflight_primitives.find((item) => item.capability === "task.creation-binding").decision = "ADR-023";
+  assert.match(primitiveErrors(binding), /`task\.creation-binding` is the preflight's ADR-014 primitive/u);
+  const signer = fixture();
+  signer.matrix.preflight_primitives.find((item) => item.capability === "security.signer_boundary").decision = "ADR-023";
+  assert.match(primitiveErrors(signer), /`security\.signer_boundary` is the preflight's ADR-090 primitive/u);
+  for (const want of preflightRequirements()) assert.match(want.decision, /^ADR-\d{3}$/u, want.capability);
+});
+
+test("the requirement read is the daemon capabilities and the model-step checks, not the implemented host checks", async () => {
+  // Phase checks are host checks the doctor implements itself (#34); the
+  // matrix is held to what rests on a daemon primitive or a model step.
+  const { PHASE_CHECKS } = await import("../src/host/workflow-preflight.mjs");
+  const names = preflightRequirements().map((want) => want.capability).sort();
+  assert.deepEqual(names, PREFLIGHT_REQUIRED);
+  for (const id of Object.values(PHASE_CHECKS).flat()) assert.ok(!names.includes(id), id);
 });
