@@ -87,8 +87,8 @@ test("the staging ref is private, and creating it twice at the same base is a re
   assert.equal(again.created, false);
   assert.equal(await readRef(git, "refs/heads/main"), head);
   // And the ref is not a branch: nothing lists it as one.
-  const branches = (await git(["branch", "--list"])).stdout;
-  assert.ok(!branches.includes("e-1"), branches);
+  const branches = (await git(["for-each-ref", "--format=%(refname)", "refs/heads"])).stdout.trim().split("\n");
+  assert.deepEqual(branches, ["refs/heads/main"]);
 });
 
 test("a staging ref already at another commit is a conflict, not an overwrite", async (t) => {

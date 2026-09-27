@@ -1011,9 +1011,10 @@ test("two individually green Tickets that regress together leave the target wher
   }
 
   // Both applied to the private staging: the aggregate fails.
-  await createStaging(git, { epicRefKey: epicRefKey("0".repeat(64), "epic-order"), base });
+  const key = epicRefKey("0".repeat(64), "epic-order");
+  await createStaging(git, { epicRefKey: key, base });
   const together = await commit(first.oid, [["b.txt", "new"]], "T-2 on staging");
-  assert.equal((await git(["update-ref", stagingRef(epicRefKey("0".repeat(64), "epic-order")), together.oid, base])).code, 0);
+  assert.equal((await git(["update-ref", stagingRef(key), together.oid, base])).code, 0);
   const state = identity(together.oid, together.tree, ["T-1", "T-2"]);
   const aggregate = await verifyAggregate({ git, run: runner, state, checks, dir: path.join(root, "aggregate") });
   assert.equal(aggregate.outcome, "fail");
