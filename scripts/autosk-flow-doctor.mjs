@@ -49,11 +49,18 @@ export function hostEnv({ root = ROOT, nowMs = () => Date.now() } = {}) {
       // The daemon is the only thing that can say whether the signer runs
       // outside the process a model runs in, and the pinned daemon does not
       // say: its `meta.capabilities` (patches 0013, 0028) names only
-      // `task.creation-binding`, and no patch carries a signer (ADR-023,
-      // #40). An operator variable stood in for that report until debt 10d
-      // (R6-10); nothing does now, so the check cannot pass on this host.
+      // `task.creation-binding`, and no patch carries a signer (ADR-023's
+      // daemon side, #4 in matrix v1). An operator variable stood in for that
+      // report until debt 10d (R6-10); nothing does now, so the check cannot
+      // pass on this host.
       throw new Error('the pinned daemon reports no signer identity: meta.capabilities names no signer capability');
     },
+    // No `daemonCapabilities`: the report is the daemon's `meta.capabilities`,
+    // and reading it means contacting a daemon, which doctor does not do
+    // (`daemon.reachable`), so the capability check says no report was
+    // supplied rather than that reading one failed. The extension entry point,
+    // which has the daemon, hands its report to the same
+    // `requireDaemonCapabilities` at load (#18 in matrix v1, ADR-097).
     join: (...parts) => path.join(...parts),
     readFile: (relative) => readFile(path.isAbsolute(relative) ? relative : resolve(relative), 'utf8'),
     readFileBytes: (target) => readFile(path.isAbsolute(target) ? target : resolve(target)),

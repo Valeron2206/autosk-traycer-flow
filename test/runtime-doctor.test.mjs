@@ -29,6 +29,9 @@ import {
 import { TTL_MS, checkRegistry, runChecks } from "../src/host/doctor-checks.mjs";
 import { ROOT, generateReport, hostEnv } from "../scripts/autosk-flow-doctor.mjs";
 import { validateJsonSchema } from "../scripts/validate-planning-ref-design.mjs";
+import { UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
+import { capabilityRemediation } from "../src/host/doctor-checks.mjs";
+import { filesUsing } from "../scripts/lib/code-references.mjs";
 
 const NOW = Date.parse("2026-09-08T12:00:00.000Z");
 
@@ -285,7 +288,9 @@ test("a healthy host passes, and says how much it could not establish", async ()
   });
   assert.equal(report.status, "pass");
   // The count is reported beside the status rather than folded into it.
-  assert.equal(unverifiableCount(report), 2);
+  // Three since debt 11c: the daemon's reachability, live routes, and the
+  // daemon capability check, which this host hands no report.
+  assert.equal(unverifiableCount(report), 3);
 });
 
 test("every category has a check, so requiring one cannot be empty", () => {
@@ -548,4 +553,114 @@ test("the real report validates against the shipped schema", async () => {
   // Whatever this machine looks like, the report says something about every
   // check the registry declares.
   assert.equal(report.checks.length, checkRegistry(hostEnv()).length);
+});
+
+// Debt 11c (R7-11): `requireDaemonCapabilities` had no caller, and no check
+// compared the daemon's `meta.capabilities` with what the flow pins. The
+// doctor now hands the report it is given to that function and nothing else
+// decides; without a report the check is `unverifiable`, as the signer check
+// is without the daemon's signer identity (debt 10d).
+const SERIES_REPORT = Object.freeze({
+  capabilities: [{ name: "task.creation-binding", version: 2, methods: ["task.create_bound"] }],
+});
+
+async function capabilitiesCheck(overrides) {
+  return (await runChecks(fakeEnv(overrides))).find((result) => result.id === "daemon.capabilities_pinned");
+}
+
+test("the daemon capability check is registered in the daemon category", () => {
+  const entry = checkRegistry(fakeEnv()).find((item) => item.id === "daemon.capabilities_pinned");
+  assert.ok(entry, "doctor has a daemon capability check");
+  assert.equal(entry.category, "daemon");
+});
+
+test("with no report of the daemon's capabilities the check is unverifiable, never a pass", async () => {
+  const none = await capabilitiesCheck({});
+  assert.equal(none.status, "unverifiable");
+  assert.match(none.unverifiable_reason, /no report of the daemon's capabilities/u);
+  assert.equal(none.evidence.reported, false);
+  const thrown = await capabilitiesCheck({ daemonCapabilities: async () => { throw Object.assign(new Error("x"), { code: "ECONNREFUSED" }); } });
+  assert.equal(thrown.status, "unverifiable");
+  assert.match(thrown.unverifiable_reason, /ECONNREFUSED/u);
+  assert.equal(thrown.evidence.reported, false);
+});
+
+test("the series' own report fails the check with the preflight's refusal", async () => {
+  const result = await capabilitiesCheck({ daemonCapabilities: async () => structuredClone(SERIES_REPORT) });
+  assert.equal(result.status, "fail");
+  assert.equal(result.evidence.reported, true);
+  assert.equal(result.evidence.refusal, "daemon_capability_missing");
+  assert.equal(result.evidence.missing, "authority.user-decision, workflow.custody");
+  assert.match(result.remediation, /ADR-023|ADR-025/u);
+});
+
+test("a report naming every primitive still fails: an unpinned primitive has nothing to compare against", async () => {
+  const claiming = {
+    capabilities: [
+      ...structuredClone(SERIES_REPORT.capabilities),
+      { name: "authority.user-decision", version: 1, methods: ["authority.record"] },
+      { name: "workflow.custody", version: 1, methods: ["workflow.cas"] },
+    ],
+  };
+  const result = await capabilitiesCheck({ daemonCapabilities: async () => claiming });
+  assert.equal(result.status, "fail");
+  assert.equal(result.evidence.refusal, "daemon_capability_missing");
+});
+
+test("a pinned capability at another revision, other methods or an unreadable report fails with its own refusal", async () => {
+  const older = await capabilitiesCheck({ daemonCapabilities: async () => ({ capabilities: [{ name: "task.creation-binding", version: 1, methods: ["task.create_bound"] }] }) });
+  assert.equal(older.status, "fail");
+  assert.equal(older.evidence.refusal, "daemon_capability_version_mismatch");
+  assert.match(older.evidence.mismatched, /task\.creation-binding is v1, this flow is written for v2/u);
+  assert.equal(older.evidence.missing, undefined);
+  const renamed = await capabilitiesCheck({ daemonCapabilities: async () => ({ capabilities: [{ name: "task.creation-binding", version: 2, methods: ["task.createBound"] }] }) });
+  assert.equal(renamed.evidence.refusal, "daemon_capability_method_mismatch");
+  assert.match(renamed.evidence.mismatched, /implemented by \[task\.createBound\]/u);
+  const unreadable = await capabilitiesCheck({ daemonCapabilities: async () => ({ capabilities: "all of them" }) });
+  assert.equal(unreadable.status, "fail");
+  assert.equal(unreadable.evidence.refusal, "daemon_capability_invalid");
+  const shape = await capabilitiesCheck({ daemonCapabilities: async () => ({ capabilities: [], extra: true }) });
+  assert.equal(shape.status, "fail");
+  assert.equal(shape.evidence.refusal, "invalid_record");
+});
+
+test("the real host hands the check no report: doctor does not contact the daemon", async () => {
+  // Review of 11c (L6): the host supplies no report at all, rather than a
+  // reader that fails, so the check says that no report was supplied — not
+  // that reading one failed.
+  const env = hostEnv();
+  assert.equal(Object.hasOwn(env, "daemonCapabilities"), false);
+  const results = await runChecks(env);
+  const found = results.find((result) => result.id === "daemon.capabilities_pinned");
+  assert.equal(found.status, "unverifiable");
+  assert.match(found.unverifiable_reason, /no report of the daemon's capabilities was supplied/u);
+  assert.equal(found.evidence.reported, false);
+  assert.equal(found.evidence.probe_error, undefined);
+});
+
+test("the remediation names the primitives no daemon can satisfy yet, as the preflight declares them", async () => {
+  // Read from the preflight rather than typed in, so the advice cannot name a
+  // primitive that has since been pinned, or miss one added later.
+  const result = await capabilitiesCheck({ daemonCapabilities: async () => structuredClone(SERIES_REPORT) });
+  for (const { name, adr } of UNPINNED_DAEMON_PRIMITIVES) assert.ok(result.remediation.includes(`${name} (${adr})`), name);
+  assert.equal(result.remediation, capabilityRemediation(UNPINNED_DAEMON_PRIMITIVES));
+  // Review of 11c (L3): once every primitive is pinned, the advice claims none
+  // is unpinned rather than printing an empty list.
+  const pinned = capabilityRemediation([]);
+  assert.doesNotMatch(pinned, /no pinned revision/u);
+  assert.doesNotMatch(pinned, / {2}| \(|\( /u);
+  assert.match(pinned, /^Run a daemon whose meta\.capabilities carries every capability this flow requires, at the pinned revision and methods\.$/u);
+  const one = capabilityRemediation([{ name: "workflow.custody", adr: "ADR-025" }]);
+  assert.match(one, /workflow\.custody \(ADR-025\) has no pinned revision yet, so no daemon report satisfies this check until it is specified\.$/u);
+  assert.match(result.remediation, / and workflow\.custody \(ADR-025\) have no pinned revision yet, so no daemon report satisfies this check until they are specified\.$/u);
+});
+
+test("outside tests, the doctor check is the one caller of requireDaemonCapabilities", async () => {
+  // R7-11: the function had no caller in src/ or scripts/. Measured over the
+  // code, the definition apart, so a second caller — the extension entry
+  // point's call at load, once it exists — is one this test names. Review of
+  // 11c (L1): TypeScript sources count, and so does a use that is not a
+  // literal call (an alias, a callback, an import).
+  const users = await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier: "requireDaemonCapabilities", exclude: ["src/host/daemon-preflight.mjs"] });
+  assert.deepEqual(users, ["src/host/doctor-checks.mjs"]);
 });

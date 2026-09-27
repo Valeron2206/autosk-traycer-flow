@@ -34,7 +34,7 @@ intake → human alignment → Brief + 4-seat Panel → Core Flow + Panel
 → aggregate verification → acceptance → final target CAS → cleanup
 ```
 
-Separately: the Quick flow, its classification, the absence of Planned gates it does not need, its mandatory verify and review, and promotion to Planned. And two projects running in parallel with no leakage between them.
+Separately: the Quick flow, its classification, the absence of Planned gates it does not need, its mandatory verify and review, and promotion to Planned. An Arena run inside the Planned flow, as `docs/contracts/arena.md` decides it: a Tech Plan decision marked arena, two candidates of distinct families in isolated worktrees (`autosk-arena-candidate`), a judge of a third family that ranks and does not approve (`autosk-arena-judge`), the person's decision, and the re-expressed Tech Plan under a new full Panel. And two projects running in parallel with no leakage between them.
 
 ## 4. What a fault must prove
 

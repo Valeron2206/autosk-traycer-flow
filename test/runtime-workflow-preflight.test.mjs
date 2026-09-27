@@ -281,9 +281,22 @@ test("preflight runs the same checks the doctor runs", async () => {
   };
   const { report, admission } = await preflight(fakeEnv(), GRAPH, "autosk-planned", identity);
   assert.equal(report.checks.length, checkRegistry(fakeEnv()).length);
-  assert.equal(admission.ready, true);
-  const panel = await preflight(fakeEnv(), GRAPH, "autosk-panel-seat", identity);
-  assert.equal(panel.admission.ready, true);
+  // Debt 11c: with every other check passing, the daemon capability check
+  // alone stops the run — unverifiable with no report, and a fail on the
+  // series' own report, whose `meta.capabilities` names only ADR-014's
+  // capability. No daemon can satisfy it until ADR-023 and ADR-025 are pinned.
+  assert.equal(admission.ready, false);
+  assert.deepEqual(admission.blocking.map((entry) => entry.id), ["daemon.capabilities_pinned"]);
+  const series = { ...fakeEnv(), daemonCapabilities: async () => ({ capabilities: [{ name: "task.creation-binding", version: 2, methods: ["task.create_bound"] }] }) };
+  const panel = await preflight(series, GRAPH, "autosk-panel-seat", identity);
+  assert.equal(panel.admission.ready, false);
+  assert.deepEqual(panel.admission.blocking, [{ id: "daemon.capabilities_pinned", reason: "doctor_required_set_unsatisfied" }]);
+  // The rest of the set is the probes' verdict: the same report with that
+  // one check set to pass admits both.
+  const passed = { ...report, checks: report.checks.map((entry) => entry.id === "daemon.capabilities_pinned"
+    ? { id: entry.id, category: entry.category, status: "pass", evidence: {}, provenance: entry.provenance } : entry) };
+  assert.equal(admits(passed, GRAPH, "autosk-planned", NOW).ready, true);
+  assert.equal(admits(passed, GRAPH, "autosk-panel-seat", NOW).ready, true);
   // And the boundary it requires is the probe's verdict: a missing endpoint
   // stops a planned run.
   const missing = await preflight({
@@ -355,4 +368,25 @@ test("the doctor asks the gate for a workflow's set by its name", async () => {
     (error) => error.code === "doctor_required_set_unsatisfied");
   await assert.rejects(() => requiredSet(env, { workflow: "planning", require: [] }),
     (error) => error.code === "doctor_required_set_unsatisfied");
+});
+
+// Debt 11c (R7-11, R7-26): every workflow that runs a model step requires the
+// daemon capability check, derived like the signer boundary (debt 10d), and
+// the planning phase no longer says it needs no daemon.
+test("every workflow that runs a model step requires the daemon capability check", () => {
+  assert.ok(MODEL_STEP_CHECKS.includes("daemon.capabilities_pinned"));
+  for (const workflow of WORKFLOWS) {
+    const first = GRAPH.workflows.find((entry) => entry.name === workflow).first_step;
+    assert.equal(requiredFor(GRAPH, workflow).includes("daemon.capabilities_pinned"), runsModelStep(GRAPH, first), workflow);
+    assert.ok(requiredFor(GRAPH, workflow).includes("daemon.capabilities_pinned"), workflow);
+  }
+  for (const status of ["fail", "unverifiable"]) {
+    const report = passingReport(new Map([["daemon.capabilities_pinned", status]]));
+    for (const workflow of WORKFLOWS) assert.equal(admits(report, GRAPH, workflow, NOW).ready, false, `${workflow} on ${status}`);
+  }
+});
+
+test("the planning phase's rationale does not say it needs no daemon", () => {
+  const source = readFileSync(new URL("../src/host/workflow-preflight.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /needs no daemon/u);
 });

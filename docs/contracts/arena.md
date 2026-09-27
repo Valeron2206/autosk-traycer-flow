@@ -2,7 +2,7 @@
 
 <!-- arena-contract:v1 -->
 
-Status: issue #4 runtime contract. `01-core-flows.md` §4 describes the path; panel round 2 found that the path which changes a Tech Plan had neither a contract nor a schema, while Debate — the path Arena is chosen *instead of* — had both.
+Status: issue #18 runtime contract. Matrix v1 gives Arena's runtime — the two workflows the graph registers for it, `autosk-arena-candidate` and `autosk-arena-judge` — to that issue with the rest of the graph's product side (`graph.arena-runtime`, ADR-097); the person's decision it ends in is a daemon `UserDecisionRecord` (ADR-023). `01-core-flows.md` §4 describes the path; panel round 2 found that the path which changes a Tech Plan had neither a contract nor a schema, while Debate — the path Arena is chosen *instead of* — had both.
 
 ## 1. Authority
 

@@ -646,3 +646,408 @@ test("the requirement read is the daemon capabilities and the model-step checks,
   assert.deepEqual(names, PREFLIGHT_REQUIRED);
   for (const id of Object.values(PHASE_CHECKS).flat()) assert.ok(!names.includes(id), id);
 });
+
+// Debt 11c (round 7 of #39, R7-9, R7-10, R7-11, R7-13, R7-20, R7-27): v1 owns
+// every enforcement point the design rests on, not only the preflight's
+// primitives. An owner outside #3–#39 (#40, #231) cannot be a matrix edge, so
+// each point is given to an existing `required_for_v1` record and, where the
+// requirement can be read from the repository, the validator reads it.
+import { enforcementRequirements } from "../scripts/validate-program-capability-matrix.mjs";
+
+const GRAPH_DOCUMENT = JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+const record = (data, issue) => data.matrix.records.find((item) => item.issue_number === issue);
+
+test("the load-time call site is #18's entry point, and the function and what it checks stay #11's", () => {
+  // R7-11: `requireDaemonCapabilities` had no caller and no check compared the
+  // daemon's `meta.capabilities`; its call at extension load was #40's. Review
+  // of 11c (M2): the matrix forbids cycles, so the call and the function it
+  // calls cannot each sit on the side that depends on the other. #18 owns the
+  // extension entry point and makes the call at load, consuming #11's function
+  // and `task.create_bound` (edge #18 → #11); #11 keeps the function and what
+  // it checks (creation-grant.md §5, #11 criterion 6); #34 keeps the doctor
+  // check and the dispatch gate before a model launch (doctor-report.md §7).
+  assert.ok(MODEL_STEP_CHECKS.includes("daemon.capabilities_pinned"));
+  const data = fixture();
+  const entry = data.matrix.preflight_primitives.find((item) => item.capability === "daemon.capabilities_pinned");
+  assert.ok(entry, "the matrix names who carries the daemon capability check");
+  assert.equal(entry.requirement, "model_step_check");
+  assert.equal(entry.decision, "ADR-097");
+  assert.deepEqual(entry.owner_issues, [11, 18, 34]);
+  const surfaces = entry.elements.map((element) => `${element.owner}:${element.surface}`);
+  for (const surface of [
+    "11:`requireDaemonCapabilities` and what it checks",
+    "18:`requireDaemonCapabilities` at extension load",
+    "34:daemon capability check",
+    "34:dispatch gate before any model launch",
+  ]) {
+    assert.ok(surfaces.includes(surface), `${surface} in ${surfaces.join("; ")}`);
+  }
+  const grant = readFileSync(path.join(ROOT, "docs/contracts/creation-grant.md"), "utf8");
+  assert.match(grant, /^Status: issue #11 /mu);
+  assert.match(grant, /`requireDaemonCapabilities` runs at \*\*extension load\*\*/u);
+  assert.match(grant, /the call site is the extension entry point, which matrix v1 gives to #18/u);
+  // The dispatch gate holds a workflow to every model-step check, so the
+  // signer boundary names it too.
+  const signer = data.matrix.preflight_primitives.find((item) => item.capability === "security.signer_boundary");
+  assert.ok(signer.elements.some((element) => element.owner === 34 && element.surface === "dispatch gate before any model launch"));
+  assert.ok(record(data, 18).dependencies.includes(11));
+  record(data, 18).dependencies = record(data, 18).dependencies.filter((item) => item !== 11);
+  assert.match(primitiveErrors(data), /issue #18 must depend on #11 by the canonical roadmap/u);
+  const wrong = fixture();
+  wrong.matrix.preflight_primitives.find((item) => item.capability === "daemon.capabilities_pinned").decision = "ADR-090";
+  assert.match(primitiveErrors(wrong), /`daemon\.capabilities_pinned` is the preflight's ADR-097 primitive/u);
+});
+
+test("the session token and the resume leaves have v1 owners inside the inventory", () => {
+  // R7-9: `AUTOSK_SESSION_TOKEN` in the model's environment and the resume
+  // leaves written by plain `autosk metadata set` were carried to #231, which
+  // is outside #3–#39.
+  const data = fixture();
+  const surfaces = (capability) => data.matrix.preflight_primitives
+    .find((item) => item.capability === capability).elements.map((element) => `${element.owner}:${element.surface}`);
+  assert.ok(surfaces("task.creation-binding").includes("11:session token kept out of the model environment"));
+  assert.ok(surfaces("workflow.custody").includes("18:resume leaves under metadata CAS"));
+  assert.match(record(data, 11).implementation_obligation_before_mvp, /`AUTOSK_SESSION_TOKEN`/u);
+  assert.match(record(data, 18).implementation_obligation_before_mvp, /`park\.receipts\.<step>`/u);
+  for (const issue of [11, 18]) assert.match(record(data, issue).implementation_obligation_before_mvp, /#231/u, `#${issue}`);
+  // 02 §2 says a model session holds no CLI or decision capability; it now
+  // says the pinned series does not do that yet, and who carries the change.
+  const architecture = readFileSync(path.join(ROOT, "02-architecture.md"), "utf8");
+  const pi = architecture.slice(architecture.indexOf("### Pi-провайдеры"), architecture.indexOf("### Git"));
+  assert.match(pi, /`AUTOSK_SESSION_TOKEN`/u);
+  assert.match(pi, /`autosk metadata set`/u);
+  assert.match(pi, /#11[^\n]*#18[^\n]*ADR-097/u);
+});
+
+test("the enforcement points are read from the graph, not restated", () => {
+  const names = enforcementRequirements(GRAPH_DOCUMENT).map((want) => want.point);
+  assert.deepEqual(names, ["graph.arena-runtime", "graph.guard-authority", "graph.predicate-evaluation", "graph.workflow-registration"]);
+  const byName = new Map(enforcementRequirements(GRAPH_DOCUMENT).map((want) => [want.point, want]));
+  assert.deepEqual(byName.get("graph.workflow-registration").workflows, GRAPH_DOCUMENT.workflows.map((entry) => entry.name));
+  // Review of 11c (L2): Arena's runtime is a point of its own, read from the
+  // Arena workflows the graph registers; a graph without them needs none.
+  assert.deepEqual(byName.get("graph.arena-runtime").workflows, ["autosk-arena-candidate", "autosk-arena-judge"]);
+  const noArena = structuredClone(GRAPH_DOCUMENT);
+  noArena.workflows = noArena.workflows.filter((entry) => !entry.name.startsWith("autosk-arena-"));
+  assert.ok(!enforcementRequirements(noArena).some((want) => want.point === "graph.arena-runtime"));
+  // A graph whose guards are all the agent's needs no authority evaluator; one
+  // with no predicates needs no predicate evaluator; one with no workflows
+  // registers nothing.
+  const agentOnly = structuredClone(GRAPH_DOCUMENT);
+  for (const guard of agentOnly.guards) guard.authority = { actor: "agent" };
+  assert.ok(!enforcementRequirements(agentOnly).some((want) => want.point === "graph.guard-authority"));
+  const bare = { ...structuredClone(GRAPH_DOCUMENT), predicates: [], workflows: [] };
+  assert.deepEqual(enforcementRequirements(bare).map((want) => want.point).filter((point) => point !== "graph.guard-authority"), []);
+  assert.doesNotThrow(() => enforcementRequirements(null));
+  assert.deepEqual(enforcementRequirements(null), []);
+});
+
+test("every enforcement point the graph requires is carried by a required_for_v1 record", () => {
+  // R7-10: no product code evaluates the graph's predicates or
+  // `guards[].authority`, and no record owned the evaluator or the extension
+  // entry point that registers the workflows.
+  const data = fixture();
+  assert.ok(Array.isArray(data.matrix.enforcement_points), "the matrix names the enforcement points");
+  assert.deepEqual(data.matrix.enforcement_points.map((entry) => entry.point),
+    enforcementRequirements(GRAPH_DOCUMENT).map((want) => want.point));
+  for (const entry of data.matrix.enforcement_points) {
+    assert.deepEqual(entry.owner_issues, [18], entry.point);
+    assert.match(record(data, 18).implementation_obligation_before_mvp, new RegExp(`\`${entry.point.replaceAll(".", "\\.")}\``, "u"));
+  }
+  const removed = fixture();
+  removed.matrix.enforcement_points = removed.matrix.enforcement_points.filter((entry) => entry.point !== "graph.guard-authority");
+  assert.match(primitiveErrors(removed), /`graph\.guard-authority` is required by the v1 graph and carried by no required_for_v1 record/u);
+  const later = fixture();
+  later.matrix.enforcement_points.find((entry) => entry.point === "graph.predicate-evaluation").owner_issues = [38];
+  assert.match(primitiveErrors(later), /`graph\.predicate-evaluation` is carried by #38, which is planned_after_v1/u);
+  const extra = fixture();
+  extra.matrix.enforcement_points.push({ ...structuredClone(extra.matrix.enforcement_points[0]), point: "graph.imaginary" });
+  assert.match(primitiveErrors(extra), /`graph\.imaginary` is not required by the v1 graph/u);
+  const decision = fixture();
+  decision.matrix.enforcement_points.find((entry) => entry.point === "graph.guard-authority").decision = "ADR-082";
+  assert.match(primitiveErrors(decision), /`graph\.guard-authority` is the graph's ADR-091 enforcement point/u);
+  const source = fixture();
+  source.matrix.enforcement_points.find((entry) => entry.point === "graph.guard-authority").source = "graph_predicates";
+  assert.match(primitiveErrors(source), /`graph\.guard-authority` is read from graph_guard_authority/u);
+  const unnamed = fixture();
+  const owner = record(unnamed, 18);
+  owner.implementation_obligation_before_mvp = owner.implementation_obligation_before_mvp.replaceAll("`graph.predicate-evaluation`", "predicates");
+  assert.match(primitiveErrors(unnamed), /#18 carries `graph\.predicate-evaluation` but its implementation_obligation_before_mvp does not name it/u);
+  const surface = fixture();
+  surface.matrix.enforcement_points.find((entry) => entry.point === "graph.guard-authority").elements[0].surface = "imaginary surface";
+  assert.match(primitiveErrors(surface), /surface "imaginary surface" of `graph\.guard-authority` is not named in #18's implementation_obligation_before_mvp/u);
+  const order = fixture();
+  order.matrix.enforcement_points.reverse();
+  assert.match(primitiveErrors(order), /enforcement_points must be sorted by point/u);
+});
+
+test("a required_for_v1 record whose obligation claims an enforcement point is among its owners, and owns a surface of it", () => {
+  const claiming = fixture();
+  record(claiming, 34).implementation_obligation_before_mvp += " It also claims `graph.guard-authority`.";
+  assert.match(primitiveErrors(claiming), /#34 names `graph\.guard-authority` in its implementation obligation but is not among its owners/u);
+  const none = fixture();
+  none.matrix.enforcement_points.find((entry) => entry.point === "graph.predicate-evaluation").elements = [];
+  assert.match(primitiveErrors(none), /#18 carries `graph\.predicate-evaluation` but owns none of its surfaces/u);
+  const stranger = fixture();
+  stranger.matrix.enforcement_points.find((entry) => entry.point === "graph.workflow-registration").elements[0].owner = 34;
+  assert.match(primitiveErrors(stranger), /is owned by #34, which is not among the owners of `graph\.workflow-registration`/u);
+});
+
+test("the enforcement requirement is read from the graph the validation is given", () => {
+  // Not restated: a workflow the graph registers later is one the registration
+  // owner must name before the matrix validates again.
+  const data = fixture();
+  const graph = structuredClone(GRAPH_DOCUMENT);
+  graph.workflows.push({ name: "autosk-imaginary", first_step: "intake" });
+  const expected = /#18 registers the graph's workflows but its implementation_obligation_before_mvp does not name `autosk-imaginary`/u;
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry, graph)), expected);
+  assert.match(messages(validateAll({ ...data, graph })), expected);
+  assert.deepEqual(validateMatrix(data.matrix, data.inventory, data.parityRegistry, GRAPH_DOCUMENT), []);
+  // A graph whose guards all name the agent needs no authority evaluator, and
+  // the matrix naming one anyway names what the graph does not require.
+  const agentOnly = structuredClone(GRAPH_DOCUMENT);
+  for (const guard of agentOnly.guards) guard.authority = { actor: "agent" };
+  assert.match(messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry, agentOnly)), /`graph\.guard-authority` is not required by the v1 graph/u);
+});
+
+test("the registration point's owner names every workflow the graph registers", () => {
+  // R7-13: the graph registers `autosk-arena-candidate` and
+  // `autosk-arena-judge`, and no v1 obligation named Arena.
+  const data = fixture();
+  const owner = record(data, 18);
+  for (const { name } of GRAPH_DOCUMENT.workflows) assert.ok(owner.implementation_obligation_before_mvp.includes(`\`${name}\``), name);
+  owner.implementation_obligation_before_mvp = owner.implementation_obligation_before_mvp.replace("`autosk-arena-judge`", "the judge");
+  assert.match(primitiveErrors(data), /#18 registers the graph's workflows but its implementation_obligation_before_mvp does not name `autosk-arena-judge`/u);
+});
+
+test("malformed enforcement points return errors instead of throwing", () => {
+  for (const malformed of [undefined, null, "x", [null], [{ point: "graph.guard-authority" }], [{ point: 7 }]]) {
+    const data = fixture();
+    if (malformed === undefined) delete data.matrix.enforcement_points;
+    else data.matrix.enforcement_points = malformed;
+    assert.doesNotThrow(() => validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+    assert.doesNotThrow(() => validateAll(data));
+    assert.notDeepEqual(validateMatrix(data.matrix, data.inventory, data.parityRegistry), []);
+  }
+});
+
+test("the matrix schema requires the enforcement points in a closed shape, and the summary lists them", () => {
+  const schema = JSON.parse(readFileSync(path.join(ROOT, "resources/program-capabilities/matrix.schema.json"), "utf8"));
+  assert.ok(schema.required.includes("enforcement_points"));
+  const entry = schema.$defs.enforcementPoint;
+  assert.equal(entry.additionalProperties, false);
+  assert.deepEqual([...entry.required].sort(), ["decision", "delivery", "elements", "owner_issues", "point", "source"]);
+  assert.deepEqual(entry.properties.source.enum, ["graph_guard_authority", "graph_predicates", "graph_workflows"]);
+  const data = fixture();
+  for (const point of data.matrix.enforcement_points) {
+    assert.match(data.documentation, new RegExp(`\\| \`${point.point.replaceAll(".", "\\.")}\` \\|`, "u"));
+  }
+});
+
+test("the guard-authority evaluator's owner depends on the record that verifies the authority it reads", () => {
+  const data = fixture();
+  assert.ok(record(data, 18).dependencies.includes(4));
+  record(data, 18).dependencies = record(data, 18).dependencies.filter((item) => item !== 4);
+  assert.match(primitiveErrors(data), /issue #18 must depend on #4 by the canonical roadmap/u);
+});
+
+test("Arena has one owner: its contract, the parity registry and the matrix name the same required_for_v1 record", () => {
+  const data = fixture();
+  const contracts = readContracts();
+  assert.deepEqual(validateAll({ ...data, contracts }), []);
+  const arena = contracts.find((entry) => entry.path === "docs/contracts/arena.md");
+  assert.match(arena.text, /^Status: issue #18 runtime contract\./mu);
+  for (const source of data.parityRegistry.sources.filter((item) => item.id.startsWith("protocol.arena."))) {
+    assert.deepEqual(source.autoskTarget.issueRefs, [18], source.id);
+  }
+  // Review of 11c (L2): the matrix's owner is the structured entry's, held by
+  // the shared ownership rule, not whichever obligation mentions Arena.
+  const runtime = data.matrix.enforcement_points.find((item) => item.point === "graph.arena-runtime");
+  assert.deepEqual(runtime.owner_issues, [18]);
+  const otherContract = contracts.map((entry) => entry.path === "docs/contracts/arena.md"
+    ? { ...entry, text: entry.text.replace("Status: issue #18", "Status: issue #4") } : entry);
+  assert.match(messages(validateAll({ ...data, contracts: otherContract })), /Arena: docs\/contracts\/arena\.md names #4, the parity registry #18, the matrix #18/u);
+  const parity = fixture();
+  parity.parityRegistry.sources.find((item) => item.id === "protocol.arena.judge-brief").autoskTarget.issueRefs = [14, 18];
+  assert.match(messages(validateAll({ ...parity, contracts })), /Arena: .*the parity registry #14, #18/u);
+  const two = fixture();
+  two.matrix.enforcement_points.find((item) => item.point === "graph.arena-runtime").owner_issues = [14, 18];
+  assert.match(messages(validateAll({ ...two, contracts })), /Arena: .*the matrix #14, #18/u);
+  // v1, as the README's goal and the graph's two Arena workflows say: the
+  // README's matrix section names the owner and the reason.
+  assert.match(data.readme, /^- Arena\/Judge для отмеченных конкурирующих решений;$/mu);
+  for (const name of ["autosk-arena-candidate", "autosk-arena-judge"]) {
+    assert.ok(GRAPH_DOCUMENT.workflows.some((entry) => entry.name === name), name);
+    assert.ok(data.readme.includes(`\`${name}\``), name);
+  }
+  assert.match(data.readme, /Arena\/Judge входит в v1 и её runtime тоже несёт #18/u);
+});
+
+test("the design gate's record names no seat outside the gate roster", () => {
+  // R7-27: #39's verification_expectation still named a Kimi seat.
+  const data = fixture();
+  const text = record(data, 39).verification_expectation;
+  // The roster is `required_panel` of the design candidate; the record points
+  // at it rather than restating a family list that can go stale.
+  assert.doesNotMatch(text, /Kimi|GPT|Grok|Opus/u);
+  assert.match(text, /`required_panel`/u);
+});
+
+test("ADR-023's daemon side is named where its v1 owners are, not as #40 work only", () => {
+  // R7-20: 01 §2 and human-decision.md named ADR-023 as #40's.
+  const core = readFileSync(path.join(ROOT, "01-core-flows.md"), "utf8");
+  assert.doesNotMatch(core, /обязательство ADR-023 \(#40\)/u);
+  assert.doesNotMatch(core, /обязательство реализации \(#40\)/u);
+  const decision = readFileSync(path.join(ROOT, "docs/contracts/human-decision.md"), "utf8");
+  assert.doesNotMatch(decision, /ADR-023, #40 phase 2\/3/u);
+  const code = readFileSync(path.join(ROOT, "src/host/user-decision.mjs"), "utf8");
+  assert.doesNotMatch(code, /ADR-023 implementation work \(#40/u);
+  for (const text of [decision, code]) assert.match(text, /#4\b/u);
+});
+
+test("the calls before a model launch are stated with their v1 owners, not as #40's", () => {
+  // R7-11: 01 §2, 02 §3 and §5, doctor-report.md and creation-grant.md gave the
+  // call at extension load and the call before a model launch to #40, or said
+  // `requireDaemonCapabilities` had no caller.
+  const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
+  const core = read("01-core-flows.md");
+  const architecture = read("02-architecture.md");
+  const doctor = read("docs/contracts/doctor-report.md");
+  const grant = read("docs/contracts/creation-grant.md");
+  assert.doesNotMatch(architecture, /the call at extension load, before any model launch, is implementation work \(#40\)/u);
+  assert.doesNotMatch(architecture, /тоже обязательство реализации: сегодня его не вызывает ни один путь запуска/u);
+  assert.doesNotMatch(doctor, /\(#40\)/u);
+  assert.doesNotMatch(grant, /It has \*\*no caller\*\* outside its own test/u);
+  // Review of 11c (M2): the call at extension load is the entry point's (#18);
+  // the function and what it checks stay #11's.
+  assert.match(core, /Gate перед model launch, который держит workflow к его набору, в матрице v1 несёт #34, вызов `requireDaemonCapabilities` при загрузке расширения — точка входа #18, а саму функцию и то, что она проверяет, — #11 \(ADR-097\)/u);
+  assert.match(architecture, /— в матрице v1 место этого вызова — точка входа расширения #18, а функцию и то, что она проверяет, несёт #11 \(ADR-097\)/u);
+  assert.match(architecture, /is #34's in matrix v1, the `requireDaemonCapabilities` call at extension load is the extension entry point's \(#18\), and the function and what it checks are #11's \(ADR-097\)/u);
+  assert.match(doctor, /The second caller, the dispatch gate that holds a workflow to its set before any model launch, is this issue's in matrix v1 \(ADR-097\)/u);
+  assert.match(doctor, /The call at extension load is the extension entry point's \(#18\), and what it checks is #11's/u);
+  assert.match(grant, /Outside tests, its one caller is the doctor's `daemon\.capabilities_pinned` check \(ADR-097\)/u);
+  for (const text of [core, architecture, doctor]) assert.match(text, /`daemon\.capabilities_pinned`/u);
+});
+
+// Review of 11c (three Medium, seven Low): #18 owns the evaluator mechanism
+// and not each predicate's meaning (M1); the load-time call is #18's and #4's
+// end-to-end proof closes under #36 (M2); Arena is verified and exercised (M3);
+// Arena's owner is structured and its check fails closed (L2); the matrix
+// states obligations, not progress (L4); ADR-091 names who carries it (L5).
+import { arenaOwnerErrors } from "../scripts/validate-program-capability-matrix.mjs";
+
+test("#18 owns the evaluator mechanism, and each predicate's meaning stays with its domain record", () => {
+  const data = fixture();
+  const text = record(data, 18).implementation_obligation_before_mvp;
+  assert.match(text, /never a constant evaluator/u);
+  for (const [domain, issue] of [["the ref-custody predicates", 5], ["foreign target movement", 9], ["review and finding predicates", 16]]) {
+    assert.ok(text.includes(`${domain} with #${issue}`), domain);
+  }
+  const point = data.matrix.enforcement_points.find((item) => item.point === "graph.predicate-evaluation");
+  assert.deepEqual(point.elements, [{ surface: "table from each predicate id to its implementation", owner: 18 }]);
+  const decisions = readFileSync(path.join(ROOT, "04-decisions.md"), "utf8");
+  const adr = decisions.slice(decisions.indexOf("## ADR-097"), decisions.indexOf("## Оставшиеся риски"));
+  assert.match(adr, /смысл каждого предиката остаётся за модулем записи его домена/u);
+  // The justification is not circular: expanded in place, the coordinator's
+  // decision under the owner's delegation, reviewed by round 8's full panel.
+  assert.doesNotMatch(adr, /Альтернатива 1: новая задача для точки входа расширения/u);
+  assert.match(adr, /«рекомендуемый вариант выбираешь сам»/u);
+  assert.match(adr, /полная панель раунда 8/u);
+});
+
+test("#4's end-to-end proof closes under #36 after #18's guard authority evaluator, and the gate refusal stays #4's", () => {
+  const data = fixture();
+  const text = record(data, 4).verification_expectation;
+  assert.match(text, /^Unit tests prove each alignment gate refuses/u);
+  assert.match(text, /under #36, after #18's guard authority evaluator/u);
+  assert.doesNotMatch(text, /^E2E proves/u);
+});
+
+test("Arena is verified by #18's tests and exercised by #36's end-to-end flows", () => {
+  const data = fixture();
+  const own = record(data, 18).verification_expectation;
+  assert.match(own, /an Arena run/u);
+  for (const name of ["autosk-arena-candidate", "autosk-arena-judge"]) assert.ok(own.includes(`\`${name}\``), name);
+  assert.match(record(data, 36).implementation_obligation_before_mvp, /Planned\/Quick\/Arena\/multi-project\/fault matrix/u);
+  const cleanRoom = readFileSync(path.join(ROOT, "docs/contracts/clean-room-e2e.md"), "utf8");
+  const mustRun = cleanRoom.slice(cleanRoom.indexOf("## 3. What must run"), cleanRoom.indexOf("## 4. "));
+  assert.match(mustRun, /Arena/u);
+  assert.match(mustRun, /`autosk-arena-candidate`/u);
+});
+
+test("Arena's owner is a structured entry, and every leg of the check fails closed", () => {
+  const contracts = readContracts();
+  const data = fixture();
+  const entry = data.matrix.enforcement_points.find((item) => item.point === "graph.arena-runtime");
+  assert.ok(entry, "Arena's runtime is an enforcement point");
+  assert.deepEqual(entry.owner_issues, [18]);
+  assert.equal(entry.source, "graph_workflows");
+  assert.equal(entry.decision, "ADR-077");
+  assert.match(record(data, 18).implementation_obligation_before_mvp, /`graph\.arena-runtime`/u);
+  assert.deepEqual(arenaOwnerErrors({ ...data, contracts }), []);
+  // Free text is not ownership: another record naming Arena in prose owns nothing.
+  const prose = fixture();
+  record(prose, 14).implementation_obligation_before_mvp += " Arena too.";
+  assert.deepEqual(arenaOwnerErrors({ ...prose, contracts }), []);
+  // One owner: a second owner of the structured entry is refused.
+  const two = fixture();
+  two.matrix.enforcement_points.find((item) => item.point === "graph.arena-runtime").owner_issues = [14, 18];
+  assert.match(messages(arenaOwnerErrors({ ...two, contracts })), /Arena: docs\/contracts\/arena\.md names #18, the parity registry #18, the matrix #14, #18/u);
+  // A contract set in which no contract carries the Arena marker is refused, not skipped.
+  const unmarked = contracts.map((item) => (item.path === "docs/contracts/arena.md"
+    ? { ...item, text: item.text.replace("<!-- arena-contract:v1 -->", "") } : item));
+  assert.match(messages(arenaOwnerErrors({ ...data, contracts: unmarked })), /Arena: no contract carries <!-- arena-contract:v1 -->/u);
+  assert.match(messages(validateAll({ ...fixture(), contracts: unmarked })), /Arena: no contract carries/u);
+  // Every #N on the status line counts, not only "issue #N".
+  const extra = contracts.map((item) => (item.path === "docs/contracts/arena.md"
+    ? { ...item, text: item.text.replace("Status: issue #18 runtime contract.", "Status: issue #18 runtime contract, with #14.") } : item));
+  assert.match(messages(arenaOwnerErrors({ ...data, contracts: extra })), /Arena: docs\/contracts\/arena\.md names #14, #18, the parity registry #18, the matrix #18/u);
+  // A parity registry without Arena sources, or a matrix without the entry, names no owner.
+  const noParity = fixture();
+  noParity.parityRegistry.sources = noParity.parityRegistry.sources.filter((source) => !source.id.startsWith("protocol.arena."));
+  assert.match(messages(arenaOwnerErrors({ ...noParity, contracts })), /the parity registry none/u);
+  const noEntry = fixture();
+  noEntry.matrix.enforcement_points = noEntry.matrix.enforcement_points.filter((item) => item.point !== "graph.arena-runtime");
+  assert.match(messages(arenaOwnerErrors({ ...noEntry, contracts })), /the matrix none/u);
+});
+
+test("the matrix and its summary state obligations, not current progress", () => {
+  // README: the matrix stores no live state. What exists today is measured
+  // where it is measured (the panel package, §5), not written into an
+  // obligation or a delivery.
+  const data = fixture();
+  const progress = /\btoday\b|not yet written|no entry point exists|every caller today|сегодня|пока нет/iu;
+  const texts = [
+    ...data.matrix.records.flatMap((item) => [item.implementation_obligation_before_mvp, item.verification_expectation, item.design_obligation_before_issue_39]),
+    ...data.matrix.preflight_primitives.map((item) => item.delivery),
+    ...data.matrix.enforcement_points.map((item) => item.delivery),
+  ];
+  for (const text of texts) assert.doesNotMatch(text, progress, text);
+  assert.doesNotMatch(data.documentation, progress);
+  const factory = readFileSync(path.join(ROOT, "docs/contracts/workflow-factory.md"), "utf8");
+  const authority = factory.slice(factory.indexOf("## 1. Authority"), factory.indexOf("## 2. "));
+  assert.doesNotMatch(authority, /neither exists yet|every caller of `buildWorkflow`/u);
+});
+
+test("ADR-091 names who now carries its signer, key pin and verifier, and gateAdmission's caller", () => {
+  const decisions = readFileSync(path.join(ROOT, "04-decisions.md"), "utf8");
+  const adr = decisions.slice(decisions.indexOf("## ADR-091"), decisions.indexOf("## ADR-092"));
+  assert.match(adr, /^- Изменено ADR-092 и ADR-097: /mu);
+  const note = adr.split("\n").find((line) => line.startsWith("- Изменено ADR-092 и ADR-097: "));
+  assert.match(note, /#4/u);
+  assert.match(note, /`gateAdmission`/u);
+  assert.match(note, /#18/u);
+});
+
+test("the CLI reads the graph it is given and names a missing one (CodeRabbit on #268)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const script = fileURLToPath(new URL("../scripts/validate-program-capability-matrix.mjs", import.meta.url));
+  const missing = "/nonexistent/workflow-graph.v1.json";
+  const refused = spawnSync(process.execPath, [script, "--graph", missing], { encoding: "utf8" });
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, new RegExp(`missing required file: ${missing}`, "u"));
+  const graph = fileURLToPath(new URL("../resources/workflow-graph/workflow-graph.v1.json", import.meta.url));
+  const accepted = spawnSync(process.execPath, [script, "--graph", graph], { encoding: "utf8" });
+  assert.equal(accepted.status, 0, accepted.stderr);
+});

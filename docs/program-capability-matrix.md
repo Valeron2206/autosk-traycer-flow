@@ -48,7 +48,7 @@
 | #15 Определить immutable task-store projection для параллельных gate-задач | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #11, #12, #18 | yes | yes |
 | #16 Реализовать canonical finding registry, merge/triage/contest и late-finding semantics | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #14, #15, #18 | yes | yes |
 | #17 Добавить project delivery profile preflight: branch policy, CI, signatures, DCO и integration mode | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #12 | yes | yes |
-| #18 Сделать все model-owned результаты структурированными, а transitions — host-mediated | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #10, #12 | yes | yes |
+| #18 Сделать все model-owned результаты структурированными, а transitions — host-mediated | P0 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #4, #10, #11, #12 | yes | yes |
 | #19 Реализовать stage→protocol carrier matrix и attribution echo для каждого handoff | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #3, #12, #14, #18, #37 | yes | yes |
 | #20 Добавить clearance manifest и fail-closed сканирование сериализованного handoff | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #19 | yes | yes |
 | #21 Добавить immutable snapshots и drift guard для внешних/non-Git источников | P1 | required_for_v1 | autonomous_mvp | design_and_mvp_input | #12, #13 | yes | yes |
@@ -78,9 +78,21 @@ Preflight отказывает любому model workflow без каждой �
 | Capability | Kind | ADR | Carried by | Surfaces | Delivery |
 | --- | --- | --- | --- | --- | --- |
 | `authority.user-decision` | daemon_capability | ADR-023 | #4, #9 | signer key pin (#4); UserDecisionRecord journal (#4); authority/nonce heads (#4); dependency/intent heads (#4); authorityGuard (#9); integrateApproved (#9) | compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified |
-| `security.signer_boundary` | model_step_check | ADR-090 | #4, #34 | signer in a separate OS boundary (#4); signer boundary probe (#34) | the signer and its daemon report ship with authority.user-decision in compat/autosk patches 0052+; the check is the doctor's (src/host/doctor-checks.mjs) |
-| `task.creation-binding` | daemon_capability | ADR-014 | #11 | task.create_bound (#11) | compat/autosk patches 0001 and 0028, pinned as v2 with method task.create_bound |
-| `workflow.custody` | daemon_capability | ADR-025 | #18 | step-capability metadata CAS (#18); write-once gate-result receipts (#18); orchestrateChildBatch (#18); park.origin writer (#18) | compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified |
+| `daemon.capabilities_pinned` | model_step_check | ADR-097 | #11, #18, #34 | `requireDaemonCapabilities` and what it checks (#11); `requireDaemonCapabilities` at extension load (#18); daemon capability check (#34); dispatch gate before any model launch (#34) | the check is the doctor's (src/host/doctor-checks.mjs) and hands a report to requireDaemonCapabilities (src/host/daemon-preflight.mjs, #11); the call at extension load comes with #18's entry point and the dispatch gate with #34's; no report passes the check before ADR-023 and ADR-025 are pinned |
+| `security.signer_boundary` | model_step_check | ADR-090 | #4, #34 | signer in a separate OS boundary (#4); signer boundary probe (#34); dispatch gate before any model launch (#34) | the signer and its daemon report ship with authority.user-decision in compat/autosk patches 0052+; the check is the doctor's (src/host/doctor-checks.mjs) |
+| `task.creation-binding` | daemon_capability | ADR-014 | #11 | task.create_bound (#11); session token kept out of the model environment (#11) | compat/autosk patches 0001 and 0028, pinned as v2 with method task.create_bound; a later compat/autosk patch takes the session token out of the model environment (roadmap #231) |
+| `workflow.custody` | daemon_capability | ADR-025 | #18 | step-capability metadata CAS (#18); write-once gate-result receipts (#18); orchestrateChildBatch (#18); park.origin writer (#18); resume leaves under metadata CAS (#18) | compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified, and the host writes the resume leaves only through the metadata CAS it provides (roadmap #231) |
+
+## Точки исполнения, на которых стоит граф
+
+Граф workflow (`resources/workflow-graph/workflow-graph.v1.json`) объявляет то, что исполняет только продуктовый код: предикаты, которые кто-то должен вычислить, guards, чей `authority` называет человека или policy, workflows, которые кто-то должен собрать и зарегистрировать, и workflows Arena, чей runtime решает её контракт. `validate:capabilities` выводит эти точки из самого графа (`enforcementRequirements`) и держит их к матрице по тому же правилу, что примитивы preflight: каждую несёт запись `required_for_v1`, чьё `implementation_obligation_before_mvp` называет её и свои поверхности, запись, которая её называет, — среди владельцев, а владелец точки с workflows называет каждый из них; владелец runtime Arena — один и тот же в матрице, в строке статуса контракта Arena и в реестре parity (ADR-097). Смысл каждого предиката остаётся за записью его домена.
+
+| Point | Read from | ADR | Carried by | Surfaces | Delivery |
+| --- | --- | --- | --- | --- | --- |
+| `graph.arena-runtime` | graph_workflows | ADR-077 | #18 | Arena runtime (#18) | the host-mediated candidate and judge steps of the Arena workflows the graph registers, as docs/contracts/arena.md decides them: candidates isolated from each other, a judge of a third family that ranks and does not approve, the person's decision re-expressed in the Tech Plan |
+| `graph.guard-authority` | graph_guard_authority | ADR-091 | #18 | guard authority evaluator (#18) | extension product code that admits human authority only as a UserDecisionRecord #4's verifier accepts, and policy authority only within the rules and scope the guard records (ADR-023, ADR-091) |
+| `graph.predicate-evaluation` | graph_predicates | ADR-082 | #18 | table from each predicate id to its implementation (#18) | extension product code that binds each predicate id to the implementation in its domain record's module and hands the table to buildWorkflow (src/host/workflow-factory.mjs), which applies it at both decision sites |
+| `graph.workflow-registration` | graph_workflows | ADR-090 | #18 | extension entry point (#18) | extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load |
 
 ## Planned after v1
 
@@ -176,5 +188,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `d57252f9e9f40382c5a314c51ace51ce9b8fdf7d1afac34509e2d909ecbf698e`
+Matrix digest: `d331305b77069d6a167313dbf3029632220e99dc0089bb658dea992e80bb992f`
 
