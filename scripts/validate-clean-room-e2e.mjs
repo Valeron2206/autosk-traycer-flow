@@ -23,6 +23,7 @@ export const CONTRACT_PATH = "docs/contracts/clean-room-e2e.md";
 export const SCHEMA_PATH = "resources/clean-room-e2e/fault-matrix.schema.json";
 export const MATRIX_PATH = "resources/clean-room-e2e/fault-matrix.v1.json";
 export const CONTRACT_MARKER = "<!-- clean-room-e2e-contract:v1 -->";
+export const HARNESS_PATH = "scripts/clean-room-faults.mjs";
 
 /** Every boundary the flow crosses. A boundary with no fault group is untested. */
 export const BOUNDARIES = Object.freeze([
@@ -92,9 +93,155 @@ export function gatePasses(outcome) {
   return !GATE_FAILING_OUTCOMES.includes(outcome);
 }
 
-export function validateMatrix(matrix, schema) {
+/**
+ * The case functions the harness runs: the keys of its `CASES` object, each
+ * mapped to the function it names. A function that looks like a case and is
+ * not in `CASES` is never run, so it is no case.
+ */
+export function harnessCases(harnessSource) {
+  const block = /export const CASES = Object\.freeze\(\{([\s\S]*?)\}\);/u.exec(harnessSource);
+  if (!block) return new Map();
+  return new Map([...block[1].matchAll(/\b(F\d{2,4}):\s*([A-Za-z_$][\w$]*)/gu)].map((match) => [match[1], match[2]]));
+}
+
+/**
+ * The source of one fault-harness case, `async function <name>(root) { … }`,
+ * or null when `CASES` has no entry for the group.
+ *
+ * Read as text rather than imported: the validator states what the harness
+ * does without running the host modules it imports.
+ */
+export function caseSource(harnessSource, id) {
+  const name = harnessCases(harnessSource).get(id);
+  if (!name) return null;
+  const start = harnessSource.indexOf(`async function ${name}(`);
+  if (start === -1) return null;
+  const end = harnessSource.indexOf("\n}\n", start);
+  return harnessSource.slice(start, end === -1 ? undefined : end + 2);
+}
+
+/**
+ * The text from `open` to its balanced end: to the bracket that closes the
+ * one at `open`, or — for a statement, or when `open` is not a bracket — to
+ * the first `;` at depth zero. Quoted strings and template literals are skipped whole.
+ */
+function balanced(text, open, { statement = false } = {}) {
+  const pairs = { "(": ")", "[": "]", "{": "}" };
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "'" || char === '"' || char === "`") {
+      index += 1;
+      while (index < text.length && text[index] !== char) index += text[index] === "\\" ? 2 : 1;
+      continue;
+    }
+    if (pairs[char]) depth += 1;
+    else if (char === ")" || char === "]" || char === "}") {
+      depth -= 1;
+      if (depth === 0 && pairs[text[open]] && !statement) return text.slice(open, index + 1);
+      if (depth < 0) return text.slice(open, index);
+    } else if (char === ";" && depth === 0) return text.slice(open, index);
+  }
+  return text.slice(open);
+}
+
+/**
+ * What the case hands `guard` at its first call — the faulted one: the call's
+ * argument text, with every `const` of the case it names expanded in place,
+ * recursively. Null when the case never calls the guard.
+ */
+export function guardInput(source, guard) {
+  const call = new RegExp(`(?<![A-Za-z0-9_$.])${guard}\\(`, "u").exec(source);
+  if (!call) return null;
+  const consts = new Map();
+  for (const match of source.matchAll(/\bconst ([A-Za-z_$][\w$]*) = /gu)) {
+    if (!consts.has(match[1])) consts.set(match[1], balanced(source, match.index + match[0].length, { statement: true }));
+  }
+  const seen = new Set();
+  const expand = (text) => {
+    let out = text;
+    for (const identifier of new Set(text.match(/[A-Za-z_$][\w$]*/gu) ?? [])) {
+      if (!consts.has(identifier) || seen.has(identifier)) continue;
+      seen.add(identifier);
+      out += `\n${expand(consts.get(identifier))}`;
+    }
+    return out;
+  };
+  return expand(balanced(source, call.index + call[0].length - 1));
+}
+
+const LITERAL_KEY = /(?<![A-Za-z0-9_$])([A-Za-z_$][\w$]*): (?:'[^']*'|"[^"]*"|-?\d+|true|false)(?![A-Za-z0-9_$])/gu;
+
+/** The keys a guard input writes as a literal — a string, a number or a boolean. */
+export function literalKeys(input) {
+  return new Set([...input.matchAll(LITERAL_KEY)].map((match) => match[1]));
+}
+
+/**
+ * How a group is injected, held to the harness that runs it (debt 10h, and
+ * the review of 10h).
+ *
+ * - `real_path` — the daemon harnesses (crash, identity) make the fault against
+ *   the built daemon; `CASES` has no entry for the group, and it names no guard.
+ * - `measured_observation` — a fault-harness case whose guard is handed no
+ *   written observation field.
+ * - `written_observation` — a fault-harness case whose guard is handed the
+ *   `written_fields` as literals.
+ *
+ * Whatever the kind, every literal the faulted guard call is handed — its
+ * argument, and each `const` of the case it names — is declared, as a written
+ * field or as a fixed input (held constant between the fault and its control),
+ * and every declared field is such a literal. What text cannot settle is that
+ * a non-literal field is read from the fixture after the fault; that is the
+ * case's own reading, and `injection_note` says it.
+ */
+function injectionErrors(group, harnessSource) {
+  const errors = [];
+  const at = `${group.id} (${group.boundary})`;
+  const source = caseSource(harnessSource, group.id);
+  const written = group.written_fields;
+  const fixed = group.fixed_inputs;
+  if (group.injection === "real_path") {
+    if (source !== null) errors.push(`${at}: has a case in the fault harness, so it is not a real_path`);
+    if (group.guards !== undefined) errors.push(`${at}: guards belong to a fault-harness case, not to real_path`);
+    if (fixed !== undefined) errors.push(`${at}: fixed_inputs belong to a fault-harness case, not to real_path`);
+  } else if (source === null) {
+    errors.push(`${at}: is ${group.injection}, and it has no case in the fault harness`);
+  }
+  if (group.injection === "written_observation") {
+    if (!Array.isArray(written) || written.length === 0) errors.push(`${at}: a written_observation names no written field`);
+  } else if (written !== undefined) {
+    errors.push(`${at}: written_fields belong to a written_observation, not to ${group.injection}`);
+  }
+  if (group.injection === "real_path" || source === null) return errors;
+
+  if (!Array.isArray(group.guards) || group.guards.length === 0) {
+    errors.push(`${at}: names no guard its case asks`);
+    return errors;
+  }
+  const literals = new Set();
+  for (const guard of group.guards) {
+    const input = guardInput(source, guard);
+    if (input === null) {
+      errors.push(`${at}: ${guard} is not called in its case in ${HARNESS_PATH}`);
+      continue;
+    }
+    for (const key of literalKeys(input)) literals.add(key);
+  }
+  const declared = new Set([...(written ?? []), ...(fixed ?? [])]);
+  for (const field of declared) {
+    if (!literals.has(field)) errors.push(`${at}: ${field} is not written as a literal in the guard call`);
+  }
+  for (const key of [...literals].sort()) {
+    if (!declared.has(key)) errors.push(`${at}: ${key} is written as a literal in the guard call and is not declared`);
+  }
+  return errors;
+}
+
+export function validateMatrix(matrix, schema, { harnessSource } = {}) {
   const errors = validateJsonSchema(matrix, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;
+  const harness = harnessSource ?? readFileSync(path.join(ROOT, HARNESS_PATH), "utf8");
 
   const ids = new Set();
   const covered = new Set();
@@ -117,6 +264,7 @@ export function validateMatrix(matrix, schema) {
         errors.push(`${at}: ${proof.kind} has no locator, so nothing can be checked against it`);
       }
     }
+    errors.push(...injectionErrors(group, harness));
   }
 
   // A boundary with no fault group is a boundary nobody attacked.

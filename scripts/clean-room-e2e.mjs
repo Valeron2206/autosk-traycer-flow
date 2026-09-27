@@ -34,9 +34,12 @@ export const MATRIX_PATH = 'resources/clean-room-e2e/fault-matrix.v1.json';
  * `real_fault` means a process was actually killed or a state actually
  * corrupted during the run; anything else is named as what it is.
  *
- * F005-F016 are absent here on purpose: they are covered by the fault harness,
+ * F005-F020 are absent here on purpose: they are covered by the fault harness,
  * and their entries are derived from what that run actually detected rather
- * than declared in advance. A table is a claim; a run is evidence.
+ * than declared in advance. A table is a claim; a run is evidence. For those
+ * rows `real_fault` means the case detected its fault and its control stayed
+ * silent; whether the guard was handed a measured or a written observation is
+ * the matrix's `injection`, not this flag (debt 10h).
  */
 export const COVERAGE = Object.freeze({
   // `control` says whether the group was also asked the un-faulted question.
@@ -93,6 +96,22 @@ export function faultCoverage(report) {
     },
   ]);
   return Object.freeze(Object.fromEntries(entries));
+}
+
+/**
+ * The per-case records the report carries: the result, its control, and the
+ * ref-writing git commands the case ran itself, fixture setup apart from the
+ * fault step (debt 10h). The package reads which groups touch Git directly
+ * from here rather than from a sentence.
+ */
+export function faultRecords(report) {
+  return Object.freeze(report.results.map((entry) => Object.freeze({
+    id: entry.id,
+    detected: entry.detected,
+    control: entry.control,
+    detail: entry.detail,
+    git_ref_writes: entry.git_ref_writes,
+  })));
 }
 
 /** Environment variables that would make the run not a clean room. */
@@ -348,9 +367,7 @@ async function finish({ workspace, steps, receipt, keep, error, faults }) {
     // holding counts cannot tell a discriminating guard from one that refuses
     // everything, and that distinction is the whole reason each case runs a
     // control.
-    faults: faults ? Object.freeze(faults.results.map((entry) => Object.freeze({
-      id: entry.id, detected: entry.detected, control: entry.control, detail: entry.detail,
-    }))) : null,
+    faults: faults ? faultRecords(faults) : null,
     steps: Object.freeze(steps),
     coverage,
     ok: !error && steps.every((step) => step.ok !== false),

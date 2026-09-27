@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * Real fault injection for the clean-room matrix (#36, groups F005-F020).
+ * The fault harness of the clean-room matrix (#36, groups F005-F020).
  *
- * Every case here creates the fault for real — a symlink on disk, a ref moved
- * by a second process, an inherited `GIT_DIR`, a harness that prints success
- * and exits 0, a swap interrupted between two durable writes — and then asks
- * the host module that owns that boundary what it makes of the observed state.
+ * Every case builds a fixture — a temporary directory, a child process, an
+ * environment, a Git repository — makes the fault there, and asks the pure host
+ * function that owns the boundary what it makes of the state. No case runs a
+ * host driver or the daemon. What reaches the guard differs, and the matrix
+ * says which per group (`injection`, held to this file by
+ * `validate:clean-room`, debt 10h): some cases hand the guard values read back
+ * from the faulted fixture (`measured_observation`); others hand it an
+ * observation written here, in whole or in the fields the matrix names
+ * (`written_observation`), and check the fixture beside the guard. The git
+ * commands that write a ref are recorded per case, fixture setup apart from
+ * the fault step, so what touches Git directly is a measurement.
  *
  * Each case also runs its own control: the same guard, asked about the state
  * without the fault, has to stay silent. Without that half, a guard that
@@ -37,8 +44,60 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const CLEAN_ROOM_KEY = epicRefKey('0'.repeat(64), 'clean-room');
 const STAGING_REF = stagingRef(CLEAN_ROOM_KEY);
 
-const git = (cwd, ...args) =>
-  execFileAsync('git', args, {
+/**
+ * The git commands that write a ref, run by this harness itself (debt 10h).
+ *
+ * The package used to say that only the planning-publication groups touch Git
+ * directly. Which cases do is recorded here instead, per case, with fixture
+ * setup kept apart from the fault step: a command is written down as its
+ * subcommand, its flags and the refs it names — never an OID, so the record is
+ * the same on every run.
+ */
+const REF_WRITERS = new Set(['commit', 'update-ref', 'reset']);
+
+/**
+ * The git subcommands this harness runs that write no ref: objects, the index
+ * or a new repository's unborn HEAD at most. `reflog` reads only in the two
+ * forms used here. Anything outside both sets refuses (review of 10h), so a
+ * new writing command cannot go unrecorded.
+ */
+export const GIT_READERS = new Set(['init', 'add', 'write-tree', 'commit-tree', 'rev-parse', 'reflog', 'status']);
+
+/** The recorded form of a ref-writing git command, null for a reader. */
+export function refWriteOf(args) {
+  const [subcommand] = args;
+  if (subcommand === 'reflog' && !(args[1] === 'show' || String(args[1]).startsWith('--format'))) {
+    throw new Error(`git reflog ${args[1]} is not classified as a reader or a ref writer`);
+  }
+  if (GIT_READERS.has(subcommand)) return null;
+  if (!REF_WRITERS.has(subcommand)) throw new Error(`git ${subcommand} is not classified as a reader or a ref writer`);
+  if (subcommand === 'reset') return ['reset', ...args.slice(1).filter((arg) => arg === '--hard' || arg === '--soft')].join(' ');
+  const named = args.slice(1).filter((arg) => (arg.startsWith('--') && arg !== '--quiet') || arg === '-d' || arg.startsWith('refs/'));
+  return [subcommand, ...named].join(' ');
+}
+
+let refWrites = null;
+let inFixture = 0;
+
+/** Runs `build` as fixture setup, so its ref writes are recorded as such. */
+async function fixture(build) {
+  inFixture += 1;
+  try {
+    return await build();
+  } finally {
+    inFixture -= 1;
+  }
+}
+
+function recordRefWrite(args) {
+  const command = refWriteOf(args);
+  if (refWrites === null || command === null) return;
+  refWrites[inFixture > 0 ? 'fixture' : 'fault'].push(command);
+}
+
+const git = (cwd, ...args) => {
+  recordRefWrite(args);
+  return execFileAsync('git', args, {
     cwd,
     env: {
       PATH: process.env.PATH,
@@ -49,6 +108,7 @@ const git = (cwd, ...args) =>
       GIT_COMMITTER_EMAIL: 'clean-room@autosk.invalid',
     },
   });
+};
 
 /**
  * The real path, resolved by the operating system rather than by string work.
@@ -61,7 +121,11 @@ const realpath = async (target) =>
   path.join(await osRealpath(path.dirname(target)), path.basename(target));
 
 /** A real repository with one commit, so refs and trees are real OIDs. */
-async function repository(root) {
+function repository(root) {
+  return fixture(() => baseRepository(root));
+}
+
+async function baseRepository(root) {
   const repo = path.join(root, 'repo');
   await mkdir(repo, { recursive: true });
   await git(repo, 'init', '--quiet', '--initial-branch=main');
@@ -80,7 +144,11 @@ async function repository(root) {
  * cases differ only in whether the swap had happened, and that difference has
  * to come from the observed ref rather than from how the fixture was written.
  */
-async function stageCommit(repo, head) {
+function stageCommit(repo, head) {
+  return fixture(() => baseStageCommit(repo, head));
+}
+
+async function baseStageCommit(repo, head) {
   await writeFile(path.join(repo, 'b.txt'), 'staged\n');
   await git(repo, 'add', 'b.txt');
   const { stdout: tree } = await git(repo, 'write-tree');
@@ -443,15 +511,21 @@ const KEEPALIVE_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/candidate`;
  * keeps reflogs only for the namespaces it knows about, and a private ref is
  * not one of them.
  */
-async function planningRepo(root, name) {
-  const { repo, head, tree } = await repository(path.join(root, name));
-  await git(repo, 'update-ref', '--create-reflog', PLANNING_REF, head);
-  await git(repo, 'update-ref', '--create-reflog', KEEPALIVE_REF, head);
-  return { repo, head, tree };
+function planningRepo(root, name) {
+  return fixture(async () => {
+    const { repo, head, tree } = await repository(path.join(root, name));
+    await git(repo, 'update-ref', '--create-reflog', PLANNING_REF, head);
+    await git(repo, 'update-ref', '--create-reflog', KEEPALIVE_REF, head);
+    return { repo, head, tree };
+  });
 }
 
 /** A real commit object written but not yet pointed at by any ref. */
-async function orphanCommit(repo, parent, message) {
+function orphanCommit(repo, parent, message) {
+  return fixture(() => baseOrphanCommit(repo, parent, message));
+}
+
+async function baseOrphanCommit(repo, parent, message) {
   await writeFile(path.join(repo, 'c.txt'), `${message}\n`);
   await git(repo, 'add', 'c.txt');
   const { stdout: tree } = await git(repo, 'write-tree');
@@ -620,11 +694,15 @@ export async function runFaults({ keep = false } = {}) {
   try {
     for (const [id, run] of Object.entries(CASES)) {
       const started = Date.now();
+      refWrites = { fixture: [], fault: [] };
       try {
         const outcome = await run(root);
-        results.push({ id, ...outcome, ms: Date.now() - started });
+        results.push({ id, ...outcome, git_ref_writes: refWrites, ms: Date.now() - started });
       } catch (error) {
-        results.push({ id, detected: false, control: false, detail: `case failed: ${error.message}`, ms: Date.now() - started });
+        results.push({ id, detected: false, control: false, detail: `case failed: ${error.message}`, git_ref_writes: refWrites, ms: Date.now() - started });
+      } finally {
+        refWrites = null;
+        inFixture = 0;
       }
     }
   } finally {

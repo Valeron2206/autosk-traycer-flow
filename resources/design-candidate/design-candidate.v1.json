@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "776cefbeb5125c3c92329a5ec4aa63005b538326b3f996471af6cc4ac588e6a1"
+      "sha256": "bd2d9fe239d88cb73880b4915d4d22d8ac0fa9395934bfecd837473de5479529"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -68,7 +68,7 @@
     },
     {
       "path": "docs/contracts/clean-room-e2e.md",
-      "sha256": "c66edcd941dfc3fbf052273c36987b372b27997d1d608dfa451e1d650054aed9"
+      "sha256": "766cb480be8492e133a145d8c1136f959d4273669d17d16efdae6af516d394e1"
     },
     {
       "path": "docs/contracts/clearance-manifest.md",
@@ -292,11 +292,11 @@
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.schema.json",
-      "sha256": "998fb3d44c9255d12b177f491d8f01ba9f877a78a8f5e430957aed0ca5b75edc"
+      "sha256": "dcd39b7636609cf003672f6e5deadbe2e05edc3e92298ed282ea1e51c944c09b"
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.v1.json",
-      "sha256": "044838572a2c9d3335d1eeea8eb973a50727a5c3907379855cbe7046d91222a5"
+      "sha256": "78d15d2248dcb150282df68662f144390c1e6176afa6b8ab7782b1a4a83e229f"
     },
     {
       "path": "resources/clearance-manifest/clearance-manifest.blocked.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "e3341f9410107b45fa96596765a6c542955af9caa8b19c1e8c6bb0703259d94f",
+  "candidate_digest": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
   "dispositions": [
     {
       "issue": 3,

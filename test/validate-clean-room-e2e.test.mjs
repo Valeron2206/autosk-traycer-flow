@@ -205,3 +205,145 @@ test("the design digest changes when any shipped file changes", () => {
   const after = cleanRoomDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
 });
+
+// Debt 10h (R6-20, a1): the package said every group is injected for real and
+// that only F017–F020 touch Git directly. Eight fault-harness groups hand their
+// guard a written observation, and no group of the fault harness runs a host
+// driver or the daemon. How each group is injected is now data in the matrix,
+// held to the harness that runs it, and the package renders it from there.
+
+const INJECTION = Object.freeze({
+  F001: "real_path", F002: "real_path", F003: "real_path", F004: "real_path",
+  F005: "measured_observation", F006: "written_observation", F007: "written_observation",
+  // Review of 10h (M1): F008 writes `ref` and `post_state`, F011 `exit_code`,
+  // and F012's record cannot come out otherwise, so all three are written.
+  F008: "written_observation", F009: "measured_observation", F010: "measured_observation",
+  F011: "written_observation", F012: "written_observation", F013: "measured_observation",
+  F014: "measured_observation", F015: "written_observation", F016: "written_observation",
+  F017: "written_observation", F018: "written_observation", F019: "written_observation",
+  F020: "written_observation",
+});
+
+test("every group declares how it is injected, as the harness that runs it does it", () => {
+  const byId = Object.fromEntries(matrix().groups.map((group) => [group.id, group.injection]));
+  assert.deepEqual(byId, INJECTION);
+  for (const group of matrix().groups) {
+    // A written observation names the fields the harness writes rather than reads.
+    if (group.injection === "written_observation") assert.ok(group.written_fields.length > 0, group.id);
+    else assert.equal(group.written_fields, undefined, group.id);
+    // A fault-harness group names the guard it asks; a daemon group names none.
+    if (group.injection === "real_path") assert.equal(group.guards, undefined, group.id);
+    else assert.ok(group.guards.length > 0, group.id);
+  }
+});
+
+test("a group with no injection kind is refused", () => {
+  assertRejects(mutated((value) => { delete value.groups[0].injection; }), /injection/u);
+  assertRejects(mutated((value) => { value.groups[0].injection = "real"; }), /injection/u);
+});
+
+test("a fault-harness case declared as a real daemon path is refused", () => {
+  // F005 is a case of `scripts/clean-room-faults.mjs`: a guard asked about a
+  // fixture, not the daemon answering on its own path.
+  assertRejects(
+    mutated((value) => { value.groups.find((group) => group.id === "F005").injection = "real_path"; }),
+    /F005.*fault harness.*real_path/u,
+  );
+});
+
+test("a group the fault harness does not run cannot claim an observation it never made", () => {
+  assertRejects(
+    mutated((value) => { value.groups.find((group) => group.id === "F001").injection = "measured_observation"; }),
+    /F001.*no case in the fault harness/u,
+  );
+});
+
+test("a written observation names its written fields, and the harness writes each one as a literal", () => {
+  assertRejects(
+    mutated((value) => { delete value.groups.find((group) => group.id === "F007").written_fields; }),
+    /F007.*names no written field/u,
+  );
+  // F007 measures the observed OID; claiming it is written is a claim the case
+  // source refutes.
+  assertRejects(
+    mutated((value) => { value.groups.find((group) => group.id === "F007").written_fields = ["observed_old_oid"]; }),
+    /F007.*observed_old_oid.*not written as a literal/u,
+  );
+});
+
+test("a measured group that names written fields is refused", () => {
+  assertRejects(
+    mutated((value) => { value.groups.find((group) => group.id === "F009").written_fields = ["untracked"]; }),
+    /F009.*written_fields.*written_observation/u,
+  );
+});
+
+test("the harness source decides, not the matrix: a case that stops writing a field fails the matrix", () => {
+  const source = readFileSync(path.join(ROOT, "scripts/clean-room-faults.mjs"), "utf8");
+  const measured = source.replace("observation, observed_old_oid: moved.trim() });", "observation, observed_old_oid: moved.trim(), reflog_entries: entries });")
+    .replace("const observation = { ref: 'refs/heads/main', expected_old_oid: head, post_state: 'known', reflog_entries: 1 };",
+      "const observation = { ref: 'refs/heads/main', expected_old_oid: head, post_state: 'known' };");
+  assert.notEqual(measured, source);
+  const errors = validateMatrix(matrix(), schema, { harnessSource: measured });
+  assert.ok(errors.some((message) => /F007.*reflog_entries.*not written as a literal/u.test(message)), errors.join("\n"));
+});
+
+// Review of 10h (M1, Lows): every literal the faulted guard call is handed is
+// declared — written, or fixed between the fault and its control — whatever
+// the group's kind, and the literals are read from that call alone.
+
+const group = (value, id) => value.groups.find((entry) => entry.id === id);
+
+test("a literal handed to the guard and not declared is refused, whatever the kind", () => {
+  assertRejects(
+    mutated((value) => { group(value, "F008").written_fields = ["ref"]; }),
+    /F008.*post_state is written as a literal in the guard call and is not declared/u,
+  );
+  assertRejects(
+    mutated((value) => {
+      const f011 = group(value, "F011");
+      f011.injection = "measured_observation";
+      delete f011.written_fields;
+    }),
+    /F011.*exit_code is written as a literal in the guard call and is not declared/u,
+  );
+  assertRejects(
+    mutated((value) => { group(value, "F014").fixed_inputs = ["idle_ms"]; }),
+    /F014.*wall_clock_ms is written as a literal in the guard call and is not declared/u,
+  );
+});
+
+test("a harness edit that hands the guard a new literal fails the matrix", () => {
+  const source = readFileSync(path.join(ROOT, "scripts/clean-room-faults.mjs"), "utf8");
+  const edited = source.replace("observation, observed_old_oid: moved.trim() });", "observation, observed_old_oid: 'ffff' });");
+  assert.notEqual(edited, source);
+  const errors = validateMatrix(matrix(), schema, { harnessSource: edited });
+  assert.ok(errors.some((message) => /F007.*observed_old_oid is written as a literal in the guard call and is not declared/u.test(message)), errors.join("\n"));
+});
+
+test("a declared field must be a literal of the guard call, not of the case around it", () => {
+  // `detail` is a literal of F006's return value, not of what its guard is handed.
+  assertRejects(
+    mutated((value) => { group(value, "F006").written_fields.push("detail"); }),
+    /F006.*detail is not written as a literal in the guard call/u,
+  );
+  assertRejects(
+    mutated((value) => { group(value, "F014").fixed_inputs.push("detail"); }),
+    /F014.*detail is not written as a literal in the guard call/u,
+  );
+});
+
+test("a fault-harness group names a guard its case calls, and a daemon group names none", () => {
+  assertRejects(mutated((value) => { delete group(value, "F009").guards; }), /F009.*names no guard/u);
+  assertRejects(mutated((value) => { group(value, "F009").guards = ["noSuchGuard"]; }), /F009.*noSuchGuard is not called/u);
+  assertRejects(mutated((value) => { group(value, "F001").guards = ["locationErrors"]; }), /F001.*guards belong to a fault-harness case/u);
+});
+
+test("the cases are the harness's CASES, not every function that looks like one", () => {
+  const source = readFileSync(path.join(ROOT, "scripts/clean-room-faults.mjs"), "utf8");
+  // A case function left out of CASES is not run, so it is no case.
+  const dropped = source.replace("  F009: f009,\n", "");
+  assert.notEqual(dropped, source);
+  const errors = validateMatrix(matrix(), schema, { harnessSource: dropped });
+  assert.ok(errors.some((message) => /F009.*no case in the fault harness/u.test(message)), errors.join("\n"));
+});

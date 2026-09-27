@@ -24,6 +24,8 @@
       "boundary": "task_creation",
       "description": "crash between the reservation and the task record",
       "fault": "SIGKILL after the creation index is written, before task.json",
+      "injection": "real_path",
+      "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the first creation-index write (the reservation), once before and once after it is acknowledged, and repeats the creation through the running daemon",
       "proofs": [
         {
           "kind": "application_proof",
@@ -49,6 +51,8 @@
       "boundary": "task_creation",
       "description": "retry after the daemon process exited",
       "fault": "kill the daemon, restart, repeat the same creation key",
+      "injection": "real_path",
+      "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the task-record write, once before and once after it is acknowledged, and repeats the creation through the running daemon; the daemon itself is not killed or restarted, although the description and fault fields say it is",
       "proofs": [
         {
           "kind": "application_proof",
@@ -74,6 +78,8 @@
       "boundary": "session_lifecycle",
       "description": "session meta written, transcript header lost",
       "fault": "SIGKILL between the transcript header and the meta write",
+      "injection": "real_path",
+      "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the second creation-index write (the activation), once before and once after it is acknowledged, and repeats the creation through the running daemon; no session transcript or meta write is involved, although the description and fault fields describe one",
       "proofs": [
         {
           "kind": "application_proof",
@@ -99,6 +105,8 @@
       "boundary": "session_lifecycle",
       "description": "resume under a changed runtime identity",
       "fault": "swap the installed distribution between enroll and resume",
+      "injection": "real_path",
+      "injection_note": "the identity harness swaps the installed distribution on disk and resumes the task through the daemon",
       "proofs": [
         {
           "kind": "application_proof",
@@ -124,6 +132,11 @@
       "boundary": "filesystem_write",
       "description": "symlinked project subdirectory",
       "fault": "replace .autosk/sessions with a symlink to a directory outside the project",
+      "injection": "measured_observation",
+      "guards": [
+        "locationErrors"
+      ],
+      "injection_note": "a real symlink; the guard is handed the path the operating system resolves",
       "proofs": [
         {
           "kind": "application_proof",
@@ -149,6 +162,15 @@
       "boundary": "filesystem_write",
       "description": "restore returns the branch name but the wrong tree",
       "fault": "restore a branch pointing at a different tree OID",
+      "injection": "written_observation",
+      "guards": [
+        "postCasErrors"
+      ],
+      "written_fields": [
+        "contains_recorded_result",
+        "reflog_entries"
+      ],
+      "injection_note": "no restore runs: a later commit supplies the other tree; the tree OID is measured, the oid it is handed is the base commit read before the fault, and the rest of the observation is written",
       "proofs": [
         {
           "kind": "application_proof",
@@ -174,6 +196,16 @@
       "boundary": "ref_movement",
       "description": "foreign movement of the target between check and CAS",
       "fault": "advance the target ref from another process inside the CAS window",
+      "injection": "written_observation",
+      "guards": [
+        "refMovementErrors"
+      ],
+      "written_fields": [
+        "ref",
+        "post_state",
+        "reflog_entries"
+      ],
+      "injection_note": "no CAS runs and no second process moves the ref: the harness commits before the guard is asked; the observed OID is measured, and the ref, the post state and the reflog count it hands the guard are written",
       "proofs": [
         {
           "kind": "application_proof",
@@ -199,6 +231,15 @@
       "boundary": "ref_movement",
       "description": "ABA movement around the recovery boundary",
       "fault": "move the ref away and back to the recorded OID during recovery",
+      "injection": "written_observation",
+      "guards": [
+        "refMovementErrors"
+      ],
+      "written_fields": [
+        "ref",
+        "post_state"
+      ],
+      "injection_note": "no recovery runs: the harness moves the ref away and back before the guard is asked; the reflog count and the OID are measured, the ref and the post state are written",
       "proofs": [
         {
           "kind": "application_proof",
@@ -224,6 +265,11 @@
       "boundary": "staging_integration",
       "description": "untracked file colliding with an approved entry",
       "fault": "create an untracked file at an approved entry's path before apply",
+      "injection": "measured_observation",
+      "guards": [
+        "collisionErrors"
+      ],
+      "injection_note": "a real untracked file; the guard is handed the list git status reports",
       "proofs": [
         {
           "kind": "application_proof",
@@ -249,6 +295,11 @@
       "boundary": "staging_integration",
       "description": "inherited GIT_DIR redirects the operation",
       "fault": "run the integration with GIT_DIR pointing at another repository",
+      "injection": "measured_observation",
+      "guards": [
+        "environmentErrors"
+      ],
+      "injection_note": "a real inherited GIT_DIR, shown to redirect git; the guard is handed that environment",
       "proofs": [
         {
           "kind": "application_proof",
@@ -274,6 +325,14 @@
       "boundary": "aggregate_verification",
       "description": "harness exits 0 with no structured result",
       "fault": "replace the harness with one that prints success and exits 0",
+      "injection": "written_observation",
+      "guards": [
+        "classifyExit"
+      ],
+      "written_fields": [
+        "exit_code"
+      ],
+      "injection_note": "a real script that prints success and exits 0; whether its output carried a structured result is measured, and the exit code handed to the guard is written as 0 (the run succeeding implies it, but it is not read)",
       "proofs": [
         {
           "kind": "application_proof",
@@ -299,6 +358,27 @@
       "boundary": "aggregate_verification",
       "description": "mutation reported applied but the target did not change",
       "fault": "no-op injector that reports success",
+      "injection": "written_observation",
+      "guards": [
+        "batchSufficiencyErrors"
+      ],
+      "written_fields": [
+        "application_proof"
+      ],
+      "fixed_inputs": [
+        "batch_id",
+        "purpose",
+        "acceptance_rule",
+        "failure_taxonomy",
+        "harness_self_test",
+        "repository_tests_final_run",
+        "restore_verified",
+        "id",
+        "expected_killer",
+        "observed_red_signature",
+        "green_control"
+      ],
+      "injection_note": "no injector runs: the tree is measured unchanged, so the batch record cannot come out otherwise; the application proof it would carry and the rest of the record are written",
       "proofs": [
         {
           "kind": "application_proof",
@@ -324,6 +404,20 @@
       "boundary": "aggregate_verification",
       "description": "unmutated control fails",
       "fault": "break the control run while leaving the mutation out",
+      "injection": "measured_observation",
+      "guards": [
+        "batchSufficiencyErrors"
+      ],
+      "fixed_inputs": [
+        "batch_id",
+        "purpose",
+        "acceptance_rule",
+        "failure_taxonomy",
+        "harness_self_test",
+        "repository_tests_final_run",
+        "restore_verified"
+      ],
+      "injection_note": "real red and green node --test runs; the guard is handed their outcomes, and the rest of the batch record is fixed between the fault and the control",
       "proofs": [
         {
           "kind": "application_proof",
@@ -349,6 +443,15 @@
       "boundary": "aggregate_verification",
       "description": "observation exceeds its budget",
       "fault": "hang the observation step past the harness timeout",
+      "injection": "measured_observation",
+      "guards": [
+        "waitExceeded"
+      ],
+      "fixed_inputs": [
+        "idle_ms",
+        "wall_clock_ms"
+      ],
+      "injection_note": "a real process killed at its timeout; the guard is handed the measured elapsed time against a fixed budget",
       "proofs": [
         {
           "kind": "application_proof",
@@ -374,6 +477,15 @@
       "boundary": "final_cas",
       "description": "crash after aggregate PASS, before the CAS",
       "fault": "SIGKILL between the acceptance record and the ref update",
+      "injection": "written_observation",
+      "guards": [
+        "resumePlan",
+        "casAdmission"
+      ],
+      "written_fields": [
+        "phase"
+      ],
+      "injection_note": "no process is killed: the durable record is written by the harness, the phase is written, and the admission reads the real target ref",
       "proofs": [
         {
           "kind": "application_proof",
@@ -399,6 +511,15 @@
       "boundary": "final_cas",
       "description": "crash after the CAS, before post-CAS verification",
       "fault": "SIGKILL between the ref update and the read-back",
+      "injection": "written_observation",
+      "guards": [
+        "casAdmission",
+        "resumePlan"
+      ],
+      "written_fields": [
+        "phase"
+      ],
+      "injection_note": "no process is killed: the harness moves the target ref itself, the durable record and the phase are written, and the admission reads the real target ref",
       "proofs": [
         {
           "kind": "application_proof",
@@ -424,6 +545,19 @@
       "boundary": "planning_publication",
       "description": "crash after the publication commit object exists, before the CAS",
       "fault": "SIGKILL between writing the commit object and advancing the planning ref",
+      "injection": "written_observation",
+      "guards": [
+        "publicationDecision"
+      ],
+      "written_fields": [
+        "phase",
+        "ref",
+        "reflog",
+        "object",
+        "keepalive",
+        "binding"
+      ],
+      "injection_note": "no process is killed: the commit object is written for real, and the guard is handed a written description of the state; the harness checks the ref beside the guard",
       "proofs": [
         {
           "kind": "application_proof",
@@ -449,6 +583,19 @@
       "boundary": "planning_publication",
       "description": "crash after the CAS landed, before the receipt was written",
       "fault": "SIGKILL between the planning-ref update and the operation receipt",
+      "injection": "written_observation",
+      "guards": [
+        "publicationDecision"
+      ],
+      "written_fields": [
+        "phase",
+        "ref",
+        "reflog",
+        "object",
+        "keepalive",
+        "binding"
+      ],
+      "injection_note": "no process is killed: the harness moves the planning ref itself, and the guard is handed a written description of the state; the harness checks the ref and reflog beside the guard",
       "proofs": [
         {
           "kind": "application_proof",
@@ -474,6 +621,19 @@
       "boundary": "planning_publication",
       "description": "the candidate keepalive ref is deleted under a live operation",
       "fault": "the keepalive ref is removed by a second process mid-operation",
+      "injection": "written_observation",
+      "guards": [
+        "publicationDecision"
+      ],
+      "written_fields": [
+        "phase",
+        "ref",
+        "reflog",
+        "object",
+        "keepalive",
+        "binding"
+      ],
+      "injection_note": "the harness deletes the keepalive ref itself, not a second process, and the guard is handed a written description of the state",
       "proofs": [
         {
           "kind": "application_proof",
@@ -499,6 +659,19 @@
       "boundary": "planning_publication",
       "description": "crash inside the live-to-audit custody window",
       "fault": "SIGKILL after the audit copy exists and before the live copy is deleted",
+      "injection": "written_observation",
+      "guards": [
+        "publicationDecision"
+      ],
+      "written_fields": [
+        "phase",
+        "ref",
+        "reflog",
+        "object",
+        "keepalive",
+        "binding"
+      ],
+      "injection_note": "no process is killed: the harness writes the audit ref itself, and the guard is handed a written description of the state",
       "proofs": [
         {
           "kind": "application_proof",
