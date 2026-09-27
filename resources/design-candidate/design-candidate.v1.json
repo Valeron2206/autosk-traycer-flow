@@ -12,7 +12,7 @@
     },
     {
       "path": "02-architecture.md",
-      "sha256": "4d0142bbfe82416cfbfa0e086ccb1c1d9fd8271056a124fb4f56998a897225be"
+      "sha256": "a7edf97325c1c46587be55db61b731169eed031adbf61c2c5a9e804e06bb91f5"
     },
     {
       "path": "03-technical-plan.md",
@@ -120,7 +120,7 @@
     },
     {
       "path": "docs/contracts/governance-bundle.md",
-      "sha256": "afecba4c0e2a40d5186de788b3fe1c49bd176fb267524972bd0b3650ffff483d"
+      "sha256": "9875e50330ea12cca418ecd9e213b36d4fa7d0ee1cfb809b112dc78891940d11"
     },
     {
       "path": "docs/contracts/housekeeping.md",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "a5b986880797b4eff36dd176b91752fc2b288149ffabd4310cba84001bbeaf13",
+  "candidate_digest": "e3341f9410107b45fa96596765a6c542955af9caa8b19c1e8c6bb0703259d94f",
   "dispositions": [
     {
       "issue": 3,

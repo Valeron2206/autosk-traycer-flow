@@ -26,7 +26,7 @@ One input must give one digest. That requires the canonical form to be stated ra
 - LF line endings, and a trailing newline on every text member;
 - paths compared and ordered as raw bytes, POSIX separators;
 - JSON serialised with sorted keys, two-space indent, and a trailing newline;
-- the content digest is `digest("autosk-flow/governance-bundle-content/v1", preimage)` — SHA-256 over the domain separator, a NUL and the canonical JSON bytes of the preimage — where the preimage is exactly `bundle_id`, `bundle_version`, `provenance` and `files`, the members' `{relative_path, file_sha256}` in path order (02 §5, 03 §3; ADR-093). The manifest's own digest field and the attestation are not in it.
+- the content digest is `digest("autosk-flow/governance-bundle-content/v1", preimage)` — SHA-256 over the domain separator, a NUL and the preimage's `canonicalBytes` (`src/runtime/contracts.mjs`: compact JSON, sorted keys, NFC strings, a trailing LF — not the two-space form of the files above) — where the preimage is exactly `bundle_id`, `bundle_version`, `provenance` and `files`, the members' `{relative_path, file_sha256}` in path order (02 §5, 03 §3; ADR-093). The manifest's own digest field and the attestation are not in it.
 
 **Timestamps are not in the digest.** A build that embedded the moment it ran could never be reproduced, and a digest nobody can recompute is a name, not an identity. The build time lives in the attestation, where it describes the event rather than the content.
 
