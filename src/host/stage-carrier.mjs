@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, digest, immutable } from '../runtime/contracts.mjs';
 
 export const REFUSALS = immutable([
   'carrier_mapping_unknown',
@@ -47,6 +47,18 @@ export const HEADER_FIELDS = immutable([
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 
+/** The domain the carrier registry's identity is taken under. */
+export const CARRIER_REGISTRY_DOMAIN = 'autosk-flow/stage-carrier-registry/v1';
+
+/**
+ * The registry's identity, as the Epic's `protocol.lock.json` records it
+ * (`carrier_registry_digest`, 02 §5): the canonical bytes of the parsed
+ * registry, so the pin is about the mapping and not about its whitespace.
+ */
+export function carrierRegistryDigest(registry) {
+  return digest(CARRIER_REGISTRY_DOMAIN, registry);
+}
+
 /** The carrier key for a role at a stage. */
 export function carrierKey(role, stage) {
   return `${role}.${stage}`;
@@ -56,35 +68,43 @@ export function carrierKey(role, stage) {
  * The mapping for a key, or a refusal.
  *
  * Fail-closed before the provider call: guessing a mapping is how a role
- * silently receives someone else's context.
+ * silently receives someone else's context. A post-v1 key is registered so
+ * its mapping is explicit, and refused here so that registering it does not
+ * make it dispatchable; a mapping that does not say it is dispatched in v1 is
+ * not dispatched.
  */
 export function mappingFor(registry, role, stage) {
   const key = carrierKey(role, stage);
   const mapping = registry.carriers[key];
   demand(Boolean(mapping), 'carrier_mapping_unknown', 'No carrier mapping for this role and stage', { key });
+  demand(mapping.lifecycle === 'required_for_v1', 'carrier_mapping_unknown',
+    'This role and stage are not dispatched in v1', { key, lifecycle: mapping.lifecycle ?? null,
+      decided_by: mapping.decided_by ?? null });
   return mapping;
 }
 
 /**
- * Every governance file has a consumer, or says why it does not.
+ * Every governance file has a consumer in v1, or says why it does not.
  *
- * A file that appears in no `required` set and is not marked inactive is a file
- * nobody can say why we ship.
+ * A file that appears in no v1 key's `required` set and is not marked inactive
+ * is a file nobody can say why we ship; a post-v1 key reading it does not
+ * count, because v1 never dispatches that key.
  */
 export function coverageErrors(registry) {
   const consumed = new Set();
+  const consumedLater = new Set();
   for (const mapping of Object.values(registry.carriers)) {
-    for (const path of mapping.required) consumed.add(path);
+    const into = mapping.lifecycle === 'required_for_v1' ? consumed : consumedLater;
+    for (const path of mapping.required) into.add(path);
   }
   const errors = [];
   for (const file of registry.governance_files) {
     if (consumed.has(file.path)) continue;
     if (file.status === 'inactive_in_v1' && file.decided_by) continue;
-    errors.push({
-      reason: 'carrier_coverage_incomplete',
-      path: file.path,
-      detail: file.status === 'inactive_in_v1' ? 'inactive without the decision that made it so' : 'no consumer',
-    });
+    let detail = 'no consumer';
+    if (file.status === 'inactive_in_v1') detail = 'inactive without the decision that made it so';
+    else if (consumedLater.has(file.path)) detail = 'no v1 consumer';
+    errors.push({ reason: 'carrier_coverage_incomplete', path: file.path, detail });
   }
   return errors;
 }
@@ -126,6 +146,13 @@ export function compileCarrier(registry, { role, stage, context, bundle, anchors
   demand(Boolean(context.bundle_digest) && context.bundle_digest === registry.bundle_digest,
     'carrier_bundle_unpinned', 'The dispatch is not pinned to the registry bundle',
     { registry: registry.bundle_digest, dispatch: context.bundle_digest });
+  // The bundle pin says which governance bytes; the registry pin says which of
+  // them each role receives. A registry edited under an open Epic changes the
+  // question the Epic answers as surely as a new bundle does.
+  const registryDigest = carrierRegistryDigest(registry);
+  demand(context.carrier_registry_digest === registryDigest, 'carrier_bundle_unpinned',
+    "The carrier registry is not the one the Epic's protocol lock pins",
+    { registry: registryDigest, lock: context.carrier_registry_digest ?? null });
 
   const mapping = mappingFor(registry, role, stage);
   const fragments = [];
@@ -133,7 +160,7 @@ export function compileCarrier(registry, { role, stage, context, bundle, anchors
     const bytes = bundle.read(path);
     demand(typeof bytes === 'string', 'carrier_file_missing', 'A required governance file is not in the bundle',
       { path });
-    // The forbidden set is not decoration: the Judge rubric reaching an Arena
+    // The forbidden set is not decoration: the Judge brief reaching an Arena
     // candidate is the failure it exists to prevent.
     demand(!mapping.forbidden.includes(path), 'carrier_forbidden_fragment',
       'A fragment this key must never receive was about to be inserted', { path });

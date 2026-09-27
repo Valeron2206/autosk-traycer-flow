@@ -13,7 +13,7 @@ So a bundle is built deterministically, reviewed on one frozen candidate, and re
 ## 2. Three places, never one
 
 - **baseline** — the imported Traycer source. Private, immutable, provenance-recorded, and never a runtime source of truth;
-- **adaptation** — the working translation into autosk-native rules, registries and role contracts;
+- **adaptation** — the working translation of the Guide and the twelve protocol files into autosk-native text; the rules that became code, the registries and the role contracts it produces live in the extension, not in the bundle;
 - **release** — the built, reviewed, content-addressed bundle the runtime uses.
 
 Mixing any two of these is the failure this separation exists to prevent, and the schema keeps them apart by making `stage` a required field with exactly those three values.
@@ -26,13 +26,13 @@ One input must give one digest. That requires the canonical form to be stated ra
 - LF line endings, and a trailing newline on every text member;
 - paths compared and ordered as raw bytes, POSIX separators;
 - JSON serialised with sorted keys, two-space indent, and a trailing newline;
-- the aggregate digest is taken over `path\0sha256\n` for every member, in path order.
+- the content digest is `digest("autosk-flow/governance-bundle-content/v1", preimage)` — SHA-256 over the domain separator, a NUL and the preimage's `canonicalBytes` (`src/runtime/contracts.mjs`: compact JSON, sorted keys, NFC strings, a trailing LF — not the two-space form of the files above) — where the preimage is exactly `bundle_id`, `bundle_version`, `provenance` and `files`, the members' `{relative_path, file_sha256}` in path order (02 §5, 03 §3; ADR-093). The manifest's own digest field and the attestation are not in it.
 
 **Timestamps are not in the digest.** A build that embedded the moment it ran could never be reproduced, and a digest nobody can recompute is a name, not an identity. The build time lives in the attestation, where it describes the event rather than the content.
 
 ## 4. Required inventory
 
-`agent-selection-guide.md`, `protocol/**` (the twelve files, named individually in the manifest — a glob would let one go missing without the count changing), the role and stage contracts, the stage-carriers registry, `bundle-manifest.json` and `bundle-attestation.json`.
+`agent-selection-guide.md` and the twelve `protocol/` files of 02 §5, named individually in the manifest — a glob would let one go missing without the count changing. These thirteen are the members the digest is taken over, and their one list is `governance_files` in `resources/stage-carriers/stage-carriers.v1.json` (ADR-093): this validator takes its members from it, and the build CLI holds the manifest to it as its inventory, so a manifest cannot declare its own. `bundle-manifest.json` and `bundle-attestation.json` travel with the members but are not among them: the manifest records the digest and the attestation binds verdicts to it, so neither can be in its preimage. The envelope's role and stage contracts and the stage-carriers registry are extension resources, not members; the registry pins the bundle digest, so it cannot be inside it.
 
 A missing member and an extra member are both refusals. An extra one matters as much: a bundle that carries a file nobody declared is a bundle whose contents nobody can vouch for. A member path that repeats is refused as well: two members under one name still hash in input order, so a repeat would let one manifest yield two digests — and panel verdicts bind the digest.
 

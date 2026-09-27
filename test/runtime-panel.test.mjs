@@ -15,7 +15,7 @@ import test from "node:test";
 
 import { SUBMISSION_CLOSE, SUBMISSION_OPEN } from "../src/host/model-result.mjs";
 import { PROJECTED_FIELDS } from "../src/host/gate-projection.mjs";
-import { compileCarrier } from "../src/host/stage-carrier.mjs";
+import { carrierRegistryDigest, compileCarrier } from "../src/host/stage-carrier.mjs";
 import { panelRoles, panelVerdict, runPanel, runSeat } from "../src/host/panel.mjs";
 import { ROOT } from "../scripts/validate-planning-ref-design.mjs";
 
@@ -66,6 +66,7 @@ function storeState(overrides = {}) {
 function seatSpec(name, routeId, overrides = {}) {
   const context = {
     bundle_digest: carrierRegistry.bundle_digest,
+    carrier_registry_digest: carrierRegistryDigest(carrierRegistry),
     project: BINDING,
     epic: "epic-store-lock",
     task: "T-102",

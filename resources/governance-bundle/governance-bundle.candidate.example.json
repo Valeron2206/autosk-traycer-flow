@@ -1,120 +1,77 @@
 {
   "schema_version": 1,
   "stage": "adaptation",
+  "bundle_id": "autosk-v1",
   "version": "1.1.0",
+  "provenance": "autosk-native adaptation of the Agent Selection Guide and the twelve protocol files; the migration baseline is private and not published",
   "members": [
     {
       "path": "agent-selection-guide.md",
-      "sha256": "5c160fd90c8b48c72d6b3225fb460919d5629617c4e4cf9fb6a56deeb4dea56a",
-      "size": 44
+      "sha256": "efa8538d32fa1d8b9c2a51592e0cb118acd778429b13f36670a40cfec2dc1b42",
+      "size": 27
     },
     {
-      "path": "bundle-attestation.json",
-      "sha256": "ad5595674117bfaf493bede3c51817283218712000c1fa43a92af3bfcebd6509",
-      "size": 43
+      "path": "protocol/arena/arena-stage.md",
+      "sha256": "72a136c59ebec0e43f094e4a1d9db2207d43863bda48f0f1a9ab2e16408083a4",
+      "size": 32
     },
     {
-      "path": "bundle-manifest.json",
-      "sha256": "001f39212e6156fc7aeec5ba413ca9d729e32fe442848c28b4175b70364a40b1",
-      "size": 40
+      "path": "protocol/arena/judge-brief.md",
+      "sha256": "721257cd9870f4d664c9b551a1cd9058eacf1d6bca65f76feb8ca12e880401b5",
+      "size": 32
     },
     {
-      "path": "protocol/00-index.md",
-      "sha256": "66c3a85b4d0c114f8e296d94eab9f1916e96e0daae5773c2b2313d6c7b41a0c5",
-      "size": 40
+      "path": "protocol/autobuild/run-contract.md",
+      "sha256": "7c93d00dcddaee36883e85e37a839365afdbc9fae69f428798d71ef78d6cb1b8",
+      "size": 37
     },
     {
-      "path": "protocol/01-roles.md",
-      "sha256": "4137b0d38de02e2eb20c223d8706eb04cf38e3775d9a2d0d8401e6d482d24222",
-      "size": 40
+      "path": "protocol/playbooks/bug-fix.md",
+      "sha256": "4e1d2d6e5fe2346b49156fb9935c1b8187ebdc9821a0ec34c01e4a51c409413e",
+      "size": 32
     },
     {
-      "path": "protocol/02-stages.md",
-      "sha256": "6dd3497e65466bcad0abfeb59a52a94c4daea7248a1fad2f054d177959cad82f",
-      "size": 41
+      "path": "protocol/playbooks/feature.md",
+      "sha256": "9b8ca24558c05bc0393d0ae85d4443fefa8b660526ac165454a0352719c5bd48",
+      "size": 32
     },
     {
-      "path": "protocol/03-carriers.md",
-      "sha256": "5869b56a97c0c00878abff093ac774a7d4e3c3aba4fae0deceb8aaa50940afef",
-      "size": 43
+      "path": "protocol/playbooks/perf.md",
+      "sha256": "61d962e9cd05c4d363683169345ee600fabf48c9dfd88a39344ac00f3e6cfc93",
+      "size": 29
     },
     {
-      "path": "protocol/04-verdicts.md",
-      "sha256": "a5af7c150cd33ae02f60f434e24f143977bc2047fd296c8ee80725ab788e14ac",
-      "size": 43
-    },
-    {
-      "path": "protocol/05-findings.md",
-      "sha256": "de39f5b42619facf16b17f84cf2bd2d621e5af1c7fbe35bed5df99784c6b668a",
-      "size": 43
-    },
-    {
-      "path": "protocol/06-contest.md",
-      "sha256": "707bdafb69cd3dbcbe0f24b9acc3c62b8ad0179382baf9da9f0ca1e94ebe01c6",
-      "size": 42
-    },
-    {
-      "path": "protocol/07-evidence.md",
-      "sha256": "48d6c0dc19c586b0886e81818b4f207b3b17a6a3aff97f44f34096400a4612ca",
-      "size": 43
-    },
-    {
-      "path": "protocol/08-retention.md",
-      "sha256": "43302e3bfd6c161383212bb5ad2f5b09c99c0dbcc5bad2c89bb5b75f03b13ede",
-      "size": 44
-    },
-    {
-      "path": "protocol/09-identity.md",
-      "sha256": "f9d401d7e226255d94213d8929e7271401ec2c0c4579f1f36d02c1772ef06eee",
-      "size": 43
-    },
-    {
-      "path": "protocol/10-recovery.md",
-      "sha256": "e1c676f87c3fd6be1dd532ff28ab94264e3e5bd1749c244b526ba77dc415d429",
-      "size": 43
-    },
-    {
-      "path": "protocol/11-release.md",
-      "sha256": "921ecb2ee6efdec3eeeafb3cb3543a72b3113353028c40213afcbd1dc7bad6ac",
-      "size": 42
-    },
-    {
-      "path": "role/author.md",
-      "sha256": "4265b56f2aa2226efe7892fe151e38aff1197caaf0fb6077bc07b25d99a84cb8",
-      "size": 34
-    },
-    {
-      "path": "role/fixer.md",
-      "sha256": "08da4a28cd83ab5ff37cb85814b6dde302db0468ce4d0444a7a8f378e04d0ec8",
-      "size": 33
-    },
-    {
-      "path": "role/reviewer.md",
-      "sha256": "8a9868ef6cb4df052af2da6fc9e4504b1ac120f4c96e49444fb058f01746b11e",
+      "path": "protocol/playbooks/refactoring.md",
+      "sha256": "a3e43fc46cec6148e5fa1415b18108f06586a96e62908a8afe59e96761436d29",
       "size": 36
     },
     {
-      "path": "stage-carriers.json",
-      "sha256": "f577b612c088a3123b391260d8639ffd0a35745ee6fa217d9e99d399b5076189",
-      "size": 39
+      "path": "protocol/principles-digest.md",
+      "sha256": "197d0fbd080b8fac37e2ef51661f3767e862ee94199d56dcf1069c9319bb8757",
+      "size": 32
     },
     {
-      "path": "stage/build.md",
-      "sha256": "94164f6a58574551fb3e14a1e8ea2b21ac9874964252266d81a93682ad5a025a",
-      "size": 34
+      "path": "protocol/reflect/reviewer-brief.md",
+      "sha256": "a94f04594cad435b0316f45843ecd8562f1d119b1e91ddba35760cc067d8dc47",
+      "size": 37
     },
     {
-      "path": "stage/plan.md",
-      "sha256": "dd048aefe68cd7e28187da36c69e9e58f62472b9be67ed606ccd8cb2145759ed",
-      "size": 33
+      "path": "protocol/verification/template.md",
+      "sha256": "5d500f4879197115e84b9c55b87a46175cc8be62b98edbc40d9dbea3939b0e5c",
+      "size": 36
     },
     {
-      "path": "stage/verify.md",
-      "sha256": "2431d11d097f604731caa103ae43f5bd8b0089ef75836a9fc8d023b069ef9f02",
-      "size": 35
+      "path": "protocol/writing/technical-writing.md",
+      "sha256": "bdbc4d9eba12ed0108ce83f975f6eaa7049d9ae8b0b2bdddd436c165148e9c4d",
+      "size": 40
+    },
+    {
+      "path": "protocol/writing/unslop.md",
+      "sha256": "6bc783ddbdc71ec98f9fc550d92c7ce37e059dad054aa753b84fad40983f8d30",
+      "size": 29
     }
   ],
-  "bundle_digest": "8c98979ab6ba31c0ccb63974e494047bc50f7cc01ad27f3ba714e1cbf0591008",
+  "bundle_digest": "bccd0149f991c2b24e34e6e428dc17ecf0b66546191d355d215d1de034375f59",
   "canonical_form": {
     "encoding": "utf-8",
     "line_ending": "lf",
@@ -123,7 +80,7 @@
     "trailing_newline": true
   },
   "attestation": {
-    "candidate_digest": "8c98979ab6ba31c0ccb63974e494047bc50f7cc01ad27f3ba714e1cbf0591008",
+    "candidate_digest": "bccd0149f991c2b24e34e6e428dc17ecf0b66546191d355d215d1de034375f59",
     "panel": [],
     "tool_version": "autosk-flow-governance/1.0.0",
     "schema_version": 1,

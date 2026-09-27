@@ -30,7 +30,7 @@ For the round-4 pack this means four of six members rebuild byte-exact from `fro
 
 ## 3. Canonical form
 
-The slot's own bytes and its digest rule follow the governance-bundle canonical form:
+The slot's own bytes and its digest rule follow the canonical form the governance bundle used until ADR-093 (the bundle's content digest now hashes a domain-separated preimage; the pack keeps the rule below):
 
 - UTF-8, no BOM;
 - LF line endings, trailing newline;
@@ -67,6 +67,6 @@ A member's `source` is evidence, not decoration. A byte-verifiable source must n
 
 ## 8. What this contract decides, and what it defers
 
-Decided: the slot is the durable name of the round-4 anchor pack; the digest rule is the governance-bundle rule; the round record references the slot by path and digest.
+Decided: the slot is the durable name of the round-4 anchor pack; the digest rule is `path\0sha256\n` in path order, the governance bundle's rule before ADR-093; the round record references the slot by path and digest.
 
 Deferred: `controlling_anchor_digest` as parent-derived runtime state is a different mechanism owned elsewhere and is not implemented by this slot; whether future packs' `built` members should have their inputs versioned so the bytes recompute is a dispatch-pipeline question, not this contract's.

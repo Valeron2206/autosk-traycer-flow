@@ -9,9 +9,7 @@
  * ran could never be reproduced, and a digest nobody can recompute is a name
  * rather than an identity.
  */
-import { createHash } from 'node:crypto';
-
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, digest, immutable } from '../runtime/contracts.mjs';
 
 export const STAGES = immutable(['baseline', 'adaptation', 'release']);
 
@@ -36,8 +34,6 @@ export const REQUIRED_SEATS = immutable([
   { seat: 'grok', route: 'cursor/cursor-grok-4.6', effort: 'xhigh' },
   { seat: 'muse', route: 'meta/muse-spark-1.3-contributor', effort: 'max' },
 ]);
-
-const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 
 /**
  * Whether a text member is in canonical form.
@@ -77,15 +73,60 @@ export function compareMembersByPath(a, b) {
   return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
+/** The domain the content digest is taken under (02 §5, 03 §3). */
+export const BUNDLE_DIGEST_DOMAIN = 'autosk-flow/governance-bundle-content/v1';
+
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+const HEX64 = /^[0-9a-f]{64}$/u;
+
 /**
- * The aggregate digest, over `path\0sha256\n` in path order.
+ * Why a bundle's digest metadata cannot be hashed, or an empty list.
+ *
+ * The bundle id, version and provenance are in the preimage (02 §5), so a
+ * manifest without them has no content identity rather than a guessed one.
  */
-export function bundleDigest(members) {
-  const lines = [...members]
-    .sort(compareMembersByPath)
-    .map((member) => `${member.path}\0${member.sha256}\n`)
-    .join('');
-  return sha256(lines);
+export function bundleMetadataErrors(bundle) {
+  const errors = [];
+  const refuse = (detail) => errors.push({ reason: 'bundle_not_canonical', detail });
+  if (typeof bundle?.bundle_id !== 'string' || bundle.bundle_id.length === 0) refuse('bundle_id is not a non-empty string');
+  if (typeof bundle?.bundle_version !== 'string' || !SEMVER.test(bundle.bundle_version)) {
+    refuse('bundle_version is not a semantic version');
+  }
+  if (typeof bundle?.provenance !== 'string' || bundle.provenance.length === 0) {
+    refuse('provenance is not a non-empty string');
+  }
+  return errors;
+}
+
+/**
+ * The content digest's preimage: the bundle id, version and provenance and the
+ * ordered `{relative_path, file_sha256}` map (02 §5, 03 §3). Nothing else — not
+ * the manifest's own digest field, not the attestation, not a build time.
+ */
+export function bundleDigestPreimage(bundle) {
+  const [problem] = bundleMetadataErrors(bundle);
+  demand(!problem, 'bundle_not_canonical', 'The bundle metadata cannot be hashed', { detail: problem?.detail });
+  demand(Array.isArray(bundle.members), 'bundle_not_canonical', 'The bundle members are not a list');
+  for (const member of bundle.members) {
+    demand(typeof member?.path === 'string' && member.path.length > 0 && HEX64.test(String(member?.sha256)),
+      'bundle_not_canonical', 'A member has no path or no SHA-256', { path: member?.path ?? null });
+  }
+  return {
+    bundle_id: bundle.bundle_id,
+    bundle_version: bundle.bundle_version,
+    provenance: bundle.provenance,
+    files: [...bundle.members]
+      .sort(compareMembersByPath)
+      .map((member) => ({ relative_path: member.path, file_sha256: member.sha256 })),
+  };
+}
+
+/**
+ * The content digest: `digest(BUNDLE_DIGEST_DOMAIN, preimage)` — the domain
+ * separator, then the canonical bytes of the preimage.
+ */
+export function bundleDigest(bundle) {
+  return digest(BUNDLE_DIGEST_DOMAIN, bundleDigestPreimage(bundle));
 }
 
 /**
@@ -124,6 +165,39 @@ export function inventoryErrors(manifest, members) {
   for (const path of declared.keys()) {
     if (path.includes('*')) {
       errors.push({ reason: 'bundle_inventory_missing', detail: `${path} is a glob, not a member` });
+    }
+  }
+  return errors;
+}
+
+/**
+ * The manifest must declare exactly the inventory: the governance files of the
+ * stage carrier registry, the one list of the bundle's members (debt 10g).
+ *
+ * A manifest is a file anyone can edit; holding it to the registry is what
+ * keeps a build from declaring its own inventory. No inventory at all is a
+ * refusal, not a pass: a build with nothing to compare against would accept
+ * any manifest.
+ */
+export function declaredInventoryErrors(inventory, manifest) {
+  if (!Array.isArray(inventory) || inventory.length === 0) {
+    return [{
+      reason: 'bundle_inventory_missing',
+      detail: "no inventory: the carrier registry's governance files were not supplied",
+    }];
+  }
+  // A path declared twice is `inventoryErrors`' to report, over the members read:
+  // one fault, one error.
+  const seen = new Set(manifest.members.map((member) => member.path));
+  const errors = [];
+  for (const path of inventory) {
+    if (!seen.has(path)) {
+      errors.push({ reason: 'bundle_inventory_missing', detail: `${path} is in the inventory but not declared by the manifest` });
+    }
+  }
+  for (const path of seen) {
+    if (!inventory.includes(path)) {
+      errors.push({ reason: 'bundle_inventory_extra', detail: `${path} is declared by the manifest but not in the inventory` });
     }
   }
   return errors;
@@ -214,7 +288,13 @@ export function attestationErrors(attestation, candidateDigest) {
 
 /** Everything a candidate must satisfy before it can be released. */
 export function releaseAdmission(candidate, attestation) {
-  const digest = bundleDigest(candidate.members);
+  const manifest = candidate.manifest ?? {};
+  const contentDigest = bundleDigest({
+    bundle_id: manifest.bundle_id,
+    bundle_version: manifest.bundle_version,
+    provenance: manifest.provenance,
+    members: candidate.members,
+  });
   const errors = [
     ...stageErrors(candidate),
     ...inventoryErrors(candidate.manifest, candidate.members),
@@ -224,12 +304,12 @@ export function releaseAdmission(candidate, attestation) {
         : [],
     ),
     ...scanErrors(candidate.members),
-    ...attestationErrors(attestation, digest),
+    ...attestationErrors(attestation, contentDigest),
   ];
   if (candidate.stage !== 'release') {
     errors.push({ reason: 'bundle_stage_mixed', detail: 'only a release-stage candidate is released' });
   }
-  return Object.freeze({ digest, admitted: errors.length === 0, errors: immutable(errors.map(Object.freeze)) });
+  return Object.freeze({ digest: contentDigest, admitted: errors.length === 0, errors: immutable(errors.map(Object.freeze)) });
 }
 
 /**

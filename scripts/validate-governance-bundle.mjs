@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { bundleDigest as runtimeBundleDigest } from "../src/host/governance-bundle.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,22 +22,24 @@ export const CONTRACT_PATH = "docs/contracts/governance-bundle.md";
 export const SCHEMA_PATH = "resources/governance-bundle/governance-bundle.schema.json";
 export const EXAMPLE_PATH = "resources/governance-bundle/governance-bundle.example.json";
 export const CANDIDATE_EXAMPLE_PATH = "resources/governance-bundle/governance-bundle.candidate.example.json";
+export const REGISTRY_PATH = "resources/stage-carriers/stage-carriers.v1.json";
 export const CONTRACT_MARKER = "<!-- governance-bundle-contract:v1 -->";
 
-/** The twelve protocol files, named individually. A glob would let one go missing. */
-export const PROTOCOL_FILES = Object.freeze([
-  "protocol/00-index.md", "protocol/01-roles.md", "protocol/02-stages.md", "protocol/03-carriers.md",
-  "protocol/04-verdicts.md", "protocol/05-findings.md", "protocol/06-contest.md", "protocol/07-evidence.md",
-  "protocol/08-retention.md", "protocol/09-identity.md", "protocol/10-recovery.md", "protocol/11-release.md",
-]);
+/**
+ * The members, read from the one list (debt 10g, ADR-093): the governance
+ * files of the stage carrier registry — one Guide and the twelve protocol
+ * files of 02 §5, each named, because a glob would let one go missing. The
+ * manifest and the attestation are this document, not members of it, and the
+ * carrier registry pins the bundle digest, so it cannot be a member either.
+ */
+export function membersFrom(registryText) {
+  return Object.freeze(JSON.parse(registryText).governance_files.map((file) => file.path));
+}
 
-export const REQUIRED_MEMBERS = Object.freeze([
-  "agent-selection-guide.md",
-  ...PROTOCOL_FILES,
-  "role/author.md", "role/reviewer.md", "role/fixer.md",
-  "stage/plan.md", "stage/build.md", "stage/verify.md",
-  "stage-carriers.json", "bundle-manifest.json", "bundle-attestation.json",
-]);
+export const REQUIRED_MEMBERS = membersFrom(readFileSync(path.join(ROOT, REGISTRY_PATH), "utf8"));
+
+/** The twelve protocol files among them. */
+export const PROTOCOL_FILES = Object.freeze(REQUIRED_MEMBERS.filter((member) => member.startsWith("protocol/")));
 
 /** The panel this program's owner specified. A release cites it exactly. */
 export const REQUIRED_PANEL = Object.freeze([
@@ -70,7 +73,7 @@ export const FORBIDDEN_PATTERNS = Object.freeze([
 
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, CANDIDATE_EXAMPLE_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, CANDIDATE_EXAMPLE_PATH, REGISTRY_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -90,15 +93,20 @@ export function governanceDesignDigest(files) {
 }
 
 /**
- * The bundle digest, recomputed.
- *
- * Over `path\0sha256\n` in raw-byte path order, and over nothing else. No
- * timestamp is in it, because a build that embedded the moment it ran could
- * never be reproduced, and a digest nobody can recompute is a name.
+ * The bundle digest, recomputed with the runtime's formula (one formula, ADR-093):
+ * `digest("autosk-flow/governance-bundle-content/v1", preimage)` over the bundle
+ * id, version and provenance and the ordered `{relative_path, file_sha256}`
+ * map, and over nothing else. No timestamp is in it, because a build that
+ * embedded the moment it ran could never be reproduced, and a digest nobody
+ * can recompute is a name.
  */
-export function bundleDigest(members) {
-  const ordered = [...members].sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
-  return sha256(ordered.map((member) => `${member.path}\0${member.sha256}\n`).join(""));
+export function bundleDigest(bundle) {
+  return runtimeBundleDigest({
+    bundle_id: bundle.bundle_id,
+    bundle_version: bundle.version,
+    provenance: bundle.provenance,
+    members: bundle.members,
+  });
 }
 
 /**
@@ -129,16 +137,16 @@ export function attestationState(bundle) {
   return REQUIRED_PANEL.every((required) => passed.has(required.seat)) ? "attested" : "pending_panel";
 }
 
-export function validateBundle(bundle, schema) {
+export function validateBundle(bundle, schema, members = REQUIRED_MEMBERS) {
   const errors = validateJsonSchema(bundle, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;
 
   const paths = bundle.members.map((member) => member.path);
-  for (const required of REQUIRED_MEMBERS) {
+  for (const required of members) {
     if (!paths.includes(required)) errors.push(`${required} is missing (bundle_inventory_missing)`);
   }
   for (const declared of paths) {
-    if (!REQUIRED_MEMBERS.includes(declared)) {
+    if (!members.includes(declared)) {
       // An extra member matters as much as a missing one: a bundle carrying a
       // file nobody declared is a bundle nobody can vouch for.
       errors.push(`${declared} is not part of the inventory (bundle_inventory_extra)`);
@@ -146,7 +154,12 @@ export function validateBundle(bundle, schema) {
   }
   if (new Set(paths).size !== paths.length) errors.push("a member path appears twice");
 
-  const recomputed = bundleDigest(bundle.members);
+  let recomputed;
+  try {
+    recomputed = bundleDigest(bundle);
+  } catch (error) {
+    return [...errors, `bundle digest cannot be recomputed: ${error.details?.detail ?? error.message}`];
+  }
   if (bundle.bundle_digest !== recomputed) {
     errors.push(`bundle digest does not recompute: recorded ${bundle.bundle_digest}, computed ${recomputed}`);
   }
@@ -192,6 +205,9 @@ export function validateGovernanceBundleDesign(files) {
   for (const refusal of REFUSALS) {
     if (!contract.includes(refusal)) errors.push(`${CONTRACT_PATH}: refusal ${refusal} is not documented`);
   }
+  if (!contract.includes("autosk-flow/governance-bundle-content/v1")) {
+    errors.push(`${CONTRACT_PATH}: does not state the content digest's domain and preimage`);
+  }
   if (!contract.includes("Timestamps are not in the digest")) {
     errors.push(`${CONTRACT_PATH}: does not state that timestamps stay out of the digest`);
   }
@@ -227,6 +243,12 @@ export function validateGovernanceBundleDesign(files) {
     errors.push(`${SCHEMA_PATH}: the panel has exactly four seats`);
   }
 
+  let members;
+  try {
+    members = membersFrom(files[REGISTRY_PATH]);
+  } catch (error) {
+    return [...errors, `${REGISTRY_PATH}: no governance files to take the members from: ${error.message}`];
+  }
   for (const relative of [EXAMPLE_PATH, CANDIDATE_EXAMPLE_PATH]) {
     let bundle;
     try {
@@ -235,7 +257,7 @@ export function validateGovernanceBundleDesign(files) {
       errors.push(`${relative}: not valid JSON: ${error.message}`);
       continue;
     }
-    errors.push(...validateBundle(bundle, schema).map((message) => `${relative}: ${message}`));
+    errors.push(...validateBundle(bundle, schema, members).map((message) => `${relative}: ${message}`));
   }
   return errors;
 }

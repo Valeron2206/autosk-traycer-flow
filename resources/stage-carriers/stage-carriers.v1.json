@@ -4,6 +4,10 @@
   "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "governance_files": [
     {
+      "path": "agent-selection-guide.md",
+      "status": "active"
+    },
+    {
       "path": "protocol/principles-digest.md",
       "status": "active"
     },
@@ -12,173 +16,202 @@
       "status": "active"
     },
     {
-      "path": "protocol/playbooks/bugfix.md",
+      "path": "protocol/playbooks/bug-fix.md",
       "status": "active"
     },
     {
-      "path": "protocol/playbooks/refactor.md",
+      "path": "protocol/playbooks/refactoring.md",
       "status": "active"
     },
     {
-      "path": "protocol/rubrics/panel.md",
+      "path": "protocol/playbooks/perf.md",
       "status": "active"
     },
     {
-      "path": "protocol/rubrics/judge.md",
+      "path": "protocol/arena/arena-stage.md",
       "status": "active"
     },
     {
-      "path": "protocol/contracts/verification.md",
+      "path": "protocol/arena/judge-brief.md",
       "status": "active"
     },
     {
-      "path": "protocol/contracts/contest.md",
+      "path": "protocol/verification/template.md",
       "status": "active"
     },
     {
-      "path": "roles/author.md",
+      "path": "protocol/autobuild/run-contract.md",
+      "status": "inactive_in_v1",
+      "decided_by": "#28"
+    },
+    {
+      "path": "protocol/reflect/reviewer-brief.md",
+      "status": "inactive_in_v1",
+      "decided_by": "#29"
+    },
+    {
+      "path": "protocol/writing/technical-writing.md",
       "status": "active"
     },
     {
-      "path": "roles/implementer.md",
-      "status": "active"
-    },
-    {
-      "path": "roles/reviewer.md",
-      "status": "active"
-    },
-    {
-      "path": "roles/judge.md",
-      "status": "active"
-    },
-    {
-      "path": "roles/mediator.md",
+      "path": "protocol/writing/unslop.md",
       "status": "active"
     }
   ],
   "carriers": {
     "author.brief": {
+      "lifecycle": "required_for_v1",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/author.md"
+        "protocol/writing/technical-writing.md",
+        "protocol/writing/unslop.md"
       ],
       "anchors": [
         "project_instructions"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "author.core_flow": {
+      "lifecycle": "required_for_v1",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/author.md"
+        "protocol/writing/technical-writing.md",
+        "protocol/writing/unslop.md"
       ],
       "anchors": [
         "brief",
         "project_instructions"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "author.tech_plan": {
+      "lifecycle": "required_for_v1",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/author.md"
+        "protocol/writing/technical-writing.md",
+        "protocol/writing/unslop.md"
       ],
       "anchors": [
         "core_flow",
         "project_instructions"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "author.tickets": {
+      "lifecycle": "required_for_v1",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/author.md"
+        "protocol/writing/technical-writing.md",
+        "protocol/writing/unslop.md"
       ],
       "anchors": [
         "tech_plan",
         "project_instructions"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "panel.opus": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/rubrics/panel.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "candidate",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "panel.astra": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/rubrics/panel.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "candidate",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "panel.grok": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/rubrics/panel.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "candidate",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "panel.muse": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/rubrics/panel.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "candidate",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "contest.reviewer": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/contracts/contest.md",
-        "roles/reviewer.md"
-      ],
-      "anchors": [
-        "finding",
-        "candidate"
-      ],
-      "forbidden": []
-    },
-    "narrow.reviewer": {
-      "required": [
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "finding",
         "candidate"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
+      ]
+    },
+    "narrow.reviewer": {
+      "lifecycle": "required_for_v1",
+      "required": [
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
+      ],
+      "anchors": [
+        "finding",
+        "candidate"
+      ],
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
       ]
     },
     "implementer.feature": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/playbooks/feature.md",
-        "roles/implementer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/playbooks/feature.md"
       ],
       "anchors": [
         "ticket_manifest_entry",
@@ -186,13 +219,15 @@
         "project_instructions"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
-    "implementer.bugfix": {
+    "implementer.bug_fix": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/playbooks/bugfix.md",
-        "roles/implementer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/playbooks/bug-fix.md"
       ],
       "anchors": [
         "ticket_manifest_entry",
@@ -200,13 +235,15 @@
         "project_instructions"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
-    "implementer.refactor": {
+    "implementer.refactoring": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/playbooks/refactor.md",
-        "roles/implementer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/playbooks/refactoring.md"
       ],
       "anchors": [
         "ticket_manifest_entry",
@@ -214,60 +251,91 @@
         "project_instructions"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
+      ]
+    },
+    "implementer.perf": {
+      "lifecycle": "required_for_v1",
+      "required": [
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/playbooks/perf.md"
+      ],
+      "anchors": [
+        "ticket_manifest_entry",
+        "acceptance_criteria",
+        "project_instructions"
+      ],
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
       ]
     },
     "verifier.deterministic": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/contracts/verification.md"
-      ],
-      "anchors": [
-        "candidate",
-        "acceptance_criteria"
-      ],
-      "forbidden": []
-    },
-    "verifier.model_assisted": {
-      "required": [
-        "protocol/contracts/verification.md",
-        "roles/reviewer.md"
-      ],
-      "anchors": [
-        "candidate",
-        "acceptance_criteria"
-      ],
-      "forbidden": []
-    },
-    "reviewer.code": {
-      "required": [
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/verification/template.md"
       ],
       "anchors": [
         "candidate",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
+      ]
+    },
+    "verifier.model_assisted": {
+      "lifecycle": "required_for_v1",
+      "required": [
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/verification/template.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
+    },
+    "reviewer.code": {
+      "lifecycle": "required_for_v1",
+      "required": [
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
+      ],
+      "anchors": [
+        "candidate",
+        "acceptance_criteria"
+      ],
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
       ]
     },
     "arena.candidate": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/playbooks/feature.md",
-        "roles/implementer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/arena/arena-stage.md",
+        "protocol/playbooks/feature.md"
       ],
       "anchors": [
         "ticket_manifest_entry",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md",
-        "roles/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "arena.judge": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/rubrics/judge.md",
-        "roles/judge.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/arena/judge-brief.md"
       ],
       "anchors": [
         "candidate",
@@ -276,101 +344,141 @@
       "forbidden": []
     },
     "arena.final_implementer": {
+      "lifecycle": "required_for_v1",
       "required": [
-        "protocol/playbooks/feature.md",
-        "roles/implementer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/arena/arena-stage.md",
+        "protocol/playbooks/feature.md"
       ],
       "anchors": [
         "ticket_manifest_entry",
         "acceptance_criteria"
       ],
       "forbidden": [
-        "protocol/rubrics/judge.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "autobuild.generator": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#28",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/implementer.md"
+        "protocol/autobuild/run-contract.md"
       ],
       "anchors": [
         "acceptance_criteria"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "autobuild.evaluator": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#28",
       "required": [
-        "protocol/contracts/verification.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/autobuild/run-contract.md",
+        "protocol/verification/template.md"
       ],
       "anchors": [
         "candidate",
         "acceptance_criteria"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "reflect.reviewer": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#29",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/reviewer.md"
+        "protocol/reflect/reviewer-brief.md"
       ],
       "anchors": [
         "candidate"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "debate.participant": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#31",
       "required": [
-        "protocol/contracts/contest.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "finding"
       ],
       "forbidden": [
-        "roles/mediator.md"
+        "protocol/arena/judge-brief.md"
       ]
     },
     "debate.mediator": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#31",
       "required": [
-        "protocol/contracts/contest.md",
-        "roles/mediator.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md"
       ],
       "anchors": [
         "finding"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "revision.analysis": {
+      "lifecycle": "required_for_v1",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/author.md"
+        "protocol/writing/technical-writing.md"
       ],
       "anchors": [
         "tech_plan",
         "acceptance_criteria"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "walkthrough.author": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#33",
       "required": [
+        "agent-selection-guide.md",
         "protocol/principles-digest.md",
-        "roles/author.md"
+        "protocol/writing/technical-writing.md",
+        "protocol/writing/unslop.md"
       ],
       "anchors": [
         "candidate"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     },
     "walkthrough.fact_validator": {
+      "lifecycle": "planned_after_v1",
+      "decided_by": "#33",
       "required": [
-        "protocol/contracts/verification.md",
-        "roles/reviewer.md"
+        "agent-selection-guide.md",
+        "protocol/principles-digest.md",
+        "protocol/verification/template.md"
       ],
       "anchors": [
         "candidate"
       ],
-      "forbidden": []
+      "forbidden": [
+        "protocol/arena/judge-brief.md"
+      ]
     }
   },
   "budget": {

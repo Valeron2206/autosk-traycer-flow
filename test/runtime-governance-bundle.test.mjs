@@ -8,18 +8,24 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+
+import { digest } from "../src/runtime/contracts.mjs";
 
 import {
   REFUSALS,
   REQUIRED_SEATS,
   STAGES,
   attestationErrors,
+  BUNDLE_DIGEST_DOMAIN,
   bundleDigest,
+  bundleDigestPreimage,
   bundleForEpic,
   canonicalJson,
   canonicalTextErrors,
   compareMembersByPath,
+  declaredInventoryErrors,
   epicMigrationErrors,
   inventoryErrors,
   releaseAdmission,
@@ -32,6 +38,10 @@ import {
 const code = (name) => (error) => error.code === name;
 
 const sha = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+
+/** The manifest metadata 02 §5 puts in the content digest's preimage. */
+const META = Object.freeze({ bundle_id: "autosk-v1", bundle_version: "1.0.0", provenance: "autosk-native adaptation" });
+const digestOf = (members, meta = META) => bundleDigest({ ...meta, members });
 
 function member(path, text = `contents of ${path}\n`, overrides = {}) {
   return { path, text, sha256: sha(text), readable: true, ...overrides };
@@ -46,7 +56,7 @@ function candidate(overrides = {}) {
   return {
     stage: "release",
     members,
-    manifest: overrides.manifest ?? { members: members.map((entry) => ({ path: entry.path })) },
+    manifest: overrides.manifest ?? { ...META, members: members.map((entry) => ({ path: entry.path })) },
     ...overrides,
     ...(overrides.members ? { members: overrides.members } : {}),
   };
@@ -67,15 +77,15 @@ function attestation(digest, overrides = {}) {
 
 test("a complete candidate is admitted", () => {
   const value = candidate();
-  const outcome = releaseAdmission(value, attestation(bundleDigest(value.members)));
+  const outcome = releaseAdmission(value, attestation(digestOf(value.members)));
   assert.deepEqual(outcome.errors.slice(), []);
   assert.equal(outcome.admitted, true);
 });
 
-test("the digest is over path and hash in path order, and does not depend on member order", () => {
+test("the digest is over the ordered path and hash map, and does not depend on member order", () => {
   const members = [member("b.md"), member("a.md")];
-  assert.equal(bundleDigest(members), bundleDigest([...members].reverse()));
-  assert.notEqual(bundleDigest(members), bundleDigest([member("a.md"), member("b.md", "different\n")]));
+  assert.equal(digestOf(members), digestOf([...members].reverse()));
+  assert.notEqual(digestOf(members), digestOf([member("a.md"), member("b.md", "different\n")]));
   // The comparator's tie branch is unreachable while member paths are unique,
   // and the inventory refuses a repeated member path — so the property tested
   // is the one the sort exists for, and the tie itself never arises.
@@ -97,7 +107,7 @@ test("only Markdown members with real text are held to the canonical text form",
   // hand a Buffer to a text check, and a `!==` would exempt exactly the files
   // the rule is for. Each half is asked on its own.
   const canonical = (path, text) => releaseAdmission(
-    { manifest: { members: [{ path, sha256: "0".repeat(64) }] }, members: [{ path, sha256: "0".repeat(64), text }] },
+    { manifest: { ...META, members: [{ path, sha256: "0".repeat(64) }] }, members: [{ path, sha256: "0".repeat(64), text }] },
     attestation("x"),
   ).errors.filter((error) => error.reason === "bundle_not_canonical");
 
@@ -114,8 +124,8 @@ test("timestamps are not in the digest, because a digest nobody can recompute is
   // The same members built at two times give one digest; the build time lives
   // in the attestation, where it describes the event rather than the content.
   const members = [member("a.md")];
-  const first = bundleDigest(members);
-  const second = bundleDigest(members.map((entry) => ({ ...entry, built_at: "2026-09-09T00:00:00Z" })));
+  const first = digestOf(members);
+  const second = digestOf(members.map((entry) => ({ ...entry, built_at: "2026-09-09T00:00:00Z" })));
   assert.equal(first, second);
 });
 
@@ -163,19 +173,20 @@ test("a missing member and an extra member are both refusals", () => {
 
 test("a repeated member path refuses in either order: one manifest cannot yield two digests", () => {
   // Two members under one declared path sort equal, so the digest keeps their
-  // input order — ef807943… and ef01e27d… are one manifest attested as two.
-  const manifest = { members: [{ path: "a.md" }] };
+  // input order — ddf3ffcc… and b736c704… (the domain-separated preimage of ADR-093)
+  // are one manifest attested as two.
+  const manifest = { ...META, members: [{ path: "a.md" }] };
   const forward = candidate({
     manifest,
     members: [member("a.md", "clean\n"), member("a.md", "different\n")],
   });
   const backward = candidate({ manifest, members: [...forward.members].reverse() });
-  assert.deepEqual([bundleDigest(forward.members), bundleDigest(backward.members)], [
-    "ef807943ff66293dec6098e71202724cadf9ab2c04b819d87a81ca19738c8009",
-    "ef01e27d9708ecce3cbb52445eb3bfd3b5baad6bebaa32ee06ebb620614a7693",
+  assert.deepEqual([digestOf(forward.members), digestOf(backward.members)], [
+    "ddf3ffcc1cdcc3e980a3e695d0ebf23e92715c9b0f078a3d6fc7f20643d2b660",
+    "b736c70409b22cad23ae3c375e28bcf61cf72f2ec506ae71fc08a7082c605ecd",
   ]);
   const outcomes = [forward, backward].map((value) =>
-    releaseAdmission(value, attestation(bundleDigest(value.members))));
+    releaseAdmission(value, attestation(digestOf(value.members))));
   assert.deepEqual(outcomes.map((outcome) => outcome.admitted), [false, false]);
   for (const outcome of outcomes) {
     assert.ok(
@@ -233,7 +244,7 @@ test("the three stages are kept apart", () => {
 
 test("only a release-stage candidate is released", () => {
   const value = candidate({ stage: "adaptation" });
-  const outcome = releaseAdmission(value, attestation(bundleDigest(value.members)));
+  const outcome = releaseAdmission(value, attestation(digestOf(value.members)));
   assert.ok(outcome.errors.some((error) => /only a release-stage candidate/u.test(error.detail)));
 });
 
@@ -246,7 +257,7 @@ test("an attestation about another candidate is refused", () => {
 
 test("a panel fix changes the digest, so the earlier verdicts do not carry", () => {
   const before = candidate();
-  const digest = bundleDigest(before.members);
+  const digest = digestOf(before.members);
   const verdicts = attestation(digest);
   // The fix: one member changes.
   const after = candidate({
@@ -256,9 +267,9 @@ test("a panel fix changes the digest, so the earlier verdicts do not carry", () 
       before.members[2],
     ],
   });
-  after.manifest = { members: after.members.map((entry) => ({ path: entry.path })) };
+  after.manifest = { ...META, members: after.members.map((entry) => ({ path: entry.path })) };
   const outcome = releaseAdmission(after, verdicts);
-  assert.notEqual(bundleDigest(after.members), digest);
+  assert.notEqual(digestOf(after.members), digest);
   assert.ok(outcome.errors.some((error) => error.reason === "bundle_attestation_mismatch"));
 });
 
@@ -300,7 +311,7 @@ test("a duplicate seat cannot hide a refusal, in either order", () => {
   // The schema admits more entries than seats, so the same five verdicts must
   // give the same admission whether the refusal trails or leads its seat's pass.
   const value = candidate();
-  const digest = bundleDigest(value.members);
+  const digest = digestOf(value.members);
   const verdicts = attestation(digest).verdicts;
   const refusal = {
     seat: "opus",
@@ -320,7 +331,7 @@ test("a duplicate entry is checked itself, not just for its verdict", () => {
   // A second entry for a seat carries its own route and digest too: a stale
   // answer behind a valid pass is still an answer about another candidate.
   const value = candidate();
-  const digest = bundleDigest(value.members);
+  const digest = digestOf(value.members);
   const verdicts = attestation(digest).verdicts;
   const stale = { ...verdicts[0], candidate_digest: "9".repeat(64) };
   const trailing = releaseAdmission(value, attestation(digest, { verdicts: [...verdicts, stale] }));
@@ -334,7 +345,7 @@ test("a duplicate seat that agrees changes nothing", () => {
   // Duplicates are allowed and counted rather than refused at the door: a seat
   // saying the same thing twice adds no error.
   const value = candidate();
-  const digest = bundleDigest(value.members);
+  const digest = digestOf(value.members);
   const verdicts = [...attestation(digest).verdicts, attestation(digest).verdicts[0]];
   const outcome = releaseAdmission(value, attestation(digest, { verdicts }));
   assert.deepEqual(outcome.errors.slice(), []);
@@ -430,4 +441,77 @@ test("every refusal class the contract closes can be produced", () => {
   for (const refusal of REFUSALS) {
     assert.ok(produced.has(refusal), `${refusal} is documented and never produced`);
   }
+});
+
+// Debt 10g (R6-17): the manifest is held to the carrier registry's governance files.
+
+test("declaredInventoryErrors compares the manifest with the inventory, both ways and by count", () => {
+  const declared = (paths) => ({ members: paths.map((entry) => ({ path: entry })) });
+  assert.deepEqual(declaredInventoryErrors(["a.md", "b.md"], declared(["b.md", "a.md"])), []);
+  assert.deepEqual(declaredInventoryErrors(["a.md", "b.md"], declared(["a.md"])), [
+    { reason: "bundle_inventory_missing", detail: "b.md is in the inventory but not declared by the manifest" },
+  ]);
+  assert.deepEqual(declaredInventoryErrors(["a.md"], declared(["a.md", "c.md"])), [
+    { reason: "bundle_inventory_extra", detail: "c.md is declared by the manifest but not in the inventory" },
+  ]);
+  // A path declared twice is the inventory check's to report (once, as `bundle_inventory_duplicate`
+  // over the members read); reporting it here too would give one fault two errors.
+  assert.deepEqual(declaredInventoryErrors(["a.md"], declared(["a.md", "a.md"])), []);
+  assert.deepEqual(declaredInventoryErrors(undefined, declared(["a.md"])), [
+    { reason: "bundle_inventory_missing", detail: "no inventory: the carrier registry's governance files were not supplied" },
+  ]);
+  assert.deepEqual(declaredInventoryErrors([], declared([])), [
+    { reason: "bundle_inventory_missing", detail: "no inventory: the carrier registry's governance files were not supplied" },
+  ]);
+});
+
+// Debt 10g review H1: one content digest formula, the one 02 §5 and 03 §3 state.
+
+test("the content digest hashes exactly the preimage 02 §5 and 03 §3 state, under its own domain", () => {
+  const architecture = readFileSync(new URL("../02-architecture.md", import.meta.url), "utf8");
+  const plan = readFileSync(new URL("../03-technical-plan.md", import.meta.url), "utf8");
+  // 02 §5: domain separator, bundle id/version/provenance and the ordered {relative_path, file_sha256} map.
+  assert.ok(architecture.includes("SHA-256 от domain separator, bundle id/version/provenance и ordered `{relative_path, file_sha256}`"));
+  // 03 §3: the manifest's metadata fields and "domain separator + canonical metadata + ordered file map".
+  assert.ok(plan.includes("`schemaVersion`, `bundleId`, `bundleVersion`, provenance без личных paths"));
+  assert.ok(plan.includes("Preimage digest — domain separator + canonical metadata + ordered file map"));
+  assert.equal(BUNDLE_DIGEST_DOMAIN, "autosk-flow/governance-bundle-content/v1");
+
+  const members = [member("b.md"), member("a.md")];
+  const preimage = bundleDigestPreimage({ ...META, members });
+  assert.deepEqual(Object.keys(preimage).sort(), ["bundle_id", "bundle_version", "files", "provenance"]);
+  assert.deepEqual(preimage.files, [
+    { relative_path: "a.md", file_sha256: members[1].sha256 },
+    { relative_path: "b.md", file_sha256: members[0].sha256 },
+  ]);
+  assert.equal(digestOf(members), digest(BUNDLE_DIGEST_DOMAIN, preimage));
+
+  // Each field moves the digest; nothing else does.
+  const base = digestOf(members);
+  for (const [field, value] of [["bundle_id", "autosk-v2"], ["bundle_version", "1.0.1"], ["provenance", "other"]]) {
+    assert.notEqual(digestOf(members, { ...META, [field]: value }), base, field);
+  }
+  assert.notEqual(digestOf([member("a.md"), member("b.md", "changed\n")]), base);
+  assert.notEqual(digestOf([member("a.md"), member("c.md", "contents of b.md\n")]), base);
+  assert.equal(bundleDigest({ ...META, members, manifest_hash: "f".repeat(64), attestation: {} }), base);
+});
+
+test("a content digest without its metadata or with a malformed member is refused, not guessed", () => {
+  const members = [member("a.md")];
+  for (const [field, value] of [
+    ["bundle_id", undefined], ["bundle_id", ""], ["bundle_version", "1.0"], ["bundle_version", undefined],
+    ["provenance", ""], ["provenance", 7],
+  ]) {
+    assert.throws(() => bundleDigest({ ...META, [field]: value, members }), code("bundle_not_canonical"), `${field}=${value}`);
+  }
+  assert.throws(() => bundleDigest({ ...META, members: "a.md" }), code("bundle_not_canonical"));
+  // Not a list at all — nothing to iterate — is the same refusal, not a TypeError.
+  assert.throws(() => bundleDigest({ ...META, members: 7 }), code("bundle_not_canonical"));
+  assert.throws(() => bundleDigest({ ...META, members: { path: "a.md", sha256: "0".repeat(64) } }), code("bundle_not_canonical"));
+  assert.throws(() => bundleDigest({ ...META, members: [{ path: "a.md", sha256: "nothex" }] }), code("bundle_not_canonical"));
+  assert.throws(() => bundleDigest({ ...META, members: [{ path: "", sha256: "0".repeat(64) }] }), code("bundle_not_canonical"));
+  // A release admission over a manifest without metadata is refused the same way.
+  const bare = candidate();
+  bare.manifest = { members: bare.manifest.members };
+  assert.throws(() => releaseAdmission(bare, attestation("a".repeat(64))), code("bundle_not_canonical"));
 });

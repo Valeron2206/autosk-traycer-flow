@@ -62,11 +62,22 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "lifecycle",
           "required",
           "anchors",
           "forbidden"
         ],
         "properties": {
+          "lifecycle": {
+            "enum": [
+              "required_for_v1",
+              "planned_after_v1"
+            ]
+          },
+          "decided_by": {
+            "type": "string",
+            "pattern": "^#[1-9][0-9]*$"
+          },
           "required": {
             "type": "array",
             "uniqueItems": true,

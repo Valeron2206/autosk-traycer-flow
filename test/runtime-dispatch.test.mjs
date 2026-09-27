@@ -27,6 +27,7 @@ import {
   payloadFor,
   secretScanner,
 } from "../src/host/dispatch.mjs";
+import { carrierRegistryDigest } from "../src/host/stage-carrier.mjs";
 
 const execFileAsync = promisify(execFile);
 const code = (name) => (error) => error.code === name;
@@ -53,6 +54,7 @@ const registry = (overrides = {}) => ({
   budget: { max_bytes: 65_536 },
   carriers: {
     "reviewer.review": {
+      lifecycle: "required_for_v1",
       required: ["protocol/review.md", "protocol/rubric.md"],
       forbidden: [],
       anchors: [],
@@ -90,16 +92,20 @@ const dispatch = (overrides = {}) => ({
 
 const reviewed = { state: "reviewed", disposition: "clear" };
 
-const options = (overrides = {}) => ({
-  registry: registry(),
-  bundle,
-  anchors: {},
-  route: { model_id: "fake-model-1", requested_effort: "high" },
-  dispatch: dispatch(),
-  context,
-  personalDataReview: reviewed,
-  ...overrides,
-});
+/** The dispatch context, pinned to the registry in use as the Epic's protocol lock would pin it. */
+const options = (overrides = {}) => {
+  const inUse = overrides.registry ?? registry();
+  return {
+    registry: inUse,
+    bundle,
+    anchors: {},
+    route: { model_id: "fake-model-1", requested_effort: "high" },
+    dispatch: dispatch(),
+    context: { ...context, carrier_registry_digest: carrierRegistryDigest(inUse) },
+    personalDataReview: reviewed,
+    ...overrides,
+  };
+};
 
 test("the scanner adapter finds a planted token and stays quiet otherwise", () => {
   const scanner = secretScanner();
@@ -309,6 +315,7 @@ test("a fragment this key must never receive is refused before anything is scann
   const forbidden = registry({
     carriers: {
       "reviewer.review": {
+        lifecycle: "required_for_v1",
         required: ["protocol/review.md", "protocol/rubric.md"],
         forbidden: ["protocol/rubric.md"],
         anchors: [],

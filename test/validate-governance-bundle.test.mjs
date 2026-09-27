@@ -15,6 +15,7 @@ import {
   EXAMPLE_PATH,
   PROTOCOL_FILES,
   REFUSALS,
+  REGISTRY_PATH,
   REQUIRED_MEMBERS,
   REQUIRED_PANEL,
   SCHEMA_PATH,
@@ -37,7 +38,7 @@ function mutated(mutate, base = released, { reseal = true } = {}) {
   const value = base();
   mutate(value);
   if (reseal) {
-    value.bundle_digest = bundleDigest(value.members);
+    value.bundle_digest = bundleDigest(value);
     value.attestation.candidate_digest = value.bundle_digest;
     for (const seat of value.attestation.panel) seat.candidate_digest = value.bundle_digest;
     value.attestation.state = attestationState(value);
@@ -57,9 +58,9 @@ test("the shipped design validates", () => {
   assert.deepEqual(validateGovernanceBundleDesign(files), []);
 });
 
-test("the digest recomputes from the members alone", () => {
+test("the digest recomputes from the members and the metadata alone", () => {
   const bundle = released();
-  assert.equal(bundle.bundle_digest, bundleDigest(bundle.members));
+  assert.equal(bundle.bundle_digest, bundleDigest(bundle));
   assertRejects(
     mutated(
       (value) => {
@@ -77,7 +78,7 @@ test("path order is by raw bytes, so a reordered manifest is the same bundle", (
   // happened to list things in would produce two names for one bundle.
   const bundle = released();
   const shuffled = [...bundle.members].reverse();
-  assert.equal(bundleDigest(shuffled), bundle.bundle_digest);
+  assert.equal(bundleDigest({ ...bundle, members: shuffled }), bundle.bundle_digest);
 });
 
 test("no timestamp is in the digest", () => {
@@ -85,7 +86,7 @@ test("no timestamp is in the digest", () => {
   const bundle = released();
   const later = JSON.parse(JSON.stringify(bundle));
   later.attestation.released_at = "2099-01-01T00:00:00.000Z";
-  assert.equal(bundleDigest(later.members), bundle.bundle_digest);
+  assert.equal(bundleDigest(later), bundle.bundle_digest);
   assert.ok(files[CONTRACT_PATH].includes("Timestamps are not in the digest"));
 });
 
@@ -128,7 +129,7 @@ test("a panel fix changes the digest, and the old verdicts stop counting", () =>
   // that no longer exists.
   const fixed = released();
   fixed.members[0].sha256 = "7".repeat(64);
-  fixed.bundle_digest = bundleDigest(fixed.members);
+  fixed.bundle_digest = bundleDigest(fixed);
   fixed.attestation.candidate_digest = fixed.bundle_digest;
   assert.equal(attestationState(fixed), "pending_panel");
   assertRejects(fixed, /attestation state is attested, computed pending_panel/u);
@@ -361,4 +362,55 @@ test("the design digest changes when any shipped file changes", () => {
   const before = governanceDesignDigest(files);
   const after = governanceDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
+});
+
+// Debt 10g (R6-17): the bundle's members are the carrier registry's governance files.
+
+test("the required members are the carrier registry's governance files, and nothing else", () => {
+  const registry = JSON.parse(files[REGISTRY_PATH]);
+  assert.deepEqual([...REQUIRED_MEMBERS], registry.governance_files.map((file) => file.path));
+  assert.equal(REQUIRED_MEMBERS.length, 13);
+  assert.deepEqual([...PROTOCOL_FILES], REQUIRED_MEMBERS.filter((file) => file.startsWith("protocol/")));
+  // The manifest and the attestation record the digest, so they cannot be in its preimage;
+  // the carrier registry pins the bundle digest, so it cannot be a member either.
+  for (const outside of ["bundle-manifest.json", "bundle-attestation.json", "stage-carriers.json", "role/author.md"]) {
+    assert.ok(!REQUIRED_MEMBERS.includes(outside), outside);
+    assertRejects(
+      mutated((value) => {
+        value.members.push({ path: outside, sha256: "1".repeat(64), size: 1 });
+      }),
+      new RegExp(`${outside.replace(/[.]/gu, "\\.")} is not part of the inventory`, "u"),
+    );
+  }
+  for (const example of [released(), candidate()]) {
+    assert.deepEqual(example.members.map((member) => member.path).sort(), [...REQUIRED_MEMBERS].sort());
+  }
+});
+
+test("the design check takes the members from the registry it is given", () => {
+  const registry = JSON.parse(files[REGISTRY_PATH]);
+  registry.governance_files = registry.governance_files.filter((file) => file.path !== "protocol/playbooks/perf.md");
+  const errors = validateGovernanceBundleDesign({ ...files, [REGISTRY_PATH]: `${JSON.stringify(registry, null, 2)}\n` });
+  assert.ok(errors.some((message) => /protocol\/playbooks\/perf\.md is not part of the inventory/u.test(message)), errors.join("\n"));
+});
+
+// Debt 10g review H1: the validator hashes with the runtime's formula, over the manifest metadata.
+
+test("the design validator uses the runtime's content digest, over id, version and provenance", async () => {
+  const runtime = await import("../src/host/governance-bundle.mjs");
+  const bundle = released();
+  assert.equal(
+    bundleDigest(bundle),
+    runtime.bundleDigest({
+      bundle_id: bundle.bundle_id, bundle_version: bundle.version, provenance: bundle.provenance, members: bundle.members,
+    }),
+  );
+  for (const [field, value] of [["bundle_id", "autosk-v2"], ["version", "1.0.1"], ["provenance", "other"]]) {
+    assertRejects(mutated((v) => { v[field] = value; }, released, { reseal: false }), /does not recompute/u);
+  }
+  for (const example of [released(), candidate()]) {
+    assert.equal(example.bundle_id, "autosk-v1");
+    assert.equal(typeof example.provenance, "string");
+  }
+  assert.ok(files[CONTRACT_PATH].includes("autosk-flow/governance-bundle-content/v1"));
 });
