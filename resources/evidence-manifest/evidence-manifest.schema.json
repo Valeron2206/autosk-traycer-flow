@@ -344,11 +344,11 @@
         },
         "base_oid": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "tree_oid": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "pathspec_digest": {
           "type": "string",
@@ -444,11 +444,11 @@
         },
         "before_tree": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "after_tree": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "restore": {
           "type": "object",
@@ -489,5 +489,50 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "batch": {
+            "properties": {
+              "base_oid": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "tree_oid": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "before_tree": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "after_tree": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "batch": {
+            "properties": {
+              "base_oid": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "tree_oid": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "before_tree": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "after_tree": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

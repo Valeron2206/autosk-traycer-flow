@@ -15,11 +15,11 @@
     },
     "doc_commit": {
       "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
     },
     "doc_tree": {
       "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
     },
     "recipes": {
       "type": "array",
@@ -244,11 +244,11 @@
             "properties": {
               "doc_commit": {
                 "type": "string",
-                "pattern": "^[0-9a-f]{40}$"
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
               },
               "doc_tree": {
                 "type": "string",
-                "pattern": "^[0-9a-f]{40}$"
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
               },
               "environment_digest": {
                 "type": "string",
@@ -271,5 +271,62 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "doc_commit": {
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "doc_tree": {
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "recipes": {
+            "items": {
+              "properties": {
+                "self_proof": {
+                  "properties": {
+                    "doc_commit": {
+                      "pattern": "^[0-9a-f]{40}$"
+                    },
+                    "doc_tree": {
+                      "pattern": "^[0-9a-f]{40}$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "doc_commit": {
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "doc_tree": {
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "recipes": {
+            "items": {
+              "properties": {
+                "self_proof": {
+                  "properties": {
+                    "doc_commit": {
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "doc_tree": {
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

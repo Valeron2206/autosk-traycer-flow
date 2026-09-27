@@ -402,3 +402,41 @@ test("every park reason the contract closes can be produced", () => {
     assert.ok(produced.has(reason), `${reason} is documented and never produced`);
   }
 });
+
+// --- debt 11d: one object format ----------------------------------------------
+
+test("a delta's base, candidate tree and blobs are OIDs of one object format (review L2)", () => {
+  // ADR-098: a repository has one object format. A delta that names a 40-hex
+  // blob against a 64-hex base (or the reverse) names objects no one
+  // repository holds, and in a SHA-256 repository it reached `git update-index`
+  // and was refused as a broken machine (`environment_failure`) rather than as
+  // the delta it is.
+  const wide = (char) => char.repeat(64);
+  assert.deepEqual(validateDelta(delta()), []);
+  // The same delta in a SHA-256 repository is a delta.
+  const sha256 = delta({
+    base_commit_oid: wide("a"),
+    base_tree_oid: wide("b"),
+    candidate_tree_oid: wide("c"),
+    entries: [entry({ old_blob: wide("1"), new_blob: wide("2") })],
+  });
+  assert.deepEqual(validateDelta(sha256), []);
+  assert.deepEqual(revalidate(sha256, { commit_oid: wide("a"), tree_oid: wide("b") }), []);
+  for (const [label, overrides] of [
+    ["base commit", { base_commit_oid: wide("a") }],
+    ["base tree", { base_tree_oid: wide("b") }],
+    ["candidate tree", { candidate_tree_oid: wide("c") }],
+    ["old blob", { entries: [entry({ old_blob: wide("1") })] }],
+    ["new blob", { entries: [entry({ new_blob: wide("2") })] }],
+    ["one entry of two", { entries: [entry(), entry({ path: "src/b.ts", new_blob: wide("3") })] }],
+    ["a blob that is not an OID", { entries: [entry({ new_blob: "HEAD" })] }],
+  ]) {
+    assert.deepEqual(validateDelta(delta(overrides)).map((error) => error.reason), ["containment_mismatch"], label);
+  }
+  // Revalidation refuses it too, before anything is applied.
+  const narrowBlob = delta({ ...sha256, delta_digest: undefined, entries: [entry({ old_blob: wide("1"), new_blob: oid("2") })] });
+  assert.deepEqual(revalidate(narrowBlob, { commit_oid: wide("a"), tree_oid: wide("b") }).map((error) => error.reason), ["containment_mismatch"]);
+  // An addition names no old blob and a deletion no new one: an absent blob is no format.
+  assert.deepEqual(validateDelta(delta({ entries: [entry({ status: "A", old_blob: undefined, old_mode: undefined })] })), []);
+  assert.deepEqual(validateDelta(delta({ entries: [entry({ status: "D", new_blob: undefined, new_mode: undefined })] })), []);
+});

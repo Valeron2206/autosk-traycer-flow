@@ -74,7 +74,7 @@
     },
     "initial_target_oid": {
       "type": "string",
-      "pattern": "^[a-f0-9]{40}$"
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
     },
     "ordered_ticket_commit_oids": {
       "type": "array",
@@ -82,7 +82,7 @@
       "maxItems": 512,
       "items": {
         "type": "string",
-        "pattern": "^[a-f0-9]{40}$"
+        "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
       }
     },
     "ref_transition": {
@@ -96,17 +96,17 @@
       "properties": {
         "from_oid": {
           "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
         },
         "to_oid": {
           "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+          "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
         }
       }
     },
     "final_tree_oid": {
       "type": "string",
-      "pattern": "^[a-f0-9]{40}$"
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
     },
     "integration_plan_hash": {
       "type": "string",
@@ -168,5 +168,60 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "initial_target_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "ordered_ticket_commit_oids": {
+            "items": {
+              "pattern": "^[a-f0-9]{40}$"
+            }
+          },
+          "ref_transition": {
+            "properties": {
+              "from_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "to_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          },
+          "final_tree_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "initial_target_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "ordered_ticket_commit_oids": {
+            "items": {
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "ref_transition": {
+            "properties": {
+              "from_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "to_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "final_tree_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  ]
 }

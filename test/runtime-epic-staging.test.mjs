@@ -504,3 +504,103 @@ test("the record's digest is domain-separated over every field (debt 11b)", asyn
   assert.equal(integrationAuthorizationHash(AUTHORIZATION), digest("autosk-flow/integration-authorization-record/v1", AUTHORIZATION));
   assert.notEqual(integrationAuthorizationHash({ ...AUTHORIZATION, user_decision_record_hash: "f".repeat(64) }), integrationAuthorizationHash(AUTHORIZATION));
 });
+
+// --- debt 11d: one object format ----------------------------------------------
+
+test("at the CAS a SHA-256 Epic may swap, and a squash commit of another object format is not the commit that lands (debt 11d)", () => {
+  // ADR-098: an OID is 40 hex (sha1) or 64 (sha256), and a repository has one
+  // format. The CAS compares the acceptance's staging commit, tree and base
+  // with the staging state; its squash commit it compares only with the
+  // record, so that one is held to the base's format here, as the delivered
+  // commit is in deliveryCompleted.
+  const wide = (char) => char.repeat(64);
+  const record = {
+    ...AUTHORIZATION,
+    initial_target_oid: wide("a"),
+    ordered_ticket_commit_oids: [wide("1"), wide("2")],
+    ref_transition: { from_oid: wide("a"), to_oid: wide("c") },
+    final_tree_oid: wide("d"),
+  };
+  const sha256 = state({
+    recorded_target_base: wide("a"),
+    planning_head: wide("b"),
+    receipts: [
+      { ticket_id: "T-101", delta_digest: "1".repeat(64), applied_commit_oid: wide("1") },
+      { ticket_id: "T-102", delta_digest: "2".repeat(64), applied_commit_oid: wide("2") },
+    ],
+    staging_commit_oid: wide("c"),
+    staging_tree_oid: wide("d"),
+    post_cas: { expected_new_oid: wide("c") },
+  });
+  sha256.acceptance = { ...sha256.acceptance, integration_authorization_sha256: integrationAuthorizationHash(record) };
+  const outcome = casAdmission(sha256, { oid: wide("a") }, TICKETS, { ...CURRENT, authorization: record });
+  assert.deepEqual({ decision: outcome.decision, reasons: [...outcome.reasons] }, { decision: "may_swap", reasons: [] });
+
+  // Under squash: the record ends at the squash commit the acceptance names.
+  const squash = (current, commit, authorization) => {
+    const value = structuredClone(current);
+    const landing = { ...authorization, ref_transition: { ...authorization.ref_transition, to_oid: commit } };
+    value.acceptance = {
+      ...value.acceptance,
+      delivery_mode: "squash",
+      target_commit_oid: commit,
+      target_commit_recipe_sha256: "8".repeat(64),
+      integration_authorization_sha256: integrationAuthorizationHash(landing),
+    };
+    return [value, { ...CURRENT, authorization: landing }];
+  };
+  assert.deepEqual(acceptanceErrors(...squash(sha256, wide("7"), record)), []);
+  assert.deepEqual(acceptanceErrors(...squash(state(), oid("7"), AUTHORIZATION)), []);
+  for (const [current, commit, authorization] of [[state(), wide("7"), AUTHORIZATION], [sha256, oid("7"), record]]) {
+    assert.deepEqual(acceptanceErrors(...squash(current, commit, authorization)).map((entry) => entry.reason), ["acceptance_missing"], commit);
+  }
+});
+
+test("at the CAS an accepted staging state whose OIDs are of two object formats is refused, whatever the mode (review L1)", () => {
+  // ADR-098: the acceptance identity refuses a state whose base, staging
+  // commit and tree and applied commits are of two formats; the CAS admission
+  // held only the squash commit to the base's format, so a mixed state under
+  // merge, with an acceptance and a record that agree with it, was admitted.
+  const wide = (char) => char.repeat(64);
+  const mixed = (overrides) => {
+    const value = state(overrides);
+    const record = {
+      ...AUTHORIZATION,
+      initial_target_oid: value.recorded_target_base,
+      ordered_ticket_commit_oids: value.receipts.map((receipt) => receipt.applied_commit_oid),
+      ref_transition: { from_oid: value.recorded_target_base, to_oid: value.staging_commit_oid },
+      final_tree_oid: value.staging_tree_oid,
+    };
+    value.acceptance = { ...value.acceptance, integration_authorization_sha256: integrationAuthorizationHash(record) };
+    return [value, { ...CURRENT, authorization: record }];
+  };
+  const receipts = (first, second) => [
+    { ticket_id: "T-101", delta_digest: "1".repeat(64), applied_commit_oid: first },
+    { ticket_id: "T-102", delta_digest: "2".repeat(64), applied_commit_oid: second },
+  ];
+  // The probe agrees with itself in one format: admitted.
+  const [one, oneCurrent] = mixed({});
+  assert.equal(casAdmission(one, { oid: one.recorded_target_base }, TICKETS, oneCurrent).decision, "may_swap");
+  for (const [label, overrides] of [
+    ["staging commit", { staging_commit_oid: wide("c"), post_cas: { expected_new_oid: wide("c") } }],
+    ["staging tree", { staging_tree_oid: wide("d") }],
+    ["applied commit", { receipts: receipts(oid("1"), wide("2")) }],
+    ["base of a SHA-256 Epic", {
+      recorded_target_base: oid("a"),
+      staging_commit_oid: wide("c"),
+      staging_tree_oid: wide("d"),
+      receipts: receipts(wide("1"), wide("2")),
+      post_cas: { expected_new_oid: wide("c") },
+    }],
+  ]) {
+    const [value, current] = mixed(overrides);
+    assert.deepEqual(acceptanceErrors(value, current).map((entry) => entry.reason), ["acceptance_missing"], label);
+    const outcome = casAdmission(value, { oid: value.recorded_target_base }, TICKETS, current);
+    assert.equal(outcome.decision, "refused", label);
+    assert.deepEqual(outcome.reasons.map((entry) => entry.reason), ["acceptance_missing"], label);
+  }
+  // A receipt that names no commit adds no format, as in the identity; the
+  // record, which binds the commits, is compared with the receipts as before.
+  const unapplied = state({ receipts: [receipts(oid("1"))[0], { ticket_id: "T-102", delta_digest: "2".repeat(64) }] });
+  assert.deepEqual(acceptanceErrors(unapplied, CURRENT).map((entry) => entry.reason), ["acceptance_stale"]);
+});

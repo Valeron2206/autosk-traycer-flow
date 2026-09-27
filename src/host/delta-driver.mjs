@@ -16,7 +16,7 @@
  * filesystem itself. The staging ref is not written here at all: the apply
  * asks the ref-custody helper to advance it (`custody`, ADR-095).
  */
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 import {
   collisionErrors,
@@ -154,13 +154,13 @@ export async function appliedEntries(git, { tree, baseTree, delta, options = {} 
   return immutable(applied.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
 }
 
-/** One tree, as path → blob and mode. */
+/** One tree, as path → blob and mode; a blob OID in either object format (ADR-098). */
 async function listTree(git, tree, options) {
   const listing = await ask(git, ['ls-tree', '-r', '--full-tree', tree], options);
   const held = new Map();
   for (const line of listing.stdout.split('\n')) {
-    const match = /^(\d{6}) blob ([0-9a-f]{40})\t(.*)$/u.exec(line);
-    if (match) held.set(match[3], { new_mode: match[1], new_blob: match[2] });
+    const match = /^(\d{6}) blob ([0-9a-f]+)\t(.*)$/u.exec(line);
+    if (match && oidFormat(match[2]) !== null) held.set(match[3], { new_mode: match[1], new_blob: match[2] });
   }
   return held;
 }

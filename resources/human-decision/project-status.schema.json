@@ -179,15 +179,15 @@
       "properties": {
         "planning": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "staging": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "target": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         }
       }
     },
@@ -195,5 +195,44 @@
       "type": "string",
       "minLength": 1
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "identities": {
+            "properties": {
+              "planning": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "staging": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "target": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "identities": {
+            "properties": {
+              "planning": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "staging": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "target": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

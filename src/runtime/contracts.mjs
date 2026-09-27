@@ -95,15 +95,39 @@ export function equalDigest(a, b) {
   assertDigest(a); assertDigest(b);
   return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
 }
+/**
+ * Git's object formats and the width of a full OID in each, in lowercase hex.
+ * A repository has one format, so the OIDs one record or one operation names
+ * have one width: the rule every reader and every record of an OID follows
+ * (ADR-098).
+ */
+export const OBJECT_FORMATS = Object.freeze({ sha1: 40, sha256: 64 });
+/**
+ * The object format a full OID is written in, read from its width: `sha1` or
+ * `sha256`, and null for anything that is not a full lowercase-hex OID of
+ * either. Whether Git's null OID may stand somewhere is the caller's rule.
+ */
+export function oidFormat(value) {
+  if (typeof value !== 'string' || !/^[a-f0-9]+$/u.test(value)) return null;
+  return Object.keys(OBJECT_FORMATS).find((format) => OBJECT_FORMATS[format] === value.length) ?? null;
+}
+/**
+ * The one object format every OID given is written in; null when none is
+ * given, one is not a full OID, or they name two — objects no one repository
+ * holds together (ADR-098).
+ */
+export function oneObjectFormat(values) {
+  const formats = new Set(values.map(oidFormat));
+  return formats.size === 1 && !formats.has(null) ? [...formats][0] : null;
+}
 export function assertOid(value, format) {
-  demand(['sha1', 'sha256'].includes(format), 'unsupported_object_format', 'Unsupported Git object format');
-  demand(typeof value === 'string' && new RegExp(`^[a-f0-9]{${format === 'sha1' ? 40 : 64}}$`, 'u').test(value)
-    && !/^0+$/u.test(value), 'invalid_oid', 'Expected a full nonzero Git OID');
+  demand(Object.keys(OBJECT_FORMATS).includes(format), 'unsupported_object_format', 'Unsupported Git object format');
+  demand(oidFormat(value) === format && !/^0+$/u.test(value), 'invalid_oid', 'Expected a full nonzero Git OID');
   return value;
 }
 export function gitObjectOid(type, bytes, format) {
   demand(['blob', 'tree', 'commit', 'tag'].includes(type), 'invalid_object_type', 'Unknown Git object type');
-  demand(['sha1', 'sha256'].includes(format) && Buffer.isBuffer(bytes), 'invalid_object', 'Invalid object input');
+  demand(Object.keys(OBJECT_FORMATS).includes(format) && Buffer.isBuffer(bytes), 'invalid_object', 'Invalid object input');
   return createHash(format).update(`${type} ${bytes.length}\0`).update(bytes).digest('hex');
 }
 export function assertPath(value) {

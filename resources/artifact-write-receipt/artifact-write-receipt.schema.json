@@ -109,7 +109,7 @@
     },
     "planning_base_oid": {
       "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
     },
     "pathspec_digest": {
       "type": "string",

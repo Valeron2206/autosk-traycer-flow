@@ -38,6 +38,8 @@ The closed JSON Schema is `resources/integration-authorization/integration-autho
 
 Every one of those is load-bearing: each names something that, if it changed, would make the authorization about a different integration.
 
+Every OID the record names — `initial_target_oid`, both ends of `ref_transition`, `ordered_ticket_commit_oids` and `final_tree_oid` — is a full OID of the project repository's object format: 40 lowercase hex characters for sha1, 64 for sha256, and one format for the whole record, because a repository has one (ADR-098). The schema admits either and refuses a record that mixes them, as the staging record's schema does, so a SHA-256 repository reaches a schema-valid record the same way a SHA-1 one does.
+
 Who checks each field before the CAS. The host (§1), when the acceptance is made and again at the CAS admission against the staging state: the project, Epic, scope and target, `initial_target_oid` and `ref_transition` against the recorded base and the commit that lands, `final_tree_oid` against the accepted tree, `ordered_ticket_commit_oids` against the staging receipts in order, the controlling anchor digest and the three heads against the ones the identity binds, `terminal_disposition` and `expires_at`, and the decision behind it. The host cannot check that those heads and `previous_authorization_head_hash` are the daemon's current ones, nor recompute `integration_plan_hash` or `classifier_proof_hash` (no calculator exists yet, ADR-091): the user signs them as presented, and `integrateApproved` asserts the heads and the chain.
 
 ## 4. Expiry is not a formality

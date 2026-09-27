@@ -70,15 +70,15 @@
         },
         "base_commit": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "base_tree": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "candidate_tree": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "pathspec_digest": {
           "type": "string",
@@ -305,7 +305,7 @@
         },
         "post_restore_identity": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         }
       }
     },
@@ -443,5 +443,58 @@
         "indeterminate"
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "candidate": {
+            "properties": {
+              "base_commit": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "base_tree": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "candidate_tree": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "recovery": {
+            "properties": {
+              "post_restore_identity": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "candidate": {
+            "properties": {
+              "base_commit": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "base_tree": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "candidate_tree": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "recovery": {
+            "properties": {
+              "post_restore_identity": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

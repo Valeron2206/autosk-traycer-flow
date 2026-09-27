@@ -30,6 +30,8 @@ That list is not padding. Each element is a way two "identical" patches differ i
 
 `delta_digest` covers all of it, plus the base commit, base tree, candidate tree and the pathspec, so a delta cannot be reinterpreted against a different base than the one it was reviewed on.
 
+The base commit and tree, the candidate tree and every blob an entry names are objects of one repository, so OIDs of its one object format: 40 lowercase hex characters for sha1, 64 for sha256 (ADR-098). A delta that names two formats is `containment_mismatch` (`validateDelta`, and so revalidation before apply), rather than a blob the apply hands to `update-index`, which would fail as an environment failure.
+
 ## 4. What an integration must prove
 
 Not "it applied cleanly" — that is a statement about the tool. Six statements about the result:

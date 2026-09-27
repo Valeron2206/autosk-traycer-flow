@@ -15,7 +15,7 @@
  * host with no helper does not fall back to writing the ref itself (ADR-095).
  * Tests hand the drivers a git-backed stand-in (`test/support/git-ref-custody.mjs`).
  */
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 /** The helper's closed action roster, in the order of its wire schema. */
 export const REF_CUSTODY_ACTIONS = immutable([
@@ -62,9 +62,7 @@ export const HOST_REF_CUSTODY_ACTIONS = immutable(Object.keys(SHAPES));
 export const NO_REF_CUSTODY = Object.freeze({});
 
 const NOT_APPLIED = Object.freeze(['expected_old_mismatch', 'packed_refs_drift', 'authorization_invalid']);
-const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-const isOid = (value) => typeof value === 'string' && OID.test(value);
-const isOidOrNull = (value) => value === null || isOid(value);
+const isOid = (value) => oidFormat(value) !== null;
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function holds(value, expect, old) {
@@ -82,7 +80,7 @@ function formRequest(action, refUpdates) {
   demand(Array.isArray(refUpdates) && refUpdates.length === shape.length, 'cas_conflict',
     'The request does not carry the ref updates its action does', { action });
   const keys = new Set();
-  const widths = new Set();
+  const formats = new Set();
   const updates = shape.map(([operation, kind, old, next], index) => {
     const update = refUpdates[index];
     demand(isRecord(update), 'cas_conflict', 'A ref update is a record', { action, index });
@@ -94,7 +92,7 @@ function formRequest(action, refUpdates) {
     keys.add(named[1]);
     demand(holds(update.expected_old_oid, old) && holds(update.new_oid, next, update.expected_old_oid), 'cas_conflict',
       'The expected old or the new value is not what the action allows', { action, index });
-    for (const oid of [update.expected_old_oid, update.new_oid]) if (oid !== null) widths.add(oid.length);
+    for (const oid of [update.expected_old_oid, update.new_oid]) if (oid !== null) formats.add(oidFormat(oid));
     return Object.freeze({
       operation,
       ref: update.ref,
@@ -104,19 +102,26 @@ function formRequest(action, refUpdates) {
   });
   // One Epic and one object format per request, as the helper's wire requires.
   demand(keys.size === 1, 'cas_conflict', 'One request names one Epic', { action });
-  demand(widths.size === 1, 'cas_conflict', 'One request uses one object format', { action });
+  demand(formats.size === 1, 'cas_conflict', 'One request uses one object format', { action });
   return Object.freeze({ action, ref_updates: Object.freeze(updates) });
 }
 
-/** The observation the helper owes for one requested update. */
-function answersUpdate(observation, update, status) {
+/** The object format a formed request is in: the one its OIDs share. */
+function formatOf(request) {
+  const update = request.ref_updates[0];
+  return oidFormat(update.expected_old_oid ?? update.new_oid);
+}
+
+/** The observation the helper owes for one requested update, in the request's object format. */
+function answersUpdate(observation, update, status, format) {
   if (!isRecord(observation)) return false;
   if (observation.operation !== update.operation || observation.ref !== update.ref) return false;
   if (observation.expected_old_oid !== update.expected_old_oid || observation.requested_new_oid !== update.new_oid) return false;
-  // What the ref holds is an OID or nothing; the new value is then held equal
-  // to it (refused) or to what was requested (committed), so it needs no check
-  // of its own.
-  if (!isOidOrNull(observation.observed_old_oid)) return false;
+  // What the ref holds is nothing, or an OID of the repository's one format
+  // (ADR-098), which the request carries; the new value is then held equal to
+  // it (refused) or to what was requested (committed), so it needs no check of
+  // its own.
+  if (observation.observed_old_oid !== null && oidFormat(observation.observed_old_oid) !== format) return false;
   if (status === 'not_applied') return observation.observed_new_oid === observation.observed_old_oid;
   const after = update.operation === 'delete' ? null : update.new_oid;
   return observation.observed_old_oid === update.expected_old_oid && observation.observed_new_oid === after;
@@ -145,8 +150,9 @@ export async function askCustody(custody, action, refUpdates) {
     'planning_ref_capability_missing', 'The helper answered with a reason its protocol does not give',
     { action, reason: answer.not_applied_reason });
   const observations = answer.ref_observations;
+  const format = formatOf(request);
   demand(Array.isArray(observations) && observations.length === request.ref_updates.length
-    && request.ref_updates.every((update, index) => answersUpdate(observations[index], update, status)),
+    && request.ref_updates.every((update, index) => answersUpdate(observations[index], update, status, format)),
   'planning_ref_capability_missing', 'The helper observed something other than the refs it was asked about', { action });
   demand(status === 'committed' || answer.not_applied_reason === 'expected_old_mismatch', 'planning_ref_capability_missing',
     'The helper refused for a capability reason', { action, reason: answer.not_applied_reason });

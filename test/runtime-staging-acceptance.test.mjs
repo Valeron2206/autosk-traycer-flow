@@ -838,3 +838,76 @@ test("the request schema carries the record the user signs (review M2)", () => {
   assert.deepEqual([...draftShape.required].sort(), AUTHORIZATION_SCHEMA.required.filter((field) => !field.startsWith("user_decision_record_")).sort());
   assert.equal(draftShape.additionalProperties, false);
 });
+
+// --- debt 11d: one object format ----------------------------------------------
+
+/** The same Epic in a SHA-256 repository: every OID the staging state names is 64 hex. */
+const sha256State = (overrides = {}) => state({
+  recorded_target_base: hex("a"),
+  planning_head: hex("a"),
+  receipts: [{ ticket_id: "T01", applied_commit_oid: hex("d") }, { ticket_id: "T02", applied_commit_oid: hex("e") }],
+  staging_commit_oid: hex("b"),
+  staging_tree_oid: hex("c"),
+  post_cas: { expected_new_oid: hex("b") },
+  ...overrides,
+});
+
+test("a SHA-256 repository's Epic reaches a schema-valid authorization, acceptance and CAS (R7-8)", () => {
+  // Round 7 of #39, R7-8: the IA schema admitted only 40-hex OIDs while the
+  // staging record, this module and deliveryCompleted took 64 as well, so a
+  // SHA-256 repository could never reach a schema-valid authorization (ADR-098).
+  const current = sha256State();
+  const record = draft(current);
+  assert.equal(record.initial_target_oid.length, 64);
+  const request = read("resources/human-decision/human-decision-request.schema.json");
+  // The presented draft carries the record's one-format rule, as it carries its fields.
+  assert.deepEqual(request.$defs.integrationAuthorizationDraft.allOf, AUTHORIZATION_SCHEMA.allOf);
+  const packet = openAcceptance(current, ask(current), { nowMs: NOW });
+  assert.deepEqual(validateJsonSchema(JSON.parse(JSON.stringify(packet.integration_authorization)),
+    request.properties.integration_authorization, request), []);
+  const result = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, verifySignature, ...delivery });
+  assert.equal(result.outcome, "accepted");
+  assert.deepEqual(validateJsonSchema(JSON.parse(JSON.stringify(result.authorization)), AUTHORIZATION_SCHEMA), []);
+  assert.deepEqual(acceptanceSchemaErrors(result.acceptance), []);
+  const cas = { ...delivery, authorization: result.authorization, nowMs: NOW };
+  const accepted = { ...current, acceptance: result.acceptance };
+  assert.deepEqual(acceptanceErrors(accepted, cas), []);
+  assert.equal(casAdmission(accepted, { oid: current.recorded_target_base }, ["T01", "T02"], cas).decision, "may_swap");
+  // The pinned auto-policy's record is the same record, in the same format.
+  const policy = pinned(current);
+  assert.deepEqual(validateJsonSchema(JSON.parse(JSON.stringify(policy.authorization)), AUTHORIZATION_SCHEMA), []);
+  assert.deepEqual(acceptanceSchemaErrors(autoPolicyAcceptance(current, policy, signed)), []);
+  // Under squash the commit that lands is a SHA-256 commit too.
+  const squash = { ...delivery, deliveryMode: "squash", targetCommit: { oid: hex("7"), recipe_sha256: hex("8") } };
+  assert.equal(draft(current, squash).ref_transition.to_oid, hex("7"));
+});
+
+test("a staging state whose OIDs are of two object formats is no identity, and nothing is composed for it (debt 11d)", () => {
+  // ADR-098: a repository has one object format. A base, staging commit or
+  // tree, applied commit or squash commit of the other format names objects no
+  // one repository holds together, so there is no identity to present, sign or
+  // accept — on the person's path or a pinned auto-policy's.
+  const squash = (commit) => ({ ...delivery, deliveryMode: "squash", targetCommit: { oid: commit, recipe_sha256: hex("8") } });
+  for (const [label, current, facts] of [
+    ["recorded base", state({ recorded_target_base: hex("a") }), delivery],
+    ["staging commit", state({ staging_commit_oid: hex("b") }), delivery],
+    ["staging tree", state({ staging_tree_oid: hex("c") }), delivery],
+    ["applied commit", state({ receipts: [{ ticket_id: "T01", applied_commit_oid: oid("d") }, { ticket_id: "T02", applied_commit_oid: hex("e") }] }), delivery],
+    ["squash commit", state(), squash(hex("7"))],
+    ["squash commit of a SHA-256 Epic", sha256State(), squash(oid("7"))],
+    ["applied commit of a SHA-256 Epic", sha256State({ receipts: [{ ticket_id: "T01", applied_commit_oid: hex("d") }, { ticket_id: "T02", applied_commit_oid: oid("e") }] }), delivery],
+    ["staging tree of a SHA-256 Epic", sha256State({ staging_tree_oid: oid("c") }), delivery],
+  ]) {
+    assert.throws(() => acceptanceFacts(current, facts), code("acceptance_missing"), label);
+    assert.throws(() => stagingIdentity(current, facts), code("acceptance_missing"), label);
+    assert.throws(() => draft(current, facts), code("acceptance_missing"), label);
+  }
+  // A receipt that names no applied commit is not a second format: the
+  // identity binds Tickets, and the record, which binds commits, refuses it.
+  const unapplied = state({ receipts: [{ ticket_id: "T01" }, { ticket_id: "T02", applied_commit_oid: oid("e") }] });
+  assert.equal(stagingIdentity(unapplied, delivery), stagingIdentity(state(), delivery));
+  assert.throws(() => draft(unapplied), code("acceptance_missing"));
+  // A pinned auto-policy is refused before its record is read.
+  const mixed = state({ staging_tree_oid: hex("c") });
+  assert.throws(() => autoPolicyAcceptance(mixed, pinned(state()), signed), code("acceptance_missing"));
+});

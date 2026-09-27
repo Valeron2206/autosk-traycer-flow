@@ -16,7 +16,7 @@
  *
  * Implements: docs/contracts/epic-planning-ref.md
  */
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 import { commitMessage } from './planning-publication.mjs';
 import { NO_REF_CUSTODY, askCustody } from './ref-custody.mjs';
@@ -57,11 +57,14 @@ export async function observeRef(git, { ref, expectedParent, expectedCommit, ref
   return Object.freeze({ ref: where, reflog, oid });
 }
 
-/** The reflog, newest first. Empty when the ref keeps none. */
+/**
+ * The reflog, newest first, in either object format (ADR-098). Empty when the
+ * ref keeps none.
+ */
 export async function reflogEntries(git, ref) {
   const result = await git(['reflog', 'show', '--format=%H', ref]);
   if (result.code !== 0) return immutable([]);
-  return immutable(result.stdout.split('\n').map((line) => line.trim()).filter((line) => line.length === 40));
+  return immutable(result.stdout.split('\n').map((line) => line.trim()).filter((line) => oidFormat(line) !== null));
 }
 
 /**
