@@ -1038,11 +1038,12 @@ function parseArgs(argv) {
     inventoryPath: INVENTORY_PATH,
     parityPath: PARITY_PATH,
     docPath: DOC_PATH,
+    graphPath: GRAPH_PATH,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--write-docs") result.writeDocs = true;
-    else if (["--matrix", "--inventory", "--parity", "--docs"].includes(arg)) {
+    else if (["--matrix", "--inventory", "--parity", "--docs", "--graph"].includes(arg)) {
       const value = argv[index + 1];
       if (!value) throw new Error(`${arg} requires a path`);
       index += 1;
@@ -1050,6 +1051,7 @@ function parseArgs(argv) {
       if (arg === "--inventory") result.inventoryPath = path.resolve(value);
       if (arg === "--parity") result.parityPath = path.resolve(value);
       if (arg === "--docs") result.docPath = path.resolve(value);
+      if (arg === "--graph") result.graphPath = path.resolve(value);
     } else throw new Error(`unknown argument: ${arg}`);
   }
   return result;
@@ -1057,7 +1059,7 @@ function parseArgs(argv) {
 
 function run(argv) {
   const args = parseArgs(argv);
-  for (const requiredPath of [args.matrixPath, args.inventoryPath, args.parityPath]) {
+  for (const requiredPath of [args.matrixPath, args.inventoryPath, args.parityPath, args.graphPath]) {
     if (!existsSync(requiredPath)) return fail([`missing required file: ${requiredPath}`]);
   }
   const matrix = parseJson(args.matrixPath);
@@ -1067,7 +1069,7 @@ function run(argv) {
   const documentation = existsSync(args.docPath) ? readFileSync(args.docPath, "utf8") : null;
   const readme = existsSync(README_PATH) ? readFileSync(README_PATH, "utf8") : null;
   const contracts = existsSync(CONTRACTS_DIR) ? readContracts() : [];
-  const graph = parseJson(GRAPH_PATH);
+  const graph = parseJson(args.graphPath);
   const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts, graph });
   if (documentation === null) errors.push(`missing documentation: ${args.docPath}`);
   if (errors.length) return fail(errors);

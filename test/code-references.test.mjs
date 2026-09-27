@@ -47,6 +47,30 @@ test("a comment, a prose code span, a quoted name and a longer identifier are no
   assert.equal(usesIdentifier("const url = 'https://example.test'; buildWorkflow(graph);", "buildWorkflow"), true);
 });
 
+test("comment and string delimiters count only where they are code (CodeRabbit on #268)", () => {
+  // A `//` or `/*` inside a string opens no comment, so the call after it is read.
+  for (const text of [
+    'const marker = "//"; buildWorkflow(graph);',
+    "const marker = '//'; buildWorkflow(graph);",
+    "const open = '/* not a comment'; buildWorkflow(graph); const close = '*/';",
+    "const s = 'it\\'s'; buildWorkflow(graph);",
+    "const re = /['\"]/u; buildWorkflow(graph);",
+    "function quote() { return /['\"]/u; } buildWorkflow(graph);",
+    "const ratio = a / b; buildWorkflow(graph); const half = c / 2;",
+    "const src = `https://example.test ${base}`; buildWorkflow(graph);",
+    "const src = `${buildWorkflow(document, { evaluate })}`;",
+  ]) {
+    assert.equal(usesIdentifier(text, "buildWorkflow"), true, text);
+  }
+  // The name inside an ordinary quoted string is prose, not a use.
+  for (const text of [
+    'const description = "Use buildWorkflow(graph) here";',
+    "const description = 'see buildWorkflow(graph) for the factory';",
+  ]) {
+    assert.equal(usesIdentifier(text, "buildWorkflow"), false, text);
+  }
+});
+
 test("every code extension is read, TypeScript included, and a named module is left out", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "code-references-"));
   const write = (relative, text) => {

@@ -1038,3 +1038,16 @@ test("ADR-091 names who now carries its signer, key pin and verifier, and gateAd
   assert.match(note, /`gateAdmission`/u);
   assert.match(note, /#18/u);
 });
+
+test("the CLI reads the graph it is given and names a missing one (CodeRabbit on #268)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const script = fileURLToPath(new URL("../scripts/validate-program-capability-matrix.mjs", import.meta.url));
+  const missing = "/nonexistent/workflow-graph.v1.json";
+  const refused = spawnSync(process.execPath, [script, "--graph", missing], { encoding: "utf8" });
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, new RegExp(`missing required file: ${missing}`, "u"));
+  const graph = fileURLToPath(new URL("../resources/workflow-graph/workflow-graph.v1.json", import.meta.url));
+  const accepted = spawnSync(process.execPath, [script, "--graph", graph], { encoding: "utf8" });
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
