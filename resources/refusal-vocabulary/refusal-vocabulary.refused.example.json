@@ -5,10 +5,10 @@
   ],
   "park_reasons": [
     {
-      "code": "planning_ref_init_invalid",
-      "named_at": ["init_planning_ref"],
+      "code": "acceptance_missing",
+      "named_at": ["accept_staging"],
       "named_at_classes": [],
-      "closed_by": "docs/contracts/epic-planning-ref.md",
+      "closed_by": "docs/contracts/epic-staging.md",
       "producer": "daemon",
       "producer_files": []
     },

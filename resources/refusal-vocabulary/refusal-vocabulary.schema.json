@@ -37,8 +37,8 @@
           "closed_by": { "type": "string", "pattern": "^([a-z0-9-]+\\.md|docs/contracts/[a-z0-9-]+\\.md)$" },
           "named_at": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
           "named_at_classes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
-          "producer": { "enum": ["host", "daemon"] },
-          "producer_files": { "type": "array", "items": { "type": "string", "pattern": "^(src|scripts)/" } }
+          "producer": { "enum": ["host", "daemon", "none"] },
+          "producer_files": { "type": "array", "items": { "type": "string", "pattern": "^src/" } }
         }
       }
     },

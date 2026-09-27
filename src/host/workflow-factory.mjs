@@ -724,9 +724,9 @@ function onSurface(row, park, name) {
  * The reason the document names for parking on a taken edge.
  *
  * It is the `park_reason` of the guards that admitted it. The plan writes the
- * pairing into the predicate descriptions themselves — `cond_002` ends "human с
- * park.reason=planning_ref_capability_missing" and `guard_002` carries exactly
- * that reason — and every one of the 221 edges into a human step is now guarded
+ * pairing into the predicate descriptions themselves — `cond_002` ends by naming
+ * the planning-ref capability park reason, and `guard_002` carries exactly that
+ * reason — and every one of the 221 edges into a human step is now guarded
  * by guards naming ONE reason, so the document answers.
  *
  * Nine of them named two or three. An edge is taken when all its guards hold,

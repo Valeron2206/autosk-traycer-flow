@@ -388,3 +388,53 @@ test("every refusal class the contract closes can be produced", () => {
     assert.ok(produced.has(refusal), `${refusal} is documented and never produced`);
   }
 });
+
+test("a script is not a producer: a host entry names only runtime files under src/", () => {
+  // Round 5 (R5-6): twelve entries named `scripts/validate-*.mjs` as their
+  // producer, so the producer check passed on a script that validates prose.
+  const unmeasured = { measured: new Set(), emitters: new Map() };
+  const sources = { "scripts/validate-probe.mjs": "codes: ['probe_code']", "src/host/a.mjs": "demand(ok, 'probe_code')" };
+  const base = { code: "probe_code", named_at: ["cleanup"], named_at_classes: [] };
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [{ ...base, producer: "host", producer_files: ["scripts/validate-probe.mjs"] }] }, sources, unmeasured)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [{ ...base, producer: "host", producer_files: ["src/host/a.mjs", "scripts/validate-probe.mjs"] }] }, sources, unmeasured)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
+  assert.deepEqual(producerErrors({ park_reasons: [{ ...base, producer: "host", producer_files: ["src/host/a.mjs"] }] }, sources, unmeasured), []);
+});
+
+test("a reason nothing produces yet is declared none, and none is contradicted by runtime code", () => {
+  const unmeasured = { measured: new Set(), emitters: new Map() };
+  const base = { code: "probe_code", named_at: ["cleanup"], named_at_classes: [] };
+  const none = { ...base, producer: "none", producer_files: [] };
+  // Only a design validator names it: that is not production, so none holds.
+  assert.deepEqual(producerErrors({ park_reasons: [none] }, { "scripts/validate-probe.mjs": "'probe_code'" }, unmeasured), []);
+  // Runtime code names it: then it is produced, and none is a false claim.
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [none] }, { "src/host/a.mjs": "'probe_code'" }, unmeasured)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
+  // A none entry that names files contradicts itself.
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [{ ...none, producer_files: ["src/host/a.mjs"] }] }, {}, unmeasured)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
+  // A measured class whose recorded emitters are all scripts is none, not host.
+  const byScript = { measured: new Set(["probe_code"]), emitters: new Map([["probe_code", new Set(["scripts/clean-room-faults.mjs"])]]) };
+  assert.deepEqual(producerErrors({ park_reasons: [none] }, {}, byScript), []);
+  assert.ok(
+    reasons(producerErrors({ park_reasons: [{ ...base, producer: "host", producer_files: ["scripts/clean-room-faults.mjs"] }] }, {}, byScript))
+      .includes("refusal_vocabulary_producer_misdeclared"),
+  );
+});
+
+test("the shipped vocabulary names no script as a producer", () => {
+  const offending = vocabulary().park_reasons.filter((entry) => entry.producer_files.some((file) => !file.startsWith("src/")));
+  assert.deepEqual(offending.map((entry) => entry.code), []);
+  const schema = JSON.parse(files[SCHEMA_PATH]);
+  const producer = schema.properties.park_reasons.items.properties.producer;
+  assert.deepEqual(producer.enum, ["host", "daemon", "none"]);
+});

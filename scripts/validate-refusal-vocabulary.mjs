@@ -237,25 +237,36 @@ export function readProducedEmitters() {
  */
 export function producerErrors(vocabulary, sources, produced) {
   const errors = [];
+  // A producer is runtime code. A script under scripts/ validates a document or
+  // drives a harness; a code it names or records is not a park the product can
+  // reach, so neither its text nor its emitter record counts as production.
+  const runtime = (file) => file.startsWith("src/");
   for (const entry of vocabulary.park_reasons) {
     // A whole-word match. A short code is a suffix of longer ones, and a file
     // that only ever writes the longer code does not produce the short one.
     const names = new RegExp(`\\b${entry.code}\\b`, "u");
-    const naming = Object.keys(sources).filter((file) => names.test(sources[file])).sort();
+    const naming = Object.keys(sources).filter((file) => runtime(file) && names.test(sources[file])).sort();
     const measured = produced.measured.has(entry.code);
-    const emitters = produced.emitters.get(entry.code);
-    if (measured && emitters === undefined) {
+    const recorded = produced.emitters.get(entry.code);
+    if (measured && recorded === undefined) {
       errors.push({
         reason: "refusal_vocabulary_producer_misdeclared",
         detail: `${entry.code}: a driven case measures it and records no emitter`,
       });
       continue;
     }
+    const emitters = recorded === undefined ? undefined : new Set([...recorded].filter(runtime));
+    for (const file of entry.producer_files.filter((name) => !runtime(name))) {
+      errors.push({
+        reason: "refusal_vocabulary_producer_misdeclared",
+        detail: `${entry.code}: ${file} is not runtime code, so it produces nothing`,
+      });
+    }
     if (entry.producer === "host") {
       if (entry.producer_files.length === 0) {
         errors.push({ reason: "refusal_vocabulary_producer_missing", detail: `${entry.code} claims a host producer and names none` });
       }
-      for (const file of entry.producer_files) {
+      for (const file of entry.producer_files.filter(runtime)) {
         if (emitters === undefined ? !naming.includes(file) : !emitters.has(file)) {
           errors.push({
             reason: emitters === undefined ? "refusal_vocabulary_producer_missing" : "refusal_vocabulary_producer_misdeclared",
@@ -274,14 +285,18 @@ export function producerErrors(vocabulary, sources, produced) {
         }
       }
     } else {
+      // `daemon`: parked by the pinned daemon. `none`: declared by the design and
+      // produced by nothing yet, an implementation obligation. Neither names
+      // files, and runtime code in this repository that produces the code
+      // contradicts both.
       if (entry.producer_files.length > 0) {
-        errors.push({ reason: "refusal_vocabulary_producer_misdeclared", detail: `${entry.code} is daemon-produced and names host files` });
+        errors.push({ reason: "refusal_vocabulary_producer_misdeclared", detail: `${entry.code} is ${entry.producer}-produced and names files` });
       }
       const producing = emitters === undefined ? naming : [...emitters].sort();
       if (producing.length > 0) {
         errors.push({
           reason: "refusal_vocabulary_producer_misdeclared",
-          detail: `${entry.code} is declared daemon-produced and ${producing[0]} produces it`,
+          detail: `${entry.code} is declared ${entry.producer} and ${producing[0]} produces it`,
         });
       }
     }
@@ -482,10 +497,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (errors.length > 0) process.exitCode = 1;
   else {
     const vocabulary = JSON.parse(files[VOCABULARY_PATH]);
-    const host = vocabulary.park_reasons.filter((entry) => entry.producer === "host").length;
+    const count = (producer) => vocabulary.park_reasons.filter((entry) => entry.producer === producer).length;
     const measured = vocabulary.park_reasons.filter((entry) => context.produced.measured.has(entry.code)).length;
     console.log("Refusal vocabulary validation PASS");
-    console.log(`park_reasons=${vocabulary.park_reasons.length} host=${host} daemon=${vocabulary.park_reasons.length - host}`);
+    console.log(`park_reasons=${vocabulary.park_reasons.length} host=${count("host")} daemon=${count("daemon")} none=${count("none")}`);
     console.log(
       `emission_checked=${measured} of ${vocabulary.park_reasons.length} park reasons — ` +
         `producer declarations reconciled with recorded emitters, not with execution ` +

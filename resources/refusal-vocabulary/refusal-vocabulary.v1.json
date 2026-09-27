@@ -405,10 +405,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/arena.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-arena.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "arena_fallback_required",
@@ -418,10 +416,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/arena.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-arena.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "arena_join_invalid",
@@ -441,10 +437,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/arena.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-arena.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "artifact_draft_provider_unavailable",
@@ -908,10 +902,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/integration-authorization.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-integration-authorization.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "integration_obstruction",
@@ -1003,10 +995,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/epic-planning-ref.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-planning-ref-design.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "planning_candidate_keepalive_invalid",
@@ -1025,8 +1015,6 @@
       "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
-        "scripts/clean-room-faults.mjs",
-        "scripts/validate-planning-ref-design.mjs",
         "src/host/planning-publication.mjs"
       ]
     },
@@ -1040,7 +1028,6 @@
       "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
-        "scripts/validate-planning-ref-design.mjs",
         "src/host/planning-driver.mjs",
         "src/host/planning-publication.mjs"
       ]
@@ -1055,10 +1042,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/epic-planning-ref.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-planning-ref-design.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "planning_ref_capability_missing",
@@ -1075,10 +1060,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/epic-planning-ref.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-planning-ref-design.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "planning_ref_foreign_movement",
@@ -1098,7 +1081,6 @@
       "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
-        "scripts/validate-planning-ref-design.mjs",
         "src/host/planning-publication.mjs"
       ]
     },
@@ -1109,10 +1091,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/epic-planning-ref.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/validate-planning-ref-design.mjs"
-      ]
+      "producer": "none",
+      "producer_files": []
     },
     {
       "code": "planning_signing_unavailable",
@@ -1123,7 +1103,6 @@
       "closed_by": "docs/contracts/epic-planning-ref.md",
       "producer": "host",
       "producer_files": [
-        "scripts/validate-planning-ref-design.mjs",
         "src/host/planning-publication.mjs"
       ]
     },
@@ -1193,10 +1172,8 @@
       ],
       "named_at_classes": [],
       "closed_by": "03-technical-plan.md",
-      "producer": "host",
-      "producer_files": [
-        "scripts/verify-autosk-cap.mjs"
-      ]
+      "producer": "daemon",
+      "producer_files": []
     },
     {
       "code": "review_join_invalid",
@@ -1419,5 +1396,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "cbbf78d07271e605e6ab7c60e58971e0358449c63f8277380499289cf0ff6ae5"
+  "vocabulary_digest": "2234bd7b35ab08284c4d3caaf935e3a7f78387c022872a6cbb426ca23acb8ba2"
 }
