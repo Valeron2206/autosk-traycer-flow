@@ -315,12 +315,16 @@
     },
     "answer": {
       "type": "object",
+      "description": "The answer as the daemon UserDecisionRecord that signed it (ADR-023): answered_by is the role the verifier gives the signing key and answered_at its issued_at; the answer names that record by id, digest and provenance digest. A name the answer gives itself is never an answer.",
       "additionalProperties": false,
       "required": [
         "option_id",
         "answered_by",
         "answered_at",
-        "identities"
+        "identities",
+        "user_decision_record_id",
+        "user_decision_record_hash",
+        "user_decision_provenance_hash"
       ],
       "properties": {
         "option_id": {
@@ -328,8 +332,10 @@
           "pattern": "^[a-z][a-z0-9_]*$"
         },
         "answered_by": {
-          "type": "string",
-          "minLength": 1
+          "enum": [
+            "owner",
+            "any_maintainer"
+          ]
         },
         "answered_at": {
           "type": "string",
@@ -359,6 +365,18 @@
               "pattern": "^[0-9a-f]{64}$"
             }
           }
+        },
+        "user_decision_record_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "user_decision_record_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "user_decision_provenance_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     }

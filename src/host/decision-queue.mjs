@@ -15,6 +15,8 @@ import { createHash } from 'node:crypto';
 
 import { demand, immutable } from '../runtime/contracts.mjs';
 
+import { decisionPayloadHash, verifiedUserDecision } from './user-decision.mjs';
+
 export const REQUEST_STATES = immutable(['pending', 'answered', 'voided', 'expired']);
 
 /** The identity fields an answer is bound to. A change in any of them means the
@@ -101,14 +103,28 @@ export function requestState(request, nowMs) {
  * first answer and `replayed` for an identical repeat. A duplicate answer is
  * idempotent: the same answer to the same request produces the same decision
  * record and no second side effect.
+ *
+ * An answer is a daemon UserDecisionRecord (ADR-023), never a name: who
+ * answered is the role `verifySignature` gives the key that signed it, and when
+ * is the record's `issued_at`. The record must answer this request, in this
+ * project, about this candidate, and must have signed exactly this answer.
+ * With no verifier handed in — the product today, since the pinned daemon
+ * reports no signer — every answer is refused.
  */
-export function answerRequest(request, response, { nowMs }) {
+export function answerRequest(request, response, { nowMs, verifySignature }) {
   const state = requestState(request, nowMs);
   demand(state !== 'voided', 'decision_request_voided', 'The request was voided',
     { request_id: request.request_id });
   demand(state !== 'expired', 'decision_expired', 'The request has expired',
     { request_id: request.request_id });
-  demand(response.answered_by === request.required_approver, 'decision_approver_mismatch',
+  // A name the answer gives itself is the authority model debt 10e removed:
+  // any process that knew the approver string could answer.
+  demand(response.answered_by === undefined, 'decision_approver_mismatch',
+    'An answer does not name its own approver; the daemon UserDecisionRecord does',
+    { request_id: request.request_id });
+  const signed = verifiedUserDecision(response.user_decision_record,
+    { code: 'decision_approver_mismatch', verifySignature });
+  demand(signed.role === request.required_approver, 'decision_approver_mismatch',
     'The answer is not from the required approver',
     { request_id: request.request_id, required: request.required_approver });
   const option = request.options.find((entry) => entry.option_id === response.option_id);
@@ -121,6 +137,22 @@ export function answerRequest(request, response, { nowMs }) {
       `The ${field} moved since the question was asked`,
       { request_id: request.request_id, field, asked: request.identities[field], answered: response.identities?.[field] });
   }
+  const record = response.user_decision_record;
+  demand(record.request_id === request.request_id
+    && `sha256:${record.project_root_sha256}` === request.project_identity,
+  'decision_identity_stale', 'The UserDecisionRecord answers another request or project',
+  { request_id: request.request_id, answered: record.request_id });
+  // Issued while the question stood: not after now, and not before the packet
+  // was created when it says when. Not after its expiry follows: an expired
+  // request was refused above, so now — and the record — is before it.
+  const issued = Date.parse(record.issued_at);
+  demand(issued <= nowMs && (request.created_at === undefined || issued >= Date.parse(request.created_at)),
+    'decision_identity_stale', 'The UserDecisionRecord was not issued while the question stood',
+    { request_id: request.request_id, issued_at: record.issued_at });
+  demand(record.anchor_version === request.identities.anchor_version
+    && record.subject_hash === request.identities.candidate,
+  'decision_identity_stale', 'The UserDecisionRecord was signed about another candidate',
+  { request_id: request.request_id });
   // Free text is normalised, and a normalisation that changes material scope is
   // confirmed: silently interpreting free text is how "sure, but only for the
   // docs" becomes an approval for everything.
@@ -129,17 +161,31 @@ export function answerRequest(request, response, { nowMs }) {
   'decision_packet_incomplete', 'A normalised free-text answer to an irreversible option needs confirmation',
   { request_id: request.request_id });
 
-  const answer = {
+  const payload = {
     option_id: response.option_id,
-    answered_by: response.answered_by,
-    answered_at: response.answered_at,
     identities: { ...response.identities },
-    ...(response.normalized_from ? { normalized_from: response.normalized_from } : {}),
+    ...(response.normalized_from !== undefined ? { normalized_from: response.normalized_from } : {}),
     ...(response.confirmed_material_scope !== undefined
       ? { confirmed_material_scope: response.confirmed_material_scope }
       : {}),
   };
+  demand(record.payload_hash === decisionPayloadHash(payload), 'decision_approver_mismatch',
+    'The UserDecisionRecord signed another answer', { request_id: request.request_id });
+  const answer = {
+    ...payload,
+    answered_by: signed.role,
+    answered_at: record.issued_at,
+    user_decision_record_id: signed.record_id,
+    user_decision_record_hash: signed.record_hash,
+    user_decision_provenance_hash: signed.provenance_hash,
+  };
   if (request.answer) {
+    // The same answer under another record is a second decision about a
+    // question already decided, not an answer naming an unknown option.
+    demand(request.answer.option_id !== answer.option_id
+      || request.answer.user_decision_record_id === answer.user_decision_record_id,
+    'decision_identity_stale', 'The request was already answered by another UserDecisionRecord',
+    { request_id: request.request_id });
     const same = digest(request.answer) === digest(answer);
     demand(same, 'decision_option_unknown', 'The request already carries a different answer',
       { request_id: request.request_id });
@@ -159,6 +205,9 @@ export function decisionRecord(request, answer) {
     answered_by: answer.answered_by,
     answered_at: answer.answered_at,
     identities: { ...answer.identities },
+    user_decision_record_id: answer.user_decision_record_id,
+    user_decision_record_hash: answer.user_decision_record_hash,
+    user_decision_provenance_hash: answer.user_decision_provenance_hash,
     resume_target: request.resume_target,
     decision_digest: digest({ request_id: request.request_id, answer }),
   });

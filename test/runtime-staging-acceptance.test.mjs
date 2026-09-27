@@ -18,17 +18,21 @@ import { acceptanceErrors, aggregateBinding, casAdmission } from "../src/host/ep
 import {
   REQUIRED_FACTS,
   acceptanceFacts,
+  authorizationPayloadHash,
   acceptanceFromDecision,
   acceptancePacket,
   autoPolicyAcceptance,
   openAcceptance,
   stagingIdentity,
 } from "../src/host/staging-acceptance.mjs";
+import { userDecisionRecordHash } from "../src/host/user-decision.mjs";
+import { testSigner } from "./support/user-decision-signer.mjs";
 
 const code = (name) => (error) => error.code === name;
 const read = (relative) => JSON.parse(readFileSync(new URL(`../${relative}`, import.meta.url), "utf8"));
 const STAGING_SCHEMA = read("resources/epic-staging/epic-staging.schema.json");
 const GRAPH = read("resources/workflow-graph/workflow-graph.v1.json");
+const AUTHORIZATION_SCHEMA = read("resources/integration-authorization/integration-authorization.schema.json");
 const acceptanceSchemaErrors = (acceptance) =>
   validateJsonSchema(JSON.parse(JSON.stringify(acceptance)), STAGING_SCHEMA.properties.acceptance, STAGING_SCHEMA);
 const NOW = Date.parse("2026-09-09T10:00:00Z");
@@ -36,7 +40,7 @@ const oid = (char) => char.repeat(40);
 
 function state(overrides = {}) {
   const base = {
-    project_identity: `sha256:${"0".repeat(58)}`,
+    project_identity: `sha256:${"0".repeat(64)}`,
     epic_id: "e-1",
     staging_ref: "refs/autosk/epics/a916c907fd14e54bfb1f3591a573675ccb1fdfeb49a8875c3c10c6bc00c5fb37/staging", // epicRefKey("0".repeat(64), "e-1")
     target_ref: "refs/heads/main",
@@ -77,13 +81,89 @@ const options = {
   ...delivery,
 };
 
-const answer = (current, overrides = {}) => ({
-  option_id: "accept",
-  answered_by: "owner",
-  answered_at: "2026-09-09T10:05:00Z",
-  identities: { anchor_version: 3, candidate: stagingIdentity(current, delivery) },
-  ...overrides,
+// Every answer is a daemon UserDecisionRecord, signed by a test key that the
+// injected verifier knows; the product has neither (ADR-023). The record
+// answers the request `options` opens, about the identity of `current`.
+const signer = testSigner();
+const { verifySignature } = signer;
+const answer = (current, overrides = {}, facts = delivery, by = signer) => by.respond(
+  {
+    request_id: options.requestId,
+    project_identity: current.project_identity,
+    identities: { anchor_version: 3, candidate: stagingIdentity(current, facts) },
+    options: [{ option_id: "accept" }],
+  },
+  { option_id: "accept", ...overrides },
+);
+
+const hex = (char) => char.repeat(64);
+
+/**
+ * The IntegrationAuthorizationRecord a pinned auto-policy was signed with, and
+ * the UserDecisionRecord that signed it (ADR-088, debt 10e). `auth` overrides
+ * fields before signing; `after` overrides them after, so the signature no
+ * longer covers them; `record` overrides the UserDecisionRecord's issue.
+ */
+function authorize(current, facts = delivery, { auth = {}, after = {}, record = {} } = {}) {
+  const accepted = acceptanceFacts(current, facts);
+  const base = {
+    schema_version: 1,
+    record_id: "iar-0001",
+    scope_id: `epic:${current.epic_id}`,
+    project_root_sha256: current.project_identity.replace(/^sha256:/u, ""),
+    epic_id: current.epic_id,
+    run_id: "run-0001",
+    target_ref: current.target_ref,
+    initial_target_oid: current.recorded_target_base,
+    ordered_ticket_commit_oids: [oid("d")],
+    ref_transition: {
+      from_oid: current.recorded_target_base,
+      to_oid: accepted.target_commit_oid ?? accepted.staging_commit_oid,
+    },
+    final_tree_oid: current.staging_tree_oid,
+    integration_plan_hash: hex("1"),
+    controlling_anchor_digest: hex("2"),
+    classifier_proof_hash: hex("3"),
+    relevant_authority_projection_hash: hex("4"),
+    dependency_head_hash: hex("5"),
+    intent_head_hash: hex("6"),
+    previous_authorization_head_hash: null,
+    expires_at: "2026-09-10T10:00:00Z",
+    terminal_disposition: "active",
+    issued_by: "user_decision_record",
+  };
+  // An override of `undefined` removes the field, as the schema's optional ones may be.
+  for (const [field, value] of Object.entries(auth)) {
+    if (value === undefined) delete base[field];
+    else base[field] = value;
+  }
+  const udr = signer.issue({
+    request_id: "authorize-policy-4",
+    project_root_sha256: base.project_root_sha256,
+    epic_id: current.epic_id,
+    anchor_version: 3,
+    subject_hash: stagingIdentity(current, facts),
+    payload_hash: authorizationPayloadHash(base),
+    ...record,
+  });
+  return {
+    authorization: {
+      ...base,
+      user_decision_record_id: udr.record_id,
+      user_decision_record_hash: userDecisionRecordHash(udr),
+      ...after,
+    },
+    user_decision_record: udr,
+  };
+}
+
+const pinned = (current, facts = delivery, extra = {}) => ({
+  policy_ref: "policy-4",
+  pinned_identity: stagingIdentity(current, facts),
+  ...authorize(current, facts),
+  ...extra,
 });
+const signed = { nowMs: NOW, verifySignature, anchorVersion: 3, ...delivery };
 
 test("the packet states every fact an approval has to be about", () => {
   const packet = acceptancePacket(state(), options);
@@ -126,7 +206,7 @@ test("every load-bearing field is in the identity, so a move makes the approval 
 test("an accepted identity becomes the record the swap is admitted against", () => {
   const current = state();
   const packet = openAcceptance(current, options, { nowMs: NOW });
-  const result = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, ...delivery });
+  const result = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, verifySignature, ...delivery });
   assert.equal(result.outcome, "accepted");
   assert.equal(result.acceptance.kind, "human");
   // The record names the decision it came from; the decision names who answered.
@@ -149,12 +229,12 @@ test("an answer that arrives after the tree moved is an answer to another questi
   // The queue refuses it, because the identity it was bound to is not the
   // identity now.
   assert.throws(
-    () => acceptanceFromDecision(moved, packet, answer(moved), { nowMs: NOW, ...delivery }),
+    () => acceptanceFromDecision(moved, packet, answer(moved), { nowMs: NOW, verifySignature, ...delivery }),
     code("decision_identity_stale"),
   );
   // And a replayed old answer cannot be applied to the new state either.
   assert.throws(
-    () => acceptanceFromDecision(moved, packet, answer(asked), { nowMs: NOW, ...delivery }),
+    () => acceptanceFromDecision(moved, packet, answer(asked), { nowMs: NOW, verifySignature, ...delivery }),
     code("acceptance_stale"),
   );
 });
@@ -162,7 +242,7 @@ test("an answer that arrives after the tree moved is an answer to another questi
 test("a refusal is a recorded outcome, and it produces no acceptance", () => {
   const current = state();
   const packet = openAcceptance(current, options, { nowMs: NOW });
-  const result = acceptanceFromDecision(current, packet, answer(current, { option_id: "refuse" }), { nowMs: NOW, ...delivery });
+  const result = acceptanceFromDecision(current, packet, answer(current, { option_id: "refuse" }), { nowMs: NOW, verifySignature, ...delivery });
   assert.equal(result.outcome, "refused");
   assert.equal(result.acceptance, undefined);
   assert.equal(result.decision.option_id, "refuse");
@@ -173,35 +253,41 @@ test("an answer from somebody else, or to an option nobody offered, is refused",
   const current = state();
   const packet = openAcceptance(current, options, { nowMs: NOW });
   assert.throws(
-    () => acceptanceFromDecision(current, packet, answer(current, { answered_by: "someone-else" }), { nowMs: NOW, ...delivery }),
+    () => acceptanceFromDecision(current, packet, answer(current, { answered_by: "owner" }), { nowMs: NOW, verifySignature, ...delivery }),
+    code("decision_approver_mismatch"),
+  );
+  // Somebody else is a key the verifier gives another role, not another name.
+  const maintainer = testSigner({ keyId: "test-key-2", role: "any_maintainer" });
+  assert.throws(
+    () => acceptanceFromDecision(current, packet, answer(current, {}, delivery, maintainer), { nowMs: NOW, verifySignature: maintainer.verifySignature, ...delivery }),
     code("decision_approver_mismatch"),
   );
   assert.throws(
-    () => acceptanceFromDecision(current, packet, answer(current, { option_id: "maybe" }), { nowMs: NOW, ...delivery }),
+    () => acceptanceFromDecision(current, packet, answer(current, { option_id: "maybe" }), { nowMs: NOW, verifySignature, ...delivery }),
     code("decision_option_unknown"),
   );
   assert.throws(
-    () => acceptanceFromDecision(current, packet, answer(current), { nowMs: Date.parse("2026-09-11T00:00:00Z"), ...delivery }),
+    () => acceptanceFromDecision(current, packet, answer(current), { nowMs: Date.parse("2026-09-11T00:00:00Z"), verifySignature, ...delivery }),
     code("decision_expired"),
   );
 });
 
 test("a pinned auto-policy is held to the same binding as a person", () => {
   const current = state();
-  const policy = { policy_ref: "policy-4", pinned_identity: stagingIdentity(current, delivery) };
-  const acceptance = autoPolicyAcceptance(current, policy, delivery);
+  const policy = pinned(current);
+  const acceptance = autoPolicyAcceptance(current, policy, signed);
   assert.equal(acceptance.kind, "pinned_auto_policy");
   assert.equal(acceptance.policy_ref, "policy-4");
   assert.deepEqual(acceptanceErrors({ ...current, acceptance }, delivery), []);
 
   // A policy that accepted an identity it never saw is not a policy, it is a
   // default.
-  assert.throws(() => autoPolicyAcceptance(state({ staging_tree_oid: oid("9") }), policy, delivery), code("acceptance_stale"));
-  assert.throws(() => autoPolicyAcceptance(current, { pinned_identity: policy.pinned_identity }, delivery), code("acceptance_missing"));
+  assert.throws(() => autoPolicyAcceptance(state({ staging_tree_oid: oid("9") }), policy, signed), code("acceptance_stale"));
+  assert.throws(() => autoPolicyAcceptance(current, { ...policy, policy_ref: undefined }, signed), code("acceptance_missing"));
   // An empty policy reference names no policy: the record would say a policy
   // accepted this and be unable to say which.
   assert.throws(
-    () => autoPolicyAcceptance(current, { ...policy, policy_ref: "" }, delivery),
+    () => autoPolicyAcceptance(current, { ...policy, policy_ref: "" }, signed),
     code("acceptance_missing"),
   );
 
@@ -216,16 +302,12 @@ test("a pinned auto-policy is held to the same binding as a person", () => {
 
 test("debt outside what the policy named is not something it agreed to", () => {
   const current = state();
-  const policy = {
-    policy_ref: "policy-4",
-    // The debt is part of the identity, so the policy is pinned to the identity
-    // with the debt it saw.
-    pinned_identity: stagingIdentity(current, { ...delivery, outstandingDebt: ["docs-todo"] }),
-    tolerated_debt: ["docs-todo"],
-  };
-  assert.ok(autoPolicyAcceptance(current, policy, { ...delivery, outstandingDebt: ["docs-todo"] }));
+  // The debt is part of the identity, so the policy is pinned to the identity
+  // with the debt it saw, and so is the authorization signed for it.
+  const policy = pinned(current, { ...delivery, outstandingDebt: ["docs-todo"] }, { tolerated_debt: ["docs-todo"] });
+  assert.ok(autoPolicyAcceptance(current, policy, { ...signed, outstandingDebt: ["docs-todo"] }));
   assert.throws(
-    () => autoPolicyAcceptance(current, policy, { ...delivery, outstandingDebt: ["docs-todo", "skipped-test"] }),
+    () => autoPolicyAcceptance(current, policy, { ...signed, outstandingDebt: ["docs-todo", "skipped-test"] }),
     code("acceptance_missing"),
   );
 });
@@ -251,7 +333,7 @@ test("an answer that is neither an acceptance nor a refusal produces neither", (
     options: [...packet.options, { option_id: "defer", consequence: "The decision is postponed for a week." }],
   };
   assert.throws(
-    () => acceptanceFromDecision(current, wider, answer(current, { option_id: "defer" }), { nowMs: NOW, ...delivery }),
+    () => acceptanceFromDecision(current, wider, answer(current, { option_id: "defer" }), { nowMs: NOW, verifySignature, ...delivery }),
     code("acceptance_missing"),
   );
 });
@@ -330,7 +412,7 @@ test("under squash the identity names the commit that lands, and nowhere else", 
   // The record carries it, and the schema accepts that record.
   const current = state();
   const packet = openAcceptance(current, { ...options, ...squash }, { nowMs: NOW });
-  const result = acceptanceFromDecision(current, packet, answer(current, { identities: { anchor_version: 3, candidate: stagingIdentity(current, squash) } }), { nowMs: NOW, ...squash });
+  const result = acceptanceFromDecision(current, packet, answer(current, {}, squash), { nowMs: NOW, verifySignature, ...squash });
   assert.equal(result.acceptance.delivery_mode, "squash");
   assert.equal(result.acceptance.target_commit_oid, oid("7"));
   assert.equal(result.acceptance.target_commit_recipe_sha256, "6".repeat(64));
@@ -342,15 +424,14 @@ test("the record an acceptance produces is the staging schema's acceptance", () 
   // ways. The record the code writes must be the one the schema admits.
   const current = state();
   const packet = openAcceptance(current, options, { nowMs: NOW });
-  const human = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, ...delivery }).acceptance;
+  const human = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, verifySignature, ...delivery }).acceptance;
   assert.deepEqual(acceptanceSchemaErrors(human), []);
   assert.equal(human.target_ref, current.target_ref);
   assert.equal(human.recorded_target_base, current.recorded_target_base);
   assert.equal(human.delivery_profile_digest, delivery.deliveryProfileDigest);
   assert.equal(human.delivery_mode, "merge");
   assert.deepEqual([...human.included_tickets], ["T01", "T02"]);
-  const policy = { policy_ref: "policy-4", pinned_identity: stagingIdentity(current, delivery) };
-  assert.deepEqual(acceptanceSchemaErrors(autoPolicyAcceptance(current, policy, delivery)), []);
+  assert.deepEqual(acceptanceSchemaErrors(autoPolicyAcceptance(current, pinned(current), signed)), []);
 });
 
 test("the packet parks with the graph's reason and resumes at a graph step", () => {
@@ -382,10 +463,106 @@ test("decision_id is the decision record's own identity, stable across a replaye
   // so the record's digest names it; the schema asks a non-empty string.
   const current = state();
   const packet = openAcceptance(current, options, { nowMs: NOW });
-  const first = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, ...delivery });
-  const replay = acceptanceFromDecision(current, first.request, answer(current), { nowMs: NOW, ...delivery });
+  const first = acceptanceFromDecision(current, packet, answer(current), { nowMs: NOW, verifySignature, ...delivery });
+  const replay = acceptanceFromDecision(current, first.request, answer(current), { nowMs: NOW, verifySignature, ...delivery });
   assert.equal(replay.effect, "replayed");
   assert.equal(replay.acceptance.decision_id, first.acceptance.decision_id);
   assert.match(first.acceptance.decision_id, /^[a-f0-9]{64}$/u);
   assert.deepEqual(validateJsonSchema(first.acceptance.decision_id, STAGING_SCHEMA.properties.acceptance.properties.decision_id), []);
+});
+
+test("a pinned auto-policy needs the signed IntegrationAuthorizationRecord (ADR-088, debt 10e)", () => {
+  // Before debt 10e the policy was checked against its own pinned identity
+  // only; IA §1 says the record is always required for the Epic CAS.
+  const current = state();
+  const policy = pinned(current);
+  assert.deepEqual(validateJsonSchema(JSON.parse(JSON.stringify(policy.authorization)), AUTHORIZATION_SCHEMA), []);
+  assert.equal(autoPolicyAcceptance(current, policy, signed).kind, "pinned_auto_policy");
+  const { authorization: _a, ...unsigned } = policy;
+  assert.throws(() => autoPolicyAcceptance(current, unsigned, signed), code("acceptance_missing"));
+  assert.throws(() => autoPolicyAcceptance(current, { ...policy, authorization: "iar-0001" }, signed), code("acceptance_missing"));
+  const { user_decision_record: _u, ...recordless } = policy;
+  assert.throws(() => autoPolicyAcceptance(current, recordless, signed), code("acceptance_missing"));
+});
+
+test("with no signer on the host, the authorization is refused rather than trusted (debt 10e)", () => {
+  const current = state();
+  const { verifySignature: _v, ...unverified } = signed;
+  assert.throws(() => autoPolicyAcceptance(current, pinned(current), unverified), code("acceptance_missing"));
+});
+
+test("the authorization is signed by the decision it names, over its own fields (debt 10e)", () => {
+  const current = state();
+  const policy = (options) => ({ ...pinned(current), ...authorize(current, delivery, options) });
+  // Issued by anything but a user decision, or naming none.
+  for (const after of [
+    { issued_by: "project_policy" },
+    { user_decision_record_id: undefined },
+    { user_decision_record_id: "" },
+    { user_decision_record_hash: undefined },
+    // Another record than the one presented.
+    { user_decision_record_id: "udr-9999" },
+    { user_decision_record_hash: hex("9") },
+    // A field changed after the user signed.
+    { run_id: "run-0002" },
+    { expires_at: "2026-09-12T10:00:00Z" },
+  ]) {
+    assert.throws(() => autoPolicyAcceptance(current, policy({ after }), signed), code("acceptance_missing"), JSON.stringify(after));
+  }
+  // Issued by a policy and signed as such: the signature is real, the issuer is not a user decision.
+  assert.throws(() => autoPolicyAcceptance(current, policy({ auth: { issued_by: "project_policy" } }), signed), code("acceptance_missing"));
+  // A record that does not say it was issued by a user decision is not taken
+  // for one (review L4; the schema leaves the field optional, the host does not).
+  const bare = policy({ auth: { issued_by: undefined } });
+  assert.equal(Object.hasOwn(bare.authorization, "issued_by"), false);
+  assert.throws(() => autoPolicyAcceptance(current, bare, signed), code("acceptance_missing"));
+  // Revoked after it was signed: the copy the host holds no longer carries the
+  // signature's bytes, so it is refused as unsigned. A revocation the host never
+  // sees is `integrateApproved`'s to enforce, by the authorization head (review M3).
+  assert.throws(() => autoPolicyAcceptance(current, policy({ after: { terminal_disposition: "revoked" } }), signed), code("acceptance_missing"));
+});
+
+test("the authorization is for this identity, this project, this Epic and this one transition (debt 10e)", () => {
+  const current = state();
+  const policy = (options) => ({ ...pinned(current), ...authorize(current, delivery, options) });
+  // The policy's own pin is still asked, beside the identity the user signed.
+  assert.throws(() => autoPolicyAcceptance(current, { ...pinned(current), pinned_identity: hex("9") }, signed), code("acceptance_stale"));
+  // The user signed another identity.
+  assert.throws(() => autoPolicyAcceptance(current, policy({ record: { subject_hash: hex("9") } }), signed), code("acceptance_stale"));
+  for (const auth of [
+    { project_root_sha256: hex("9") },
+    { epic_id: "e-2" },
+    { target_ref: "refs/heads/other" },
+    { initial_target_oid: oid("9") },
+    { ref_transition: { from_oid: oid("9"), to_oid: oid("b") } },
+    { ref_transition: { from_oid: oid("a"), to_oid: oid("9") } },
+    { ref_transition: null },
+    { final_tree_oid: oid("9") },
+    { terminal_disposition: "revoked" },
+    { expires_at: "2026-09-09T10:00:00Z" },
+  ]) {
+    assert.throws(() => autoPolicyAcceptance(current, policy({ auth }), signed), code("acceptance_stale"), JSON.stringify(auth));
+  }
+  // The decision is of this Epic, under the anchor version the acceptance is asked at (review L4).
+  assert.throws(() => autoPolicyAcceptance(current, policy({ record: { epic_id: "e-2" } }), signed), code("acceptance_stale"));
+  assert.throws(() => autoPolicyAcceptance(current, policy({ record: { epic_id: null } }), signed), code("acceptance_stale"));
+  assert.throws(() => autoPolicyAcceptance(current, policy({ record: { anchor_version: 4 } }), signed), code("acceptance_stale"));
+  assert.throws(() => autoPolicyAcceptance(current, pinned(current), { ...signed, anchorVersion: undefined }), code("acceptance_stale"));
+  // Signed as terminal: the user signed a record that authorizes nothing (review M3).
+  assert.throws(() => autoPolicyAcceptance(current, policy({ auth: { terminal_disposition: "replaced" } }), signed), code("acceptance_stale"));
+  // The decision is of this project too.
+  assert.throws(() => autoPolicyAcceptance(current, policy({ record: { project_root_sha256: hex("9") } }), signed), code("acceptance_stale"));
+  // Expiry is asked at the instant: a record valid until now is not valid now.
+  assert.doesNotThrow(() => autoPolicyAcceptance(current, policy({ auth: { expires_at: "2026-09-09T10:00:00.001Z" } }), signed));
+  assert.throws(() => autoPolicyAcceptance(current, pinned(current), { ...signed, nowMs: undefined }), code("acceptance_stale"));
+});
+
+test("under squash the authorized transition ends at the squash commit (debt 10e)", () => {
+  const current = state();
+  const squash = { ...delivery, deliveryMode: "squash", targetCommit: { oid: oid("7"), recipe_sha256: "6".repeat(64) } };
+  const policy = pinned(current, squash);
+  assert.equal(policy.authorization.ref_transition.to_oid, oid("7"));
+  assert.equal(autoPolicyAcceptance(current, policy, { ...signed, ...squash }).target_commit_oid, oid("7"));
+  const toStaging = { ...policy, ...authorize(current, squash, { auth: { ref_transition: { from_oid: oid("a"), to_oid: oid("b") } } }) };
+  assert.throws(() => autoPolicyAcceptance(current, toStaging, { ...signed, ...squash }), code("acceptance_stale"));
 });
