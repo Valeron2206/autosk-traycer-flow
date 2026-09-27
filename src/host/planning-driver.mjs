@@ -10,13 +10,16 @@
  * ref whose reflog cannot be read is `unknown` rather than assumed.
  *
  * The injected `git(args, { env, stdin } = {})` runs one command and returns
- * `{ code, stdout, stderr }`.
+ * `{ code, stdout, stderr }`. The planning ref is under `refs/autosk/**`, so it
+ * is not written here: the ref-custody helper advances it on the host's
+ * request (`custody`, ADR-095), and this file reads it back.
  *
  * Implements: docs/contracts/epic-planning-ref.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 
 import { commitMessage } from './planning-publication.mjs';
+import { NO_REF_CUSTODY, askCustody } from './ref-custody.mjs';
 import { readRef, reflogDepth } from './staging-driver.mjs';
 
 /** One git invocation. A command that could not run says nothing about the product. */
@@ -120,18 +123,25 @@ export async function rewriteExactObject(git, { recordedOid, bytes }) {
 }
 
 /**
- * Advances the planning ref by compare-and-swap.
+ * Asks the helper to advance the planning ref by compare-and-swap.
  *
- * `--create-reflog` because the state machine reads the reflog to tell this
- * operation's movement from somebody else's, and a ref outside `refs/heads`
- * keeps none by default.
+ * With no parent it is `init`, a create at an expected-absent ref. With one it
+ * is `advance_planning`, which verifies the live candidate keepalive and moves
+ * the planning ref in one helper transaction, so a keepalive that moved
+ * refuses the whole advance. The helper creates the reflog, because the state
+ * machine reads it to tell this operation's movement from somebody else's.
  */
-export async function advanceRef(git, { ref, expectedParent, commit }) {
+export async function advanceRef(git, { custody = NO_REF_CUSTODY, ref, expectedParent, commit, keepalive }) {
   const before = await reflogDepth(git, ref);
-  const result = await git(['update-ref', '--create-reflog', ref, commit, expectedParent ?? '']);
+  const answer = expectedParent === null || expectedParent === undefined
+    ? await askCustody(custody, 'init', [{ operation: 'update', ref, expected_old_oid: null, new_oid: commit }])
+    : await askCustody(custody, 'advance_planning', [
+      { operation: 'verify', ref: keepalive?.ref, expected_old_oid: keepalive?.oid, new_oid: keepalive?.oid },
+      { operation: 'update', ref, expected_old_oid: expectedParent, new_oid: commit },
+    ]);
   const held = await readRef(git, ref);
   return Object.freeze({
-    advanced: result.code === 0,
+    advanced: answer.status === 'committed',
     ref,
     expected_parent: expectedParent ?? null,
     commit,

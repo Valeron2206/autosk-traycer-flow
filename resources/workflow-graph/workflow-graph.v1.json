@@ -3511,6 +3511,17 @@
         "target"
       ],
       "description": "resume --to apply_staging под park.reason=completion_predicate_unmet: PR/entry не смержен, target сдвинулся, решение записано; старый receipt void, PR/entry закрыт до нового; recorded_target_base := новый target; staging пересоздан (cleanupStaging с expected=staging OID, createStaging на новой base): один planning replay commit под receipt, затем каждая approved delta заново с revalidation (не ложащиеся — delta_stale); PASS и acceptance void — apply_staging"
+    },
+    {
+      "id": "cond_459",
+      "reads": [
+        "authorization_invalid",
+        "not_applied",
+        "packed_refs_drift",
+        "reason",
+        "status"
+      ],
+      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no ref-custody helper answers the staging action — human с park.reason=planning_ref_capability_missing; staging ref не двигается, host не пишет его сам; target ref не читается и не меняется"
     }
   ],
   "steps": [
@@ -8492,6 +8503,14 @@
         "actor": "human"
       },
       "park_reason": "completion_predicate_unmet"
+    },
+    {
+      "id": "guard_584",
+      "predicate": "cond_459",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "planning_ref_capability_missing"
     }
   ],
   "transitions": [
@@ -13278,7 +13297,7 @@
       "id": "t_545",
       "from": "apply_staging",
       "to": "human",
-      "priority": 1,
+      "priority": 2,
       "guards": [
         "guard_549"
       ]
@@ -13287,7 +13306,7 @@
       "id": "t_546",
       "from": "apply_staging",
       "to": "human",
-      "priority": 2,
+      "priority": 3,
       "guards": [
         "guard_550"
       ]
@@ -13296,7 +13315,7 @@
       "id": "t_547",
       "from": "apply_staging",
       "to": "apply_staging",
-      "priority": 3,
+      "priority": 4,
       "guards": [
         "guard_551"
       ]
@@ -13305,7 +13324,7 @@
       "id": "t_548",
       "from": "apply_staging",
       "to": "aggregate_verify",
-      "priority": 4,
+      "priority": 5,
       "guards": [
         "guard_552"
       ]
@@ -13587,6 +13606,15 @@
       "priority": 3,
       "guards": [
         "guard_583"
+      ]
+    },
+    {
+      "id": "t_580",
+      "from": "apply_staging",
+      "to": "human",
+      "priority": 1,
+      "guards": [
+        "guard_584"
       ]
     }
   ],
@@ -14808,6 +14836,7 @@
     {
       "reason": "planning_ref_capability_missing",
       "parks_at": [
+        "apply_staging",
         "cleanup",
         "freeze_artifact",
         "init_planning_ref",
@@ -14819,6 +14848,7 @@
         "synthesize_panel"
       ],
       "resume_targets": [
+        "apply_staging",
         "cleanup",
         "freeze_artifact",
         "init_planning_ref",
@@ -14830,7 +14860,7 @@
         "synthesize_panel"
       ],
       "resume_scope": "origin",
-      "required_state": "Section 2 parks with this reason at cleanup, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: retain every candidate_keepalive; human с park.reason=planning_ref_capability_missing; model/ref/cleanup side effects absent; resume only the recorded helper-calling step"
+      "required_state": "Section 2 parks with this reason at apply_staging, cleanup, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: retain every candidate_keepalive; human с park.reason=planning_ref_capability_missing; model/ref/cleanup side effects absent; resume only the recorded helper-calling step"
     },
     {
       "reason": "planning_ref_foreign_movement",
@@ -15818,10 +15848,10 @@
           "covers": [
             "planning_ref_capability_missing"
           ],
-          "binds": "c5a9473bfbe896a3bc94e8952774cce7bf6c649b47a8526a61aa1e4fbc3be2db",
+          "binds": "a7fa3ac2c87722667cea7045188b8c220ff0a7a91e68f0e28b2d93f0855bee1e",
           "cells": [
             "planning_ref_capability_missing",
-            "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
+            "recorded helper-calling step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation, apply_staging or cleanup",
             "required object-format-neutral ref/reflog/helper or atomic PASS+prepared-operation capability passes pinned synthetic preflight; operation identity unchanged; resume only into the step the park stood at (origin)"
           ],
           "rule": {
@@ -17271,10 +17301,10 @@
           "covers": [
             "planning_ref_capability_missing"
           ],
-          "binds": "c5a9473bfbe896a3bc94e8952774cce7bf6c649b47a8526a61aa1e4fbc3be2db",
+          "binds": "a7fa3ac2c87722667cea7045188b8c220ff0a7a91e68f0e28b2d93f0855bee1e",
           "cells": [
             "planning_ref_capability_missing",
-            "recorded planning recovery step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation or cleanup",
+            "recorded helper-calling step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation, apply_staging or cleanup",
             "pinned required ref/reflog/helper or atomic PASS+prepared-operation capability passes synthetic preflight; identity unchanged; resume only into the step the park stood at (origin)"
           ],
           "rule": {
@@ -18214,7 +18244,7 @@
       ]
     }
   ],
-  "canonical_digest": "2c02c208f7b226ed45807780e8dcbe8f575d3692f15f1a30ce6fe29765febadb",
+  "canonical_digest": "79d512fa2a03a4e185960d14fe82551593c954dc2ba92397b3975a97f90be92f",
   "external_operations": [
     {
       "status": "cancel",

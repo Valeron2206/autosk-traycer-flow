@@ -56,6 +56,23 @@ The helper ships as three binaries beside the daemon — `bin/autosk`, `bin/auto
 - **rollback**: the previous helper and its digest remain available until retention ends, so a rollback is a pin change rather than a rebuild;
 - **the digest is checked before each launch and the launched binary is the one that was checked** — a SHA taken before `exec` does not close the replacement window on its own, which is stated here rather than claimed away. The narrowing is that the daemon holds the helper open for the life of the project (ADR-028), so the window exists once per project rather than once per operation.
 
+## 5a. The ref-custody service and its privileged install
+
+The helper of §5 runs as the installing user. The ref-custody helper of 02 §2 does not: `autosk-flow-ref-custody` (#5, `src/git/ref-custody-helper.ts`) is the only writer of every ref under `refs/autosk/**` — the Epic's planning, candidate, audit and staging refs (ADR-095) — and that guarantee holds only if it runs in a dedicated service account that the user's and the model's accounts are not. So it is an install record of its own, `install.ref_custody_service` in the matrix: a separately shipped executable, not one of §5's installing-user binaries, and not a fourth binary beside the daemon.
+
+The record fixes, and the schema holds as constants:
+
+- **who runs it**: a dedicated service account, never the installing user (`runs_as_installing_user=false`), registered with launchd on macOS or systemd on Linux; its project-scoped Unix socket accepts only the daemon capability and checks the peer with `getpeereid` or `SO_PEERCRED`;
+- **what the privileged install does**: an administrator creates the service account and registers the helper; makes the canonical project common Git directory the service-owned single object and ref database; gives every worktree a service-managed per-worktree Git directory behind a read-only gitfile and `commondir` link; makes every ancestor root- or helper-owned and records their identities; migrates protected packed refs to loose form and pins `gc.packRefs=false`; and records the bootstrap receipt the ref-custody policy digest binds. It is a one-time administrator step, not a setuid binary: §5's prohibitions stand;
+- **who may write the project's `.git` afterwards**: only `autosk-flow-ref-custody` and autoskd. The helper writes `refs/autosk/**` and its reflogs; autoskd mediates ordinary Git operations, target-ref moves included. The installing user's own account no longer writes the project's `.git` directly, and neither does a model's. This is a change to the user's repository, not a packaging detail, which is why README states it among the rules a user reads first;
+- **its identity**: pinned by the ref-custody policy digest (`docs/contracts/epic-planning-ref.md`), which carries the packaging signature and the generation-bound upgrade and rollback rules.
+
+Instead of §5's checks — installing-user ownership, the recorded binary digest bound into runtime identity, and the per-launch digest check — the helper is checked through the ref-custody policy: its packaging fields name the executable and its signature, the bootstrap receipt records the service account and the Git-directory topology, and every helper request carries the policy digest, so a helper that is not the pinned one refuses before any Git write. The policy schema has no closed field for the helper executable's digest and path yet; that field, and the check that reads it at launch, are open for #5 and #13.
+
+§5a does not cover the ADR-023 signer boundary: whether the signer runs in a separate account or a hardware enclave is declared and probed (ADR-090), and its install record is still open, owned by #4 and #34.
+
+#5 owns the helper, #13 the privileged install; `validate:platform-support` requires both to be `required_for_v1` records of the program matrix whose implementation obligation names `autosk-flow-ref-custody`. A project whose custody install is absent or not proven by the bootstrap parks `ref_custody_unavailable` at project open, before any trusted write; the host never falls back to writing a protected ref itself.
+
 ## 6. Unsupported environments park before the first side effect
 
 The check runs at project open, before any trusted write. It does not run after the first failure, because by then the side effect has happened and the park is a report rather than a prevention.
@@ -64,7 +81,7 @@ Parking names the platform, the filesystem, the missing guarantee, and what the 
 
 ## 7. Park reasons
 
-Closed set: `unsupported_platform`, `unsupported_filesystem`, `missing_guarantee`, `world_writable_install`, `helper_digest_mismatch`, `helper_not_executable`, `setuid_helper`, `unverified_claim`.
+Closed set: `unsupported_platform`, `unsupported_filesystem`, `missing_guarantee`, `world_writable_install`, `helper_digest_mismatch`, `helper_not_executable`, `setuid_helper`, `unverified_claim`, `ref_custody_unavailable`.
 
 ## 8. Required implementation tests
 
@@ -76,7 +93,8 @@ Closed set: `unsupported_platform`, `unsupported_filesystem`, `missing_guarantee
 - a setuid helper binary;
 - a helper whose digest does not match the recorded one;
 - an unsupported platform parking before any trusted write;
-- an upgrade producing a new identity, and a rollback restoring the old pin.
+- an upgrade producing a new identity, and a rollback restoring the old pin;
+- a project with no proven custody install parking `ref_custody_unavailable` before any trusted write, and a direct write to the project's `.git` from the installing user's account failing once the install ran.
 
 ## 9. Acceptance mapping
 
@@ -87,3 +105,4 @@ Closed set: `unsupported_platform`, `unsupported_filesystem`, `missing_guarantee
 | An impossible guarantee is not masked by a lexical prefix check | §3, ADR-028 |
 | Packaging, permissions, install, upgrade and rollback described | §5 |
 | An unsupported environment parks before the first side effect | §6 |
+| The separate-account ref-custody service and its privileged install are packaged, and who may write `.git` is stated | §5a, `install.ref_custody_service` |

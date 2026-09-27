@@ -1278,7 +1278,7 @@ test("snapshot commit and ref-custody protocol are deterministic and action-clos
   assert.match(contract, /lost response.*journal.*fsync.*nonce/isu);
 });
 
-test("ref-custody helper has six machine-validated action contracts and literal vectors", () => {
+test("ref-custody helper has nine machine-validated action contracts and literal vectors", () => {
   const directory = path.dirname(OPERATION_SCHEMA_PATH);
   const schema = JSON.parse(readFileSync(
     path.join(directory, "ref-custody-helper-contract.schema.json"),
@@ -1296,6 +1296,9 @@ test("ref-custody helper has six machine-validated action contracts and literal 
     "ensure_audit_ref",
     "delete_live_ref",
     "delete_expired_audit",
+    "create_staging",
+    "advance_staging",
+    "delete_staging",
   ]);
   const forged = structuredClone(example);
   forged.actions[4].golden.receipt_shape_sha256 = "0".repeat(64);
@@ -2020,4 +2023,312 @@ test("custody request IDs and nonces cannot be reused for different bodies", () 
   invalidation.actions[0].request.nonce = original.nonce;
   files[invalidationPath] = JSON.stringify(invalidation, null, 2) + "\n";
   assert.match(validatePlanningRefDesign(files).join("\n"), /request_id is reused|nonce is reused/u);
+});
+
+// --- debt 11a: the helper's protocol carries the staging ref (ADR-095) --------
+
+/**
+ * One value-bound staging exchange, built and signed the way the helper's wire
+ * contract says, under an Ed25519 key generated for the run.
+ *
+ * The planning goldens are signed by the daemon key the custody policy binds,
+ * and that private key is not in the repository; so the staging actions are
+ * proved here, by exchanges the validator must accept, and by the ways it must
+ * refuse them, rather than by a committed file signed under a key no policy
+ * binds.
+ */
+async function stagingWire(actions) {
+  const { generateKeyPairSync, sign } = await import("node:crypto");
+  const { epicRefKey } = await import("../src/host/staging-driver.mjs");
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicDer = publicKey.export({ format: "der", type: "spki" });
+  const keySha = sha256(publicDer);
+  const producer = JSON.parse(readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"), "utf8"))
+    .actions[0].request.reflog_producer;
+  const project = "a".repeat(64);
+  const epicId = "22222222-2222-4222-8222-222222222222";
+  const key = epicRefKey(project, epicId);
+  const ref = `refs/autosk/epics/${key}/staging`;
+  const exchanges = actions.map((spec, index) => {
+    const operationId = `0000001${index}-3333-4333-8333-00000000001${index}`;
+    const update = { operation: spec.operation, ref: spec.ref ?? ref, expected_old_oid: spec.old, new_oid: spec.new };
+    const before = spec.before ?? [];
+    const prefix = Buffer.from(before.join(""), "utf8");
+    const checkpoint = {
+      ref: update.ref,
+      before_entry_count: before.length,
+      before_prefix_base64: prefix.toString("base64"),
+      before_prefix_sha256: reflogPrefixDigest(before.length, prefix),
+    };
+    const body = {
+      schema: 1,
+      request_id: `0000002${index}-4444-4444-8444-00000000002${index}`,
+      action: spec.action,
+      project_root_sha256: project,
+      epic_id: epicId,
+      epic_ref_key: spec.epicRefKey ?? key,
+      operation_id: operationId,
+      candidate_identity: spec.candidate ?? null,
+      custody_generation: 1,
+      policy_digest: "b".repeat(64),
+      object_format: "sha1",
+      transfer_mode: null,
+      nonce: sha256(`nonce-${index}`),
+      packed_refs_sha256: "3".repeat(64),
+      expected_update_message: spec.message ?? `autosk-flow staging ${operationId}`,
+      reflog_producer: producer,
+      reflog_checkpoints: [checkpoint],
+      ref_updates: [update],
+    };
+    const bodySha = sha256("autosk-flow/ref-custody/request-body/v1\0" + canonicalStringify(body));
+    const signature = sign(null, Buffer.from(`autosk-flow/ref-custody-authorization/v1\0${bodySha}\0${body.nonce}`, "utf8"), privateKey);
+    const request = {
+      ...body,
+      body_sha256: bodySha,
+      authorization: {
+        scheme: "ed25519",
+        key_id: keySha,
+        public_key_sha256: keySha,
+        request_body_sha256: bodySha,
+        nonce: body.nonce,
+        signature_base64: signature.toString("base64"),
+      },
+    };
+    const zero = "0".repeat(40);
+    const deleted = update.operation === "delete";
+    const refused = spec.notApplied === true;
+    const entry = Buffer.from(`${update.expected_old_oid ?? zero} ${deleted ? zero : update.new_oid} autosk-flow <autosk@example.invalid> 0 +0000\t${body.expected_update_message}\n`, "utf8");
+    const held = spec.held ?? null;
+    const refObservations = [{
+      operation: update.operation,
+      ref: update.ref,
+      expected_old_oid: update.expected_old_oid,
+      requested_new_oid: update.new_oid,
+      observed_old_oid: refused ? held : update.expected_old_oid,
+      observed_new_oid: refused ? held : deleted ? null : update.new_oid,
+    }];
+    const reflogObservations = [refused ? {
+      ref: update.ref,
+      outcome: "unchanged",
+      before_entry_count: before.length,
+      after_entry_count: before.length,
+      before_prefix_base64: checkpoint.before_prefix_base64,
+      before_prefix_sha256: checkpoint.before_prefix_sha256,
+      raw_appended_entries_base64: [],
+      appended_entry_sha256: [],
+    } : {
+      ref: update.ref,
+      outcome: deleted ? "log_removed" : "appended",
+      before_entry_count: before.length,
+      after_entry_count: deleted ? null : before.length + 1,
+      before_prefix_base64: checkpoint.before_prefix_base64,
+      before_prefix_sha256: checkpoint.before_prefix_sha256,
+      raw_appended_entries_base64: deleted ? [] : [entry.toString("base64")],
+      appended_entry_sha256: deleted ? [] : [sha256(entry)],
+    }];
+    const status = refused ? "not_applied" : "committed";
+    const reason = refused ? "expected_old_mismatch" : null;
+    const observationSha = sha256(`autosk-flow/ref-custody/${spec.action}/value-observation/v1\0` + canonicalStringify({
+      action: spec.action, request_id: body.request_id, status, not_applied_reason: reason,
+      request_body_sha256: bodySha, custody_generation: 1, policy_digest: body.policy_digest, nonce: body.nonce,
+      ref_observations: refObservations, reflog_observations: reflogObservations,
+    }));
+    const response = {
+      schema: 1,
+      request_id: body.request_id,
+      action: spec.action,
+      status,
+      not_applied_reason: reason,
+      request_body_sha256: bodySha,
+      custody_generation: 1,
+      policy_digest: body.policy_digest,
+      nonce: body.nonce,
+      ref_observations: refObservations,
+      reflog_observations: reflogObservations,
+      transaction_value_observation_sha256: observationSha,
+      receipt_hash: sha256(`autosk-flow/ref-custody/${spec.action}/value-receipt/v1\0` + canonicalStringify({
+        action: spec.action, request_id: body.request_id, request_body_sha256: bodySha, status,
+        not_applied_reason: reason, transaction_value_observation_sha256: observationSha,
+      })),
+    };
+    const journal = {
+      schema: 1,
+      request_id: body.request_id,
+      action: spec.action,
+      phase: refused ? "not_applied" : "receipt_committed",
+      request_body_sha256: bodySha,
+      request,
+      response,
+      fsync_order: refused ? ["request", "receipt"] : ["request", "refs", "receipt"],
+      request_fsync_sha256: sha256("autosk-flow/ref-custody/journal-request/v1\0" + canonicalStringify(request)),
+      refs_commit_sha256: refused ? null : sha256("autosk-flow/ref-custody/journal-refs/v1\0" + canonicalStringify({
+        ref_observations: refObservations, reflog_observations: reflogObservations,
+      })),
+      receipt_fsync_sha256: sha256("autosk-flow/ref-custody/journal-receipt/v1\0" + canonicalStringify(response)),
+    };
+    journal.journal_hash = sha256("autosk-flow/ref-custody/journal/v1\0" + canonicalStringify(journal));
+    return { action: spec.action, request, response, journal };
+  });
+  return {
+    schema: 1,
+    composition: "independent_golden_exchanges",
+    public_key_spki_base64: publicDer.toString("base64"),
+    actions: exchanges,
+  };
+}
+
+const PLANNING_HEAD = "61e1521ed4985292de705c4a48dab789a5a52180";
+const DELTA_COMMIT = "c9d8335b60f56d9b7231dcf0aa86cb692827fe72";
+const STAGING_ROSTER = [
+  { action: "create_staging", operation: "update", old: null, new: PLANNING_HEAD },
+  { action: "advance_staging", operation: "update", old: PLANNING_HEAD, new: DELTA_COMMIT, before: [`${"0".repeat(40)} ${PLANNING_HEAD} autosk-flow <autosk@example.invalid> 0 +0000\tautosk-flow staging 00000010-3333-4333-8333-000000000010\n`] },
+  { action: "delete_staging", operation: "delete", old: DELTA_COMMIT, new: null, before: [`${"0".repeat(40)} ${PLANNING_HEAD} autosk-flow <autosk@example.invalid> 0 +0000\tautosk-flow staging 00000010-3333-4333-8333-000000000010\n`, `${PLANNING_HEAD} ${DELTA_COMMIT} autosk-flow <autosk@example.invalid> 0 +0000\tautosk-flow staging 00000011-3333-4333-8333-000000000011\n`] },
+];
+
+/** Only the staging tests sign under a key the policy does not bind, and they say so. */
+const UNBOUND = Object.freeze({ allowUnboundKey: true });
+
+function wireSchema() {
+  return JSON.parse(readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.schema.json"), "utf8"));
+}
+
+test("the helper's closed protocol creates, advances and deletes the Epic staging ref", async () => {
+  // Round 7 of #39, R7-1: the protocol had six actions and a grammar with no
+  // staging ref, so no permitted writer existed for staging. Now it has three
+  // more, each one expected-old update of refs/autosk/epics/<key>/staging.
+  const schema = wireSchema();
+  assert.deepEqual(schema.$defs.action.enum, [
+    "init", "create_keepalive", "advance_planning", "ensure_audit_ref", "delete_live_ref", "delete_expired_audit",
+    "create_staging", "advance_staging", "delete_staging",
+  ]);
+  const wire = await stagingWire(STAGING_ROSTER);
+  assert.deepEqual(validateRefCustodyHelperWireExamples(wire, schema, UNBOUND), []);
+  // A staging variant on its own is a variant, like the not-applied golden.
+  for (const spec of STAGING_ROSTER) {
+    assert.deepEqual(validateRefCustodyHelperWireExamples(await stagingWire([spec]), schema, UNBOUND), [], spec.action);
+  }
+});
+
+test("a staging exchange outside what its action does is refused", async () => {
+  const schema = wireSchema();
+  const [create, advance, remove] = STAGING_ROSTER;
+  const refused = [
+    [{ ...create, old: DELTA_COMMIT }, /staging value shape/u],
+    [{ ...create, operation: "delete", new: null, old: PLANNING_HEAD }, /ref update set/u],
+    [{ ...advance, old: null }, /staging value shape/u],
+    [{ ...advance, new: PLANNING_HEAD }, /staging value shape/u],
+    [{ ...remove, operation: "update", new: PLANNING_HEAD }, /ref update set/u],
+    [{ ...create, ref: `refs/autosk/epics/${"e".repeat(64)}/planning` }, /topology/u],
+    [{ ...create, ref: `refs/autosk/epics/${"e".repeat(64)}/staging` }, /topology/u],
+    [{ ...create, candidate: "6".repeat(64) }, /topology|Schema/u],
+    [{ ...create, message: "autosk-flow publish 00000010-3333-4333-8333-000000000010" }, /topology/u],
+  ];
+  for (const [spec, pattern] of refused) {
+    const errors = validateRefCustodyHelperWireExamples(await stagingWire([spec]), schema, UNBOUND);
+    assert.match(errors.join("\n"), pattern, JSON.stringify(spec));
+  }
+  // The grammar admits the staging ref and nothing more under the Epic key.
+  const refs = schema.$defs.protected_ref.pattern;
+  assert.equal(refs, schema.$defs.ref_update.properties.ref.pattern);
+  const grammar = new RegExp(refs, "u");
+  assert.ok(grammar.test(`refs/autosk/epics/${"e".repeat(64)}/staging`));
+  assert.ok(!grammar.test(`refs/autosk/epics/${"e".repeat(64)}/staging/x`));
+  assert.ok(!grammar.test("refs/autosk/epics/e-1/staging"));
+  // A staging action mixed into the planning roster is not the canonical roster.
+  const canonical = JSON.parse(readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.example.json"), "utf8"));
+  const mixed = structuredClone(canonical);
+  mixed.actions.push((await stagingWire([create])).actions[0]);
+  assert.match(validateRefCustodyHelperWireExamples(mixed, schema).join("\n"), /roster/u);
+});
+
+test("the durable intent schema admits the staging actions and the staging ref", () => {
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-intents.schema.json"), "utf8"));
+  const example = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-intents.example.json"), "utf8"));
+  const record = structuredClone(example.records[0]);
+  record.action = "create_staging";
+  record.pre_execution_observation[0].ref = record.pre_execution_observation[0].ref.replace(/planning$/u, "staging");
+  assert.deepEqual(validateJsonSchema({ schema: 1, records: [record] }, schema), []);
+  record.pre_execution_observation[0].ref = record.pre_execution_observation[0].ref.replace(/staging$/u, "stage");
+  assert.notDeepEqual(validateJsonSchema({ schema: 1, records: [record] }, schema), []);
+});
+
+test("the contract names the nine-action roster and the staging actions' refusals", () => {
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /The closed action roster is `init`, `create_keepalive`, `advance_planning`, `ensure_audit_ref`, `delete_live_ref`, `delete_expired_audit`, `create_staging`, `advance_staging`, `delete_staging`/u);
+  assert.match(contract, /`autosk-flow staging <operation_id>`/u);
+  assert.match(contract, /validate all nine action-discriminated ref-custody request\/response field sets/u);
+  const staging = fixture()["docs/contracts/epic-staging.md"] ?? readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "..", "..", "docs/contracts/epic-staging.md"), "utf8");
+  assert.match(staging, /`create_staging`[^\n]*`cas_conflict`/u);
+  assert.match(staging, /`advance_staging`[^\n]*`foreign_ref_movement`/u);
+  assert.match(staging, /`delete_staging`[^\n]*`staging_moved_after_pass`/u);
+});
+
+// --- debt 11a review ----------------------------------------------------------
+
+test("a committed wire golden is signed by the key the custody policy binds (review M1)", async () => {
+  const { generateKeyPairSync, sign } = await import("node:crypto");
+  const directory = path.dirname(OPERATION_SCHEMA_PATH);
+  const schema = wireSchema();
+  const policy = JSON.parse(readFileSync(path.join(directory, "ref-custody-policy.example.json"), "utf8"));
+  for (const name of ["", ".not-applied", ".invalidation", ".existing-audit"]) {
+    const wire = JSON.parse(readFileSync(path.join(directory, `ref-custody-helper-wire${name}.example.json`), "utf8"));
+    assert.equal(sha256(Buffer.from(wire.public_key_spki_base64, "base64")), policy.daemon_authorization_public_key_sha256, name);
+    assert.deepEqual(validateRefCustodyHelperWireExamples(wire, schema), [], name);
+  }
+  // Re-signed under another key, every signature still verifies, and the
+  // golden is refused because no policy binds that key.
+  const canonical = JSON.parse(readFileSync(path.join(directory, "ref-custody-helper-wire.example.json"), "utf8"));
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const der = publicKey.export({ format: "der", type: "spki" });
+  const resigned = structuredClone(canonical);
+  resigned.public_key_spki_base64 = der.toString("base64");
+  for (const exchange of resigned.actions) {
+    const auth = exchange.request.authorization;
+    auth.key_id = sha256(der);
+    auth.public_key_sha256 = sha256(der);
+    auth.signature_base64 = sign(null, Buffer.from(`autosk-flow/ref-custody-authorization/v1\0${exchange.request.body_sha256}\0${exchange.request.nonce}`, "utf8"), privateKey).toString("base64");
+  }
+  const errors = validateRefCustodyHelperWireExamples(resigned, schema).join("\n");
+  assert.match(errors, /not the daemon key the custody policy binds/u);
+  assert.doesNotMatch(errors, /request body or authorization mismatch/u);
+  // The staging variant is refused without the test-only option, too.
+  const staging = await stagingWire(STAGING_ROSTER);
+  assert.match(validateRefCustodyHelperWireExamples(staging, schema).join("\n"), /not the daemon key the custody policy binds/u);
+  // And an explicit policy key other than the file's is honoured.
+  assert.deepEqual(validateRefCustodyHelperWireExamples(resigned, schema, { policyKeySha256: sha256(der) })
+    .filter((error) => !/journal/u.test(error)), []);
+});
+
+test("a staging refusal is a not-applied golden of its own, proving zero side effects (review L5)", async () => {
+  const schema = wireSchema();
+  const [, advance, remove] = STAGING_ROSTER;
+  const foreign = "f".repeat(40);
+  for (const spec of [{ ...advance, notApplied: true, held: foreign }, { ...remove, notApplied: true, held: foreign }]) {
+    assert.deepEqual(validateRefCustodyHelperWireExamples(await stagingWire([spec]), schema, UNBOUND), [], spec.action);
+  }
+  // Refused, yet moved: not a not-applied golden.
+  const moved = await stagingWire([{ ...advance, notApplied: true, held: foreign }]);
+  moved.actions[0].response.ref_observations[0].observed_new_oid = DELTA_COMMIT;
+  assert.match(validateRefCustodyHelperWireExamples(moved, schema, UNBOUND).join("\n"), /zero ref and reflog side effects/u);
+  // The planning not-applied golden is still limited to advance_planning.
+  const canonical = JSON.parse(readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "ref-custody-helper-wire.not-applied.example.json"), "utf8"));
+  assert.deepEqual(validateRefCustodyHelperWireExamples(canonical, schema), []);
+});
+
+test("an advance to the commit the staging ref already holds is not an advance (review L3 on the wire)", async () => {
+  const schema = wireSchema();
+  const [, advance] = STAGING_ROSTER;
+  const errors = validateRefCustodyHelperWireExamples(await stagingWire([{ ...advance, new: PLANNING_HEAD }]), schema, UNBOUND);
+  assert.match(errors.join("\n"), /staging value shape/u);
+});
+
+test("the contract states why a malformed host request refuses as cas_conflict (review L2)", () => {
+  const staging = readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "..", "..", "docs/contracts/epic-staging.md"), "utf8");
+  assert.match(staging, /A request the host cannot form[^\n]*`cas_conflict`/u);
+  const contract = fixture()["docs/contracts/epic-planning-ref.md"];
+  assert.match(contract, /A request the host cannot form[^\n]*`cas_conflict`/u);
+  // L6: no stale sentence has the host advance a protected ref itself.
+  assert.doesNotMatch(contract, /host-owned operation that creates the approved commit, advances the private ref/u);
+  assert.match(contract, /single object and ref database for target, planning, candidate, audit and staging refs|object database for target, planning, candidate, audit and staging refs/u);
 });

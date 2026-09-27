@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "45719fa528cd588fc333ec73b1613bc0cbb5f0bd18b33e3ea6af6fe984d823e5"
+      "sha256": "e808ada0b612033baf3391a71d45481c96efecb304c457661f5e932ca52f6dac"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "a7edf97325c1c46587be55db61b731169eed031adbf61c2c5a9e804e06bb91f5"
+      "sha256": "a57bd3113f0264020ecb50aea7bf9f544fcecb1656f5d63eadfdd9560fe6b0ea"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "d1a42655a8082586bf2d95085711f2f0726f85e29edd01d8176a6bf1ec516ab2"
+      "sha256": "3ab69e36e56253cce000e5eb79b86e164fc07b428749eb9214d0b7c0007732e0"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "bd2d9fe239d88cb73880b4915d4d22d8ac0fa9395934bfecd837473de5479529"
+      "sha256": "6820243116f3d47d30716f5888dd3b5f0b7f65fba7a529ed6c48736c133c35e1"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "2b3c7f19bed0ae931c05c3cce8eeda85af0a468d60422b4b07a688ccb1a6f3ef"
+      "sha256": "68ac62db8eb99c4d539c4e7b8b7a669a6252ef6e056b6f4c96e12c87777b90af"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -92,11 +92,11 @@
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
-      "sha256": "d00bbb439eb792dae79528bc079a99549c573258edf0f186004421538a143a9c"
+      "sha256": "a8183e73a6bd08b208318abbd067f39f6748c9caaff04839b47cf21f812a45a4"
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "ee504297881a3ad5b132b444e1d527f6f78af58f9c93808e6fed3de81e5a7f76"
+      "sha256": "e715f6c514968fdbad3ce933133ac0539ca421a610f107a8e54f0952717cf62e"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -144,7 +144,7 @@
     },
     {
       "path": "docs/contracts/platform-support.md",
-      "sha256": "aaaaabc10a91a0a884a40487bec0f8b4ed81eba3fa3cd7005b6a5f2764fa4029"
+      "sha256": "507c1810a63283be25f92aaaa3200de5b4c4c9b53693e360d2b9ad475b9e62f0"
     },
     {
       "path": "docs/contracts/project-instructions-lock.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "988265df5e2bf4bc398f1b9628361662c1f3b185baecb1b232171fd12b00d986"
+      "sha256": "0e1fd347a8528da5864e649020dc1c954b509b31c3fd7904d2b6e059d6c11f05"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -184,7 +184,7 @@
     },
     {
       "path": "docs/contracts/tickets-manifest.md",
-      "sha256": "cc0e3be8a38fb9a88d91d468b6e12642aa4275150bb9fdf0374b5bfea13c70a1"
+      "sha256": "512d9bae2801db67962b083a4f2204cfe8948b6a7041168d070e6393db08a9e7"
     },
     {
       "path": "docs/contracts/verify-doc.md",
@@ -200,15 +200,15 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "53028ebf1f668e6ced2f4573e6c301a3aec82bdf69b6c4c75b0be854b88e9289"
+      "sha256": "46bee84e318a04b392d62ec6d008edcff590a68b3a7f1e8f1e412c73a38b150b"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "ea02024e98fe750a9ee845b16c536a48fd9e87be907a34ca0e1740a7e18ab823"
+      "sha256": "430657ff82e8d144d1c7a378a51af14c519f42aa90ae3cc173b7099d7870c293"
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "7bad810422aeac20fbbd55e172a0d8557aa165d92d6d3786099423a8acd307cd"
+      "sha256": "61515983309aac754998f96ac4840899f8ee374fac2212e10b955e05ec34dc9e"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -296,7 +296,7 @@
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.v1.json",
-      "sha256": "78d15d2248dcb150282df68662f144390c1e6176afa6b8ab7782b1a4a83e229f"
+      "sha256": "ba268db509ccfab0ec27ba82e952d896cb537020f37de1f21131d6bdcf8cd1ce"
     },
     {
       "path": "resources/clearance-manifest/clearance-manifest.blocked.example.json",
@@ -528,7 +528,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "85db4aa197e140afdab782a792ec4a8c0af8e33de9e4871d109548372c9fed09"
+      "sha256": "6d910faa329ba0292c12bd20f344e3fe5b315eecbb87fa764406be23bdc26027"
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
@@ -644,11 +644,11 @@
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-contract.example.json",
-      "sha256": "d828a8dfb97c3bfdf2451c98e03b28e3f10c2c863c2c395eb69cb3cefeb28f37"
+      "sha256": "c2622453fdf199b4d9d669cf9be5d52cc0c64371d6bd6fc4095350af5c0c57b9"
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-contract.schema.json",
-      "sha256": "0a5eeceba3beb7395bfe2f66be425d0dc6c3901380ae1be00242cd1580ca229e"
+      "sha256": "2369e965782be670deda8ce1be1508015d226c244d8b6af1f07cc55bb05ec4ea"
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-intents.example.json",
@@ -656,7 +656,7 @@
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-intents.schema.json",
-      "sha256": "7ac201d053795c486f947b14cd8d3b6c790a212794940b2529001d82a1ccbc7d"
+      "sha256": "e12a7267aa1d491f8ebdb0dd8da55878dec7f8551b17bd4f4b607f139adb9e90"
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-journal-crash.example.json",
@@ -684,7 +684,7 @@
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-wire.schema.json",
-      "sha256": "40bcb7de0de21b7b80d2a066a6c50c1052f07bf372a2b114d8c4dbdb20de874d"
+      "sha256": "aeeff7bd51cbc40e28f83da8f047c964bf86d63d568762fcfe419cfb772d4b61"
     },
     {
       "path": "resources/planning-publication/ref-custody-policy.example.json",
@@ -696,11 +696,11 @@
     },
     {
       "path": "resources/platform-support/platform-support.schema.json",
-      "sha256": "210f0e2d0e7e401b72cfa7eb6fa0b1ad0ab41ffedc8139f8a0394ecca7f1a0e7"
+      "sha256": "663c4552c79320657e4994a070f2696d438a08b515fc90219d24ffccfa302bdd"
     },
     {
       "path": "resources/platform-support/platform-support.v1.json",
-      "sha256": "92a568ff0ccf014d920675ce921b3e6edbc9a4eee40aa934f1ac6944067b8c52"
+      "sha256": "1cf3e5d9334e91c6167f54755d904c96f34aecdef6fe62432fbeacf0171ab0c0"
     },
     {
       "path": "resources/program-capabilities/issue-inventory.schema.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "ce216f11e7f87f26dca54172bb446c72c5fc9129552585373f9c3d768d2866f1"
+      "sha256": "5e47fbb7b8858ebf8d2ce9c65125275568b72c86cf2168f93be4ef2a1fccc149"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -768,7 +768,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "a7f9e57fd00b3b58a0ad3e0f1442195acbe536e288714be7b2731df1268fab67"
+      "sha256": "119ce32a817b49e54247ddb918915bad0c94a3cd8e9440024e79cfaa39971ee1"
     },
     {
       "path": "resources/requirement-revision/revision-record.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "c7f064c7bf7c718875e6773095d35fe1799d0381db1fbda21587d38e52b2f8ae"
+      "sha256": "187c831522b82e37a0029a65a0bf7f40e69496cb7f1d6ea653565aea90b01baf"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
+  "candidate_digest": "0226676f86a30445e0734c181053f41a5c52d6ade42bfef36279d43fbc83b5ae",
   "dispositions": [
     {
       "issue": 3,

@@ -22,6 +22,8 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 export const CONTRACT_PATH = "docs/contracts/platform-support.md";
 export const SCHEMA_PATH = "resources/platform-support/platform-support.schema.json";
 export const MATRIX_PATH = "resources/platform-support/platform-support.v1.json";
+/** The program matrix, which must own the custody service this matrix installs. */
+export const PROGRAM_MATRIX_PATH = "resources/program-capabilities/matrix.v1.json";
 export const CONTRACT_MARKER = "<!-- platform-support-contract:v1 -->";
 
 /** The adapter's guarantees, as ADR-028 states them. */
@@ -50,11 +52,21 @@ export const PARK_REASONS = Object.freeze([
   "helper_not_executable",
   "setuid_helper",
   "unverified_claim",
+  "ref_custody_unavailable",
 ]);
+
+/**
+ * The separate-account ref-custody service (02 §2, ADR-095) and who owns it:
+ * #5 the helper, #13 the privileged install that gives it the project's Git
+ * directory. Both are `required_for_v1`, and each names the component in its
+ * implementation obligation, as ADR-092 holds the preflight's primitives.
+ */
+export const CUSTODY_COMPONENT = "autosk-flow-ref-custody";
+export const CUSTODY_OWNERS = Object.freeze([5, 13]);
 
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, MATRIX_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, MATRIX_PATH, PROGRAM_MATRIX_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -146,6 +158,44 @@ export function validateMatrix(matrix, schema) {
   if (!install.digest_bound_to_runtime_identity) {
     errors.push("the helper digest must be bound into runtime identity (#10)");
   }
+  // The custody service is a second account, not a fourth binary of the
+  // installing user: the schema fixes what it is, this says who owns it.
+  const service = install.ref_custody_service;
+  if (!service || typeof service !== "object") {
+    errors.push("install.ref_custody_service: the separate-account ref-custody service has no install record");
+  } else if (JSON.stringify(service.owner_issues) !== JSON.stringify(CUSTODY_OWNERS)) {
+    errors.push(`install.ref_custody_service.owner_issues must be ${JSON.stringify(CUSTODY_OWNERS)}: #5 owns the helper, #13 its privileged install`);
+  }
+  return errors;
+}
+
+/**
+ * The custody service's owners, held to the program matrix: each owner is a
+ * `required_for_v1` record whose implementation obligation names the component
+ * in backticks. An install record no v1 record owns is a sentence, not an
+ * obligation (round 7 of #39, R7-3 and R7-24).
+ */
+export function custodyServiceErrors(matrix, program) {
+  const service = matrix?.install?.ref_custody_service;
+  if (!service || typeof service !== "object") {
+    return ["install.ref_custody_service: the separate-account ref-custody service has no install record"];
+  }
+  const records = Array.isArray(program?.records) ? program.records : [];
+  if (records.length === 0) return [`${PROGRAM_MATRIX_PATH}: no records to hold the custody service to`];
+  const errors = [];
+  for (const issue of Array.isArray(service.owner_issues) ? service.owner_issues : []) {
+    const record = records.find((entry) => entry?.issue_number === issue);
+    if (!record) {
+      errors.push(`ref_custody_service owner #${issue} is not a record of the program matrix`);
+      continue;
+    }
+    if (record.lifecycle !== "required_for_v1") {
+      errors.push(`ref_custody_service owner #${issue} is ${record.lifecycle}, not required_for_v1`);
+    }
+    if (!String(record.implementation_obligation_before_mvp ?? "").includes(`\`${CUSTODY_COMPONENT}\``)) {
+      errors.push(`ref_custody_service owner #${issue} does not name \`${CUSTODY_COMPONENT}\` in its implementation obligation`);
+    }
+  }
   return errors;
 }
 
@@ -197,6 +247,14 @@ export function validatePlatformSupportDesign(files) {
     return [...errors, `${MATRIX_PATH}: not valid JSON: ${error.message}`];
   }
   errors.push(...validateMatrix(matrix, schema).map((message) => `${MATRIX_PATH}: ${message}`));
+
+  let program;
+  try {
+    program = JSON.parse(files[PROGRAM_MATRIX_PATH]);
+  } catch (error) {
+    return [...errors, `${PROGRAM_MATRIX_PATH}: not valid JSON: ${error.message}`];
+  }
+  errors.push(...custodyServiceErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
   return errors;
 }
 

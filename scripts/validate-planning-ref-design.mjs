@@ -309,6 +309,9 @@ const REQUIRED = Object.freeze({
     "\"action\": \"ensure_audit_ref\"",
     "\"action\": \"delete_live_ref\"",
     "\"action\": \"delete_expired_audit\"",
+    "\"action\": \"create_staging\"",
+    "\"action\": \"advance_staging\"",
+    "\"action\": \"delete_staging\"",
   ],
   "resources/planning-publication/ref-custody-helper-wire.schema.json": [
     "\"authorization\"",
@@ -1561,11 +1564,14 @@ export function validateRefCustodyHelperContract(contract, schema) {
     ensure_audit_ref: [],
     delete_live_ref: [],
     delete_expired_audit: [],
+    create_staging: [],
+    advance_staging: [],
+    delete_staging: [],
   };
   const actions = Array.isArray(contract?.actions) ? contract.actions : [];
   if (canonicalStringify(actions.map((item) => item.action)) !==
       canonicalStringify(Object.keys(actionExtras))) {
-    errors.push("ref-custody actions must contain the exact canonical six-action roster");
+    errors.push("ref-custody actions must contain the exact canonical nine-action roster");
   }
   for (const action of actions) {
     const requestRequired = [...new Set([
@@ -1604,7 +1610,26 @@ export function validateRefCustodyHelperContract(contract, schema) {
   return errors;
 }
 
-export function validateRefCustodyHelperWireExamples(wire, schema) {
+/**
+ * The daemon key the committed custody policy binds (`daemon_authorization_public_key_sha256`).
+ * Every committed wire golden is signed by it; a golden under any other key is
+ * one no deployed helper would accept.
+ */
+export function policyDaemonKeySha256() {
+  try {
+    return JSON.parse(readFileSync(path.join(ROOT, "resources/planning-publication/ref-custody-policy.example.json"), "utf8"))
+      .daemon_authorization_public_key_sha256;
+  } catch {
+    return null;
+  }
+}
+
+export function validateRefCustodyHelperWireExamples(wire, schema, {
+  policyKeySha256 = policyDaemonKeySha256(),
+  // Only the staging exchanges the tests sign under a key of their own may
+  // pass this, and only they do (ADR-095); no committed file is read with it.
+  allowUnboundKey = false,
+} = {}) {
   const errors = validateJsonSchema(wire, schema, schema, "ref_custody_helper_wire")
     .map((error) => "Schema: " + error);
   const expectedActions = [
@@ -1618,7 +1643,14 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     ensure_audit_ref: [["verify", "update"], ["verify", "verify"], ["verify", "verify", "update"], ["verify", "verify", "verify"]],
     delete_live_ref: [["verify", "delete"], ["verify", "verify", "delete"]],
     delete_expired_audit: [["delete"]],
+    create_staging: [["update"]],
+    advance_staging: [["update"]],
+    delete_staging: [["delete"]],
   };
+  // The Epic staging ref's three actions (ADR-095): each is one expected-old
+  // update of refs/autosk/epics/<epic_ref_key>/staging, with no candidate and
+  // no transfer mode. Their goldens are a variant of their own.
+  const stagingActions = ["create_staging", "advance_staging", "delete_staging"];
   const actions = Array.isArray(wire?.actions) ? wire.actions : [];
   const isolatedNotApplied = actions.length === 1 && actions[0]?.response?.status === "not_applied";
   const isolatedCreateVariant = actions.length === 1 && actions[0]?.action === "create_keepalive" &&
@@ -1627,12 +1659,14 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     actions.every((item) => ["ensure_audit_ref", "delete_live_ref"].includes(item?.action) &&
       item?.request?.ref_updates?.some((update) => update.operation === "verify" &&
         update.ref.includes("/audit/candidates/")));
-  if (!isolatedNotApplied && !isolatedCreateVariant && !isolatedExistingAuditVariant &&
+  const isolatedStagingVariant = actions.length >= 1 && actions.length <= 3 &&
+    actions.every((item) => stagingActions.includes(item?.action));
+  if (!isolatedNotApplied && !isolatedCreateVariant && !isolatedExistingAuditVariant && !isolatedStagingVariant &&
       canonicalStringify(actions.map((item) => item.action)) !== canonicalStringify(expectedActions)) {
-    errors.push("ref-custody wire must contain the exact canonical six-action roster");
+    errors.push("ref-custody wire must contain the exact canonical six-action roster or one variant");
   }
-  if (isolatedNotApplied && actions[0].action !== "advance_planning") {
-    errors.push("isolated not-applied golden must use advance_planning");
+  if (isolatedNotApplied && actions[0].action !== "advance_planning" && !stagingActions.includes(actions[0].action)) {
+    errors.push("isolated not-applied golden must use advance_planning or a staging action");
   }
   let publicKey;
   let publicKeySha256 = "";
@@ -1642,6 +1676,9 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     publicKeySha256 = sha256(publicDer);
   } catch {
     errors.push("ref-custody wire public key is invalid");
+  }
+  if (!allowUnboundKey && publicKeySha256 !== policyKeySha256) {
+    errors.push("ref-custody wire public key is not the daemon key the custody policy binds");
   }
   const nonces = new Set();
   const requestIds = new Set();
@@ -1687,6 +1724,7 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
     const expectedPlanningRef = `${expectedRoot}planning`;
     const expectedLiveRef = `${expectedRoot}candidates/${request?.candidate_identity}`;
     const expectedAuditRef = `${expectedRoot}audit/candidates/${request?.candidate_identity}`;
+    const expectedStagingRef = `${expectedRoot}staging`;
     const transferMode = request?.transfer_mode;
     const expectedRefTopologies = {
       init: [[['update', expectedPlanningRef]]],
@@ -1705,24 +1743,42 @@ export function validateRefCustodyHelperWireExamples(wire, schema) {
         ? [[["verify", expectedPlanningRef], ["verify", expectedAuditRef], ["delete", expectedLiveRef]]]
         : [[["verify", expectedAuditRef], ["delete", expectedLiveRef]]],
       delete_expired_audit: [[['delete', expectedAuditRef]]],
+      create_staging: [[['update', expectedStagingRef]]],
+      advance_staging: [[['update', expectedStagingRef]]],
+      delete_staging: [[['delete', expectedStagingRef]]],
     };
     const actualTopology = request?.ref_updates?.map((item) => [item.operation, item.ref]);
     const topologyValid = (expectedRefTopologies[action] ?? []).some((expected) =>
       canonicalStringify(actualTopology) === canonicalStringify(expected));
+    const staging = stagingActions.includes(action);
     const expectedMessagePrefix = action === "init" ? "autosk-flow init "
       : action === "advance_planning" ? "autosk-flow publish "
         : action === "delete_expired_audit" ? "autosk-flow housekeeping "
-          : "autosk-flow keepalive ";
+          : staging ? "autosk-flow staging "
+            : "autosk-flow keepalive ";
     if (request?.epic_ref_key !== expectedEpicKey ||
         request?.expected_update_message !== expectedMessagePrefix + request?.operation_id ||
         request?.ref_updates?.some((item) => !item.ref.startsWith(expectedRoot)) ||
-        (action === "init" ? request?.candidate_identity !== null : !request?.candidate_identity) ||
+        (action === "init" || staging ? request?.candidate_identity !== null : !request?.candidate_identity) ||
         !topologyValid ||
         request?.ref_updates?.some((item) => {
           const lengths = [item.expected_old_oid, item.new_oid].filter(Boolean).map((oid) => oid.length);
           return lengths.some((length) => length !== lengths[0]);
         })) {
       errors.push(`ref-custody ${action} Epic/action/message topology mismatch`);
+    }
+    // Create is at an expected-absent ref, advance moves a present ref to
+    // another commit, delete removes a present ref: the three are the one
+    // expected-old update each, never each other.
+    const [stagingUpdate] = request?.ref_updates ?? [];
+    const stagingShapes = {
+      create_staging: () => stagingUpdate?.expected_old_oid === null && stagingUpdate?.new_oid !== null,
+      advance_staging: () => stagingUpdate?.expected_old_oid !== null && stagingUpdate?.new_oid !== null &&
+        stagingUpdate?.expected_old_oid !== stagingUpdate?.new_oid,
+      delete_staging: () => stagingUpdate?.expected_old_oid !== null && stagingUpdate?.new_oid === null,
+    };
+    if (staging && (request?.transfer_mode !== null || !stagingShapes[action]())) {
+      errors.push(`ref-custody ${action} staging value shape mismatch`);
     }
     const oidLengths = new Set();
     const collectOid = (oid) => {
@@ -2702,6 +2758,8 @@ export function validatePlanningRefDesign(files) {
       errors.push(...validateCandidateClosurePackOperation(contract[2], contract[1]).map((error) => `${label}: ${error}`));
     }
     const custodyPolicy = supplementalContracts.find(([label]) => label === "ref custody policy")?.[2];
+    // Every committed wire golden is bound to the daemon key this policy pins.
+    const custodyKeyBinding = { policyKeySha256: custodyPolicy?.daemon_authorization_public_key_sha256 };
     const topologyHash = sha256("autosk-flow/ref-custody-policy-parent-topology/v1\0" + canonicalStringify(custodyPolicy.parent_topology));
     const probeHash = sha256("autosk-flow/ref-custody-policy-permission-probes/v1\0" + canonicalStringify(custodyPolicy.permission_probes));
     const packedPolicyHash = sha256("autosk-flow/ref-custody-policy-packed-refs/v1\0" + canonicalStringify(custodyPolicy.packed_refs_policy));
@@ -2960,16 +3018,16 @@ export function validatePlanningRefDesign(files) {
     )) {
       errors.push(`ref-custody helper Schema/example: ${error}`);
     }
-    for (const error of validateRefCustodyHelperWireExamples(custodyWireExample, custodyWireSchema)) {
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireExample, custodyWireSchema, custodyKeyBinding)) {
       errors.push(`ref-custody helper wire Schema/example: ${error}`);
     }
-    for (const error of validateRefCustodyHelperWireExamples(custodyWireNotAppliedExample, custodyWireSchema)) {
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireNotAppliedExample, custodyWireSchema, custodyKeyBinding)) {
       errors.push(`ref-custody helper not-applied Schema/example: ${error}`);
     }
-    for (const error of validateRefCustodyHelperWireExamples(custodyWireInvalidationExample, custodyWireSchema)) {
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireInvalidationExample, custodyWireSchema, custodyKeyBinding)) {
       errors.push(`ref-custody helper invalidation Schema/example: ${error}`);
     }
-    for (const error of validateRefCustodyHelperWireExamples(custodyWireExistingAuditExample, custodyWireSchema)) {
+    for (const error of validateRefCustodyHelperWireExamples(custodyWireExistingAuditExample, custodyWireSchema, custodyKeyBinding)) {
       errors.push(`ref-custody helper existing-audit Schema/example: ${error}`);
     }
     for (const error of validateRefCustodyJournalPrefixes(custodyJournalPrefixes, custodyWireExample, custodyWireSchema)) {

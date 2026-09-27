@@ -8,12 +8,19 @@
  *
  * Every git invocation is injected, so the same driver runs against a real
  * repository and against a fixture. Nothing here re-decides what #9 already
- * decided: the driver produces observations and performs writes, and the guards
- * say what they mean.
+ * decided: the driver produces observations and asks for writes, and the
+ * guards say what they mean.
+ *
+ * The staging ref is under `refs/autosk/**`, so this file does not write it:
+ * the separate-account ref-custody helper does, on the host's request through
+ * `askCustody` (ADR-095). `swapTarget` stays here as the target-CAS mechanics
+ * the daemon's `integrateApproved` adapter carries; no host code calls it.
  */
 import { createHash } from 'node:crypto';
 
 import { demand, immutable } from '../runtime/contracts.mjs';
+
+import { NO_REF_CUSTODY, askCustody } from './ref-custody.mjs';
 
 /**
  * The key an Epic's private refs are named by: the domain-separated SHA-256 of
@@ -44,9 +51,10 @@ export function stagingRef(key) {
 /**
  * Refuses any ref but an Epic's private staging ref.
  *
- * The host moves the staging ref and nothing else: the daemon's
- * `integrateApproved` is the only writer of an Epic's or a Quick run's target
- * ref (ADR-088). A host apply pointed at the user's branch would be a second
+ * An apply asks the helper to advance the staging ref and nothing else: the
+ * daemon's `integrateApproved` is the only writer of an Epic's or a Quick run's
+ * target ref (ADR-088), and the helper the only writer under `refs/autosk/**`
+ * (ADR-095). An apply pointed at the user's branch would ask for a second
  * writer of it, and one that holds no authorization.
  */
 export function assertStagingRef(ref) {
@@ -90,20 +98,17 @@ export async function reflogDepth(git, ref) {
  * a re-stage, the new `recorded_target_base`, whose first commit is one
  * receipted planning replay commit) (ADR-088).
  *
- * `update-ref` with an old value of the empty string means *must not exist*, so
- * two Epics racing to create the same staging ref is a conflict git reports
- * rather than a window this code has to reason about.
+ * The helper's `create_staging` is an update at an expected-absent ref, so two
+ * Epics racing to create the same staging ref is a conflict the helper reports
+ * rather than a window this code has to reason about. The helper creates the
+ * ref's reflog, because the post-CAS check asks the ref whether it moved once.
  */
-export async function createStaging(git, { epicRefKey: key, base }) {
+export async function createStaging(custody = NO_REF_CUSTODY, { epicRefKey: key, base }) {
   const ref = stagingRef(key);
-  // `--create-reflog` because git keeps reflogs only for refs under
-  // `refs/heads`, `refs/remotes`, `refs/notes` and HEAD. A staging ref with no
-  // reflog cannot answer the one question the post-CAS check asks it — whether
-  // the ref moved once — and asking the operator to set
-  // `core.logAllRefUpdates` would change how their whole repository behaves.
-  const result = await git(['update-ref', '--create-reflog', ref, base, '']);
-  if (result.code === 0) return Object.freeze({ ref, oid: base, created: true });
-  const held = await readRef(git, ref);
+  const answer = await askCustody(custody, 'create_staging',
+    [{ operation: 'update', ref, expected_old_oid: null, new_oid: base }]);
+  if (answer.status === 'committed') return Object.freeze({ ref, oid: base, created: true });
+  const held = answer.ref_observations[0].observed_old_oid;
   if (held === base) {
     // The same ref at the same base is the operation already having happened,
     // which is what a retry after a crash looks like.
@@ -168,9 +173,10 @@ export async function observeTarget(git, { ref, recorded = [], recordedResult, r
  * `integrateApproved` is the only writer of an Epic's or a Quick run's target
  * ref, under the project mutex and an `IntegrationAuthorizationRecord`
  * (ADR-088); this is the verified CAS/reflog logic ADR-012 carries into the
- * autosk-owned adapter it calls. In the host, the one caller is `applyDelta`,
- * and it moves only the private staging ref — a test keeps that caller
- * inventory.
+ * autosk-owned adapter it calls. No host code calls it: the staging ref is the
+ * ref-custody helper's to move (ADR-095), and a test keeps both the empty
+ * caller inventory and this function as the one place under `src/` that runs
+ * `update-ref`.
  *
  * The compare-and-swap is git's, not this file's: `update-ref <ref> <new>
  * <old>` fails if the ref does not hold `<old>` at write time. Reading the ref
@@ -180,6 +186,10 @@ export async function observeTarget(git, { ref, recorded = [], recordedResult, r
  * The result is a record for `applySwap`, which decides what it means.
  */
 export async function swapTarget(git, { ref, expectedOld, newOid }) {
+  // A ref under refs/autosk/** has one writer, the ref-custody helper
+  // (ADR-095); these mechanics move a target ref and nothing under it.
+  demand(typeof ref === 'string' && !ref.startsWith('refs/autosk/'), 'cas_conflict',
+    'refs/autosk/** is the ref-custody helper\'s to write', { ref });
   const result = await git(['update-ref', '--create-reflog', ref, newOid, expectedOld]);
   if (result.code === 0) {
     return Object.freeze({ swapped: true, expected_old_oid: expectedOld, new_oid: newOid });
@@ -200,11 +210,14 @@ export async function swapTarget(git, { ref, expectedOld, newOid }) {
  *
  * Cleanup that deletes whatever is there would destroy the evidence in exactly
  * the case worth keeping: a staging ref that moved after the aggregate passed.
+ * The helper's `delete_staging` deletes by expected OID, and its refusal says
+ * what the ref holds instead.
  */
-export async function cleanupStaging(git, { epicRefKey: key, expectedOid }) {
+export async function cleanupStaging(custody = NO_REF_CUSTODY, { epicRefKey: key, expectedOid }) {
   const ref = stagingRef(key);
-  const result = await git(['update-ref', '-d', ref, expectedOid]);
-  if (result.code === 0) return Object.freeze({ ref, deleted: true });
-  const held = await readRef(git, ref);
+  const answer = await askCustody(custody, 'delete_staging',
+    [{ operation: 'delete', ref, expected_old_oid: expectedOid, new_oid: null }]);
+  if (answer.status === 'committed') return Object.freeze({ ref, deleted: true });
+  const held = answer.ref_observations[0].observed_old_oid;
   return Object.freeze({ ref, deleted: false, reason: 'staging_moved_after_pass', held });
 }

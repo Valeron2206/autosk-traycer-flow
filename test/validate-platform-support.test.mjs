@@ -219,3 +219,79 @@ test("the design digest changes when any shipped file changes", () => {
   const after = platformSupportDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
 });
+
+// --- debt 11a: the separate-account custody service is an install record (R7-3) --
+
+test("the ref-custody service runs in its own account and its privileged install is recorded", () => {
+  // Round 7 of #39, R7-3: 02 §2 and 03 §9 rest on a separate-account helper
+  // and a privileged install that no platform row or install record named, so
+  // an implementer following this contract would run the helper as the user.
+  const service = matrix().install.ref_custody_service;
+  assert.equal(service.component, "autosk-flow-ref-custody");
+  assert.equal(service.runs_as, "dedicated_service_account");
+  assert.equal(service.runs_as_installing_user, false);
+  assert.equal(service.protected_ref_writer, "autosk-flow-ref-custody");
+  assert.equal(service.user_account_git_writes, false);
+  assert.deepEqual(service.git_directory_writers, ["autosk-flow-ref-custody", "autoskd"]);
+  assert.deepEqual(service.owner_issues, [5, 13]);
+  assert.equal(service.privileged_install.requires_administrator, true);
+  assert.ok(service.privileged_install.effects.length > 0);
+  assertRejects(mutated((value) => { delete value.install.ref_custody_service; }), /ref_custody_service/u);
+  for (const [field, wrong] of [
+    ["runs_as_installing_user", true],
+    ["user_account_git_writes", true],
+    ["protected_ref_writer", "autoskd"],
+    ["runs_as", "installing_user"],
+  ]) {
+    assertRejects(mutated((value) => { value.install.ref_custody_service[field] = wrong; }), /ref_custody_service/u);
+  }
+  assertRejects(mutated((value) => { value.install.ref_custody_service.git_directory_writers = ["autosk-flow-ref-custody", "autoskd", "installing_user"]; }), /ref_custody_service/u);
+  assertRejects(mutated((value) => { value.install.ref_custody_service.owner_issues = [5]; }), /owner_issues/u);
+});
+
+test("the custody service's owners are v1 records whose obligations name it", async () => {
+  // The same two-way hold ADR-092 gives the preflight's primitives: an install
+  // record the program matrix does not own is a sentence, not an obligation.
+  const { custodyServiceErrors, PROGRAM_MATRIX_PATH } = await import("../scripts/validate-platform-support.mjs");
+  const program = () => JSON.parse(files[PROGRAM_MATRIX_PATH]);
+  assert.deepEqual(custodyServiceErrors(matrix(), program()), []);
+  for (const issue of [5, 13]) {
+    const record = program().records.find((entry) => entry.issue_number === issue);
+    assert.match(record.implementation_obligation_before_mvp, /`autosk-flow-ref-custody`/u, `#${issue}`);
+    const unnamed = program();
+    const owner = unnamed.records.find((entry) => entry.issue_number === issue);
+    owner.implementation_obligation_before_mvp = owner.implementation_obligation_before_mvp.replaceAll("`autosk-flow-ref-custody`", "the helper");
+    assert.match(custodyServiceErrors(matrix(), unnamed).join("\n"), new RegExp(`#${issue}`, "u"));
+    const later = program();
+    later.records.find((entry) => entry.issue_number === issue).lifecycle = "planned_after_v1";
+    assert.match(custodyServiceErrors(matrix(), later).join("\n"), new RegExp(`#${issue}.*required_for_v1`, "u"));
+  }
+  const missing = program();
+  missing.records = missing.records.filter((entry) => entry.issue_number !== 13);
+  assert.match(custodyServiceErrors(matrix(), missing).join("\n"), /#13/u);
+  // A shipped design with the program matrix is still one design.
+  assert.ok(Object.keys(files).includes(PROGRAM_MATRIX_PATH));
+  // Malformed input does not throw.
+  assert.notDeepEqual(custodyServiceErrors({}, program()), []);
+  assert.notDeepEqual(custodyServiceErrors(matrix(), {}), []);
+});
+
+test("the contract says who may write the project's .git once the custody install ran", () => {
+  const contract = files[CONTRACT_PATH];
+  assert.match(contract, /autosk-flow-ref-custody/u);
+  assert.match(contract, /dedicated service account/u);
+  assert.match(contract, /privileged install/u);
+  assert.match(contract, /installing user's own account no longer writes the project's `\.git`/u);
+  assert.match(contract, /ref_custody_unavailable/u);
+  assert.ok(PARK_REASONS.includes("ref_custody_unavailable"));
+});
+
+test("§5a says what the helper is instead of §5's binaries, and what it does not cover (review M4)", () => {
+  const contract = files[CONTRACT_PATH];
+  const section = contract.slice(contract.indexOf("## 5a."), contract.indexOf("## 6."));
+  assert.match(section, /a separately shipped executable, not one of §5's installing-user binaries/u);
+  assert.match(section, /Instead of §5's checks/u);
+  assert.match(section, /packaging/u);
+  assert.match(section, /open for #5 and #13/u);
+  assert.match(section, /ADR-023 signer boundary[^\n]*still open[^\n]*#4[^\n]*#34/u);
+});
