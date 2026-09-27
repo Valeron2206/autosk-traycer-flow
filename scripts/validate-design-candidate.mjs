@@ -119,6 +119,8 @@ export const PANEL_BY_ROUND = Object.freeze({
   // Round 6 sat the same cloud roster by the same decision; attempt 1 was
   // annulled because its processes reported the parent's session id.
   6: CLOUD_PANEL,
+  // Round 7 sat the same cloud roster by the same decision, in one attempt.
+  7: CLOUD_PANEL,
 });
 
 /**

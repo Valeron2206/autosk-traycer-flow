@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "round": 7,
+  "attempt": 1,
+  "candidate_digest": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
+  "frozen_commit": "d2dbc8aabc23778812957bedf2ddb46c754df383",
+  "frozen_tree": "da6c5eed9810575f740e9200ee31a2a56e324e0b",
+  "package_sha256": "d38af71d713a3bfbd1d7aaae78cc3329e12a39854332fa0f5bdf3cce53e5a70e",
+  "package_inputs": {
+    "clean-room.json": "6ce9fbe217595b5534585e94bb584192ce17b490643b168d5c0710057b24c12e",
+    "migration-seam.json": "9ee887b45eddcc3986cff58649b265791c2b82366dfe61b5f20f07e79fbb7ffb",
+    "mutation.json": "1666fd5c06457076dbf061c6b88094406f596b8b8fdb6dfb78956041a055a9af",
+    "produced.json": "371fb4bef62bf26f7a4bfb928aafcf8036d37155d86c7931a0acf1fa9838871e"
+  },
+  "runner": "Claude Code cloud session: four fresh `claude -p --model opus --effort medium` processes, one per seat, started together, each with its own `--session-id` and the parent's CLAUDE_CODE_SESSION_ID removed, tools Read, Grep and Glob on a worktree of the frozen commit. By the owner's decision of 2026-09-26 this is not the anchor-21 panel, and its verdicts are not attestation verdicts.",
+  "seats": [
+    {
+      "seat": "lead-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "6a2fc251-52be-4524-a678-cc8b197fcc82",
+      "lens_prompt_sha256": "b8a0a7dfaa0358823a23701ee5fad04d84950a6af84e23e65910eacc61e07a64",
+      "verdict": "fail",
+      "seat_echoed": "lead-lens",
+      "candidate_digest_echoed": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
+      "read": "The whole review package (sha256 d38af71d…e70e verified; frozen commit d2dbc8aa and tree da6c5eed verified). 01-core-flows.md §1–§9 read in full from the tree (hash matches the package). 02-architecture.md §2 and §7. 04-decisions.md ADR-087, ADR-088 and ADR-089 in full, plus the ADR-091 open-items line and risk 11. docs/cloud-agent-priming.md §1–§7 and the whole §8 round-6 triage and debt 10a–10h log. docs/contracts/epic-staging.md §1 (with greps elsewhere). docs/contracts/integration-authorization.md §1–§7. clean-room-e2e.md lines 83, 93 and 106. workflow-graph.v1.json by jq: top-level shape, caps, the recovery rows for review_cap, the staging/integration reasons and integration_authorization_required, transitions out of apply_staging, integrate_staging and accept and into integrate, their guards and predicates. src/host/workflow-factory.mjs lines 200–620. src/host/staging-lineage.mjs (crossEpicErrors). src/host/epic-staging.mjs (casAdmission, postCasErrors, aggregateBinding). src/host/staging-acceptance.mjs lines 170–290. src/host/aggregate-driver.mjs lines 110–142. staging-driver.mjs by grep. The ref-custody helper intents and wire schema ref patterns. The staging schema's aggregate object. The IA schema's OID patterns. The human-decision example resume targets. Three read-only helper agents checked field by field and reported: (a) staging ref naming, acceptance/IA/schema fields, the park-reason enum, the aggregate enums and the integration edges; (b) workflow preflight, the signer check, matrix preflight_primitives, bundle members, the digest formula and carrier keys; (c) all 238 file digests and the recomputed candidate digest (match), the contract, refusal-class and park-reason counts (match), the fault-matrix injection kinds (match), commit 091fcbef having the same tree, preflight callers, and the 49-patch manifest. I verified every finding I report against the files myself.",
+      "not_read": "03-technical-plan.md beyond grep hits (§2 rows around 339–376, §5 around 1387–1391, §7 around 1519–1520). 04-decisions.md ADR-001 to ADR-086 and ADR-090 to ADR-094 in full (only excerpts). Most of the 42 contracts beyond the sections named. The JSON Schemas other than those named. The design-candidate panel round records other than a grep of round-6.json. The compat/autosk patches. I ran nothing: node was not permitted here, so no npm test, validators, produce:refusals, mutation report, clean-room or migration-seam runs. The package's test, mutation, clean-room and seam figures are taken as reported and were not re-run.",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "02-architecture.md:63,65; docs/contracts/epic-planning-ref.md:183,601; resources/planning-publication/ref-custody-helper-intents.schema.json:13,44; resources/planning-publication/ref-custody-helper-wire.schema.json:138,1017 vs 02-architecture.md:87,429; docs/contracts/epic-staging.md:15,34; 01-core-flows.md:302; 04-decisions.md:1015 (ADR-088); src/host/staging-driver.mjs:104,183,206",
+          "what": "The staging ref's writer contradicts the custody boundary. 02 §2 makes the separate-account ref-custody helper the sole writer of refs/autosk/** and their reflogs, and says project and model accounts cannot invoke Git mutations. epic-planning-ref.md obligation 39 requires proof that direct writes to refs/autosk/** fail from extension, model and project accounts. ADR-087/088 put the staging ref at refs/autosk/epics/<epic_ref_key>/staging, and epic-staging §1 and 01 §7 call that prefix helper-owned. Yet the helper's closed protocol has no staging action: its actions are init, create_keepalive, advance_planning, ensure_audit_ref, delete_live_ref and delete_expired_audit, and its ref pattern admits only planning, candidates/<id> and audit/candidates/<id>. Meanwhile ADR-088, 02 §2/§7 and epic-staging §1 normatively give the host's applyDelta/swapTarget, createStaging and cleanupStaging the write, as a direct `git update-ref` create, CAS and delete. Either the host's staging writes must fail (apply_staging and every re-stage after target_moved, foreign_target_movement or completion_predicate_unmet cannot run), or the 'sole writer' guarantee is false. Round 6 did not raise this, and neither ADR-087/088 nor the package's not-claimed list names it."
+        },
+        {
+          "severity": "high",
+          "where": "docs/contracts/integration-authorization.md:9,11,43; 01-core-flows.md:298,380; docs/contracts/epic-staging.md:24,52; src/host/staging-acceptance.mjs:199 vs :239; resources/epic-staging/epic-staging.schema.json acceptance (no record reference); graph cond_441/cond_444",
+          "what": "On the default (human) path, the IntegrationAuthorizationRecord has no producer, no link and no defined signature. IA §1 and 01 §7 say the human's acceptance 'produces the record', and that the authority is a signed UserDecisionRecord without which a record 'authorizes nothing'. cond_441/cond_444 require integrate_staging to check the acceptance's authorization. But acceptanceFromDecision writes only {kind:'human', decision_id}. The acceptance schema has no field naming a record. No document says who mints the record on this path. And the human UDR's payload_hash signs the answer payload, whereas the auto-policy path requires record.payload_hash == authorizationPayloadHash(authorization). So on the human path the record's fields — expires_at, run_id, integration_plan_hash, the heads, ordered_ticket_commit_oids, previous_authorization_head_hash — are never under the user's signature. An integrateApproved that applies one rule would either refuse every human-path record or accept unsigned authorization fields on the one irreversible step."
+        },
+        {
+          "severity": "medium",
+          "where": "01-core-flows.md:397 (§9) and 04-decisions.md:1036 (ADR-089) vs 01-core-flows.md:294,361 (§6, §8 'Лимит review'); workflow-graph.v1.json caps (t_231, t_443) and the review_cap recovery row (resume_scope origin_edges → fix_artifact/fix); src/host/workflow-factory.mjs:268-293,347-350",
+          "what": "The review cap is called absolute ('Превысить 10 раундов — никто … ни одно решение не … расширяет'), but it only counts takings of narrow_review_join→fix_artifact and record_code_verdict→fix. The review_cap row resumes into fix_artifact or fix, after which an 11th, 12th and later review round runs and can PASS; only a NOT_PASS re-parks. 01 §8 also requires 'новый daemon-attributed cap decision' for that resume, which is exactly the extension §9 says no decision can grant. Each human resume buys one more round, so the stated invariant does not hold."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/epic-staging.md:32; 03-technical-plan.md:1391; 04-decisions.md:1139 (risk 11), 1034 (ADR-089); src/host/staging-lineage.mjs:61-105",
+          "what": "Serializing Epics per target is asserted with no state-machine mechanism. The docs say the second of two unintegrated Epics on one target 'waits until the first lands'. No step, blocker or park reason represents that wait. crossEpicErrors, the only detector, has no caller outside tests. It emits foreign_target_movement, which parks only at integrate_staging and resumes only by a human re-stage decision onto a moved target. And because a first stage must have recorded_target_base = planning.base_oid, two Epics planned from the same target head necessarily share a base, so crossEpicErrors flags them, although its own doc comment says they 'may run at once'. This is a liveness gap on the integration path with a local fix: a wait step or blocker plus a caller."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/clean-room-e2e.md:83,106 vs resources/clean-room-e2e/fault-matrix.v1.json and package §5 (covered_by_real_fault=20)",
+          "what": "The clean-room contract's coverage rule is contradicted by the run it governs. §7 counts a group as 'covered by a real fault only when the fault was detected and its control stayed silent', and the §10 mapping says 'covered by an injected fault'. The run counts all 20 groups as covered_by_real_fault, including F001–F003, which have no control, and 11 written_observation groups where no fault is injected. The package disclaims this, but the contract that will define the release gate does not, so a future gate would pass on written observations."
+        },
+        {
+          "severity": "medium",
+          "where": "resources/human-decision/human-decision-request.example.json and human-decision-request.answered.example.json (resume_target); resources/human-decision/human-decision-request.schema.json (resume_target.step minLength only)",
+          "what": "Both human-decision request examples in the candidate name resume_target {workflow:'feature-dev', step:'panel'}. The graph has no step 'panel', and its workflows[] has no 'feature-dev'. The panel_waiver_required row resumes to dispatch_panel, panel_join, synthesize_panel and others. The schema checks only minLength, so packets naming targets no resume can admit are schema-valid. That undercuts ADR-089's point that a packet resumes into its row's graph step."
+        },
+        {
+          "severity": "medium",
+          "where": "resources/integration-authorization/integration-authorization.schema.json (five ^[a-f0-9]{40}$ patterns) vs resources/epic-staging/epic-staging.schema.json:44,186 and src/host/staging-acceptance.mjs:42; src/host/delivery-profile.mjs deliveryCompleted (40|64)",
+          "what": "Object-ID widths disagree. The IA schema admits only SHA-1 (40-hex) for from_oid, to_oid, initial_target_oid and final_tree_oid, while the staging schema, the acceptance code and deliveryCompleted accept 40- or 64-hex. On a SHA-256 repository an Epic can hold a valid staging record and acceptance but can never get a schema-valid authorization, so its CAS is unreachable."
+        },
+        {
+          "severity": "low",
+          "where": "src/host/epic-staging.mjs:170-198; graph cond_445/cond_448 (target_moved)",
+          "what": "target_moved is left over from the per-Ticket model. The code comment attributes it to 'a fast-forward it recorded, an integration it performed', but under ADR-088 the Epic's only movement of the target is the single CAS, which casAdmission reports as already_complete first. No condition in the one-move model produces target_moved, yet its re-stage recovery row and edge t_569 stay normative."
+        },
+        {
+          "severity": "low",
+          "where": "src/host/aggregate-driver.mjs:122-140 vs resources/epic-staging/epic-staging.schema.json aggregate (additionalProperties:false); 04-decisions.md:1039",
+          "what": "The runtime aggregate record doesn't fit the closed schema. It omits the required staging_tree_oid and included_tickets and adds detail, results, worktree_removed and binding. ADR-089 names only aggregate.binding as a known gap. record_hash also leaves out the tree, config and lock digests, which appear only in binding."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/stage-carriers.md:17; scripts/validate-stage-carriers.mjs:49-50 vs src/host/stage-carrier.mjs:63-65, src/host/work-type-gates.mjs:13",
+          "what": "The rule that maps work_type 'bug-fix' to carrier key implementer.bug_fix exists only in the validator. src/ passes the stage through as given, so dispatching a bug-fix Ticket by its work_type gets carrier_mapping_unknown. Only perf, which has no hyphen, is tested at runtime."
+        },
+        {
+          "severity": "low",
+          "where": "04-decisions.md:557 (ADR-052)",
+          "what": "ADR-052 still states the old bundle digest `path\\0sha256\\n`, with no forward pointer to ADR-093, which replaced it with the domain-separated canonical formula now used in 02 §5, 03 §3, governance-bundle.md §3 and bundleDigest."
+        },
+        {
+          "severity": "low",
+          "where": "01-core-flows.md:132; docs/contracts/human-decision.md:31; src/host/user-decision.mjs:14 vs resources/program-capabilities/matrix.v1.json preflight_primitives and 04-decisions.md ADR-092",
+          "what": "The normative 01 §2 and human-decision.md still name ADR-023 as '#40' work only, while ADR-092 and matrix v1 give its daemon side to required_for_v1 records #4 and #9."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/governance-bundle.md:35 vs :82",
+          "what": "governance-bundle.md contradicts itself: §4 says the build CLI holds the manifest to the inventory, while §9 lists the CLI and builder as deferred, although scripts/governance-bundle.mjs and src/host/bundle-builder.mjs exist and 02 §5 treats them as live."
+        },
+        {
+          "severity": "low",
+          "where": "scripts/clean-room-faults.mjs:503,649 vs the helper ref grammar (ref-custody-helper-wire.schema.json:138)",
+          "what": "F017–F020 run against refs/autosk/epics/<key>/candidate and /audit, names the design's closed ref grammar would never create (it uses candidates/<id> and audit/candidates/<id>). So those rows are evidence about refs the design does not have."
+        },
+        {
+          "severity": "low",
+          "where": "src/host/alignment-gates.mjs:25-28,255-270 vs 01-core-flows.md:121,138 and the graph's recovery reasons; 04-decisions.md:1064",
+          "what": "Alignment code still parks alignment_stale, alignment_missing and policy_scope_exceeded, while 01 and the graph name alignment_record_stale and alignment_policy_out_of_scope. policyAlignment admits 'brief' although 01 §2 forbids policy approval of Brief framing. ADR-091 discloses both as issue #4 phase-3 work, but the package's 'What is not claimed' does not list them."
+        }
+      ]
+    },
+    {
+      "seat": "feasibility-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "33f044bf-d1fc-4a04-a30f-2170f3444226",
+      "lens_prompt_sha256": "82b599a3426aac51566686204786535c720ce5ea45705ce83e0bef415d82b2dc",
+      "verdict": "fail",
+      "seat_echoed": "feasibility-lens",
+      "candidate_digest_echoed": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
+      "read": "The package in full (sha256 d38af71d… verified), including §4 inventory, §5 evidence and 'what is not claimed', and the start of §6. resources/design-candidate/panel/round-6.json in full. docs/cloud-agent-priming.md §8 triage and debt entries 10a–10h (lines 363–461). compat/autosk/manifest.v1.json in full; sha256 of all 49 patches and LICENSE (all match); greps of patch 0028 for the session token and autoskEnv. sha256 of 01, 02, 03, 04, workflow-graph-canonical.mjs, workflow-graph.v1.json, matrix.v1.json, stage-carriers.v1.json, fault-matrix.v1.json and refusal-vocabulary.v1.json (all match §3). src/host/staging-driver.mjs in full; planning-driver.mjs lines 1–40 and 95–154; workflow-factory.mjs lines 740–832 plus greps for evaluator, authority and callers; daemon-preflight.mjs lines 22–120; workflow-preflight.mjs lines 28–142; doctor-checks.mjs signer_boundary, attempt and check ids; the scripts/autosk-flow-doctor.mjs signer lines; user-decision.mjs exports; staging-acceptance.mjs park/resume lines; work-type-gates WORK_TYPES; the start of dispatch.mjs. 02-architecture.md lines 63–67, 87, 147 and 429 (by grep); docs/contracts/epic-staging.md §1; workflow-factory.md:13; epic-planning-ref.md helper lines; matrix.v1.json #5, #11, #34 and preflight_primitives; the ref-custody helper wire-schema actions; the human-decision and epic-staging schema spot checks. Evidence: sha256 of the evidence JSONs, the head of clean-room.json, the head of produced.json, the ci-tests.log totals, and the commit in ci-job.log.",
+      "not_read": "Could not recompute the full 238-file candidate digest: the node command needed approval that was not given. Only 10 member files were hashed individually. Did not run npm test, mutation-report, produce:refusals, the clean-room run, the migration-seam measurer or any validator. Not read in full: 01 and 02 (only targeted sections), 03, 04 beyond grep hits, the 42 contracts except epic-staging §1 and grep hits, most schemas and examples, patch bodies other than 0028's env hunk, most host modules and all tests. Did not verify the graph's workflows[] entry steps or the planning-replay receipt design.",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "02-architecture.md:65 vs 02-architecture.md:87 and :429; docs/contracts/epic-staging.md §1 (line 15 'helper-owned prefix' vs 'applyDelta, which moves only the private staging ref'); 04-decisions.md ADR-088; src/host/staging-driver.mjs:104 (createStaging), :183 (swapTarget via applyDelta), :206 (cleanupStaging); src/host/planning-driver.mjs:131 (advanceRef); resources/planning-publication/ref-custody-helper-wire.schema.json (closed actions: init, create_keepalive, advance_planning, ensure_audit_ref, delete_live_ref, delete_expired_audit)",
+          "what": "Debt 10b fixed who moves the target ref but made the host a second writer of the helper-owned prefix. 02 §2 says project and model accounts cannot invoke Git mutations and that the separate-account ref-custody helper is the sole writer of refs/autosk/** and their reflogs. It also says bootstrap proves that direct ref probes are denied. The staging ref refs/autosk/epics/<epic_ref_key>/staging is under that prefix, and epic-staging §1 itself calls the prefix helper-owned. Yet ADR-088, 02 §7 (lines 87 and 429) and epic-staging §1 have the host's applyDelta move the staging ref. The host drivers create, CAS and delete it with direct `git update-ref`, and planning-driver.advanceRef writes the planning ref the same way. The helper's closed six-action protocol has no staging action, so no permitted writer exists for create, apply, re-stage or cleanup of staging. Under the supported layout apply_staging → integrate_staging cannot run as specified, and if the host writes anyway, the 'sole writer' guarantee is false. The package §5 discloses that the helper is absent but not that the host drivers write refs/autosk/** directly. An implementer following ADR-088 builds exactly the direct writer 02 §2 forbids."
+        },
+        {
+          "severity": "medium",
+          "where": "compat/autosk/patches/0028-session-bound-create.patch (daemon/extensions/pi-agent/src/index.ts autoskEnv, hunk at line ~1103); src/host/workflow-factory.mjs:770-831 (recordPark, clearParkReason, recordReceipt via `autosk metadata set`); docs/cloud-agent-priming.md:371 (R6-23 and the a1 medium carried to #231); 04-decisions.md:1081 (#231 outside the #3–#39 inventory)",
+          "what": "The pinned series puts AUTOSK_SESSION_TOKEN (the task.create_bound credential) and AUTOSK_CWD into the environment of the spawned pi model process. The resume permission the factory reads (park.reason, park.origin, park.receipts.<step>) is written through plain `autosk metadata set`, which any holder of the CLI can also write. Together a model session can mint bound creates and forge the receipts that unlock handled_at resumes, contrary to 02 §2 ('a model session gets no .autosk, CLI or decision capability'). Triage carried both items to #231, which ADR-092 itself says is outside the v1 matrix inventory and cannot be a matrix edge. So no required_for_v1 record owns stripping the token or protecting the resume leaves; #18's ADR-025 custody covers only park.origin. This is the same class of gap R6-16 raised for ADR-023/025, and package §5 does not name it."
+        },
+        {
+          "severity": "medium",
+          "where": "src/host/workflow-factory.mjs:38, 541-566 (buildWorkflow requires a caller evaluator); callers only in scripts/verify-autosk-*.mjs and scripts/produce-refusals.mjs with constant evaluators; src/ has only host/ and runtime/, no extension entry point; docs/contracts/workflow-factory.md:13 (guards[].authority unread); docs/cloud-agent-priming.md:371 ('the package states it'); package §5",
+          "what": "No product code evaluates the graph's predicates or its guards[].authority, and no extension entry point registers the workflows. Every buildWorkflow caller is a verification script with `() => false`, `predicate === 'always'` or similar. So select/admit on the real graph, including the actor=human guards on accept_staging → integrate_staging, run on nothing today. The triage record says the package states this, but package §5 has no such statement: it mentions only the uncalled preflight and the missing daemon primitives. A seat reading §5 would take the factory's 'evaluator the factory applies at both decision sites' as delivered."
+        },
+        {
+          "severity": "medium",
+          "where": "src/host/daemon-preflight.mjs:104 requireDaemonCapabilities (no caller in src/ or scripts/ outside tests); src/host/workflow-preflight.mjs:28-51 PHASE_CHECKS (no daemon-capability check); resources/program-capabilities/matrix.v1.json preflight_primitives and #11 obligation; 04-decisions.md ADR-092 (call at extension load → #40)",
+          "what": "ADR-092 holds the matrix to the preflight's list of required primitives, but not to the point where that list is enforced. requireDaemonCapabilities is called by nothing but tests. The doctor/workflow required sets contain no daemon.capabilities check, so even `autosk-flow doctor --workflow` never compares the running daemon's meta.capabilities against ADR-014/023/025; it blocks only because signer_boundary is always unverifiable. The call before model launch is assigned to #40, outside the v1 inventory; #11's 'block fan-out when unavailable' is the only v1 text near it. The guarantee 'the preflight refuses every daemon' therefore has no v1-owned enforcement point."
+        },
+        {
+          "severity": "low",
+          "where": "resources/program-capabilities/matrix.v1.json:99-126 (#5 implementation_obligation_before_mvp); 02-architecture.md:67; preflight_primitives",
+          "what": "The ref-custody helper, the third absent daemon-side surface (02 §2, `src/git/ref-custody-helper.ts`, owned by #5), is not named in #5's matrix implementation obligation ('crash-safe publication') or in preflight_primitives. The ADR-092 two-way matrix check therefore does not cover it. It is named open only in ADR-092 prose."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/integration-authorization.md closed set vs src/host/staging-acceptance.mjs (autoPolicyAcceptance refuses as acceptance_missing/acceptance_stale); grep of src/ for integration_authorization_* = 0",
+          "what": "The IntegrationAuthorizationRecord checks are implemented, but under epic-staging's acceptance_* codes. None of the contract's 7 integration_authorization_* classes is produced anywhere, and integration_authorization_required is producer: none. That leaves two names for one stop, the pattern R6-25 fixed for the review codes."
+        },
+        {
+          "severity": "low",
+          "where": "src/host/workflow-preflight.mjs:29-30",
+          "what": "The comment still says 'Planning's own work is documents: it needs no daemon and no provider of its own'. After 10d, autosk-planned runs agent steps, needs the daemon and signer boundary, and this was the reason R6-11 was raised. Stale rationale beside the code that fixed it."
+        },
+        {
+          "severity": "low",
+          "where": "scripts/validate-stage-carriers.mjs:48-50 vs src/host/work-type-gates.mjs:13, src/host/work-type-dispatcher.mjs, src/host/dispatch.mjs",
+          "what": "The mapping from a Ticket's work_type ('bug-fix', 'refactoring') to its carrier key ('implementer.bug_fix', 'implementer.refactoring') exists only in a validator script. No runtime module derives the implementer carrier key from a Ticket, so the 10g guarantee that every v1 work type has a carrier holds for the registry, not for dispatch."
+        }
+      ]
+    },
+    {
+      "seat": "intent-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "eb915d36-946d-48a6-b5ea-90028ce78184",
+      "lens_prompt_sha256": "3760e0d155a7d8d1650ea602a5ecee049ea7a2178490829fee9058a79b4bea5d",
+      "verdict": "fail",
+      "seat_echoed": "intent-lens",
+      "candidate_digest_echoed": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
+      "read": "Package: §1-§3, §4 table and the first contract entries, §5 in full, the end of §6 (02 §10) and §7. From the tree: README.md in full; docs/program-capability-matrix.md in full; matrix.v1.json records #4, #5, #14-#18 and #39 plus preflight_primitives, and a grep of every implementation obligation; resources/design-candidate/panel/round-6.json in full; docs/cloud-agent-priming.md §8 entries for debts 10f, 10g and 10h plus grep lines for 10a-10e; 02-architecture.md l.55-154; 03-technical-plan.md l.1830-1841 and greps; 01-core-flows.md §4 (l.205-213) and greps for rosters and post-v1; 04-decisions.md greps (ADR-028, ADR-062-065, ADR-090, ADR-092, ADR-093); stage-carriers.v1.json governance_files and every carrier key with lifecycle; the lifecycle guard in src/host/stage-carrier.mjs; src/host/artifact-classifier.mjs in full; artifact-registry.v1.json class entries by grep and the autobuild_run entry; docs/contracts/creation-grant.md in full; arena.md l.1-25; static-analysis.md l.1-30; platform-support.md by grep (§5) and platform-support.v1.json install; parity registry Arena entries and summary counts; Arena grep of the workflow graph; UserDecisionRecord greps in src/host and the human-decision schema (10e spot check).",
+      "not_read": "Shell and python execution needed approval, so I did not recompute the package hash, the candidate digest or any file sha256. I did not run npm test, the mutation report, produce:refusals, clean-room or migration-seam. Not read: most of 01 and 02 beyond the parts named; 03 and 04 beyond greps; the contracts other than those named; most schemas and examples; the compat patch series; the other host modules; the tests. I did not check debts 10a-10d or 10h against code beyond the ledger text, because they fall outside the intent lens.",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "02-architecture.md:63-67 (§2 Git), 03-technical-plan.md:1837-1838 (§9 Slice 1), 04-decisions.md:213 (ADR-023 rationale) vs docs/contracts/platform-support.md:51-57 (§5) and resources/platform-support/platform-support.v1.json:154-164 (install); README.md (goals, §Граница текущей работы)",
+          "what": "The design's enforceable boundaries rest on an install topology that the v1 packaging contract rules out. 02 §2 and 03 §9 require three things: a separate-account `autosk-flow-ref-custody` service as the sole writer of refs/autosk/**; a 'privileged install' that turns each project's common Git directory into a service-owned object database with root/helper-owned ancestors, where 'project/model accounts cannot ... invoke Git mutations'; and, per ADR-023, a signer in a separate OS account or boundary. The #13 platform contract, which is required_for_v1, says the helper ships as exactly three binaries (autosk, autoskd, autosk-store-lock) 'owned by the installing user', and its closed install record lists no helper for another account, no service account and no privileged step. An implementer who follows the packaging contract would run the ref helper and the signer as the same user as the model processes, so the boundary 02 relies on never exists. On the intent side, taking away the user's own write access to their repository's .git is a major user-visible scope decision. Neither README's goals nor any matrix obligation (#5's is 'implement crash-safe publication', #13's names no service account) states it."
+        },
+        {
+          "severity": "medium",
+          "where": "resources/artifact-registry/artifact-registry.v1.json:185 (autobuild_run), 302 (changeset_walkthrough), 522 (cost_watch_registry), 581 (debate_manifest), 1145 (housekeeping_report), 1564 (reflect_pass), 1824/1852 (static_analysis_*); src/host/artifact-classifier.mjs:68-107; matrix.v1.json #14 obligation (l.419)",
+          "what": "Debt 10g gave carrier keys a lifecycle, and mappingFor refuses non-v1 keys. The artifact registry got no equivalent. The five post-v1 capabilities (#28, #29, #30, #31, #33) and the out-of-matrix #47 own eight classes, and all eight are registered as ordinary active classes. The registry schema has no lifecycle field. classify() will return 'classified' for a file at, say, docs/autosk/epics/*/autobuild/*/run.json and route it to planning_ref publication with human approval, for a capability whose workflow v1 does not register. This contradicts #14's obligation to cover 'all v1 artifact classes' and the treatment the carriers now get. The local fix is to mirror the carrier fix: a lifecycle/decided_by field held to the matrix, and a classifier refusal."
+        },
+        {
+          "severity": "medium",
+          "where": "docs/contracts/arena.md:5 ('issue #4 runtime contract') vs resources/traycer-parity/registry.v1.json:208,224 (issueRefs [14,16,18]) vs resources/program-capabilities/matrix.v1.json (no implementation_obligation_before_mvp mentions Arena); workflow-graph.v1.json:65-69 (autosk-arena-candidate/judge registered); README.md:13",
+          "what": "Arena/Judge is a stated v1 goal (README l.13, 01 §4), and the v1 graph registers two Arena workflows. Its v1 implementation owner is still unassigned. The contract names #4, the parity registry names #14, #16 and #18, and none of those four matrix records mentions Arena in its implementation obligation (#4's covers alignment gates and ADR-023). #36's clean-room expectation, which covers the Planned/Quick/multi-project/fault matrix, does not exercise it either. arena.md has no measured link, and three of its park reasons are producer:none. This is the same kind of gap as R6-16, which debt 10f fixed only for the preflight primitives. An MVP planned from the matrix can pass #36 without Arena while the README claims it. The fix is to name Arena in one required_for_v1 record's obligation and align the three owner references."
+        },
+        {
+          "severity": "low",
+          "where": "resources/program-capabilities/matrix.v1.json:1335 (#39 verification_expectation)",
+          "what": "The canonical record of this design gate still says 'GPT/Grok/Kimi/Opus review one exact tree'. Kimi is no longer seated in the gate roster (opus, devin, muse, deepseek) or in the product roster (GPT, Grok, Muse, Opus). 8b discloses the product-versus-gate split, not a third roster inside the #39 record itself."
+        },
+        {
+          "severity": "low",
+          "where": "README.md:44-56 (Состав пакета), 58-62 (Граница текущей работы)",
+          "what": "The README's package list names only 2 of the 42 contracts. Its work-boundary section still calls the creation contracts 'the first runtime component', although 52 host modules with mutation-scored guards now exist. Both are stale descriptions of scope, not false capability claims."
+        },
+        {
+          "severity": "low",
+          "where": "docs/contracts/{autobuild-run,reflect-cost-watch,housekeeping,debate,walkthrough,sdk-write-api,static-analysis}.md; 04-decisions.md ADR-062..065",
+          "what": "This carries over R6-29 and R6-28. The post-v1 contracts and the out-of-matrix #47 contract have full closed refusal sets, schemas, validators and 20-30 tests each inside the v1 design gate, while the matrix's pre-#39 obligation for #28-#33 was only to document inactivity. They are labelled correctly, so this is design weight, not a false claim."
+        }
+      ]
+    },
+    {
+      "seat": "architecture-lens",
+      "harness": "claude-code-cli",
+      "route": "opus",
+      "effort": "medium",
+      "effort_confirmation": "reported",
+      "observed_model": "claude-opus-5-5",
+      "session_id": "b6c19cfa-32e8-4e2c-a0f0-82ad776f4dd1",
+      "lens_prompt_sha256": "40898ef0f8befb667c3a26724b4b68a1ba815eb065329ab84f3869ce5d142bb0",
+      "verdict": "fail",
+      "seat_echoed": "architecture-lens",
+      "candidate_digest_echoed": "873bf8e49f07d564eb2e0eac2b04164dde7922f6cac6a04ea48b30cca9510e05",
+      "read": "The whole package (sha256 d38af71d… verified), including 01-core-flows.md and 02-architecture.md in full. Round 6 record resources/design-candidate/panel/round-6.json in full. docs/cloud-agent-priming.md §8 entries for debts 10a–10h. 04-decisions.md ADR-088 in full, plus grep hits for ADR-083, ADR-091 and ADR-092. docs/contracts/integration-authorization.md in full; epic-staging.md lines 1-35 and 60-99; workflow-factory.md §1 excerpt; epic-planning-ref.md epic_ref_key lines. In full: src/host/staging-acceptance.mjs, src/host/epic-staging.mjs, src/host/decision-queue.mjs (lines 60-270), src/host/alignment-gates.mjs (lines 160-339 and grep of the rest), src/host/staging-driver.mjs (lines 1-80 and the update-ref sites), src/host/planning-driver.mjs (lines 1-140). The signer_boundary parts of doctor-checks.mjs and scripts/autosk-flow-doctor.mjs. deriveEpicRefKey in scripts/validate-planning-ref-design.mjs. From matrix.v1.json: the header, the #5, #10 and #18 records, the #4 and #9 obligations and preflight_primitives. The action enum of ref-custody-helper-wire.schema.json. Grep hits of AUTOSK_SESSION_TOKEN in patch 0028 and in 04. sha256 of 01, 02, 04, integration-authorization.md, epic-staging.md and matrix.v1.json all match §3. git log shows 091fcbef and d2dbc8aa share tree da6c5eed.",
+      "not_read": "I did not recompute the 238-file candidate digest, and I ran no npm test, mutation report, produce:refusals, validator, clean-room or migration-seam command, because the multi-step shell commands and node needed approval. Not read: 03-technical-plan.md beyond grep hits; most of 04-decisions.md; the other contracts beyond grep hits; the graph workflow-graph.v1.json; most schemas and examples; the patch bodies other than the 0028 token hunk; user-decision.mjs, workflow-preflight.mjs, daemon-preflight.mjs and delivery-profile.mjs beyond what the debt log and callers show; test files.",
+      "findings": [
+        {
+          "severity": "high",
+          "where": "01-core-flows.md §7 (preamble and step 5); docs/contracts/integration-authorization.md §1, §3, §5; docs/contracts/epic-staging.md:91; src/host/staging-acceptance.mjs:181-200 vs 225-264; src/host/epic-staging.mjs:123-124; resources/program-capabilities/matrix.v1.json:240 (#9)",
+          "what": "On the default path, where a person accepts the staging identity, the design says the acceptance 'produces' the signed IntegrationAuthorizationRecord (IA), and that the Epic's target CAS never runs without one (ADR-088). No mechanism for this exists. The person's UserDecisionRecord signs decisionPayloadHash({option_id, identities}), with subject_hash equal to the staging identity. It does not sign the IA fields that IA §3 calls load-bearing: expires_at, integration_plan_hash, controlling_anchor_digest, the authority, dependency and intent head hashes, and previous_authorization_head_hash. The repository's only rule for 'the UserDecisionRecord behind an IA' (assertAuthorized: payload_hash === authorizationPayloadHash(authorization)) would refuse every IA made on this path. The alternative leaves those fields asserted by the daemon and not signed by the user. The host's casAdmission admits a 'human' acceptance whose decision_id is any non-empty string. epic-staging.md §5 says the person's path has no host-side check. The daemon check that is left (integrateApproved against integration_authorization_head) appears in no matrix owner's obligation: #9 names only the authority projection and the dependency and intent heads. The irreversible step therefore rests on a guarantee with an unspecified producer, two incompatible signing models and no owner for its only evaluator."
+        },
+        {
+          "severity": "high",
+          "where": "02-architecture.md:63-65 (§2: the ref-custody helper is the 'sole writer' of refs/autosk/** and project/model accounts 'cannot … invoke Git mutations') and docs/contracts/epic-staging.md:15 ('helper-owned prefix') vs 02-architecture.md:87, epic-staging.md:34 and ADR-088 (host swapTarget/applyDelta moves refs/autosk/epics/<key>/staging); resources/planning-publication/ref-custody-helper-wire.schema.json:54-62; src/host/staging-driver.mjs:104,183,206; src/host/planning-driver.mjs:131",
+          "what": "The custody chain for the private ref namespace contradicts itself. 02 §2 makes the separate-account helper the only writer of every create, CAS and delete under refs/autosk/**, and denies Git mutations to every other account. ADR-088, 02 §4 and epic-staging §1 assign the staging ref (refs/autosk/epics/<epic_ref_key>/staging) to the host's swapTarget, which runs git update-ref directly. The helper's closed wire protocol has six actions (init, create_keepalive, advance_planning, ensure_audit_ref, delete_live_ref, delete_expired_audit) and none for staging. The host planning driver, which says 'Implements: epic-planning-ref.md', also runs update-ref on the planning ref itself. An implementer cannot follow both rules: either the helper boundary is breached for staging, or staging has no writer. The foreign-movement and reflog guards on staging assume a custody model that the documents do not agree on."
+        },
+        {
+          "severity": "medium",
+          "where": "src/host/alignment-gates.mjs:254-274 (policyAlignment), 293-302 (gateAdmission) vs 01-core-flows.md §2 (table row for Brief: policy does not approve product framing; policy 'должна быть выдана через UserDecisionRecord'); package §5 'No user decision is accepted on any host'; ADR-091 open items",
+          "what": "The host's only alignment evaluator still has a second authority source with no signature. policyAlignment mints an 'authority: policy' record for any kind listed in a caller-supplied policy object, including brief. It checks no UserDecisionRecord that issued the policy and no project, Epic, scope or expiry binding. gateAdmission then admits that record, because it recomputes the identity with user_decision null against caller-supplied policy hashes. This contradicts 01 §2 and the 'one authority model' of 10e. ADR-091 lists it as open, but package §5 says that no host path accepts user authority today, which is overbroad."
+        },
+        {
+          "severity": "medium",
+          "where": "src/host/staging-acceptance.mjs:241, 285-289; 01-core-flows.md §7 (preamble, step 5); docs/contracts/integration-authorization.md §1; epic-staging.md §5",
+          "what": "The pinned auto-policy is described as a record signed in advance that lets the flow skip the human stop. assertAuthorized, however, requires the signed record's subject_hash, and the policy's pinned_identity, to equal stagingIdentity. That identity covers aggregate_record_hash, staging_commit_oid, outstanding_debt and delivery_profile_digest, which exist only after aggregate verification, at the stop itself. As specified, the user can sign only after the point the policy is meant to skip, so the auto path cannot exist without a human-timed signature. Either the design's 'in advance' claim or the binding is wrong."
+        },
+        {
+          "severity": "medium",
+          "where": "04-decisions.md ADR-088 'Что не сделано' (graph predicate evaluator 'перенесено в #40'); docs/contracts/workflow-factory.md:13 (guards[].authority has no reader); resources/program-capabilities/matrix.v1.json:110 (#5 obligation) vs 02-architecture.md §3 ('ref-custody helper — #5'); docs/contracts/doctor-report.md:67 (preflight call before model launch → #40)",
+          "what": "Debt 10f gave v1 owners only to the preflight's primitives. Three other load-bearing pieces are still assigned to #40, which is outside the #3–#39 inventory, or to no named owner: (1) the evaluator of graph predicates and guards[].authority, so the actor=human guard on accept_staging → integrate_staging is evaluated on neither side of the boundary; (2) the preflight call at extension load, the only thing that would make the signer-boundary block effective; (3) the ref-custody helper, whose #5 record never names it. This is the same class of defect as R6-16. The package's 'What is not claimed' list does not name the missing evaluator."
+        },
+        {
+          "severity": "medium",
+          "where": "compat/autosk/patches/0028-session-bound-create.patch:1072 (pi-agent autoskEnv sets AUTOSK_SESSION_TOKEN) vs 02-architecture.md §2 'Pi-провайдеры' and §6 (resolvedPiAgent delegates to stock piAgent)",
+          "what": "R6-23 is unchanged. The pinned series puts the session token that authorizes task.create_bound into the model process's environment, while 02 says a model session holds no .autosk, CLI or decision capability. The item was carried to #231, which is outside the matrix inventory, so it has no v1 owner. Package §5 does not disclose it."
+        },
+        {
+          "severity": "low",
+          "where": "src/host/staging-acceptance.mjs:20-32, 63-77 vs 01-core-flows.md §7 (IA binds 'controlling digest') and integration-authorization.md §3",
+          "what": "The accepted staging identity does not bind controlling_anchor_digest or the dependency and intent heads (the R6-9 remainder). The signed identity relies on anchor_version as a proxy, while the IA it is supposed to back binds the digest and the heads."
+        },
+        {
+          "severity": "low",
+          "where": "src/host/staging-driver.mjs:78 (readRef: oid.length === 40); src/host/planning-driver.mjs:61 (reflogEntries: line.length === 40)",
+          "what": "The host ref readers accept only SHA-1 OIDs, while the schemas, the helper wire protocol and 02 require handling both object formats. In a SHA-256 repository a present ref reads as null and every reflog as unknown, which turns foreign-movement detection into misclassification."
+        }
+      ]
+    }
+  ]
+}
