@@ -22,6 +22,7 @@ import {
   escalates,
   isOpen,
   lateFindingRoute,
+  liftedByLead,
   originatorId,
   registryDigest,
   rootCauseKey,
@@ -335,4 +336,74 @@ test("the registry digest is over content, not over the digest field", () => {
 
 test("the severity scale is the one the contract closes", () => {
   assert.deepEqual(SEVERITIES.slice(), ["critical", "high", "medium", "low"]);
+});
+
+test("a Supplementary seat's critical or high waits for Lead, and only Lead's disagreement lifts it", () => {
+  // Panel round 5 (R5-17): 01 §3 says a Supplementary seat's Critical or High
+  // cannot block on its own and goes to Lead, who confirms it or records
+  // disagreement. Nothing evaluated that; every seat blocked alike.
+  const roles = { lead: "astra", supplementary: ["opus"] };
+  const withRoles = (findings) => ({ ...registryOf(findings), roles });
+  const ruling = (seat, outcome) => ({ seat, outcome, reason: `${seat} read the evidence` });
+  for (const severity of ["critical", "high"]) {
+    const [canonical] = canonicalMerge([raw("opus", "F1", severity)]);
+    const contested = { ...canonical, contest: [{ seat: "opus", outcome: "upheld" }] };
+
+    // Until Lead rules, it holds the gate: raising it to Lead is not dropping it.
+    const waiting = computeGate(withRoles([contested]));
+    assert.equal(waiting.blocking_open, 1, severity);
+    assert.equal(waiting.verdict, "blocked");
+
+    const disagreed = { ...contested, lead_ruling: ruling("astra", "disagreed") };
+    assert.equal(liftedByLead(disagreed, roles), true);
+    const lifted = computeGate(withRoles([disagreed]));
+    assert.equal(lifted.blocking_open, 0, severity);
+    assert.equal(lifted.verdict, "pass");
+
+    // The author's own family cannot wave it away, and Lead confirming it is
+    // Lead's own vote for it.
+    assert.equal(computeGate(withRoles([{ ...contested, lead_ruling: ruling("opus", "disagreed") }])).verdict, "blocked");
+    assert.equal(computeGate(withRoles([{ ...contested, lead_ruling: ruling("astra", "confirmed") }])).verdict, "blocked");
+    assert.equal(liftedByLead({ ...contested, lead_ruling: ruling("astra", "confirmed") }, roles), false);
+
+    // Another seat raised it too: it is not Supplementary-only, and nothing lifts it.
+    const [shared] = canonicalMerge([raw("opus", "F1", severity), raw("grok", "F2", severity)]);
+    const sharedRuled = {
+      ...shared,
+      contest: [{ seat: "opus", outcome: "upheld" }, { seat: "grok", outcome: "upheld" }],
+      lead_ruling: ruling("astra", "disagreed"),
+    };
+    assert.deepEqual(shared.originators, ["grok:F2", "opus:F1"]);
+    assert.equal(liftedByLead(sharedRuled, roles), false);
+    assert.equal(computeGate(withRoles([sharedRuled])).blocking_open, 1);
+
+    // With no roles recorded there is no Lead whose ruling could count.
+    assert.equal(liftedByLead(disagreed, undefined), false);
+    assert.equal(computeGate(registryOf([disagreed])).verdict, "blocked");
+  }
+});
+
+test("a Lead ruling and the roles are about one candidate and are not carried to the next", () => {
+  // The same reason the contest is cleared: Lead ruled on other bytes. The
+  // roles go too (R9f-3): a fix round can add a fixer from Lead's family, so
+  // the next candidate's roles are recomputed from its own author/fixer set
+  // rather than inherited.
+  const [canonical] = canonicalMerge([raw("opus", "F1", "high")]);
+  const before = {
+    ...registryOf([{ ...canonical, lead_ruling: { seat: "astra", outcome: "disagreed", reason: "not reachable" } }]),
+    roles: { lead: "astra", supplementary: ["opus"] },
+  };
+  assert.equal(computeGate(before).blocking_open, 0);
+  const after = supersede(before, "b".repeat(64));
+  assert.equal(after.canonical_findings[0].lead_ruling, undefined);
+  assert.equal(after.roles, undefined);
+  assert.equal("roles" in after, false);
+  assert.equal(computeGate(after).blocking_open, 1);
+  // A stale Lead re-ruling on the new candidate lifts nothing until the roles
+  // are recorded again for it.
+  const reRuled = {
+    ...after,
+    canonical_findings: [{ ...after.canonical_findings[0], lead_ruling: { seat: "astra", outcome: "disagreed", reason: "again" } }],
+  };
+  assert.equal(computeGate(reRuled).blocking_open, 1);
 });

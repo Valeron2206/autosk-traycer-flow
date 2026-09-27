@@ -24,12 +24,14 @@ import {
   flowsRosterMarkingErrors,
   loadFiles,
   masterOrderProseErrors,
+  modelOf,
   partitionErrors,
   preflightDesignDigest,
   routeAvailability,
   validateProviderPreflightDesign,
   validateRoute,
 } from "../scripts/validate-provider-preflight.mjs";
+import { familyOf as hostFamilyOf, modelOf as hostModelOf } from "../src/host/cross-family-review.mjs";
 
 const files = loadFiles();
 const schema = JSON.parse(files[SCHEMA_PATH]);
@@ -214,6 +216,11 @@ test("a family is a property of the model, not of the harness serving it", () =>
   assert.equal(familyOf("cursor/cursor-grok-4.6", partition), "grok");
   assert.equal(familyOf("cursor/cursor-kimi-2.5", partition), "kimi");
   assert.equal(familyOf("meta/muse-spark-1.3-contributor", partition), "muse");
+  // One resolver for the design check and for the host: the code review and
+  // the panel roles read families through the same function this validator
+  // holds the roster to (R5-16), not through a second reading of the rule.
+  assert.equal(familyOf, hostFamilyOf);
+  assert.equal(modelOf, hostModelOf);
 });
 
 test("the product roster spans four declared families, Meta's in its own", () => {

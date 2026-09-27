@@ -141,8 +141,8 @@ export function domainReady(domain, { lastExhaustedAtMs, nowMs, cooldownMs }) {
 /**
  * The routes a failure domain takes with it.
  *
- * Cursor going down takes Grok and Kimi with it and leaves Codex and Claude
- * alone, and the record says so by naming the domain rather than the vendor.
+ * Cursor going down takes Grok, its only seat in the live roster, and leaves
+ * Codex, Claude and Meta's Muse alone; the record names the domain, not the vendor.
  */
 export function routesInDomain(routes, domain) {
   return routes.filter((route) => route.failure_domain === domain).map((route) => route.route_id).sort();

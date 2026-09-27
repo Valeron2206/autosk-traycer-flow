@@ -1112,18 +1112,21 @@ Route binding — исполняемый protocol data, а не свободны
 | Kimi | GPT | Kimi supplementary intent, Grok feasibility, Opus architecture |
 | Human/outside | GPT | Kimi intent, Grok feasibility, Opus architecture |
 
-Mixed author set выбирает Lead по мастер-порядку GPT -> Kimi -> Muse -> Grok -> Opus (`master_order` в `resources/panel-roster/family-partition.v1.json`), оставляя только семьи вне union author/fixer set, с местом в действующем составе и с доступным exact route. Если список пуст, dispatch запрещён и задача переходит в human. Выбранный Lead и его provider session фиксируются до первого dispatch и не меняются между раундами без формального replacement.
+Mixed author set выбирает Lead по мастер-порядку GPT -> Kimi -> Muse -> Grok -> Opus (`master_order` в `resources/panel-roster/family-partition.v1.json`), оставляя только семьи вне union author/fixer set и с местом в действующем составе (`panelRoles` в `src/host/panel.mjs`). Если список пуст, dispatch запрещён и задача переходит в human. Доступность exact route выбор Lead не меняет: место без допущенного маршрута делает панель incomplete, потому что ответить обязаны все четыре места, и Lead не переходит к следующей семье. Выбранный Lead и его provider session фиксируются до первого dispatch и не меняются между раундами без формального replacement.
 
-Code reviewer routing использует union author_families + fixer_families:
+Code reviewer routing использует union author_families + fixer_families; таблица — та же, что в 01 §6, и является применением мастер-порядка, а не вторым правилом:
 
 | Code author set | Порядок выбора reviewer |
 | --- | --- |
-| Claude only | GPT -> Kimi -> Grok |
-| Codex only | Kimi -> Grok |
-| Grok only | GPT -> Kimi |
-| Kimi only | GPT -> Grok |
-| Human/outside only | GPT -> Kimi -> Grok |
-| Mixed | мастер-порядок GPT -> Kimi -> Grok, отфильтрованный до семей вне union author/fixer set |
+| Claude only | GPT -> Kimi -> Muse -> Grok |
+| Codex only | Kimi -> Muse -> Grok -> Opus |
+| Grok only | GPT -> Kimi -> Muse -> Opus |
+| Kimi only | GPT -> Muse -> Grok -> Opus |
+| Muse only | GPT -> Kimi -> Grok -> Opus |
+| Human only | GPT -> Kimi -> Muse -> Grok -> Opus |
+| Mixed | мастер-порядок GPT -> Kimi -> Muse -> Grok -> Opus (`master_order` в `resources/panel-roster/family-partition.v1.json`), отфильтрованный до семей вне union author/fixer set |
+
+Порядок `reviewerRoute` в `src/host/cross-family-review.mjs` читает из `master_order` раздела, а не держит собственный список. Автор и fixer называются маршрутом или моделью, семью им даёт раздел; Human не исключает ни одной семьи, а модель вне раздела отказывает с `review_family_unknown`. Доступные exact reviewer routes — маршруты, которые допустил provider preflight (сегодня маршруты `REQUIRED_PANEL`, через раздел это GPT, Muse, Grok и Opus). `reviewAdmission` получает их явно (без списка отказывает), оставляет из порядка только семьи с таким маршрутом, поэтому для Codex первым идёт Muse, и возвращает `reviewer_route` — первый в порядке списка маршрут выбранной семьи. Если не осталось ни одной семьи, он возвращает park `review_no_external_family`.
 
 Выбирается первый доступный exact route. Если внешней семьи нет, park.reason=no_external_reviewer; обычный same-family review запрещён. Пользователь может направить работу внешнему human reviewer, потребовать re-expression одним автором на новом candidate или дать точный review waiver.
 

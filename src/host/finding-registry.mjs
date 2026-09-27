@@ -165,6 +165,24 @@ export function escalates(canonical) {
 }
 
 /**
+ * Whether Lead's ruling lifts a finding only Supplementary seats raised.
+ *
+ * A Supplementary seat is the author's or a fixer's own family. Its Critical or
+ * High cannot block on its own, and its family cannot wave it away either: it
+ * goes to Lead, who confirms it with Lead's own vote or records disagreement,
+ * and only that recorded disagreement lifts it. Until Lead rules it holds the
+ * gate. A finding any other seat also raised is not Supplementary-only, so no
+ * ruling lifts it; with no roles recorded there is no Lead whose ruling could.
+ * Panel round 5 (R5-17) found this rule only in 01 §3.
+ */
+export function liftedByLead(canonical, roles) {
+  if (!roles) return false;
+  const seats = canonical.originators.map((originator) => originator.split(':')[0]);
+  if (!seats.every((seat) => roles.supplementary.includes(seat))) return false;
+  return canonical.lead_ruling?.seat === roles.lead && canonical.lead_ruling?.outcome === 'disagreed';
+}
+
+/**
  * The gate predicate. Computed, not judged.
  *
  * A finding closes only on a re-review disposition of `resolved`: having made
@@ -184,7 +202,7 @@ export function computeGate(registry) {
     }
     if (escalates(canonical)) reasons.push(`contest_disagreement:${canonical.canonical_id}`);
     if (severity === 'critical' || severity === 'high') {
-      if (isOpen(canonical)) {
+      if (isOpen(canonical) && !liftedByLead(canonical, registry.roles)) {
         blockingOpen += 1;
         reasons.push(`open_${severity}:${canonical.canonical_id}`);
       }
@@ -227,11 +245,16 @@ export function supersede(registry, newCandidateIdentity) {
   const carried = registry.canonical_findings
     .filter((canonical) => isOpen(canonical))
     .map((canonical) => {
-      const { contest, ...rest } = canonical;
+      // Lead's ruling is about the same superseded bytes, so it goes too.
+      const { contest, lead_ruling, ...rest } = canonical;
       return Object.freeze({ ...rest });
     });
+  // The roles were derived from this candidate's author and fixer set, and a
+  // fix round can add a fixer from Lead's own family: the next candidate's
+  // roles are recomputed for it, never inherited.
+  const { roles, ...kept } = registry;
   return Object.freeze({
-    ...registry,
+    ...kept,
     candidate_identity: newCandidateIdentity,
     canonical_findings: carried,
   });

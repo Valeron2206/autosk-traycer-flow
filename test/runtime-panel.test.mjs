@@ -16,11 +16,14 @@ import test from "node:test";
 import { SUBMISSION_CLOSE, SUBMISSION_OPEN } from "../src/host/model-result.mjs";
 import { PROJECTED_FIELDS } from "../src/host/gate-projection.mjs";
 import { compileCarrier } from "../src/host/stage-carrier.mjs";
-import { panelVerdict, runPanel, runSeat } from "../src/host/panel.mjs";
+import { panelRoles, panelVerdict, runPanel, runSeat } from "../src/host/panel.mjs";
 import { ROOT } from "../scripts/validate-planning-ref-design.mjs";
 
 const carrierRegistry = JSON.parse(
   await readFile(path.join(ROOT, "resources/stage-carriers/stage-carriers.v1.json"), "utf8"),
+);
+const partition = JSON.parse(
+  await readFile(path.join(ROOT, "resources/panel-roster/family-partition.v1.json"), "utf8"),
 );
 
 const NOW = Date.parse("2026-09-08T17:00:00.000Z");
@@ -157,6 +160,11 @@ function deps(overrides = {}) {
     },
     nowMs: NOW,
     home: "/home/operator",
+    // Who wrote the candidate decides Lead and Supplementary, and the
+    // partition decides each seat's family. A person is outside every model
+    // family, so with a human author no seat is Supplementary.
+    partition,
+    authors: ["human"],
     ...overrides,
   };
 }
@@ -375,4 +383,103 @@ test("the carrier digest is reported so a disagreement can be read", () => {
       )
       .digest("hex"),
   );
+});
+
+const code = (name) => (error) => error.code === name;
+const roles = (value) => ({ lead: value.lead, supplementary: [...value.supplementary] });
+
+test("Lead is the first master-order family outside every author and fixer, and the author's seat is Supplementary", () => {
+  // Panel round 5 (R5-17): nothing evaluated either rule; the four seats were
+  // treated the same whoever wrote the candidate.
+  assert.deepEqual(roles(panelRoles({ partition, seats: SEATS, authors: ["anthropic/claude-opus-5"] })), {
+    lead: "astra",
+    supplementary: ["opus"],
+  });
+  // Codex is GPT: Kimi holds no seat in the live roster, so Muse leads.
+  assert.deepEqual(roles(panelRoles({ partition, seats: SEATS, authors: ["openai-codex/gpt-6-astra"] })), {
+    lead: "muse",
+    supplementary: ["astra"],
+  });
+  assert.deepEqual(roles(panelRoles({ partition, seats: SEATS, authors: ["human"] })), { lead: "astra", supplementary: [] });
+  // A fixer counts as an author: the union decides, not who was dispatched.
+  assert.deepEqual(
+    roles(panelRoles({ partition, seats: SEATS, authors: ["claude-opus-5"], fixers: ["openai-codex/gpt-6-astra"] })),
+    { lead: "muse", supplementary: ["astra", "opus"] },
+  );
+  assert.deepEqual(
+    roles(panelRoles({ partition, seats: SEATS, authors: ["openai-codex/gpt-6-astra", "meta/muse-spark-1.3-contributor"] })),
+    { lead: "grok", supplementary: ["astra", "muse"] },
+  );
+});
+
+test("with every seated family an author or fixer there is no Lead, and the panel says so", () => {
+  const all = SEATS.map((spec) => spec.route.route_id);
+  assert.throws(() => panelRoles({ partition, seats: SEATS, authors: all }), code("panel_lead_not_external"));
+  assert.throws(
+    () => panelRoles({ partition, seats: SEATS, authors: all.slice(0, 2), fixers: all.slice(2) }),
+    code("panel_lead_not_external"),
+  );
+  // Kimi is outside the set but holds no seat: a family with no place is skipped.
+  assert.throws(
+    () => runPanel(SEATS, deps({ provider: allAnswering(), authors: all.slice(0, 3), fixers: all.slice(3) })),
+    code("panel_lead_not_external"),
+  );
+});
+
+test("a seat whose model the partition does not name is refused before any seat runs", () => {
+  let calls = 0;
+  const unnamed = [...SEATS.slice(0, 3), seatSpec("muse", "meta/muse-spark-9-unlisted")];
+  assert.throws(() => panelRoles({ partition, seats: unnamed, authors: ["human"] }), code("review_family_unknown"));
+  assert.throws(
+    () => runPanel(unnamed, deps({ provider: { call: () => { calls += 1; return ""; } } })),
+    code("review_family_unknown"),
+  );
+  assert.equal(calls, 0);
+  // Nor is a panel run with no partition, or with no author named.
+  assert.throws(() => runPanel(SEATS, deps({ provider: allAnswering(), partition: undefined })), code("review_family_unknown"));
+  assert.throws(() => runPanel(SEATS, deps({ provider: allAnswering(), authors: [] })), code("review_family_unknown"));
+  assert.throws(() => runPanel(SEATS, deps({ provider: allAnswering(), authors: ["cursor"] })), code("review_family_unknown"));
+});
+
+test("a recorded Lead holds while it stays outside, and is refused once it is not", () => {
+  // Lead does not change between rounds without a formal replacement, so a
+  // recorded one is kept even where the order would pick another seat.
+  assert.deepEqual(roles(panelRoles({ partition, seats: SEATS, authors: ["human"], lead: "grok" })), {
+    lead: "grok",
+    supplementary: [],
+  });
+  assert.equal(panelRoles({ partition, seats: SEATS, authors: ["anthropic/claude-opus-5"], lead: "astra" }).lead, "astra");
+  // A fixer from the Lead's family arrived: the recorded Lead is now inside.
+  assert.throws(
+    () => panelRoles({
+      partition,
+      seats: SEATS,
+      authors: ["anthropic/claude-opus-5"],
+      fixers: ["openai-codex/gpt-6-astra"],
+      lead: "astra",
+    }),
+    code("panel_lead_not_external"),
+  );
+  // And a Lead that is no seat of this panel is not a Lead of it.
+  assert.throws(() => panelRoles({ partition, seats: SEATS, authors: ["human"], lead: "sol" }), code("panel_lead_not_external"));
+});
+
+test("the panel carries its roles, and a Supplementary-only high waits for Lead", () => {
+  const high = {
+    raw_id: "F1",
+    severity: "high",
+    claim: "opus claim",
+    evidence_locator: "e/opus",
+    violated_anchor: "AC-4",
+    affected_scope: ["src/store.ts"],
+    attempt: 1,
+  };
+  const provider = allAnswering({ opus: resultFor(SEATS[0], { findings: [high] }) });
+  const outcome = runPanel(SEATS, deps({ provider, authors: ["anthropic/claude-opus-5"] }));
+  assert.deepEqual(roles(outcome.roles), { lead: "astra", supplementary: ["opus"] });
+  // Supplementary alone cannot block on its own — and cannot pass on its own
+  // either: until Lead rules, the finding holds the gate.
+  assert.equal(outcome.findings_gate.blocking_open, 1);
+  assert.equal(outcome.verdict, "blocked");
+  assert.deepEqual(roles(runPanel(SEATS, deps({ provider: allAnswering() })).roles), { lead: "astra", supplementary: [] });
 });
