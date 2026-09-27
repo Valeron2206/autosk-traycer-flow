@@ -58,7 +58,7 @@ async function repository(t) {
   await git(["commit", "--quiet", "-m", "base"]);
   const commit_oid = (await git(["rev-parse", "HEAD"])).stdout.trim();
   const tree_oid = (await git(["rev-parse", "HEAD^{tree}"])).stdout.trim();
-  const ref = stagingRef("e-1");
+  const ref = stagingRef("a916c907fd14e54bfb1f3591a573675ccb1fdfeb49a8875c3c10c6bc00c5fb37");
   await git(["update-ref", ref, commit_oid, ""]);
   // Outside the project on purpose: an index file left inside it is untracked
   // state that looks like somebody's work.

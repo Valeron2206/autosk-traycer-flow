@@ -20,12 +20,17 @@ import {
   attributable,
   cleanupStaging,
   createStaging,
+  epicRefKey,
   observeTarget,
   readRef,
   reflogDepth,
   stagingRef,
   swapTarget,
 } from "../src/host/staging-driver.mjs";
+
+// epicRefKey("0".repeat(64), "e-1"), spelled out so a broken derivation fails a
+// test rather than the module load; the golden-vector test checks the derivation.
+const EPIC_KEY = "a916c907fd14e54bfb1f3591a573675ccb1fdfeb49a8875c3c10c6bc00c5fb37";
 
 const execFileAsync = promisify(execFile);
 const code = (name) => (error) => error.code === name;
@@ -74,24 +79,24 @@ async function commitOnTop(git, root, { parent, file, content, message }) {
 
 test("the staging ref is private, and creating it twice at the same base is a retry", async (t) => {
   const { git, head } = await repository(t);
-  assert.equal(stagingRef("e-1"), "refs/autosk/epics/e-1/staging");
-  const created = await createStaging(git, { epicId: "e-1", base: head });
-  assert.deepEqual({ ...created }, { ref: "refs/autosk/epics/e-1/staging", oid: head, created: true });
+  assert.equal(stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/staging`);
+  const created = await createStaging(git, { epicRefKey: EPIC_KEY, base: head });
+  assert.deepEqual({ ...created }, { ref: `refs/autosk/epics/${EPIC_KEY}/staging`, oid: head, created: true });
   // A crash between creating the ref and recording it looks exactly like this.
-  const again = await createStaging(git, { epicId: "e-1", base: head });
+  const again = await createStaging(git, { epicRefKey: EPIC_KEY, base: head });
   assert.equal(again.created, false);
   assert.equal(await readRef(git, "refs/heads/main"), head);
   // And the ref is not a branch: nothing lists it as one.
-  const branches = (await git(["branch", "--list"])).stdout;
-  assert.ok(!branches.includes("e-1"), branches);
+  const branches = (await git(["for-each-ref", "--format=%(refname)", "refs/heads"])).stdout.trim().split("\n");
+  assert.deepEqual(branches, ["refs/heads/main"]);
 });
 
 test("a staging ref already at another commit is a conflict, not an overwrite", async (t) => {
   const { git, root, head } = await repository(t);
   const other = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "x\n", message: "other" });
-  await createStaging(git, { epicId: "e-1", base: other.oid });
-  await assert.rejects(() => createStaging(git, { epicId: "e-1", base: head }), code("cas_conflict"));
-  assert.equal(await readRef(git, stagingRef("e-1")), other.oid);
+  await createStaging(git, { epicRefKey: EPIC_KEY, base: other.oid });
+  await assert.rejects(() => createStaging(git, { epicRefKey: EPIC_KEY, base: head }), code("cas_conflict"));
+  assert.equal(await readRef(git, stagingRef(EPIC_KEY)), other.oid);
 });
 
 test("the compare-and-swap is git's, so a concurrent movement refuses the write", async (t) => {
@@ -203,20 +208,20 @@ test("a crash after the aggregate passed resumes into the swap with no model run
 test("cleanup removes the staging ref only while it holds what was recorded", async (t) => {
   const { git, root, head } = await repository(t);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
-  await createStaging(git, { epicId: "e-1", base: staged.oid });
+  await createStaging(git, { epicRefKey: EPIC_KEY, base: staged.oid });
   const moved = await commitOnTop(git, root, { parent: staged.oid, file: "c.txt", content: "late\n", message: "late" });
-  await git(["update-ref", stagingRef("e-1"), moved.oid, staged.oid]);
+  await git(["update-ref", stagingRef(EPIC_KEY), moved.oid, staged.oid]);
 
   // Deleting whatever is there would destroy the evidence in the one case worth
   // keeping.
-  const refused = await cleanupStaging(git, { epicId: "e-1", expectedOid: staged.oid });
+  const refused = await cleanupStaging(git, { epicRefKey: EPIC_KEY, expectedOid: staged.oid });
   assert.equal(refused.deleted, false);
   assert.equal(refused.reason, "staging_moved_after_pass");
-  assert.equal(await readRef(git, stagingRef("e-1")), moved.oid);
+  assert.equal(await readRef(git, stagingRef(EPIC_KEY)), moved.oid);
 
-  const removed = await cleanupStaging(git, { epicId: "e-1", expectedOid: moved.oid });
+  const removed = await cleanupStaging(git, { epicRefKey: EPIC_KEY, expectedOid: moved.oid });
   assert.equal(removed.deleted, true);
-  assert.equal(await readRef(git, stagingRef("e-1")), null);
+  assert.equal(await readRef(git, stagingRef(EPIC_KEY)), null);
 });
 
 test("a git that could not run is an environment failure, not a product refusal", async (t) => {
@@ -280,8 +285,8 @@ test("a containment question git could not answer is an environment failure", as
   assert.ok(staged.oid);
 });
 
-test("an Epic id that is not a single ref component is refused", () => {
-  for (const bad of ["", "../escape", "a/b", "e 1", "-lead"]) {
+test("a name that is not an Epic ref key is refused", () => {
+  for (const bad of ["", "../escape", "a/b", "e 1", "-lead", "e-1"]) {
     assert.throws(() => stagingRef(bad), code("cas_conflict"), bad);
   }
 });
@@ -291,7 +296,7 @@ function state({ head, staged }) {
   const base = {
     project_identity: `sha256:${"0".repeat(58)}`,
     epic_id: "e-1",
-    staging_ref: stagingRef("e-1"),
+    staging_ref: stagingRef(EPIC_KEY),
     target_ref: "refs/heads/main",
     recorded_target_base: head,
     planning_head: head,
@@ -322,3 +327,24 @@ function state({ head, staged }) {
 }
 
 const { aggregateBinding: aggregateBindingOf } = await import("../src/host/epic-staging.mjs");
+
+test("the staging ref is named by epic_ref_key, the same key the planning ref uses", async () => {
+  // Round 6 of #39 (R6-1): the driver built the name from the raw Epic id,
+  // while 01 §7 and epic-staging.md require the domain-separated key. The golden
+  // vector is the planning-publication example, whose validator derives it.
+  const { epicRefKey } = await import("../src/host/staging-driver.mjs");
+  const example = JSON.parse(await readFile(new URL("../resources/planning-publication/publish-artifact-pass-operation.example.json", import.meta.url), "utf8"));
+  const key = epicRefKey(example.project_root_sha256, example.epic_id);
+  assert.equal(key, example.epic_ref_key);
+  assert.equal(stagingRef(key), `refs/autosk/epics/${key}/staging`);
+  // Another project with the same Epic id is another key.
+  assert.notEqual(epicRefKey("b".repeat(64), example.epic_id), key);
+  for (const bad of ["e-1", "epic-0001", key.toUpperCase(), key.slice(1), `${key}0`]) {
+    assert.throws(() => stagingRef(bad), code("cas_conflict"), bad);
+  }
+  assert.equal(epicRefKey("0".repeat(64), "e-1"), EPIC_KEY);
+  assert.throws(() => epicRefKey("not-a-digest", example.epic_id), code("cas_conflict"));
+  for (const epicId of ["", undefined, 7, null]) {
+    assert.throws(() => epicRefKey("0".repeat(64), epicId), code("cas_conflict"), String(epicId));
+  }
+});

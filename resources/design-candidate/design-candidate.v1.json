@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "ed9072776563dc1aa5bedcc90077ff253dc64160f37d393e0cbce4239c038f8d"
+      "sha256": "63fcfb1f7ac8e082033c24071c877a3add0a16906e076ad841d24d39aec6b12b"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "0ba9184bc57bedf3904b85d4f5d688bf5e52ef811746059f514e187f9306a39d"
+      "sha256": "333044654208c724172efcda72c0c0fbfc8dbcd541d6fe016ceb7853b36e52a2"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -368,11 +368,11 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.example.json",
-      "sha256": "a586c57af83587c1a0149961b5e2894297042a61b8691d665b2d8bd7d7715883"
+      "sha256": "1c9397eef5427d384dd847f6f618ab162543c12ce7930e86b1fc32f6c540c684"
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
-      "sha256": "32f3153b40b63e4ed3ab985aecbdda0a3849917797da240debf84667ab25ea0b"
+      "sha256": "6ff1663f3d4d4dd85939d749305c61db39fd7fd14113d9bf7943119f4e5328fc"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "143da4d0f316eadcf30036a1f614a16fefb36e9832b817d4a62ceac0407fe1a6",
+  "candidate_digest": "4dc8e0dcf9037915b79fe28e156ed0ac79eeb51aef663bae212c6eb38a4f1dda",
   "dispositions": [
     {
       "issue": 3,

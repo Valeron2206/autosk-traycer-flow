@@ -32,7 +32,7 @@ function state(overrides = {}) {
     schema_version: 1,
     project_identity: "sha256:" + "0".repeat(58),
     epic_id: "epic-store-lock",
-    staging_ref: "refs/autosk/epics/epic-store-lock/staging",
+    staging_ref: "refs/autosk/epics/99c55ae33e0e1f6a1c0edc3c39ba418dc23542a2b8a32e635ddb5e394539e6bd/staging", // epicRefKey("0".repeat(64), "epic-store-lock")
     target_ref: "refs/heads/main",
     recorded_target_base: oid("a"),
     planning_head: oid("b"),

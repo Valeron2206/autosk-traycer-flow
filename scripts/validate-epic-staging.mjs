@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { epicRefKey } from "../src/host/staging-driver.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -79,8 +80,10 @@ export function validateStaging(state, schema) {
   const at = phaseIndex(state.phase);
   const reached = (phase) => at >= phaseIndex(phase);
 
-  if (!state.staging_ref.includes(`/${state.epic_id}/`)) {
-    errors.push(`staging_ref is not this Epic's: ${state.staging_ref} does not name ${state.epic_id}`);
+  // Named by the Epic ref key, never by the display id (ADR-087): the key binds
+  // the project too, so two projects' Epics called alike never share a ref.
+  if (state.staging_ref !== `refs/autosk/epics/${epicRefKey(state.project_root_sha256, state.epic_id)}/staging`) {
+    errors.push(`staging_ref is not this Epic's: ${state.staging_ref} is not named by the key of ${state.epic_id} in this project`);
   }
 
   const ticketIds = state.receipts.map((receipt) => receipt.ticket_id);
