@@ -249,13 +249,18 @@ test("a later phase requires the records the earlier ones produced", () => {
   );
 });
 
-test("the staging ref belongs to this Epic", () => {
-  assertRejects(
-    mutated((value) => {
-      value.staging_ref = "refs/autosk/epics/epic-0002/staging";
-    }),
-    /staging_ref is not this Epic's/u,
-  );
+test("the staging ref belongs to this Epic", async () => {
+  const { epicRefKey } = await import("../src/host/staging-driver.mjs");
+  // Another Epic's key, and this Epic's key in another project: both are
+  // well-formed names, and neither is this record's.
+  for (const key of [epicRefKey("0".repeat(64), "epic-0002"), epicRefKey("1".repeat(64), "epic-0001")]) {
+    assertRejects(
+      mutated((value) => {
+        value.staging_ref = `refs/autosk/epics/${key}/staging`;
+      }),
+      /staging_ref is not this Epic's/u,
+    );
+  }
 });
 
 test("a Ticket has one integration receipt", () => {
@@ -279,4 +284,14 @@ test("the design digest changes when any shipped file changes", () => {
   const before = epicStagingDesignDigest(files);
   const after = epicStagingDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
+});
+
+test("the staging ref in a record is named by a 64-hex epic_ref_key, never a display id", async () => {
+  const { readFileSync } = await import("node:fs");
+  const schema = JSON.parse(readFileSync(new URL("../resources/epic-staging/epic-staging.schema.json", import.meta.url), "utf8"));
+  const pattern = new RegExp(schema.properties.staging_ref.pattern, "u");
+  assert.equal(pattern.test("refs/autosk/epics/epic-0001/staging"), false);
+  assert.equal(pattern.test(`refs/autosk/epics/${"a".repeat(64)}/staging`), true);
+  const example = JSON.parse(readFileSync(new URL("../resources/epic-staging/epic-staging.example.json", import.meta.url), "utf8"));
+  assert.equal(pattern.test(example.staging_ref), true);
 });

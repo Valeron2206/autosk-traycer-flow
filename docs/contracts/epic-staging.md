@@ -12,7 +12,7 @@ Approved Tickets accumulate on a private per-Epic ref, and the user's target bra
 refs/autosk/epics/<epic_ref_key>/staging
 ```
 
-`epic_ref_key` is the same domain-separated SHA-256 of `{epic_id, project_root_sha256}` that keys every other ref under this helper-owned prefix — not a display id and not a user slug. One namespace with two naming conventions would leave the integration-critical ref with no project binding and no guarantee that the name is a legal ref at all.
+`epic_ref_key` is the same domain-separated SHA-256 of `{epic_id, project_root_sha256}` that keys every other ref under this helper-owned prefix — not a display id and not a user slug. The staging record carries `project_root_sha256` beside `epic_id` so the name can be derived and checked rather than asserted, and `epicRefKey` in `src/host/staging-driver.mjs` is the one derivation the driver and the validator use (ADR-087). One namespace with two naming conventions would leave the integration-critical ref with no project binding and no guarantee that the name is a legal ref at all.
 
 ```text
 planning_head

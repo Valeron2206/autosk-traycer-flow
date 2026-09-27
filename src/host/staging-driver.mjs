@@ -11,13 +11,34 @@
  * decided: the driver produces observations and performs writes, and the guards
  * say what they mean.
  */
+import { createHash } from 'node:crypto';
+
 import { demand, immutable } from '../runtime/contracts.mjs';
 
-/** The private ref an Epic accumulates on. Never a branch the user can see. */
-export function stagingRef(epicId) {
-  demand(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(epicId ?? ''), 'cas_conflict',
-    'An Epic id has to be a single ref component', { epic_id: epicId });
-  return `refs/autosk/epics/${epicId}/staging`;
+/**
+ * The key an Epic's private refs are named by: the domain-separated SHA-256 of
+ * the canonical `{epic_id, project_root_sha256}`, in lowercase hex. It is the
+ * derivation `docs/contracts/epic-planning-ref.md` gives the planning ref, so
+ * the planning and staging refs of one Epic sit under one name, and two
+ * projects that both call an Epic `e-1` never share one. The expected-old CAS
+ * compares the ref name byte for byte, which is why the spelling is fixed here.
+ */
+export function epicRefKey(projectRootSha256, epicId) {
+  demand(/^[0-9a-f]{64}$/u.test(projectRootSha256 ?? '') && typeof epicId === 'string' && epicId.length > 0,
+    'cas_conflict', 'An Epic ref key needs a project root digest and an Epic id',
+    { project_root_sha256: projectRootSha256, epic_id: epicId });
+  const canonical = `{"epic_id":${JSON.stringify(epicId)},"project_root_sha256":${JSON.stringify(projectRootSha256)}}`;
+  return createHash('sha256').update(`autosk-flow/epic-ref-key/v1\0${canonical}`, 'utf8').digest('hex');
+}
+
+/**
+ * The private ref an Epic accumulates on. Never a branch the user can see, and
+ * never named by a display id: only an `epicRefKey` names it.
+ */
+export function stagingRef(key) {
+  demand(/^[0-9a-f]{64}$/u.test(key ?? ''), 'cas_conflict',
+    'A staging ref is named by the Epic ref key, 64 lowercase hex characters', { epic_ref_key: key });
+  return `refs/autosk/epics/${key}/staging`;
 }
 
 /**
@@ -56,8 +77,8 @@ export async function reflogDepth(git, ref) {
  * two Epics racing to create the same staging ref is a conflict git reports
  * rather than a window this code has to reason about.
  */
-export async function createStaging(git, { epicId, base }) {
-  const ref = stagingRef(epicId);
+export async function createStaging(git, { epicRefKey: key, base }) {
+  const ref = stagingRef(key);
   // `--create-reflog` because git keeps reflogs only for refs under
   // `refs/heads`, `refs/remotes`, `refs/notes` and HEAD. A staging ref with no
   // reflog cannot answer the one question the post-CAS check asks it — whether
@@ -155,8 +176,8 @@ export async function swapTarget(git, { ref, expectedOld, newOid }) {
  * Cleanup that deletes whatever is there would destroy the evidence in exactly
  * the case worth keeping: a staging ref that moved after the aggregate passed.
  */
-export async function cleanupStaging(git, { epicId, expectedOid }) {
-  const ref = stagingRef(epicId);
+export async function cleanupStaging(git, { epicRefKey: key, expectedOid }) {
+  const ref = stagingRef(key);
   const result = await git(['update-ref', '-d', ref, expectedOid]);
   if (result.code === 0) return Object.freeze({ ref, deleted: true });
   const held = await readRef(git, ref);

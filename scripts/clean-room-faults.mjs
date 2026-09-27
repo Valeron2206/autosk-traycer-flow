@@ -23,6 +23,7 @@ import { promisify } from 'node:util';
 
 import { collisionErrors, environmentErrors, refMovementErrors } from '../src/host/approved-delta.mjs';
 import { aggregateBinding, casAdmission, postCasErrors, resumePlan } from '../src/host/epic-staging.mjs';
+import { epicRefKey, stagingRef } from '../src/host/staging-driver.mjs';
 import { batchSufficiencyErrors } from '../src/host/work-type-gates.mjs';
 import { classifyExit, dispatchOutcome, waitExceeded } from '../src/host/provider-preflight.mjs';
 import { locationErrors } from '../src/host/source-snapshot.mjs';
@@ -32,7 +33,9 @@ const execFileAsync = promisify(execFile);
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const STAGING_REF = 'refs/autosk/epics/clean-room/staging';
+// Named by the Epic ref key, as every private Epic ref is (ADR-087).
+const CLEAN_ROOM_KEY = epicRefKey('0'.repeat(64), 'clean-room');
+const STAGING_REF = stagingRef(CLEAN_ROOM_KEY);
 
 const git = (cwd, ...args) =>
   execFileAsync('git', args, {
@@ -421,8 +424,8 @@ function acceptedState({ head, staging }) {
 
 
 /** The planning ref a publication advances, and its keepalive. */
-const PLANNING_REF = 'refs/autosk/epics/clean-room/planning';
-const KEEPALIVE_REF = 'refs/autosk/epics/clean-room/candidate';
+const PLANNING_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/planning`;
+const KEEPALIVE_REF = `refs/autosk/epics/${CLEAN_ROOM_KEY}/candidate`;
 
 /**
  * A real planning ref with a real candidate keepalive.
@@ -562,7 +565,7 @@ async function f019(root) {
  */
 async function f020(root) {
   const { repo, head } = await planningRepo(root, 'f020');
-  const audit = 'refs/autosk/epics/clean-room/audit';
+  const audit = `refs/autosk/epics/${CLEAN_ROOM_KEY}/audit`;
   await git(repo, 'update-ref', '--create-reflog', audit, head);
   const bothPresent = (await refState(repo, audit, head)) && (await refState(repo, KEEPALIVE_REF, head));
   const decision = publicationDecision({

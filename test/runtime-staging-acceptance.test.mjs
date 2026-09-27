@@ -29,7 +29,7 @@ function state(overrides = {}) {
   const base = {
     project_identity: `sha256:${"0".repeat(58)}`,
     epic_id: "e-1",
-    staging_ref: "refs/autosk/epics/e-1/staging",
+    staging_ref: `refs/autosk/epics/${"1".repeat(64)}/staging`,
     target_ref: "refs/heads/main",
     recorded_target_base: oid("a"),
     planning_head: oid("a"),

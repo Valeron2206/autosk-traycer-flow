@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
+  "project_root_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "epic_id": "epic-0001",
-  "staging_ref": "refs/autosk/epics/epic-0001/staging",
+  "staging_ref": "refs/autosk/epics/a62f22532b4d49b96689324a7706a9bc5192f9211454d90d55e1ecf1cea3c759/staging",
   "target_ref": "refs/heads/main",
   "recorded_target_base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "planning_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

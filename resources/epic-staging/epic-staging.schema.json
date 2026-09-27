@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "project_root_sha256",
     "epic_id",
     "staging_ref",
     "target_ref",
@@ -25,9 +26,13 @@
       "type": "string",
       "minLength": 1
     },
+    "project_root_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "staging_ref": {
       "type": "string",
-      "pattern": "^refs/autosk/epics/[^/]+/staging$"
+      "pattern": "^refs/autosk/epics/[0-9a-f]{64}/staging$"
     },
     "target_ref": {
       "type": "string",
