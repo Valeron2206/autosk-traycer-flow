@@ -285,14 +285,17 @@ export function producerErrors(vocabulary, sources, produced) {
         }
       }
     } else {
-      // `daemon`: parked by the pinned daemon. `none`: declared by the design and
-      // produced by nothing yet, an implementation obligation. Neither names
-      // files, and runtime code in this repository that produces the code
-      // contradicts both.
+      // `daemon` and `none` are declared ownership, not measured: the design
+      // gives the decision to the daemon side, or to a host component that does
+      // not exist yet. Neither names files, and runtime code in this repository
+      // that produces the code contradicts both; nothing here confirms either
+      // against the patch series.
       if (entry.producer_files.length > 0) {
         errors.push({ reason: "refusal_vocabulary_producer_misdeclared", detail: `${entry.code} is ${entry.producer}-produced and names files` });
       }
-      const producing = emitters === undefined ? naming : [...emitters].sort();
+      // A record whose emitters are all scripts says nothing about runtime code,
+      // so the runtime text is still read rather than taken as silence.
+      const producing = emitters === undefined || emitters.size === 0 ? naming : [...emitters].sort();
       if (producing.length > 0) {
         errors.push({
           reason: "refusal_vocabulary_producer_misdeclared",

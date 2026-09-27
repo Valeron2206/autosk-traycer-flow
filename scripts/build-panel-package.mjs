@@ -650,10 +650,12 @@ is a recorded field, not an inference. Each entry in the vocabulary names it,
 and the validator refuses an entry with no owner, an entry naming a document
 that does not close it, and a name two contracts declare.
 
-${vocabulary.park_reasons.filter((entry) => entry.producer === 'host').length} are produced by runtime code in this repository;
-${vocabulary.park_reasons.filter((entry) => entry.producer === 'daemon').length} are parked by the daemon, which is delivered as the pinned
-patch series in section 1 and is not in the mutation table; and
+${vocabulary.park_reasons.filter((entry) => entry.producer === 'host').length} are produced by runtime code in this repository, checked by naming or by
+the recorded emitter. The rest are declared ownership, not measured:
+${vocabulary.park_reasons.filter((entry) => entry.producer === 'daemon').length} are declared the daemon's side, and
 ${vocabulary.park_reasons.filter((entry) => entry.producer === 'none').length} are declared by the design and produced by nothing yet (section 5).
+Runtime code that produced either kind would refute the declaration; nothing
+here checks either kind against the patch series in section 1.
 
 **Where each contract's rules are evaluated.** A closed rule set with nothing
 that runs it is a design obligation, not an implemented one, and the difference
@@ -933,11 +935,11 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   Section 4's refusal-class count is not that mapping either: it counts the
   classes named in the linked modules, which is a measurement over text and not
   a proof that any of them can be reached.
-- ${vocabulary.park_reasons.filter((entry) => entry.producer === 'none').length} park reasons have no producer in the host or in the pinned series
+${vocabulary.park_reasons.some((entry) => entry.producer === 'none') ? `- ${vocabulary.park_reasons.filter((entry) => entry.producer === 'none').length} park reasons are declared with no producer yet
   (\`producer: none\` in the vocabulary): ${vocabulary.park_reasons.filter((entry) => entry.producer === 'none').map((entry) => '\`' + entry.code + '\`').join(', ')}.
   They are implementation obligations. A script that validates a contract
   document may list them, and that is not production.
-- \`npm test\` is reported as a pass/fail total with no coverage figure. Read it
+` : ''}- \`npm test\` is reported as a pass/fail total with no coverage figure. Read it
   as "the suite is green", not as "the suite is adequate".
 - No deployment to real users has been performed, and none is claimed.`);
 

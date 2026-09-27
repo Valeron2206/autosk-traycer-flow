@@ -425,6 +425,11 @@ test("a reason nothing produces yet is declared none, and none is contradicted b
   // A measured class whose recorded emitters are all scripts is none, not host.
   const byScript = { measured: new Set(["probe_code"]), emitters: new Map([["probe_code", new Set(["scripts/clean-room-faults.mjs"])]]) };
   assert.deepEqual(producerErrors({ park_reasons: [none] }, {}, byScript), []);
+  // ...but a script-only record does not silence runtime code that names it.
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [none] }, { "src/host/a.mjs": "'probe_code'" }, byScript)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
   assert.ok(
     reasons(producerErrors({ park_reasons: [{ ...base, producer: "host", producer_files: ["scripts/clean-room-faults.mjs"] }] }, {}, byScript))
       .includes("refusal_vocabulary_producer_misdeclared"),

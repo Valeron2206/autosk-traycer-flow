@@ -1540,6 +1540,7 @@ test("a park reason nothing produces is named as not claimed, not counted as del
   for (const entry of none) assert.ok(text.includes(`\`${entry.code}\``), `${entry.code} is not named in the package`);
   const host = vocabulary.park_reasons.filter((entry) => entry.producer === "host").length;
   assert.match(text, new RegExp(`${host} are produced by runtime code in this repository`, "u"));
+  assert.doesNotMatch(text, /delivered as the pinned\s*patch series/u);
   const counted = await build({ vocabulary: { ...vocabulary, park_reasons: vocabulary.park_reasons.map((entry) => ({ ...entry, producer: entry.producer === "none" ? "host" : entry.producer })) } });
-  assert.doesNotMatch(counted.text, /produced by nothing yet \(section 5\)[\s\S]*have no producer in the host or in the pinned series\s*\n\s*\(`producer: none` in the vocabulary\): `/u);
+  assert.doesNotMatch(counted.text, /are declared with no producer yet/u);
 });
