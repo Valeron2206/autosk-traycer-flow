@@ -763,7 +763,7 @@ test("every count quoted in normative prose recomputes to the number the sentenc
   const outOfScope = rows.find((row) => row.reason === "alignment_policy_out_of_scope");
 
   const daemonProduced = vocabulary.park_reasons.filter((entry) => entry.producer === "daemon");
-const noneProduced = vocabulary.park_reasons.filter((entry) => entry.producer === "none");
+  const noneProduced = vocabulary.park_reasons.filter((entry) => entry.producer === "none");
   const artifactClosed = vocabulary.park_reasons.filter((entry) => entry.closed_by.startsWith("docs/contracts/"));
 
   const graphLevelReasons = Object.keys(graph.graph_reasons);

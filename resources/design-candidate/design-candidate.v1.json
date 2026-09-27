@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "9bc5c343276322d6dabd236fd9a39f4549bc98af3a3e17056d9d651de9a4d029"
+      "sha256": "28e016b7b79b6e094265edee148470dff934781629e360f609e68e22c79a42a4"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "85e214617850573e5916f4c608d28a4d676f339695866704066d3aafe78d09ba",
+  "candidate_digest": "143da4d0f316eadcf30036a1f614a16fefb36e9832b817d4a62ceac0407fe1a6",
   "dispositions": [
     {
       "issue": 3,
