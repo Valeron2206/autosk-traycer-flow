@@ -40,6 +40,12 @@ async function attempt(fn) {
   }
 }
 
+/** What `stat` of a signer endpoint says when there is nothing at the path. */
+const SIGNER_ENDPOINT_MISSING = new Set(['ENOENT', 'ENOTDIR']);
+
+/** What it says when the path is refused to this process: observed separation. */
+const SIGNER_ENDPOINT_DENIED = new Set(['EACCES', 'EPERM']);
+
 /**
  * The check registry.
  *
@@ -312,10 +318,11 @@ export function checkRegistry(env) {
         // read-only probe can answer honestly.
         //
         // It does NOT claim to prove isolation. A pass means the declared
-        // endpoint was not reachable from here and the daemon reports a
-        // distinct signer identity; it does not mean no path exists. Saying
-        // more than that would be the overclaim the boundary is meant to
-        // prevent.
+        // endpoint was refused to this process and the daemon reports a
+        // distinct signer identity; it does not mean no path exists, and the
+        // probe runs in the doctor's process, not in the model's sandbox.
+        // Saying more than that would be the overclaim the boundary is meant
+        // to prevent.
         const endpoint = env.signerEndpoint;
         if (!endpoint) {
           return {
@@ -328,24 +335,46 @@ export function checkRegistry(env) {
             provenance: fast(),
           };
         }
-        const reachable = await attempt(() => env.stat(endpoint));
+        const probe = await attempt(() => env.stat(endpoint));
+        const probeError = probe.ok ? '' : String(probe.error);
+        // Only a refusal is an observation of separation. A path that is not
+        // there separates nothing — a mistyped endpoint used to pass here — and
+        // any other error says nothing either way (debt 10d, R6-12).
+        const missing = SIGNER_ENDPOINT_MISSING.has(probeError);
+        const denied = SIGNER_ENDPOINT_DENIED.has(probeError);
         const identity = await attempt(() => env.signerIdentity());
         const distinct = identity.ok && identity.value?.same_process === false;
+        const evidence = {
+          declared: true,
+          reachable_from_here: probe.ok,
+          probe_error: probeError,
+          signer_identity_distinct: distinct,
+        };
+        if (probe.ok || missing) {
+          return {
+            status: 'fail',
+            evidence,
+            remediation: probe.ok
+              ? 'The signer endpoint is reachable from the process a model runs in; move it behind a separate OS boundary.'
+              : 'The declared signer endpoint does not exist; a missing endpoint is not a boundary. Declare the endpoint the signer actually serves.',
+            provenance: fast(),
+          };
+        }
+        if (!denied) {
+          return {
+            status: 'unverifiable',
+            unverifiable_reason: `probing the declared endpoint failed with ${probeError}, which neither shows nor rules out a boundary`,
+            evidence,
+            provenance: fast(),
+          };
+        }
         return {
-          status: !reachable.ok && distinct ? 'pass' : reachable.ok ? 'fail' : 'unverifiable',
-          ...(!reachable.ok && !distinct
-            ? { unverifiable_reason: 'the daemon reported no signer identity, so the boundary could not be confirmed' }
-            : {}),
-          evidence: {
-            declared: true,
-            reachable_from_here: reachable.ok,
-            signer_identity_distinct: distinct,
-          },
-          remediation: reachable.ok
-            ? 'The signer endpoint is reachable from the process a model runs in; move it behind a separate OS boundary.'
-            : distinct
-              ? undefined
-              : 'The daemon did not report a signer identity distinct from this process.',
+          status: distinct ? 'pass' : 'unverifiable',
+          ...(distinct
+            ? {}
+            : { unverifiable_reason: 'the daemon reported no signer identity, so the boundary could not be confirmed' }),
+          evidence,
+          remediation: distinct ? undefined : 'The daemon did not report a signer identity distinct from this process.',
           provenance: fast(),
         };
       },

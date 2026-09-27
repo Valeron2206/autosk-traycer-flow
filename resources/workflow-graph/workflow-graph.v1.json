@@ -36,6 +36,40 @@
       "reason": "First step of registered workflow autosk-contest-seat."
     }
   ],
+  "workflows": [
+    {
+      "name": "autosk-planned",
+      "first_step": "intake"
+    },
+    {
+      "name": "autosk-quick",
+      "first_step": "intake"
+    },
+    {
+      "name": "autosk-ticket",
+      "first_step": "implement"
+    },
+    {
+      "name": "autosk-code-review",
+      "first_step": "review_candidate"
+    },
+    {
+      "name": "autosk-panel-seat",
+      "first_step": "review_artifact"
+    },
+    {
+      "name": "autosk-contest-seat",
+      "first_step": "review_disposition"
+    },
+    {
+      "name": "autosk-arena-candidate",
+      "first_step": "build_candidate"
+    },
+    {
+      "name": "autosk-arena-judge",
+      "first_step": "judge"
+    }
+  ],
   "graph_reasons": {
     "transition_not_declared": "transition_not_declared",
     "resume_target_not_permitted": "resume_target_not_permitted"
@@ -18180,7 +18214,7 @@
       ]
     }
   ],
-  "canonical_digest": "1a5f2aaf0e32bb3f6528da79a077bbb840162342850443a4de680081ad3cd20d",
+  "canonical_digest": "2c02c208f7b226ed45807780e8dcbe8f575d3692f15f1a30ce6fe29765febadb",
   "external_operations": [
     {
       "status": "cancel",

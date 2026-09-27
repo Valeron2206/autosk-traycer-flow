@@ -883,6 +883,15 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   methods — so the preflight refuses every daemon today, including the one this series builds;
   nothing calls it before a model launch yet. All of this is implementation work
   under #40, not a delivered capability.
+- The signer boundary is not established on any host. \`security.signer_boundary\`
+  passes only when the declared endpoint is refused to the probing process and
+  the daemon reports a signer identity outside it; no daemon of the series
+  reports one (its \`meta.capabilities\` names only \`task.creation-binding\`),
+  so the check never passes and every model workflow's preflight set is
+  unsatisfied. The workflow preflight is keyed by the graph's eight
+  \`workflows[]\` and requires the boundary of each; its required sets' one
+  caller outside tests is \`autosk-flow doctor --workflow\`, and nothing calls
+  the preflight before a model launch yet (ADR-090, #40).
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries

@@ -7,6 +7,9 @@
  * It writes nothing into the project. `--out` is accepted, and refused when the
  * path is inside the project tree: a diagnosis that modifies what it diagnoses
  * is the one thing this command must not do.
+ *
+ * `--workflow <name>` holds the report to the set the workflow preflight
+ * requires of that registered workflow, by its name in the graph.
  */
 
 import { createHash } from 'node:crypto';
@@ -19,6 +22,8 @@ import { promisify } from 'node:util';
 
 import { buildReport, readiness, unverifiableCount } from '../src/host/doctor.mjs';
 import { runChecks } from '../src/host/doctor-checks.mjs';
+import { requiredFor } from '../src/host/workflow-preflight.mjs';
+import { demand } from '../src/runtime/contracts.mjs';
 
 const execFileAsync = promisify(execFile);
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,10 +47,12 @@ export function hostEnv({ root = ROOT, nowMs = () => Date.now() } = {}) {
     signerEndpoint: process.env.AUTOSK_SIGNER_SOCK ?? null,
     signerIdentity: async () => {
       // The daemon is the only thing that can say whether the signer runs
-      // outside this process. Absent an answer, the check stays unverifiable.
-      const reported = process.env.AUTOSK_SIGNER_SAME_PROCESS;
-      if (reported === undefined) throw new Error('the daemon reported no signer identity');
-      return { same_process: reported !== '0' };
+      // outside the process a model runs in, and the pinned daemon does not
+      // say: its `meta.capabilities` (patches 0013, 0028) names only
+      // `task.creation-binding`, and no patch carries a signer (ADR-023,
+      // #40). An operator variable stood in for that report until debt 10d
+      // (R6-10); nothing does now, so the check cannot pass on this host.
+      throw new Error('the pinned daemon reports no signer identity: meta.capabilities names no signer capability');
     },
     join: (...parts) => path.join(...parts),
     readFile: (relative) => readFile(path.isAbsolute(relative) ? relative : resolve(relative), 'utf8'),
@@ -97,16 +104,42 @@ export async function generateReport(env) {
   });
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = { out: '', require: [], json: false };
+  // An option that takes a value refuses to go without one: `--workflow` with
+  // nothing after it once left the gate off while the run still exited 0.
+  const value = (i, arg) => {
+    const next = argv[i];
+    if (next === undefined || next === '' || next.startsWith('--')) throw new Error(`${arg} needs a value`);
+    return next;
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--json') options.json = true;
-    else if (arg === '--out') options.out = argv[++i] ?? '';
-    else if (arg === '--require') options.require = (argv[++i] ?? '').split(',').filter(Boolean);
+    else if (arg === '--out') options.out = value(++i, arg);
+    else if (arg === '--require') {
+      options.require = value(++i, arg).split(',').filter(Boolean);
+      if (options.require.length === 0) throw new Error(`${arg} needs a value`);
+    } else if (arg === '--workflow') options.workflow = value(++i, arg);
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;
+}
+
+/** The graph document whose registered workflows the gate is keyed by. */
+export const GRAPH_PATH = 'resources/workflow-graph/workflow-graph.v1.json';
+
+/**
+ * The checks to hold the report to: a workflow's dispatch set, asked of the
+ * workflow preflight by the workflow's graph name, plus any named with
+ * `--require`. Doctor does not keep a second copy of who needs what.
+ */
+export async function requiredSet(env, { workflow, require }) {
+  if (workflow === undefined) return [...require];
+  demand(typeof workflow === 'string' && workflow !== '', 'doctor_required_set_unsatisfied',
+    'A workflow was named without a name', { workflow });
+  const graph = JSON.parse(await env.readFile(GRAPH_PATH));
+  return [...new Set([...requiredFor(graph, workflow), ...require])];
 }
 
 function human(report, required) {
@@ -127,6 +160,7 @@ function human(report, required) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   const env = hostEnv();
+  const required = await requiredSet(env, options);
   const report = await generateReport(env);
   if (options.out) {
     const target = path.resolve(options.out);
@@ -137,10 +171,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       await writeFile(target, `${JSON.stringify(report, null, 2)}\n`);
     }
   }
-  console.log(options.json ? JSON.stringify(report, null, 2) : human(report, options.require));
+  console.log(options.json ? JSON.stringify(report, null, 2) : human(report, required));
   if (process.exitCode === undefined) {
-    const { ready } = options.require.length > 0
-      ? readiness(report, options.require, Date.now())
+    const { ready } = required.length > 0
+      ? readiness(report, required, Date.now())
       : { ready: report.status !== 'fail' };
     process.exitCode = ready ? 0 : 1;
   }

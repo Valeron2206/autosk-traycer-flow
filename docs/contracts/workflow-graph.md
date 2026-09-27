@@ -28,6 +28,7 @@ A workflow graph is one JSON document. Every field is closed: an unknown field, 
 | --- | --- | --- |
 | Steps | `steps[]` | The states the flow can be at. A step is `agent`, which runs and declares which hooks it has, or `status`, which drives a task status and runs nothing. |
 | Entries | `first_step`, `entry_steps[]` | Where the graph may be entered. `first_step` is mandatory and is the only entry a single-workflow graph needs; `entry_steps` names the rest, each with the reason it is entered. |
+| Workflows | `workflows[]` | Optional: the registered workflows this graph is the document of, each by name with the step it starts at. The workflow preflight (`src/host/workflow-preflight.mjs`) keys its required sets by these names and derives from the steps each reaches whether it runs a model (ADR-090). |
 | Transitions | `transitions[]` | The edges. Each names `from`, `to`, a `priority` and the guards bound to it. |
 | Guards | `guards[]`, referenced by id | The conditions. A guard names a predicate from a closed enumeration and the authority entitled to satisfy it. |
 | Caps | `caps[]` | The bound on a named cycle, counted by the taking of one named transition. |
@@ -41,7 +42,7 @@ Two design choices are load-bearing and are recorded here rather than left to a 
 
 **Predicates are enumerated, not expressed.** An expression language would need its own specification, its own parser and its own mutation coverage, and the cost of an error in it is a silently permitted transition. A guard names a predicate id and the enumeration says what state that predicate reads.
 
-**A graph has as many entries as it is entered ways.** Reachability is judged from `first_step` together with every `entry_steps[].step`, and a step reachable from none of them is refused as orphaned. One entry was assumed when this contract was written; the autosk-flow graph registers eight workflows, six of which start somewhere other than `first_step`, and its daemon also enters two repair steps out of band. Measured from `first_step` alone, thirteen live steps read as dead, so each entry states the reason it is entered and an entry naming an undeclared step is refused with `graph_entry_step_unknown`.
+**A graph has as many entries as it is entered ways.** Reachability is judged from `first_step` together with every `entry_steps[].step`, and a step reachable from none of them is refused as orphaned. One entry was assumed when this contract was written; the autosk-flow graph registers eight workflows, six of which start somewhere other than `first_step`, and its daemon also enters two repair steps out of band. Measured from `first_step` alone, thirteen live steps read as dead, so each entry states the reason it is entered and an entry naming an undeclared step is refused with `graph_entry_step_unknown`. `workflows[]`, when present, is held to the entries under the same code: each workflow starts at a declared step where the graph is entered, every entry whose reason reads `First step of registered workflow <name>.` names a listed workflow starting there, and `first_step` starts at least one of them; a name listed twice is `graph_duplicate_name`. The shipped document lists the eight workflows of technical plan §2, `autosk-planned` and `autosk-quick` both at `intake`.
 
 ## 4. Canonical serialization
 
