@@ -93,7 +93,7 @@ export function epicSteps(plan = read("03-technical-plan.md"), graph = shipped()
 
 /**
  * The Epic's integration segment, from where the execution chain starts to
- * acceptance: select_next, where an aggregate NOT_PASS returns the Epic, the
+ * acceptance: select_next, which also opens the aggregate remediation, the
  * Ticket DAG and its join, the private staging, the aggregate and its
  * remediation, and acceptance itself.
  */
@@ -868,6 +868,239 @@ test("the graph contracts and the validator cite only ids the document declares"
     }
   }
   assert.deepEqual([...new Set(cited)], []);
+});
+
+// --- debt 10b: one Epic integration model (ADR-088) ----------------------------
+
+test("a foreign target movement resumes into apply_staging on a recorded re-stage decision", () => {
+  // R6-4. The movement is not this Epic's, so it is never overwritten; the
+  // user may decide to re-stage onto it: the new base is recorded, every
+  // approved delta is revalidated against it, and prior PASS and acceptance
+  // are void. The edge mirrors target_moved's resume, and a person decides.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "foreign_target_movement");
+  assert.deepEqual([...row.resume_targets].sort(), ["apply_staging", "human"]);
+  const [back] = edgeReads(graph, "integrate_staging", "apply_staging", "foreign_target_movement");
+  assert.ok(back, "integrate_staging declares the foreign_target_movement resume edge into apply_staging");
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  assert.ok(back.edge.guards.every((id) => guards.get(id).authority.actor === "human"), "the re-stage is a person's decision");
+  for (const token of ["recorded_target_base", "resume_intent", "approved_deltas"]) {
+    assert.ok(back.reads.has(token), `the resume edge does not read ${token}`);
+  }
+  assert.match(back.says, /delta_stale/u);
+  assert.match(back.says, /void/u);
+  // Both re-stages put one receipted planning replay commit on the new base
+  // before the deltas, so the rebuilt staging still carries the planning
+  // artifacts while the planning ref itself is untouched.
+  const [moved] = edgeReads(graph, "integrate_staging", "apply_staging", "target_moved");
+  for (const resume of [back, moved]) {
+    assert.match(resume.says, /planning replay commit под receipt/u);
+    assert.ok(resume.reads.has("planning"), "the re-stage resume does not read the planning state");
+  }
+  assert.match(row.required_state, /apply_staging/u);
+  // 03 section 2 carries the row the edge is drawn from.
+  const plan = read("03-technical-plan.md");
+  assert.ok(plan.split("\n").some((line) => line.startsWith("| integrate_staging | resume --to apply_staging под park.reason=foreign_target_movement")),
+    "03 section 2 has no foreign_target_movement resume row");
+});
+
+test("an aggregate NOT_PASS parks at human, and no competing edge with the same condition runs first", () => {
+  // a1 medium: t_370 (-> select_next) and t_371 (-> human, aggregate_verify_failed)
+  // carried one condition, so the lower-priority park was dead.
+  const graph = shipped();
+  assert.deepEqual(edgeReads(graph, "aggregate_verify", "select_next"), [], "aggregate_verify -> select_next is gone");
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const failing = graph.transitions.filter((edge) => edge.from === "aggregate_verify"
+    && edge.guards.some((id) => guards.get(id)?.park_reason === "aggregate_verify_failed"));
+  assert.deepEqual(failing.map((edge) => edge.to), ["human"]);
+});
+
+test("the prose says one integration model: who moves the target, what authorizes it, where staging starts", () => {
+  const section = (text, from, to) => text.slice(text.indexOf(from), to ? text.indexOf(to, text.indexOf(from)) : undefined);
+  // The record is always required for the Epic CAS, in every place that states it.
+  const authorization = read("docs/contracts/integration-authorization.md");
+  assert.match(section(authorization, "## 1.", "## 2."), /always required/u);
+  const flows = read("01-core-flows.md");
+  const seven = section(flows, "## 7. ", "## 8. ");
+  assert.match(seven, /IntegrationAuthorizationRecord` требуется всегда/u);
+  assert.ok(!/Пропустить эту остановку может только/u.test(seven), "01 section 7 still makes the record an optional skip");
+  // Staging is created at the verified planning_head, which descends from the
+  // recorded target base; the base stays the CAS expected old, and the final
+  // tree carries the planning artifacts (#9's criterion is not ours to change).
+  const staging = read("docs/contracts/epic-staging.md");
+  assert.ok(!/delivery profile's model/u.test(staging), "epic-staging still defers the staging base to a profile field that does not exist");
+  const one = section(staging, "## 1.", "## 2.");
+  assert.match(one, /first created at the verified `planning_head`, which descends from `planning\.base_oid`/u);
+  assert.match(one, /expected old value of the one target CAS is `recorded_target_base`/u);
+  assert.match(staging, /\| Planning artifacts and approved code are in the final staging tree \| §9 \|/u);
+  assert.match(seven, /созданному на verified `planning_head`, который происходит от `planning\.base_oid`[^\n]*или, после пересборки, на новой `recorded_target_base` с одним planning replay commit под receipt/u);
+  const planning = read("docs/contracts/epic-planning-ref.md");
+  const issue9 = planning.split("\n").find((line) => line.startsWith("- **Issue #9:**")) ?? "";
+  assert.match(issue9, /starts from the verified planning head/u);
+  assert.match(issue9, /`recorded_target_base`/u);
+  assert.match(issue9, /never change during an Epic/u);
+  // The daemon's integrateApproved is the only writer of the target ref.
+  for (const relative of ["02-architecture.md", "03-technical-plan.md", "docs/contracts/epic-staging.md", "src/host/staging-driver.mjs"]) {
+    assert.match(read(relative), /integrateApproved[^\n]*(?:единственн|only writer)/u, `${relative} does not say integrateApproved is the only writer`);
+  }
+});
+
+test("delivery completes on the accepted tree above the base, and a direct move on the move's own commit", () => {
+  // a1 high, R6-5. A squash or rebase merge never puts the exact staging
+  // commit on the target, so delivery completion reads the tree and the base.
+  const graph = shipped();
+  const [done] = edgeReads(graph, "deliver_staging", "cleanup");
+  assert.ok(!/exact accepted staging commit/u.test(done.says), "deliver_staging -> cleanup still requires the exact staging commit");
+  assert.match(done.says, /tree/u);
+  assert.match(done.says, /recorded target base/u);
+  assert.ok(done.reads.has("recorded_target_base"), "deliver_staging -> cleanup does not read recorded_target_base");
+  const [readBack] = edgeReads(graph, "verify_target", "cleanup");
+  assert.match(readBack.says, /squash/u);
+  const [cas] = edgeReads(graph, "integrate_staging", "verify_target");
+  assert.match(cas.says, /squash/u);
+});
+
+/** The text of a section, from its heading to the next one named. */
+const sectionOf = (text, from, to) => text.slice(text.indexOf(from), text.indexOf(to, text.indexOf(from)));
+
+// --- debt 10b review: the re-stage keeps the lineage, the PR path re-stages too ---
+
+test("a re-stage replays the planning change as one receipted commit, and the planning ref never moves", () => {
+  // Narrow re-review of e2a5225: republishing the planning ref contradicted
+  // epic-planning-ref §3/§4/§8/§9/§10. The planning ref stays untouched; the
+  // staging record's own recorded_target_base moves, and the rebuilt staging
+  // starts with exactly one planning replay commit bound by a receipt.
+  const graph = shipped();
+  const resumes = [
+    ...edgeReads(graph, "integrate_staging", "apply_staging", "target_moved"),
+    ...edgeReads(graph, "integrate_staging", "apply_staging", "foreign_target_movement"),
+    ...edgeReads(graph, "deliver_staging", "apply_staging", "completion_predicate_unmet"),
+  ];
+  assert.equal(resumes.length, 3);
+  for (const resume of resumes) {
+    assert.match(resume.says, /recorded_target_base := новый target/u, resume.edge.id);
+    assert.match(resume.says, /один planning replay commit под receipt/u, resume.edge.id);
+    assert.match(resume.says, /cleanupStaging/u, resume.edge.id);
+    assert.match(resume.says, /createStaging на новой base/u, resume.edge.id);
+    assert.match(resume.says, /каждая approved delta/u, resume.edge.id);
+  }
+  for (const reason of ["target_moved", "foreign_target_movement"]) {
+    assert.match(graph.recovery.find((row) => row.reason === reason).required_state, /planning replay commit/u, reason);
+  }
+  // No republication anywhere: the planning ref's base and head never change.
+  const everywhere = [
+    read("docs/contracts/epic-planning-ref.md"), read("docs/contracts/epic-staging.md"), read("01-core-flows.md"),
+    read("03-technical-plan.md"), read(DOCUMENT_PATH),
+  ].join("\n");
+  assert.ok(!/target_rebase|rebase_history|переопубликов/u.test(everywhere), "a planning-ref republication is still described");
+  assert.ok(!/### 10\.1/u.test(read("docs/contracts/epic-planning-ref.md")));
+  const staging = read("docs/contracts/epic-staging.md");
+  const one = sectionOf(staging, "## 1.", "## 2.");
+  assert.match(one, /`cleanupStaging`[^\n]*expected[^\n]*`createStaging`/u);
+  assert.match(one, /exactly one planning replay commit/u);
+  assert.match(one, /`planning\.base_oid` and `planning_head` never change during an Epic/u);
+  // The lineage rule names both starts.
+  const [onward] = edgeReads(graph, "apply_staging", "aggregate_verify");
+  assert.match(onward.says, /ровно один planning replay commit с receipt/u);
+});
+
+test("no 03 or graph text rebuilds staging on planning_head without the replay alternative", () => {
+  // Round-3 re-review M1: after a re-stage the line starts at the new
+  // recorded_target_base with one receipted planning replay commit, so a
+  // sentence that rebuilds "на planning_head" alone describes the first stage only.
+  const graph = shipped();
+  const texts = [
+    ...read("03-technical-plan.md").split("\n").map((line, index) => [`03:${index + 1}`, line]),
+    ...graph.predicates.map((entry) => [entry.id, entry.description]),
+    ...graph.recovery.map((row) => [`recovery ${row.reason}`, row.required_state]),
+    ...graph.views.flatMap((view) => view.rows.map((row, index) => [`${view.id} ${index + 1}`, row.cells.join(" | ")])),
+  ];
+  const bare = texts.filter(([, text]) => /(?:на|through|через) (?:verified )?`?planning_head/u.test(text) && !/planning replay commit/u.test(text))
+    .map(([where]) => where);
+  assert.deepEqual(bare, []);
+  for (const reason of ["receipt_missing", "staging_moved_after_pass"]) {
+    assert.match(graph.recovery.find((row) => row.reason === reason).required_state, /recorded_target_base/u, reason);
+  }
+});
+
+test("a planning change that conflicts with the new base parks delta_stale, and apply_staging stays refused", () => {
+  // MEDIUM 2. No new park reason: delta_stale names the case, and its
+  // remediation is re-planning, since no resume target of the row leads there.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "delta_stale");
+  assert.match(row.required_state, /planning change/u);
+  const plan = read("03-technical-plan.md");
+  assert.ok(plan.split("\n").some((line) => line.startsWith("| delta_stale |") && /новый план Epic/u.test(line)),
+    "the 03 §7 park table row for delta_stale does not name the exits");
+  const [stale] = edgeReads(graph, "apply_staging", "human", "delta_stale");
+  // In v1 the only exits are cancel or a new Epic plan, said plainly.
+  for (const text of [row.required_state, stale.says]) {
+    assert.match(text, /cancel/u);
+    assert.match(text, /(?:new Epic plan|новый план Epic)/u);
+  }
+  const decisions = read("04-decisions.md");
+  const risk = decisions.slice(decisions.indexOf("## Оставшиеся риски")).split("\n").find((line) => /^\d+\. \(ADR-088\)/u.test(line));
+  assert.match(risk, /новый план Epic/u);
+});
+
+test("a delivery whose tree differs because the target moved re-stages, a person deciding", () => {
+  // MEDIUM 3a. The PR path had no re-stage: R6-4 held there as before.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "completion_predicate_unmet");
+  assert.deepEqual([...row.resume_targets].sort(), ["apply_staging", "deliver_staging", "human"]);
+  const [back] = edgeReads(graph, "deliver_staging", "apply_staging", "completion_predicate_unmet");
+  assert.ok(back, "deliver_staging declares a resume edge into apply_staging");
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  assert.ok(back.edge.guards.every((id) => guards.get(id).authority.actor === "human"));
+  for (const token of ["recorded_target_base", "resume_intent", "delivery_receipt", "target"]) {
+    assert.ok(back.reads.has(token), `the delivery re-stage does not read ${token}`);
+  }
+  assert.match(back.says, /void/u);
+  // Only an unmerged delivery re-stages; the old receipt is void and the old
+  // PR or queue entry is withdrawn before a new one is opened.
+  assert.match(back.says, /не смержен/u);
+  assert.match(back.says, /закрыт/u);
+  const plan = read("03-technical-plan.md");
+  const rows = plan.split("\n");
+  assert.ok(rows.some((line) => line.startsWith("| deliver_staging | resume --to apply_staging под park.reason=completion_predicate_unmet") && /не смержен/u.test(line)));
+  // A merged delivery holding another tree is a stop with no re-stage and no rewrite.
+  assert.ok(rows.some((line) => line.startsWith("| deliver_staging |") && /смержен/u.test(line) && /history не переписывается|история не переписывается/u.test(line)));
+  assert.match(row.required_state, /merged/u);
+});
+
+test("the busy-target risk is named in the risk list and ADR-088 points at it", () => {
+  // MEDIUM 3b.
+  const decisions = read("04-decisions.md");
+  const risks = decisions.slice(decisions.indexOf("## Оставшиеся риски"));
+  const entry = risks.split("\n").find((line) => /^\d+\. \(ADR-088\)/u.test(line));
+  assert.ok(entry, "no (ADR-088) risk entry");
+  assert.match(entry, /post-v1/u);
+  const number = entry.match(/^(\d+)\./u)[1];
+  const adr = decisions.slice(decisions.indexOf("## ADR-088"), decisions.indexOf("## Оставшиеся риски"));
+  assert.match(adr, new RegExp(`риск ${number}\\b`, "u"));
+});
+
+test("in squash mode the accepted identity names the squash commit, and the record's to_oid is it", () => {
+  // MEDIUM 4.
+  const authorization = read("docs/contracts/integration-authorization.md");
+  assert.match(sectionOf(authorization, "## 3.", "## 4."), /`to_oid` equals the squash commit OID the acceptance names/u);
+  const flows = read("01-core-flows.md");
+  assert.match(sectionOf(flows, "## 7. ", "## 8. "), /squash commit OID и digest его recipe/u);
+  const staging = read("docs/contracts/epic-staging.md");
+  assert.match(sectionOf(staging, "## 5.", "## 6."), /target_commit_recipe_sha256/u);
+  const [move] = edgeReads(shipped(), "accept_staging", "integrate_staging");
+  assert.match(move.says, /squash commit OID и digest его recipe/u);
+  assert.ok(move.reads.has("delivery_plan"));
+});
+
+test("acceptance_missing says the human's acceptance produces the record, everywhere it is resumed", () => {
+  // LOW 5.
+  const graph = shipped();
+  const produces = /acceptance человека производит signed IntegrationAuthorizationRecord/u;
+  for (const view of graph.views) {
+    const row = view.rows.find((entry) => entry.covers.includes("acceptance_missing"));
+    assert.match(row.cells[2], produces, view.id);
+  }
 });
 
 // --- the park reasons the order needs are the graph's own -------------------

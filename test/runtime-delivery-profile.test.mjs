@@ -18,6 +18,7 @@ import {
   PARK_REASONS,
   canonicalValue,
   credentialErrors,
+  deliveryCompleted,
   directMovementAdmission,
   discoveryOutcome,
   driftErrors,
@@ -329,4 +330,130 @@ test("a credential in a project artifact is refused wherever it is nested", () =
     credentialErrors({ evidence: [{ note: "-----BEGIN OPENSSH PRIVATE KEY-----" }] })
       .some((error) => error.detail.startsWith("/evidence/0/note")),
   );
+});
+
+// --- debt 10b: what each mode moves the target to, and when delivery is done ---
+
+test("a direct mode names the commit the target moves to: the staging commit, or one squash commit", () => {
+  // ADR-088. The base does not move during an Epic, so merge and rebase onto it
+  // are both the fast-forward to the accepted staging commit; squash is one
+  // commit whose tree is the accepted tree and whose only parent is the base.
+  const local = profile({
+    target: { direct_push_allowed: true },
+    integration: { allowed_modes: ["merge", "squash", "rebase"], final_push: "host", merge_queue_required: false },
+  });
+  const plans = Object.fromEntries(DIRECT_MODES.map((mode) => [mode, finalIntegrationPlan(local, { mode, nowMs: NOW })]));
+  assert.equal(plans.merge.action, "move_target");
+  assert.equal(plans.merge.target_commit, "staging_commit");
+  assert.equal(plans.rebase.target_commit, "staging_commit");
+  assert.equal(plans.squash.action, "move_target");
+  assert.equal(plans.squash.target_commit, "squash_commit");
+  // A plan that does not move the target names no commit to move it to.
+  assert.equal(finalIntegrationPlan(example, { mode: "pull_request", nowMs: NOW }).target_commit, undefined);
+  assert.equal(finalIntegrationPlan(example, { mode: "squash", nowMs: NOW }).target_commit, undefined);
+});
+
+const BASE = "1".repeat(40);
+const STAGING_TREE = "2".repeat(40);
+const delivered = (overrides = {}) => ({
+  commit_oid: "3".repeat(40),
+  tree_oid: STAGING_TREE,
+  on_target: true,
+  base_is_ancestor: true,
+  ...overrides,
+});
+
+test("a PR or merge-queue delivery is complete when the delivered commit carries the accepted tree on top of the base", () => {
+  // A squash or rebase merge never puts the exact staging commit on the
+  // target; what it must put there is the accepted tree, above the base.
+  const done = deliveryCompleted({ recordedBase: BASE, stagingTree: STAGING_TREE, delivered: delivered() });
+  assert.equal(done.completed, true);
+  assert.deepEqual([...done.reasons], []);
+});
+
+test("a delivery is not complete on another tree, off the target, or not above the recorded base", () => {
+  const cases = [
+    [{ tree_oid: "4".repeat(40) }, /tree/u],
+    [{ on_target: false }, /not on the target/u],
+    [{ base_is_ancestor: false }, /recorded base/u],
+    [{ commit_oid: "not-an-oid" }, /commit/u],
+  ];
+  for (const [override, detail] of cases) {
+    const verdict = deliveryCompleted({ recordedBase: BASE, stagingTree: STAGING_TREE, delivered: delivered(override) });
+    assert.equal(verdict.completed, false, JSON.stringify(override));
+    assert.equal(verdict.reasons.length, 1, JSON.stringify(override));
+    assert.equal(verdict.reasons[0].reason, "completion_predicate_unmet");
+    assert.match(verdict.reasons[0].detail, detail);
+  }
+  // Nothing delivered, or nothing recorded to compare with, is unmet, never done.
+  for (const input of [
+    { recordedBase: BASE, stagingTree: STAGING_TREE, delivered: undefined },
+    { recordedBase: undefined, stagingTree: STAGING_TREE, delivered: delivered() },
+    { recordedBase: BASE, stagingTree: "", delivered: delivered() },
+  ]) {
+    const verdict = deliveryCompleted(input);
+    assert.equal(verdict.completed, false);
+    assert.ok(verdict.reasons.every((entry) => entry.reason === "completion_predicate_unmet"));
+    assert.ok(verdict.reasons.length > 0);
+  }
+  // "Unknown" is not "yes": only an explicit true passes each observation.
+  const unread = deliveryCompleted({
+    recordedBase: BASE,
+    stagingTree: STAGING_TREE,
+    delivered: delivered({ on_target: "yes", base_is_ancestor: undefined }),
+  });
+  assert.equal(unread.completed, false);
+  assert.equal(unread.reasons.length, 2);
+});
+
+test("a SHA-256 repository's delivery is judged the same way, and object formats are not mixed", () => {
+  // LOW 6 of the 10b review: Git OIDs are 40 hex (sha1) or 64 hex (sha256).
+  const base = "1".repeat(64);
+  const tree = "2".repeat(64);
+  const done = deliveryCompleted({
+    recordedBase: base,
+    stagingTree: tree,
+    delivered: { commit_oid: "3".repeat(64), tree_oid: tree, on_target: true, base_is_ancestor: true },
+  });
+  assert.equal(done.completed, true, JSON.stringify(done.reasons));
+  // One repository has one object format: a 40-hex commit beside 64-hex ids is unmet.
+  const mixed = deliveryCompleted({
+    recordedBase: base,
+    stagingTree: tree,
+    delivered: { commit_oid: "3".repeat(40), tree_oid: tree, on_target: true, base_is_ancestor: true },
+  });
+  assert.equal(mixed.completed, false);
+  assert.match(mixed.reasons[0].detail, /commit/u);
+  for (const bad of ["1".repeat(63), "1".repeat(41), "G".repeat(40)]) {
+    assert.equal(deliveryCompleted({ recordedBase: bad, stagingTree: tree, delivered: { commit_oid: "3".repeat(64), tree_oid: tree, on_target: true, base_is_ancestor: true } }).completed, false, bad);
+  }
+});
+
+test("a delivery receipt that is not an object, or names no tree, is unmet with one reason", () => {
+  // LOW 8 of the 10b review.
+  for (const receipt of [true, null, "3".repeat(40), 7]) {
+    const verdict = deliveryCompleted({ recordedBase: BASE, stagingTree: STAGING_TREE, delivered: receipt });
+    assert.equal(verdict.completed, false, String(receipt));
+    assert.equal(verdict.reasons.length, 1, String(receipt));
+    assert.match(verdict.reasons[0].detail, /no delivery receipt/u);
+  }
+  const { tree_oid: _dropped, ...treeless } = delivered();
+  const verdict = deliveryCompleted({ recordedBase: BASE, stagingTree: STAGING_TREE, delivered: treeless });
+  assert.equal(verdict.completed, false);
+  assert.equal(verdict.reasons.length, 1);
+  assert.match(verdict.reasons[0].detail, /tree/u);
+});
+
+test("an object id is a string: a value that only prints as one is not accepted", () => {
+  // Arrays print as their element and have a length, so a check that read
+  // String(value) would take them for OIDs of a one-character format.
+  const base = [BASE];
+  const tree = [STAGING_TREE];
+  const verdict = deliveryCompleted({
+    recordedBase: base,
+    stagingTree: tree,
+    delivered: { commit_oid: ["3".repeat(40)], tree_oid: tree, on_target: true, base_is_ancestor: true },
+  });
+  assert.equal(verdict.completed, false);
+  assert.match(verdict.reasons[0].detail, /no recorded base/u);
 });

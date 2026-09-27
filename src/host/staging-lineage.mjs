@@ -17,7 +17,7 @@ import { demand, immutable } from '../runtime/contracts.mjs';
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 
 /**
- * The chain from the recorded base to the head.
+ * The receipted chain from `base` (an Epic's planning head) to the head.
  *
  * Built by following each receipt's base to the commit the previous one
  * produced, so a receipt that does not connect is a break rather than an entry

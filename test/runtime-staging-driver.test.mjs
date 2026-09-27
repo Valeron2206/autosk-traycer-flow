@@ -17,6 +17,7 @@ import { promisify } from "node:util";
 
 import { applySwap, casAdmission, postCasErrors, resumePlan } from "../src/host/epic-staging.mjs";
 import {
+  assertStagingRef,
   attributable,
   cleanupStaging,
   createStaging,
@@ -346,5 +347,25 @@ test("the staging ref is named by epic_ref_key, the same key the planning ref us
   assert.throws(() => epicRefKey("not-a-digest", example.epic_id), code("cas_conflict"));
   for (const epicId of ["", undefined, 7, null]) {
     assert.throws(() => epicRefKey("0".repeat(64), epicId), code("cas_conflict"), String(epicId));
+  }
+});
+
+test("the host moves only an Epic's staging ref: anything else is refused by name", () => {
+  // ADR-088. integrateApproved is the only writer of a target ref, so the
+  // host's apply accepts a staging ref named by an Epic ref key and nothing
+  // else — not the user's branch, not a raw id, not another private ref.
+  const staging = stagingRef(EPIC_KEY);
+  assert.equal(assertStagingRef(staging), staging);
+  for (const ref of [
+    "refs/heads/main",
+    "refs/autosk/epics/e-1/staging",
+    `refs/autosk/epics/${EPIC_KEY}/planning`,
+    `${staging}/x`,
+    `x${staging}`,
+    undefined,
+    // A value that is not a string is refused even when it prints as one.
+    { toString: () => staging },
+  ]) {
+    assert.throws(() => assertStagingRef(ref), code("cas_conflict"), String(ref));
   }
 });

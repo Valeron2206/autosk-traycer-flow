@@ -258,16 +258,30 @@ export function credentialErrors(document) {
 }
 
 /**
+ * The commit each direct mode moves the target to.
+ *
+ * The target does not move during an Epic — a movement parks the CAS — and the
+ * staging line, its planning commits (or, after a re-stage, one receipted
+ * planning replay commit on the new `recorded_target_base`) included,
+ * descends from the recorded base, so merging or rebasing onto it is the
+ * fast-forward to the accepted staging commit. Squash is the one mode with a
+ * commit of its own: one commit whose tree is the accepted tree and whose only
+ * parent is the recorded base.
+ */
+const TARGET_COMMIT = Object.freeze({ merge: 'staging_commit', rebase: 'staging_commit', squash: 'squash_commit' });
+
+/**
  * The final integration, read through the profile.
  *
  * The host either performs the movement or hands it to the path the project
  * requires. What it does not do is discover the difference at the moment it
- * would otherwise push.
+ * would otherwise push. A movement names the commit it moves to, so the mode
+ * shapes the result instead of every direct mode being the same fast-forward.
  */
 export function finalIntegrationPlan(profile, { mode, nowMs }) {
   const admission = directMovementAdmission(profile, { mode, nowMs });
   if (DIRECT_MODES.includes(mode) && admission.decision === 'may_move_target') {
-    return Object.freeze({ action: 'move_target', mode, reasons: admission.reasons });
+    return Object.freeze({ action: 'move_target', mode, target_commit: TARGET_COMMIT[mode], reasons: admission.reasons });
   }
   if (!DIRECT_MODES.includes(mode) && (profile.integration?.allowed_modes ?? []).includes(mode)) {
     return Object.freeze({
@@ -278,4 +292,37 @@ export function finalIntegrationPlan(profile, { mode, nowMs }) {
     });
   }
   return Object.freeze({ action: 'park', mode, reasons: admission.reasons });
+}
+
+/**
+ * Whether a PR or merge-queue delivery is complete.
+ *
+ * A squash or rebase merge never puts the exact staging commit on the target,
+ * so "the staging commit is on the target" is a predicate those paths can never
+ * meet. What they must deliver is what was accepted: the commit the delivery
+ * receipt names is on the target, its tree is the accepted staging tree, and
+ * the recorded base is its ancestor — nothing the Epic did not verify came in
+ * underneath it. Each observation passes only on an explicit `true`; one that
+ * could not be read is unmet, never done.
+ */
+export function deliveryCompleted({ recordedBase, stagingTree, delivered } = {}) {
+  const reasons = [];
+  const unmet = (detail) => reasons.push(Object.freeze({ reason: 'completion_predicate_unmet', detail }));
+  // A Git object id is 40 hex (sha1) or 64 hex (sha256), and one repository
+  // has one object format, so every id here is the length the base is.
+  const oid = (value) => typeof value === 'string' && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value);
+  const sameFormat = (value) => oid(value) && value.length === recordedBase.length;
+  if (!oid(recordedBase) || !sameFormat(stagingTree)) {
+    unmet('no recorded base and accepted staging tree to compare the delivery with');
+  } else if (delivered === null || typeof delivered !== 'object') {
+    unmet('no delivery receipt names a delivered commit');
+  } else {
+    if (!sameFormat(delivered.commit_oid)) unmet(`the delivered commit is not an object id of this repository: ${delivered.commit_oid}`);
+    if (delivered.tree_oid !== stagingTree) {
+      unmet(`the delivered tree ${delivered.tree_oid} is not the accepted tree ${stagingTree}`);
+    }
+    if (delivered.on_target !== true) unmet('the delivered commit is not on the target');
+    if (delivered.base_is_ancestor !== true) unmet(`the recorded base ${recordedBase} is not an ancestor of the delivered commit`);
+  }
+  return Object.freeze({ completed: reasons.length === 0, reasons: immutable(reasons) });
 }
