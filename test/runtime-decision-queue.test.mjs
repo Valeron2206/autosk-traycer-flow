@@ -23,6 +23,8 @@ import {
   voidRequest,
 } from "../src/host/decision-queue.mjs";
 import { ROOT } from "../scripts/validate-planning-ref-design.mjs";
+import { userDecisionProvenance, userDecisionRecordHash } from "../src/host/user-decision.mjs";
+import { testSigner } from "./support/user-decision-signer.mjs";
 import { validateJsonSchema } from "../scripts/validate-planning-ref-design.mjs";
 
 const REQUEST_PATH = "resources/human-decision/human-decision-request.example.json";
@@ -37,14 +39,13 @@ const request = () => JSON.parse(JSON.stringify(shipped));
 
 const code = (name) => (error) => error.code === name;
 
-function response(overrides = {}) {
-  return {
-    option_id: "wait",
-    answered_by: "owner",
-    answered_at: new Date(NOW).toISOString(),
-    identities: { anchor_version: shipped.identities.anchor_version, candidate: shipped.identities.candidate },
-    ...overrides,
-  };
+// Every answer is a daemon UserDecisionRecord, signed here by a test key and
+// verified by the verifier that knows it; the product has neither (ADR-023).
+const signer = testSigner();
+const { verifySignature } = signer;
+
+function response(overrides = {}, asked = request(), options = {}) {
+  return signer.respond(asked, { option_id: "wait", ...overrides }, options);
 }
 
 test("the shipped packet is decidable and opens", () => {
@@ -152,50 +153,53 @@ test("an answer is bound to the identity it was asked about", () => {
   for (const field of BOUND_IDENTITIES) {
     const moved = response();
     moved.identities[field] = field === "anchor_version" ? 4 : "9".repeat(64);
-    assert.throws(() => answerRequest(request(), moved, { nowMs: NOW }), code("decision_identity_stale"));
+    assert.throws(() => answerRequest(request(), moved, { nowMs: NOW, verifySignature }), code("decision_identity_stale"));
   }
   const missing = response();
   delete missing.identities;
-  assert.throws(() => answerRequest(request(), missing, { nowMs: NOW }), code("decision_identity_stale"));
+  assert.throws(() => answerRequest(request(), missing, { nowMs: NOW, verifySignature }), code("decision_identity_stale"));
 });
 
 test("an answer from another approver, or naming an option nobody offered, is refused", () => {
+  // The approver is the role the verifier gives the signing key, not a name
+  // the answer carries: a maintainer's record does not answer an owner's request.
+  const maintainer = testSigner({ keyId: "test-key-2", role: "any_maintainer" });
   assert.throws(
-    () => answerRequest(request(), response({ answered_by: "someone_else" }), { nowMs: NOW }),
+    () => answerRequest(request(), maintainer.respond(request(), { option_id: "wait" }), { nowMs: NOW, verifySignature: maintainer.verifySignature }),
     code("decision_approver_mismatch"),
   );
   assert.throws(
-    () => answerRequest(request(), response({ option_id: "invented" }), { nowMs: NOW }),
+    () => answerRequest(request(), response({ option_id: "invented" }), { nowMs: NOW, verifySignature }),
     code("decision_option_unknown"),
   );
 });
 
 test("an expired or voided request cannot be answered", () => {
   const late = Date.parse(shipped.expires_at) + 1;
-  assert.throws(() => answerRequest(request(), response(), { nowMs: late }), code("decision_expired"));
+  assert.throws(() => answerRequest(request(), response(), { nowMs: late, verifySignature }), code("decision_expired"));
   const voided = voidRequest(request(), "the candidate was rebuilt", { nowMs: NOW });
   assert.equal(requestState(voided, NOW), "voided");
-  assert.throws(() => answerRequest(voided, response(), { nowMs: NOW }), code("decision_request_voided"));
+  assert.throws(() => answerRequest(voided, response(), { nowMs: NOW, verifySignature }), code("decision_request_voided"));
   assert.throws(() => voidRequest(voided, "again", { nowMs: NOW }), code("decision_request_voided"));
   assert.throws(() => voidRequest(request(), "", { nowMs: NOW }), code("decision_packet_incomplete"));
 });
 
 test("a duplicate answer is idempotent, and a different one is refused", () => {
-  const first = answerRequest(request(), response(), { nowMs: NOW });
+  const first = answerRequest(request(), response(), { nowMs: NOW, verifySignature });
   assert.equal(first.effect, "applied");
   assert.equal(requestState(first.request, NOW), "answered");
-  const again = answerRequest(first.request, response(), { nowMs: NOW });
+  const again = answerRequest(first.request, response(), { nowMs: NOW, verifySignature });
   assert.equal(again.effect, "replayed");
   // The same answer produces the same record and no second side effect.
   assert.deepEqual(again.decision, first.decision);
   assert.throws(
-    () => answerRequest(first.request, response({ option_id: "waive_seat" }), { nowMs: NOW }),
+    () => answerRequest(first.request, response({ option_id: "waive_seat" }), { nowMs: NOW, verifySignature }),
     code("decision_option_unknown"),
   );
 });
 
 test("the decision record names the resume target and its own digest", () => {
-  const { decision } = answerRequest(request(), response(), { nowMs: NOW });
+  const { decision } = answerRequest(request(), response(), { nowMs: NOW, verifySignature });
   assert.deepEqual(decision.resume_target, shipped.resume_target);
   assert.match(decision.decision_digest, /^[0-9a-f]{64}$/u);
   assert.equal(decisionRecord(request(), response()).option_id, "wait");
@@ -205,18 +209,18 @@ test("a normalised free-text answer to an irreversible option needs confirmation
   // "Sure, but only for the docs" becoming an approval for everything is what
   // silent interpretation looks like.
   const free = response({ option_id: "waive_seat", normalized_from: "fine, skip grok this once" });
-  assert.throws(() => answerRequest(request(), free, { nowMs: NOW }), code("decision_packet_incomplete"));
-  const confirmed = { ...free, confirmed_material_scope: true };
-  assert.equal(answerRequest(request(), confirmed, { nowMs: NOW }).effect, "applied");
+  assert.throws(() => answerRequest(request(), free, { nowMs: NOW, verifySignature }), code("decision_packet_incomplete"));
+  const confirmed = response({ option_id: "waive_seat", normalized_from: "fine, skip grok this once", confirmed_material_scope: true });
+  assert.equal(answerRequest(request(), confirmed, { nowMs: NOW, verifySignature }).effect, "applied");
   // A reversible option does not need the extra confirmation.
   const reversible = response({ normalized_from: "let's wait" });
-  assert.equal(answerRequest(request(), reversible, { nowMs: NOW }).effect, "applied");
+  assert.equal(answerRequest(request(), reversible, { nowMs: NOW, verifySignature }).effect, "applied");
 });
 
 test("an answered request still validates against the shipped schema", () => {
   // The queue writes what the contract describes, checked against the contract
   // rather than against a second copy of it.
-  const { request: answered } = answerRequest(request(), response(), { nowMs: NOW });
+  const { request: answered } = answerRequest(request(), response(), { nowMs: NOW, verifySignature });
   assert.deepEqual(validateJsonSchema(answered, schema), []);
 });
 
@@ -255,11 +259,8 @@ test("a field that copied another project's identity across is refused", () => {
 
 test("the projection counts states it computes, not states it stored", () => {
   const pending = request();
-  const { request: answered } = answerRequest(
-    { ...request(), request_id: "decision-answered" },
-    response(),
-    { nowMs: NOW },
-  );
+  const other = { ...request(), request_id: "decision-answered" };
+  const { request: answered } = answerRequest(other, response({}, other), { nowMs: NOW, verifySignature });
   const voided = voidRequest({ ...request(), request_id: "decision-voided" }, "rebuilt", { nowMs: NOW });
   const expired = { ...request(), request_id: "decision-expired" };
   const late = Date.parse(shipped.expires_at) + 1;
@@ -277,4 +278,87 @@ test("the projection counts states it computes, not states it stored", () => {
   // Nothing moved in storage; the same records now read as expired.
   assert.deepEqual(later.counts, { pending: 0, answered: 1, expired: 2, voided: 1 });
   assert.equal(later.next_safe_action, "no decision is pending");
+});
+
+test("a free-text answered_by is not a user decision, with or without a record (R6-14)", () => {
+  // Before debt 10e the queue minted a decision from `answered_by ===
+  // required_approver`; any process knowing the string could answer.
+  const bare = {
+    option_id: "wait",
+    answered_by: "owner",
+    answered_at: new Date(NOW).toISOString(),
+    identities: { anchor_version: shipped.identities.anchor_version, candidate: shipped.identities.candidate },
+  };
+  assert.throws(() => answerRequest(request(), bare, { nowMs: NOW, verifySignature }), code("decision_approver_mismatch"));
+  // A name beside a signed record is still a name the answer gives itself.
+  assert.throws(
+    () => answerRequest(request(), response({ answered_by: "owner" }), { nowMs: NOW, verifySignature }),
+    code("decision_approver_mismatch"),
+  );
+});
+
+test("with no signer on the host, a signed record is refused rather than trusted (R6-14)", () => {
+  // The product path: no verifier is injected, the pinned daemon reports no
+  // signer, and no answer becomes a decision (ADR-023, #40).
+  assert.throws(() => answerRequest(request(), response(), { nowMs: NOW }), code("decision_approver_mismatch"));
+});
+
+test("the record answers this request, about this candidate, in this project (R6-14)", () => {
+  for (const [field, value] of [
+    ["request_id", "decision-other"],
+    ["project_root_sha256", "9".repeat(64)],
+    ["anchor_version", 4],
+    ["subject_hash", "9".repeat(64)],
+  ]) {
+    const answer = response({}, request(), { [field]: value });
+    assert.throws(() => answerRequest(request(), answer, { nowMs: NOW, verifySignature }), code("decision_identity_stale"), field);
+  }
+});
+
+test("the record signed this answer, and no other (R6-14)", () => {
+  // The response names one option; the user signed another.
+  const swapped = response({ option_id: "wait" }, request(), { signedAnswer: { option_id: "waive_seat", identities: response().identities } });
+  assert.throws(() => answerRequest(request(), swapped, { nowMs: NOW, verifySignature }), code("decision_approver_mismatch"));
+  // And a normalisation the user did not sign is not theirs either.
+  const added = { ...response(), normalized_from: "let's wait" };
+  assert.throws(() => answerRequest(request(), added, { nowMs: NOW, verifySignature }), code("decision_approver_mismatch"));
+});
+
+test("who answered and when come from the verified record, and the answer names it (R6-14)", () => {
+  const answer = response();
+  const { decision, request: answered } = answerRequest(request(), answer, { nowMs: NOW, verifySignature });
+  const record = answer.user_decision_record;
+  assert.equal(decision.answered_by, "owner");
+  assert.equal(decision.answered_at, record.issued_at);
+  assert.equal(decision.user_decision_record_id, record.record_id);
+  assert.equal(decision.user_decision_record_hash, userDecisionRecordHash(record));
+  assert.equal(decision.user_decision_provenance_hash, userDecisionProvenance(record));
+  assert.equal(answered.answer.user_decision_record_id, record.record_id);
+  assert.equal(answered.answer.answered_by, "owner");
+  // The decision digest binds the record: another record is another decision.
+  const again = response({}, request(), { record_id: "udr-0002" });
+  assert.notEqual(answerRequest(request(), again, { nowMs: NOW, verifySignature }).decision.decision_digest, decision.decision_digest);
+});
+
+test("the record was issued while the question stood (review L1)", () => {
+  // Not after now: a record from the future is not one the daemon has written.
+  const future = response({}, request(), { issued_at: new Date(NOW + 1).toISOString() });
+  assert.throws(() => answerRequest(request(), future, { nowMs: NOW, verifySignature }), code("decision_identity_stale"));
+  assert.equal(answerRequest(request(), response({}, request(), { issued_at: new Date(NOW).toISOString() }),
+    { nowMs: NOW, verifySignature }).effect, "applied");
+  // Not before the question was asked.
+  const early = response({}, request(), { issued_at: "2026-09-08T11:59:59.999Z" });
+  assert.throws(() => answerRequest(request(), early, { nowMs: NOW, verifySignature }), code("decision_identity_stale"));
+  assert.equal(answerRequest(request(), response({}, request(), { issued_at: shipped.created_at }),
+    { nowMs: NOW, verifySignature }).effect, "applied");
+  // A packet that states no creation time is bounded by now and its expiry only.
+  const { created_at: _c, ...undated } = request();
+  assert.equal(answerRequest(undated, response({}, undated, { issued_at: "2026-09-08T11:00:00.000Z" }),
+    { nowMs: NOW, verifySignature }).effect, "applied");
+});
+
+test("a second record for an answered request is not a different option (review L3)", () => {
+  const first = answerRequest(request(), response(), { nowMs: NOW, verifySignature });
+  const other = response({}, request(), { record_id: "udr-0002" });
+  assert.throws(() => answerRequest(first.request, other, { nowMs: NOW, verifySignature }), code("decision_identity_stale"));
 });

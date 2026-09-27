@@ -8,11 +8,11 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "cfbe5b12da235df976a0077b5e5a14d0cfe15ea1e3a88a6ef5c7476245ec26e6"
+      "sha256": "45719fa528cd588fc333ec73b1613bc0cbb5f0bd18b33e3ea6af6fe984d823e5"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "e2c826040b6fec64975d31a1c6ea928401831ec0058409b8bdaf51d7d874c1e5"
+      "sha256": "6b52a48c22c79b898f5eef7b9e31e90e7b3787d0aa2d2b10c128be59fbc7c2a3"
     },
     {
       "path": "03-technical-plan.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "5226f9ce8c497cf102fc78f0072cf649830ee803eaf52c853619b3959c068621"
+      "sha256": "de35932bba9a3ecc42c51ffa5fa83a035287429b5040bfa14ec711737f6fd9d1"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "e2ead6efacb08c75e8d56b07bc0ab528d0b1954a0d3aa74f888d5ffb3da3d1ba"
+      "sha256": "ee504297881a3ad5b132b444e1d527f6f78af58f9c93808e6fed3de81e5a7f76"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -128,11 +128,11 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "2643e61a3627d60767e8a497fe3ffe674e70dc1cd18a0388c780c8b0b22b5685"
+      "sha256": "9eac64485e10875159c2cbb2875a924673274bf7d974057795d02ccfe76a8312"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "787e7dc67df309aa35f4fc4042d599bade9e9b36d46fd6ea031fa4bf00d93649"
+      "sha256": "4b053c5cd84f20c5e9008606ae1d36e1ac54cc6178276b5052936c55dbf7d6ba"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -456,7 +456,7 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.answered.example.json",
-      "sha256": "7add3e5f91b88bb62af067f504e8a52af597ae6501a57d0bbf925dc8d1efd33d"
+      "sha256": "0315ee6a132e1940923a015fd4d19e22d6a47df2546b001e6435ef0b8cfd5d29"
     },
     {
       "path": "resources/human-decision/human-decision-request.example.json",
@@ -464,7 +464,7 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
-      "sha256": "2e63a9152ef9357263223d9c5509e668e056650091841cc0a818125331aae4a2"
+      "sha256": "95115351534dcfe4a3417c4107bcfe71942e595fd2dbf5d78fa07b93bb928c17"
     },
     {
       "path": "resources/human-decision/project-status.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "e5d52a36b0507547c8a366d9f18d4202c5c4484360d70b6f7221d110ab83e51e",
+  "candidate_digest": "ddde1d6bb92ec624fddd8273070add77193e9c4285baaa0b177dc38bccd06d6b",
   "dispositions": [
     {
       "issue": 3,

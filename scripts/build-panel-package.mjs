@@ -892,6 +892,16 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   \`workflows[]\` and requires the boundary of each; its required sets' one
   caller outside tests is \`autosk-flow doctor --workflow\`, and nothing calls
   the preflight before a model launch yet (ADR-090, #40).
+- No user decision is accepted on any host. The decision queue takes an answer
+  only as a daemon \`UserDecisionRecord\` — a response that names its own
+  approver, or carries no record, is refused — and checks its fields, its
+  canonical challenge bytes, its binding to the request and the answer it
+  signed, and its signature through a verifier the caller hands in; a pinned
+  auto-policy is accepted only with a signed \`IntegrationAuthorizationRecord\`
+  and that record. The default verifier verifies nothing, because no daemon of
+  the series has a signer, so both paths refuse every answer today; the tests
+  sign with a key of their own. The alignment identity binds the twelve fields
+  of 02 §7 (ADR-091, #40).
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries
