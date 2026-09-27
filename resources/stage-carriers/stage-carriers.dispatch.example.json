@@ -7,7 +7,7 @@
   "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "attributions": [
     {
-      "logical_id": "protocol/rubrics/panel.md",
+      "logical_id": "agent-selection-guide.md",
       "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "project_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -21,7 +21,7 @@
       "serialization_version": 1
     },
     {
-      "logical_id": "roles/reviewer.md",
+      "logical_id": "protocol/principles-digest.md",
       "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "section_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

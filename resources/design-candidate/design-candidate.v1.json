@@ -12,15 +12,15 @@
     },
     {
       "path": "02-architecture.md",
-      "sha256": "152fb159f3e952325593c2c871a3e04c7143feb251de2dcef521cedb2bbad908"
+      "sha256": "4d0142bbfe82416cfbfa0e086ccb1c1d9fd8271056a124fb4f56998a897225be"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "5ab21ebfc706663f9e1ac3bdd7b693ae825299f094a1dc0c930326b34e15bb2f"
+      "sha256": "d1a42655a8082586bf2d95085711f2f0726f85e29edd01d8176a6bf1ec516ab2"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "b4f0adb3e83f61d8962729ed7d89627e5d199a2b518dba165af3dd6f88404d9a"
+      "sha256": "776cefbeb5125c3c92329a5ec4aa63005b538326b3f996471af6cc4ac588e6a1"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "101555b5996ad98e181e326ddaaaa96a6f1faa54bda22d63f3de26d81054596e"
+      "sha256": "2b3c7f19bed0ae931c05c3cce8eeda85af0a468d60422b4b07a688ccb1a6f3ef"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "docs/contracts/anchor-pack.md",
-      "sha256": "65bc2d12e5837175e69cbee9af56680b51f5cf3a8a2333508ef130078f4ea2f4"
+      "sha256": "77fd4b7458ea16b12bb0b3f926aa5537346475aaf395c6ff39faf3b63b444ecc"
     },
     {
       "path": "docs/contracts/approved-delta.md",
@@ -120,7 +120,7 @@
     },
     {
       "path": "docs/contracts/governance-bundle.md",
-      "sha256": "c2a9db5361bc2bfb8b179f237f83810a7fee9be064b3e4074c0841e300b8548b"
+      "sha256": "afecba4c0e2a40d5186de788b3fe1c49bd176fb267524972bd0b3650ffff483d"
     },
     {
       "path": "docs/contracts/housekeeping.md",
@@ -176,7 +176,7 @@
     },
     {
       "path": "docs/contracts/stage-carriers.md",
-      "sha256": "7056af644fbe187dc5d5c982481f9330a1b28f3571a7cc46fd1c2cf91672d668"
+      "sha256": "a5365600f5e1ff6e0964ccd2f19e6c1f8819e4ac33e35281b498042814e045d6"
     },
     {
       "path": "docs/contracts/static-analysis.md",
@@ -432,15 +432,15 @@
     },
     {
       "path": "resources/governance-bundle/governance-bundle.candidate.example.json",
-      "sha256": "0b3fa87ac6e83faec40baba4ded80020e0e3cd3fe9531d9d80843935e2dd6928"
+      "sha256": "df105a1dc2e28e5603c328720b0d82c6e310ae98d1943ec415c6112020598cd5"
     },
     {
       "path": "resources/governance-bundle/governance-bundle.example.json",
-      "sha256": "f7f252bd730c9dc1e9eb30a962f50f746e4c9ee0429515803e6c26256f931267"
+      "sha256": "6f434b4abe563c702ad30842ac1a214243dd2a367c6000b67b967217091ba724"
     },
     {
       "path": "resources/governance-bundle/governance-bundle.schema.json",
-      "sha256": "3c0d6b54fe5ef4d3be4a1bdfa6e3d362eb1226be01493704ad90ec5b204cac20"
+      "sha256": "e15357954ebc7e35d20df859ae0a15dceb7722328175eede05d260e3934a7603"
     },
     {
       "path": "resources/housekeeping/housekeeping-report.example.json",
@@ -816,7 +816,7 @@
     },
     {
       "path": "resources/stage-carriers/stage-carriers.dispatch.example.json",
-      "sha256": "98f6f05541e31e5b6b1db096a32a8595a31f374c8f57c40704d85a56d7a1ce69"
+      "sha256": "56b0bc30d0fabaa8cd2482ab98104d3728d85e37d2a29ceae6eebb7837d34640"
     },
     {
       "path": "resources/stage-carriers/stage-carriers.dispatch.schema.json",
@@ -824,11 +824,11 @@
     },
     {
       "path": "resources/stage-carriers/stage-carriers.schema.json",
-      "sha256": "9a4431efd2235c3ce06c8d43e34dacdccaa258f931b4a0bf6a5d3712eaf4cb33"
+      "sha256": "9016f1c59d1cb53990e0635bcb18646c85c868849f4e844aafe86ed336552f30"
     },
     {
       "path": "resources/stage-carriers/stage-carriers.v1.json",
-      "sha256": "80ad7b82b3ff97a25fd5897a99917a0c33cd099f60fc030f25548a2c584b9987"
+      "sha256": "a3cbcad1b5dc0f85dff2a1d2c2fac8d4f8ffd76ba8f4a121191b14d010cf3d32"
     },
     {
       "path": "resources/static-analysis/static-analysis-policy.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "d9bab3e961ee4176ebc2ba0d179a159ff09bd37ebcc6a7101bcc4f40dd8e5783",
+  "candidate_digest": "a5b986880797b4eff36dd176b91752fc2b288149ffabd4310cba84001bbeaf13",
   "dispositions": [
     {
       "issue": 3,

@@ -102,7 +102,7 @@ npm test
 npm run validate:migration
 ```
 
-Шесть записей отнесены к `post_v1`: Autobuild, Reflect, Debate, Housekeeping и Changeset Walkthrough остаются неактивными до соответствующих issues. Два отсутствующих архива сохранены как открытые source-evidence gaps, а не объявлены найденными.
+Шесть записей отнесены к `post_v1`: Autobuild (две — workflow и протокол `autobuild/run-contract.md`), Reflect (протокол `reflect/reviewer-brief.md`), Debate, Housekeeping и Changeset Walkthrough остаются неактивными до соответствующих issues. Оба протокольных файла всё же входят в v1 governance bundle как неактивные bytes: `inactive_in_v1` в реестре носителей, и ни один носитель v1 их не получает (ADR-093). Два отсутствующих архива сохранены как открытые source-evidence gaps, а не объявлены найденными.
 
 ## Матрица программных возможностей
 

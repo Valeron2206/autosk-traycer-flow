@@ -6,7 +6,9 @@
   "required": [
     "schema_version",
     "stage",
+    "bundle_id",
     "version",
+    "provenance",
     "members",
     "bundle_digest",
     "canonical_form",
@@ -23,9 +25,17 @@
         "release"
       ]
     },
+    "bundle_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "version": {
       "type": "string",
       "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "provenance": {
+      "type": "string",
+      "minLength": 1
     },
     "members": {
       "type": "array",

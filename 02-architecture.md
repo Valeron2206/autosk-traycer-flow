@@ -118,21 +118,23 @@ CAS/reflog-механика `integrate-approved` переносится вмес
 
 ~~~text
 parent: dispatch_panel
-  -> create gpt seat task
-  -> create grok seat task
-  -> create kimi seat task
-  -> create opus seat task
+  -> create lead seat task
+  -> create feasibility seat task
+  -> create intent seat task
+  -> create architecture seat task
   -> block parent by all four
   -> transit parent to panel_join
 
 worker pool:
-  gpt seat  ─┐
-  grok seat ─┤
-  kimi seat ─┼─> done + valid verdict -> parent join
-  opus seat ─┘
+  lead seat         ─┐
+  feasibility seat  ─┤
+  intent seat       ─┼─> done + valid verdict -> parent join
+  architecture seat ─┘
 
 parent: panel_join -> synthesis
 ~~~
+
+На диаграмме места названы ролями (линзами) панели из 01 §3, а не моделями: маршрут и effort каждого места задаёт только `REQUIRED_PANEL` в `scripts/validate-provider-preflight.mjs`, а семью — `resources/panel-roster/family-partition.v1.json`; какая семья займёт место Lead, вычисляется по author/fixer set (01 §3).
 
 Преимущества:
 
@@ -258,7 +260,7 @@ resources/governance/bundles/autosk-v1/
   bundle-attestation.json
 ~~~
 
-Это один Guide и точные 12 protocol files — **13 нормативных файлов**. `bundle-manifest.json` и `bundle-attestation.json` в это число не входят: манифест записывает получившийся digest и потому не может входить в его собственный preimage, а attestation связывает вердикты с уже неизменяемой content identity. Canonical content digest считается как SHA-256 от domain separator, bundle id/version/provenance и ordered `{relative_path, file_sha256}` для этих 13 файлов; поля `contentDigest` и attestation в собственный preimage не входят. Manifest записывает получившийся digest, а его exact bytes получают отдельный manifest hash. `bundle-attestation.json` связывает четыре panel verdict hashes с уже неизменяемым content digest; запись PASS не меняет проверенную content identity. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
+Это один Guide и точные 12 protocol files — **13 нормативных файлов**. Список этих файлов в репозитории один: `governance_files` реестра носителей `resources/stage-carriers/stage-carriers.v1.json` (ADR-093). `validate:stage-carriers` сверяет его с деревом выше, с деревом 03 §3 и с guide/protocol записями реестра паритета, `validate:governance-bundle` берёт из него обязательных членов, а CLI сборки (`scripts/governance-bundle.mjs`) — inventory, которому обязан совпасть manifest. `autobuild/run-contract.md` и `reflect/reviewer-brief.md` входят в bundle как неактивные bytes: `inactive_in_v1` (#28, #29), и ни один носитель v1 их не получает. Role и stage contracts из §6 и сам реестр носителей — ресурсы расширения, а не члены bundle: реестр закрепляет digest bundle и потому не может входить в его preimage. `bundle-manifest.json` и `bundle-attestation.json` в это число не входят: манифест записывает получившийся digest и потому не может входить в его собственный preimage, а attestation связывает вердикты с уже неизменяемой content identity. Canonical content digest считается как SHA-256 от domain separator, bundle id/version/provenance и ordered `{relative_path, file_sha256}` для этих 13 файлов; поля `contentDigest` и attestation в собственный preimage не входят. Manifest записывает получившийся digest, а его exact bytes получают отдельный manifest hash. `bundle-attestation.json` связывает четыре panel verdict hashes с уже неизменяемым content digest; запись PASS не меняет проверенную content identity. Активные тексты используют только autosk-native commands, roles и paths. Exact Traycer baseline остаётся локальным миграционным входом, не коммитится в публичный Git и никогда не читается runtime.
 
 ### Замороженный protocol snapshot
 
@@ -272,7 +274,7 @@ resources/governance/bundles/autosk-v1/
   bundle-attestation.json
 ~~~
 
-`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из тех же 13 нормативных файлов, что входят в content digest, — манифест и attestation в эти 13 не входят ни здесь, ни там. Перед каждым prompt compile, dispatch и resume расширение заново проверяет snapshot bytes, manifest, attestation и project-root binding именно против этого Epic lock. Несовпадение fail-closed паркует задачу с `protocol_lock_invalid`; repair разрешён только из content-addressed digest, указанного в lock, без подстановки current/latest bundle. Prompt compiler читает только уже проверенный project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
+`protocol.lock.json` записывает bundle id/version/content digest, detached attestation hash, snapshot path и SHA-256 каждого из тех же 13 нормативных файлов, что входят в content digest, — манифест и attestation в эти 13 не входят ни здесь, ни там. Тот же lock закрепляет то, что bundle не покрывает: `carrier_registry_digest` — `digest('autosk-flow/stage-carrier-registry/v1', …)` реестра носителей, по которому компилятор решает, какие файлы получает каждая роль (`compileCarrier` отказывает с `carrier_bundle_unpinned` реестру с другим digest), и digest каждого role и stage contract конверта (§6), поскольку они ресурсы расширения, а не члены bundle (ADR-093). Перед каждым prompt compile, dispatch и resume расширение заново проверяет snapshot bytes, manifest, attestation и project-root binding именно против этого Epic lock. Несовпадение fail-closed паркует задачу с `protocol_lock_invalid`; repair разрешён только из content-addressed digest, указанного в lock, без подстановки current/latest bundle. Prompt compiler читает только уже проверенный project-owned snapshot через canonical ctx.projectRoot. Обновление расширения или работа соседнего проекта не меняют уже начатый Epic.
 
 Installer/cache хранит bundle versions content-addressed по digest, пока существует хотя бы один project lock на эту версию. Garbage collection сначала инвентаризирует locks всех зарегистрированных roots и не удаляет referenced digest; это позволяет repair повреждённого project snapshot без подстановки latest bundle.
 

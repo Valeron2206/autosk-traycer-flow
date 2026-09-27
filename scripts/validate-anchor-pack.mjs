@@ -24,7 +24,6 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bundleDigest } from "./validate-governance-bundle.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,9 +59,14 @@ export function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-/** The aggregate is the governance-bundle rule: `path\0sha256\n`, byte order. */
+/**
+ * The pack's aggregate: `path\0sha256\n` in raw-byte path order. This was the
+ * governance bundle's rule until ADR-093 moved the bundle to the domain-separated
+ * preimage of 02 §5; the anchor pack is not a bundle and keeps its own rule.
+ */
 export function packDigest(members) {
-  return bundleDigest(members);
+  const ordered = [...members].sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
+  return sha256(ordered.map((member) => `${member.path}\0${member.sha256}\n`).join(""));
 }
 
 /**

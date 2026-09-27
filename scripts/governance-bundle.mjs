@@ -3,7 +3,8 @@
 /**
  * The governance bundle CLI (#37).
  *
- * `build` reads the manifest's members, checks everything that decides whether
+ * `build` reads the manifest's members, holds them to the carrier registry's
+ * governance files (the one member list), checks everything that decides whether
  * these bytes may be a bundle, and prints the digest only when they may. A
  * digest printed beside a list of errors is the artefact this program keeps
  * finding: a number that reads like a result.
@@ -20,6 +21,14 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 
 const fs = { readFile: (file) => readFile(file), writeFile: (file, text) => writeFile(file, text) };
 
+export const REGISTRY_PATH = 'resources/stage-carriers/stage-carriers.v1.json';
+
+/** The inventory the build is held to: the carrier registry's governance files (debt 10g). */
+export async function registryInventory(root = ROOT) {
+  const registry = JSON.parse(await readFile(path.resolve(root, REGISTRY_PATH), 'utf8'));
+  return registry.governance_files.map((file) => file.path);
+}
+
 function argument(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? fallback : process.argv[index + 1];
@@ -32,7 +41,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const out = argument('out', null);
 
   const manifest = JSON.parse(await readFile(path.resolve(ROOT, manifestPath), 'utf8'));
-  const built = await buildBundle(fs, { root, manifest, stage });
+  const inventory = await registryInventory();
+  const built = await buildBundle(fs, { root, manifest, inventory, stage });
 
   for (const error of built.errors) console.error(`${error.reason}: ${error.detail}`);
   if (!built.ok) {

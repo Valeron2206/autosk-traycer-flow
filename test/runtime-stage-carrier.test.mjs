@@ -16,8 +16,10 @@ import test from "node:test";
 import {
   HEADER_FIELDS,
   REFUSALS,
+  CARRIER_REGISTRY_DOMAIN,
   attributionHeader,
   carrierKey,
+  carrierRegistryDigest,
   compileCarrier,
   coverageErrors,
   mappingFor,
@@ -48,6 +50,7 @@ function bundle(overrides = {}) {
 function context(overrides = {}) {
   return {
     bundle_digest: shipped.bundle_digest,
+    carrier_registry_digest: carrierRegistryDigest(shipped),
     project: "sha256:" + "a".repeat(58),
     epic: "epic-store-lock",
     task: "T-102",
@@ -83,11 +86,28 @@ test("the shipped registry maps every key it declares, and the first one compile
   assert.match(compiled.body_sha256, /^[0-9a-f]{64}$/u);
 });
 
-test("every shipped carrier key compiles with its declared anchors", () => {
+test("every shipped v1 carrier key compiles with its declared anchors, and no post-v1 key does", () => {
+  const v1 = Object.keys(shipped.carriers).filter((key) => shipped.carriers[key].lifecycle === "required_for_v1");
+  assert.ok(v1.length > 0);
   for (const key of Object.keys(shipped.carriers)) {
     const [role, stage] = key.split(".");
-    assert.doesNotThrow(() => compile(role, stage), key);
+    if (v1.includes(key)) assert.doesNotThrow(() => compile(role, stage), key);
+    else assert.throws(() => compile(role, stage), code("carrier_mapping_unknown"), key);
   }
+});
+
+test("a post-v1 carrier key is registered but refused before the provider call", () => {
+  // Debt 10g (R6-19): the registry the dispatcher reads says which keys v1 dispatches.
+  assert.equal(shipped.carriers["autobuild.generator"].lifecycle, "planned_after_v1");
+  assert.throws(() => mappingFor(shipped, "autobuild", "generator"), (error) =>
+    error.code === "carrier_mapping_unknown" && error.details?.decided_by === "#28");
+  assert.throws(() => mappingFor(shipped, "reflect", "reviewer"), code("carrier_mapping_unknown"));
+  // A mapping that does not say it is dispatched in v1 is not dispatched.
+  const unmarked = { ...shipped.carriers["author.brief"] };
+  delete unmarked.lifecycle;
+  const registry = { ...shipped, carriers: { ...shipped.carriers, "author.brief": unmarked } };
+  assert.throws(() => mappingFor(registry, "author", "brief"), code("carrier_mapping_unknown"));
+  assert.equal(mappingFor(shipped, "implementer", "perf"), shipped.carriers["implementer.perf"]);
 });
 
 test("an unknown mapping is fail-closed before the provider call", () => {
@@ -112,7 +132,7 @@ test("a required anchor that was not supplied is a refusal", () => {
 });
 
 test("the forbidden set is enforced, not decoration", () => {
-  // The Judge rubric reaching an Arena candidate is the failure it exists to
+  // The Judge brief reaching an Arena candidate is the failure it exists to
   // prevent.
   const [role, stage] = Object.keys(shipped.carriers)[0].split(".");
   const mapping = shipped.carriers[`${role}.${stage}`];
@@ -128,7 +148,7 @@ test("the forbidden set is enforced, not decoration", () => {
       compileCarrier(registry, {
         role,
         stage,
-        context: context(),
+        context: context({ carrier_registry_digest: carrierRegistryDigest(registry) }),
         bundle: bundle(),
         anchors: anchorsFor(mapping),
       }),
@@ -214,6 +234,21 @@ test("every governance file has a consumer, or says who decided it has none", ()
     ],
   };
   assert.deepEqual(coverageErrors(decided), []);
+  // An active file only a post-v1 key consumes has no consumer in v1.
+  const onlyLater = {
+    ...shipped,
+    governance_files: [...shipped.governance_files, { path: "protocol/later.md", status: "active" }],
+    carriers: {
+      ...shipped.carriers,
+      "reflect.reviewer": {
+        ...shipped.carriers["reflect.reviewer"],
+        required: [...shipped.carriers["reflect.reviewer"].required, "protocol/later.md"],
+      },
+    },
+  };
+  assert.deepEqual(coverageErrors(onlyLater), [
+    { reason: "carrier_coverage_incomplete", path: "protocol/later.md", detail: "no v1 consumer" },
+  ]);
 });
 
 test("a correct echo verifies", () => {
@@ -322,9 +357,13 @@ test("every refusal class the contract closes can be produced", () => {
       }),
     () => {
       const mapping = shipped.carriers["author.brief"];
+      const registry = { ...shipped, carriers: { ...shipped.carriers, "author.brief": { ...mapping, forbidden: mapping.required } } };
       return compileCarrier(
-        { ...shipped, carriers: { ...shipped.carriers, "author.brief": { ...mapping, forbidden: mapping.required } } },
-        { role: "author", stage: "brief", context: context(), bundle: bundle(), anchors: anchorsFor(mapping) },
+        registry,
+        {
+          role: "author", stage: "brief", context: context({ carrier_registry_digest: carrierRegistryDigest(registry) }),
+          bundle: bundle(), anchors: anchorsFor(mapping),
+        },
       );
     },
   ];
@@ -338,4 +377,31 @@ test("every refusal class the contract closes can be produced", () => {
   for (const refusal of REFUSALS) {
     assert.ok(produced.has(refusal), `${refusal} is documented and never produced`);
   }
+});
+
+// Debt 10g review M1: the Epic's protocol lock pins the carrier registry, and the compiler holds it.
+
+test("the compiler refuses a registry other than the one the Epic's lock pins", () => {
+  assert.equal(CARRIER_REGISTRY_DOMAIN, "autosk-flow/stage-carrier-registry/v1");
+  assert.match(carrierRegistryDigest(shipped), /^[0-9a-f]{64}$/u);
+  // Same bundle digest, a different mapping: the question the Epic answers has changed.
+  const edited = structuredClone(shipped);
+  edited.carriers["author.brief"].anchors = [...edited.carriers["author.brief"].anchors, "extra"];
+  assert.notEqual(carrierRegistryDigest(edited), carrierRegistryDigest(shipped));
+  assert.throws(
+    () => compileCarrier(edited, {
+      role: "author",
+      stage: "brief",
+      context: context(),
+      bundle: bundle(),
+      anchors: { ...anchorsFor(shipped.carriers["author.brief"]), extra: "x\n" },
+    }),
+    (error) => error.code === "carrier_bundle_unpinned"
+      && error.details.lock === carrierRegistryDigest(shipped)
+      && error.details.registry === carrierRegistryDigest(edited),
+  );
+  // A dispatch whose lock names no registry is not pinned either.
+  assert.throws(() => compile("author", "brief", { context: { carrier_registry_digest: undefined } }),
+    code("carrier_bundle_unpinned"));
+  assert.doesNotThrow(() => compile("author", "brief"));
 });

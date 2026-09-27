@@ -8,6 +8,8 @@
  * The build reads the manifest's members and only those. A directory walk would
  * make an accidentally-added file part of the bundle, and a member that
  * disappeared would go unnoticed because the count still looked plausible.
+ * The manifest itself is held to the inventory the caller supplies — the stage
+ * carrier registry's governance files, the one member list (debt 10g).
  *
  * Injected: `readFile(path)` returning bytes, `writeFile(path, text)`.
  */
@@ -17,8 +19,10 @@ import { demand, immutable } from '../runtime/contracts.mjs';
 
 import {
   bundleDigest,
+  bundleMetadataErrors,
   canonicalJson,
   canonicalTextErrors,
+  declaredInventoryErrors,
   inventoryErrors,
   scanErrors,
   stageErrors,
@@ -76,9 +80,9 @@ export async function importMembers(fs, { root, manifest }) {
  * digest is reported, so a digest is never printed for a candidate that is not
  * one.
  */
-export async function buildBundle(fs, { root, manifest, stage = 'baseline' }) {
+export async function buildBundle(fs, { root, manifest, inventory, stage = 'baseline' }) {
   const members = await importMembers(fs, { root, manifest });
-  const errors = [];
+  const errors = [...declaredInventoryErrors(inventory, manifest)];
   for (const member of members) {
     if (!member.readable) {
       errors.push({ reason: 'bundle_scan_unreadable', detail: `${member.path}: ${member.detail}` });
@@ -99,7 +103,16 @@ export async function buildBundle(fs, { root, manifest, stage = 'baseline' }) {
   }))));
   errors.push(...stageErrors({ stage, ...manifest }));
 
-  const digest = bundleDigest(present);
+  // The digest's metadata comes from the manifest (02 §5); without it the
+  // bundle has no content identity, and no digest is reported.
+  const metadata = {
+    bundle_id: manifest.bundle_id,
+    bundle_version: manifest.bundle_version,
+    provenance: manifest.provenance,
+  };
+  const metadataErrors = bundleMetadataErrors(metadata);
+  errors.push(...metadataErrors);
+  const digest = metadataErrors.length === 0 ? bundleDigest({ ...metadata, members: present }) : null;
   return Object.freeze({
     stage,
     digest,
@@ -127,6 +140,9 @@ export function candidateDocument(built, manifest) {
     schema_version: 1,
     stage: built.stage,
     bundle_digest: built.digest,
+    bundle_id: manifest.bundle_id,
+    bundle_version: manifest.bundle_version,
+    provenance: manifest.provenance,
     // Timestamps are not in the digest and not in the candidate: a build that
     // embedded the moment it ran could never be reproduced.
     members: built.members.map((member) => ({ path: member.path, sha256: member.sha256 })),
