@@ -42,6 +42,20 @@ export function stagingRef(key) {
 }
 
 /**
+ * Refuses any ref but an Epic's private staging ref.
+ *
+ * The host moves the staging ref and nothing else: the daemon's
+ * `integrateApproved` is the only writer of an Epic's or a Quick run's target
+ * ref (ADR-088). A host apply pointed at the user's branch would be a second
+ * writer of it, and one that holds no authorization.
+ */
+export function assertStagingRef(ref) {
+  demand(typeof ref === 'string' && /^refs\/autosk\/epics\/[0-9a-f]{64}\/staging$/u.test(ref), 'cas_conflict',
+    'The host moves only an Epic\'s private staging ref', { ref });
+  return ref;
+}
+
+/**
  * One git invocation.
  *
  * A non-zero exit from a command that was supposed to answer a question is an
@@ -71,7 +85,10 @@ export async function reflogDepth(git, ref) {
 }
 
 /**
- * Creates the staging ref at the recorded base.
+ * Creates the staging ref at `base`: for an Epic, the verified planning head,
+ * which descends from the recorded target base the final CAS expects (or, after
+ * a re-stage, the new `recorded_target_base`, whose first commit is one
+ * receipted planning replay commit) (ADR-088).
  *
  * `update-ref` with an old value of the empty string means *must not exist*, so
  * two Epics racing to create the same staging ref is a conflict git reports
@@ -145,7 +162,15 @@ export async function observeTarget(git, { ref, recorded = [], recordedResult, r
 }
 
 /**
- * The one movement of the target ref.
+ * The expected-old compare-and-swap of one ref.
+ *
+ * This is the mechanics, not the authority. The daemon's
+ * `integrateApproved` is the only writer of an Epic's or a Quick run's target
+ * ref, under the project mutex and an `IntegrationAuthorizationRecord`
+ * (ADR-088); this is the verified CAS/reflog logic ADR-012 carries into the
+ * autosk-owned adapter it calls. In the host, the one caller is `applyDelta`,
+ * and it moves only the private staging ref — a test keeps that caller
+ * inventory.
  *
  * The compare-and-swap is git's, not this file's: `update-ref <ref> <new>
  * <old>` fails if the ref does not hold `<old>` at write time. Reading the ref

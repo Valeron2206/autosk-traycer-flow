@@ -304,6 +304,19 @@ test("a target outside the reason's resume targets is refused", () => {
   assert.equal(permitsResume(state, row.reason, row.resume_targets[0], receipted(row)), true);
 });
 
+test("a foreign target movement resumes into apply_staging, and a bare resume into the CAS is still refused", () => {
+  // Debt 10b, R6-4 (ADR-088). An ordinary commit to the target during an Epic
+  // is not attributable under the one CAS; resuming only to human made a live
+  // target branch block every Epic. A recorded decision to re-stage onto the
+  // moved target resumes into apply_staging; the CAS itself is never retried.
+  const state = index(document());
+  assert.equal(permitsResume(state, "foreign_target_movement", "apply_staging"), true);
+  assert.equal(
+    refusalOf(() => permitsResume(state, "foreign_target_movement", "integrate_staging")).reason,
+    "resume_target_not_permitted",
+  );
+});
+
 test("an origin-scoped reason resumes only into the step its park recorded as its origin", () => {
   // R9c-10. A union row lends every target to every step it names, so a stop
   // before the aggregate PASS could resume into acceptance on the same reason.

@@ -434,3 +434,63 @@ test("a receipt records the phase the operation actually reached", async (t) => 
   const unmoved = integrationReceipt(d, { ...result, applied: false });
   assert.equal(unmoved.phase, "prepared");
 });
+
+// --- debt 10b: the host moves only the private staging ref ------------------
+
+test("an apply refuses a ref that is not an Epic's staging ref, and moves nothing", async (t) => {
+  // ADR-088. The daemon's integrateApproved is the only writer of a target
+  // ref; the host's expected-old CAS moves the private staging ref and nothing
+  // else. Pointed at the user's branch, the apply is refused before any write.
+  const { git, root, base, indexFile } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  for (const ref of ["refs/heads/main", "refs/autosk/epics/e-1/staging", `refs/autosk/epics/${"a".repeat(64)}/planning`]) {
+    await assert.rejects(
+      () => applyDelta(git, { delta: d, realpath, ref, base, indexFile, message: "T-1" }),
+      code("cas_conflict"),
+      ref,
+    );
+  }
+  assert.equal(await readRef(git, "refs/heads/main"), base.commit_oid);
+});
+
+test("no module under src/ calls swapTarget except applyDelta", async () => {
+  // The caller inventory is the enforcement: swapTarget is the CAS mechanics
+  // integrateApproved's adapter carries, and its own tests exercise it on a
+  // branch, so a guard inside it would refuse the one thing it is tested for.
+  // What must hold is that no host code reaches it with a target ref.
+  const { readdir } = await import("node:fs/promises");
+  const src = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "src");
+  const files = [];
+  const walk = async (dir) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith(".mjs")) files.push(full);
+    }
+  };
+  await walk(src);
+  const calls = [];
+  for (const file of files.sort()) {
+    const text = await readFile(file, "utf8");
+    for (const match of text.matchAll(/\bswapTarget\s*\(/gu)) {
+      const before = text.slice(0, match.index);
+      if (/export\s+async\s+function\s+$/u.test(before)) continue;
+      const owner = [...before.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/gu)].at(-1)?.[1];
+      calls.push(`${path.relative(src, file)}:${owner}`);
+    }
+  }
+  assert.deepEqual(calls, ["host/delta-driver.mjs:applyDelta"]);
+  // And only delta-driver imports it, under its own name or an alias.
+  const importers = [];
+  for (const file of files) {
+    const text = await readFile(file, "utf8");
+    for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gu)) {
+      if (!/staging-driver\.mjs$/u.test(match[2])) continue;
+      const names = match[1].split(",").map((part) => part.trim().split(/\s+as\s+/u)[0]).filter(Boolean);
+      if (names.includes("swapTarget")) importers.push(path.relative(src, file));
+    }
+    if (/import\s*\*\s*as\s+\w+\s*from\s*['"][^'"]*staging-driver\.mjs['"]/u.test(text)) importers.push(`${path.relative(src, file)} (namespace)`);
+  }
+  assert.deepEqual(importers, ["host/delta-driver.mjs"]);
+});

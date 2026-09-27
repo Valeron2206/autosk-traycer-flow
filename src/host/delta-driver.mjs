@@ -24,7 +24,7 @@ import {
   revalidate,
   withinPathspec,
 } from './approved-delta.mjs';
-import { readRef, reflogDepth, swapTarget } from './staging-driver.mjs';
+import { assertStagingRef, readRef, reflogDepth, swapTarget } from './staging-driver.mjs';
 
 /** One git invocation. A command that could not run says nothing about the product. */
 async function ask(git, args, options = {}) {
@@ -210,6 +210,9 @@ export async function applyDelta(git, {
   otherTicketPaths = [],
   options = {},
 }) {
+  // The host's CAS moves the private staging ref and nothing else; a target
+  // ref is the daemon's integrateApproved's to move (ADR-088).
+  assertStagingRef(ref);
   assertCleanEnvironment(env);
   // Revalidated immediately before the apply, not when it was approved: the
   // staging base moves as other Tickets integrate, and `revalidate` validates

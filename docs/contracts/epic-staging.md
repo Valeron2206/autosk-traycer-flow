@@ -15,16 +15,23 @@ refs/autosk/epics/<epic_ref_key>/staging
 `epic_ref_key` is the same domain-separated SHA-256 of `{epic_id, project_root_sha256}` that keys every other ref under this helper-owned prefix — not a display id and not a user slug. The staging record carries `project_root_sha256` beside `epic_id` so the name can be derived and checked rather than asserted, and `epicRefKey` in `src/host/staging-driver.mjs` is the one derivation the driver and the validator use (ADR-087). One namespace with two naming conventions would leave the integration-critical ref with no project binding and no guarantee that the name is a legal ref at all.
 
 ```text
-planning_head
+planning_head (verified; descends from the recorded target base)
+  (or, after a re-stage, one receipted planning replay commit on the new `recorded_target_base`)
   → apply approved Ticket deltas to private staging
   → verify each integration receipt
   → aggregate verification on the exact staging OID and tree
   → optional integration-fix Tickets against staging
-  → human acceptance
-  → one final CAS of the target ref
-  → post-CAS verification
+  → acceptance, backed by an IntegrationAuthorizationRecord
+  → one final CAS of the target ref by the daemon's integrateApproved, or delivery through a PR or merge queue
+  → post-CAS verification, or the delivery completion predicate
   → cleanup
 ```
+
+Staging is first created at the verified `planning_head`, which descends from `planning.base_oid`, the target commit the planning ref was created from; the staging record's own `recorded_target_base` starts equal to it. So the final staging tree holds the planning artifacts plus the approved code. `planning.base_oid` and `planning_head` never change during an Epic, and the planning artifact PASSes stay published on the untouched planning ref. The lineage check runs from `recorded_target_base` to the staging head: first either the planning-ref commits up to the verified `planning_head` (while `recorded_target_base` equals `planning.base_oid`) or exactly one receipted planning replay commit (after a re-stage), then receipted delta commits only; anything else is `receipt_missing`. The expected old value of the one target CAS is `recorded_target_base` (ADR-088).
+
+Re-staging — after `target_moved`, after `foreign_target_movement`, or after a PR or merge-queue delivery that is not merged while the target moved (`completion_predicate_unmet`) — rebuilds the line on the moved target. The staging record's `recorded_target_base` is re-recorded as the new target; the staging ref is rebuilt: `cleanupStaging` deletes it with the recorded staging OID as its expected value, and `createStaging` creates it at the new base. Its first commit is exactly one planning replay commit: its tree is the planning change (`planning.base_oid` → `planning_head`) applied onto the new base with pre-image revalidation, its single parent is the new `recorded_target_base`, and a durable planning-replay receipt binds it — `planning.base_oid`, `planning_head`, the change digest, the new base, and the replay commit and tree. Then every approved delta is re-applied with revalidation, and the prior aggregate PASS and acceptance are void. A planning change that does not apply to the new base parks `delta_stale`, and in v1 the only exits are cancel (a separate status operation) or a new Epic plan. The receipt's closed schema is implementation work under #9. A re-stage is subject to `crossEpicErrors` (`src/host/staging-lineage.mjs`) like any staging line, and re-stages are serialized per target: when two unintegrated Epics on one target would re-record the same new base, the second waits until the first lands and then re-stages onto its result, so no two open lines share a `recorded_target_base` and none is staged from inside another's unintegrated lineage.
+
+The daemon's `integrateApproved` is the only writer of the target ref. The host's `swapTarget` is the expected-old CAS mechanics that adapter carries; in the host it has one caller, `applyDelta`, which moves only the private staging ref and refuses any other.
 
 Moving the target once per Ticket looks simpler and is not: two Tickets that are individually green can regress together, and by the time the second one is integrated the first is already on the user's branch. Aggregate verification exists because *individually green* is not a property of the set.
 
@@ -37,12 +44,12 @@ Issue #7 supplies the execution base, #8 the approved delta and its integration 
 ## 3. Invariants
 
 - the user's target branch does not change before aggregate PASS **and** acceptance;
-- staging is created from the exact recorded target base or planning head, per the delivery profile's model;
+- staging is created at the exact verified `planning_head` on the first stage, and at the re-recorded `recorded_target_base` with one receipted planning replay commit on a re-stage (§1);
 - every apply produces a durable integration receipt;
 - aggregate evidence is bound to the exact staging commit and tree, the verification config digest, and the project instruction lock;
 - **any change to staging after aggregate PASS voids the aggregate binding** — a PASS is about a tree, not about an intention;
 - an integration-fix Ticket gets its own ID, a manifest overlay or revision, acceptance criteria, and the ordinary verify, freeze and review. It is not a patch applied under someone else's approval;
-- the final CAS is permitted only while the target is still at the recorded base;
+- the final CAS is permitted only while the target is still at `recorded_target_base`, and only with an `IntegrationAuthorizationRecord` that backs the acceptance;
 - after the CAS, the target OID, tree, containment and reflog are verified;
 - the staging ref is kept until audit retention ends;
 - there is no per-Ticket intermediate movement of the target. Not as an optimisation, not as a fallback.
@@ -65,6 +72,8 @@ The checks run in a throwaway worktree checked out at the exact staging commit, 
 
 A human acceptance record names the project and Epic identity, the final staging commit and tree, the aggregate verification record hash, the included Ticket and delta set, the target ref and base, and the delivery profile digest.
 
+In the `squash` mode the accepted identity also names the commit the target will move to: the squash commit OID and the digest of its recipe — message, author, committer and their timestamps, the accepted staging tree and the recorded base as its only parent — as `target_commit_oid` and `target_commit_recipe_sha256`. The decision packet shows both, and the `IntegrationAuthorizationRecord`'s `ref_transition.to_oid` must equal that OID; a person accepts the exact commit that lands, not only its tree. The staging record's schema has no delivery-mode field to make the two fields conditional on, so they are required here in prose and the schema change is left to debt 10c.
+
 A pinned auto-policy is held to the same binding, and it does one thing: it checks that the produced identity is the one the user's signed `IntegrationAuthorizationRecord` already named. It does not accept an identity on the user's behalf. The record binds the final tree, so by the time the policy runs the decision has been made and what is left is a comparison — `integration_authorization_policy_issued` refuses a record the policy itself issued, which is the same rule read from the other side.
 
 Acceptance is of an *identity*, not of a plan to produce one. If the staging tree changes afterwards, the acceptance no longer applies to what would be pushed, and the CAS is refused.
@@ -77,9 +86,13 @@ A pinned auto-policy names the identity it was pinned to and the debt it tolerat
 
 ## 6. The final CAS, and what follows it
 
-One compare-and-swap, expected-old being the recorded base. If the target has moved, the operation goes to `human` and the ref is not touched: a foreign movement means someone else acted on that branch, and overwriting it is the one outcome that cannot be undone by retrying.
+One compare-and-swap by the daemon's `integrateApproved`, expected-old being the recorded base. If the target has moved, the operation goes to `human` and the ref is not touched: a foreign movement means someone else acted on that branch, and overwriting it is the one outcome that cannot be undone by retrying.
 
-After the swap: the target OID and tree are read back, containment of the recorded result is checked, and the reflog entry is confirmed. A CAS that reported success is not evidence that the ref holds what was intended.
+A foreign movement is not a dead end. After investigation the user may record a decision to re-stage onto the moved target: the flow resumes into `apply_staging` and re-stages as §1 describes — `recorded_target_base` re-recorded, the staging ref rebuilt at the new base with one receipted planning replay commit, every approved delta re-applied with the pre-image check `applyDelta` already makes (a change that no longer applies parks `delta_stale`), and the prior aggregate PASS and acceptance void. The same re-stage is open from `deliver_staging` when the PR or queue entry is not merged and the target moved; the delivery step then voids the old delivery receipt and closes or withdraws the old PR or queue entry before it opens a new one for the new staging identity. A delivery that merged a tree other than the accepted one is not re-staged: the target holds an unaccepted tree, and like `post_cas_mismatch` it parks `completion_predicate_unmet` for an explicit human decision, with no history rewrite. A target busy enough to move again during each human-gated re-stage can still keep an Epic from landing; that is named as a remaining risk in `04-decisions.md` (ADR-088). Without that decision nothing moves. Cancel stays a separate status operation.
+
+What the CAS writes is set by the mode (`docs/contracts/delivery-profile.md` §6a). `merge` and `rebase` fast-forward the target to the accepted staging commit, planning commits (or the one planning replay commit) included: the base did not move, so rebasing onto it is the identity. `squash` moves it to one commit whose tree is the accepted staging tree and whose only parent is the recorded base. PR and merge-queue delivery never runs the CAS; it completes when the commit the delivery receipt names is on the target, its tree is the accepted staging tree and the recorded base is its ancestor — a squash or rebase merge never puts the exact staging commit there, so requiring it would leave such an Epic undelivered forever.
+
+After the swap: the target OID is read back and must be the move's commit (the staging commit or the squash commit), its tree must be the accepted tree, containment of the recorded result is checked, and the reflog entry is confirmed. A CAS that reported success is not evidence that the ref holds what was intended.
 
 The compare-and-swap is git's own. `update-ref <ref> <new> <old>` fails if the ref does not hold `<old>` at write time; reading the ref and then writing it leaves exactly the window this contract exists to close, and passes every test that does not race. The driver therefore never reads to decide whether to write — it writes with the expected old value and reports what happened. The same holds for creating the staging ref (an old value of the empty string means *must not exist*) and for deleting it (an expected OID, so cleanup cannot destroy a staging ref that moved after the aggregate passed).
 
@@ -107,6 +120,8 @@ In the workflow graph, `aggregate_failed` is the one class with no park reason o
 - a retried final CAS;
 - an integration-fix Ticket that succeeds, and one that fails;
 - cleanup before and after retention;
+- a squash-merged and a rebase-merged PR each complete delivery, and a delivered tree other than the accepted one does not;
+- a target movement re-staged onto the moved target, with a planning change or a delta that no longer applies parking `delta_stale`;
 - planning artifacts and approved code both present in the final staging tree.
 
 ## 10. Acceptance mapping
