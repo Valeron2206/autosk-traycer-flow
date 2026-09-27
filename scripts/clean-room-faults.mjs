@@ -350,10 +350,10 @@ async function f015(root) {
   // the step that remains: the resume continues without another model run.
   const { stdout: observed } = await git(repo, 'rev-parse', 'refs/heads/main');
   const plan = resumePlan({ ...state, phase: 'accepted' });
-  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1']);
+  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], PROFILE);
   // The control is that this admission is not unconditional: a target holding
   // something nobody can attribute to this Epic is refused from the same state.
-  const foreign = casAdmission(state, { oid: 'f'.repeat(40) }, ['T-1']);
+  const foreign = casAdmission(state, { oid: 'f'.repeat(40) }, ['T-1'], PROFILE);
   await rm(repo, { recursive: true, force: true });
   return {
     detected: plan.requires_model_run === false && admission.decision === 'may_swap',
@@ -372,11 +372,11 @@ async function f016(root) {
   // holds the recorded result, so the retry is complete rather than in conflict.
   await git(repo, 'update-ref', 'refs/heads/main', staging.oid, head);
   const { stdout: observed } = await git(repo, 'rev-parse', 'refs/heads/main');
-  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1']);
+  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], PROFILE);
   const plan = resumePlan({ ...state, phase: 'target_advanced' });
   // The control is the world where the swap had not happened yet: the same
   // state and guard then answer `may_swap`, not `already_complete`.
-  const unswapped = casAdmission(state, { oid: head }, ['T-1']);
+  const unswapped = casAdmission(state, { oid: head }, ['T-1'], PROFILE);
   await rm(repo, { recursive: true, force: true });
   return {
     detected: admission.decision === 'already_complete' && plan.next_phase === 'post_cas_verified',
@@ -384,6 +384,9 @@ async function f016(root) {
     detail: 'the ref holds the recorded result; the read-back is the remaining step',
   };
 }
+
+/** The delivery profile in force when the interrupted swap resumes. */
+const PROFILE = Object.freeze({ deliveryProfileDigest: 'f'.repeat(64) });
 
 /** The durable record an interrupted swap leaves behind. */
 function acceptedState({ head, staging }) {
@@ -413,11 +416,15 @@ function acceptedState({ head, staging }) {
   base.aggregate = { ...aggregate, binding: aggregateBinding({ ...base, aggregate }) };
   base.acceptance = {
     kind: 'human',
-    approver: 'owner',
+    decision_id: 'dec-clean-room',
     staging_commit_oid: base.staging_commit_oid,
     staging_tree_oid: base.staging_tree_oid,
     aggregate_record_hash: aggregate.record_hash,
-    tickets: ['T-1'],
+    included_tickets: ['T-1'],
+    target_ref: base.target_ref,
+    recorded_target_base: base.recorded_target_base,
+    delivery_profile_digest: PROFILE.deliveryProfileDigest,
+    delivery_mode: 'merge',
   };
   return base;
 }

@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "c85d35b4c65759b2560b715c303efbd8f27c6204d543f4b39be0c406d0beaf75"
+      "sha256": "902fc3b2e3f24130abbbf71dcf877eb50010668b6bcc13ba1cfc0b8bbf4f01ee"
     },
     {
       "path": "02-architecture.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "1e79699a84a5ff794d2a781e4867a7e0cf091967f3d0ebf47aa3b7f74e308790"
+      "sha256": "5ab21ebfc706663f9e1ac3bdd7b693ae825299f094a1dc0c930326b34e15bb2f"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "e3d6e48d8c5ab0f6fc4ac36266e19eceed9ffc597587b65084043b1397a9c223"
+      "sha256": "dc05d117735fbda46632e45bc4c6e7a8f4778dc798b29c470251005e88fcb827"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "1eef03bc5f09212c9d50bd79fc14a8c5dad09690b07df49d4f46888ccee91f29"
+      "sha256": "e2ead6efacb08c75e8d56b07bc0ab528d0b1954a0d3aa74f888d5ffb3da3d1ba"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -128,7 +128,7 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "ef88eb21ada8bfa61e36d290fe3d81e0400cf690c2257551d248d8a47b13aa8d"
+      "sha256": "2643e61a3627d60767e8a497fe3ffe674e70dc1cd18a0388c780c8b0b22b5685"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "28e016b7b79b6e094265edee148470dff934781629e360f609e68e22c79a42a4"
+      "sha256": "988265df5e2bf4bc398f1b9628361662c1f3b185baecb1b232171fd12b00d986"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -368,11 +368,11 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.example.json",
-      "sha256": "1c9397eef5427d384dd847f6f618ab162543c12ce7930e86b1fc32f6c540c684"
+      "sha256": "7ebac10481679fc4b0afb94a9ee60eac847d0576816eb0d3e8ef263f3fe8ee67"
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
-      "sha256": "6ff1663f3d4d4dd85939d749305c61db39fd7fd14113d9bf7943119f4e5328fc"
+      "sha256": "d0d6614e64c6b8790b2ae9d3ccea9d22ddb981fdbb84d3493001c4b4c57de56d"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.example.json",
@@ -456,15 +456,15 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.answered.example.json",
-      "sha256": "6789e086b9a653799f836e97b245ebee1d557189f7c81f66165be4f8b9cd4e5e"
+      "sha256": "7add3e5f91b88bb62af067f504e8a52af597ae6501a57d0bbf925dc8d1efd33d"
     },
     {
       "path": "resources/human-decision/human-decision-request.example.json",
-      "sha256": "e918b4c793d78485d296fbba3ef6ec1b908cf8bb4a193a538b104b3d27303a7f"
+      "sha256": "16b96e375c82663f769712e17183ee4b03eabaeda50b9352b9afdfb223c915e0"
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
-      "sha256": "ff1622498dec80019e45091767c2bb195b81e6058097f85acf59c8c757ad2523"
+      "sha256": "2e63a9152ef9357263223d9c5509e668e056650091841cc0a818125331aae4a2"
     },
     {
       "path": "resources/human-decision/project-status.example.json",
@@ -768,7 +768,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "a77ea7c1526795d4088a7747ef116da9de8b8a92a311a1f7b40d19d822d46bd2"
+      "sha256": "a7f9e57fd00b3b58a0ad3e0f1442195acbe536e288714be7b2731df1268fab67"
     },
     {
       "path": "resources/requirement-revision/revision-record.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "ce79c8e117d1406fff712cb5242f78a56ec743facd670b57c514b468211dd238"
+      "sha256": "1b269ede8e917c373df8781b327c093d5c58ad59ac5973a210ea796244d4533d"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "4c532c5ed48aa4c679fee5570034daab4a094fe8274f7e37f86efe810fd739f1",
+  "candidate_digest": "63f510be2ccca4f25a21b05b2d6f23226f33ce76ef19df9674b5196f95d6a19d",
   "dispositions": [
     {
       "issue": 3,

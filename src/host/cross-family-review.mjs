@@ -16,7 +16,7 @@ import { demand, immutable } from '../runtime/contracts.mjs';
 import { classify } from './artifact-classifier.mjs';
 
 export const PARK_REASONS = immutable([
-  'review_no_external_family',
+  'no_external_reviewer',
   'review_family_unknown',
   'review_session_reused',
   'review_exemption_not_permitted',
@@ -141,7 +141,7 @@ export function reviewAdmission({ partition, authors, fixers = [], reviewers, ro
   if (route.length === 0) {
     return Object.freeze({
       decision: 'park',
-      reason: 'review_no_external_family',
+      reason: 'no_external_reviewer',
       detail: ranked.length === 0
         ? `every reviewer family also authored or fixed: ${excludedFamilies({ partition, authors, fixers }).join(', ')}`
         : `no exact reviewer route for a family outside the authors and fixers: ${ranked.join(', ')}`,
@@ -236,7 +236,7 @@ export function assertNotSubstitute(record) {
  */
 export function reviewGate({ candidateIdentity, review }) {
   if (!review) {
-    return Object.freeze({ decision: 'park', reason: 'review_no_external_family', detail: 'no review record' });
+    return Object.freeze({ decision: 'park', reason: 'no_external_reviewer', detail: 'no review record' });
   }
   assertNotSubstitute(review);
   if (review.candidate_identity !== candidateIdentity) {

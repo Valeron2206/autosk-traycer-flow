@@ -14,6 +14,8 @@ So a park produces a machine-readable packet, and an answer becomes an immutable
 
 A request carries its id; the project, epic, task and operation; the `park.reason`; the exact anchor, candidate, runtime, protocol and delivery identities; the observed facts; **why the automation is not entitled to decide**; the minimal set of questions; the allowed options with their consequences; a recommendation when one is justified; irreversible, destructive and security flags; the required approver; expiry and staleness conditions; the exact resume target; and evidence links.
 
+`park_reason` is the task's `park.reason` itself: one of the recovery reasons of the workflow graph (`resources/workflow-graph/workflow-graph.v1.json`), which the request schema enumerates and `validate:human-decision` keeps equal to the graph's rows. The kinds named in §1 are families of those reasons, not values of the field. The resume target names a graph step that reason's recovery row permits.
+
 Two of those are load-bearing in a way the rest are not.
 
 *Why the automation may not decide* is required because a packet without it reads as a request for permission to do something obvious. If the reason cannot be written, the park is probably a bug rather than a decision.

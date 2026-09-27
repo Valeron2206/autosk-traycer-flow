@@ -140,7 +140,7 @@ test("a family is the model's: Meta's Muse excludes Muse, not Kimi", () => {
 test("with no external family the review does not quietly not happen", () => {
   const admission = reviewAdmission({ partition, reviewers: LIVE, authors: [CODEX, KIMI, MUSE], fixers: [GROK, OPUS] });
   assert.equal(admission.decision, "park");
-  assert.equal(admission.reason, "review_no_external_family");
+  assert.equal(admission.reason, "no_external_reviewer");
   // The three things a person can actually do about it.
   assert.deepEqual([...admission.options], ["human_review", "re_express_candidate", "exact_waiver"]);
   assert.equal(admission.detail, "every reviewer family also authored or fixed: gpt, grok, kimi, muse, opus");
@@ -165,7 +165,7 @@ test("a family with no exact reviewer route is skipped, and with none left the t
   assert.equal(reviewAdmission({ partition, reviewers: [...LIVE, KIMI], authors: [CODEX] }).family, "kimi");
   const stranded = reviewAdmission({ partition, reviewers: LIVE, authors: [CODEX, MUSE, GROK, OPUS] });
   assert.equal(stranded.decision, "park");
-  assert.equal(stranded.reason, "review_no_external_family");
+  assert.equal(stranded.reason, "no_external_reviewer");
   assert.equal(stranded.detail, "no exact reviewer route for a family outside the authors and fixers: kimi");
   assert.deepEqual([...stranded.options], ["human_review", "re_express_candidate", "exact_waiver"]);
   assert.equal(reviewAdmission({ partition, reviewers: [], authors: [OPUS] }).decision, "park");
@@ -312,4 +312,27 @@ test("a candidate advances on a review of its exact bytes", () => {
   });
   assert.equal(failed.decision, "fix");
   assert.deepEqual([...failed.findings], ["F-1"]);
+});
+
+test("the host parks a missing external reviewer or Lead with the graph's names", async () => {
+  // R6-25: review_no_external_family and panel_lead_not_external stood beside
+  // the graph's no_external_reviewer and no_external_panel_lead, two names for
+  // one stop. The retired names appear in no runtime file and no design text
+  // but the decision log.
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const at = (relative) => readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
+  const texts = [
+    ...readdirSync(new URL("../src/host/", import.meta.url)).filter((name) => name.endsWith(".mjs")).map((name) => `src/host/${name}`),
+    ...readdirSync(new URL("../docs/contracts/", import.meta.url)).filter((name) => name.endsWith(".md")).map((name) => `docs/contracts/${name}`),
+    "01-core-flows.md", "02-architecture.md", "03-technical-plan.md", "scripts/validate-finding-registry.mjs",
+  ];
+  for (const relative of texts) {
+    assert.doesNotMatch(at(relative), /review_no_external_family|panel_lead_not_external/u, relative);
+  }
+  const vocabulary = JSON.parse(at("resources/refusal-vocabulary/refusal-vocabulary.v1.json"));
+  for (const [reason, file] of [["no_external_reviewer", "src/host/cross-family-review.mjs"], ["no_external_panel_lead", "src/host/panel.mjs"]]) {
+    const entry = vocabulary.park_reasons.find((item) => item.code === reason);
+    assert.equal(entry.producer, "host", reason);
+    assert.ok(entry.producer_files.includes(file), reason);
+  }
 });

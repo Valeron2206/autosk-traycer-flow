@@ -196,14 +196,14 @@ test("a crash after the aggregate passed resumes into the swap with no model run
   assert.equal(plan.requires_model_run, false);
 
   const observed = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
-  assert.equal(casAdmission(accepted, observed, ["T-1"]).decision, "may_swap");
+  assert.equal(casAdmission(accepted, observed, ["T-1"], PROFILE).decision, "may_swap");
   const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
   assert.equal(result.swapped, true);
 
   // And the retry after a crash between the swap and the read-back is complete
   // rather than in conflict.
   const again = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
-  assert.equal(casAdmission(accepted, again, ["T-1"]).decision, "already_complete");
+  assert.equal(casAdmission(accepted, again, ["T-1"], PROFILE).decision, "already_complete");
 });
 
 test("cleanup removes the staging ref only while it holds what was recorded", async (t) => {
@@ -318,14 +318,21 @@ function state({ head, staged }) {
   base.aggregate = { ...aggregate, binding: aggregateBindingOf({ ...base, aggregate }) };
   base.acceptance = {
     kind: "human",
-    approver: "owner",
+    decision_id: "dec-1",
     staging_commit_oid: base.staging_commit_oid,
     staging_tree_oid: base.staging_tree_oid,
     aggregate_record_hash: aggregate.record_hash,
-    tickets: ["T-1"],
+    included_tickets: ["T-1"],
+    target_ref: base.target_ref,
+    recorded_target_base: base.recorded_target_base,
+    delivery_profile_digest: PROFILE.deliveryProfileDigest,
+    delivery_mode: "merge",
   };
   return base;
 }
+
+/** The delivery profile in force when the swap is admitted. */
+const PROFILE = Object.freeze({ deliveryProfileDigest: "f".repeat(64) });
 
 const { aggregateBinding: aggregateBindingOf } = await import("../src/host/epic-staging.mjs");
 

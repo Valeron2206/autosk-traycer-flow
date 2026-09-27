@@ -231,3 +231,15 @@ test("the checks that ran are what the configuration digest is over", () => {
   assert.notEqual(digest, checksDigest([{ id: "other", command: "npm", args: ["test"] }]));
   assert.equal(digest, checksDigest([{ id: "unit", command: "npm", args: ["test"] }]));
 });
+
+test("the outcomes this driver records are the staging record's outcomes", async () => {
+  // R6-7: epic-staging §4, cond_428 and this driver record an environment
+  // failure as outcome=indeterminate beside environment_outcome; the closed
+  // schema must admit exactly that vocabulary, with one name per outcome.
+  const { readFileSync } = await import("node:fs");
+  const schema = JSON.parse(readFileSync(new URL("../resources/epic-staging/epic-staging.schema.json", import.meta.url), "utf8"));
+  const { outcome, environment_outcome: environment } = schema.properties.aggregate.properties;
+  assert.deepEqual([...outcome.enum].sort(), ["fail", "indeterminate", "pass"]);
+  assert.deepEqual([...environment.enum].sort(), ["environment_failure", "ok"]);
+  assert.ok(schema.properties.aggregate.required.includes("environment_outcome"));
+});

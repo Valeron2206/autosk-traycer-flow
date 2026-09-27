@@ -25,10 +25,16 @@ export const ANSWERED_EXAMPLE_PATH = "resources/human-decision/human-decision-re
 export const STATUS_EXAMPLE_PATH = "resources/human-decision/project-status.example.json";
 export const CONTRACT_MARKER = "<!-- human-decision-contract:v1 -->";
 
-export const PARK_REASONS = Object.freeze([
-  "alignment", "panel_waiver", "provider_unavailable", "delivery_conflict",
-  "requirement_revision", "integration_uncertainty", "evidence_repair", "runtime_migration",
-]);
+export const GRAPH_PATH = "resources/workflow-graph/workflow-graph.v1.json";
+
+/** The task's `park.reason` is what a packet carries, so its closed set is the
+ * graph's: one reason per recovery row, read from the document the daemon runs
+ * rather than restated here (R6-8). */
+export function graphParkReasons(graphText) {
+  return Object.freeze(JSON.parse(graphText).recovery.map((row) => row.reason).sort());
+}
+
+export const PARK_REASONS = graphParkReasons(readFileSync(path.join(ROOT, GRAPH_PATH), "utf8"));
 
 export const REFUSALS = Object.freeze([
   "decision_identity_stale",
@@ -210,7 +216,7 @@ export function validateHumanDecisionDesign(files) {
   }
   const reasons = requestSchema.properties?.park_reason?.enum ?? [];
   if (reasons.slice().sort().join(",") !== [...PARK_REASONS].sort().join(",")) {
-    errors.push(`${REQUEST_SCHEMA_PATH}: the park reasons must match the contract exactly`);
+    errors.push(`${REQUEST_SCHEMA_PATH}: the park reasons must be exactly the workflow graph's recovery reasons`);
   }
 
   const requests = [];

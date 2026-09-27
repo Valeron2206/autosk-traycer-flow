@@ -946,8 +946,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/panel.mjs"
+      ]
     },
     {
       "code": "no_external_reviewer",
@@ -959,8 +961,10 @@
       ],
       "named_at_classes": [],
       "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "producer": "host",
+      "producer_files": [
+        "src/host/cross-family-review.mjs"
+      ]
     },
     {
       "code": "panel_join_invalid",
@@ -1396,5 +1400,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "2234bd7b35ab08284c4d3caaf935e3a7f78387c022872a6cbb426ca23acb8ba2"
+  "vocabulary_digest": "ded7965f5add58defe345f77f07f064034fbc1d8eeedbb66201e33aa454ded4f"
 }

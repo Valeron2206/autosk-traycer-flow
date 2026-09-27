@@ -1271,3 +1271,33 @@ test("two individually green Tickets that regress together leave the target wher
   assert.ok(failing.length > 0, "aggregate_verify parks a failed aggregate");
   for (const edge of failing) assert.ok(!["accept_staging", ...AFTER_ACCEPTANCE].includes(edge.to), `${edge.id} -> ${edge.to}`);
 });
+
+test("the aggregate_verify_failed row says where it parks, as its parks_at does (R6-26)", () => {
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "aggregate_verify_failed");
+  assert.deepEqual(row.parks_at, ["aggregate_verify"]);
+  assert.match(row.required_state, /^Section 2 parks with this reason at aggregate_verify:/u);
+  assert.doesNotMatch(row.required_state, /parks with this reason at record_aggregate_remediation/u);
+  // record_aggregate_remediation is where the row is handled: entered by a
+  // resume from human, not by an edge.
+  assert.deepEqual(row.handled_at, ["record_aggregate_remediation"]);
+  assert.match(row.required_state, /record_aggregate_remediation/u);
+  // And epic-staging §8 names every step the graph parks staging_moved_after_pass at.
+  const moved = graph.recovery.find((entry) => entry.reason === "staging_moved_after_pass");
+  const section = sectionOf(read("docs/contracts/epic-staging.md"), "## 8. Park reasons", "## 9.");
+  for (const step of moved.parks_at.filter((name) => name !== "human")) {
+    assert.match(section, new RegExp(`\`${step}\`[^.;]*\`staging_moved_after_pass\`|\`staging_moved_after_pass\`[^.;]*\`${step}\``, "u"), step);
+  }
+});
+
+test("01 does not let a person raise the review cap the factory holds absolute", () => {
+  // a1 medium: the cap's limit is the document's, its count is the durable
+  // takings, and nothing a person decides resets or widens either (capHolds in
+  // src/host/workflow-factory.mjs). 01 follows the code.
+  const flows = read("01-core-flows.md");
+  const row = flows.split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
+  assert.ok(row, "01 names who may exceed ten rounds");
+  assert.doesNotMatch(row, /новый конечный предел/u);
+  assert.match(row, /никто/u);
+  assert.match(row, /capHolds/u);
+});

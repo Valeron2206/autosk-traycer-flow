@@ -14,7 +14,7 @@ import { demand, immutable } from '../runtime/contracts.mjs';
 
 export const PHASES = immutable([
   'staging_created',
-  'tickets_applied',
+  'deltas_applied',
   'aggregate_verified',
   'accepted',
   'target_advanced',
@@ -94,34 +94,72 @@ export function receiptErrors(state, expectedTickets) {
     .map((ticket) => ({ reason: 'receipt_missing', detail: ticket }));
 }
 
+/** The delivery modes a profile may allow; the acceptance names the one it is of. */
+export const DELIVERY_MODES = immutable(['merge', 'squash', 'rebase', 'pull_request', 'merge_queue', 'fork_pull_request']);
+
+const OID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+const SHA256 = /^[a-f0-9]{64}$/u;
+const named = (value) => typeof value === 'string' && value.length > 0;
+
 /**
  * Whether the acceptance still applies.
  *
  * Acceptance is of an identity: if the staging tree changed afterwards, the
- * acceptance no longer applies to what would be pushed.
+ * acceptance no longer applies to what would be pushed. The record is the one
+ * `resources/epic-staging/epic-staging.schema.json` closes: it names the target
+ * ref and base and the delivery profile it was given under, and a profile that
+ * changed since (`current.deliveryProfileDigest`, the profile in force now) is
+ * another delivery — so is a CAS asked without saying which profile is in force.
  */
-export function acceptanceErrors(state) {
+export function acceptanceErrors(state, current = {}) {
   const acceptance = state.acceptance;
   if (!acceptance) return [{ reason: 'acceptance_missing', detail: 'nothing was accepted' }];
   const errors = [];
-  if (acceptance.kind === 'auto_policy' && !acceptance.policy_ref) {
+  const missing = (detail) => errors.push({ reason: 'acceptance_missing', detail });
+  const stale = (detail) => errors.push({ reason: 'acceptance_stale', detail });
+  if (acceptance.kind === 'pinned_auto_policy') {
     // A pinned auto-policy is held to the same binding as a person.
-    errors.push({ reason: 'acceptance_missing', detail: 'an auto-policy names the policy that pinned it' });
-  }
-  if (acceptance.kind === 'human' && !acceptance.approver) {
-    errors.push({ reason: 'acceptance_missing', detail: 'a human acceptance names who accepted' });
+    if (!named(acceptance.policy_ref)) missing('an auto-policy names the policy that pinned it');
+  } else if (acceptance.kind === 'human') {
+    if (!named(acceptance.decision_id)) missing('a human acceptance names the decision it came from');
+  } else {
+    missing('an acceptance is by a person or by a pinned auto-policy');
   }
   if (acceptance.staging_commit_oid !== state.staging_commit_oid
     || acceptance.staging_tree_oid !== state.staging_tree_oid) {
-    errors.push({ reason: 'acceptance_stale', detail: 'the accepted identity is not the current one' });
+    stale('the accepted identity is not the current one');
   }
   if (acceptance.aggregate_record_hash !== state.aggregate?.record_hash) {
-    errors.push({ reason: 'acceptance_stale', detail: 'the accepted aggregate record is not the current one' });
+    stale('the accepted aggregate record is not the current one');
   }
-  const accepted = [...(acceptance.tickets ?? [])].sort().join(',');
+  const accepted = [...(acceptance.included_tickets ?? [])].sort().join(',');
   const included = [...state.receipts.map((receipt) => receipt.ticket_id)].sort().join(',');
   if (accepted !== included) {
-    errors.push({ reason: 'acceptance_stale', detail: 'the accepted Ticket set is not the included one' });
+    stale('the accepted Ticket set is not the included one');
+  }
+  if (!named(acceptance.target_ref) || !named(acceptance.recorded_target_base)) {
+    missing('an acceptance names the target ref and base it was given against');
+  } else if (acceptance.target_ref !== state.target_ref || acceptance.recorded_target_base !== state.recorded_target_base) {
+    stale('the acceptance names another target ref or base');
+  }
+  // Both sides must be digests before they are compared: two absent profiles
+  // are equal and say nothing.
+  if (!SHA256.test(acceptance.delivery_profile_digest ?? '')) {
+    missing('an acceptance names the delivery profile it was given under');
+  } else if (typeof current.deliveryProfileDigest !== 'string' || !SHA256.test(current.deliveryProfileDigest)) {
+    missing('the CAS names the delivery profile in force');
+  } else if (acceptance.delivery_profile_digest !== current.deliveryProfileDigest) {
+    stale('the acceptance was given under another delivery profile');
+  }
+  if (!DELIVERY_MODES.includes(acceptance.delivery_mode)) {
+    missing('an acceptance names the delivery mode it was given for');
+  } else if (acceptance.delivery_mode === 'squash') {
+    // A person accepts the exact commit that lands, not only its tree.
+    if (!OID.test(acceptance.target_commit_oid ?? '') || !SHA256.test(acceptance.target_commit_recipe_sha256 ?? '')) {
+      missing('a squash acceptance names the squash commit and the digest of its recipe');
+    }
+  } else if (acceptance.target_commit_oid !== undefined || acceptance.target_commit_recipe_sha256 !== undefined) {
+    missing(`a ${acceptance.delivery_mode} delivery names no target commit`);
   }
   return errors;
 }
@@ -132,12 +170,14 @@ export function acceptanceErrors(state) {
  * There is no per-Ticket intermediate movement of the target — not as an
  * optimisation, not as a fallback — so this is the only place the target moves,
  * and it runs only while the target still holds the recorded base.
+ * `current.deliveryProfileDigest` is the delivery profile in force now; the
+ * acceptance must have been given under it.
  */
-export function casAdmission(state, observedTarget, expectedTickets = []) {
+export function casAdmission(state, observedTarget, expectedTickets = [], current = {}) {
   const reasons = [
     ...receiptErrors(state, expectedTickets),
     ...aggregateErrors(state),
-    ...acceptanceErrors(state),
+    ...acceptanceErrors(state, current),
   ];
   if (observedTarget.oid === state.post_cas?.expected_new_oid) {
     // Idempotent: if the target already holds the recorded result, the
