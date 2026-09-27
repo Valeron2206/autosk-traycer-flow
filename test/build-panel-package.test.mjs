@@ -1529,3 +1529,18 @@ test("a reason naming a path outside the project carries no absolute path at all
   assert.match(cell, /outside the project/u);
   assert.doesNotMatch(cell, /\/mnt\//u);
 });
+
+test("a park reason nothing produces is named as not claimed, not counted as delivered", async () => {
+  // Round 5 (R5-6): the vocabulary let a document validator stand in as the
+  // producer, so the package counted designed-only parks as produced here.
+  const { text } = await build();
+  const none = vocabulary.park_reasons.filter((entry) => entry.producer === "none");
+  assert.ok(none.length > 0, "the shipped vocabulary declares producer none for designed-only parks");
+  assert.match(text, new RegExp(`${none.length} are declared by the design and produced by nothing yet`, "u"));
+  for (const entry of none) assert.ok(text.includes(`\`${entry.code}\``), `${entry.code} is not named in the package`);
+  const host = vocabulary.park_reasons.filter((entry) => entry.producer === "host").length;
+  assert.match(text, new RegExp(`${host} are produced by runtime code in this repository`, "u"));
+  assert.doesNotMatch(text, /delivered as the pinned\s*patch series/u);
+  const counted = await build({ vocabulary: { ...vocabulary, park_reasons: vocabulary.park_reasons.map((entry) => ({ ...entry, producer: entry.producer === "none" ? "host" : entry.producer })) } });
+  assert.doesNotMatch(counted.text, /are declared with no producer yet/u);
+});

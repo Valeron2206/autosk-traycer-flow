@@ -22,7 +22,7 @@
     "class": "refusal_vocabulary_producer_missing",
     "side": "design",
     "emitter": "scripts/validate-refusal-vocabulary.mjs#producerErrors",
-    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/16/producer_files", "value": [] }] },
+    "drive": { "kind": "vocab", "mutate": [{ "op": "replace", "path": "/park_reasons/0/producer_files", "value": [] }] },
     "note": "a host-declared entry naming no producing file"
   },
   {

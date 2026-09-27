@@ -763,6 +763,7 @@ test("every count quoted in normative prose recomputes to the number the sentenc
   const outOfScope = rows.find((row) => row.reason === "alignment_policy_out_of_scope");
 
   const daemonProduced = vocabulary.park_reasons.filter((entry) => entry.producer === "daemon");
+  const noneProduced = vocabulary.park_reasons.filter((entry) => entry.producer === "none");
   const artifactClosed = vocabulary.park_reasons.filter((entry) => entry.closed_by.startsWith("docs/contracts/"));
 
   const graphLevelReasons = Object.keys(graph.graph_reasons);
@@ -1311,6 +1312,12 @@ test("every count quoted in normative prose recomputes to the number the sentenc
       text: vocabularyContract,
       pattern: /([\w,-]+) of the reasons are parked by `autoskd`/,
       measured: [daemonProduced.length],
+    },
+    {
+      id: "vocabulary §9: reasons whose `producer` is `none` — declared with no producer yet",
+      text: vocabularyContract,
+      pattern: /([\w,-]+) more are `none`/,
+      measured: [noneProduced.length],
     },
 
     // resources/workflow-graph/workflow-graph.schema.json — the descriptions
