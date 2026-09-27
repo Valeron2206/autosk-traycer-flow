@@ -3290,7 +3290,7 @@
         "staging_commit_oid",
         "staging_tree_oid"
       ],
-      "description": "acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base, delivery profile digest, а при squash — squash commit OID и digest его recipe; signed IntegrationAuthorizationRecord произвела acceptance человека либо он подписан заранее для закреплённой auto-policy, сверившей identity; finalIntegrationPlan action=move_target, target_commit=staging_commit (merge, rebase) либо squash_commit (squash) — integrate_staging"
+      "description": "acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base, delivery profile digest, а при squash — squash commit OID и digest его recipe; acceptance называет signed IntegrationAuthorizationRecord этой identity (id, digest), чей payload подписал UserDecisionRecord человека здесь либо, для auto-policy, до этого шага; finalIntegrationPlan action=move_target, target_commit=staging_commit (merge, rebase) либо squash_commit (squash) — integrate_staging"
     },
     {
       "id": "cond_436",
@@ -3303,7 +3303,7 @@
         "staging_commit_oid",
         "staging_tree_oid"
       ],
-      "description": "acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base и delivery profile digest: принял человек, и его acceptance decision произвёл signed IntegrationAuthorizationRecord, либо закреплённая auto-policy сверила эту identity с signed IntegrationAuthorizationRecord, подписанным заранее; finalIntegrationPlan action=open_pull_request|enqueue: финальное движение не наше — deliver_staging"
+      "description": "acceptance record связывает exact staging commit/tree, aggregate record hash, набор Tickets/deltas, target ref/base и delivery profile digest: acceptance называет signed IntegrationAuthorizationRecord этой identity, чей payload подписал UserDecisionRecord человека на этой остановке либо, для закреплённой auto-policy, сверившей identity, — до этого шага; finalIntegrationPlan action=open_pull_request|enqueue: финальное движение не наше — deliver_staging"
     },
     {
       "id": "cond_437",
@@ -3318,7 +3318,7 @@
       "reads": [
         "staging_acceptance"
       ],
-      "description": "acceptance record отсутствует или отклонён: decision packet (#35) предъявлен с exact staging identity как candidate (при squash — и squash commit OID с digest его recipe); acceptance человека производит signed IntegrationAuthorizationRecord, auto-policy без него не принимает — human с park.reason=acceptance_missing"
+      "description": "acceptance record отсутствует или отклонён: decision packet (#35) предъявлен с exact staging identity как candidate (при squash — и squash commit OID с digest его recipe); packet предъявляет IntegrationAuthorizationRecord, составленный для этой identity, и accept подписывает его payload; auto-policy без signed record не принимает — human с park.reason=acceptance_missing"
     },
     {
       "id": "cond_439",
@@ -3346,7 +3346,7 @@
         "staging_acceptance",
         "staging_commit_oid"
       ],
-      "description": "daemon `integrateApproved` — единственный writer target ref — под project mutex заново сверил current acceptance, её IntegrationAuthorizationRecord и controlling anchor и выполнил один target CAS: expected_old=recorded target base, new=commit хода — accepted staging commit (merge, rebase) либо squash commit = target_commit_oid из acceptance (squash), cas receipt committed; target, уже держащий commit хода, — завершённый повтор, а не конфликт — verify_target"
+      "description": "daemon `integrateApproved` — единственный writer target ref — под project mutex сверил acceptance, её IntegrationAuthorizationRecord (scope+id, digest, integration_authorization_head), его anchor digest и heads и выполнил один target CAS: expected_old=recorded target base, new=commit хода — accepted staging commit (merge, rebase) либо squash commit = target_commit_oid из acceptance (squash), cas receipt committed; target, уже держащий commit хода, — завершённый повтор, а не конфликт — verify_target"
     },
     {
       "id": "cond_442",
@@ -3372,7 +3372,7 @@
         "staging_commit_oid",
         "staging_tree_oid"
       ],
-      "description": "до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо authorization, на которой она стоит (signed IntegrationAuthorizationRecord auto-policy либо acceptance decision человека), expired/revoked/replaced или не сходится с integration_authorization_head — CAS не выполняется, human с park.reason=acceptance_stale; target ref не двигается"
+      "description": "до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо IntegrationAuthorizationRecord, который она называет на обоих путях, expired/revoked/replaced или не сходится с integration_authorization_head — CAS не выполняется, human с park.reason=acceptance_stale; target ref не двигается"
     },
     {
       "id": "cond_445",
@@ -13642,7 +13642,7 @@
         "accept_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at accept_staging: decision packet binds the exact staging identity — commit/tree, aggregate record hash, Tickets/deltas, target ref/base, delivery profile digest, and under squash the squash commit OID and its recipe digest; the human's acceptance produces the signed IntegrationAuthorizationRecord; human с park.reason=acceptance_missing; target ref не читается и не меняется"
+      "required_state": "Section 2 parks with this reason at accept_staging: decision packet binds the exact staging identity — commit/tree, aggregate record hash, Tickets/deltas, target ref/base, delivery profile digest, and under squash the squash commit OID and its recipe digest; the packet presents the IntegrationAuthorizationRecord composed for that identity, and accept signs its payload; human с park.reason=acceptance_missing; target ref не читается и не меняется"
     },
     {
       "reason": "acceptance_stale",
@@ -16965,11 +16965,11 @@
           "covers": [
             "acceptance_missing"
           ],
-          "binds": "41cff53254f2ed580c888feb99a6146f67d9b79f7a32de32fd050dae8792b81b",
+          "binds": "9293f49c3c2313d41b2276ecfc4f983c8e49ee86a8e96b8ec94bf6c6944d081c",
           "cells": [
             "acceptance_missing",
             "accept_staging",
-            "decision packet на exact staging identity (при squash — и squash commit OID с digest recipe) принят человеком — acceptance человека производит signed IntegrationAuthorizationRecord — либо auto-policy сверила её с record, подписанным заранее"
+            "decision packet на exact staging identity (при squash — и squash commit OID с digest recipe) принят человеком — его UserDecisionRecord подписал payload IntegrationAuthorizationRecord, составленного до вопроса, — либо auto-policy сверила её с record, подписанным до этого шага для той же identity"
           ]
         },
         {
@@ -18201,11 +18201,11 @@
             "acceptance_missing",
             "acceptance_stale"
           ],
-          "binds": "beabaee75f2643f3807104d6bdcdae151465bc86fc0f4bacb26638aadf785c0d",
+          "binds": "95c59a39fe792465264e5f4f67d3ade905bc02d44fb1bccd12550b69dab93305",
           "cells": [
             "Staging acceptance отсутствует или устарела",
             "accept_staging, integrate_staging",
-            "человек принимает exact staging identity — acceptance человека производит signed IntegrationAuthorizationRecord, — либо auto-policy сверяет её с record, подписанным заранее; target до этого не двигается"
+            "человек принимает exact staging identity, подписывая payload IntegrationAuthorizationRecord, составленного до вопроса, — либо auto-policy сверяет её с record, подписанным до этого шага для той же identity; target до этого не двигается"
           ]
         },
         {
@@ -18244,7 +18244,7 @@
       ]
     }
   ],
-  "canonical_digest": "79d512fa2a03a4e185960d14fe82551593c954dc2ba92397b3975a97f90be92f",
+  "canonical_digest": "65face034dc1b1a46d26dfa2d961aeaa58893399876dbe34b7f8b5c41f45890d",
   "external_operations": [
     {
       "status": "cancel",

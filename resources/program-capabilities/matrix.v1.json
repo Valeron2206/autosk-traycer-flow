@@ -237,7 +237,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify staging lineage, receipts, integration-fix lifecycle, aggregate binding, acceptance identity and single final CAS.",
-      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, delivered as compat/autosk patches 0052+.",
+      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, and resolves the IntegrationAuthorizationRecord the acceptance names by scope and id, checks its digest and its chain against integration_authorization_head and the heads and controlling anchor digest it names against the ones in force (ADR-096), delivered as compat/autosk patches 0052+.",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -1436,5 +1436,5 @@
       "delivery": "compat/autosk patches 0052+; the capability moves into PINNED_DAEMON_CAPABILITIES with a revision and methods once specified"
     }
   ],
-  "canonical_digest": "379ce55d3b70c7a7a749f013a07359a57552ff12d5fdeb31c69efb2a5da2a1ca"
+  "canonical_digest": "d57252f9e9f40382c5a314c51ace51ce9b8fdf7d1afac34509e2d909ecbf698e"
 }

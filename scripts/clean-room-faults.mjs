@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { collisionErrors, environmentErrors, refMovementErrors } from '../src/host/approved-delta.mjs';
-import { aggregateBinding, casAdmission, postCasErrors, resumePlan } from '../src/host/epic-staging.mjs';
+import { aggregateBinding, casAdmission, integrationAuthorizationHash, postCasErrors, resumePlan } from '../src/host/epic-staging.mjs';
 import { epicRefKey, stagingRef } from '../src/host/staging-driver.mjs';
 import { batchSufficiencyErrors } from '../src/host/work-type-gates.mjs';
 import { classifyExit, dispatchOutcome, waitExceeded } from '../src/host/provider-preflight.mjs';
@@ -419,10 +419,10 @@ async function f015(root) {
   // the step that remains: the resume continues without another model run.
   const { stdout: observed } = await git(repo, 'rev-parse', 'refs/heads/main');
   const plan = resumePlan({ ...state, phase: 'accepted' });
-  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], PROFILE);
+  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], casContext(state));
   // The control is that this admission is not unconditional: a target holding
   // something nobody can attribute to this Epic is refused from the same state.
-  const foreign = casAdmission(state, { oid: 'f'.repeat(40) }, ['T-1'], PROFILE);
+  const foreign = casAdmission(state, { oid: 'f'.repeat(40) }, ['T-1'], casContext(state));
   await rm(repo, { recursive: true, force: true });
   return {
     detected: plan.requires_model_run === false && admission.decision === 'may_swap',
@@ -441,11 +441,11 @@ async function f016(root) {
   // holds the recorded result, so the retry is complete rather than in conflict.
   await git(repo, 'update-ref', 'refs/heads/main', staging.oid, head);
   const { stdout: observed } = await git(repo, 'rev-parse', 'refs/heads/main');
-  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], PROFILE);
+  const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], casContext(state));
   const plan = resumePlan({ ...state, phase: 'target_advanced' });
   // The control is the world where the swap had not happened yet: the same
   // state and guard then answer `may_swap`, not `already_complete`.
-  const unswapped = casAdmission(state, { oid: head }, ['T-1'], PROFILE);
+  const unswapped = casAdmission(state, { oid: head }, ['T-1'], casContext(state));
   await rm(repo, { recursive: true, force: true });
   return {
     detected: admission.decision === 'already_complete' && plan.next_phase === 'post_cas_verified',
@@ -457,16 +457,63 @@ async function f016(root) {
 /** The delivery profile in force when the interrupted swap resumes. */
 const PROFILE = Object.freeze({ deliveryProfileDigest: 'f'.repeat(64) });
 
+/**
+ * The IntegrationAuthorizationRecord the durable acceptance stands on (debt
+ * 11b): the one transition from the recorded base to the staging commit, the
+ * accepted tree. Its signature is not what these faults exercise; the CAS
+ * admission checks that the acceptance names this record and that it still
+ * backs the transition.
+ */
+function authorizationFor({ head, staging }) {
+  return Object.freeze({
+    schema_version: 1,
+    record_id: 'iar-clean-room',
+    scope_id: 'epic:clean-room',
+    project_root_sha256: '0'.repeat(64),
+    epic_id: 'clean-room',
+    run_id: 'run-clean-room',
+    target_ref: 'refs/heads/main',
+    initial_target_oid: head,
+    ordered_ticket_commit_oids: [staging.oid],
+    ref_transition: { from_oid: head, to_oid: staging.oid },
+    final_tree_oid: staging.tree,
+    integration_plan_hash: '1'.repeat(64),
+    controlling_anchor_digest: '2'.repeat(64),
+    classifier_proof_hash: '3'.repeat(64),
+    relevant_authority_projection_hash: '4'.repeat(64),
+    dependency_head_hash: '5'.repeat(64),
+    intent_head_hash: '6'.repeat(64),
+    previous_authorization_head_hash: null,
+    expires_at: '2100-01-01T00:00:00Z',
+    terminal_disposition: 'active',
+    issued_by: 'user_decision_record',
+    user_decision_record_id: 'udr-clean-room',
+    user_decision_record_hash: '7'.repeat(64),
+  });
+}
+
+/** What the CAS is asked under: the profile in force, the record, and the instant. */
+function casContext(state) {
+  return {
+    ...PROFILE,
+    authorization: authorizationFor({
+      head: state.recorded_target_base,
+      staging: { oid: state.staging_commit_oid, tree: state.staging_tree_oid },
+    }),
+    nowMs: Date.parse('2026-09-27T00:00:00Z'),
+  };
+}
+
 /** The durable record an interrupted swap leaves behind. */
 function acceptedState({ head, staging }) {
   const base = {
-    project_identity: `sha256:${'0'.repeat(58)}`,
+    project_identity: `sha256:${'0'.repeat(64)}`,
     epic_id: 'clean-room',
     staging_ref: STAGING_REF,
     target_ref: 'refs/heads/main',
     recorded_target_base: head,
     planning_head: head,
-    receipts: [{ ticket_id: 'T-1' }],
+    receipts: [{ ticket_id: 'T-1', applied_commit_oid: staging.oid }],
     phase: 'accepted',
     staging_commit_oid: staging.oid,
     staging_tree_oid: staging.tree,
@@ -494,6 +541,8 @@ function acceptedState({ head, staging }) {
     recorded_target_base: base.recorded_target_base,
     delivery_profile_digest: PROFILE.deliveryProfileDigest,
     delivery_mode: 'merge',
+    integration_authorization_id: 'iar-clean-room',
+    integration_authorization_sha256: integrationAuthorizationHash(authorizationFor({ head, staging })),
   };
   return base;
 }

@@ -67,6 +67,12 @@ export function assertPacketDecidable(request) {
     demand(typeof option.consequence === 'string' && option.consequence.trim().length >= 10,
       'decision_packet_incomplete', 'Every option states its consequence',
       { request_id: request.request_id, option_id: option.option_id });
+    // An option may name what choosing it signs (the Epic acceptance's record,
+    // debt 11b); what it names is a digest, or the option signs nothing known.
+    demand(!Object.hasOwn(option, 'signed_payload_hash')
+      || (typeof option.signed_payload_hash === 'string' && /^[a-f0-9]{64}$/u.test(option.signed_payload_hash)),
+    'decision_packet_incomplete', 'An option names what it signs by its digest',
+    { request_id: request.request_id, option_id: option.option_id });
   }
   for (const text of packetStrings(request)) {
     for (const hint of TRANSCRIPT_HINTS) {
@@ -107,8 +113,9 @@ export function requestState(request, nowMs) {
  * An answer is a daemon UserDecisionRecord (ADR-023), never a name: who
  * answered is the role `verifySignature` gives the key that signed it, and when
  * is the record's `issued_at`. The record must answer this request, in this
- * project, about this candidate, and must have signed exactly this answer.
- * With no verifier handed in — the product today, since the pinned daemon
+ * project, about this candidate, and must have signed exactly this answer —
+ * or, when the chosen option names what it signs (`signed_payload_hash`),
+ * exactly that. With no verifier handed in — the product today, since the pinned daemon
  * reports no signer — every answer is refused.
  */
 export function answerRequest(request, response, { nowMs, verifySignature }) {
@@ -161,6 +168,14 @@ export function answerRequest(request, response, { nowMs, verifySignature }) {
   'decision_packet_incomplete', 'A normalised free-text answer to an irreversible option needs confirmation',
   { request_id: request.request_id });
 
+  // An option that names what choosing it signs is answered by a record that
+  // signed exactly that, and never by free text: there is nothing to normalise
+  // in a record the packet showed field by field (debt 11b).
+  const bound = option.signed_payload_hash;
+  demand(bound === undefined
+    || (response.normalized_from === undefined && response.confirmed_material_scope === undefined),
+  'decision_packet_incomplete', 'An option that signs a record is not answered by free text',
+  { request_id: request.request_id, option_id: option.option_id });
   const payload = {
     option_id: response.option_id,
     identities: { ...response.identities },
@@ -169,7 +184,7 @@ export function answerRequest(request, response, { nowMs, verifySignature }) {
       ? { confirmed_material_scope: response.confirmed_material_scope }
       : {}),
   };
-  demand(record.payload_hash === decisionPayloadHash(payload), 'decision_approver_mismatch',
+  demand(record.payload_hash === (bound ?? decisionPayloadHash(payload)), 'decision_approver_mismatch',
     'The UserDecisionRecord signed another answer', { request_id: request.request_id });
   const answer = {
     ...payload,

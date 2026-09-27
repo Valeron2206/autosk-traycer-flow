@@ -232,9 +232,17 @@
           },
           "irreversible": {
             "type": "boolean"
+          },
+          "signed_payload_hash": {
+            "description": "What an answer choosing this option signs, when it is not the answer object: the domain-separated digest of a record the packet presents field by field (the Epic acceptance's IntegrationAuthorizationRecord, debt 11b). An option with it is not answered by free text.",
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         }
       }
+    },
+    "integration_authorization": {
+      "$ref": "#/$defs/integrationAuthorizationDraft"
     },
     "recommendation": {
       "type": "string",
@@ -377,6 +385,167 @@
         "user_decision_provenance_hash": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "integrationAuthorizationDraft": {
+      "description": "The IntegrationAuthorizationRecord an Epic acceptance packet presents before the question: the closed shape of resources/integration-authorization/integration-authorization.schema.json without the two fields that name the decision, which the verified answer adds (debt 11b, ADR-096). The accept option's signed_payload_hash is its authorizationPayloadHash, and the trusted client renders exactly this record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_id",
+        "scope_id",
+        "project_root_sha256",
+        "epic_id",
+        "run_id",
+        "target_ref",
+        "initial_target_oid",
+        "ordered_ticket_commit_oids",
+        "ref_transition",
+        "final_tree_oid",
+        "integration_plan_hash",
+        "controlling_anchor_digest",
+        "classifier_proof_hash",
+        "relevant_authority_projection_hash",
+        "dependency_head_hash",
+        "intent_head_hash",
+        "previous_authorization_head_hash",
+        "expires_at",
+        "terminal_disposition"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "scope_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(epic|quick):.+$"
+        },
+        "project_root_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "epic_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quick_task_id": {
+          "type": "string",
+          "pattern": "^ask-[a-f0-9]{6}$"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target_ref": {
+          "type": "string",
+          "pattern": "^refs/[A-Za-z0-9._/-]+$"
+        },
+        "initial_target_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "ordered_ticket_commit_oids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          }
+        },
+        "ref_transition": {
+          "description": "The one movement of the target this record authorizes: from the recorded target base to the commit that carries the accepted identity — an Epic's accepted staging commit, a Quick run's integration commit. The target moves by one CAS, so there is no ordered plan, no start index and no completed prefix.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "from_oid",
+            "to_oid"
+          ],
+          "properties": {
+            "from_oid": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "to_oid": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            }
+          }
+        },
+        "final_tree_oid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "integration_plan_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "controlling_anchor_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "classifier_proof_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "relevant_authority_projection_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "dependency_head_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "intent_head_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "previous_authorization_head_hash": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "terminal_disposition": {
+          "enum": [
+            "active",
+            "revoked",
+            "replaced"
+          ]
+        },
+        "issued_by": {
+          "enum": [
+            "user_decision_record"
+          ]
         }
       }
     }
