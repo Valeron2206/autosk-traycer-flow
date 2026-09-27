@@ -85,6 +85,10 @@ function fakeEnv(overrides = {}) {
       return Buffer.from("helper bytes");
     },
     async stat(target) {
+      // The signer endpoint is refused to this process, which is the one thing
+      // a probe from here can positively observe about a boundary. A path that
+      // simply does not exist is not that (debt 10d, R6-12).
+      if (target === "/run/autosk/signer.sock") throw Object.assign(new Error("EACCES"), { code: "EACCES" });
       if (!present.has(target)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
       return { size: 1 };
     },
@@ -145,6 +149,67 @@ test("the signer boundary check is conditioned on both halves, not on either", a
   const undeclared = await signer({ signerEndpoint: undefined });
   assert.equal(undeclared.status, "unverifiable");
   assert.equal(undeclared.evidence.declared, false);
+});
+
+test("a declared signer endpoint that does not exist is a failure, not a boundary", async () => {
+  // Round 6 (R6-12): the probe read any error from `stat` as "unreachable from
+  // here", so a mistyped endpoint passed as a boundary. A path that is not there
+  // separates nothing; only a refusal to this process is observed separation.
+  const signer = async (overrides) =>
+    (await runChecks(fakeEnv(overrides))).find((result) => result.id === "security.signer_boundary");
+  for (const code of ["ENOENT", "ENOTDIR"]) {
+    const missing = await signer({
+      signerEndpoint: "/run/autosk/signer.sokc",
+      stat: async () => { throw Object.assign(new Error(code), { code }); },
+    });
+    assert.equal(missing.status, "fail", code);
+    assert.equal(missing.evidence.reachable_from_here, false);
+    assert.equal(missing.evidence.probe_error, code);
+    assert.match(missing.remediation, /does not exist/u);
+  }
+  // The daemon's report cannot rescue a missing endpoint.
+  const missingButDistinct = await signer({
+    stat: async () => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); },
+  });
+  assert.equal(missingButDistinct.status, "fail");
+
+  // A denial is the observation a pass needs, EPERM as much as EACCES.
+  const denied = await signer({ stat: async () => { throw Object.assign(new Error("EPERM"), { code: "EPERM" }); } });
+  assert.equal(denied.status, "pass");
+  assert.equal(denied.evidence.probe_error, "EPERM");
+
+  // Any other error says nothing either way: not a pass, not a verdict.
+  const unexplained = await signer({ stat: async () => { throw Object.assign(new Error("EIO"), { code: "EIO" }); } });
+  assert.equal(unexplained.status, "unverifiable");
+  assert.equal(unexplained.evidence.probe_error, "EIO");
+  assert.match(unexplained.unverifiable_reason, /EIO/u);
+  assert.equal(unexplained.remediation, undefined);
+});
+
+test("no operator variable stands in for the daemon's report of the signer identity", async () => {
+  // Round 6 (R6-10): the "daemon report" was `AUTOSK_SIGNER_SAME_PROCESS`, an
+  // environment variable, so `=0` and a denied path passed the check with no
+  // signer anywhere. The pinned daemon reports no signer identity — its
+  // `meta.capabilities` names only `task.creation-binding` — so the host has no
+  // source for that half, and the check cannot pass on this host.
+  const saved = process.env.AUTOSK_SIGNER_SAME_PROCESS;
+  process.env.AUTOSK_SIGNER_SAME_PROCESS = "0";
+  try {
+    const env = hostEnv();
+    await assert.rejects(() => env.signerIdentity(), /reports no signer identity/u);
+    const results = await runChecks({
+      ...env,
+      signerEndpoint: "/run/autosk/signer.sock",
+      stat: async () => { throw Object.assign(new Error("EACCES"), { code: "EACCES" }); },
+    });
+    const signer = results.find((result) => result.id === "security.signer_boundary");
+    assert.equal(signer.status, "unverifiable");
+    assert.equal(signer.evidence.signer_identity_distinct, false);
+    assert.match(signer.unverifiable_reason, /no signer identity/u);
+  } finally {
+    if (saved === undefined) delete process.env.AUTOSK_SIGNER_SAME_PROCESS;
+    else process.env.AUTOSK_SIGNER_SAME_PROCESS = saved;
+  }
 });
 
 test("a check that passed says nothing about why it could not be checked", async () => {

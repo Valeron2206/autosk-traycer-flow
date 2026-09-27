@@ -44,6 +44,8 @@ The schema has no field for a raw secret, and evidence values are bounded.
 
 The workflow preflight and the `doctor` command run the **same** check implementations. Two implementations of one check agree until they do not, and the day they disagree is the day a workflow starts on a project doctor calls broken.
 
+The preflight's required sets are keyed by the registered workflows the workflow graph names in `workflows[]`, and `security.signer_boundary` is required of every workflow whose first step reaches an agent step (ADR-090). `autosk-flow doctor --workflow <name>` holds the report to exactly that workflow's set; it is the one caller of the required sets outside tests, and the call before model launch is implementation work (#40). `security.signer_boundary` never passes on a real host until the daemon reports a signer identity outside the model's process: the pinned daemon reports none, so every model workflow's set stays unsatisfied.
+
 ## 8. No Traycer
 
 Doctor runs with no `~/.traycer`, no Traycer binaries and no Traycer paths. A check that shells out to one is a dependency the autonomous copy was built to remove.
@@ -62,4 +64,4 @@ Doctor runs with no `~/.traycer`, no Traycer binaries and no Traycer paths. A ch
 
 Decided: the report shape, the category set, the provenance and expiry on every result, `warn` never being readiness, the remediation obligation, redaction, and one shared implementation.
 
-Deferred, and named: the checks themselves, the CLI, and the workflow preflight that consumes a required set.
+Implemented since, outside this contract's decisions: the checks (`src/host/doctor-checks.mjs`), the CLI (`scripts/autosk-flow-doctor.mjs`) and the workflow preflight's required sets (`src/host/workflow-preflight.mjs`, ADR-090). Deferred, and named: the daemon's report of a signer identity, and the preflight call before a model launch (#40).

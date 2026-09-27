@@ -8,11 +8,11 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "902fc3b2e3f24130abbbf71dcf877eb50010668b6bcc13ba1cfc0b8bbf4f01ee"
+      "sha256": "cfbe5b12da235df976a0077b5e5a14d0cfe15ea1e3a88a6ef5c7476245ec26e6"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "8fbf980c4b48e39f51d99254906da8f3b45ff891575bcd6b6782e7833130390f"
+      "sha256": "e2c826040b6fec64975d31a1c6ea928401831ec0058409b8bdaf51d7d874c1e5"
     },
     {
       "path": "03-technical-plan.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "dc05d117735fbda46632e45bc4c6e7a8f4778dc798b29c470251005e88fcb827"
+      "sha256": "5226f9ce8c497cf102fc78f0072cf649830ee803eaf52c853619b3959c068621"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -88,7 +88,7 @@
     },
     {
       "path": "docs/contracts/doctor-report.md",
-      "sha256": "924a811a6d382a1d2fae99773d9e0e0f938c568c9645cbe2aa5bcdcd99bbfe2f"
+      "sha256": "2eb629e3e342488c7ce0f81921f2caf35b5c3903ee07c7a7622bea356bc96b3c"
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
@@ -204,7 +204,7 @@
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "be98c6c2f22f174cf91752f7b2d5a49e9df82f03aff3ea4fb15423c46a334dd8"
+      "sha256": "ea02024e98fe750a9ee845b16c536a48fd9e87be907a34ca0e1740a7e18ab823"
     },
     {
       "path": "docs/program-capability-matrix.md",
@@ -928,11 +928,11 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "06de242ff27bac048cc66f1ff92397d06dc92d0c936d68e565ef522c3a3e3995"
+      "sha256": "c0f54ed50bbb95c2490108c2d211c61ef64405573364d24831931f3de2a744b0"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "1b269ede8e917c373df8781b327c093d5c58ad59ac5973a210ea796244d4533d"
+      "sha256": "c7f064c7bf7c718875e6773095d35fe1799d0381db1fbda21587d38e52b2f8ae"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "63f510be2ccca4f25a21b05b2d6f23226f33ce76ef19df9674b5196f95d6a19d",
+  "candidate_digest": "e5d52a36b0507547c8a366d9f18d4202c5c4484360d70b6f7221d110ab83e51e",
   "dispositions": [
     {
       "issue": 3,

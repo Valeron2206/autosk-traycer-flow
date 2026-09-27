@@ -14,6 +14,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -1955,4 +1956,89 @@ test("a terminal step stays a lawful resume target of every row that does not pa
     assert.ok(targeting("ticket_done").includes(reason), `${reason} no longer resumes into ticket_done`);
   }
   assert.ok(targeting("human").length >= 80, `human stopped being a target of ordinary parking: ${targeting("human").length}`);
+});
+
+// --- the registered workflows (debt 10d) ------------------------------------
+
+// The graph is one document for eight registered workflows, and until it named
+// them the only place a reader could learn them was section 2's headings and the
+// prose of six entry reasons. The workflow preflight keys its required sets by
+// these names, so they are data the validator holds to the entries.
+function reshipped(mutate) {
+  const graph = document();
+  mutate(graph);
+  graph.canonical_digest = graphDigest(graph);
+  return graph;
+}
+
+test("the shipped graph names the eight workflows section 2 registers, and where each starts", () => {
+  const graph = document();
+  const plan = readFileSync(new URL("../03-technical-plan.md", import.meta.url), "utf8");
+  const headings = [...plan.slice(plan.indexOf("## 2. "), plan.indexOf("## 3. ")).matchAll(/^### (autosk-[\w-]+)/gmu)]
+    .map((match) => match[1]);
+  assert.equal(headings.length, 8);
+  assert.deepEqual(graph.workflows.map((entry) => entry.name).sort(), [...headings].sort());
+  const starts = Object.fromEntries(graph.workflows.map((entry) => [entry.name, entry.first_step]));
+  assert.equal(starts["autosk-planned"], graph.first_step);
+  assert.equal(starts["autosk-quick"], graph.first_step);
+  for (const entry of graph.entry_steps) {
+    const named = /^First step of registered workflow (\S+)\.$/u.exec(entry.reason)?.[1];
+    if (named) assert.equal(starts[named], entry.step, `${named} starts where its entry says`);
+  }
+});
+
+test("a workflow that starts at an undeclared step is refused", () => {
+  assertRefuses(
+    reshipped((graph) => {
+      graph.workflows.find((entry) => entry.name === "autosk-ticket").first_step = "not_a_step";
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("a workflow named twice is refused", () => {
+  assertRefuses(
+    reshipped((graph) => {
+      graph.workflows.push({ ...graph.workflows[0] });
+    }),
+    "graph_duplicate_name",
+  );
+});
+
+test("a workflow that starts where the graph is not entered is refused", () => {
+  // `accept` is a declared step, and nothing enters the graph there: a workflow
+  // starting at it would start at a step the reachability rule never measured from.
+  assertRefuses(
+    reshipped((graph) => {
+      graph.workflows.find((entry) => entry.name === "autosk-ticket").first_step = "accept";
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("an entry that says it starts a workflow the list does not register is refused", () => {
+  assertRefuses(
+    reshipped((graph) => {
+      graph.workflows = graph.workflows.filter((entry) => entry.name !== "autosk-arena-judge");
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("a first_step that starts no registered workflow is refused", () => {
+  assertRefuses(
+    reshipped((graph) => {
+      graph.workflows = graph.workflows.filter((entry) => entry.first_step !== graph.first_step);
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("a workflow name outside the registered-workflow spelling is a shape refusal", () => {
+  assertRefuses(
+    reshipped((graph) => {
+      graph.workflows[0].name = "Autosk Planned";
+    }),
+    "graph_schema",
+  );
 });

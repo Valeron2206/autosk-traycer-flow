@@ -747,6 +747,32 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     entries.push(entry.step);
   }
 
+  // The registered workflows, when the document names them, start where the
+  // graph is entered, and the entries that say they start a workflow say so of
+  // one listed here. The workflow preflight keys its required sets by these
+  // names, so a list that drifted from the entries would gate workflows the
+  // graph does not start, or leave ungated one it does.
+  if (Array.isArray(document.workflows)) {
+    duplicates(document.workflows, "name", "workflows");
+    const starts = new Map(document.workflows.map((entry) => [entry.name, entry.first_step]));
+    for (const { name, first_step: first } of document.workflows) {
+      if (!steps.has(first)) {
+        errors.push(`graph_entry_step_unknown: workflow ${name} starts at ${first}, which is not a declared step`);
+      } else if (!entries.includes(first)) {
+        errors.push(`graph_entry_step_unknown: workflow ${name} starts at ${first}, where the graph is not entered`);
+      }
+    }
+    for (const entry of document.entry_steps ?? []) {
+      const named = /^First step of registered workflow (\S+)\.$/u.exec(entry.reason)?.[1];
+      if (named !== undefined && starts.get(named) !== entry.step) {
+        errors.push(`graph_entry_step_unknown: entry ${entry.step} starts workflow ${named}, which workflows does not register there`);
+      }
+    }
+    if (![...starts.values()].includes(document.first_step)) {
+      errors.push(`graph_entry_step_unknown: first_step ${document.first_step} starts no workflow in workflows`);
+    }
+  }
+
   const reached = new Set();
   const queue = entries.filter((name) => steps.has(name));
   const entered = queue.join(", ");

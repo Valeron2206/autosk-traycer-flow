@@ -52,6 +52,32 @@
         }
       }
     },
+    "workflows": {
+      "description": "The workflows this graph is the document of, by the name the daemon registers each under, and the step each starts at. Each first_step is first_step or an entry_steps step, and every entry whose reason reads 'First step of registered workflow <name>.' names a workflow listed here with that step. The workflow preflight keys its required sets by these names and derives from the steps each reaches which of them run a model.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "first_step"
+        ],
+        "properties": {
+          "name": {
+            "description": "A registered workflow name: lower-case words joined by hyphens, as section 2 of the technical plan heads each one.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "first_step": {
+            "$ref": "#/$defs/name"
+          }
+        }
+      }
+    },
     "graph_reasons": {
       "description": "Refusals the graph itself issues, which no edge or step can carry: an undeclared pair has no edge and therefore no guard.",
       "type": "object",
