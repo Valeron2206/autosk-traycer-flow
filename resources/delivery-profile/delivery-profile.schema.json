@@ -649,5 +649,172 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "target": {
+            "properties": {
+              "base_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          },
+          "checks": {
+            "properties": {
+              "required": {
+                "items": {
+                  "properties": {
+                    "provenance": {
+                      "properties": {
+                        "blob_oid": {
+                          "pattern": "^[a-f0-9]{40}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "provenance": {
+            "properties": {
+              "target": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              },
+              "integration": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              },
+              "authorship": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              },
+              "checks": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              },
+              "review": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              },
+              "remotes": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              },
+              "completion_predicate": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{40}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "target": {
+            "properties": {
+              "base_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "checks": {
+            "properties": {
+              "required": {
+                "items": {
+                  "properties": {
+                    "provenance": {
+                      "properties": {
+                        "blob_oid": {
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "provenance": {
+            "properties": {
+              "target": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "integration": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "authorship": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "checks": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "review": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "remotes": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "completion_predicate": {
+                "properties": {
+                  "blob_oid": {
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

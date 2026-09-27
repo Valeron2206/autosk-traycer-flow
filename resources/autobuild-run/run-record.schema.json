@@ -76,7 +76,7 @@
           "ticket_id": { "type": "string", "minLength": 1 },
           "depends_on": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "contract_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "execution_base": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "execution_base": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
           "worktree": { "type": "string", "minLength": 1 },
           "gates": {
             "type": "object",
@@ -182,5 +182,12 @@
         }
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": { "properties": { "sprints": { "items": { "properties": { "execution_base": { "pattern": "^[0-9a-f]{40}$" } } } } } },
+      "else": { "properties": { "sprints": { "items": { "properties": { "execution_base": { "pattern": "^[0-9a-f]{64}$" } } } } } }
+    }
+  ]
 }

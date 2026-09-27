@@ -10,7 +10,7 @@
  * is held to the same binding as a person, because a policy that accepted an
  * identity it never saw is not a policy, it is a default.
  */
-import { demand, digest, immutable } from '../runtime/contracts.mjs';
+import { demand, digest, immutable, oidFormat, oneObjectFormat } from '../runtime/contracts.mjs';
 
 import { assertPacketDecidable, answerRequest, openRequest } from './decision-queue.mjs';
 import { DELIVERY_MODES, integrationAuthorizationHash } from './epic-staging.mjs';
@@ -56,7 +56,6 @@ export const RESUME_STEP = Object.freeze({ workflow: 'autosk-planned', step: 'ac
 
 const IDENTITY_DOMAIN = 'autosk-flow/staging-identity/v1';
 const AUTHORIZATION_PAYLOAD_DOMAIN = 'autosk-flow/integration-authorization-payload/v1';
-const OID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u;
 const named = (value) => typeof value === 'string' && value.length > 0;
@@ -109,9 +108,19 @@ export function acceptanceFacts(state, { deliveryProfileDigest, deliveryMode, ou
     demand(value !== undefined && value !== null, 'acceptance_missing',
       `An acceptance packet states ${field}`, { field });
   }
+  // One object format (ADR-098): a repository has one, so the base, the
+  // staging commit and tree and every commit a Ticket was applied as are OIDs
+  // of one width. Of two, they name objects no one repository holds together,
+  // and there is no identity to accept. A receipt that names no commit adds
+  // none; the record, which binds the commits, refuses it.
+  const applied = state.receipts.map((receipt) => receipt.applied_commit_oid).filter((commit) => commit !== undefined);
+  const format = oneObjectFormat([state.recorded_target_base, state.staging_commit_oid, state.staging_tree_oid, ...applied]);
+  demand(format !== null, 'acceptance_missing',
+    'An acceptance identity names OIDs of one object format: the base, the staging commit and tree, and the applied commits', {});
   if (deliveryMode === 'squash') {
-    // A person accepts the exact commit that lands, not only its tree.
-    demand(OID.test(targetCommit?.oid ?? '') && SHA256.test(targetCommit?.recipe_sha256 ?? ''), 'acceptance_missing',
+    // A person accepts the exact commit that lands, not only its tree: a
+    // commit of this repository, so of the base's format.
+    demand(oidFormat(targetCommit?.oid) === format && SHA256.test(targetCommit?.recipe_sha256 ?? ''), 'acceptance_missing',
       'A squash acceptance names the squash commit and the digest of its recipe', {});
     facts.target_commit_oid = targetCommit.oid;
     facts.target_commit_recipe_sha256 = targetCommit.recipe_sha256;
@@ -157,7 +166,7 @@ export function composeAuthorization(state, {
   demand(project !== null, 'acceptance_missing', 'The record names the project root it is for',
     { project_identity: facts.project_identity });
   const commits = state.receipts.map((receipt) => receipt.applied_commit_oid);
-  demand(commits.length > 0 && commits.every((commit) => OID.test(commit ?? '')), 'acceptance_missing',
+  demand(commits.length > 0 && commits.every((commit) => oidFormat(commit) === oidFormat(facts.recorded_target_base)), 'acceptance_missing',
     'The record names the commit each applied Ticket was applied as, in the order applied', {});
   demand(named(recordId) && named(runId), 'acceptance_missing', 'The record names itself and its run', {});
   demand(SHA256.test(integrationPlanHash ?? '') && SHA256.test(classifierProofHash ?? ''), 'acceptance_missing',

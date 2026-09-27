@@ -11,7 +11,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
 export const INTEGRATION_MODES = immutable([
   'merge',
@@ -309,15 +309,16 @@ export function deliveryCompleted({ recordedBase, stagingTree, delivered } = {})
   const reasons = [];
   const unmet = (detail) => reasons.push(Object.freeze({ reason: 'completion_predicate_unmet', detail }));
   // A Git object id is 40 hex (sha1) or 64 hex (sha256), and one repository
-  // has one object format, so every id here is the length the base is.
-  const oid = (value) => typeof value === 'string' && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value);
-  const sameFormat = (value) => oid(value) && value.length === recordedBase.length;
-  if (!oid(recordedBase) || !sameFormat(stagingTree)) {
+  // has one object format, so every id here is in the format the base is
+  // (ADR-098).
+  if (oneObjectFormat([recordedBase, stagingTree]) === null) {
     unmet('no recorded base and accepted staging tree to compare the delivery with');
   } else if (delivered === null || typeof delivered !== 'object') {
     unmet('no delivery receipt names a delivered commit');
   } else {
-    if (!sameFormat(delivered.commit_oid)) unmet(`the delivered commit is not an object id of this repository: ${delivered.commit_oid}`);
+    if (oneObjectFormat([recordedBase, delivered.commit_oid]) === null) {
+      unmet(`the delivered commit is not an object id of this repository: ${delivered.commit_oid}`);
+    }
     if (delivered.tree_oid !== stagingTree) {
       unmet(`the delivered tree ${delivered.tree_oid} is not the accepted tree ${stagingTree}`);
     }

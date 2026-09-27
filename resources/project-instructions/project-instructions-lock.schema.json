@@ -268,5 +268,78 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "The lock's OIDs are in the object_format it names (ADR-098): 40 lowercase hex characters for sha1, 64 for sha256.",
+      "if": {
+        "properties": {
+          "object_format": {
+            "const": "sha1"
+          }
+        },
+        "required": [
+          "object_format"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "properties": {
+              "commit_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "tree_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          },
+          "admitted": {
+            "items": {
+              "properties": {
+                "blob_oid": {
+                  "pattern": "^[a-f0-9]{40}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "object_format": {
+            "const": "sha256"
+          }
+        },
+        "required": [
+          "object_format"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "properties": {
+              "commit_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "tree_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "admitted": {
+            "items": {
+              "properties": {
+                "blob_oid": {
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

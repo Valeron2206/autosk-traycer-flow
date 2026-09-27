@@ -301,5 +301,138 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "recorded_target_base": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "planning_head": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "planning_base_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "receipts": {
+            "items": {
+              "properties": {
+                "applied_commit_oid": {
+                  "pattern": "^[a-f0-9]{40}$"
+                }
+              }
+            }
+          },
+          "staging_commit_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "staging_tree_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "aggregate": {
+            "properties": {
+              "staging_commit_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "staging_tree_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          },
+          "acceptance": {
+            "properties": {
+              "staging_commit_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "staging_tree_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "recorded_target_base": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "target_commit_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          },
+          "post_cas": {
+            "properties": {
+              "target_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "target_tree_oid": {
+                "pattern": "^[a-f0-9]{40}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "recorded_target_base": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "planning_head": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "planning_base_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "receipts": {
+            "items": {
+              "properties": {
+                "applied_commit_oid": {
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          },
+          "staging_commit_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "staging_tree_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "aggregate": {
+            "properties": {
+              "staging_commit_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "staging_tree_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "acceptance": {
+            "properties": {
+              "staging_commit_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "staging_tree_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "recorded_target_base": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "target_commit_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "post_cas": {
+            "properties": {
+              "target_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "target_tree_oid": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

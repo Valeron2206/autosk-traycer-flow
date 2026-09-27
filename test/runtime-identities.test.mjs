@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { canonicalBytes, closedRecord, compareCodePoints, digest, immutable,
   assertDigest, equalDigest, assertOid, gitObjectOid, assertPath, assertTicketId, sameIdentity,
-  FlowError } from '../src/runtime/contracts.mjs';
+  FlowError, OBJECT_FORMATS, oidFormat, oneObjectFormat } from '../src/runtime/contracts.mjs';
 import { validateContext } from '../src/runtime/context.mjs';
 
 const context = () => ({ project_root_sha256: 'a'.repeat(64),
@@ -112,6 +112,32 @@ test('digests and object OIDs validate full identities and object types', () => 
   assert.equal(gitObjectOid('blob', bytes, 'sha1'), createHash('sha1').update('blob 1\0x').digest('hex'));
   assert.notEqual(gitObjectOid('blob', bytes, 'sha256'), gitObjectOid('tree', bytes, 'sha256'));
   assert.throws(() => gitObjectOid('wrong', bytes, 'sha1'));
+});
+
+test('an OID names its object format by its width, and the OIDs of one record name one (debt 11d, ADR-098)', () => {
+  // Git's two object formats: 40 lowercase hex characters for sha1, 64 for
+  // sha256. A repository has one, so a record whose OIDs disagree names
+  // objects no one repository holds.
+  assert.deepEqual({ ...OBJECT_FORMATS }, { sha1: 40, sha256: 64 });
+  assert.ok(Object.isFrozen(OBJECT_FORMATS));
+  const sha1 = 'a'.repeat(40); const sha256 = 'b'.repeat(64);
+  assert.equal(oidFormat(sha1), 'sha1');
+  assert.equal(oidFormat(sha256), 'sha256');
+  assert.equal(oidFormat('0'.repeat(64)), 'sha256');
+  for (const value of ['A'.repeat(40), 'a'.repeat(39), 'a'.repeat(41), 'a'.repeat(63), 'a'.repeat(65), 'g'.repeat(40),
+    ` ${sha1}`, `${sha1}\n`, `${sha1}${sha256}`, '', null, undefined, 40, [sha1], { toString: () => sha1 }]) {
+    assert.equal(oidFormat(value), null, JSON.stringify(value));
+  }
+  assert.equal(oneObjectFormat([sha1, 'c'.repeat(40)]), 'sha1');
+  assert.equal(oneObjectFormat([sha256]), 'sha256');
+  for (const values of [[sha1, sha256], [sha256, sha1], [], [sha1, 'HEAD'], [sha1, undefined], [null]]) {
+    assert.equal(oneObjectFormat(values), null, JSON.stringify(values));
+  }
+  // assertOid reads the same widths: a full OID of the format it is asked for.
+  assert.throws(() => assertOid(sha256, 'sha1'), (error) => error.code === 'invalid_oid');
+  assert.throws(() => assertOid(sha1, 'sha256'), (error) => error.code === 'invalid_oid');
+  assert.throws(() => assertOid(sha1, ['sha1']), (error) => error.code === 'unsupported_object_format');
+  assert.throws(() => assertOid('0'.repeat(64), 'sha256'), (error) => error.code === 'invalid_oid');
 });
 
 test('lexical path validation and Ticket grammar do not claim filesystem custody', () => {

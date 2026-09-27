@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, digest, immutable } from '../runtime/contracts.mjs';
+import { demand, digest, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
 export const PHASES = immutable([
   'staging_created',
@@ -97,7 +97,6 @@ export function receiptErrors(state, expectedTickets) {
 /** The delivery modes a profile may allow; the acceptance names the one it is of. */
 export const DELIVERY_MODES = immutable(['merge', 'squash', 'rebase', 'pull_request', 'merge_queue', 'fork_pull_request']);
 
-const OID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const named = (value) => typeof value === 'string' && value.length > 0;
 
@@ -220,12 +219,26 @@ export function acceptanceErrors(state, current = {}) {
   if (!DELIVERY_MODES.includes(acceptance.delivery_mode)) {
     missing('an acceptance names the delivery mode it was given for');
   } else if (acceptance.delivery_mode === 'squash') {
-    // A person accepts the exact commit that lands, not only its tree.
-    if (!OID.test(acceptance.target_commit_oid ?? '') || !SHA256.test(acceptance.target_commit_recipe_sha256 ?? '')) {
+    // A person accepts the exact commit that lands, not only its tree; its
+    // object format is held below with the staging state's.
+    if (acceptance.target_commit_oid === undefined || !SHA256.test(acceptance.target_commit_recipe_sha256 ?? '')) {
       missing('a squash acceptance names the squash commit and the digest of its recipe');
     }
   } else if (acceptance.target_commit_oid !== undefined || acceptance.target_commit_recipe_sha256 !== undefined) {
     missing(`a ${acceptance.delivery_mode} delivery names no target commit`);
+  }
+  // One object format (ADR-098): the base, the staging commit and tree, each
+  // commit a Ticket was applied as and, under squash, the commit that lands
+  // are objects of one repository, so OIDs of one format, as the identity
+  // (acceptanceFacts) and the delivered commit (deliveryCompleted) are. An
+  // absent one is no format: its absence is refused where it is required, and
+  // the record, which binds the commits, is compared with the receipts below.
+  const applied = (state.receipts ?? []).map((receipt) => receipt.applied_commit_oid);
+  const landing = acceptance.delivery_mode === 'squash' ? [acceptance.target_commit_oid] : [];
+  const oids = [state.recorded_target_base, state.staging_commit_oid, state.staging_tree_oid, ...applied, ...landing]
+    .filter((oid) => oid !== undefined);
+  if (oneObjectFormat(oids) === null) {
+    missing('the base, the staging commit and tree, the applied commits and the commit that lands are OIDs of one object format');
   }
   // Both kinds stand on a signed IntegrationAuthorizationRecord (IA §1).
   authorizationErrors(state, acceptance, current, missing, stale);

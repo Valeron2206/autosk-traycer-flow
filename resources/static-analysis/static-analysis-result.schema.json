@@ -28,9 +28,9 @@
       "additionalProperties": false,
       "required": ["commit_oid", "tree_oid", "pathspec", "current_tree_oid"],
       "properties": {
-        "commit_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "current_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "commit_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "tree_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "current_tree_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
         "pathspec": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
       }
     },
@@ -68,7 +68,7 @@
           "kind": { "enum": ["coverage", "sarif", "generic_issues"] },
           "path": { "type": "string", "minLength": 1 },
           "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "produced_from_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "produced_from_tree_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
           "producer": { "type": "string", "minLength": 1 }
         }
       }
@@ -115,5 +115,12 @@
       }
     },
     "replaces_review": { "const": false }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": { "properties": { "candidate": { "properties": { "commit_oid": { "pattern": "^[0-9a-f]{40}$" }, "tree_oid": { "pattern": "^[0-9a-f]{40}$" }, "current_tree_oid": { "pattern": "^[0-9a-f]{40}$" } } }, "input_reports": { "items": { "properties": { "produced_from_tree_oid": { "pattern": "^[0-9a-f]{40}$" } } } } } },
+      "else": { "properties": { "candidate": { "properties": { "commit_oid": { "pattern": "^[0-9a-f]{64}$" }, "tree_oid": { "pattern": "^[0-9a-f]{64}$" }, "current_tree_oid": { "pattern": "^[0-9a-f]{64}$" } } }, "input_reports": { "items": { "properties": { "produced_from_tree_oid": { "pattern": "^[0-9a-f]{64}$" } } } } } }
+    }
+  ]
 }

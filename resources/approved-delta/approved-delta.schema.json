@@ -128,5 +128,72 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "base_commit_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "base_tree_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "candidate_tree_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "entries": {
+            "items": {
+              "properties": {
+                "old_blob": {
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "new_blob": {
+                  "pattern": "^[a-f0-9]{40}$"
+                }
+              }
+            }
+          },
+          "result_commit_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "result_tree_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "base_commit_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "base_tree_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "candidate_tree_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "entries": {
+            "items": {
+              "properties": {
+                "old_blob": {
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "new_blob": {
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          },
+          "result_commit_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "result_tree_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  ]
 }

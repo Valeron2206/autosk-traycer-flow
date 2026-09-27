@@ -357,3 +357,32 @@ test("an advance to the commit the ref already holds is refused before the clien
   ]), code("cas_conflict"));
   assert.equal(asked.length, 0);
 });
+
+// --- debt 11d: one object format ----------------------------------------------
+
+test("a helper that observes an OID of another object format did not observe this repository (debt 11d)", async () => {
+  // ADR-098: a repository has one object format, and the helper's wire holds
+  // one width across each exchange's request and response. What a refusal says
+  // a ref holds is read in the request's format; a 64-hex observation of a
+  // 40-hex request, or the reverse, answers no request this host made.
+  const wideHeld = "3".repeat(64);
+  const refusing = (held) => client((request) => mismatch(request, held)).custody;
+  await assert.rejects(() => askCustody(refusing(wideHeld), "advance_staging", advance), code("planning_ref_capability_missing"));
+  await assert.rejects(() => askCustody(refusing(wideHeld), "create_staging", VALID.create_staging), code("planning_ref_capability_missing"));
+  await assert.rejects(() => askCustody(refusing(wideHeld), "delete_staging", VALID.delete_staging), code("planning_ref_capability_missing"));
+  const wide = [{ operation: "update", ref: STAGING, expected_old_oid: "1".repeat(64), new_oid: "2".repeat(64) }];
+  await assert.rejects(() => askCustody(refusing(C), "advance_staging", wide), code("planning_ref_capability_missing"));
+  // In the request's own format the same refusal is an answer the caller reads,
+  // and an absent ref is an observation in either.
+  assert.equal((await askCustody(refusing(wideHeld), "advance_staging", wide)).ref_observations[0].observed_old_oid, wideHeld);
+  assert.equal((await askCustody(refusing(null), "advance_staging", wide)).ref_observations[0].observed_old_oid, null);
+  // Every observation of the request is held to it: here the planning ref's.
+  const planningWide = (request) => {
+    const answer = mismatch(request);
+    answer.ref_observations[1].observed_old_oid = wideHeld;
+    answer.ref_observations[1].observed_new_oid = wideHeld;
+    return answer;
+  };
+  await assert.rejects(() => askCustody(client(planningWide).custody, "advance_planning", VALID.advance_planning),
+    code("planning_ref_capability_missing"));
+});

@@ -73,14 +73,14 @@ const trailers = {
   "Autosk-Verdict-Or-Waiver-Digest": "e".repeat(64),
 };
 
-async function repository(t) {
+async function repository(t, { objectFormat = "sha1" } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "autosk-planning-"));
   t.after(async () => {
     await execFileAsync("chmod", ["-R", "u+w", root]).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
   const git = gitIn(root);
-  await git(["init", "--quiet", "--initial-branch=main"]);
+  await git(["init", "--quiet", "--initial-branch=main", `--object-format=${objectFormat}`]);
   await writeFile(path.join(root, "plan.md"), "the plan\n");
   await git(["add", "plan.md"]);
   await git(["commit", "--quiet", "-m", "base"]);
@@ -382,4 +382,29 @@ test("an advance with no keepalive, or outside the helper's grammar, is refused 
     code("cas_conflict"),
   );
   assert.equal(custody.requests.length, 0);
+});
+
+// --- debt 11d: one object format ----------------------------------------------
+
+test("a SHA-256 repository publishes the same way: its ref and reflog are read, not missed (R7-31)", async (t) => {
+  // Round 7 of #39, R7-31: reflogEntries took only 40-hex lines, so in a
+  // SHA-256 repository every reflog read as empty and every observation as
+  // `unknown`, which parks a publication that moved nothing (ADR-098).
+  const { git, parent, tree, keepalive, custody } = await repository(t, { objectFormat: "sha256" });
+  assert.equal(parent.length, 64);
+  const before = await reflogDepth(git, PLANNING_REF);
+  assert.equal(before, 1);
+  assert.deepEqual([...(await reflogEntries(git, PLANNING_REF))], [parent]);
+  const prepared = await observeRef(git, { ref: PLANNING_REF, expectedParent: parent, reflogBefore: before });
+  assert.deepEqual({ ...prepared }, { ref: "expected_parent", reflog: "checkpoint", oid: parent });
+
+  const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
+  assert.equal(commit.oid.length, 64);
+  assert.equal(await observeObject(git, { recordedOid: commit.oid, expectedBytes: commit.bytes }), "matching");
+  const advanced = await advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
+  assert.deepEqual({ advanced: advanced.advanced, observed: advanced.observed, reflog_before: advanced.reflog_before },
+    { advanced: true, observed: commit.oid, reflog_before: 1 });
+  const after = await observeRef(git, { ref: PLANNING_REF, expectedParent: parent, expectedCommit: commit.oid, reflogBefore: before });
+  assert.deepEqual({ ...after }, { ref: "expected_commit", reflog: "one_new_matching", oid: commit.oid });
+  assert.equal(publicationDecision({ phase: "ref_advanced", ...after, object: "matching", keepalive: "valid" }).action, "verify_and_record");
 });

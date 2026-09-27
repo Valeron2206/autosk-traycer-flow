@@ -46,14 +46,14 @@ const gitIn = (cwd) => async (args, { env = {} } = {}) =>
     (error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? String(error) }),
   );
 
-async function repository(t) {
+async function repository(t, { objectFormat = "sha1" } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "autosk-delta-"));
   t.after(async () => {
     await execFileAsync("chmod", ["-R", "u+w", root]).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
   const git = gitIn(root);
-  await git(["init", "--quiet", "--initial-branch=main"]);
+  await git(["init", "--quiet", "--initial-branch=main", `--object-format=${objectFormat}`]);
   await writeFile(path.join(root, "keep.txt"), "kept\n");
   await git(["add", "keep.txt"]);
   await git(["commit", "--quiet", "-m", "base"]);
@@ -567,4 +567,60 @@ test("a staging ref the helper finds moved is reported, not overwritten", async 
   assert.equal(integrationReceipt(d, result).phase, "prepared");
   assert.equal(await readRef(git, ref), base.commit_oid);
   assert.equal(custody.requests.length, 1);
+});
+
+// --- debt 11d: one object format ----------------------------------------------
+
+test("a SHA-256 repository integrates the same way: the trees are read back, not missed (R7-31)", async (t) => {
+  // The tree reader took only 40-hex blob lines (the class of R7-31), so in a
+  // SHA-256 repository an apply read back no entry and no removal, and the
+  // integration proof refused a delta that landed exactly (ADR-098).
+  const { git, root, ref, base, indexFile, custody } = await repository(t, { objectFormat: "sha256" });
+  assert.equal(base.commit_oid.length, 64);
+  const one = await blob(git, root, "one\n");
+  const two = await blob(git, root, "two\n");
+  const wide = { candidate_tree_oid: "c".repeat(64) };
+  const added = delta(base, [
+    { path: "src/one.ts", status: "A", new_blob: one, new_mode: "100644" },
+    { path: "src/two.ts", status: "A", new_blob: two, new_mode: "100644" },
+  ], wide);
+  const first = await applyDelta(git, { custody, delta: added, realpath, ref, base, indexFile, message: "T-1" });
+  assert.deepEqual([...first.applied_entries], [
+    { path: "src/one.ts", new_blob: one, new_mode: "100644" },
+    { path: "src/two.ts", new_blob: two, new_mode: "100644" },
+  ]);
+  assert.deepEqual(integrationProof(added, first), []);
+  assert.equal(integrationReceipt(added, first).phase, "ref_advanced");
+
+  const afterAdd = { commit_oid: first.commit_oid, tree_oid: first.tree_oid };
+  const changed = await blob(git, root, "one, changed\n");
+  const edited = delta(afterAdd, [
+    { path: "src/one.ts", status: "M", old_blob: one, new_blob: changed, old_mode: "100644", new_mode: "100644" },
+    { path: "src/two.ts", status: "D", old_blob: two, old_mode: "100644" },
+  ], wide);
+  const second = await applyDelta(git, { custody, delta: edited, realpath, ref, base: afterAdd, indexFile, message: "T-2" });
+  assert.deepEqual([...second.applied_entries], [{ path: "src/one.ts", new_blob: changed, new_mode: "100644" }]);
+  assert.deepEqual([...second.removed_paths], ["src/two.ts"]);
+  assert.deepEqual(integrationProof(edited, second), []);
+  assert.deepEqual({ ...second.ref_movement }, {
+    ref,
+    expected_old_oid: first.commit_oid,
+    observed_old_oid: first.commit_oid,
+    post_state: "known",
+    reflog_entries: 1,
+  });
+  assert.equal(await readRef(git, ref), second.commit_oid);
+});
+
+test("in a SHA-256 repository a delta naming a 40-hex blob is refused as the delta it is, before git writes (review L2)", async (t) => {
+  // ADR-098. Without the one-format check the blob reached `git update-index
+  // --cacheinfo`, which exits 129 on it, and the apply was refused as
+  // `environment_failure`: a broken machine instead of a malformed delta.
+  const { git, ref, base, indexFile, custody } = await repository(t, { objectFormat: "sha256" });
+  const narrow = delta(base, [{ path: "src/a.ts", status: "A", new_blob: "b".repeat(40), new_mode: "100644" }],
+    { candidate_tree_oid: "c".repeat(64) });
+  await assert.rejects(() => applyDelta(git, { custody, delta: narrow, realpath, ref, base, indexFile, message: "T-1" }),
+    code("containment_mismatch"));
+  assert.equal(await readRef(git, ref), base.commit_oid);
+  assert.deepEqual(custody.requests.map((request) => request.action), ["create_staging"]);
 });

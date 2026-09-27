@@ -20,7 +20,7 @@
   ],
   "properties": {
     "schema_version": { "const": 1 },
-    "walkthrough_id": { "type": "string", "pattern": "^wt-[0-9a-f]{40}$" },
+    "walkthrough_id": { "type": "string", "pattern": "^wt-(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "epic_id": { "type": "string", "minLength": 1 },
     "consent": {
       "description": "Offered after an aggregate PASS, generated only on consent.",
@@ -38,10 +38,10 @@
       "additionalProperties": false,
       "required": ["commit_oid", "tree_oid", "current_tree_oid"],
       "properties": {
-        "commit_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "current_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "target_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "commit_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "tree_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "current_tree_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "target_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
         "target_bound_at": { "type": "string", "format": "date-time" },
         "semantic_digest_before_binding": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
@@ -80,7 +80,7 @@
               "description": { "type": "string", "minLength": 8 },
               "command": { "type": "string", "minLength": 3 },
               "evidence_ref": { "type": "string", "minLength": 1 },
-              "at_tree_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+              "at_tree_oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }
             }
           }
         },
@@ -134,5 +134,12 @@
     "blocks_epic_when_declined": { "type": "boolean" },
     "semantic_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "body": { "type": "string" }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": { "properties": { "walkthrough_id": { "pattern": "^wt-[0-9a-f]{40}$" }, "staging": { "properties": { "commit_oid": { "pattern": "^[0-9a-f]{40}$" }, "tree_oid": { "pattern": "^[0-9a-f]{40}$" }, "current_tree_oid": { "pattern": "^[0-9a-f]{40}$" }, "target_oid": { "pattern": "^[0-9a-f]{40}$" } } }, "checks": { "properties": { "performed": { "items": { "properties": { "at_tree_oid": { "pattern": "^[0-9a-f]{40}$" } } } } } } } },
+      "else": { "properties": { "walkthrough_id": { "pattern": "^wt-[0-9a-f]{64}$" }, "staging": { "properties": { "commit_oid": { "pattern": "^[0-9a-f]{64}$" }, "tree_oid": { "pattern": "^[0-9a-f]{64}$" }, "current_tree_oid": { "pattern": "^[0-9a-f]{64}$" }, "target_oid": { "pattern": "^[0-9a-f]{64}$" } } }, "checks": { "properties": { "performed": { "items": { "properties": { "at_tree_oid": { "pattern": "^[0-9a-f]{64}$" } } } } } } } }
+    }
+  ]
 }

@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "bf2735286c44e6c51c457f1b92aa769dac7498110a308207845c1313cb12b628"
+      "sha256": "cc738e1b3d7e99664c8293c61766ba377bb3176a228ce14a38d840b175e49ba8"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -44,7 +44,7 @@
     },
     {
       "path": "docs/contracts/approved-delta.md",
-      "sha256": "7fea85f4f86657287d7e9d7cbea7ee882127aabf454bcec79c1012d8c67741bf"
+      "sha256": "85ef536b506d2fbc3c82bca907048e774e3314996ec41b5ad1e47ebb049500d8"
     },
     {
       "path": "docs/contracts/arena.md",
@@ -84,7 +84,7 @@
     },
     {
       "path": "docs/contracts/delivery-profile.md",
-      "sha256": "8537250c8d4d3bdc6fa3cd9ea50ee0bdc6b728d06ccd79ef4c4ccc71caf7be5c"
+      "sha256": "777a01914e6a6d6fd2413befd6f6477a0788d86c78c48ff294d0fdf8544e5611"
     },
     {
       "path": "docs/contracts/doctor-report.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "134d2404d075a4319ab429ff1da3839fd255bf2111ae747f6b9dbc637f48119f"
+      "sha256": "76b2c97076db814e3245b07a94ef839229d6c5a53dcb980b57d5789980882438"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -132,7 +132,7 @@
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "b03bbb8ad18454429508f8f1c61534dde59be81cfd9407175428d4578c9f70fb"
+      "sha256": "32e90d2fb8924f8b19fadd78b895175d922b920fd24dea54d7a21c9f571565e3"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -236,7 +236,7 @@
     },
     {
       "path": "resources/approved-delta/approved-delta.schema.json",
-      "sha256": "aefe32f650e86c2ea63bb0c75cc667a3fd086c9e26aae9b8bff7f9129e59523a"
+      "sha256": "1ddfa1cf3911da538ba7a1c4dbbcda36b5e6688bd06daad5ea582bb762dccb17"
     },
     {
       "path": "resources/arena/arena-block.example.json",
@@ -268,7 +268,7 @@
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.schema.json",
-      "sha256": "66d47455a9093c37a04c5ff3cb25aecee475d645ce9053d8d61e0935d393a391"
+      "sha256": "f53158c16eff76f0a39b9a99a0039ab5523be56931df70899d0c2c383f4d3494"
     },
     {
       "path": "resources/autobuild-run/run-contract.example.json",
@@ -288,7 +288,7 @@
     },
     {
       "path": "resources/autobuild-run/run-record.schema.json",
-      "sha256": "23343d29facc53326da1427d57488d616580ef14cfe298d790bf679661212fc8"
+      "sha256": "f6d766078486f9843ab536fe34bf4422922b8060a92c0da6b95c995f7ec10c22"
     },
     {
       "path": "resources/clean-room-e2e/fault-matrix.schema.json",
@@ -340,7 +340,7 @@
     },
     {
       "path": "resources/delivery-profile/delivery-profile.schema.json",
-      "sha256": "718018b97bb3b031b6f17c1010c1e09d779d1d73a553ab5f8bc0b613febea0dd"
+      "sha256": "b4af2cf6cdc0bd432e606ac39030a850c0e9c1cb0cf8f2e7cd178d997a5a59a5"
     },
     {
       "path": "resources/design-candidate/design-candidate.schema.json",
@@ -372,7 +372,7 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
-      "sha256": "c5bdacc29e43c344b452349f94d559e9ccd81741e4fa579ad3898c04143dd923"
+      "sha256": "78e8a0d87d796a386a9ce184115dc4befc31178f2da07843249960f5f22e77a7"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.example.json",
@@ -380,7 +380,7 @@
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.schema.json",
-      "sha256": "b1a1e5bef79da45469f9206d4669d90952c218e1b384de67f3f4381b33169a4f"
+      "sha256": "fe325f428e06b274c0b64281be29a95f19398babf019b58478fb2d2a78f173ef"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.tombstoned.example.json",
@@ -396,7 +396,7 @@
     },
     {
       "path": "resources/execution-base/execution-base.schema.json",
-      "sha256": "bd6bde8802fe15fc1ec784b3a792ff4f50f69b653e5e49ff16b192e82503be16"
+      "sha256": "9b6fde7e271ce96d298cdcb42366fa37fbc2306e2b2fc02dd2fc1f244bf0c147"
     },
     {
       "path": "resources/external-source-snapshot/external-source-snapshot.example.json",
@@ -464,7 +464,7 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
-      "sha256": "6ec0a3c57a818044c9e80a0ed8218bf4f5717a4b64c25af36b9908f56d3b925e"
+      "sha256": "89b5a926cc1d770ad7decef254520797fbb0aa0baf7698c188dd8f45d197ef51"
     },
     {
       "path": "resources/human-decision/project-status.example.json",
@@ -472,7 +472,7 @@
     },
     {
       "path": "resources/human-decision/project-status.schema.json",
-      "sha256": "a2e1d41ca04e75566e0680570bcec92b34116819f4efb9307f456687eee5b489"
+      "sha256": "573269a9b523af60594cd164e100836d19b692df093f5f14250385c8468a5c75"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.example.json",
@@ -484,7 +484,7 @@
     },
     {
       "path": "resources/integration-authorization/integration-authorization.schema.json",
-      "sha256": "a5eae2930368923025977e90981939c8e8a5984c8b6f198d1ebe5c74c37f63a6"
+      "sha256": "252137ca652c41eb32fe033a8730eec1c345fd90447fb6647ef97f569c8d437a"
     },
     {
       "path": "resources/iteration-result/iteration-result.escalated.example.json",
@@ -496,7 +496,7 @@
     },
     {
       "path": "resources/iteration-result/iteration-result.schema.json",
-      "sha256": "bd97401d83f4255df914913e0f3bbebade25ac9e1752c074af61fcd6fbcf2c4a"
+      "sha256": "c6cd361822470e8c1cbd6c1faab305fb4fface4bb67c8e6da74d350726e42bf2"
     },
     {
       "path": "resources/material-decisions/material-decision-manifest.example.json",
@@ -656,7 +656,7 @@
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-intents.schema.json",
-      "sha256": "e12a7267aa1d491f8ebdb0dd8da55878dec7f8551b17bd4f4b607f139adb9e90"
+      "sha256": "3b96238b64852d49ff7429b3b0b1cb41f3a128fa8a4c3103b59b479e51c07605"
     },
     {
       "path": "resources/planning-publication/ref-custody-helper-journal-crash.example.json",
@@ -724,7 +724,7 @@
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.schema.json",
-      "sha256": "338f415d189315a723aee17573e6ed4d0fc93423a3ddb536fb3eebe6bb813ba2"
+      "sha256": "a418bd61eb507337086d93dacb634329030190a8ee9caac3b79bf131d30445fd"
     },
     {
       "path": "resources/provider-preflight/provider-preflight.example.json",
@@ -848,7 +848,7 @@
     },
     {
       "path": "resources/static-analysis/static-analysis-result.schema.json",
-      "sha256": "bedec447302250538b7fa59d54b3afff574e04391b83c4b1d99aecd87e9edd2e"
+      "sha256": "d5fb67dbff25f505c2af8cf88fe70d308838602366356399a9fa07994936ae84"
     },
     {
       "path": "resources/tickets-manifest/example-candidate/docs/autosk/epics/11111111-1111-4111-8111-111111111111/tickets/README.md",
@@ -892,7 +892,7 @@
     },
     {
       "path": "resources/verification-batch/verification-batch.schema.json",
-      "sha256": "8f49047c59e507edb258e69050c39d2b926fe250425f94b6cff8fd97804baa4f"
+      "sha256": "1263c29b8d0cf017533bf63841cdfb81b007961adae6bc5fb6bee039608b2937"
     },
     {
       "path": "resources/verify-doc/feature-map.example.json",
@@ -900,7 +900,7 @@
     },
     {
       "path": "resources/verify-doc/feature-map.schema.json",
-      "sha256": "04ae885ba139010abb542fc5bdc60a2c6a0d721ef579bfe83f0b78b6ee1a1890"
+      "sha256": "d6e9763f23aedd4102bde062e484ea6acfb4bbd46b60db42241c494b5cb8c578"
     },
     {
       "path": "resources/walkthrough/walkthrough.example.json",
@@ -912,7 +912,7 @@
     },
     {
       "path": "resources/walkthrough/walkthrough.schema.json",
-      "sha256": "dba750c634317afde00cf4576d3a1c3a605fd149ecc7f66923427c151fce3c07"
+      "sha256": "ca03cb8368b9855d89f33a20ed8622ada78d29b1d1f72b0a78e1abc309d081de"
     },
     {
       "path": "resources/workflow-graph/canonical-reference.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "6424d40ff839aadf0e0e5a42da5006a770ff8c375004cb5a5326dcd126150e9c",
+  "candidate_digest": "1d8d17d020c3d2e8c15305fb2716641af624221600129c8c715c8f4bebaff795",
   "dispositions": [
     {
       "issue": 3,

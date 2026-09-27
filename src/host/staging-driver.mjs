@@ -18,7 +18,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 import { NO_REF_CUSTODY, askCustody } from './ref-custody.mjs';
 
@@ -79,17 +79,21 @@ async function ask(git, args, { tolerate = [] } = {}) {
   return result;
 }
 
-/** The OID a ref holds, or null when it holds nothing. */
+/**
+ * The OID a ref holds, or null when it holds nothing. The OID is read in
+ * either object format, 40 hex (sha1) or 64 (sha256): in a SHA-256
+ * repository a present ref is not an absent one (ADR-098).
+ */
 export async function readRef(git, ref) {
   const result = await ask(git, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { tolerate: [1] });
   const oid = result.stdout.trim();
-  return oid.length === 40 ? oid : null;
+  return oidFormat(oid) === null ? null : oid;
 }
 
-/** How many entries a ref's reflog holds. Counted, never assumed. */
+/** How many entries a ref's reflog holds, in either object format. Counted, never assumed. */
 export async function reflogDepth(git, ref) {
   const result = await ask(git, ['reflog', 'show', '--format=%H', ref], { tolerate: [1, 128] });
-  return result.stdout.split('\n').filter((line) => line.trim().length === 40).length;
+  return result.stdout.split('\n').filter((line) => oidFormat(line.trim()) !== null).length;
 }
 
 /**

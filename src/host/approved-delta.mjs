@@ -11,7 +11,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
 export const STATUSES = immutable(['A', 'M', 'D', 'R', 'C']);
 
@@ -129,6 +129,14 @@ export function validateDelta(delta) {
   const paths = delta.entries.map((entry) => entry.path);
   if (new Set(paths).size !== paths.length) {
     errors.push({ reason: 'containment_mismatch', detail: 'a path appears twice' });
+  }
+  // One object format (ADR-098): the bases, the candidate tree and every blob
+  // an entry names are objects of one repository, so OIDs of one width. A
+  // blob of the other format names nothing there, and is refused here rather
+  // than by the `update-index` it would reach. An absent blob is no format.
+  const blobs = delta.entries.flatMap((entry) => [entry.old_blob, entry.new_blob]).filter((blob) => blob !== undefined);
+  if (oneObjectFormat([delta.base_commit_oid, delta.base_tree_oid, delta.candidate_tree_oid, ...blobs]) === null) {
+    errors.push({ reason: 'containment_mismatch', detail: 'the bases, the candidate tree and the blobs are not OIDs of one object format' });
   }
   if (delta.delta_digest !== deltaDigest(delta)) {
     errors.push({ reason: 'delta_stale', detail: 'the digest does not recompute' });

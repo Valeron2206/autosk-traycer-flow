@@ -64,11 +64,11 @@
         },
         "tree_before": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "tree_after": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         }
       }
     },
@@ -204,7 +204,7 @@
         },
         "candidate_tree": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "harness_digest": {
           "type": "string",
@@ -216,5 +216,52 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "changed": {
+            "properties": {
+              "tree_before": {
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "tree_after": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "identities": {
+            "properties": {
+              "candidate_tree": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "changed": {
+            "properties": {
+              "tree_before": {
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "tree_after": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "identities": {
+            "properties": {
+              "candidate_tree": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

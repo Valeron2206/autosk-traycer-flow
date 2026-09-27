@@ -54,14 +54,14 @@ const gitIn = (cwd) => async (args) =>
     (error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? String(error) }),
   );
 
-async function repository(t) {
+async function repository(t, { objectFormat = "sha1" } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "autosk-driver-"));
   t.after(async () => {
     await execFileAsync("chmod", ["-R", "u+w", root]).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
   const git = gitIn(root);
-  await git(["init", "--quiet", "--initial-branch=main"]);
+  await git(["init", "--quiet", "--initial-branch=main", `--object-format=${objectFormat}`]);
   await writeFile(path.join(root, "a.txt"), "one\n");
   await git(["add", "a.txt"]);
   await git(["commit", "--quiet", "-m", "base"]);
@@ -481,4 +481,44 @@ test("swapTarget refuses any ref under refs/autosk/**, which is the helper's alo
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), head);
   // A target ref is still swapped.
   assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
+});
+
+// --- debt 11d: one object format ----------------------------------------------
+
+test("a SHA-256 repository's refs and reflogs are read as they are, not as absent (R7-31)", async (t) => {
+  // Round 7 of #39, R7-31: readRef and the reflog readers took only 40-hex
+  // OIDs, so in a SHA-256 repository a present ref read as absent and every
+  // reflog as empty, and foreign movement was misread (ADR-098).
+  const { git, root, head, custody } = await repository(t, { objectFormat: "sha256" });
+  assert.equal(head.length, 64);
+  assert.equal(await readRef(git, "refs/heads/main"), head);
+  assert.equal(await reflogDepth(git, "refs/heads/main"), 1);
+  const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
+  const ref = stagingRef(EPIC_KEY);
+  assert.deepEqual({ ...(await createStaging(custody, { epicRefKey: EPIC_KEY, base: head })) }, { ref, oid: head, created: true });
+  assert.equal(await readRef(git, ref), head);
+  assert.equal(await reflogDepth(git, ref), 1);
+  // Creating it again at the same base is the retry, read from what the ref holds.
+  assert.equal((await createStaging(custody, { epicRefKey: EPIC_KEY, base: head })).created, false);
+
+  const depthBefore = await reflogDepth(git, "refs/heads/main");
+  assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
+  const after = await observeTarget(git, {
+    ref: "refs/heads/main",
+    recorded: [head, staged.oid],
+    recordedResult: staged.oid,
+    reflogBefore: depthBefore,
+  });
+  assert.deepEqual({ ...after }, {
+    oid: staged.oid,
+    tree_oid: staged.tree,
+    reflog_entries: 1,
+    attributed_to_this_epic: true,
+    contains_recorded_result: true,
+  });
+  // A refused swap reports what the ref holds, in the repository's format.
+  const refused = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: head });
+  assert.deepEqual({ swapped: refused.swapped, observed_old_oid: refused.observed_old_oid }, { swapped: false, observed_old_oid: staged.oid });
+  assert.deepEqual({ ...(await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head })) }, { ref, deleted: true });
+  assert.equal(await readRef(git, ref), null);
 });

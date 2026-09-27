@@ -78,5 +78,54 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "One object format (ADR-098): a repository has one, so every OID this record names has one width, 40 lowercase hex characters (sha1) or 64 (sha256).",
+      "if": {
+        "properties": {
+          "planning_head": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "predecessors": {
+            "items": {
+              "properties": {
+                "commit_oid": {
+                  "pattern": "^[a-f0-9]{40}$"
+                }
+              }
+            }
+          },
+          "composition_commit_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "tree_oid": {
+            "pattern": "^[a-f0-9]{40}$"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "planning_head": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "predecessors": {
+            "items": {
+              "properties": {
+                "commit_oid": {
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          },
+          "composition_commit_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "tree_oid": {
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  ]
 }
