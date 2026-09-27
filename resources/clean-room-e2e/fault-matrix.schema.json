@@ -61,6 +61,8 @@
           "boundary",
           "description",
           "fault",
+          "injection",
+          "injection_note",
           "proofs",
           "expected_gate_outcome"
         ],
@@ -87,6 +89,45 @@
           "fault": {
             "type": "string",
             "minLength": 1
+          },
+          "injection": {
+            "enum": [
+              "real_path",
+              "measured_observation",
+              "written_observation"
+            ]
+          },
+          "written_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*$"
+            }
+          },
+          "guards": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          },
+          "fixed_inputs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*$"
+            }
+          },
+          "injection_note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
           },
           "proofs": {
             "type": "array",

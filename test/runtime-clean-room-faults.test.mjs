@@ -78,3 +78,81 @@ test("the coverage table is derived from the run, and the run completes it", () 
   const declared = coverageReport(matrix);
   assert.equal(declared.counts.not_covered, Object.keys(CASES).length);
 });
+
+// Debt 10h (R6-20, a1): the package said only F017–F020 touch Git directly.
+// Which git commands that write a ref each case ran is now recorded by the run
+// itself, split into fixture setup and the fault step, so the package can say
+// it from a measurement rather than from prose.
+test("each case records the ref-writing git commands it ran, fixture and fault apart", () => {
+  const STAGING = "refs/autosk/epics/";
+  const fault = Object.fromEntries(report.results.map((entry) => [entry.id, entry.git_ref_writes.fault]));
+  assert.deepEqual(fault, {
+    F005: [], F006: ["commit"], F007: ["commit"], F008: ["commit", "reset --hard"],
+    F009: [], F010: [], F011: [], F012: [], F013: [], F014: [], F015: [],
+    F016: ["update-ref refs/heads/main"],
+    F017: [],
+    F018: [fault.F018[0]],
+    F019: [fault.F019[0]],
+    F020: [fault.F020[0], fault.F020[1]],
+  });
+  assert.match(fault.F018[0], /^update-ref --create-reflog refs\/autosk\/epics\/[^ ]+\/planning$/u);
+  assert.match(fault.F019[0], /^update-ref -d refs\/autosk\/epics\/[^ ]+\/candidate$/u);
+  assert.match(fault.F020[0], /^update-ref --create-reflog refs\/autosk\/epics\/[^ ]+\/audit$/u);
+  assert.match(fault.F020[1], /^update-ref -d refs\/autosk\/epics\/[^ ]+\/candidate$/u);
+  // Fixture setup is recorded too, and no OID leaks into a command.
+  const fixture = Object.fromEntries(report.results.map((entry) => [entry.id, entry.git_ref_writes.fixture]));
+  assert.deepEqual(fixture.F005, []);
+  assert.deepEqual(fixture.F006, ["commit"]);
+  assert.ok(fixture.F015.some((command) => command.startsWith(`update-ref ${STAGING}`)), fixture.F015.join(", "));
+  for (const entry of report.results) {
+    for (const command of [...entry.git_ref_writes.fixture, ...entry.git_ref_writes.fault]) {
+      assert.doesNotMatch(command, /\b[0-9a-f]{40}\b/u, `${entry.id}: ${command}`);
+    }
+  }
+});
+
+test("the clean-room report carries each case's git ref writes", async () => {
+  const { faultRecords } = await import("../scripts/clean-room-e2e.mjs");
+  const records = faultRecords(report);
+  const f016 = records.find((entry) => entry.id === "F016");
+  assert.deepEqual(f016.git_ref_writes.fault, ["update-ref refs/heads/main"]);
+  assert.deepEqual(Object.keys(f016), ["id", "detected", "control", "detail", "git_ref_writes"]);
+});
+
+test("a real_path group is one a daemon harness covers, and no fault-harness case is one", () => {
+  for (const group of matrix.groups) {
+    if (group.injection === "real_path") {
+      assert.equal(Object.hasOwn(CASES, group.id), false, group.id);
+      assert.ok(["crash", "identity"].includes(COVERAGE[group.id].harness), group.id);
+      assert.equal(COVERAGE[group.id].real_fault, true, group.id);
+    } else {
+      assert.equal(Object.hasOwn(CASES, group.id), true, group.id);
+    }
+  }
+});
+
+// Review of 10h (Low): every git subcommand the harness runs is classified —
+// a ref writer is recorded, a known reader is not, anything else refuses —
+// and a git call that bypasses the recorder may only read.
+test("a git subcommand the recorder does not know refuses rather than going unrecorded", async () => {
+  const { refWriteOf } = await import("../scripts/clean-room-faults.mjs");
+  assert.equal(refWriteOf(["update-ref", "-d", "refs/autosk/x"]), "update-ref -d refs/autosk/x");
+  assert.equal(refWriteOf(["commit", "--quiet", "-m", "base"]), "commit");
+  assert.equal(refWriteOf(["rev-parse", "HEAD"]), null);
+  assert.equal(refWriteOf(["reflog", "show", "refs/x"]), null);
+  assert.throws(() => refWriteOf(["gc"]), /git gc is not classified/u);
+  assert.throws(() => refWriteOf(["reflog", "expire", "--all"]), /git reflog expire is not classified/u);
+  assert.throws(() => refWriteOf(["branch", "x"]), /not classified/u);
+});
+
+test("a direct git call outside the recorder only reads", async () => {
+  const { GIT_READERS } = await import("../scripts/clean-room-faults.mjs");
+  const source = await readFile(path.join(ROOT, "scripts/clean-room-faults.mjs"), "utf8");
+  const direct = [...source.matchAll(/execFileAsync\('git', \['([a-z-]+)'/gu)].map((match) => match[1]);
+  assert.ok(direct.length > 0);
+  for (const subcommand of direct) assert.ok(GIT_READERS.has(subcommand), subcommand);
+  // And every other git call is the recorder's own, so none escapes the scan.
+  const recorder = [...source.matchAll(/execFileAsync\('git', args, \{/gu)].length;
+  assert.equal(recorder, 1);
+  assert.equal([...source.matchAll(/execFileAsync\('git'/gu)].length, direct.length + recorder);
+});

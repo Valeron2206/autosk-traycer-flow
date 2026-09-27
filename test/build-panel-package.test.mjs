@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 
-import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal } from "../scripts/build-panel-package.mjs";
+import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal, panelRecords, testSummary } from "../scripts/build-panel-package.mjs";
 import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
@@ -37,8 +37,20 @@ const compat = JSON.parse(read("compat/autosk/manifest.v1.json"));
 const cleanRoom = {
   // Only the fault harness's own cases carry a control; F001 belongs to the
   // crash harness, which is exactly the difference the table has to show.
+  // Review of 10h (Low): the build refuses a run that did not run every
+  // fault-harness group, so the fixture carries a record for each; F020 keeps
+  // its full record, the others a minimal one.
   faults: [
-    { id: "F020", detected: true, control: true, detail: "the audit copy exists while the live one still does" },
+    ...matrix.groups
+      .filter((group) => group.injection !== "real_path" && group.id !== "F020")
+      .map((group) => ({ id: group.id, detected: true, control: true, detail: `${group.id} detail`, git_ref_writes: { fixture: [], fault: [] } })),
+    {
+      id: "F020",
+      detected: true,
+      control: true,
+      detail: "the audit copy exists while the live one still does",
+      git_ref_writes: { fixture: ["commit", "update-ref --create-reflog refs/autosk/epics/k/planning"], fault: ["update-ref --create-reflog refs/autosk/epics/k/audit", "update-ref -d refs/autosk/epics/k/candidate"] },
+    },
   ],
   upstream_commit: compat.upstream.commit,
   source_tree: compat.result_tree,
@@ -68,6 +80,12 @@ const mutation = {
 
 const vocabulary = JSON.parse(read("resources/refusal-vocabulary/refusal-vocabulary.v1.json"));
 
+const TESTS = Object.freeze({
+  tests: 1770, passed: 1769, failed: 0, cancelled: 0, skipped: 1, todo: 0,
+  skipped_names: [{ name: "a case folded by the filesystem", reason: "filesystem does not fold case" }],
+  failed_names: [],
+});
+
 const build = (overrides = {}) => buildPackage({
   commit: "c".repeat(40),
   tree: "t".repeat(40),
@@ -76,7 +94,9 @@ const build = (overrides = {}) => buildPackage({
   matrix,
   mutation,
   compat,
-  tests: { passed: 1769, failed: 0 },
+  // Debt 10h (a1 low): the skipped test is reported by name, so the fixture
+  // carries the run's skipped count and names, as a real log gives them.
+  tests: TESTS,
   contracts,
   vocabulary,
   // The band is required evidence: builds under test carry a valid record
@@ -172,7 +192,11 @@ test("the package says which primitives the series supplies and which it does no
   for (const primitive of UNPINNED_DAEMON_PRIMITIVES) {
     assert.ok(text.includes(`\`${primitive.name}\` (${primitive.adr})`), primitive.name);
   }
-  assert.ok(text.includes("planning-publication fault groups\n  (`F017`, `F018`, `F019`, `F020`)"));
+  // Debt 10h (R6-20): this bullet named F017–F020 as the groups that exercise
+  // Git directly; the run shows more of them do. The groups are now read from
+  // the run's own record of the ref-writing git commands each case ran.
+  assert.ok(text.includes("no fault group shows anything about a helper-mediated CAS or the\n  separate-account boundary"), text);
+  assert.doesNotMatch(text, /planning-publication fault groups/u);
   assert.ok(text.includes("`src/git/ref-custody-helper.ts`) does not exist"));
   assert.match(text, /the preflight refuses every daemon today, including the one this series builds/u);
 });
@@ -1095,8 +1119,9 @@ test("the evidence is given as rows, not only as counts", async () => {
   for (const row of cleanRoom.coverage.rows) {
     assert.match(text, new RegExp(`\\| \`${row.id}\` \\| ${row.harness}`, "u"));
   }
-  assert.match(text, /\| `F001` \| crash \| yes \| not paired \|/u);
-  assert.match(text, /\| `F020` \| faults \| yes \| yes \|/u);
+  // Debt 10h: each row now carries its injection kind (from the matrix).
+  assert.match(text, /\| `F001` \| crash \| `real_path` \| yes \| not paired \|/u);
+  assert.match(text, /\| `F020` \| faults \| `written_observation`: [^|]+ \| yes \| yes \|/u);
   for (const entry of mutation.modules) {
     assert.match(text, new RegExp(entry.module.replace(/[/.]/gu, "\\$&"), "u"));
   }
@@ -1338,6 +1363,8 @@ test("the package refuses the seam column when a loaded measurer module's bytes 
     };
     const cleanRoomPath = path.join(scratch, "clean-room.json");
     const mutationPath = path.join(scratch, "mutation.json");
+    const testsLogPath = path.join(scratch, "tests.log");
+    writeFileSync(testsLogPath, "ℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n");
     writeFileSync(cleanRoomPath, JSON.stringify(cleanRoom));
     writeFileSync(mutationPath, JSON.stringify(mutation));
     // argv and import.meta.url must be the same spelling. tmpdir is under
@@ -1351,8 +1378,8 @@ test("the package refuses the seam column when a loaded measurer module's bytes 
         "c".repeat(40),
         "--tree",
         "t".repeat(40),
-        "--tests-passed",
-        "0",
+        "--tests-log",
+        testsLogPath,
         "--clean-room",
         cleanRoomPath,
         "--mutation",
@@ -1543,4 +1570,275 @@ test("a park reason nothing produces is named as not claimed, not counted as del
   assert.doesNotMatch(text, /delivered as the pinned\s*patch series/u);
   const counted = await build({ vocabulary: { ...vocabulary, park_reasons: vocabulary.park_reasons.map((entry) => ({ ...entry, producer: entry.producer === "none" ? "host" : entry.producer })) } });
   assert.doesNotMatch(counted.text, /are declared with no producer yet/u);
+});
+
+// Debt 10h (R6-20, R6-21, R6-22, a1): what the package claims, measured.
+
+const section5 = (text) => text.slice(text.indexOf("## 5. Evidence"), text.indexOf("## 6. "));
+
+test("the package does not say every group is injected for real; it says how each one is", async () => {
+  const { text } = await build();
+  const evidence = section5(text);
+  assert.doesNotMatch(evidence, /Every group is injected for real/u);
+  assert.doesNotMatch(evidence, /Sixteen are injected/u);
+  const byKind = (kind) => matrix.groups.filter((group) => group.injection === kind).map((group) => `\`${group.id}\``).join(", ");
+  for (const kind of ["real_path", "measured_observation", "written_observation"]) {
+    const count = matrix.groups.filter((group) => group.injection === kind).length;
+    assert.ok(evidence.includes(`\`${kind}\` — ${count} groups (${byKind(kind)})`), kind);
+  }
+  assert.match(evidence, /No case of the fault harness runs a host driver or the daemon/u);
+  // Each row carries its kind, and a written observation its written fields.
+  assert.match(evidence, /\| `F001` \| crash \| `real_path` \| yes \| not paired \|/u);
+  const f020 = matrix.groups.find((group) => group.id === "F020");
+  assert.ok(evidence.includes(`| \`F020\` | faults | \`written_observation\`: ${f020.written_fields.map((name) => `\`${name}\``).join(", ")} | yes | yes |`), evidence);
+});
+
+test("the injection kinds are rendered from the matrix, not from prose", async () => {
+  const changed = structuredClone(matrix);
+  const f005 = changed.groups.find((group) => group.id === "F005");
+  f005.injection = "written_observation";
+  f005.written_fields = ["projectRoot"];
+  const { text } = await build({ matrix: changed });
+  const count = changed.groups.filter((group) => group.injection === "written_observation").length;
+  assert.ok(section5(text).includes(`\`written_observation\` — ${count} groups (\`F005\``), section5(text));
+});
+
+test("a run whose fault harness ran a group the matrix calls a real daemon path refuses", async () => {
+  const changed = structuredClone(matrix);
+  changed.groups.find((group) => group.id === "F020").injection = "real_path";
+  await assert.rejects(build({ matrix: changed }), /F020.*real_path.*fault harness/u);
+});
+
+test("the git commands a case ran are the run's record, and an unrecorded run says so", async () => {
+  const { text } = await build();
+  const evidence = section5(text);
+  assert.ok(evidence.includes("`F020`: `update-ref --create-reflog refs/autosk/epics/k/audit`, `update-ref -d refs/autosk/epics/k/candidate`"), evidence);
+  assert.match(text, /none of them goes through a host driver, the daemon or a ref-custody helper/u);
+  const unrecorded = await build({
+    cleanRoom: { ...cleanRoom, faults: cleanRoom.faults.map(({ git_ref_writes, ...entry }) => entry) },
+  });
+  assert.match(section5(unrecorded.text), /This run did not record which git commands its cases ran/u);
+  assert.match(unrecorded.text, /the run did not record which fault groups write a ref/u);
+});
+
+test("the contracts with no measured link are searched for under src/, and only what was found is stated", async () => {
+  const measured = await measureContracts();
+  const unlinked = measured.filter((entry) => entry.evaluators.length === 0);
+  for (const entry of measured) {
+    assert.ok(Array.isArray(entry.named_under_src), entry.path);
+    assert.ok(Array.isArray(entry.src_references?.naming) && Array.isArray(entry.src_references?.named_paths), entry.path);
+  }
+  // Review of 10h (H1): `integration-authorization.md` has no refusal class
+  // named under src/, and `staging-acceptance.mjs` still implements its §1 and
+  // cites it — so a class search alone cannot say "not implemented". The
+  // second measurement is the contract's name in src/, or a src/ path the
+  // contract names; the partition is derived from both, never hand-counted.
+  const found = (entry) => entry.named_under_src.length > 0
+    || entry.src_references.naming.length > 0 || entry.src_references.named_paths.length > 0;
+  const unreferenced = unlinked.filter((entry) => !found(entry));
+  const referenced = unlinked.filter(found);
+  assert.equal(unreferenced.length + referenced.length, unlinked.length);
+  // The partition as measured on this tree (ADR-094): pinned so a regression in measureContracts is seen.
+  assert.equal(unlinked.length, 17);
+  assert.equal(unreferenced.length, 13);
+  assert.equal(referenced.length, 4);
+  const byPath = new Map(unlinked.map((entry) => [entry.path, entry]));
+  assert.deepEqual(byPath.get("docs/contracts/integration-authorization.md").src_references.naming, ["src/host/staging-acceptance.mjs"]);
+  assert.ok(byPath.get("docs/contracts/integration-authorization.md").src_references.named_paths.includes("src/host/staging-acceptance.mjs"));
+  assert.ok(byPath.get("docs/contracts/refusal-vocabulary.md").src_references.named_paths.includes("src/host/workflow-factory.mjs"));
+  assert.ok(unreferenced.some((entry) => entry.path === "docs/contracts/anchor-pack.md"));
+  assert.deepEqual(byPath.get("docs/contracts/arena.md").named_under_src, [{ code: "arena_judge_family_conflict", modules: ["src/host/cross-family-review.mjs"] }]);
+
+  const { text } = await build({ contracts: measured });
+  assert.ok(text.includes(`${unlinked.length} of the ${measured.length} contracts say **no link measured**`), text);
+  assert.ok(text.includes(`For ${unreferenced.length} of them nothing was found`), text);
+  for (const entry of unreferenced) assert.ok(text.includes(`\`${entry.path}\``), entry.path);
+  assert.ok(text.includes(`${referenced.length} are referenced from \`src/\` (a reference is not a claim of implementation)`), text);
+  assert.ok(text.includes("`docs/contracts/integration-authorization.md`: named in `src/host/staging-acceptance.mjs`"), text);
+  assert.ok(text.includes("`docs/contracts/arena.md`: `arena_judge_family_conflict` in `src/host/cross-family-review.mjs`"), text);
+  // Only what was measured: no inference from an absence to "unimplemented".
+  assert.doesNotMatch(text, /no runtime code in this repository implements them/u);
+  assert.doesNotMatch(text, /whether the remaining ones are unimplemented or only\s+unlinked is open/u);
+});
+
+test("the host's alignment inputs are named as taken, not computed", async () => {
+  const { text } = await build();
+  for (const name of ["`subject_hash`", "material manifest", "projector", "classifier"]) {
+    assert.ok(text.includes(name), name);
+  }
+  assert.match(text, /no module in this repository computes any of them/u);
+});
+
+test("the panel records say which is a member and why the others are not", async () => {
+  const records = await panelRecords(candidate);
+  assert.deepEqual(records.map((entry) => [entry.path.split("/").pop(), entry.member, entry.anchor_corrections]), [
+    ["round-1.json", false, 0],
+    ["round-2.json", false, 0],
+    ["round-3.json", false, 0],
+    ["round-4.json", true, 3],
+    ["round-5.json", false, 0],
+    ["round-6.json", false, 0],
+  ]);
+  const { text } = await build();
+  assert.match(text, /`resources\/design-candidate\/panel\/round-4\.json` is a member because it carries the operative membership rule/u);
+  assert.ok(text.includes("`resources/design-candidate/panel/round-5.json`"), text);
+  assert.ok(text.includes("`resources/design-candidate/panel/round-6.json`"), text);
+  assert.match(text, /records of what a round found, not design the verdict binds/u);
+});
+
+test("a panel record that carries anchor corrections and is not a member refuses the build", async () => {
+  const records = (await panelRecords(candidate)).map((entry) => ({ ...entry, member: false }));
+  await assert.rejects(build({ panelRecords: records }), /round-4\.json carries 3 anchor corrections and is not a member/u);
+});
+
+test("the test evidence names its skipped tests and refuses a count it cannot name", async () => {
+  const { text } = await build();
+  assert.match(text, /\*\*1769 pass, 0 fail, 0 cancelled, 1 skipped\*\* of 1770 tests/u);
+  assert.match(text, /Skipped: a case folded by the filesystem — filesystem does not fold case\./u);
+  await assert.rejects(
+    build({ tests: { ...TESTS, skipped_names: [] } }),
+    /1 skipped test.*0 named/u,
+  );
+  // Review of 10h (M3): a failed or cancelled test is named too.
+  await assert.rejects(build({ tests: { ...TESTS, failed: 1, cancelled: 1, failed_names: ["one"] } }), /2 failed or cancelled.*1 named/u);
+  await assert.rejects(build({ tests: { passed: 1769, failed: 0 } }), /test evidence/u);
+  const cancelled = await build({ tests: { ...TESTS, passed: 1767, failed: 1, cancelled: 1, failed_names: ["broken", "cut short"] } });
+  assert.match(cancelled.text, /\*\*1767 pass, 1 fail, 1 cancelled, 1 skipped\*\*/u);
+  assert.match(cancelled.text, /Failed or cancelled: broken; cut short\./u);
+  // A skip with no reason is named without a dangling separator.
+  const bare = await build({ tests: { ...TESTS, skipped_names: [{ name: "bare", reason: "" }] } });
+  assert.match(bare.text, /Skipped: bare\./u);
+});
+
+// Real node 24 output shapes (spec, the default reporter, and TAP), captured
+// from `node --test` over a file with a plain, a skipped, a todo, a failing
+// todo, a failing test, a skipped suite, and a timed-out parent whose child
+// was cancelled.
+const SPEC_LOG = [
+  "",
+  "> autosk-traycer-flow@0.0.0 test",
+  "> node --test test/*.test.mjs",
+  "",
+  "✔ ok one (0.876572ms)",
+  "﹣ skip plain (0.116577ms) # SKIP",
+  "✔ todo one (0.128461ms) # later",
+  "⚠ todo failing (0.187728ms) # TODO",
+  "✖ fails (0.158848ms)",
+  "▶ outer",
+  "  ✖ inner slow (30.728247ms)",
+  "✖ outer (31.204134ms)",
+  "ℹ tests 8",
+  "ℹ suites 0",
+  "ℹ pass 2",
+  "ℹ fail 1",
+  "ℹ cancelled 2",
+  "ℹ skipped 1",
+  "ℹ todo 2",
+  "ℹ duration_ms 111.36869",
+  "",
+  "✖ failing tests:",
+  "",
+  "test at tt/b.test.mjs:5:1",
+  "⚠ todo failing (0.187728ms) # TODO",
+  "  Error: x",
+  "",
+  "test at tt/b.test.mjs:6:1",
+  "✖ fails (0.158848ms)",
+  "  Error: boom",
+  "",
+  "test at tt/c.test.mjs:3:11",
+  "✖ inner slow (30.728247ms)",
+  "  'test did not finish before its parent and was cancelled'",
+  "",
+  "test at tt/c.test.mjs:2:1",
+  "✖ outer (31.204134ms)",
+  "  'test timed out after 30ms'",
+].join("\r\n");
+
+const TAP_LOG = [
+  "TAP version 13",
+  "ok 1 - ok one",
+  "  ---",
+  "  type: 'test'",
+  "  ...",
+  "ok 2 - skip plain # SKIP",
+  "  ---",
+  "  type: 'test'",
+  "  ...",
+  "ok 3 - todo one # TODO later",
+  "not ok 4 - todo failing # TODO",
+  "not ok 5 - fails",
+  "ok 6 - skipped suite # SKIP suite reason",
+  "  ---",
+  "  type: 'suite'",
+  "  ...",
+  "    not ok 1 - inner slow",
+  "      ---",
+  "      type: 'test'",
+  "      failureType: 'cancelledByParent'",
+  "      ...",
+  "not ok 7 - outer",
+  "ok 8 - with \\# hash # SKIP why",
+  "  ---",
+  "  type: 'test'",
+  "  ...",
+  "# tests 9",
+  "# suites 1",
+  "# pass 2",
+  "# fail 1",
+  "# cancelled 2",
+  "# skipped 2",
+  "# todo 2",
+].join("\n");
+
+test("the test summary is read from the run's own log, in either reporter", () => {
+  assert.deepEqual(testSummary(SPEC_LOG), {
+    tests: 8, passed: 2, failed: 1, cancelled: 2, skipped: 1, todo: 2,
+    skipped_names: [{ name: "skip plain", reason: "" }],
+    failed_names: ["fails", "inner slow", "outer"],
+  });
+  // TAP tells a skipped suite from a skipped test by its `type`, escapes `#`
+  // in names, and a failing todo is not a failure.
+  assert.deepEqual(testSummary(TAP_LOG), {
+    tests: 9, passed: 2, failed: 1, cancelled: 2, skipped: 2, todo: 2,
+    skipped_names: [{ name: "skip plain", reason: "" }, { name: "with # hash", reason: "why" }],
+    failed_names: ["fails", "inner slow", "outer"],
+  });
+  assert.throws(() => testSummary("no summary here"), /no test summary/u);
+});
+
+test("a log with more than one summary block, or none of cancelled, is refused", () => {
+  const twice = `${SPEC_LOG}\n${SPEC_LOG}`;
+  assert.throws(() => testSummary(twice), /2 summary blocks/u);
+  assert.throws(() => testSummary(SPEC_LOG.replace("ℹ cancelled 2\r\n", "")), /cancelled not found/u);
+});
+
+test("a skipped line the spec reporter prints for a suite does not pass as a skipped test", async () => {
+  // The spec reporter prints a skipped suite like a skipped test and does not
+  // count it; the names then outnumber the count and the build refuses.
+  const log = SPEC_LOG.replace("✔ todo one", "﹣ a skipped suite (0.1ms) # suite reason\r\n✔ todo one");
+  const summary = testSummary(log);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.skipped_names.length, 2);
+  await assert.rejects(build({ tests: summary }), /1 skipped test.*2 named/u);
+});
+
+test("each group is printed as designed and as injected, so a description claims no more than the run", async () => {
+  const { text } = await build();
+  for (const group of matrix.groups) {
+    assert.ok(text.includes(`- \`${group.id}\` (${group.boundary}) — designed: ${group.description}. Injected: ${group.injection_note}.`), group.id);
+  }
+  // Review of 10h (M2): F003 is designed as a session-lifecycle crash and
+  // injected at the second creation-index write.
+  assert.match(matrix.groups.find((group) => group.id === "F003").injection_note, /second creation-index write/u);
+});
+
+test("a run that did not run a fault-harness group refuses the build", async () => {
+  const faults = cleanRoom.faults.filter((entry) => entry.id !== "F009");
+  await assert.rejects(build({ cleanRoom: { ...cleanRoom, faults } }), /F009.*the fault harness did not run it/u);
+});
+
+test("the round-record sentence names the check that holds it", async () => {
+  const { text } = await build();
+  assert.match(text, /checked by `npm test` \(`test\/validate-design-candidate\.test\.mjs`\) against the roster its round sat/u);
 });

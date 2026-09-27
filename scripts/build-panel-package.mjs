@@ -153,6 +153,19 @@ export async function measureContracts() {
     if (name.endsWith('.mjs')) hostText.set(`${HOST_DIR}/${name}`, await read(`${HOST_DIR}/${name}`));
   }
 
+  // Every file under src/, for the second measurement a row with no link gets
+  // (debt 10h, R6-21): whether any of the contract's classes is named anywhere
+  // in this repository's runtime code at all.
+  const srcText = new Map();
+  const walk = async (relative) => {
+    for (const entry of (await readdir(path.join(ROOT, relative), { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const child = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) await walk(child);
+      else if (entry.isFile()) srcText.set(child, await read(child));
+    }
+  };
+  await walk('src');
+
   const declarations = new Map();
   for (const [module, text] of hostText) {
     declarations.set(module, new Set([...text.matchAll(IMPLEMENTS)].map((match) => match[1])));
@@ -199,11 +212,30 @@ export async function measureContracts() {
     const named = outline.refusals.filter((code) =>
       evaluators.some((evaluator) => namesRefusal(hostText.get(evaluator.module), code)),
     );
+    // The second measurement (review of 10h, H1): a class search cannot see an
+    // implementation that names none of the contract's classes. So the
+    // contract counts as referenced when a src/ file names it — its file name,
+    // or its stem as a whole token — or when its own text names a src/ path
+    // that exists.
+    const contractStem = name.replace(/\.md$/u, '');
+    const stemToken = new RegExp(`(?<![A-Za-z0-9_-])${contractStem}(?![A-Za-z0-9_-])`, 'u'); // stems are [a-z0-9-]
+    const contractText = await read(contractPath);
+    const srcReferences = {
+      naming: [...srcText].filter(([, text]) => text.includes(name) || stemToken.test(text)).map(([file]) => file),
+      named_paths: [...new Set([...contractText.matchAll(/\bsrc\/[A-Za-z0-9_./-]*[A-Za-z0-9_]/gu)].map((match) => match[0]))]
+        .filter((file) => srcText.has(file))
+        .sort(),
+    };
+    const namedUnderSrc = outline.refusals
+      .map((code) => ({ code, modules: [...srcText].filter(([, text]) => namesRefusal(text, code)).map(([file]) => file) }))
+      .filter((entry) => entry.modules.length > 0);
     contracts.push({
       path: contractPath,
       readers,
       evaluators,
       refusals_named: named.length,
+      named_under_src: namedUnderSrc,
+      src_references: srcReferences,
       ...outline,
     });
   }
@@ -424,8 +456,172 @@ function seamReason(reason, projectDirs) {
   return out.join("");
 }
 
+/** Where the panel's round records live. */
+export const PANEL_DIR = 'resources/design-candidate/panel';
+
+/**
+ * Each recorded panel round, whether the candidate lists it, and how many
+ * anchor corrections it carries (debt 10h, R6-22).
+ *
+ * Membership is the `files[]` list alone. A round record is listed when the
+ * design rests on something it carries — round 4's third anchor correction is
+ * the operative membership rule, which `membershipRuleErrors` checks — and the
+ * other records carry none: they are what a round found, checked by
+ * `validatePanelRound` against the roster that round sat, whether listed or not.
+ */
+export async function panelRecords(candidate) {
+  const listed = new Set(candidate.files.map((file) => file.path));
+  const records = [];
+  for (const name of (await readdir(path.join(ROOT, PANEL_DIR))).sort()) {
+    if (!/^round-\d+\.json$/u.test(name)) continue;
+    const relative = `${PANEL_DIR}/${name}`;
+    const round = JSON.parse(await read(relative));
+    records.push({
+      path: relative,
+      member: listed.has(relative),
+      anchor_corrections: Array.isArray(round.anchor_corrections) ? round.anchor_corrections.length : 0,
+    });
+  }
+  return records.sort((left, right) => Number(/\d+/u.exec(left.path.split('/').pop())[0]) - Number(/\d+/u.exec(right.path.split('/').pop())[0]));
+}
+
+/**
+ * The `npm test` summary, read from the run's own log (debt 10h, a1 low).
+ *
+ * The builder took a pass count by flag and wrote `0 fail` itself, and the
+ * skipped test went unreported. The totals and the skipped and failed names are
+ * now read from the output of `node --test`, in the spec reporter (the default)
+ * or TAP; a log without its summary lines is refused rather than read as zero.
+ */
+export function testSummary(log) {
+  const lines = log.replace(/\r\n?/gu, '\n').split('\n');
+  const KEYS = ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo'];
+  const counts = {};
+  for (const line of lines) {
+    const match = /^(?:ℹ|#) (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$/u.exec(line);
+    if (match) (counts[match[1]] ??= []).push(Number(match[2]));
+  }
+  const missing = KEYS.filter((name) => counts[name] === undefined);
+  if (missing.length === KEYS.length) throw new Error('the test log carries no test summary');
+  if (missing.length > 0) throw new Error(`the test log carries no complete test summary (${missing.join(', ')} not found)`);
+  const blocks = Math.max(...KEYS.map((name) => counts[name].length));
+  if (blocks !== 1 || KEYS.some((name) => counts[name].length !== 1)) {
+    throw new Error(`the test log carries ${blocks} summary blocks — one run, one summary`);
+  }
+  const tap = lines.some((line) => /^\s*(?:not )?ok \d+ - /u.test(line));
+  const skipped = [];
+  const failed = [];
+  const unescape = (name) => name.replace(/\\#/gu, '#');
+  if (tap) {
+    // TAP says whether a skipped entry is a test or a suite in its YAML block.
+    for (const [index, line] of lines.entries()) {
+      const entry = /^\s*(not )?ok \d+ - (.*)$/u.exec(line);
+      if (!entry) continue;
+      const directive = /^(.*?)(?<!\\) # (SKIP|TODO)\b ?(.*)$/iu.exec(entry[2]);
+      const name = unescape(directive ? directive[1] : entry[2]);
+      let type = 'test';
+      for (const next of lines.slice(index + 1)) {
+        if (/^\s*(?:not )?ok \d+ - /u.test(next)) break;
+        const found = /^\s*type: '([a-z]+)'/u.exec(next);
+        if (found) { type = found[1]; break; }
+      }
+      if (directive?.[2].toUpperCase() === 'SKIP' && type === 'test') skipped.push({ name, reason: directive[3] });
+      if (entry[1] && directive?.[2].toUpperCase() !== 'TODO') failed.push(name);
+    }
+  } else {
+    // The spec reporter prints a skipped suite like a skipped test; the names
+    // then outnumber the count, and the build refuses rather than guess.
+    for (const line of lines) {
+      const spec = /^\s*﹣ (.+) \([\d.]+ms\) # (.*)$/u.exec(line);
+      if (spec) skipped.push({ name: spec[1], reason: spec[2] === 'SKIP' ? '' : spec[2] });
+    }
+    const section = lines.findIndex((line) => /^✖ failing tests:\s*$/u.test(line));
+    for (const line of section === -1 ? lines : lines.slice(section + 1)) {
+      const failure = /^\s*✖ (.+) \([\d.]+ms\)$/u.exec(line);
+      if (failure) failed.push(failure[1]);
+    }
+  }
+  return {
+    tests: counts.tests[0],
+    passed: counts.pass[0],
+    failed: counts.fail[0],
+    cancelled: counts.cancelled[0],
+    skipped: counts.skipped[0],
+    todo: counts.todo[0],
+    skipped_names: skipped,
+    failed_names: failed,
+  };
+}
+
+function requireTestEvidence(tests) {
+  const numbers = ['tests', 'passed', 'failed', 'cancelled', 'skipped', 'todo'];
+  if (!tests || numbers.some((name) => !Number.isInteger(tests[name])) || !Array.isArray(tests.skipped_names) || !Array.isArray(tests.failed_names)) {
+    throw new Error('the test evidence is not a summary read from a test log — run `npm test` and pass its output with --tests-log <file>');
+  }
+  if (tests.skipped_names.length !== tests.skipped) {
+    throw new Error(`the test log reports ${tests.skipped} skipped test${tests.skipped === 1 ? '' : 's'} and ${tests.skipped_names.length} named — a skipped test is reported by name (a TAP log tells a skipped suite from a skipped test)`);
+  }
+  const unfinished = tests.failed + tests.cancelled;
+  if (tests.failed_names.length !== unfinished) {
+    throw new Error(`the test log reports ${unfinished} failed or cancelled test${unfinished === 1 ? '' : 's'} and ${tests.failed_names.length} named — each is reported by name`);
+  }
+}
+
+/**
+ * The injection kinds of the fault matrix, and what each one means on the
+ * page. The groups under each are read from the matrix; only the meaning is
+ * written here (debt 10h, R6-20).
+ */
+const INJECTION_KINDS = Object.freeze([
+  {
+    name: 'real_path',
+    meaning: 'the fault is made against the daemon built from section 1\'s source, and the daemon answers on its own path.',
+  },
+  {
+    name: 'measured_observation',
+    meaning: 'the fault harness makes the fault in a temporary fixture — a file, a process, an environment, a Git repository — and hands a host guard values it read back from that fixture.',
+  },
+  {
+    name: 'written_observation',
+    meaning: 'the host guard is handed an observation the harness wrote, in whole or in the fields named on the row; the harness checks its fixture beside the guard, not through it.',
+  },
+]);
+
+function injectionCell(group) {
+  if (!group?.injection) return 'not declared';
+  const written = Array.isArray(group.written_fields) && group.written_fields.length > 0
+    ? `: ${group.written_fields.map((name) => `\`${name}\``).join(', ')}`
+    : '';
+  return `\`${group.injection}\`${written}`;
+}
+
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null }) {
+  requireTestEvidence(tests);
+  const groupById = new Map(matrix.groups.map((group) => [group.id, group]));
+  const records = givenPanelRecords ?? await panelRecords(candidate);
+  for (const record of records) {
+    const name = record.path.split('/').pop();
+    if (record.anchor_corrections > 0 && !record.member) {
+      throw new Error(`${name} carries ${record.anchor_corrections} anchor corrections and is not a member — the rule it carries would bind nothing`);
+    }
+    if (record.anchor_corrections === 0 && record.member) {
+      throw new Error(`${name} is a member and carries no anchor correction — nothing the design rests on says why it is listed`);
+    }
+  }
+  const gitRecorded = (cleanRoom.faults ?? []).length > 0
+    && cleanRoom.faults.every((entry) => Array.isArray(entry.git_ref_writes?.fault) && Array.isArray(entry.git_ref_writes?.fixture));
+  const gitFaultGroups = gitRecorded ? cleanRoom.faults.filter((entry) => entry.git_ref_writes.fault.length > 0) : [];
+  const gitFixtureOnly = gitRecorded
+    ? cleanRoom.faults.filter((entry) => entry.git_ref_writes.fault.length === 0 && entry.git_ref_writes.fixture.length > 0)
+    : [];
+  const unlinked = contracts.filter((entry) => (entry.evaluators ?? []).length === 0);
+  const srcMeasured = unlinked.every((entry) => Array.isArray(entry.named_under_src)
+    && Array.isArray(entry.src_references?.naming) && Array.isArray(entry.src_references?.named_paths));
+  const foundUnderSrc = (entry) => entry.named_under_src.length > 0
+    || entry.src_references.naming.length > 0 || entry.src_references.named_paths.length > 0;
+  const unreferenced = srcMeasured ? unlinked.filter((entry) => !foundUnderSrc(entry)) : [];
+  const referenced = srcMeasured ? unlinked.filter(foundUnderSrc) : [];
   if (produced !== null) {
     if (!produced.source) {
       throw new Error("the produced report carries no source binding — nothing proves it ran on this tree");
@@ -486,6 +682,22 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   const seamVerdict = migrationSeam === null ? null : classifySeam(migrationSeam);
   if (seamVerdict !== null && !seamVerdict.ok) {
     throw new Error(`the migration-seam record fails the band's own checks: ${seamVerdict.failures.join("; ")}`);
+  }
+  // The run and the matrix must agree on who ran what: a group the matrix
+  // calls a real daemon path is not one the fault harness ran, and a
+  // fault-harness group the run did not run has no row to stand on.
+  if (cleanRoom.faults) {
+    const ran = new Set(cleanRoom.faults.map((entry) => entry.id));
+    for (const entry of cleanRoom.faults) {
+      if (groupById.get(entry.id)?.injection === 'real_path') {
+        throw new Error(`${entry.id}: the matrix calls it real_path, and the fault harness ran it`);
+      }
+    }
+    for (const group of matrix.groups) {
+      if (group.injection !== 'real_path' && !ran.has(group.id)) {
+        throw new Error(`${group.id}: the matrix calls it ${group.injection}, and the fault harness did not run it`);
+      }
+    }
   }
   const sections = [];
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
@@ -738,7 +950,8 @@ ${entry.refusals.length > 0 ? `Closed refusal set (${entry.form}): ${entry.refus
 
 ### Tests
 
-\`npm test\` on the frozen commit: **${tests.passed} pass, ${tests.failed} fail**.
+\`npm test\` on the frozen commit: **${tests.passed} pass, ${tests.failed} fail, ${tests.cancelled} cancelled, ${tests.skipped} skipped** of ${tests.tests} tests${tests.todo > 0 ? ` (${tests.todo} todo)` : ''}, read from
+the run's own log rather than typed in.${tests.skipped_names.length > 0 ? ` Skipped: ${tests.skipped_names.map((entry) => `${entry.name}${entry.reason ? ` — ${entry.reason}` : ''}`).join('; ')}.` : ''}${tests.failed_names.length > 0 ? ` Failed or cancelled: ${tests.failed_names.join('; ')}.` : ''}
 
 ### Mutation
 
@@ -822,39 +1035,63 @@ nothing about the runtime it ran under.
 **${matrix.groups.length} groups**, which is the denominator for the coverage
 counts below. They are, in full:
 
-${matrix.groups.map((group) => `- \`${group.id}\` (${group.boundary}) — ${group.description}`).join('\n')}
+${matrix.groups.map((group) => `- \`${group.id}\` (${group.boundary}) — designed: ${group.description}. Injected: ${group.injection_note ?? 'not recorded'}.`).join('\n')}
+
+Each line gives the group as the matrix designs it and as the run injects it
+(\`injection_note\`), because the two differ: read the second as what the rows
+below are evidence of.
 
 Coverage: ${Object.entries(cleanRoom.coverage.counts).map(([state, count]) => `${state}=${count}`).join(', ')}; complete=${cleanRoom.coverage.complete}.
-Read \`complete\` as complete over this enumeration and over injection —
-${cleanRoom.coverage.rows.filter((row) => row.control === true || (cleanRoom.faults ?? []).some((entry) => entry.id === row.id && entry.control)).length} of ${matrix.groups.length} groups also carry a silent control.
+Read \`complete\` as: every group's case detected its fault, and where the case
+is paired with a control, the control stayed silent — ${cleanRoom.coverage.rows.filter((row) => row.control === true || (cleanRoom.faults ?? []).some((entry) => entry.id === row.id && entry.control)).length} of ${matrix.groups.length} groups carry a silent control. The state name
+\`covered_by_real_fault\` is the run's own and says no more than that. It is
+**not** a statement that every group was injected for real.
 
-Every group is injected for real. Most are also **paired with a control** — the
-same guard, asked about the state without the fault, has to stay silent — and
-three are not. F001–F003 are run by the crash harness, which injects at two
-points in a write and never asks the un-faulted question.
+**How each group is injected.** Read from the matrix's \`injection\` field, which
+\`npm run validate:clean-room\` holds to the harness that runs the group: a
+\`real_path\` group has no case in \`scripts/clean-room-faults.mjs\`, every other
+group has one, and each field a \`written_observation\` names is written as a
+literal in that case's source.
 
-That distinction is load-bearing and the coverage line does not carry it, so it
-is stated here instead: \`complete=true\` means every group was injected, not that
-every guard was shown to be specific. For the three uncontrolled groups the
-package cannot rule out a guard that would refuse the un-faulted state too.
+${INJECTION_KINDS.map((kind) => {
+    const groups = matrix.groups.filter((group) => group.injection === kind.name);
+    return `- \`${kind.name}\` — ${groups.length} groups (${groups.map((group) => `\`${group.id}\``).join(', ') || 'none'}): ${kind.meaning}`;
+  }).join('\n')}
+
+No case of the fault harness runs a host driver or the daemon: each asks a pure
+host function about a fixture it built. A \`written_observation\` row therefore
+shows the guard's answer to a described state, not its answer to the fault.
+
+**Git, run directly.** ${gitRecorded
+    ? `The run records, per case, the git commands that write a ref which the
+harness itself ran in its temporary repository, fixture setup apart from the
+fault step. ${countWord(gitFaultGroups.length).replace(/^./u, (first) => first.toUpperCase())} groups ran such a command as their fault step — ${gitFaultGroups.map((entry) => `\`${entry.id}\`: ${entry.git_ref_writes.fault.map((command) => `\`${command}\``).join(', ')}`).join('; ') || 'none'} — and
+${countWord(gitFixtureOnly.length)} more ran them only to build the fixture (${gitFixtureOnly.map((entry) => `\`${entry.id}\``).join(', ') || 'none'}). None of them goes through a host driver, the daemon or a ref-custody helper.`
+    : 'This run did not record which git commands its cases ran, so nothing is said here about which groups touch Git directly.'}
+
+Most groups are also **paired with a control** — the same guard, asked about the
+state without the fault, has to stay silent — and the rows marked \`not paired\`
+are not: the crash harness injects at a point in a write and never asks the
+un-faulted question. For those the package cannot rule out a guard that would
+refuse the un-faulted state too.
 
 The per-case result is given rather than the count it rolls up into:
 
 ${cleanRoom.coverage.rows.length > 0
-    ? `Every group in the matrix appears here. Sixteen are injected by the fault
-harness and carry a control, the identity harness runs both a fault and its
-control, and the crash harness injects without one — the row says which, so a
+    ? `Every group the run reported appears here. The row names the harness that ran
+it, how the fault reached what answered (the matrix's \`injection\`, with the
+fields a written observation writes), and whether a control was paired, so a
 partial row is not read as a missing one.
 
-| group | harness | fault detected | control silent | evidence |
-| --- | --- | --- | --- | --- |
+| group | harness | injection | fault detected | control silent | evidence |
+| --- | --- | --- | --- | --- | --- |
 ${cleanRoom.coverage.rows.map((row) => {
       const injected = (cleanRoom.faults ?? []).find((entry) => entry.id === row.id);
       const detected = injected ? (injected.detected ? 'yes' : 'NO') : row.state === 'covered_by_real_fault' ? 'yes' : 'NO';
       const control = injected
         ? (injected.control ? 'yes' : 'NO')
         : row.control === true ? 'yes' : 'not paired';
-      return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${detected} | ${control} | ${injected ? injected.detail : row.evidence ?? 'not covered'} |`;
+      return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${injectionCell(groupById.get(row.id))} | ${detected} | ${control} | ${injected ? injected.detail : row.evidence ?? 'not covered'} |`;
     }).join('\n')}`
     : 'The run recorded no per-group results, so the counts above are all this package can show.'}
 
@@ -875,10 +1112,11 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   repository implements either. The ref-custody helper of 02 §2
   (\`src/git/ref-custody-helper.ts\`) does not exist: patches \`0016\`–\`0022\` and
   \`0024\` are the store-lock helper, its protocol and trusted-state write fixes,
-  and no patch touches \`refs/autosk\`, so the planning-publication fault groups
-  (${matrix.groups.filter((group) => group.boundary === 'planning_publication').map((group) => `\`${group.id}\``).join(', ')})
-  exercise Git directly and show nothing about a helper-mediated CAS or the
-  separate-account boundary. The preflight names
+  and no patch touches \`refs/autosk\`, so no fault group shows anything about a helper-mediated CAS or the
+  separate-account boundary: ${gitRecorded
+    ? `the groups whose fault step writes a ref (${gitFaultGroups.map((entry) => `\`${entry.id}\``).join(', ') || 'none'}, as the run
+  recorded them) run the harness's own git commands, and none of them goes through a host driver, the daemon or a ref-custody helper (section 5).`
+    : 'the run did not record which fault groups write a ref, and none of the fault harness\'s cases runs a host driver or the daemon (section 5).'} The preflight names
   ${UNPINNED_DAEMON_PRIMITIVES.map((primitive) => `\`${primitive.name}\` (${primitive.adr})`).join(' and ')} as required and unpinned — no revision, no
   methods — so the preflight refuses every daemon today, including the one this series builds;
   nothing calls it before a model launch yet. All of this is implementation work
@@ -922,6 +1160,9 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   This paragraph said the opposite until the work landed and the sentence was
   not rewritten; a panel was dispatched on the stale text and three of its four
   seats found it independently.
+- The panel's round records: ${records.filter((record) => record.member).map((record) => `\`${record.path}\` is a member because it carries the operative membership rule (its last anchor correction, checked by \`membershipRuleErrors\`)`).join('; ') || 'none is a member'}. ${records.filter((record) => !record.member).map((record) => `\`${record.path}\``).join(', ') || 'None'} carry no anchor correction and are
+  not members: they are records of what a round found, not design the verdict binds,
+  and each is checked by \`npm test\` (\`test/validate-design-candidate.test.mjs\`) against the roster its round sat, whether listed or not.
 - Membership is the \`files[]\` list alone. Of the code, only
   \`src/host/workflow-graph-canonical.mjs\` is a member, because the canonical
   form it implements carries criterion 2 and the task identity digest. The rest
@@ -942,12 +1183,26 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
 - ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the
   reproducible mutation command. The daemon is not in this repository and its
   guards are not mutated by it, so nothing here is evidence about them.
-- ${contracts.filter((entry) => (entry.evaluators ?? []).length === 0).length} of the ${contracts.length} contracts say **no link measured** in section 4. That
-  means the three measurements on that row found no module, and it is **not** a
-  claim that nothing evaluates them. This row asserted "design only in this
-  version" over two implementations whose names no convention could reach, until
-  the links were measured; whether the remaining ones are unimplemented or only
-  unlinked is open, and a seat that wants to know has to read the code.
+- ${unlinked.length} of the ${contracts.length} contracts say **no link measured** in section 4: the three
+  measurements on that row found no module. ${srcMeasured
+    ? `For those rows two more measurements were made over every file under
+  \`src/\`: a whole-name search for each refusal class the contract declares, and
+  a search for the contract itself — its file name or its stem as a whole token
+  in \`src/\`, or a \`src/\` path that exists named in the contract's text. For ${unreferenced.length} of them nothing was found: none of their declared refusal classes is named under \`src/\`, no \`src/\` file names them, and they name no \`src/\` file — ${unreferenced.map((entry) => `\`${entry.path}\``).join(', ') || 'none'}.
+  That is what was measured, and it is not read here as "unimplemented": code
+  that implements a contract without naming it or its classes would not be
+  found, and a contract the daemon's patch series implements lives outside this
+  repository (section 1). The other ${referenced.length} are referenced from \`src/\` (a reference is not a claim of implementation), and what
+  was found is listed; a name found is not a link measured by section 4: ${referenced.map((entry) => `\`${entry.path}\`: ${[
+      entry.src_references.naming.length > 0 ? `named in ${entry.src_references.naming.map((file) => `\`${file}\``).join(', ')}` : null,
+      entry.src_references.named_paths.length > 0 ? `names ${entry.src_references.named_paths.map((file) => `\`${file}\``).join(', ')}` : null,
+      ...entry.named_under_src.map((found) => `\`${found.code}\` in ${found.modules.map((module) => `\`${module}\``).join(', ')}`),
+    ].filter((part) => part !== null).join('; ')}`).join('. ') || 'none'}.`
+    : 'Whether those rows are named elsewhere under `src/` was not measured for this build, and no claim is made either way.'}
+- The host takes the alignment identity's derived inputs — \`subject_hash\`, the
+  material manifest hash, the projector and the classifier — as given (ADR-091):
+  no module in this repository computes any of them, and no calculator is
+  claimed. The identity binds what it is handed.
 - There is no mapping from a refusal class to a killed mutant. The command shows
   that each module's guards are exercised by its own tests; it does not show
   that every one of the ${classes} declared classes is reachable. Nor does each
@@ -963,8 +1218,9 @@ ${vocabulary.park_reasons.some((entry) => entry.producer === 'none') ? `- ${voca
   (\`producer: none\` in the vocabulary): ${vocabulary.park_reasons.filter((entry) => entry.producer === 'none').map((entry) => '\`' + entry.code + '\`').join(', ')}.
   They are implementation obligations. A script that validates a contract
   document may list them, and that is not production.
-` : ''}- \`npm test\` is reported as a pass/fail total with no coverage figure. Read it
-  as "the suite is green", not as "the suite is adequate".
+` : ''}- \`npm test\` is reported as its totals and its skipped and failed tests by
+  name, with no coverage figure. Read it as "the suite is green", not as "the
+  suite is adequate".
 - No deployment to real users has been performed, and none is claimed.`);
 
   const full = [];
@@ -1022,7 +1278,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const out = arg('--out');
   const commit = arg('--commit');
   const tree = arg('--tree');
-  const passed = Number(arg('--tests-passed'));
+  const testsLog = arg('--tests-log');
+  if (!testsLog) {
+    throw new Error('the test evidence is missing — run `npm test`, save its output, and pass it with --tests-log <file>');
+  }
+  const tests = testSummary(await readFile(testsLog, 'utf8'));
   const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
 
   const candidate = JSON.parse(await read('resources/design-candidate/design-candidate.v1.json'));
@@ -1050,7 +1310,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     matrix,
     mutation,
     compat,
-    tests: { passed, failed: 0 },
+    tests,
     contracts,
     vocabulary,
     produced,
