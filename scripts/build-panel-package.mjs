@@ -882,7 +882,12 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   ${UNPINNED_DAEMON_PRIMITIVES.map((primitive) => `\`${primitive.name}\` (${primitive.adr})`).join(' and ')} as required and unpinned — no revision, no
   methods — so the preflight refuses every daemon today, including the one this series builds;
   nothing calls it before a model launch yet. All of this is implementation work
-  under #40, not a delivered capability.
+  under #40, not a delivered capability. Matrix v1 gives each primitive the
+  preflight requires to a \`required_for_v1\` record (ADR-092): ADR-023 to #4
+  (signer, journal, heads) and #9 (\`authorityGuard\`, \`integrateApproved\`),
+  ADR-025 to #18, to be delivered as patches \`0052\`+; the typed SDK of #38
+  stays \`planned_after_v1\`, and the validator holds the matrix to the
+  preflight both ways.
 - The signer boundary is not established on any host. \`security.signer_boundary\`
   passes only when the declared endpoint is refused to the probing process and
   the daemon reports a signer identity outside it; no daemon of the series

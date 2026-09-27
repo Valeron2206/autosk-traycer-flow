@@ -12,7 +12,7 @@
     },
     {
       "path": "02-architecture.md",
-      "sha256": "6b52a48c22c79b898f5eef7b9e31e90e7b3787d0aa2d2b10c128be59fbc7c2a3"
+      "sha256": "152fb159f3e952325593c2c871a3e04c7143feb251de2dcef521cedb2bbad908"
     },
     {
       "path": "03-technical-plan.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "de35932bba9a3ecc42c51ffa5fa83a035287429b5040bfa14ec711737f6fd9d1"
+      "sha256": "b4f0adb3e83f61d8962729ed7d89627e5d199a2b518dba165af3dd6f88404d9a"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "ae49050f531462a00deabe6165939610bf998e177953e9fa6449f5437d0dbf3f"
+      "sha256": "101555b5996ad98e181e326ddaaaa96a6f1faa54bda22d63f3de26d81054596e"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -88,7 +88,7 @@
     },
     {
       "path": "docs/contracts/doctor-report.md",
-      "sha256": "2eb629e3e342488c7ce0f81921f2caf35b5c3903ee07c7a7622bea356bc96b3c"
+      "sha256": "9c1e24f8aa4a8d221b2562d94bc86060dad16dbcca80cc51ed8ece9eb4c115bb"
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
@@ -128,7 +128,7 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "9eac64485e10875159c2cbb2875a924673274bf7d974057795d02ccfe76a8312"
+      "sha256": "dac62da15be4a5a80b50a8ae60dcf3e7179976830a8be3c2a49fa94f7a261193"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
@@ -172,7 +172,7 @@
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
-      "sha256": "94620303676fc9c98f19f2eb17190b1700bcb89cff18075141a5c9dd0f7b06fc"
+      "sha256": "52d08067f1d2b2e22976b8d071a80bf39ae8a85261873a8f68826b02ff678cd6"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "dedf1d8aec1891bf66af27449d067d76290838603a086954e94a08227d0641fb"
+      "sha256": "7bad810422aeac20fbbd55e172a0d8557aa165d92d6d3786099423a8acd307cd"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -712,11 +712,11 @@
     },
     {
       "path": "resources/program-capabilities/matrix.schema.json",
-      "sha256": "393228dd80bca949ec9cb240af4444357f3789a2c4fd6fd420ad4fb558eef78a"
+      "sha256": "b3a7c961597840f9a9d31da8af3994af2119cafb69262faca737771e03b3f88d"
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "870981249146e1181c83f5a19a48c143641d5bee083d0c0bb9967c637a183a3f"
+      "sha256": "ce216f11e7f87f26dca54172bb446c72c5fc9129552585373f9c3d768d2866f1"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "ddde1d6bb92ec624fddd8273070add77193e9c4285baaa0b177dc38bccd06d6b",
+  "candidate_digest": "d9bab3e961ee4176ebc2ba0d179a159ff09bd37ebcc6a7101bcc4f40dd8e5783",
   "dispositions": [
     {
       "issue": 3,

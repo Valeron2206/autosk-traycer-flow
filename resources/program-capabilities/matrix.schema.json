@@ -4,7 +4,7 @@
   "title": "autosk-flow program capability matrix",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema","schema_version","matrix_version","repository","issue_range","source_main_commit","issue_inventory_path","issue_inventory_digest","source_parity_registry_path","classification_policy","summary","records","canonical_digest"],
+  "required": ["$schema","schema_version","matrix_version","repository","issue_range","source_main_commit","issue_inventory_path","issue_inventory_digest","source_parity_registry_path","classification_policy","summary","records","preflight_primitives","canonical_digest"],
   "properties": {
     "$schema": {"const":"./matrix.schema.json"},
     "schema_version": {"const":1},
@@ -42,11 +42,24 @@
       }
     },
     "records":{"type":"array","minItems":37,"maxItems":37,"items":{"$ref":"#/$defs/record"}},
+    "preflight_primitives":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/preflightPrimitive"}},
     "canonical_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"}
   },
   "$defs":{
     "issueRefs":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":3,"maximum":39}},
     "strings":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},
+    "preflightPrimitive":{
+      "type":"object","additionalProperties":false,
+      "required":["capability","requirement","decision","owner_issues","elements","delivery"],
+      "properties":{
+        "capability":{"type":"string","pattern":"^[a-z][a-z0-9_]*(?:[.-][a-z0-9_]+)*$"},
+        "requirement":{"enum":["daemon_capability","model_step_check"]},
+        "decision":{"type":"string","pattern":"^ADR-\\d{3}$"},
+        "owner_issues":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"integer","minimum":3,"maximum":39}},
+        "elements":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["surface","owner"],"properties":{"surface":{"type":"string","minLength":1},"owner":{"type":"integer","minimum":3,"maximum":39}}}},
+        "delivery":{"type":"string","minLength":20}
+      }
+    },
     "record":{
       "type":"object","additionalProperties":false,
       "required":["issue_number","issue_title","priority","lifecycle","target_milestone","gate_role","rationale","classification_risk","owner","activation_trigger","design_obligation_before_issue_39","implementation_obligation_before_mvp","release_blocking","full_program_required","dependencies","downstream_blockers","source_parity_ids","supersession_or_split","decision_reference","verification_expectation"],

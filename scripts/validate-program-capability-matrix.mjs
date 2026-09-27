@@ -5,6 +5,9 @@ import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } fr
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { REQUIRED_DAEMON_CAPABILITIES, UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
+import { MODEL_STEP_CHECKS } from "../src/host/workflow-preflight.mjs";
+
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const MATRIX_PATH = path.join(ROOT, "resources/program-capabilities/matrix.v1.json");
 export const INVENTORY_PATH = path.join(ROOT, "resources/program-capabilities/issue-inventory.v1.json");
@@ -232,6 +235,13 @@ function validateRequiredEdges(recordsByNumber, errors) {
   requires(7, [5, 6]);
   requires(8, [7]);
   requires(9, [8, 17]);
+  // The preflight primitives' consumers (ADR-092): the final CAS reconciles
+  // ADR-023's authority heads and admits ADR-025's gate-result receipts, and
+  // the doctor's signer check passes only on #4's signer.
+  requires(9, [4, 18]);
+  requires(34, [4]);
+  // #4's daemon side ships in the pinned patch series whose identity #10 locks.
+  requires(4, [10]);
   requires(19, [37]);
   requires(20, [19]);
   requires(26, [20]);
@@ -248,7 +258,7 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
     "$schema", "schema_version", "matrix_version", "repository", "issue_range",
     "source_main_commit", "issue_inventory_path", "issue_inventory_digest",
     "source_parity_registry_path", "classification_policy", "summary", "records",
-    "canonical_digest",
+    "preflight_primitives", "canonical_digest",
   ].sort();
   if (!exactKeys(matrix, expectedTopKeys)) errors.push("matrix top-level keys differ from the closed v1 schema");
   if (matrix.$schema !== "./matrix.schema.json") errors.push("matrix.$schema must reference ./matrix.schema.json");
@@ -444,9 +454,145 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
     }
   }
 
+  validatePreflightPrimitives(matrix.preflight_primitives, recordsByNumber, errors);
+
   const expectedDigest = digestMatrix(matrix);
   if (matrix.canonical_digest !== expectedDigest) errors.push(`matrix canonical_digest mismatch: expected ${expectedDigest}`);
   return errors;
+}
+
+const PRIMITIVE_KEYS = Object.freeze(["capability", "decision", "delivery", "elements", "owner_issues", "requirement"]);
+const PRIMITIVE_KINDS = new Set(["daemon_capability", "model_step_check"]);
+
+/**
+ * The decision behind each requirement the preflight source does not tag with
+ * one: the pinned capability is ADR-014's, the model-step check ADR-090's. A
+ * requirement added to the preflight without an entry here has no decision,
+ * and the matrix entry naming it is refused until one is recorded.
+ */
+const PINNED_DECISIONS = Object.freeze({
+  "task.creation-binding": "ADR-014",
+  "security.signer_boundary": "ADR-090",
+});
+
+/**
+ * What a v1 model workflow cannot start without, read from the preflight itself.
+ *
+ * Round 6 of #39 (R6-16, a1) found the preflight refusing every model workflow
+ * without ADR-023's and ADR-025's daemon primitives while no `required_for_v1`
+ * record carried their implementation: v1, as classified, could not be
+ * completed. The requirement is therefore not restated here. It is the daemon
+ * capabilities `requireDaemonCapabilities` demands and the checks the workflow
+ * preflight adds to every workflow that runs a model step; a primitive added
+ * to either is a primitive the matrix must give an owner.
+ */
+export function preflightRequirements() {
+  const decisions = new Map([
+    ...Object.entries(PINNED_DECISIONS),
+    ...UNPINNED_DAEMON_PRIMITIVES.map((primitive) => [primitive.name, primitive.adr]),
+  ]);
+  return [
+    ...REQUIRED_DAEMON_CAPABILITIES.map((want) => ({ capability: want.name, requirement: "daemon_capability", decision: decisions.get(want.name) ?? null })),
+    ...MODEL_STEP_CHECKS.map((id) => ({ capability: id, requirement: "model_step_check", decision: decisions.get(id) ?? null })),
+  ];
+}
+
+/**
+ * Every preflight requirement is carried by some `required_for_v1` record, and
+ * the matrix names nothing the preflight does not require. Each owner's
+ * implementation obligation names the capability, so the prose that schedules
+ * the work and the structure that is checked cannot say two things.
+ */
+export function validatePreflightPrimitives(primitives, recordsByNumber, errors, requirements = preflightRequirements()) {
+  if (!Array.isArray(primitives)) {
+    errors.push("matrix preflight_primitives must be an array naming who carries each preflight requirement");
+    return;
+  }
+  const seen = new Map();
+  const names = [];
+  for (const [index, entry] of primitives.entries()) {
+    const prefix = `preflight_primitives[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push(`${prefix} must be an object`);
+      continue;
+    }
+    if (!exactKeys(entry, PRIMITIVE_KEYS)) errors.push(`${prefix} keys differ from the closed v1 primitive shape`);
+    if (typeof entry.capability !== "string" || !/^[a-z][a-z0-9_]*(?:[.-][a-z0-9_]+)*$/u.test(entry.capability)) {
+      errors.push(`${prefix}.capability must be a capability or check name`);
+      continue;
+    }
+    names.push(entry.capability);
+    if (seen.has(entry.capability)) errors.push(`${prefix}: \`${entry.capability}\` is named twice`);
+    else seen.set(entry.capability, entry);
+    if (!PRIMITIVE_KINDS.has(entry.requirement)) errors.push(`${prefix}.requirement must be daemon_capability or model_step_check`);
+    if (typeof entry.decision !== "string" || !/^ADR-\d{3}$/u.test(entry.decision)) errors.push(`${prefix}.decision must name an ADR`);
+    if (!nonEmpty(entry.delivery, 20)) errors.push(`${prefix}.delivery must contain at least 20 characters`);
+    const owners = validateIssueRefs(entry.owner_issues, `${prefix}.owner_issues`, errors, null);
+    if (Array.isArray(entry.owner_issues) && entry.owner_issues.length === 0) errors.push(`${prefix}: \`${entry.capability}\` names no owner issue`);
+    // Each surface has one owner, and that owner's obligation names it: the
+    // line between two owners of one primitive is drawn surface by surface.
+    const surfaces = [];
+    if (!Array.isArray(entry.elements)) errors.push(`${prefix}.elements must be a list of {surface, owner}`);
+    else {
+      for (const [at, element] of entry.elements.entries()) {
+        if (!exactKeys(element, ["owner", "surface"]) || !nonEmpty(element.surface) || !Number.isInteger(element.owner)) {
+          errors.push(`${prefix}.elements[${at}] must be a closed {surface, owner} object`);
+          continue;
+        }
+        if (surfaces.some((seenSurface) => seenSurface.surface === element.surface)) errors.push(`${prefix}: surface "${element.surface}" is named twice`);
+        surfaces.push(element);
+        if (!owners.includes(element.owner)) {
+          errors.push(`${prefix}: surface "${element.surface}" is owned by #${element.owner}, which is not among the owners of \`${entry.capability}\``);
+          continue;
+        }
+        const text = recordsByNumber.get(element.owner)?.implementation_obligation_before_mvp;
+        if (typeof text !== "string" || !text.includes(element.surface)) {
+          errors.push(`${prefix}: surface "${element.surface}" of \`${entry.capability}\` is not named in #${element.owner}'s implementation_obligation_before_mvp`);
+        }
+      }
+    }
+    for (const issue of owners) {
+      const record = recordsByNumber.get(issue);
+      if (!record) continue;
+      if (record.lifecycle !== "required_for_v1") {
+        errors.push(`${prefix}: \`${entry.capability}\` is carried by #${issue}, which is ${record.lifecycle}, not required_for_v1`);
+        continue;
+      }
+      if (typeof record.implementation_obligation_before_mvp !== "string" ||
+          !record.implementation_obligation_before_mvp.includes(`\`${entry.capability}\``)) {
+        errors.push(`#${issue} carries \`${entry.capability}\` but its implementation_obligation_before_mvp does not name it`);
+      }
+      if (!surfaces.some((element) => element.owner === issue)) errors.push(`#${issue} carries \`${entry.capability}\` but owns none of its surfaces`);
+    }
+  }
+  const sortedNames = sorted(names);
+  if (names.some((name, index) => name !== sortedNames[index])) errors.push("matrix preflight_primitives must be sorted by capability");
+  const required = new Map(requirements.map((want) => [want.capability, want]));
+  for (const want of requirements) {
+    const entry = seen.get(want.capability);
+    if (!entry) {
+      errors.push(`\`${want.capability}\` is required by the v1 preflight and carried by no required_for_v1 record`);
+      continue;
+    }
+    if (entry.requirement !== want.requirement) errors.push(`\`${want.capability}\` is a ${want.requirement} of the preflight, not a ${String(entry.requirement)}`);
+    if (want.decision === null) errors.push(`\`${want.capability}\` has no recorded decision; add it to PINNED_DECISIONS`);
+    else if (entry.decision !== want.decision) errors.push(`\`${want.capability}\` is the preflight's ${want.decision} primitive, not ${String(entry.decision)}`);
+  }
+  for (const name of seen.keys()) {
+    if (!required.has(name)) errors.push(`\`${name}\` is not required by the v1 preflight; the matrix names only what it requires`);
+  }
+  // The reverse: a v1 record whose obligation claims a primitive is one of its
+  // owners, so prose cannot schedule work the structure does not assign.
+  for (const want of requirements) {
+    const owners = seen.get(want.capability)?.owner_issues;
+    for (const [issue, record] of recordsByNumber) {
+      if (record.lifecycle !== "required_for_v1" || typeof record.implementation_obligation_before_mvp !== "string") continue;
+      if (!record.implementation_obligation_before_mvp.includes(`\`${want.capability}\``)) continue;
+      if (!Array.isArray(owners) || !owners.includes(issue)) {
+        errors.push(`#${issue} names \`${want.capability}\` in its implementation obligation but is not among its owners`);
+      }
+    }
+  }
 }
 
 function mdEscape(value) {
@@ -496,6 +642,22 @@ export function renderDocumentation(matrix) {
   ];
   for (const record of matrix.records) {
     lines.push(`| #${record.issue_number} ${mdEscape(record.issue_title.replace(/^\[P[012]\](?:\[DESIGN GATE\])?\s*/u, ""))} | ${record.priority} | ${record.lifecycle} | ${record.target_milestone} | ${record.gate_role} | ${record.dependencies.length ? record.dependencies.map((number) => `#${number}`).join(", ") : "—"} | ${record.release_blocking ? "yes" : "no"} | ${record.full_program_required ? "yes" : "no"} |`);
+  }
+
+  lines.push(
+    "",
+    "## Примитивы, которых требует preflight",
+    "",
+    "Preflight отказывает любому model workflow без каждой из этих capabilities (`REQUIRED_DAEMON_CAPABILITIES` в `src/host/daemon-preflight.mjs`, `MODEL_STEP_CHECKS` в `src/host/workflow-preflight.mjs`). Поэтому каждую несёт хотя бы одна запись `required_for_v1`, и `implementation_obligation_before_mvp` каждой такой записи называет её; validator сверяет список с этими двумя наборами в обе стороны, а каждая поверхность принадлежит одному владельцу и названа в его обязательстве. Проверки фаз (`PHASE_CHECKS`) — проверки хоста, которые doctor реализует сам (#34), и этой таблицей не покрываются (ADR-092).",
+    "",
+    "| Capability | Kind | ADR | Carried by | Surfaces | Delivery |",
+    "| --- | --- | --- | --- | --- | --- |",
+  );
+  const list = (value) => (Array.isArray(value) ? value : []);
+  for (const entry of list(matrix.preflight_primitives)) {
+    if (!entry || typeof entry !== "object") continue;
+    const surface = (element) => (element && typeof element === "object" ? `${element.surface} (#${element.owner})` : String(element));
+    lines.push(`| \`${entry.capability}\` | ${entry.requirement} | ${entry.decision} | ${list(entry.owner_issues).map((number) => `#${number}`).join(", ")} | ${mdEscape(list(entry.elements).map(surface).join("; "))} | ${mdEscape(entry.delivery)} |`);
   }
 
   lines.push("", "## Planned after v1", "");

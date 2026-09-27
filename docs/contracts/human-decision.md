@@ -66,4 +66,4 @@ Decided: the packet and its two load-bearing fields, identity-bound answers, ide
 
 Decided as well (debt 10e, ADR-091): that an answer is a daemon `UserDecisionRecord` checked as §3 says, and that without a verifier none is accepted.
 
-Deferred, and named: the queue implementation, the CLI, the resume path that consumes a decision record, and the daemon side of the answer — the signer, the project key pin and the verifier the host is handed (ADR-023, #40 phase 2/3).
+Deferred, and named: the queue implementation, the CLI, the resume path that consumes a decision record, and the daemon side of the answer — the signer, the project key pin and the verifier the host is handed (ADR-023, #40 phase 2/3; carried in matrix v1 by #4, ADR-092).

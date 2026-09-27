@@ -64,4 +64,4 @@ Doctor runs with no `~/.traycer`, no Traycer binaries and no Traycer paths. A ch
 
 Decided: the report shape, the category set, the provenance and expiry on every result, `warn` never being readiness, the remediation obligation, redaction, and one shared implementation.
 
-Implemented since, outside this contract's decisions: the checks (`src/host/doctor-checks.mjs`), the CLI (`scripts/autosk-flow-doctor.mjs`) and the workflow preflight's required sets (`src/host/workflow-preflight.mjs`, ADR-090). Deferred, and named: the daemon's report of a signer identity, and the preflight call before a model launch (#40).
+Implemented since, outside this contract's decisions: the checks (`src/host/doctor-checks.mjs`), the CLI (`scripts/autosk-flow-doctor.mjs`) and the workflow preflight's required sets (`src/host/workflow-preflight.mjs`, ADR-090). Deferred, and named: the daemon's report of a signer identity (carried in matrix v1 by #4, ADR-092), and the preflight call before a model launch (#40).
