@@ -17,6 +17,7 @@ import {
   aggregateErrors,
   applySwap,
   casAdmission,
+  integrationAuthorizationHash,
   integrationFixErrors,
   postCasErrors,
   receiptErrors,
@@ -27,18 +28,50 @@ const code = (name) => (error) => error.code === name;
 
 const oid = (char) => char.repeat(40);
 
+/**
+ * The IntegrationAuthorizationRecord the fixture's acceptance stands on
+ * (debt 11b): the one transition from the recorded base to the staging commit,
+ * the accepted tree, active until after NOW.
+ */
+const AUTHORIZATION = Object.freeze({
+  schema_version: 1,
+  record_id: "iar-1",
+  scope_id: "epic:epic-store-lock",
+  project_root_sha256: "0".repeat(64),
+  epic_id: "epic-store-lock",
+  run_id: "run-1",
+  target_ref: "refs/heads/main",
+  initial_target_oid: oid("a"),
+  ordered_ticket_commit_oids: [oid("1"), oid("2")],
+  ref_transition: { from_oid: oid("a"), to_oid: oid("c") },
+  final_tree_oid: oid("d"),
+  integration_plan_hash: "7".repeat(64),
+  controlling_anchor_digest: "8".repeat(64),
+  classifier_proof_hash: "9".repeat(64),
+  relevant_authority_projection_hash: "a".repeat(64),
+  dependency_head_hash: "b".repeat(64),
+  intent_head_hash: "c".repeat(64),
+  previous_authorization_head_hash: null,
+  expires_at: "2026-09-10T00:00:00Z",
+  terminal_disposition: "active",
+  issued_by: "user_decision_record",
+  user_decision_record_id: "udr-1",
+  user_decision_record_hash: "e".repeat(64),
+});
+const NOW = Date.parse("2026-09-09T00:00:00Z");
+
 function state(overrides = {}) {
   const base = {
     schema_version: 1,
-    project_identity: "sha256:" + "0".repeat(58),
+    project_identity: "sha256:" + "0".repeat(64),
     epic_id: "epic-store-lock",
     staging_ref: "refs/autosk/epics/99c55ae33e0e1f6a1c0edc3c39ba418dc23542a2b8a32e635ddb5e394539e6bd/staging", // epicRefKey("0".repeat(64), "epic-store-lock")
     target_ref: "refs/heads/main",
     recorded_target_base: oid("a"),
     planning_head: oid("b"),
     receipts: [
-      { ticket_id: "T-101", delta_digest: "1".repeat(64) },
-      { ticket_id: "T-102", delta_digest: "2".repeat(64) },
+      { ticket_id: "T-101", delta_digest: "1".repeat(64), applied_commit_oid: oid("1") },
+      { ticket_id: "T-102", delta_digest: "2".repeat(64), applied_commit_oid: oid("2") },
     ],
     phase: "aggregate_verified",
     staging_commit_oid: oid("c"),
@@ -68,6 +101,8 @@ function state(overrides = {}) {
     recorded_target_base: base.recorded_target_base,
     delivery_profile_digest: "6".repeat(64),
     delivery_mode: "merge",
+    integration_authorization_id: AUTHORIZATION.record_id,
+    integration_authorization_sha256: integrationAuthorizationHash(AUTHORIZATION),
   };
   return base;
 }
@@ -76,7 +111,8 @@ const TICKETS = ["T-101", "T-102"];
 
 // The delivery profile in force now. An acceptance of another profile is an
 // acceptance of another delivery.
-const CURRENT = Object.freeze({ deliveryProfileDigest: "6".repeat(64) });
+// The CAS names the record it runs under and the instant it is asked at (debt 11b).
+const CURRENT = Object.freeze({ deliveryProfileDigest: "6".repeat(64), authorization: AUTHORIZATION, nowMs: NOW });
 
 test("a complete, accepted staging may swap", () => {
   const outcome = casAdmission(state(), { oid: oid("a") }, TICKETS, CURRENT);
@@ -294,7 +330,7 @@ test("the acceptance names the target, its base and the delivery profile in forc
   // A profile that changed after the acceptance makes it stale too, and a CAS
   // asked without saying which profile is in force is not admitted.
   assert.deepEqual(
-    acceptanceErrors(state(), { deliveryProfileDigest: "9".repeat(64) }).map((entry) => entry.reason),
+    acceptanceErrors(state(), { ...CURRENT, deliveryProfileDigest: "9".repeat(64) }).map((entry) => entry.reason),
     ["acceptance_stale"],
   );
   assert.equal(casAdmission(state(), { oid: oid("a") }, TICKETS).decision, "refused");
@@ -316,13 +352,21 @@ test("an acceptance is by a person or by a pinned auto-policy, and says which", 
 });
 
 test("under squash the acceptance names the commit that lands, and only then", () => {
+  // Under squash the record's one transition ends at the squash commit (debt 11b).
+  const squashRecord = { ...AUTHORIZATION, ref_transition: { from_oid: oid("a"), to_oid: oid("7") } };
   const squash = (extra) => {
     const value = state();
-    value.acceptance = { ...value.acceptance, delivery_mode: "squash", ...extra };
+    value.acceptance = {
+      ...value.acceptance,
+      delivery_mode: "squash",
+      integration_authorization_sha256: integrationAuthorizationHash(squashRecord),
+      ...extra,
+    };
     return value;
   };
+  const SQUASH = { ...CURRENT, authorization: squashRecord };
   const commit = { target_commit_oid: oid("7"), target_commit_recipe_sha256: "8".repeat(64) };
-  assert.deepEqual(acceptanceErrors(squash(commit), CURRENT), []);
+  assert.deepEqual(acceptanceErrors(squash(commit), SQUASH), []);
   for (const extra of [
     {},
     { target_commit_oid: oid("7") },
@@ -330,7 +374,10 @@ test("under squash the acceptance names the commit that lands, and only then", (
     { ...commit, target_commit_oid: "7" },
     { ...commit, target_commit_recipe_sha256: "8" },
   ]) {
-    assert.deepEqual(acceptanceErrors(squash(extra), CURRENT).map((entry) => entry.reason), ["acceptance_missing"], JSON.stringify(extra));
+    // `target_commit_oid` is the record's end too, so a missing or malformed
+    // one is also a record for another transition.
+    const expected = extra.target_commit_oid === oid("7") ? ["acceptance_missing"] : ["acceptance_missing", "acceptance_stale"];
+    assert.deepEqual(acceptanceErrors(squash(extra), SQUASH).map((entry) => entry.reason), expected, JSON.stringify(extra));
   }
   for (const extra of [commit, { target_commit_oid: oid("7") }, { target_commit_recipe_sha256: "8".repeat(64) }]) {
     const merge = state();
@@ -356,9 +403,9 @@ test("a profile digest missing on either side is a missing acceptance, not a mat
   assert.ok(casAdmission(noProfile, { oid: oid("a") }, TICKETS).reasons.some((entry) => entry.reason === "acceptance_missing"));
   const shortProfile = state();
   shortProfile.acceptance = { ...shortProfile.acceptance, delivery_profile_digest: "6" };
-  assert.deepEqual(acceptanceErrors(shortProfile, { deliveryProfileDigest: "6" }).map((entry) => entry.reason), ["acceptance_missing"]);
+  assert.deepEqual(acceptanceErrors(shortProfile, { ...CURRENT, deliveryProfileDigest: "6" }).map((entry) => entry.reason), ["acceptance_missing"]);
   // The profile in force missing, or not a digest, is missing too.
-  for (const current of [{}, { deliveryProfileDigest: "6".repeat(63) }, { deliveryProfileDigest: 6 }]) {
+  for (const current of [{ ...CURRENT, deliveryProfileDigest: undefined }, { ...CURRENT, deliveryProfileDigest: "6".repeat(63) }, { ...CURRENT, deliveryProfileDigest: 6 }]) {
     assert.deepEqual(acceptanceErrors(state(), current).map((entry) => entry.reason), ["acceptance_missing"], JSON.stringify(current));
   }
 });
@@ -370,6 +417,90 @@ test("an acceptance names its target ref and base, not only fails to differ (rev
     assert.deepEqual(acceptanceErrors(missing, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], field);
     const bare = state({ [field]: undefined });
     bare.acceptance = { ...bare.acceptance, [field]: undefined };
-    assert.deepEqual(acceptanceErrors(bare, CURRENT).map((entry) => entry.reason), ["acceptance_missing"], `${field} absent on both sides`);
+    // The record still names the target and base, so it is for another
+    // transition than the (absent) one (debt 11b).
+    assert.deepEqual(acceptanceErrors(bare, CURRENT).map((entry) => entry.reason), ["acceptance_missing", "acceptance_stale"], `${field} absent on both sides`);
   }
+});
+
+test("an acceptance names the IntegrationAuthorizationRecord it stands on, and the CAS runs only under that record (debt 11b, R7-2)", () => {
+  const reasons = (acceptanceChange = {}, current = CURRENT) => {
+    const accepted = state();
+    accepted.acceptance = { ...accepted.acceptance, ...acceptanceChange };
+    for (const [field, value] of Object.entries(acceptanceChange)) if (value === undefined) delete accepted.acceptance[field];
+    return acceptanceErrors(accepted, current).map((entry) => entry.reason);
+  };
+  assert.deepEqual(reasons(), []);
+  // Before debt 11b a human acceptance was admitted on any non-empty decision_id.
+  assert.deepEqual(reasons({ decision_id: "anything", integration_authorization_id: undefined, integration_authorization_sha256: undefined }), ["acceptance_missing"]);
+  assert.deepEqual(reasons({ integration_authorization_id: "" }), ["acceptance_missing"]);
+  assert.deepEqual(reasons({ integration_authorization_sha256: "e".repeat(63) }), ["acceptance_missing"]);
+  // The pinned auto-policy is held to the same reference.
+  assert.deepEqual(reasons({ kind: "pinned_auto_policy", decision_id: undefined, policy_ref: "p-1" }), []);
+  assert.deepEqual(reasons({ kind: "pinned_auto_policy", decision_id: undefined, policy_ref: "p-1", integration_authorization_sha256: undefined }), ["acceptance_missing"]);
+  // No record presented, or another record than the one named.
+  assert.deepEqual(reasons({}, { ...CURRENT, authorization: undefined }), ["acceptance_missing"]);
+  assert.deepEqual(reasons({}, { ...CURRENT, authorization: "iar-1" }), ["acceptance_missing"]);
+  // The same record, rewritten since the acceptance named it — revoked,
+  // replaced, or any other byte — is stale, not missing (review M1).
+  assert.deepEqual(reasons({}, { ...CURRENT, authorization: { ...AUTHORIZATION, run_id: "run-2" } }), ["acceptance_stale"]);
+  assert.deepEqual(reasons({}, { ...CURRENT, authorization: { ...AUTHORIZATION, terminal_disposition: "revoked" } }), ["acceptance_stale"]);
+  assert.deepEqual(reasons({}, { ...CURRENT, authorization: { ...AUTHORIZATION, terminal_disposition: "replaced" } }), ["acceptance_stale"]);
+  assert.deepEqual(reasons({ integration_authorization_id: "iar-2" }), ["acceptance_missing"]);
+  // An empty id names no record, even beside a record whose id is empty too.
+  const unnamed = { ...AUTHORIZATION, record_id: "" };
+  assert.deepEqual(reasons({ integration_authorization_id: "", integration_authorization_sha256: integrationAuthorizationHash(unnamed) }, { ...CURRENT, authorization: unnamed }), ["acceptance_missing"]);
+  assert.deepEqual(reasons({ integration_authorization_sha256: "E".repeat(64) }, { ...CURRENT, authorization: AUTHORIZATION }), ["acceptance_missing"]);
+  // The record named, but about another transition, tree, target or Epic.
+  const other = (change) => {
+    const record = { ...AUTHORIZATION, ...change };
+    return reasons({ integration_authorization_id: record.record_id, integration_authorization_sha256: integrationAuthorizationHash(record) }, { ...CURRENT, authorization: record });
+  };
+  assert.deepEqual(other({}), []);
+  for (const change of [
+    { ref_transition: { from_oid: oid("9"), to_oid: oid("c") } },
+    { ref_transition: { from_oid: oid("a"), to_oid: oid("9") } },
+    { ref_transition: null },
+    { final_tree_oid: oid("9") },
+    { target_ref: "refs/heads/other" },
+    { epic_id: "epic-other" },
+    // Re-checked against the state at the CAS, not only when the acceptance was made (review L2).
+    { initial_target_oid: oid("9") },
+    { ordered_ticket_commit_oids: [oid("2"), oid("1")] },
+    { ordered_ticket_commit_oids: [oid("1")] },
+    { project_root_sha256: "9".repeat(64) },
+    { scope_id: "epic:epic-other" },
+    // Terminal, or expired by the instant the CAS is asked at.
+    { terminal_disposition: "revoked" },
+    { terminal_disposition: "replaced" },
+    { expires_at: "2026-09-09T00:00:00Z" },
+  ]) {
+    assert.deepEqual(other(change), ["acceptance_stale"], JSON.stringify(change));
+  }
+  assert.deepEqual(other({ expires_at: "2026-09-09T00:00:00.001Z" }), []);
+  // Asked with no instant, the CAS has not said when it is asked (review L1).
+  for (const nowMs of [undefined, Number.NaN, Number.POSITIVE_INFINITY, "2026-09-09"]) {
+    assert.deepEqual(reasons({}, { ...CURRENT, nowMs }), ["acceptance_missing"], String(nowMs));
+  }
+  // Under squash the transition ends at the squash commit the acceptance names.
+  const squashRecord = { ...AUTHORIZATION, ref_transition: { from_oid: oid("a"), to_oid: oid("7") } };
+  const squash = {
+    delivery_mode: "squash",
+    target_commit_oid: oid("7"),
+    target_commit_recipe_sha256: "6".repeat(64),
+    integration_authorization_sha256: integrationAuthorizationHash(squashRecord),
+  };
+  assert.deepEqual(reasons(squash, { ...CURRENT, authorization: squashRecord }), []);
+  assert.deepEqual(reasons({ ...squash, integration_authorization_sha256: integrationAuthorizationHash(AUTHORIZATION) }), ["acceptance_stale"]);
+  // And through the CAS admission.
+  const forged = state();
+  forged.acceptance = { ...forged.acceptance, decision_id: "anything" };
+  delete forged.acceptance.integration_authorization_id;
+  assert.equal(casAdmission(forged, { oid: oid("a") }, TICKETS, CURRENT).decision, "refused");
+});
+
+test("the record's digest is domain-separated over every field (debt 11b)", async () => {
+  const { digest } = await import("../src/runtime/contracts.mjs");
+  assert.equal(integrationAuthorizationHash(AUTHORIZATION), digest("autosk-flow/integration-authorization-record/v1", AUTHORIZATION));
+  assert.notEqual(integrationAuthorizationHash({ ...AUTHORIZATION, user_decision_record_hash: "f".repeat(64) }), integrationAuthorizationHash(AUTHORIZATION));
 });

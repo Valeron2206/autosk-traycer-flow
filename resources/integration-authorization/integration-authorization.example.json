@@ -1,21 +1,22 @@
 {
   "schema_version": 1,
   "record_id": "iar-0007",
-  "scope_id": "epic-0001",
-  "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scope_id": "epic:epic-0001",
+  "project_root_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "epic_id": "epic-0001",
   "run_id": "run-0003",
   "target_ref": "refs/heads/main",
-  "initial_target_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "initial_target_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "ordered_ticket_commit_oids": [
-    "cccccccccccccccccccccccccccccccccccccccc",
-    "dddddddddddddddddddddddddddddddddddddddd"
+    "1111111111111111111111111111111111111111",
+    "2222222222222222222222222222222222222222",
+    "3333333333333333333333333333333333333333"
   ],
   "ref_transition": {
-    "from_oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "to_oid": "ffffffffffffffffffffffffffffffffffffffff"
+    "from_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "to_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
-  "final_tree_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "final_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
   "integration_plan_hash": "1111111111111111111111111111111111111111111111111111111111111111",
   "controlling_anchor_digest": "2222222222222222222222222222222222222222222222222222222222222222",
   "classifier_proof_hash": "3333333333333333333333333333333333333333333333333333333333333333",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_id": "iar-0008",
-  "scope_id": "epic-0001",
+  "scope_id": "epic:epic-0001",
   "project_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "epic_id": "epic-0001",
   "run_id": "run-0003",

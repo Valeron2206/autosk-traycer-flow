@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "e808ada0b612033baf3391a71d45481c96efecb304c457661f5e932ca52f6dac"
+      "sha256": "da1dce4391ec59581ed0a1d585efa4d3278356111ba96f5a7984a52d203f30f1"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "a57bd3113f0264020ecb50aea7bf9f544fcecb1656f5d63eadfdd9560fe6b0ea"
+      "sha256": "87bd85244fe0fca652e8605739fa0810f7df4432fdf8e2fa3202f66598c1ca7e"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "3ab69e36e56253cce000e5eb79b86e164fc07b428749eb9214d0b7c0007732e0"
+      "sha256": "67e325a57124d7acac5b5eaebbf24f93ca06a34dd53a70a2e4f05b6d9785f313"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "6820243116f3d47d30716f5888dd3b5f0b7f65fba7a529ed6c48736c133c35e1"
+      "sha256": "56bd9c7ffe56b144892a3a6b1cd59c053a1d5860b381af2322ed81b46a0b221c"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "e715f6c514968fdbad3ce933133ac0539ca421a610f107a8e54f0952717cf62e"
+      "sha256": "134d2404d075a4319ab429ff1da3839fd255bf2111ae747f6b9dbc637f48119f"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -128,11 +128,11 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "dac62da15be4a5a80b50a8ae60dcf3e7179976830a8be3c2a49fa94f7a261193"
+      "sha256": "76a0367c96ba88dd452e5cbf2534c10ddc6e873f5a4d18a2b763e088c1bd207f"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "4b053c5cd84f20c5e9008606ae1d36e1ac54cc6178276b5052936c55dbf7d6ba"
+      "sha256": "b03bbb8ad18454429508f8f1c61534dde59be81cfd9407175428d4578c9f70fb"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "61515983309aac754998f96ac4840899f8ee374fac2212e10b955e05ec34dc9e"
+      "sha256": "876facb2861dc5a42390d181fa77bcc75c1a0c3c4b4024f310d882562b5237b1"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -368,11 +368,11 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.example.json",
-      "sha256": "7ebac10481679fc4b0afb94a9ee60eac847d0576816eb0d3e8ef263f3fe8ee67"
+      "sha256": "b6688dc7070a24d46d15858ae607b1a7d8fb6a511ce4368afd0f3f4ee07e843e"
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
-      "sha256": "d0d6614e64c6b8790b2ae9d3ccea9d22ddb981fdbb84d3493001c4b4c57de56d"
+      "sha256": "c5bdacc29e43c344b452349f94d559e9ccd81741e4fa579ad3898c04143dd923"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.example.json",
@@ -464,7 +464,7 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
-      "sha256": "95115351534dcfe4a3417c4107bcfe71942e595fd2dbf5d78fa07b93bb928c17"
+      "sha256": "6ec0a3c57a818044c9e80a0ed8218bf4f5717a4b64c25af36b9908f56d3b925e"
     },
     {
       "path": "resources/human-decision/project-status.example.json",
@@ -476,15 +476,15 @@
     },
     {
       "path": "resources/integration-authorization/integration-authorization.example.json",
-      "sha256": "2fd6301490834a6001579bec5b6919dbe318323e1f64fd68833e9ac17b845ca7"
+      "sha256": "33dd4f06d391b126af7c6d7c9bd79c300113e85a2d978e369f1d018148fb4276"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.refused.example.json",
-      "sha256": "b0c8f081a1d8b9a751890cbd3d4ae727854eb6a9e074ad19e17208d80fc6378c"
+      "sha256": "933f7dfb96b48bd1a6671a92e4b2fc7286e7768dc18bbf9446d8f9c56d0fafb3"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.schema.json",
-      "sha256": "cc711fd618ebd9e1b2f42590e7ed0f758acb69c1dc56e98af4c45fa6f0263223"
+      "sha256": "a5eae2930368923025977e90981939c8e8a5984c8b6f198d1ebe5c74c37f63a6"
     },
     {
       "path": "resources/iteration-result/iteration-result.escalated.example.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "5e47fbb7b8858ebf8d2ce9c65125275568b72c86cf2168f93be4ef2a1fccc149"
+      "sha256": "328b49e7151240161230ccbbc6534a39e96b0feaa1b8d7cdcd892c8c2e356805"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "187c831522b82e37a0029a65a0bf7f40e69496cb7f1d6ea653565aea90b01baf"
+      "sha256": "ea2e953f8f22f5ce18472d0495f20a1b9e228906280fbaaf1607704acb4f3e35"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
     }
   ],
-  "candidate_digest": "0226676f86a30445e0734c181053f41a5c52d6ade42bfef36279d43fbc83b5ae",
+  "candidate_digest": "4e24560bd48cc2d0bcbca02dd2a6d5b3d9e6de7ea6645fac20d5d3b516a177b8",
   "dispositions": [
     {
       "issue": 3,

@@ -40,7 +40,8 @@
     "scope_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 128
+      "maxLength": 128,
+      "pattern": "^(epic|quick):.+$"
     },
     "project_root_sha256": {
       "type": "string",

@@ -362,3 +362,44 @@ test("a second record for an answered request is not a different option (review 
   const other = response({}, request(), { record_id: "udr-0002" });
   assert.throws(() => answerRequest(first.request, other, { nowMs: NOW, verifySignature }), code("decision_identity_stale"));
 });
+
+// Debt 11b (R7-2): an option may say what choosing it signs. The Epic
+// acceptance's `accept` signs the IntegrationAuthorizationRecord composed
+// before the question, not the answer object, so the one irreversible step
+// rests on the record's own fields under the user's signature.
+const BOUND = "9".repeat(64);
+const bound = () => {
+  const asked = request();
+  asked.options = asked.options.map((option) => (option.option_id === "waive_seat" ? { ...option, signed_payload_hash: BOUND } : option));
+  return asked;
+};
+
+test("an option that names what it signs is answered by a record that signed exactly that (debt 11b)", () => {
+  const asked = bound();
+  const signedBound = response({ option_id: "waive_seat" }, asked, { payload_hash: BOUND });
+  const { decision, request: answered } = answerRequest(asked, signedBound, { nowMs: NOW, verifySignature });
+  assert.equal(decision.option_id, "waive_seat");
+  assert.deepEqual(validateJsonSchema(answered, schema), []);
+  // The answer object signed instead of the bound payload is another signature.
+  const signedAnswer = response({ option_id: "waive_seat" }, asked);
+  assert.throws(() => answerRequest(asked, signedAnswer, { nowMs: NOW, verifySignature }), code("decision_approver_mismatch"));
+  // A record that signed the bound payload does not answer another option with it.
+  const misplaced = response({ option_id: "wait" }, asked, { payload_hash: BOUND });
+  assert.throws(() => answerRequest(asked, misplaced, { nowMs: NOW, verifySignature }), code("decision_approver_mismatch"));
+  // An option with no bound payload keeps the answer-object rule.
+  assert.equal(answerRequest(asked, response({ option_id: "wait" }, asked), { nowMs: NOW, verifySignature }).effect, "applied");
+});
+
+test("a bound option is not answered by free text, and its binding is a digest (debt 11b)", () => {
+  const asked = bound();
+  const free = response({ option_id: "waive_seat", normalized_from: "fine", confirmed_material_scope: true }, asked, { payload_hash: BOUND });
+  assert.throws(() => answerRequest(asked, free, { nowMs: NOW, verifySignature }), code("decision_packet_incomplete"));
+  const scoped = response({ option_id: "waive_seat", confirmed_material_scope: true }, asked, { payload_hash: BOUND });
+  assert.throws(() => answerRequest(asked, scoped, { nowMs: NOW, verifySignature }), code("decision_packet_incomplete"));
+  for (const value of ["9".repeat(63), "G".repeat(64), 7, null]) {
+    const malformed = request();
+    malformed.options[1] = { ...malformed.options[1], signed_payload_hash: value };
+    assert.throws(() => assertPacketDecidable(malformed), code("decision_packet_incomplete"), String(value));
+  }
+  assert.doesNotThrow(() => assertPacketDecidable(bound()));
+});

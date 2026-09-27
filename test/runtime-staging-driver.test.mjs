@@ -198,14 +198,14 @@ test("a crash after the aggregate passed resumes into the swap with no model run
   assert.equal(plan.requires_model_run, false);
 
   const observed = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
-  assert.equal(casAdmission(accepted, observed, ["T-1"], PROFILE).decision, "may_swap");
+  assert.equal(casAdmission(accepted, observed, ["T-1"], casContext(accepted)).decision, "may_swap");
   const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
   assert.equal(result.swapped, true);
 
   // And the retry after a crash between the swap and the read-back is complete
   // rather than in conflict.
   const again = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
-  assert.equal(casAdmission(accepted, again, ["T-1"], PROFILE).decision, "already_complete");
+  assert.equal(casAdmission(accepted, again, ["T-1"], casContext(accepted)).decision, "already_complete");
 });
 
 test("cleanup removes the staging ref only while it holds what was recorded", async (t) => {
@@ -297,13 +297,13 @@ test("a name that is not an Epic ref key is refused", () => {
 /** The durable record #9's guards read, bound to this repository's identities. */
 function state({ head, staged }) {
   const base = {
-    project_identity: `sha256:${"0".repeat(58)}`,
+    project_identity: `sha256:${"0".repeat(64)}`,
     epic_id: "e-1",
     staging_ref: stagingRef(EPIC_KEY),
     target_ref: "refs/heads/main",
     recorded_target_base: head,
     planning_head: head,
-    receipts: [{ ticket_id: "T-1" }],
+    receipts: [{ ticket_id: "T-1", applied_commit_oid: staged.oid }],
     phase: "accepted",
     staging_commit_oid: staged.oid,
     staging_tree_oid: staged.tree,
@@ -329,14 +329,48 @@ function state({ head, staged }) {
     recorded_target_base: base.recorded_target_base,
     delivery_profile_digest: PROFILE.deliveryProfileDigest,
     delivery_mode: "merge",
+    integration_authorization_id: "iar-1",
+    integration_authorization_sha256: integrationAuthorizationHashOf(authorizationFor(base)),
   };
   return base;
 }
 
+/** The IntegrationAuthorizationRecord the acceptance stands on (debt 11b). */
+function authorizationFor(accepted) {
+  return {
+    schema_version: 1,
+    record_id: "iar-1",
+    scope_id: "epic:e-1",
+    project_root_sha256: "0".repeat(64),
+    epic_id: accepted.epic_id,
+    run_id: "run-1",
+    target_ref: accepted.target_ref,
+    initial_target_oid: accepted.recorded_target_base,
+    ordered_ticket_commit_oids: [accepted.staging_commit_oid],
+    ref_transition: { from_oid: accepted.recorded_target_base, to_oid: accepted.staging_commit_oid },
+    final_tree_oid: accepted.staging_tree_oid,
+    integration_plan_hash: "1".repeat(64),
+    controlling_anchor_digest: "2".repeat(64),
+    classifier_proof_hash: "3".repeat(64),
+    relevant_authority_projection_hash: "4".repeat(64),
+    dependency_head_hash: "5".repeat(64),
+    intent_head_hash: "6".repeat(64),
+    previous_authorization_head_hash: null,
+    expires_at: "2100-01-01T00:00:00Z",
+    terminal_disposition: "active",
+    issued_by: "user_decision_record",
+    user_decision_record_id: "udr-1",
+    user_decision_record_hash: "7".repeat(64),
+  };
+}
+
+/** What the CAS is asked under: the profile in force, the record the acceptance names, and the instant. */
+const casContext = (accepted) => ({ ...PROFILE, authorization: authorizationFor(accepted), nowMs: Date.parse("2026-09-27T00:00:00Z") });
+
 /** The delivery profile in force when the swap is admitted. */
 const PROFILE = Object.freeze({ deliveryProfileDigest: "f".repeat(64) });
 
-const { aggregateBinding: aggregateBindingOf } = await import("../src/host/epic-staging.mjs");
+const { aggregateBinding: aggregateBindingOf, integrationAuthorizationHash: integrationAuthorizationHashOf } = await import("../src/host/epic-staging.mjs");
 
 test("the staging ref is named by epic_ref_key, the same key the planning ref uses", async () => {
   // Round 6 of #39 (R6-1): the driver built the name from the raw Epic id,

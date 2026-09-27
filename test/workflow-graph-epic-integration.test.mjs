@@ -1094,10 +1094,12 @@ test("in squash mode the accepted identity names the squash commit, and the reco
   assert.ok(move.reads.has("delivery_plan"));
 });
 
-test("acceptance_missing says the human's acceptance produces the record, everywhere it is resumed", () => {
-  // LOW 5.
+test("acceptance_missing says how the person's acceptance produces the record, everywhere it is resumed", () => {
+  // LOW 5, and debt 11b (R7-2): "produces" with no mechanism behind it became
+  // the mechanism — the person signs the payload of the record composed before
+  // the question.
   const graph = shipped();
-  const produces = /acceptance человека производит signed IntegrationAuthorizationRecord/u;
+  const produces = /payload IntegrationAuthorizationRecord, составленного до вопроса/u;
   for (const view of graph.views) {
     const row = view.rows.find((entry) => entry.covers.includes("acceptance_missing"));
     assert.match(row.cells[2], produces, view.id);

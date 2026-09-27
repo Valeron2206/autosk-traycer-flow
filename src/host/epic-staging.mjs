@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { demand, digest, immutable } from '../runtime/contracts.mjs';
 
 export const PHASES = immutable([
   'staging_created',
@@ -101,6 +101,70 @@ const OID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const named = (value) => typeof value === 'string' && value.length > 0;
 
+const AUTHORIZATION_RECORD_DOMAIN = 'autosk-flow/integration-authorization-record/v1';
+
+/**
+ * The digest an acceptance names its IntegrationAuthorizationRecord by: every
+ * field of the completed record, the decision that signed it included
+ * (`docs/contracts/integration-authorization.md` §3, debt 11b).
+ */
+export function integrationAuthorizationHash(authorization) {
+  return digest(AUTHORIZATION_RECORD_DOMAIN, authorization);
+}
+
+/**
+ * Whether the record the CAS is asked under is the one the acceptance names,
+ * and still backs it (debt 11b).
+ *
+ * The host checks what it can see: the reference is well formed, the record
+ * presented (`current.authorization`) is the one named by id — the same id
+ * with other bytes is that record revoked, replaced or rewritten, so stale —
+ * it is about this project, Epic, scope, target, one transition, tree and
+ * applied commits in order, and it is active and unexpired at `current.nowMs`,
+ * which the CAS must name. That the UserDecisionRecord behind it signed
+ * it was checked when the acceptance was made (`acceptanceFromDecision`,
+ * `autoPolicyAcceptance`); the daemon's `integrateApproved` resolves the record
+ * by scope and id from its own store and checks it against
+ * `integration_authorization_head`, the authority projection and the
+ * dependency and intent heads, none of which the host can read.
+ */
+function authorizationErrors(state, acceptance, current, missing, stale) {
+  if (!named(acceptance.integration_authorization_id) || !SHA256.test(acceptance.integration_authorization_sha256 ?? '')) {
+    missing('an acceptance names the IntegrationAuthorizationRecord it stands on');
+    return;
+  }
+  const record = current.authorization;
+  if (record === null || typeof record !== 'object' || record.record_id !== acceptance.integration_authorization_id) {
+    missing('the CAS is not asked under the IntegrationAuthorizationRecord the acceptance names');
+    return;
+  }
+  if (!Number.isFinite(current.nowMs)) {
+    missing('the CAS names the instant it is asked at');
+    return;
+  }
+  // The record named, with other bytes: revoked, replaced or rewritten since
+  // the acceptance named it. That is the record lapsing, not a record missing
+  // (`integration-authorization.md` §5).
+  if (integrationAuthorizationHash(record) !== acceptance.integration_authorization_sha256) {
+    stale('the IntegrationAuthorizationRecord the acceptance names has changed since: revoked, replaced or rewritten');
+    return;
+  }
+  const landing = acceptance.delivery_mode === 'squash' ? acceptance.target_commit_oid : state.staging_commit_oid;
+  const commits = (state.receipts ?? []).map((receipt) => receipt.applied_commit_oid);
+  const ordered = record.ordered_ticket_commit_oids;
+  if (`sha256:${record.project_root_sha256}` !== state.project_identity
+    || record.epic_id !== state.epic_id || record.scope_id !== `epic:${state.epic_id}` || record.target_ref !== state.target_ref
+    || record.initial_target_oid !== state.recorded_target_base
+    || record.ref_transition?.from_oid !== state.recorded_target_base || record.ref_transition?.to_oid !== landing
+    || record.final_tree_oid !== state.staging_tree_oid
+    || !Array.isArray(ordered) || ordered.length !== commits.length || ordered.some((commit, index) => commit !== commits[index])) {
+    stale('the IntegrationAuthorizationRecord is for another integration than this staging state');
+  }
+  if (record.terminal_disposition !== 'active' || !(Date.parse(record.expires_at) > current.nowMs)) {
+    stale('the IntegrationAuthorizationRecord is terminal or has expired');
+  }
+}
+
 /**
  * Whether the acceptance still applies.
  *
@@ -110,6 +174,8 @@ const named = (value) => typeof value === 'string' && value.length > 0;
  * ref and base and the delivery profile it was given under, and a profile that
  * changed since (`current.deliveryProfileDigest`, the profile in force now) is
  * another delivery — so is a CAS asked without saying which profile is in force.
+ * It also names the IntegrationAuthorizationRecord it stands on, which the CAS
+ * must be asked under (`current.authorization`, at `current.nowMs`).
  */
 export function acceptanceErrors(state, current = {}) {
   const acceptance = state.acceptance;
@@ -161,6 +227,8 @@ export function acceptanceErrors(state, current = {}) {
   } else if (acceptance.target_commit_oid !== undefined || acceptance.target_commit_recipe_sha256 !== undefined) {
     missing(`a ${acceptance.delivery_mode} delivery names no target commit`);
   }
+  // Both kinds stand on a signed IntegrationAuthorizationRecord (IA §1).
+  authorizationErrors(state, acceptance, current, missing, stale);
   return errors;
 }
 

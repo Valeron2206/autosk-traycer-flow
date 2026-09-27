@@ -172,7 +172,9 @@
         "target_ref",
         "recorded_target_base",
         "delivery_profile_digest",
-        "delivery_mode"
+        "delivery_mode",
+        "integration_authorization_id",
+        "integration_authorization_sha256"
       ],
       "properties": {
         "kind": {
@@ -239,6 +241,17 @@
         "policy_ref": {
           "type": "string",
           "minLength": 1
+        },
+        "integration_authorization_id": {
+          "description": "The record_id of the signed IntegrationAuthorizationRecord this acceptance stands on, on either path (debt 11b).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "integration_authorization_sha256": {
+          "description": "The domain-separated digest of that completed record (autosk-flow/integration-authorization-record/v1), the decision that signed it included.",
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "allOf": [

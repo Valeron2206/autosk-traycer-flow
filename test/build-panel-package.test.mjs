@@ -1643,7 +1643,8 @@ test("the contracts with no measured link are searched for under src/, and only 
   assert.equal(unreferenced.length, 13);
   assert.equal(referenced.length, 4);
   const byPath = new Map(unlinked.map((entry) => [entry.path, entry]));
-  assert.deepEqual(byPath.get("docs/contracts/integration-authorization.md").src_references.naming, ["src/host/staging-acceptance.mjs"]);
+  // Debt 11b: the CAS admission's check of the named record cites the contract too.
+  assert.deepEqual(byPath.get("docs/contracts/integration-authorization.md").src_references.naming, ["src/host/epic-staging.mjs", "src/host/staging-acceptance.mjs"]);
   assert.ok(byPath.get("docs/contracts/integration-authorization.md").src_references.named_paths.includes("src/host/staging-acceptance.mjs"));
   assert.ok(byPath.get("docs/contracts/refusal-vocabulary.md").src_references.named_paths.includes("src/host/workflow-factory.mjs"));
   assert.ok(unreferenced.some((entry) => entry.path === "docs/contracts/anchor-pack.md"));
@@ -1654,7 +1655,7 @@ test("the contracts with no measured link are searched for under src/, and only 
   assert.ok(text.includes(`For ${unreferenced.length} of them nothing was found`), text);
   for (const entry of unreferenced) assert.ok(text.includes(`\`${entry.path}\``), entry.path);
   assert.ok(text.includes(`${referenced.length} are referenced from \`src/\` (a reference is not a claim of implementation)`), text);
-  assert.ok(text.includes("`docs/contracts/integration-authorization.md`: named in `src/host/staging-acceptance.mjs`"), text);
+  assert.ok(text.includes("`docs/contracts/integration-authorization.md`: named in `src/host/epic-staging.mjs`, `src/host/staging-acceptance.mjs`"), text);
   assert.ok(text.includes("`docs/contracts/arena.md`: `arena_judge_family_conflict` in `src/host/cross-family-review.mjs`"), text);
   // Only what was measured: no inference from an absence to "unimplemented".
   assert.doesNotMatch(text, /no runtime code in this repository implements them/u);

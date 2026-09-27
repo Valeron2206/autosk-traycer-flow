@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -200,4 +200,111 @@ test("a Quick record names its one reviewed candidate, and its integration commi
   assert.deepEqual(planErrors({ ...record, ordered_ticket_commit_oids: [record.ordered_ticket_commit_oids[0]] }), []);
   assert.match(files[CONTRACT_PATH], /before the record is signed/u);
   assert.match(read("03-technical-plan.md"), /до подписи record/u);
+});
+
+// Debt 11b (R7-2, R7-15, R7-25, R7-30): the documents say how the record comes
+// into being on the person's path, and no document says it is "produced" by an
+// acceptance with no mechanism behind the word.
+const PROSE = [
+  "01-core-flows.md",
+  "02-architecture.md",
+  "03-technical-plan.md",
+  "docs/contracts/epic-staging.md",
+  CONTRACT_PATH,
+  "resources/workflow-graph/workflow-graph.v1.json",
+];
+
+test("no document has the acceptance produce the record with no mechanism behind it (debt 11b, R7-2)", () => {
+  const stale = [
+    "acceptance человека производит",
+    "acceptance decision человека производит",
+    "acceptance decision произвёл",
+    "произвела acceptance человека",
+    "Его производит acceptance decision",
+    "чьё acceptance decision производит",
+    "acceptance decision produces it",
+    "acceptance decision there produces the record",
+    "acceptance produces the signed IntegrationAuthorizationRecord",
+    "its record is produced by the acceptance itself",
+    "The human's path has no host-side authorization check",
+  ];
+  for (const relative of PROSE) {
+    const text = read(relative);
+    for (const phrase of stale) assert.equal(text.includes(phrase), false, `${relative}: ${phrase}`);
+  }
+  // Where the mechanism is stated, it is named.
+  const contract = read(CONTRACT_PATH);
+  for (const name of ["composeAuthorization", "authorizationPayloadHash", "signed_payload_hash", "acceptanceFromDecision", "integration_authorization_sha256", "ADR-096"]) {
+    assert.ok(contract.includes(name), `${CONTRACT_PATH}: ${name}`);
+  }
+  const staging = read("docs/contracts/epic-staging.md");
+  for (const name of ["integration_authorization_id", "integration_authorization_sha256", "signed_payload_hash", "composeAuthorization", "ADR-096"]) {
+    assert.ok(staging.includes(name), `epic-staging.md: ${name}`);
+  }
+  for (const relative of ["01-core-flows.md", "02-architecture.md"]) assert.ok(read(relative).includes("ADR-096"), relative);
+  assert.ok(read("docs/contracts/human-decision.md").includes("signed_payload_hash"));
+  const graph = JSON.parse(read("resources/workflow-graph/workflow-graph.v1.json"));
+  const described = Object.fromEntries(graph.predicates.map((entry) => [entry.id, entry.description]));
+  for (const id of ["cond_435", "cond_436"]) assert.match(described[id], /payload подписал UserDecisionRecord/u, id);
+  assert.match(described.cond_438, /accept подписывает его payload/u);
+  assert.match(described.cond_441, /integration_authorization_head/u);
+  assert.match(described.cond_444, /который она называет на обоих путях/u);
+});
+
+test("signed in advance means before the acceptance step for that exact identity (debt 11b, R7-15)", () => {
+  assert.match(read(CONTRACT_PATH), /"In advance" means before the acceptance step for that exact identity/u);
+  assert.match(read("docs/contracts/epic-staging.md"), /"Signed in advance" means before this acceptance step, for this exact identity/u);
+  assert.match(read("01-core-flows.md"), /до этого шага — для той же exact identity, то есть после aggregate verification, а не до staging/u);
+});
+
+test("an Epic stop has one name, and the contract says which class it stands for (debt 11b, R7-25)", () => {
+  const contract = read(CONTRACT_PATH);
+  assert.match(contract, /no host code raises an `integration_authorization_\*` class/u);
+  for (const short of ["`policy_issued`", "`scope_mismatch`", "`prefix_mismatch`", "`expired`", "`terminal`", "`head_mismatch`"]) {
+    assert.ok(contract.includes(short), short);
+  }
+  // And the disclosure stays true: no runtime file names a class.
+  const runtime = readdirSync(path.join(ROOT, "src"), { recursive: true }).filter((name) => name.endsWith(".mjs"));
+  for (const file of runtime) {
+    const text = read(path.join("src", file));
+    for (const refusal of REFUSALS) assert.equal(text.includes(refusal), false, `${file}: ${refusal}`);
+  }
+});
+
+test("the staging example's acceptance names the worked authorization example (debt 11b)", async () => {
+  const { integrationAuthorizationHash } = await import("../src/host/epic-staging.mjs");
+  const staging = JSON.parse(read("resources/epic-staging/epic-staging.example.json"));
+  const record = example();
+  assert.equal(staging.acceptance.integration_authorization_id, record.record_id);
+  assert.equal(staging.acceptance.integration_authorization_sha256, integrationAuthorizationHash(record));
+  // And the record is that staging record's one transition.
+  assert.equal(record.scope_id, `epic:${staging.epic_id}`);
+  assert.equal(record.epic_id, staging.epic_id);
+  assert.equal(record.project_root_sha256, staging.project_root_sha256);
+  assert.equal(record.target_ref, staging.target_ref);
+  assert.deepEqual(record.ref_transition, { from_oid: staging.recorded_target_base, to_oid: staging.acceptance.target_commit_oid });
+  assert.equal(record.final_tree_oid, staging.staging_tree_oid);
+  assert.deepEqual(record.ordered_ticket_commit_oids, staging.receipts.map((receipt) => receipt.applied_commit_oid));
+});
+
+test("#9 owns the daemon's check of the record against its head (debt 11b, R7-2)", () => {
+  const matrix = JSON.parse(read("resources/program-capabilities/matrix.v1.json"));
+  const owner = matrix.records.find((record) => record.issue_number === 9);
+  assert.match(owner.implementation_obligation_before_mvp, /IntegrationAuthorizationRecord the acceptance names/u);
+  assert.match(owner.implementation_obligation_before_mvp, /integration_authorization_head/u);
+});
+
+test("a scope is an Epic's or a Quick run's, as 02 closes it (review L3)", () => {
+  const schema = JSON.parse(files[SCHEMA_PATH]);
+  assert.deepEqual(validateJsonSchema({ ...example(), scope_id: "epic:epic-0001" }, schema), []);
+  assert.deepEqual(validateJsonSchema({ ...example(), scope_id: "quick:ask-0a1b2c" }, schema), []);
+  for (const scope of ["epic-0001", "epic:", "task:t-1"]) {
+    assert.notDeepEqual(validateJsonSchema({ ...example(), scope_id: scope }, schema), [], scope);
+  }
+  assert.equal(JSON.parse(files[REFUSED_PATH]).scope_id, "epic:epic-0001");
+});
+
+test("the trusted client renders the record whose payload it signs (review M2)", () => {
+  const contract = read(CONTRACT_PATH);
+  assert.match(contract, /trusted client renders the record whose `authorizationPayloadHash` it signs/u);
 });
