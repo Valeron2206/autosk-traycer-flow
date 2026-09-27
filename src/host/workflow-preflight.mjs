@@ -21,13 +21,17 @@ import { buildReport } from './doctor.mjs';
  *
  * A workflow requires a category's checks by naming them; a check added to a
  * category later is picked up by `requiredFor` rather than being silently
- * missed, which is the reason categories exist at all. No phase names the
- * signer boundary: that requirement follows from what a workflow runs, and is
- * derived from the graph below.
+ * missed, which is the reason categories exist at all. No phase names a
+ * model-step check — the daemon's capabilities or the signer boundary: that
+ * requirement follows from what a workflow runs, and is derived from the graph
+ * below.
  */
 export const PHASE_CHECKS = immutable({
-  // Planning's own work is documents: it needs no daemon and no provider of
-  // its own, so requiring one for it would park work that has no need of one.
+  // The checks planning's own document work needs. Planning still runs agent
+  // steps, and what a model step needs — the daemon's capabilities and the
+  // signer boundary — is no phase's to list: `MODEL_STEP_CHECKS` below adds it
+  // to every workflow whose first step reaches one, the planned Epic's
+  // included (debt 10d, R6-11; debt 11c, R7-26).
   planning: immutable(['project_identity.git_worktree', 'project_identity.compat_manifest',
     'governance.contracts_present', 'scheduler.node_version']),
   // Implementation runs code and commits it.
@@ -75,13 +79,16 @@ export const WORKFLOW_PHASES = immutable({
 /**
  * What a workflow that runs a model step cannot start without.
  *
- * 01 §2 and 02 §5 make the signer boundary a precondition of model launch, so
- * it is required of every workflow whose first step reaches an agent step in
- * the graph. The graph has no model-free kind of agent step, so every `agent`
- * step counts as one — and every registered workflow's first step is itself an
- * agent step, which is what makes all eight require it today.
+ * 01 §2 and 02 §5 make the signer boundary a precondition of model launch, and
+ * 02 §3 a daemon that carries every capability the flow requires (ADR-083):
+ * the daemon capability check hands the daemon's report to
+ * `requireDaemonCapabilities` (ADR-097). Both are required of every workflow
+ * whose first step reaches an agent step in the graph. The graph has no
+ * model-free kind of agent step, so every `agent` step counts as one — and
+ * every registered workflow's first step is itself an agent step, which is
+ * what makes all eight require them today.
  */
-export const MODEL_STEP_CHECKS = immutable(['security.signer_boundary']);
+export const MODEL_STEP_CHECKS = immutable(['daemon.capabilities_pinned', 'security.signer_boundary']);
 
 /** The workflows a graph registers and where each starts, as the graph says. */
 export function registeredWorkflows(graph) {

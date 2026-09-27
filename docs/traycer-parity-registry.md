@@ -20,7 +20,7 @@
 | `intentionally_deferred` | 6 |
 | `rejected` | 0 |
 
-Aggregate digest: `607c1d3b6bac5ee2f202afaeedb74f9c932c9f84c1c37faa23853f38fe305438`.
+Aggregate digest: `c9a1d73c61c25792703326882c92ec8cdb317654f917984faf2790b6691236cc`.
 
 Digest считается от domain separator `autosk-flow.traycer-parity.v1`, затем от полного рекурсивно канонизированного JSON-представления всех полей 37 записей: object keys сортируются детерминированно без locale-зависимости, а array order сохраняется. Текущий keyspace — ASCII. Поле digest не входит в собственный preimage. Full candidate tree дополнительно связывает registry, schema, validator, tests и документацию.
 

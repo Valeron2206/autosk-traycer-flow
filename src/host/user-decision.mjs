@@ -11,7 +11,8 @@
  * verifier answers nothing: the pinned daemon reports no signer (ADR-090), so
  * on a real host today every record is refused. That is the fail-closed half
  * of ADR-023, not a bypass waiting to be removed; the signer, its key pin and
- * the verifier that reads it are ADR-023 implementation work (#40 phase 2/3).
+ * the verifier that reads it are ADR-023 work that matrix v1 gives to #4
+ * (ADR-092).
  *
  * It names no refusal of its own: each caller passes the code its contract
  * declares (the decision queue `decision_approver_mismatch`, the Epic

@@ -9,7 +9,7 @@ Status: issue #11 design contract, deciding the two things its remaining criteri
 Criteria 1, 2, 3, 4 and 7 of #11 are delivered. Five and six are not, and each is blocked on a decision rather than on effort:
 
 - **Criterion 5.** `ctx.scopedCreation(grant)` exists and is typed, and the daemon validates the grant it is handed. But the grant is **not signed**, so the daemon cannot distinguish one the host compiled from one the caller wrote — and every field it validates is a field the caller knows about itself. The check reads like a check and admits anything well-formed.
-- **Criterion 6.** `requireDaemonCapabilities` exists and refuses a daemon that is missing, older, or differently-shaped. It has **no caller** outside its own test, because the extension entry point it would run from does not exist yet.
+- **Criterion 6.** `requireDaemonCapabilities` exists and refuses a daemon that is missing, older, or differently-shaped. Outside tests, its one caller is the doctor's `daemon.capabilities_pinned` check (ADR-097), and on a real host that check is `unverifiable`: the read-only doctor holds no report of the daemon's. The call this criterion asks for — at extension load — has no call site, because the extension entry point does not exist yet; this issue keeps the function and what it checks, and matrix v1 gives the call site to #18 with the entry point (ADR-097).
 
 This contract decides both. The closed JSON Schema is `resources/creation-grant/creation-grant.schema.json`.
 
@@ -40,7 +40,7 @@ Alternatives considered and rejected: an HMAC with a shared secret (the model si
 
 The reason is the same one that puts the platform check at project open: a capability check that runs at first use runs after the extension has been accepted, and the failure is then a report about work already dispatched rather than a refusal to start. An extension that needs `task.create_bound` and finds a daemon without it must not be loaded at all.
 
-Until the extension entry point exists, this is a decision waiting for its call site, and the issue says so rather than the code pretending the check is wired.
+This contract decides what the call checks and when it runs; the call site is the extension entry point, which matrix v1 gives to #18 with the rest of the graph's product side, so #18 depends on this issue for the function and for `task.create_bound` (ADR-097). Until the entry point exists, this is a decision waiting for its call site, and the issue says so rather than the code pretending the check is wired.
 
 ## 6. What a refusal looks like
 
@@ -69,5 +69,5 @@ Closed set: `grant_unsigned`, `grant_signature_invalid`, `grant_expired`, `grant
 | 3 fields immutable through ordinary update or reconcile | delivered |
 | 4 backward compatibility for callers without the fields | delivered |
 | 5 typed fields and outcome, and a grant the caller cannot forge | §3, §4 decide it; runtime remains |
-| 6 preflight refuses to start without the capability | §5 decides the call site; the entry point remains |
+| 6 preflight refuses to start without the capability | §5 decides what is checked and when; the call site is #18's, and the entry point remains |
 | 7 upstream patch, PR and commit pin recorded | delivered |

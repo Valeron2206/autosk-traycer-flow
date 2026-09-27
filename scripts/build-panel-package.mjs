@@ -22,6 +22,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { filesUsing } from './lib/code-references.mjs';
 import { digestOf, sourceDrift } from './lib/produced-source.mjs';
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
 import { panelVerdicts } from './validate-design-candidate.mjs';
@@ -240,6 +241,28 @@ export async function measureContracts() {
     });
   }
   return contracts;
+}
+
+/** The workflow factory, which applies a caller's predicate evaluator, and its entry. */
+export const FACTORY_MODULE = 'src/host/workflow-factory.mjs';
+export const FACTORY_EXPORT = 'buildWorkflow';
+
+/**
+ * Who hands the workflow graph an evaluator, measured: every code file under
+ * `scripts/` and `src/` — JavaScript or TypeScript — that uses the factory's
+ * entry, whether it calls it, passes it on, imports it or writes it into a
+ * module it generates, the factory itself apart.
+ *
+ * The factory decides nothing about a predicate: the caller supplies the
+ * evaluator, so whether any product code evaluates the graph is a question
+ * about its users. Round 7 of #39 (R7-10) found the package silent on it
+ * while every user was a script; the answer is read from the tree rather than
+ * written into the package, so a user under `src/` changes it. Review of 11c
+ * (L1): a literal call in a `.mjs` file was all that was counted, so a
+ * TypeScript entry point or a callback would have gone unseen.
+ */
+export async function factoryCallers({ root = ROOT } = {}) {
+  return filesUsing({ root, dirs: ['scripts', 'src'], identifier: FACTORY_EXPORT, exclude: [FACTORY_MODULE] });
 }
 
 /**
@@ -596,8 +619,12 @@ function injectionCell(group) {
 }
 
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null, factoryCallers: givenFactoryCallers = null }) {
   requireTestEvidence(tests);
+  const callers = givenFactoryCallers ?? await factoryCallers();
+  const srcCallers = callers.filter((file) => file.startsWith('src/'));
+  const scriptCallers = callers.filter((file) => !file.startsWith('src/'));
+  const fileList = (files) => files.map((file) => `\`${file}\``).join(', ') || 'none';
   const groupById = new Map(matrix.groups.map((group) => [group.id, group]));
   const records = givenPanelRecords ?? await panelRecords(candidate);
   for (const record of records) {
@@ -1118,14 +1145,20 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   recorded them) run the harness's own git commands, and none of them goes through a host driver, the daemon or a ref-custody helper (section 5).`
     : 'the run did not record which fault groups write a ref, and none of the fault harness\'s cases runs a host driver or the daemon (section 5).'} The preflight names
   ${UNPINNED_DAEMON_PRIMITIVES.map((primitive) => `\`${primitive.name}\` (${primitive.adr})`).join(' and ')} as required and unpinned — no revision, no
-  methods — so the preflight refuses every daemon today, including the one this series builds;
-  nothing calls it before a model launch yet. All of this is implementation work
-  under #40, not a delivered capability. Matrix v1 gives each primitive the
-  preflight requires to a \`required_for_v1\` record (ADR-092): ADR-023 to #4
-  (signer, journal, heads) and #9 (\`authorityGuard\`, \`integrateApproved\`),
-  ADR-025 to #18, to be delivered as patches \`0052\`+; the typed SDK of #38
-  stays \`planned_after_v1\`, and the validator holds the matrix to the
-  preflight both ways.
+  methods — so the preflight refuses every daemon today, including the one this series builds.
+  Outside tests \`requireDaemonCapabilities\` has one caller, the doctor check
+  \`daemon.capabilities_pinned\`, which hands it the daemon's \`meta.capabilities\`
+  report and decides nothing itself; doctor does not contact the daemon, so on a real host the check has
+  no report and is \`unverifiable\`, and every model workflow's preflight set
+  requires it. The call at extension load, before any model launch, has no
+  call site: the extension entry point does not exist. None of this is a
+  delivered capability. Matrix v1 gives each primitive the preflight requires
+  to a \`required_for_v1\` record (ADR-092): ADR-023 to #4 (signer, journal,
+  heads) and #9 (\`authorityGuard\`, \`integrateApproved\`), ADR-025 to #18, to
+  be delivered as patches \`0052\`+;
+  the daemon capability check to #34, the call at extension load to #18's entry point and the function it calls to #11 (ADR-097);
+  the typed SDK of #38 stays \`planned_after_v1\`, and the validator holds the
+  matrix to the preflight both ways.
 - The signer boundary is not established on any host. \`security.signer_boundary\`
   passes only when the declared endpoint is refused to the probing process and
   the daemon reports a signer identity outside it; no daemon of the series
@@ -1134,7 +1167,39 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   unsatisfied. The workflow preflight is keyed by the graph's eight
   \`workflows[]\` and requires the boundary of each; its required sets' one
   caller outside tests is \`autosk-flow doctor --workflow\`, and nothing calls
-  the preflight before a model launch yet (ADR-090, #40).
+  the preflight before a model launch yet (ADR-090);
+  that dispatch gate is #34's in matrix v1 (ADR-097).
+- ${srcCallers.length === 0
+    ? `No product code evaluates the graph. \`buildWorkflow\` takes the caller's
+  predicate evaluator and applies it at both decision sites; the files whose
+  code uses it — calling it, passing it on, importing it or writing it into a
+  module they generate — are ${fileList(scriptCallers)}, scripts that drive
+  the daemon or produce refusals; no file under \`src/\` calls it or uses it
+  any other way, JavaScript or TypeScript, so nothing under \`src/\` registers
+  the graph's workflows either.`
+    : `\`buildWorkflow\` takes the caller's predicate evaluator and applies it at
+  both decision sites; the files whose code uses it are ${fileList(scriptCallers)},
+  and ${fileList(srcCallers)} under \`src/\`, and whether a user under
+  \`src/\` hands it a product evaluator is not measured here.`} The factory does
+  not read \`guards[].authority\`, which says who may take a transition
+  (the workflow-factory contract, §1). Matrix v1 gives the evaluator mechanism —
+  the table from each predicate id to its implementation, applied at both
+  decision sites to the predicate and to \`guards[].authority\` — and the
+  extension entry point that registers every workflow the graph registers, the
+  two Arena workflows among them, to #18 (\`enforcement_points\`, ADR-097);
+  each predicate's meaning stays with its domain record, and
+  \`validate:capabilities\` reads those points from the graph.
+- A model session can still reach a creation credential and the leaves that
+  admit a resume. Patch \`0028\`'s \`autoskEnv\` puts \`AUTOSK_SESSION_TOKEN\`,
+  the credential \`task.create_bound\` takes, into the environment of the
+  \`claude-agent\` and \`pi-agent\` model processes, and
+  \`src/host/workflow-factory.mjs\` writes the leaves it reads to admit a resume
+  (\`park.reason\`, \`park.origin\`, \`park.receipts.<step>\`) through plain
+  \`autosk metadata set\`, which any holder of the CLI can run: a model session
+  could mint a bound create or forge a receipt that opens a resume. 02 §2 gives
+  a model session no CLI or decision capability; that is the design, not this
+  series. Matrix v1 gives the token's removal to #11 and resume leaves written
+  only under the metadata CAS to #18 (ADR-097); roadmap #231 tracks the change.
 - No user decision is accepted on any host. The decision queue takes an answer
   only as a daemon \`UserDecisionRecord\` — a response that names its own
   approver, or carries no record, is refused — and checks its fields, its
@@ -1144,7 +1209,8 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   and that record. The default verifier verifies nothing, because no daemon of
   the series has a signer, so both paths refuse every answer today; the tests
   sign with a key of their own. The alignment identity binds the twelve fields
-  of 02 §7 (ADR-091, #40).
+  of 02 §7 (ADR-091). The signer, its key pin and the verifier are ADR-023 work
+  that matrix v1 gives to #4 (ADR-092).
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries

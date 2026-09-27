@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 
 import { demand } from '../runtime/contracts.mjs';
+import { UNPINNED_DAEMON_PRIMITIVES, requireDaemonCapabilities } from './daemon-preflight.mjs';
 
 /** How long a result stays meaningful. A daemon can be replaced in a minute; a
  * manifest on disk cannot change without the tree changing. */
@@ -47,10 +48,26 @@ const SIGNER_ENDPOINT_MISSING = new Set(['ENOENT', 'ENOTDIR']);
 const SIGNER_ENDPOINT_DENIED = new Set(['EACCES', 'EPERM']);
 
 /**
+ * What to do about a daemon whose capability report the preflight refused.
+ *
+ * The primitives no report can satisfy are read from the preflight, so the
+ * advice names exactly the ones still unpinned; once none is, it names none
+ * rather than an empty list (review of 11c, L3).
+ */
+export function capabilityRemediation(unpinned) {
+  const base = 'Run a daemon whose meta.capabilities carries every capability this flow requires, at the pinned revision and methods.';
+  if (unpinned.length === 0) return base;
+  const names = unpinned.map(({ name, adr }) => `${name} (${adr})`).join(' and ');
+  return `${base} ${names} ${unpinned.length === 1 ? 'has' : 'have'} no pinned revision yet, so no daemon report satisfies this check until ${unpinned.length === 1 ? 'it is' : 'they are'} specified.`;
+}
+
+/**
  * The check registry.
  *
  * `env` supplies: `readFile(path)`, `stat(path)`, `run(cmd, args)` returning
- * `{ code, stdout }`, `which(cmd)`, `nowMs()`, `home`, `root`, `toolVersion`.
+ * `{ code, stdout }`, `which(cmd)`, `nowMs()`, `home`, `root`, `toolVersion`;
+ * and, where the caller holds one, `daemonCapabilities()` returning the
+ * daemon's `meta.capabilities` report — the doctor on a real host holds none.
  */
 export function checkRegistry(env) {
   const tool = 'autosk-flow-doctor';
@@ -175,6 +192,53 @@ export function checkRegistry(env) {
             'Reaching the daemon requires starting or contacting it, which doctor does not do; a workflow that requires it starts it itself.',
           provenance: fast(),
         };
+      },
+    },
+    {
+      id: 'daemon.capabilities_pinned',
+      category: 'daemon',
+      async run() {
+        // The daemon's `meta.capabilities` report against what this flow
+        // requires, decided by `requireDaemonCapabilities` and by nothing here:
+        // two readings of one requirement agree until they do not (ADR-097).
+        // The report is the daemon's; doctor does not start or contact a
+        // daemon, so it is handed one or has none, and none is not a pass.
+        if (typeof env.daemonCapabilities !== 'function') {
+          return {
+            status: 'unverifiable',
+            unverifiable_reason: "no report of the daemon's capabilities was supplied, so there is nothing to compare",
+            evidence: { reported: false },
+            provenance: fast(),
+          };
+        }
+        const report = await attempt(() => env.daemonCapabilities());
+        if (!report.ok) {
+          return {
+            status: 'unverifiable',
+            unverifiable_reason: `reading the daemon's capabilities failed with ${report.error}, which says nothing about them`,
+            evidence: { reported: false, probe_error: String(report.error) },
+            provenance: fast(),
+          };
+        }
+        try {
+          requireDaemonCapabilities(report.value);
+        } catch (error) {
+          const details = error?.details ?? {};
+          const listed = details.missing ?? details.mismatched;
+          return {
+            status: 'fail',
+            evidence: {
+              reported: true,
+              refusal: String(error?.code ?? 'unknown_error'),
+              ...(Array.isArray(listed) ? { [details.missing ? 'missing' : 'mismatched']: listed.join(', ') } : {}),
+            },
+            remediation: capabilityRemediation(UNPINNED_DAEMON_PRIMITIVES),
+            provenance: fast(),
+          };
+        }
+        // Unreachable while a required primitive is unpinned, because every
+        // report is refused above; it is the answer once each is pinned.
+        return { status: 'pass', evidence: { reported: true }, provenance: fast() };
       },
     },
     {

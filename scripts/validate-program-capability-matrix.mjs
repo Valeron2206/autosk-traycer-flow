@@ -12,6 +12,7 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 export const MATRIX_PATH = path.join(ROOT, "resources/program-capabilities/matrix.v1.json");
 export const INVENTORY_PATH = path.join(ROOT, "resources/program-capabilities/issue-inventory.v1.json");
 export const PARITY_PATH = path.join(ROOT, "resources/traycer-parity/registry.v1.json");
+export const GRAPH_PATH = path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json");
 export const DOC_PATH = path.join(ROOT, "docs/program-capability-matrix.md");
 export const README_PATH = path.join(ROOT, "README.md");
 export const CONTRACTS_DIR = path.join(ROOT, "docs/contracts");
@@ -240,6 +241,11 @@ function validateRequiredEdges(recordsByNumber, errors) {
   // the doctor's signer check passes only on #4's signer.
   requires(9, [4, 18]);
   requires(34, [4]);
+  // The graph's guard authority evaluator lets a human or policy transition
+  // through only on the authority #4's signer and verifier establish, and the
+  // extension entry point calls #11's capability preflight at load and creates
+  // children through its `task.create_bound` (ADR-097).
+  requires(18, [4, 11]);
   // #4's daemon side ships in the pinned patch series whose identity #10 locks.
   requires(4, [10]);
   requires(19, [37]);
@@ -251,14 +257,14 @@ function validateRequiredEdges(recordsByNumber, errors) {
   if (recordsByNumber.get(39)?.dependencies?.includes(36)) errors.push("issue #39 must not depend on runtime completion of #36; only its design contract is required");
 }
 
-export function validateMatrix(matrix, inventory, parityRegistry) {
+export function validateMatrix(matrix, inventory, parityRegistry, graph = parseJson(GRAPH_PATH)) {
   const errors = [];
   if (!matrix || typeof matrix !== "object" || Array.isArray(matrix)) return ["matrix must be an object"];
   const expectedTopKeys = [
     "$schema", "schema_version", "matrix_version", "repository", "issue_range",
     "source_main_commit", "issue_inventory_path", "issue_inventory_digest",
     "source_parity_registry_path", "classification_policy", "summary", "records",
-    "preflight_primitives", "canonical_digest",
+    "preflight_primitives", "enforcement_points", "canonical_digest",
   ].sort();
   if (!exactKeys(matrix, expectedTopKeys)) errors.push("matrix top-level keys differ from the closed v1 schema");
   if (matrix.$schema !== "./matrix.schema.json") errors.push("matrix.$schema must reference ./matrix.schema.json");
@@ -455,6 +461,7 @@ export function validateMatrix(matrix, inventory, parityRegistry) {
   }
 
   validatePreflightPrimitives(matrix.preflight_primitives, recordsByNumber, errors);
+  validateEnforcementPoints(matrix.enforcement_points, recordsByNumber, errors, enforcementRequirements(graph));
 
   const expectedDigest = digestMatrix(matrix);
   if (matrix.canonical_digest !== expectedDigest) errors.push(`matrix canonical_digest mismatch: expected ${expectedDigest}`);
@@ -466,13 +473,15 @@ const PRIMITIVE_KINDS = new Set(["daemon_capability", "model_step_check"]);
 
 /**
  * The decision behind each requirement the preflight source does not tag with
- * one: the pinned capability is ADR-014's, the model-step check ADR-090's. A
+ * one: the pinned capability is ADR-014's, the model-step checks ADR-090's
+ * (the signer boundary) and ADR-097's (the daemon's capabilities). A
  * requirement added to the preflight without an entry here has no decision,
  * and the matrix entry naming it is refused until one is recorded.
  */
 const PINNED_DECISIONS = Object.freeze({
   "task.creation-binding": "ADR-014",
   "security.signer_boundary": "ADR-090",
+  "daemon.capabilities_pinned": "ADR-097",
 });
 
 /**
@@ -527,43 +536,7 @@ export function validatePreflightPrimitives(primitives, recordsByNumber, errors,
     if (!PRIMITIVE_KINDS.has(entry.requirement)) errors.push(`${prefix}.requirement must be daemon_capability or model_step_check`);
     if (typeof entry.decision !== "string" || !/^ADR-\d{3}$/u.test(entry.decision)) errors.push(`${prefix}.decision must name an ADR`);
     if (!nonEmpty(entry.delivery, 20)) errors.push(`${prefix}.delivery must contain at least 20 characters`);
-    const owners = validateIssueRefs(entry.owner_issues, `${prefix}.owner_issues`, errors, null);
-    if (Array.isArray(entry.owner_issues) && entry.owner_issues.length === 0) errors.push(`${prefix}: \`${entry.capability}\` names no owner issue`);
-    // Each surface has one owner, and that owner's obligation names it: the
-    // line between two owners of one primitive is drawn surface by surface.
-    const surfaces = [];
-    if (!Array.isArray(entry.elements)) errors.push(`${prefix}.elements must be a list of {surface, owner}`);
-    else {
-      for (const [at, element] of entry.elements.entries()) {
-        if (!exactKeys(element, ["owner", "surface"]) || !nonEmpty(element.surface) || !Number.isInteger(element.owner)) {
-          errors.push(`${prefix}.elements[${at}] must be a closed {surface, owner} object`);
-          continue;
-        }
-        if (surfaces.some((seenSurface) => seenSurface.surface === element.surface)) errors.push(`${prefix}: surface "${element.surface}" is named twice`);
-        surfaces.push(element);
-        if (!owners.includes(element.owner)) {
-          errors.push(`${prefix}: surface "${element.surface}" is owned by #${element.owner}, which is not among the owners of \`${entry.capability}\``);
-          continue;
-        }
-        const text = recordsByNumber.get(element.owner)?.implementation_obligation_before_mvp;
-        if (typeof text !== "string" || !text.includes(element.surface)) {
-          errors.push(`${prefix}: surface "${element.surface}" of \`${entry.capability}\` is not named in #${element.owner}'s implementation_obligation_before_mvp`);
-        }
-      }
-    }
-    for (const issue of owners) {
-      const record = recordsByNumber.get(issue);
-      if (!record) continue;
-      if (record.lifecycle !== "required_for_v1") {
-        errors.push(`${prefix}: \`${entry.capability}\` is carried by #${issue}, which is ${record.lifecycle}, not required_for_v1`);
-        continue;
-      }
-      if (typeof record.implementation_obligation_before_mvp !== "string" ||
-          !record.implementation_obligation_before_mvp.includes(`\`${entry.capability}\``)) {
-        errors.push(`#${issue} carries \`${entry.capability}\` but its implementation_obligation_before_mvp does not name it`);
-      }
-      if (!surfaces.some((element) => element.owner === issue)) errors.push(`#${issue} carries \`${entry.capability}\` but owns none of its surfaces`);
-    }
+    validateOwnership(entry, entry.capability, prefix, recordsByNumber, errors);
   }
   const sortedNames = sorted(names);
   if (names.some((name, index) => name !== sortedNames[index])) errors.push("matrix preflight_primitives must be sorted by capability");
@@ -583,16 +556,198 @@ export function validatePreflightPrimitives(primitives, recordsByNumber, errors,
   }
   // The reverse: a v1 record whose obligation claims a primitive is one of its
   // owners, so prose cannot schedule work the structure does not assign.
-  for (const want of requirements) {
-    const owners = seen.get(want.capability)?.owner_issues;
-    for (const [issue, record] of recordsByNumber) {
-      if (record.lifecycle !== "required_for_v1" || typeof record.implementation_obligation_before_mvp !== "string") continue;
-      if (!record.implementation_obligation_before_mvp.includes(`\`${want.capability}\``)) continue;
-      if (!Array.isArray(owners) || !owners.includes(issue)) {
-        errors.push(`#${issue} names \`${want.capability}\` in its implementation obligation but is not among its owners`);
+  validateReverseClaims(requirements.map((want) => want.capability), (name) => seen.get(name)?.owner_issues, recordsByNumber, errors);
+}
+
+/**
+ * Who carries one entry, and which of its surfaces each carries.
+ *
+ * Every owner is a `required_for_v1` record whose implementation obligation
+ * names the entry in backticks and owns at least one surface; every surface
+ * has one owner among them, named verbatim in that owner's obligation, so the
+ * line between two owners of one entry is drawn surface by surface. The
+ * preflight's primitives and the graph's enforcement points answer "who
+ * carries it" by this one rule.
+ */
+function validateOwnership(entry, name, prefix, recordsByNumber, errors) {
+  const owners = validateIssueRefs(entry.owner_issues, `${prefix}.owner_issues`, errors, null);
+  if (Array.isArray(entry.owner_issues) && entry.owner_issues.length === 0) errors.push(`${prefix}: \`${name}\` names no owner issue`);
+  const surfaces = [];
+  if (!Array.isArray(entry.elements)) errors.push(`${prefix}.elements must be a list of {surface, owner}`);
+  else {
+    for (const [at, element] of entry.elements.entries()) {
+      if (!exactKeys(element, ["owner", "surface"]) || !nonEmpty(element.surface) || !Number.isInteger(element.owner)) {
+        errors.push(`${prefix}.elements[${at}] must be a closed {surface, owner} object`);
+        continue;
+      }
+      if (surfaces.some((seenSurface) => seenSurface.surface === element.surface)) errors.push(`${prefix}: surface "${element.surface}" is named twice`);
+      surfaces.push(element);
+      if (!owners.includes(element.owner)) {
+        errors.push(`${prefix}: surface "${element.surface}" is owned by #${element.owner}, which is not among the owners of \`${name}\``);
+        continue;
+      }
+      const text = recordsByNumber.get(element.owner)?.implementation_obligation_before_mvp;
+      if (typeof text !== "string" || !text.includes(element.surface)) {
+        errors.push(`${prefix}: surface "${element.surface}" of \`${name}\` is not named in #${element.owner}'s implementation_obligation_before_mvp`);
       }
     }
   }
+  for (const issue of owners) {
+    const record = recordsByNumber.get(issue);
+    if (!record) continue;
+    if (record.lifecycle !== "required_for_v1") {
+      errors.push(`${prefix}: \`${name}\` is carried by #${issue}, which is ${record.lifecycle}, not required_for_v1`);
+      continue;
+    }
+    if (typeof record.implementation_obligation_before_mvp !== "string" ||
+        !record.implementation_obligation_before_mvp.includes(`\`${name}\``)) {
+      errors.push(`#${issue} carries \`${name}\` but its implementation_obligation_before_mvp does not name it`);
+    }
+    if (!surfaces.some((element) => element.owner === issue)) errors.push(`#${issue} carries \`${name}\` but owns none of its surfaces`);
+  }
+}
+
+/** A `required_for_v1` record whose obligation names an entry in backticks is among its owners. */
+function validateReverseClaims(names, ownersOf, recordsByNumber, errors) {
+  for (const name of names) {
+    const owners = ownersOf(name);
+    for (const [issue, record] of recordsByNumber) {
+      if (record.lifecycle !== "required_for_v1" || typeof record.implementation_obligation_before_mvp !== "string") continue;
+      if (!record.implementation_obligation_before_mvp.includes(`\`${name}\``)) continue;
+      if (!Array.isArray(owners) || !owners.includes(issue)) {
+        errors.push(`#${issue} names \`${name}\` in its implementation obligation but is not among its owners`);
+      }
+    }
+  }
+}
+
+const ENFORCEMENT_KEYS = Object.freeze(["decision", "delivery", "elements", "owner_issues", "point", "source"]);
+const ENFORCEMENT_SOURCES = new Set(["graph_guard_authority", "graph_predicates", "graph_workflows"]);
+const asList = (value) => (Array.isArray(value) ? value : []);
+
+/** The names of the workflows a graph registers, and of the Arena ones among them. */
+const workflowNames = (graph) => asList(graph.workflows).map((workflow) => workflow?.name).filter((name) => typeof name === "string");
+export const ARENA_WORKFLOW_PREFIX = "autosk-arena-";
+export const ARENA_RUNTIME_POINT = "graph.arena-runtime";
+const arenaWorkflows = (graph) => workflowNames(graph).filter((name) => name.startsWith(ARENA_WORKFLOW_PREFIX));
+
+/**
+ * What only product code can enforce in the workflow graph, the field each is
+ * read from, and the decision it rests on.
+ *
+ * Round 7 of #39 (R7-10) found that no product code evaluates the graph's
+ * predicates or its `guards[].authority`, and that no extension entry point
+ * registers its workflows: every `buildWorkflow` caller is a verification
+ * script, and the evaluator was left to #40, outside the #3–#39 inventory.
+ * A graph that enumerates predicates needs something that decides them
+ * (ADR-082); one whose guards name a human or a policy actor needs something
+ * that admits that authority only as ADR-091 allows; one that registers
+ * workflows needs something that builds and registers each of them (ADR-090);
+ * one that registers Arena's workflows needs Arena's runtime, which its
+ * contract decides (ADR-077). A point whose owner must name workflows carries
+ * `workflowsOf` and says what the owner does with them.
+ */
+const ENFORCEMENT_POINTS = Object.freeze([
+  Object.freeze({
+    point: ARENA_RUNTIME_POINT,
+    source: "graph_workflows",
+    decision: "ADR-077",
+    requiredBy: (graph) => arenaWorkflows(graph).length > 0,
+    workflowsOf: arenaWorkflows,
+    claim: "runs the graph's Arena workflows",
+  }),
+  Object.freeze({
+    point: "graph.guard-authority",
+    source: "graph_guard_authority",
+    decision: "ADR-091",
+    requiredBy: (graph) => asList(graph.guards).some((guard) => ["human", "policy"].includes(guard?.authority?.actor)),
+  }),
+  Object.freeze({
+    point: "graph.predicate-evaluation",
+    source: "graph_predicates",
+    decision: "ADR-082",
+    requiredBy: (graph) => asList(graph.predicates).length > 0,
+  }),
+  Object.freeze({
+    point: "graph.workflow-registration",
+    source: "graph_workflows",
+    decision: "ADR-090",
+    requiredBy: (graph) => workflowNames(graph).length > 0,
+    workflowsOf: workflowNames,
+    claim: "registers the graph's workflows",
+  }),
+]);
+
+/**
+ * The enforcement points a graph requires, read from the graph itself: a point
+ * whose field the graph leaves empty is not required, and a point whose owner
+ * must name workflows carries their names.
+ */
+export function enforcementRequirements(graph) {
+  if (!graph || typeof graph !== "object" || Array.isArray(graph)) return [];
+  return ENFORCEMENT_POINTS.filter((entry) => entry.requiredBy(graph)).map(({ point, source, decision, workflowsOf, claim }) => (
+    workflowsOf ? { point, source, decision, workflows: workflowsOf(graph), claim } : { point, source, decision }
+  ));
+}
+
+/**
+ * Every enforcement point the v1 graph requires is carried by some
+ * `required_for_v1` record, by the rule the preflight's primitives follow, and
+ * the matrix names no point the graph does not require. The owner of the
+ * registration point names every workflow the graph registers, so a workflow
+ * added to the graph has an owner before the matrix validates again (ADR-097).
+ */
+export function validateEnforcementPoints(points, recordsByNumber, errors, requirements) {
+  if (!Array.isArray(points)) {
+    errors.push("matrix enforcement_points must be an array naming who carries each point the v1 graph requires");
+    return;
+  }
+  const seen = new Map();
+  const names = [];
+  for (const [index, entry] of points.entries()) {
+    const prefix = `enforcement_points[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push(`${prefix} must be an object`);
+      continue;
+    }
+    if (!exactKeys(entry, ENFORCEMENT_KEYS)) errors.push(`${prefix} keys differ from the closed v1 enforcement point shape`);
+    if (typeof entry.point !== "string" || !/^graph\.[a-z]+(?:-[a-z]+)*$/u.test(entry.point)) {
+      errors.push(`${prefix}.point must name an enforcement point of the graph`);
+      continue;
+    }
+    names.push(entry.point);
+    if (seen.has(entry.point)) errors.push(`${prefix}: \`${entry.point}\` is named twice`);
+    else seen.set(entry.point, entry);
+    if (!ENFORCEMENT_SOURCES.has(entry.source)) errors.push(`${prefix}.source must be graph_guard_authority, graph_predicates or graph_workflows`);
+    if (typeof entry.decision !== "string" || !/^ADR-\d{3}$/u.test(entry.decision)) errors.push(`${prefix}.decision must name an ADR`);
+    if (!nonEmpty(entry.delivery, 20)) errors.push(`${prefix}.delivery must contain at least 20 characters`);
+    validateOwnership(entry, entry.point, prefix, recordsByNumber, errors);
+  }
+  const sortedNames = sorted(names);
+  if (names.some((name, index) => name !== sortedNames[index])) errors.push("matrix enforcement_points must be sorted by point");
+  const required = new Map(requirements.map((want) => [want.point, want]));
+  for (const want of requirements) {
+    const entry = seen.get(want.point);
+    if (!entry) {
+      errors.push(`\`${want.point}\` is required by the v1 graph and carried by no required_for_v1 record`);
+      continue;
+    }
+    if (entry.source !== want.source) errors.push(`\`${want.point}\` is read from ${want.source}, not ${String(entry.source)}`);
+    if (entry.decision !== want.decision) errors.push(`\`${want.point}\` is the graph's ${want.decision} enforcement point, not ${String(entry.decision)}`);
+    for (const issue of want.workflows ? asList(entry.owner_issues) : []) {
+      const text = recordsByNumber.get(issue)?.implementation_obligation_before_mvp;
+      if (typeof text !== "string") continue;
+      for (const workflow of want.workflows) {
+        if (!text.includes(`\`${workflow}\``)) {
+          errors.push(`#${issue} ${want.claim} but its implementation_obligation_before_mvp does not name \`${workflow}\``);
+        }
+      }
+    }
+  }
+  for (const name of seen.keys()) {
+    if (!required.has(name)) errors.push(`\`${name}\` is not required by the v1 graph; the matrix names only what it requires`);
+  }
+  validateReverseClaims(requirements.map((want) => want.point), (name) => seen.get(name)?.owner_issues, recordsByNumber, errors);
 }
 
 function mdEscape(value) {
@@ -654,10 +809,25 @@ export function renderDocumentation(matrix) {
     "| --- | --- | --- | --- | --- | --- |",
   );
   const list = (value) => (Array.isArray(value) ? value : []);
+  const surface = (element) => (element && typeof element === "object" ? `${element.surface} (#${element.owner})` : String(element));
+  const carriers = (entry) => list(entry.owner_issues).map((number) => `#${number}`).join(", ");
   for (const entry of list(matrix.preflight_primitives)) {
     if (!entry || typeof entry !== "object") continue;
-    const surface = (element) => (element && typeof element === "object" ? `${element.surface} (#${element.owner})` : String(element));
-    lines.push(`| \`${entry.capability}\` | ${entry.requirement} | ${entry.decision} | ${list(entry.owner_issues).map((number) => `#${number}`).join(", ")} | ${mdEscape(list(entry.elements).map(surface).join("; "))} | ${mdEscape(entry.delivery)} |`);
+    lines.push(`| \`${entry.capability}\` | ${entry.requirement} | ${entry.decision} | ${carriers(entry)} | ${mdEscape(list(entry.elements).map(surface).join("; "))} | ${mdEscape(entry.delivery)} |`);
+  }
+
+  lines.push(
+    "",
+    "## Точки исполнения, на которых стоит граф",
+    "",
+    "Граф workflow (`resources/workflow-graph/workflow-graph.v1.json`) объявляет то, что исполняет только продуктовый код: предикаты, которые кто-то должен вычислить, guards, чей `authority` называет человека или policy, workflows, которые кто-то должен собрать и зарегистрировать, и workflows Arena, чей runtime решает её контракт. `validate:capabilities` выводит эти точки из самого графа (`enforcementRequirements`) и держит их к матрице по тому же правилу, что примитивы preflight: каждую несёт запись `required_for_v1`, чьё `implementation_obligation_before_mvp` называет её и свои поверхности, запись, которая её называет, — среди владельцев, а владелец точки с workflows называет каждый из них; владелец runtime Arena — один и тот же в матрице, в строке статуса контракта Arena и в реестре parity (ADR-097). Смысл каждого предиката остаётся за записью его домена.",
+    "",
+    "| Point | Read from | ADR | Carried by | Surfaces | Delivery |",
+    "| --- | --- | --- | --- | --- | --- |",
+  );
+  for (const entry of list(matrix.enforcement_points)) {
+    if (!entry || typeof entry !== "object") continue;
+    lines.push(`| \`${entry.point}\` | ${entry.source} | ${entry.decision} | ${carriers(entry)} | ${mdEscape(list(entry.elements).map(surface).join("; "))} | ${mdEscape(entry.delivery)} |`);
   }
 
   lines.push("", "## Planned after v1", "");
@@ -785,15 +955,65 @@ export function validateContractStatuses(matrix, contracts) {
   return errors;
 }
 
-export function validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts = [] }) {
+/**
+ * The marker of the contract whose status line names Arena's owner. The
+ * contract is found by its marker rather than by a path written here: a script
+ * that names a contract's path is measured as reading it (the panel package's
+ * `measureContracts`), and this validator reads only its status line.
+ */
+export const ARENA_CONTRACT_MARKER = "<!-- arena-contract:v1 -->";
+
+/**
+ * Arena's one owner, named the same in the three places that name it.
+ *
+ * Round 7 of #39 (R7-13) found Arena a README goal with two workflows in the
+ * graph, while its contract named #4, the parity registry #14, #16 and #18,
+ * and no `required_for_v1` obligation named Arena at all: three owners, and
+ * none of them holding the work. The matrix's owner is the structured entry's
+ * — the record that carries `graph.arena-runtime`, held to its obligation by
+ * the shared ownership rule — and not whichever obligation mentions Arena in
+ * prose. The contract's owner is every `#N` on its status line; the parity
+ * registry's, every issue its Arena sources name. All three must be the same
+ * single record (ADR-097). Each leg fails closed (review of 11c, L2): a set of
+ * contracts none of which carries the marker, a registry without Arena
+ * sources and a matrix without the entry name no owner and are refused. A
+ * validation given no contracts at all does not read that leg.
+ */
+export function arenaOwnerErrors({ matrix, parityRegistry, contracts = [] }) {
+  const errors = [];
+  const legs = [];
+  const given = asList(contracts);
+  if (given.length > 0) {
+    const contract = given.find((entry) => typeof entry?.text === "string" && entry.text.includes(ARENA_CONTRACT_MARKER));
+    if (!contract) errors.push(`Arena: no contract carries ${ARENA_CONTRACT_MARKER}, so no status line names its owner`);
+    else {
+      const status = contract.text.split("\n").find((line) => line.startsWith("Status:")) ?? "";
+      legs.push([String(contract.path), sorted(new Set([...status.matchAll(/#(\d+)/gu)].map((match) => Number(match[1]))))]);
+    }
+  }
+  legs.push(["the parity registry", sorted(new Set(asList(parityRegistry?.sources)
+    .filter((source) => typeof source?.id === "string" && source.id.startsWith("protocol.arena."))
+    .flatMap((source) => asList(source?.autoskTarget?.issueRefs))))]);
+  const runtime = asList(matrix?.enforcement_points).find((entry) => entry?.point === ARENA_RUNTIME_POINT);
+  legs.push(["the matrix", sorted(new Set(asList(runtime?.owner_issues)))]);
+  const owners = new Set(legs.flatMap(([, issues]) => issues));
+  if (owners.size !== 1 || legs.some(([, issues]) => issues.length !== 1)) {
+    const named = (issues) => (issues.length > 0 ? issues.map((issue) => `#${issue}`).join(", ") : "none");
+    errors.push(`Arena: ${legs.map(([where, issues], index) => `${where}${index === 0 ? " names" : ""} ${named(issues)}`).join(", ")}; its runtime has one owner, the required_for_v1 record that carries \`${ARENA_RUNTIME_POINT}\`, and the contract's status line and the parity registry name it alone`);
+  }
+  return errors;
+}
+
+export function validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts = [], graph }) {
   const inventoryErrors = validateInventory(inventory);
-  const matrixErrors = validateMatrix(matrix, inventory, parityRegistry);
+  const matrixErrors = validateMatrix(matrix, inventory, parityRegistry, graph);
   const errors = [...inventoryErrors, ...matrixErrors];
   const canRender = Array.isArray(matrix?.records) &&
     matrix.records.every((record) => record && typeof record === "object" && !Array.isArray(record));
   if (typeof documentation === "string" && canRender) errors.push(...validateDocumentation(matrix, documentation));
   if (canRender) errors.push(...validateReadme(matrix, readme));
   if (canRender) errors.push(...validateContractStatuses(matrix, contracts));
+  if (canRender) errors.push(...arenaOwnerErrors({ matrix, parityRegistry, contracts }));
   return errors;
 }
 
@@ -847,7 +1067,8 @@ function run(argv) {
   const documentation = existsSync(args.docPath) ? readFileSync(args.docPath, "utf8") : null;
   const readme = existsSync(README_PATH) ? readFileSync(README_PATH, "utf8") : null;
   const contracts = existsSync(CONTRACTS_DIR) ? readContracts() : [];
-  const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts });
+  const graph = parseJson(GRAPH_PATH);
+  const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts, graph });
   if (documentation === null) errors.push(`missing documentation: ${args.docPath}`);
   if (errors.length) return fail(errors);
   console.log(`OK: ${matrix.records.length} program issues; ${matrix.summary.required_for_v1} required_for_v1; ${matrix.summary.planned_after_v1} planned_after_v1; digest ${matrix.canonical_digest}`);

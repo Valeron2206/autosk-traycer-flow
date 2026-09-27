@@ -1845,3 +1845,81 @@ test("the round-record sentence names the check that holds it", async () => {
   const { text } = await build();
   assert.match(text, /checked by `npm test` \(`test\/validate-design-candidate\.test\.mjs`\) against the roster its round sat/u);
 });
+
+// Debt 11c (R7-10, R7-9, R7-11): §5 says plainly that no product code
+// evaluates the graph, measured from who calls `buildWorkflow`, and names the
+// v1 owners of the points the design rests on.
+import { factoryCallers } from "../scripts/build-panel-package.mjs";
+
+test("the factory's callers are measured, and none of them is product code", async () => {
+  const callers = await factoryCallers();
+  assert.ok(callers.length > 0);
+  assert.deepEqual(callers, [...callers].sort());
+  assert.ok(callers.every((file) => file.startsWith("scripts/")), callers.join(", "));
+  assert.ok(!callers.includes("src/host/workflow-factory.mjs"), "the definition is not a caller");
+  assert.ok(callers.includes("scripts/verify-autosk-exits.mjs"));
+});
+
+test("§5 states that no product evaluator of the graph exists, from the measured callers", async () => {
+  const callers = await factoryCallers();
+  const { text } = await build();
+  const evidence = section5(text);
+  assert.match(evidence, /No product code evaluates the graph\./u);
+  for (const file of callers) assert.ok(evidence.includes(`\`${file}\``), file);
+  assert.match(evidence, /`guards\[\]\.authority`/u);
+  assert.match(evidence, /no file under `src\/` calls it/u);
+  assert.match(evidence, /#18 \(`enforcement_points`, ADR-097\)/u);
+  // Review of 11c (M1): #18 owns the mechanism; the meaning of a predicate stays with its domain.
+  assert.match(evidence, /each predicate's meaning stays with its domain record/u);
+  const product = await build({ factoryCallers: ["scripts/verify-autosk-exits.mjs", "src/host/extension.mjs"] });
+  const productEvidence = section5(product.text);
+  assert.doesNotMatch(productEvidence, /no file under `src\/` calls it/u);
+  assert.doesNotMatch(productEvidence, /No product code evaluates the graph\./u);
+  assert.match(productEvidence, /`src\/host\/extension\.mjs` under `src\/`/u);
+});
+
+test("§5 names the daemon capability check, the session token and the resume leaves with their v1 owners", async () => {
+  const evidence = section5((await build()).text);
+  assert.match(evidence, /`daemon\.capabilities_pinned`/u);
+  // Review of 11c (M2): the load-time call is the entry point's (#18), and the function it calls #11's.
+  assert.match(evidence, /the daemon capability check to #34, the call at extension load to #18's entry point and the function it calls to #11 \(ADR-097\)/u);
+  assert.match(evidence, /that dispatch gate is #34's in matrix v1 \(ADR-097\)/u);
+  assert.match(evidence, /`AUTOSK_SESSION_TOKEN`/u);
+  assert.match(evidence, /`autosk metadata set`/u);
+  assert.match(evidence, /#231/u);
+  assert.doesNotMatch(evidence, /nothing calls it before a model launch yet\. All of this is implementation work\s+under #40/u);
+  assert.doesNotMatch(evidence, /\(ADR-090, #40\)|\(ADR-091, #40\)/u);
+  // The gap the bullet discloses is the tree's: the pinned patch hands the
+  // token to both agents' model processes, and the factory writes the resume
+  // leaves through the plain CLI.
+  const patch = read("compat/autosk/patches/0028-session-bound-create.patch");
+  for (const agent of ["claude-agent", "pi-agent"]) {
+    const hunk = patch.slice(patch.indexOf(`+++ b/daemon/extensions/${agent}/src/index.ts`));
+    assert.match(hunk.slice(0, hunk.indexOf("\ndiff --git")), /^\+ {4}AUTOSK_SESSION_TOKEN: ctx\.sessionToken,$/mu, agent);
+  }
+  assert.match(read("src/host/workflow-factory.mjs"), /\["autosk", "metadata", "set", ctx\.tasks\.currentId, `park\.receipts\.\$\{stepName\}`/u);
+});
+
+test("the factory's users are measured by identifier over every code extension, TypeScript included", async () => {
+  // Review of 11c (L1): a TypeScript entry point, or a caller that passes
+  // `buildWorkflow` on instead of calling it, is product code that uses the
+  // factory; the measurement must see both.
+  const root = mkdtempSync(path.join(os.tmpdir(), "factory-callers-"));
+  const write = (relative, text) => {
+    mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    writeFileSync(path.join(root, relative), text);
+  };
+  try {
+    write("src/host/workflow-factory.mjs", "export function buildWorkflow(document) { return document; }\n");
+    write("src/host/extension.ts", "export default (autosk) => autosk.registerWorkflow(buildWorkflow(graph, { evaluate }));\n");
+    write("scripts/build-all.mjs", "const built = documents.map(buildWorkflow);\n");
+    write("scripts/notes.mjs", "// buildWorkflow is described elsewhere\n");
+    const callers = await factoryCallers({ root });
+    assert.deepEqual(callers, ["scripts/build-all.mjs", "src/host/extension.ts"]);
+    const evidence = section5((await build({ factoryCallers: callers })).text);
+    assert.match(evidence, /`src\/host\/extension\.ts` under `src\/`/u);
+    assert.doesNotMatch(evidence, /No product code evaluates the graph\./u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
