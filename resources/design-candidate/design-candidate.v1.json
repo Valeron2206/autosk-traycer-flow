@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "258fa3f983bb1d5440813d6c35e345ffa321725e9f9278af333b8f81a2e67ec0"
+      "sha256": "107a850b1932af51b578e4a4f301a73fad254095298ce587cdd22fadf381e7a0"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -128,7 +128,7 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "d054183088681f865fdff690e66bf4957c71e2c55acd2f482e5adfaa31ce8923"
+      "sha256": "65ab5cfd38a9375c9522413468d2f7b79baaf02f9a94a76a86940281980479c7"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
@@ -200,7 +200,7 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "b19f094004f059687d6faf319f573a8e9512f1cec63453693db79775d22182a2"
+      "sha256": "18ba3601735405cc4d149dba19b6f9d91a6a88451afdf1b999fdd89eef9a18f7"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
@@ -955,7 +955,7 @@
       "sha256": "6b20c66603620bac1c1fc6584c43e60e9a5fa9c41664dc6b02c453496c48344e"
     }
   ],
-  "candidate_digest": "340f3dfad7c9dccdb020f20dde28cc70ecc3b9cf4bd3445a8c640c1f37a1d7f9",
+  "candidate_digest": "d1f0c4db5cce3cdef2a3d55a8ecd5ebe54fb9052b7f4c36d03c1f63a1c84469f",
   "dispositions": [
     {
       "issue": 3,

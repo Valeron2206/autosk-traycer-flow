@@ -24,9 +24,10 @@
  * the reason for this park. A target the row declares the user's decision
  * (`decision_targets`) is admitted only on the decision recorded under that
  * park — a verified daemon UserDecisionRecord of this task's resume from this
- * park into that target, which the caller looks up and verifies: a round past
- * a cap is the user's, one per decision, and so is a re-stage onto a moved
- * target. With no signer, none is admitted.
+ * park into that target, which the admitter the caller hands in looks up and
+ * verifies: a round past a cap is the user's, one per decision, and so is a
+ * re-stage onto a moved target. With no admitter, or no signer, none is
+ * admitted.
  *
  * The engine calls both through ONE hook. `WorkflowDefinition.onTransit(ctx, to)`
  * is a veto, not a selector: the engine runs it for every transition — enroll,
@@ -52,7 +53,9 @@
  * was true, which is not a state machine.
  */
 
-import { decisionPayloadHash, noSigner, resumeDecisionSubject, verifiedUserDecision } from "./user-decision.mjs";
+// The one module this imports: the extensions the autosk verifiers build ship
+// this file and the canonical form beside it and nothing else, so anything
+// more is handed in (CI on #270).
 import { graphDigest } from "./workflow-graph-canonical.mjs";
 
 /**
@@ -336,21 +339,11 @@ function watermarkOf(reason, row, visits) {
 const DECISION = /^(.+)#([a-f0-9]{64})$/u;
 
 /**
- * Whether a verified UserDecisionRecord is the one a leaf names and decided
- * this resume: the leaf's digest is the record's, the record names this task,
- * its subject is this task's resume from this park into this target, and the
- * answer it signed is that resume (CodeRabbit on #270). A task or park that
- * cannot be named is no resume, so a subject that cannot be digested decides
- * nothing.
+ * The admitter a factory has when its caller hands in none: it admits no
+ * decision, so a decision-gated resume is refused (fail closed).
  */
-function decidedHere(record, signed, named, { task, reason, watermark, target }) {
-  try {
-    return signed.record_hash === named && record.task_id === task
-      && record.subject_hash === resumeDecisionSubject({ task_id: task, reason, watermark, target })
-      && record.payload_hash === decisionPayloadHash({ resume_target: target });
-  } catch {
-    return false;
-  }
+function noAdmitter() {
+  throw new Error("no decision admitter is handed in, so no UserDecisionRecord admits the resume");
 }
 
 /**
@@ -362,10 +355,11 @@ function decidedHere(record, signed, named, { task, reason, watermark, target })
  * recorded under it — and `visits` is the daemon's `step_visits` counter,
  * which the receipts and the decision are checked against. `decisions` is
  * what a decision-gated resume is checked with: `task`, the id of the task
- * resuming; `record(digest)`, the UserDecisionRecord this project's store
- * holds under a digest, or nothing; and `verifySignature`, the ADR-023
- * verifier, `noSigner` by default, under which no decision-gated resume is
- * admitted.
+ * resuming, and `admitDecision`, the caller's admitter — asked about
+ * `{ digest, task, reason, watermark, target }` once the leaf's shape and
+ * watermark hold, it admits by returning `true` (`resumeDecisionAdmitter` in
+ * `user-decision.mjs` checks the record the digest names). Without one,
+ * nothing is admitted.
  */
 export function permitsResume(state, reason, target, park = {}, visits = {}, decisions = {}) {
   if (reason === undefined) {
@@ -416,13 +410,14 @@ export function permitsResume(state, reason, target, park = {}, visits = {}, dec
   // The leaf's shape and park are not the decision (CodeRabbit on #270): a
   // leaf is metadata any holder of the CLI can write, so one copied from
   // another task parked with the same watermark would open this one. The
-  // record it names is the decision, and it is checked as the decision queue
-  // checks an answer (ADR-091): the caller's lookup returns the record by the
-  // leaf's digest and it must be that record; it must verify under the
-  // caller's verifier, which by default knows no signer (ADR-090, #4), so on a
-  // real host today every decision-gated resume is refused; and it must be
-  // about this task, this park and this target (`resumeDecisionSubject`) and
-  // have answered exactly that resume.
+  // record it names is the decision, and the caller's admitter checks it as
+  // the decision queue checks an answer (ADR-091): the record the leaf's
+  // digest names, verified under the caller's verifier — which by default
+  // knows no signer (ADR-090, #4), so on a real host today every
+  // decision-gated resume is refused — and about this task, this park and
+  // this target, answering exactly that resume. The admitter is handed in
+  // rather than imported (CI on #270), and only its plain `true` admits: a
+  // refusal it throws, or any other answer, refuses.
   if ((row.decision_targets ?? []).includes(target)) {
     const decided = typeof park.decision === "string" ? DECISION.exec(park.decision) : null;
     const watermark = watermarkOf(reason, row, visits);
@@ -434,22 +429,19 @@ export function permitsResume(state, reason, target, park = {}, visits = {}, dec
           (decided === null ? "none is recorded" : `the one recorded is ${decided[1]}'s`),
       );
     }
-    const { task, verifySignature = noSigner } = decisions ?? {};
-    const record = typeof decisions?.record === "function" ? decisions.record(decided[2]) : undefined;
-    let signed;
+    const { task, admitDecision = noAdmitter } = decisions ?? {};
+    let admitted = false;
+    let why = "the admitter did not admit it";
     try {
-      signed = verifiedUserDecision(record, { code: "resume_target_not_permitted", verifySignature });
+      admitted = admitDecision({ digest: decided[2], task, reason, watermark, target }) === true;
     } catch (error) {
-      throw new GraphRefusal(
-        "resume_target_not_permitted",
-        `${reason} resumes into ${target} only on a verified UserDecisionRecord, and ${decided[2]} names none here: ${error.message}`,
-      );
+      why = error.message;
     }
-    if (!decidedHere(record, signed, decided[2], { task, reason, watermark, target })) {
+    if (!admitted) {
       throw new GraphRefusal(
         "resume_target_not_permitted",
-        `${reason} resumes into ${target} only on a UserDecisionRecord that decided task ${task}'s resume from this park ` +
-          `into ${target}, and ${decided[2]} decided something else`,
+        `${reason} resumes into ${target} only on a verified UserDecisionRecord of task ${task}'s resume from this park ` +
+          `into ${target}, and the one ${decided[2]} names is not admitted: ${why}`,
       );
     }
   }
@@ -638,13 +630,14 @@ export function parkReasonOf(metadata) {
  * code and belong to the distribution digest; which steps exist and which hooks
  * they declare is structure and belongs to this document.
  *
- * `decisionRecord(digest)` returns the UserDecisionRecord this project's store
- * holds under a digest, and `verifySignature` is the ADR-023 verifier: what a
- * decision-gated resume is checked with, handed in as the evaluator is. The
- * default verifier knows no signer, so without one no decision-gated resume is
- * admitted (CodeRabbit on #270).
+ * `admitDecision` is what a decision-gated resume is checked with, handed in as
+ * the evaluator is: `resumeDecisionAdmitter({ record, verifySignature })` from
+ * `user-decision.mjs`, over this project's store and the ADR-023 verifier.
+ * Without one no decision-gated resume is admitted (CodeRabbit on #270); it is
+ * handed in rather than imported, so this module needs nothing but the
+ * canonical form beside it (CI on #270).
  */
-export function buildWorkflow(document, { evaluate, agents = {}, decisionRecord, verifySignature = noSigner } = {}) {
+export function buildWorkflow(document, { evaluate, agents = {}, admitDecision } = {}) {
   if (typeof evaluate !== "function") {
     throw new TypeError("buildWorkflow needs a predicate evaluator; the document declares predicates and does not decide them");
   }
@@ -737,9 +730,8 @@ export function buildWorkflow(document, { evaluate, agents = {}, decisionRecord,
         park: task.metadata?.park,
         visits: task.metadata?.step_visits,
         // What a decision-gated resume is checked with: the task that resumes,
-        // named by the record the veto just read, and the caller's lookup and
-        // verifier.
-        decisions: { task: task.id, record: decisionRecord, verifySignature },
+        // named by the record the veto just read, and the caller's admitter.
+        decisions: { task: task.id, admitDecision },
       };
       admit(state, context, to, deciding(task));
     },

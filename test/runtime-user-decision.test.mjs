@@ -20,6 +20,7 @@ import {
   SIGNATURE_DOMAIN,
   decisionPayloadHash,
   noSigner,
+  resumeDecisionAdmitter,
   resumeDecisionSubject,
   userDecisionProvenance,
   userDecisionRecordHash,
@@ -262,4 +263,42 @@ test("a resume decision's subject is the domain-separated digest of the task, th
   for (const field of Object.keys(about)) {
     assert.notEqual(resumeDecisionSubject({ ...about, [field]: `${about[field]}x` }), resumeDecisionSubject(about), field);
   }
+});
+
+test("the resume admitter admits the verified record a leaf names, of this task's resume from this park into this target, and refuses the rest (CodeRabbit and CI on #270)", () => {
+  // What the workflow factory is handed to check a decision-gated resume:
+  // the factory reads the leaf and asks; this answers true or refuses with
+  // the factory's own code.
+  const about = { task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
+  const decided = (overrides = {}) => issue({
+    task_id: about.task_id,
+    subject_hash: resumeDecisionSubject(about),
+    payload_hash: decisionPayloadHash({ resume_target: about.target }),
+    ...overrides,
+  });
+  const record = decided();
+  const records = [record];
+  const lookup = (hash) => records.find((entry) => userDecisionRecordHash(entry) === hash);
+  const query = { digest: userDecisionRecordHash(record), task: about.task_id, reason: about.reason, watermark: about.watermark, target: about.target };
+  const admit = resumeDecisionAdmitter({ record: lookup, verifySignature: signer.verifySignature });
+  assert.equal(admit(query), true);
+  const refuses = (label, admitter, asked) =>
+    assert.throws(() => admitter(asked), (error) => error.code === "resume_target_not_permitted", label);
+  // With no signer — the default, and every real host today — nothing is admitted.
+  refuses("the default verifier", resumeDecisionAdmitter({ record: lookup }), query);
+  refuses("no lookup", resumeDecisionAdmitter({ verifySignature: signer.verifySignature }), query);
+  refuses("nothing at all", resumeDecisionAdmitter(), query);
+  refuses("a digest no record answers to", admit, { ...query, digest: "a".repeat(64) });
+  const other = decided({ record_id: "udr-0002" });
+  refuses("another record than the leaf names", resumeDecisionAdmitter({ record: () => other, verifySignature: signer.verifySignature }), query);
+  const misnamed = decided({ task_id: "t-2", record_id: "udr-0003" });
+  const earlier = decided({ subject_hash: resumeDecisionSubject({ ...about, watermark: "review_cap@narrow_review_join:10,record_code_verdict:0" }), record_id: "udr-0004" });
+  const stay = decided({ payload_hash: decisionPayloadHash({ resume_target: "human" }), record_id: "udr-0005" });
+  records.push(misnamed, earlier, stay);
+  refuses("a record naming another task over this task's subject", admit, { ...query, digest: userDecisionRecordHash(misnamed) });
+  refuses("a record of an earlier park", admit, { ...query, digest: userDecisionRecordHash(earlier) });
+  refuses("a record of this subject that answered something else", admit, { ...query, digest: userDecisionRecordHash(stay) });
+  refuses("another task asking", admit, { ...query, task: "t-2" });
+  refuses("another target asked for", admit, { ...query, target: "fix" });
+  refuses("no task asking", admit, { ...query, task: undefined });
 });

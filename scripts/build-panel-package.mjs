@@ -1261,7 +1261,8 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   this task and have decided this park's resume into this target (ADR-099,
   CodeRabbit on #270) — one round per decision past the cap, with the count and
   the limit unchanged; a resume that runs no round owes none. The factory is handed
-  its verifier as it is handed its evaluator, and without one the default verifier refuses, so no decision-gated resume is admitted on a real host today
+  the check as it is handed its evaluator — an admitter, \`resumeDecisionAdmitter\` over this
+  project's store and a verifier — and admits nothing without one; the default verifier refuses, so no decision-gated resume is admitted on a real host today
   (no user decision verifies on any host, above).
   The leaf's writer is the resume path (#35), the signer and verifier are #4's, and the CAS on the leaf is #18's (roadmap #231).
 - ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the

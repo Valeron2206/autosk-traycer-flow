@@ -15,14 +15,14 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
 import { DOCUMENT_PATH, graphDigest, parseStrict } from "../scripts/validate-workflow-graph.mjs";
 import { ROOT, closedByContract, readContracts } from "../scripts/validate-refusal-vocabulary.mjs";
 import { digest } from "../src/runtime/contracts.mjs";
-import { decisionPayloadHash, userDecisionRecordHash } from "../src/host/user-decision.mjs";
+import { decisionPayloadHash, resumeDecisionAdmitter, userDecisionRecordHash } from "../src/host/user-decision.mjs";
 import { testSigner } from "./support/user-decision-signer.mjs";
 import {
   GraphRefusal,
@@ -2268,17 +2268,23 @@ const resumeRecord = (row, visits, target, {
 /** The leaf a park carries for `record`: this park's watermark and the record's digest. */
 const leafFor = (row, visits, record) => `${watermarkOf(row, visits)}#${userDecisionRecordHash(record)}`;
 
-/** What a caller hands operation 2: the task, a lookup of records by digest, and the verifier. */
+/** A lookup of records by digest, as a project's store would answer it. */
+const lookupOf = (records) => (hash) => records.find((entry) => userDecisionRecordHash(entry) === hash);
+
+/**
+ * What a caller hands operation 2: the task, and the admitter that checks the
+ * record a leaf names — `resumeDecisionAdmitter`, over the lookup and the
+ * test signer's verifier (CI on #270: injected, so the factory imports none
+ * of it).
+ */
 const decidedBy = (records, { task = TASK, verifySignature = signer.verifySignature } = {}) => ({
   task,
-  record: (hash) => records.find((entry) => userDecisionRecordHash(entry) === hash),
-  verifySignature,
+  admitDecision: resumeDecisionAdmitter({ record: lookupOf(records), verifySignature }),
 });
 
-/** The factory's options that hand the veto the same lookup and verifier. */
+/** The factory's option that hands the veto the same admitter. */
 const deciding = (records, verifySignature = signer.verifySignature) => ({
-  decisionRecord: decidedBy(records).record,
-  verifySignature,
+  admitDecision: resumeDecisionAdmitter({ record: lookupOf(records), verifySignature }),
 });
 
 test("a resume into a target its row declares the user's decision is refused without the decision recorded under its park, and admitted with it (R7-4; review M1, M2)", async () => {
@@ -2460,12 +2466,13 @@ test("a decision-gated resume is admitted only on a verified UserDecisionRecord 
   // Nothing handed in, or the default verifier: no signer, so no decision
   // (ADR-090, #4) — a well-formed leaf decides nothing on its own.
   refused("nothing handed in", park, undefined);
-  refused("the default verifier", park, { task: TASK, record: decidedBy([record]).record });
+  refused("the default verifier", park, { task: TASK, admitDecision: resumeDecisionAdmitter({ record: lookupOf([record]) }) });
   // A well-formed leaf whose digest no record answers to.
   refused("a digest with no record", { ...origin, decision: decisionLeaf(row, visits) }, decidedBy([record]));
   // The lookup hands back another record than the one the leaf names.
   const another = resumeRecord(row, visits, "fix_artifact", { record_id: "udr-0002" });
-  refused("another record than the leaf names", park, { ...decidedBy([record]), record: () => another });
+  refused("another record than the leaf names", park,
+    { task: TASK, admitDecision: resumeDecisionAdmitter({ record: () => another, verifySignature: signer.verifySignature }) });
   // Another task's record, its leaf copied onto this park.
   const theirs = resumeRecord(row, visits, "fix_artifact", { task: "t-other" });
   refused("another task's record", { ...origin, decision: leafFor(row, visits, theirs) }, decidedBy([theirs]));
@@ -2486,8 +2493,8 @@ test("a decision-gated resume is admitted only on a verified UserDecisionRecord 
   const stay = resumeRecord(row, coded, "fix", { answer: "human" });
   refused("this subject, another answer", { ...code, decision: leafFor(row, coded, stay) }, decidedBy([stay]), "fix", coded);
 
-  // Through the veto: the task is the one the veto reads, and the lookup and
-  // the verifier are the workflow's options, as the evaluator is.
+  // Through the veto: the task is the one the veto reads, and the admitter is
+  // the workflow's option, as the evaluator is.
   const parked = (id) => ({ id, step: "human", status: "human", metadata: { step_visits: visits, park: { reason, ...park } } });
   const workflow = buildWorkflow(graph, { evaluate: always, ...deciding([record]) });
   assert.equal(await workflow.onTransit(context(parked(TASK)).ctx, { step: "fix_artifact" }), undefined);
@@ -2495,12 +2502,101 @@ test("a decision-gated resume is admitted only on a verified UserDecisionRecord 
     () => workflow.onTransit(context(parked("t-other")).ctx, { step: "fix_artifact" }),
     (error) => error.reason === "resume_target_not_permitted",
   );
-  for (const options of [{}, { decisionRecord: decidedBy([record]).record }]) {
+  for (const options of [{}, { admitDecision: resumeDecisionAdmitter({ record: lookupOf([record]) }) }]) {
     const unsigned = buildWorkflow(graph, { evaluate: always, ...options });
     await assert.rejects(
       () => unsigned.onTransit(context(parked(TASK)).ctx, { step: "fix_artifact" }),
       (error) => error.reason === "resume_target_not_permitted",
       JSON.stringify(Object.keys(options)),
     );
+  }
+});
+
+// --- CI on #270: the factory asks an injected admitter, and admits only its plain yes ---
+
+test("a decision-gated resume asks the injected admitter about exactly this leaf, task, park and target, and only its plain yes admits it (CI on #270)", async () => {
+  // CI on #270: the first CodeRabbit fix imported the record's verification
+  // into the factory, and the extension the autosk verifiers build could not
+  // load it. The check is the caller's now: the factory reads the leaf's
+  // shape and watermark, then asks the admitter it is handed, and anything
+  // but a returned `true` — a refusal thrown, false, nothing — refuses.
+  const graph = document();
+  const state = index(graph);
+  const reason = "review_cap";
+  const row = state.recovery.get(reason);
+  const visits = { narrow_review_join: 11, record_code_verdict: 0 };
+  const hash = "c".repeat(64);
+  const park = { origin: "narrow_review_join", decision: `${watermarkOf(row, visits)}#${hash}` };
+  const asked = [];
+  const answering = (answer) => (query) => { asked.push(query); return answer; };
+  assert.equal(permitsResume(state, reason, "fix_artifact", park, visits, { task: TASK, admitDecision: answering(true) }), true);
+  assert.deepEqual(asked, [{ digest: hash, task: TASK, reason, watermark: watermarkOf(row, visits), target: "fix_artifact" }]);
+  for (const answer of [false, undefined, "yes", 1]) {
+    const error = refusalOf(() => permitsResume(state, reason, "fix_artifact", park, visits, { task: TASK, admitDecision: answering(answer) }));
+    assert.equal(error.reason, "resume_target_not_permitted", String(answer));
+  }
+  const thrown = refusalOf(() => permitsResume(state, reason, "fix_artifact", park, visits, {
+    task: TASK,
+    admitDecision: () => { throw new Error("the record decided another resume"); },
+  }));
+  assert.equal(thrown.reason, "resume_target_not_permitted");
+  assert.match(thrown.detail, /the record decided another resume/u);
+  // A leaf of another park is refused before the admitter is asked.
+  asked.length = 0;
+  refusalOf(() => permitsResume(state, reason, "fix_artifact", { ...park, decision: `${watermarkOf(row, { narrow_review_join: 10 })}#${hash}` }, visits,
+    { task: TASK, admitDecision: answering(true) }));
+  assert.deepEqual(asked, []);
+  // Through the veto, the task asked about is the one the veto reads.
+  const workflow = buildWorkflow(graph, { evaluate: always, admitDecision: answering(true) });
+  await workflow.onTransit(context({ id: "t-veto", step: "human", status: "human", metadata: { step_visits: visits, park: { reason, ...park } } }).ctx, { step: "fix_artifact" });
+  assert.equal(asked.at(-1).task, "t-veto");
+});
+
+// --- CI on #270: the extension the autosk verifiers build loads ---
+
+/**
+ * The relative modules a source file imports statically: `import … from` and
+ * `export … from` at the start of a line, and bare `import "…"`.
+ */
+const relativeImports = (source) =>
+  [...source.matchAll(/^\s*(?:import|export)\s+(?:[^'";]*?\sfrom\s+)?["'](\.{1,2}\/[^"']+)["']/gmu)].map((match) => match[1]);
+
+test("every module the factory imports, and every module those import, is one the autosk verifiers ship into the extension (CI on #270)", () => {
+  // The autosk verify scripts build a test extension by copying the factory
+  // and the files beside it into `.autosk/extensions/<name>/`. The first
+  // CodeRabbit fix made the factory import ./user-decision.mjs, which imports
+  // ../runtime/contracts.mjs; no verifier shipped either, the extension did
+  // not load, and the daemon answered "unknown workflow" — caught only by the
+  // autosk job. This reads both lists, so the drift fails here first.
+  const host = path.join(ROOT, "src/host");
+  const needed = new Set();
+  const queue = ["workflow-factory.mjs"];
+  while (queue.length > 0) {
+    const name = queue.shift();
+    for (const specifier of relativeImports(readFileSync(path.join(host, name), "utf8"))) {
+      // A copy lands flat in the extension directory, so only a sibling can resolve there.
+      assert.match(specifier, /^\.\/[^/]+$/u, `${name} imports ${specifier}, which no flat extension copy can resolve`);
+      const imported = specifier.slice(2);
+      if (needed.has(imported)) continue;
+      needed.add(imported);
+      queue.push(imported);
+    }
+  }
+  assert.ok(needed.has("workflow-graph-canonical.mjs"), "the factory imports the canonical form");
+  // What a verifier ships is what it reads out of src/host to write beside the
+  // factory — by `copyFile`, or by `readFile` and `writeFile` — and each names
+  // those files as `path.join(ROOT, "src/host/…")` and nothing else of src/host.
+  const shipping = /path\.join\(ROOT,\s*"src\/host\/([^"]+)"\)/gu;
+  const verifiers = readdirSync(path.join(ROOT, "scripts"))
+    .filter((name) => /^verify-autosk-.*\.mjs$/u.test(name))
+    .map((name) => [name, readFileSync(path.join(ROOT, "scripts", name), "utf8")])
+    .filter(([, text]) => text.includes('path.join(ROOT, "src/host/workflow-factory.mjs")'));
+  assert.ok(verifiers.length >= 4, `the verifiers that ship the factory: ${verifiers.map(([name]) => name).join(", ")}`);
+  for (const [name, text] of verifiers) {
+    const shipped = new Set([...text.matchAll(shipping)].map((match) => match[1]));
+    assert.ok(shipped.has("workflow-factory.mjs"), name);
+    for (const imported of needed) {
+      assert.ok(shipped.has(imported), `${name} does not ship ${imported}, which the factory needs to load`);
+    }
   }
 });

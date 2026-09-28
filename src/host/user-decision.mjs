@@ -157,6 +157,41 @@ export function resumeDecisionSubject({ task_id, reason, watermark, target }) {
   return digest(RESUME_DECISION_DOMAIN, { task_id, reason, watermark, target });
 }
 
+/**
+ * The admitter a caller hands the workflow factory for a decision-gated
+ * resume (CodeRabbit and CI on #270).
+ *
+ * The factory reads the park's leaf — its watermark is this park's — and asks
+ * this about the rest: `{ digest, task, reason, watermark, target }`, the
+ * record digest the leaf names, the resuming task, and the park and target.
+ * It answers `true` only for the record `record(digest)` returns from this
+ * project's store when its digest is the one named, it verifies under
+ * `verifySignature` — `noSigner` by default, under which nothing is admitted —
+ * and it decided exactly this: this task (`task_id`), this task's resume from
+ * this park into this target (`resumeDecisionSubject`) and that resume as its
+ * answer (`decisionPayloadHash({ resume_target })`). Anything else is refused
+ * with the factory's `resume_target_not_permitted`.
+ *
+ * It lives here rather than in the factory so the factory stays one module
+ * beside the canonical form: the extensions the autosk verifiers build ship
+ * only those two files.
+ */
+export function resumeDecisionAdmitter({ record: lookup, verifySignature = noSigner } = {}) {
+  return ({ digest: named, task, reason, watermark, target }) => {
+    const record = typeof lookup === 'function' ? lookup(named) : undefined;
+    const signed = verifiedUserDecision(record, { code: 'resume_target_not_permitted', verifySignature });
+    demand(signed.record_hash === named, 'resume_target_not_permitted',
+      'The store holds another UserDecisionRecord than the one the leaf names', { named });
+    demand(record.task_id === task, 'resume_target_not_permitted',
+      "The UserDecisionRecord decided another task's resume", { task: task ?? null, decided: record.task_id ?? null });
+    demand(record.subject_hash === resumeDecisionSubject({ task_id: task, reason, watermark, target }), 'resume_target_not_permitted',
+      'The UserDecisionRecord is about another park or target', { reason, target });
+    demand(record.payload_hash === decisionPayloadHash({ resume_target: target }), 'resume_target_not_permitted',
+      'The UserDecisionRecord answered something other than this resume', { target });
+    return true;
+  };
+}
+
 /** The signed bytes and the challenge they decode to, or a refusal. */
 function signedChallenge(record, refuse) {
   const encoded = record.signed_challenge_canonical_b64;
