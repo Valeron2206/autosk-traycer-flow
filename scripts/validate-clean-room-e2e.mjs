@@ -290,6 +290,18 @@ function designErrors(group) {
   return errors;
 }
 
+/**
+ * Every error the fault matrix has, as messages; empty when it holds.
+ *
+ * The matrix must satisfy the closed schema (a schema failure returns at once,
+ * since nothing after it can be read), and then each group must carry its four
+ * proofs exactly once with a locator, hold its `injection` to the harness
+ * (`injectionErrors`) and say whether its run is its designed fault and who
+ * converts it (`designErrors`); every boundary must have a group, every outcome
+ * the gate must refuse must be demonstrated, and at least one group must be
+ * expected to pass. `harnessSource` is the fault harness's text, read from disk
+ * when omitted, so a test can hand in an edited one.
+ */
 export function validateMatrix(matrix, schema, { harnessSource } = {}) {
   const errors = validateJsonSchema(matrix, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;

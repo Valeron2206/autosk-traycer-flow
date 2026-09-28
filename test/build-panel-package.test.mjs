@@ -1917,6 +1917,10 @@ test("each group is printed as designed and as injected, so a description claims
   // Review of 10h (M2): F003 is designed as a session-lifecycle crash and
   // injected at the second creation-index write.
   assert.match(matrix.groups.find((group) => group.id === "F003").injection_note, /second creation-index write/u);
+  // CodeRabbit on #278: F003's designed outcome is what its kill point leaves —
+  // the header written, the meta lost — and the page prints it so.
+  assert.ok(text.includes("- `F003` (session_lifecycle) — designed: transcript header written, session meta lost. Injected:"), text);
+  assert.doesNotMatch(text, /designed: session meta written, transcript header lost/u);
 });
 
 test("a run that did not run a fault-harness group refuses the build", async () => {

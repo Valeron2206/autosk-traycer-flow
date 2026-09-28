@@ -295,7 +295,9 @@ test("the owners the matrix names are the records that own each guard's driver o
     F009: ["#18", "#8"], F010: ["#18", "#8"], F011: ["#18", "#26"],
     F012: ["#18", "#24"], F013: ["#18", "#24"], F014: ["#18", "#26"],
     F015: ["#18", "#9"], F016: ["#18", "#9"],
-    F017: ["#13", "#5"], F018: ["#13", "#5"], F019: ["#13", "#5"], F020: ["#13", "#5"],
+    // CodeRabbit on #278: the helper's groups reach the product path through #18's
+  // entry point too (contract §7), as every driver-owned group here says.
+  F017: ["#13", "#18", "#5"], F018: ["#13", "#18", "#5"], F019: ["#13", "#18", "#5"], F020: ["#13", "#18", "#5"],
   };
   for (const [id, records] of Object.entries(expected)) assert.deepEqual(named(owners[id]), records, id);
   for (const id of ["F002", "F003", "F005"]) assert.match(owners[id], /the run builds the daemon, so no other record has to land first/u, id);
@@ -304,6 +306,21 @@ test("the owners the matrix names are the records that own each guard's driver o
   assert.match(owners.F005, /built daemon's session write/u);
   assert.doesNotMatch(owners.F005, /#21/u);
   assert.match(owners.F008, /`integrationProof` calls `refMovementErrors`/u);
+});
+
+test("F003's designed outcome is the state its kill point leaves, and its conversion names that kill point (CodeRabbit on #278)", () => {
+  // The built daemon's `sessionStore.create` writes the transcript header, then the
+  // session meta, through `autosk-store-lock` (`daemon/core/src/store/sessionStore.ts:241-242`
+  // in the prepared source); the only other meta write, `patchMeta`, rewrites a
+  // session that exists. So a kill between the two leaves the header and loses the
+  // meta, and "meta written, header lost" has no path — the description says the former.
+  const f003 = group(matrix(), "F003");
+  assert.match(f003.fault, /between the transcript header and the meta write/u);
+  assert.match(f003.description, /^transcript header written, session meta lost$/u);
+  assert.doesNotMatch(f003.description, /meta written/u);
+  // The conversion the owner names is that kill point, in that order.
+  assert.match(f003.product_path_owner, /between the built daemon's session transcript-header write and its meta write/u);
+  assert.match(f003.product_path_owner, /`sessionStore\.create` writes the header, then the meta/u);
 });
 
 test("the contract says who is owed a conversion, that it is a decision, and when a run is the designed fault", () => {

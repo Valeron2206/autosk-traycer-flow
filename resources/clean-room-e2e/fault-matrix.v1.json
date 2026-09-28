@@ -80,7 +80,7 @@
     {
       "id": "F003",
       "boundary": "session_lifecycle",
-      "description": "session meta written, transcript header lost",
+      "description": "transcript header written, session meta lost",
       "fault": "SIGKILL between the transcript header and the meta write",
       "injection": "real_path",
       "injection_matches_design": false,
@@ -598,7 +598,7 @@
       ],
       "injection_note": "no process is killed: the commit object is written for real, and the guard is handed a written description of the state; the harness checks the ref beside the guard; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "design_departure": "no process is killed between the commit object and the ref update: the harness writes the object and a description of the state, and its own git stands in for the ref-custody helper",
-      "product_path_owner": "#36 converts it: a process killed between the commit object and the planning-ref update; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
+      "product_path_owner": "#36 converts it: a process killed between the commit object and the planning-ref update; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model and reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -639,7 +639,7 @@
       ],
       "injection_note": "no process is killed: the harness moves the planning ref itself, and the guard is handed a written description of the state; the harness checks the ref and reflog beside the guard; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "design_departure": "no process is killed between the planning-ref update and the receipt: the harness moves the ref and writes a description of the state, and its own git stands in for the ref-custody helper",
-      "product_path_owner": "#36 converts it: a process killed between the planning-ref update and the receipt; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
+      "product_path_owner": "#36 converts it: a process killed between the planning-ref update and the receipt; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model and reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -680,7 +680,7 @@
       ],
       "injection_note": "the harness deletes the keepalive ref itself, not a second process, and the guard is handed a written description of the state; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "design_departure": "the harness deletes the keepalive ref itself, not a second process mid-operation, and writes a description of the state; its own git stands in for the ref-custody helper",
-      "product_path_owner": "#36 converts it: the keepalive ref removed by a second process mid-operation; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
+      "product_path_owner": "#36 converts it: the keepalive ref removed by a second process mid-operation; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model and reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -721,7 +721,7 @@
       ],
       "injection_note": "no process is killed: the harness writes the audit ref itself, and the guard is handed a written description of the state; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
       "design_departure": "no process is killed after the audit copy exists: the harness writes the audit ref and a description of the state, and its own git stands in for the ref-custody helper",
-      "product_path_owner": "#36 converts it: a process killed after the audit copy exists and before the live copy is deleted; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
+      "product_path_owner": "#36 converts it: a process killed after the audit copy exists and before the live copy is deleted; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model and reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",

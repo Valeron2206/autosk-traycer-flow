@@ -694,11 +694,21 @@ export const INJECTION_MEANINGS = Object.freeze({
   written_observation: 'the host guard is handed an observation the harness wrote, in whole or in the fields named on the row; the harness checks its fixture beside the guard, not through it.',
 });
 
-/** Whether the run is the fault the group designs, as the page says it: yes, or no and how. */
+/**
+ * What the page says of whether a group's run is the fault the group designs:
+ * `yes`, or `no — <design_departure>` (the departure the matrix records, or
+ * `not recorded`). Returned as text so the fault list and its readers see the
+ * same words the matrix's `injection_matches_design` and `design_departure` give.
+ */
 function designMet(group) {
   return group.injection_matches_design === true ? 'yes' : `no — ${group.design_departure ?? 'not recorded'}`;
 }
 
+/**
+ * The table cell for a group's `injection`: the kind in code font, followed by
+ * the fields a `written_observation` writes, or `not declared` when the matrix
+ * has no kind for it — so a row shows how its fault reached what answered.
+ */
 function injectionCell(group) {
   if (!group?.injection) return 'not declared';
   const written = Array.isArray(group.written_fields) && group.written_fields.length > 0
