@@ -266,6 +266,16 @@ test("the ref-custody helper runs as the installing user, and its bootstrap need
   assertRejects(mutated((value) => { value.install.ref_custody_service.owner_issues = [5]; }), /owner_issues/u);
 });
 
+test("the custody helper's owner message says whose each part is (CodeRabbit on #274; review of 99fd30b, nit)", () => {
+  const errors = validateMatrix(mutated((value) => { value.install.ref_custody_service.owner_issues = [5]; }), schema);
+  assert.ok(
+    errors.includes("install.ref_custody_service.owner_issues must be [5,13]: #5 owns the helper, #13 the install that bootstraps it"),
+    errors.join("\n"),
+  );
+  // ADR-102 withdrew the privileged install the message used to give #13.
+  assert.equal(errors.some((message) => /privileged/u.test(message)), false, errors.join("\n"));
+});
+
 test("the custody service's owners are v1 records whose obligations name it", async () => {
   // The same two-way hold ADR-092 gives the preflight's primitives: an install
   // record the program matrix does not own is a sentence, not an obligation.

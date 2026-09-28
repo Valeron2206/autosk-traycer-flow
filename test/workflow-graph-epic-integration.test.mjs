@@ -1577,3 +1577,22 @@ test("the documents say a decision-gated resume is admitted only on a verified r
   const adr = sectionOf(read("04-decisions.md"), "## ADR-099:", "## Оставшиеся риски");
   assert.match(adr, /CodeRabbit на #270/u);
 });
+
+test("the documents say a resume decision binds the project, and the admitter answers for one project (R8-15)", () => {
+  // Round 8 of #39, R8-15: the resume subject bound the task, the park and the
+  // target, and the admitter never compared the record's project with the
+  // resuming one, so isolation between projects rested on the store's location
+  // and on task ids never colliding. The subject binds the project and the
+  // admitter is one project's; the documents that describe it say so.
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.match(factory, /`resumeDecisionAdmitter\(\{ projectRootSha256, record, verifySignature \}\)`/u);
+  assert.match(factory, /`resumeDecisionSubject\(\{ project_root_sha256, task_id, reason, watermark, target \}\)`/u);
+  assert.match(factory, /its `project_root_sha256` must be the resuming project's/u);
+  assert.doesNotMatch(factory, /`resumeDecisionAdmitter\(\{ record, verifySignature \}\)`|`resumeDecisionSubject\(\{ task_id, reason, watermark, target \}\)`/u);
+  const row = read("01-core-flows.md").split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
+  assert.match(row, /запись этого проекта и этой задачи о resume из этого park'а в эту цель/u);
+  assert.match(read("docs/contracts/human-decision.md"), /this project's task's resume from this park into this target/u);
+  assert.match(read("docs/contracts/workflow-graph.md"), /a verified `UserDecisionRecord` of this project's task's resume/u);
+  const adr = sectionOf(read("04-decisions.md"), "## ADR-099:", "## ADR-100:");
+  assert.match(adr, /Изменено ADR-103[^\n]*проект/u);
+});

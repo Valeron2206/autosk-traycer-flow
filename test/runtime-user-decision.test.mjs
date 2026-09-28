@@ -255,21 +255,27 @@ test("every field has its shape, refused under the caller's code (review L2)", (
   assert.equal(check(issue({ anchor_version: 1 })).role, "owner");
 });
 
-test("a resume decision's subject is the domain-separated digest of the task, the park and the target (CodeRabbit on #270)", () => {
+test("a resume decision's subject is the domain-separated digest of the project, the task, the park and the target (CodeRabbit on #270, R8-15)", () => {
   // What operation 2 holds a decision-gated resume's record to: its
   // subject_hash is this digest, under the domain the factory contract names.
-  const about = { task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
+  // Round 8 of #39, R8-15: the project is in it, so the signed identity says
+  // whose resume it decided, as 02 §5 asks of every binding, rather than the
+  // store it was read from.
+  const about = { project_root_sha256: "a".repeat(64), task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
   assert.equal(resumeDecisionSubject(about), digest("autosk-flow/resume-decision/v1", about));
   for (const field of Object.keys(about)) {
     assert.notEqual(resumeDecisionSubject({ ...about, [field]: `${about[field]}x` }), resumeDecisionSubject(about), field);
   }
 });
 
-test("the resume admitter admits the verified record a leaf names, of this task's resume from this park into this target, and refuses the rest (CodeRabbit and CI on #270)", () => {
+test("the resume admitter admits the verified record a leaf names, of this project's task's resume from this park into this target, and refuses the rest (CodeRabbit and CI on #270, R8-15)", () => {
   // What the workflow factory is handed to check a decision-gated resume:
   // the factory reads the leaf and asks; this answers true or refuses with
-  // the factory's own code.
-  const about = { task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
+  // the factory's own code. The admitter is one project's (R8-15): each case
+  // below that is not about the project hands it this project, so it is
+  // refused for the reason it names.
+  const project = "a".repeat(64);
+  const about = { project_root_sha256: project, task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
   const decided = (overrides = {}) => issue({
     task_id: about.task_id,
     subject_hash: resumeDecisionSubject(about),
@@ -280,17 +286,17 @@ test("the resume admitter admits the verified record a leaf names, of this task'
   const records = [record];
   const lookup = (hash) => records.find((entry) => userDecisionRecordHash(entry) === hash);
   const query = { digest: userDecisionRecordHash(record), task: about.task_id, reason: about.reason, watermark: about.watermark, target: about.target };
-  const admit = resumeDecisionAdmitter({ record: lookup, verifySignature: signer.verifySignature });
+  const admit = resumeDecisionAdmitter({ projectRootSha256: project, record: lookup, verifySignature: signer.verifySignature });
   assert.equal(admit(query), true);
   const refuses = (label, admitter, asked) =>
     assert.throws(() => admitter(asked), (error) => error.code === "resume_target_not_permitted", label);
   // With no signer — the default, and every real host today — nothing is admitted.
-  refuses("the default verifier", resumeDecisionAdmitter({ record: lookup }), query);
-  refuses("no lookup", resumeDecisionAdmitter({ verifySignature: signer.verifySignature }), query);
+  refuses("the default verifier", resumeDecisionAdmitter({ projectRootSha256: project, record: lookup }), query);
+  refuses("no lookup", resumeDecisionAdmitter({ projectRootSha256: project, verifySignature: signer.verifySignature }), query);
   refuses("nothing at all", resumeDecisionAdmitter(), query);
   refuses("a digest no record answers to", admit, { ...query, digest: "a".repeat(64) });
   const other = decided({ record_id: "udr-0002" });
-  refuses("another record than the leaf names", resumeDecisionAdmitter({ record: () => other, verifySignature: signer.verifySignature }), query);
+  refuses("another record than the leaf names", resumeDecisionAdmitter({ projectRootSha256: project, record: () => other, verifySignature: signer.verifySignature }), query);
   const misnamed = decided({ task_id: "t-2", record_id: "udr-0003" });
   const earlier = decided({ subject_hash: resumeDecisionSubject({ ...about, watermark: "review_cap@narrow_review_join:10,record_code_verdict:0" }), record_id: "udr-0004" });
   const stay = decided({ payload_hash: decisionPayloadHash({ resume_target: "human" }), record_id: "udr-0005" });
@@ -301,4 +307,56 @@ test("the resume admitter admits the verified record a leaf names, of this task'
   refuses("another task asking", admit, { ...query, task: "t-2" });
   refuses("another target asked for", admit, { ...query, target: "fix" });
   refuses("no task asking", admit, { ...query, task: undefined });
+});
+
+// Round 8 of #39, R8-15: the admitter checked that a record names a project
+// (`verifiedUserDecision` requires the field) but never which one, and the
+// subject bound none, so what kept one project's decision out of another's
+// resume was where the caller's store lay and task ids never colliding. It is
+// now the signed identity and the comparison: the admitter answers for one
+// project, and a record decided in another is refused whatever else matches.
+test("a resume decision of another project is refused, even for the same task id, park and target (R8-15)", () => {
+  const project = "a".repeat(64);
+  const elsewhere = "b".repeat(64);
+  const about = { task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
+  const decided = (overrides = {}, subjectProject = project) => issue({
+    task_id: about.task_id,
+    subject_hash: resumeDecisionSubject({ project_root_sha256: subjectProject, ...about }),
+    payload_hash: decisionPayloadHash({ resume_target: about.target }),
+    ...overrides,
+  });
+  const records = [];
+  const lookup = (hash) => records.find((entry) => userDecisionRecordHash(entry) === hash);
+  const asked = (record) => ({ digest: userDecisionRecordHash(record), task: about.task_id, reason: about.reason, watermark: about.watermark, target: about.target });
+  const admitterFor = (projectRootSha256) => resumeDecisionAdmitter({ projectRootSha256, record: lookup, verifySignature: signer.verifySignature });
+  const refused = (label, admitter, record, pattern) => {
+    records.push(record);
+    assert.throws(() => admitter(asked(record)),
+      (error) => error.code === "resume_target_not_permitted" && pattern.test(error.message), label);
+  };
+  // This project's decision is admitted by this project's admitter.
+  const ours = decided();
+  records.push(ours);
+  assert.equal(admitterFor(project)(asked(ours)), true);
+  // The same task id, park and target, decided in another project.
+  refused("another project's decision", admitterFor(project),
+    decided({ project_root_sha256: elsewhere, record_id: "udr-0002" }, elsewhere), /another project/u);
+  // Its own field says whose it is, even over this project's subject.
+  refused("another project's record over this project's subject", admitterFor(project),
+    decided({ project_root_sha256: elsewhere, record_id: "udr-0003" }), /another project/u);
+  // And the signed subject says whose resume it decided, even under this project's field.
+  refused("this project's record over another project's subject", admitterFor(project),
+    decided({ record_id: "udr-0004" }, elsewhere), /another project, park or target/u);
+  // Another project's admitter does not admit this project's decision.
+  assert.throws(() => admitterFor(elsewhere)(asked(ours)), (error) => error.code === "resume_target_not_permitted");
+  // An admitter answers for a project named as the record names it — 64
+  // lowercase hex, not the `sha256:` identity or a path — and one built for
+  // none admits nothing, before any record is read.
+  for (const projectRootSha256 of [undefined, null, "", `sha256:${project}`, project.toUpperCase(), "/home/user/project"]) {
+    let read = 0;
+    const admitter = resumeDecisionAdmitter({ projectRootSha256, record: (hash) => { read += 1; return lookup(hash); }, verifySignature: signer.verifySignature });
+    assert.throws(() => admitter(asked(ours)),
+      (error) => error.code === "resume_target_not_permitted" && /names no project/u.test(error.message), String(projectRootSha256));
+    assert.equal(read, 0, String(projectRootSha256));
+  }
 });

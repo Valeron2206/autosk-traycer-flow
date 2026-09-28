@@ -414,10 +414,11 @@ export function permitsResume(state, reason, target, park = {}, visits = {}, dec
   // the decision queue checks an answer (ADR-091): the record the leaf's
   // digest names, verified under the caller's verifier — which by default
   // knows no signer (ADR-090, #4), so on a real host today every
-  // decision-gated resume is refused — and about this task, this park and
-  // this target, answering exactly that resume. The admitter is handed in
-  // rather than imported (CI on #270), and only its plain `true` admits: a
-  // refusal it throws, or any other answer, refuses.
+  // decision-gated resume is refused — and about this project's task, this
+  // park and this target (the admitter is one project's, R8-15), answering
+  // exactly that resume. The admitter is handed in rather than imported (CI
+  // on #270), and only its plain `true` admits: a refusal it throws, or any
+  // other answer, refuses.
   if ((row.decision_targets ?? []).includes(target)) {
     const decided = typeof park.decision === "string" ? DECISION.exec(park.decision) : null;
     const watermark = watermarkOf(reason, row, visits);
@@ -631,8 +632,9 @@ export function parkReasonOf(metadata) {
  * they declare is structure and belongs to this document.
  *
  * `admitDecision` is what a decision-gated resume is checked with, handed in as
- * the evaluator is: `resumeDecisionAdmitter({ record, verifySignature })` from
- * `user-decision.mjs`, over this project's store and the ADR-023 verifier.
+ * the evaluator is: `resumeDecisionAdmitter({ projectRootSha256, record,
+ * verifySignature })` from `user-decision.mjs`, built for this project, over
+ * its store and the ADR-023 verifier.
  * Without one no decision-gated resume is admitted (CodeRabbit on #270); it is
  * handed in rather than imported, so this module needs nothing but the
  * canonical form beside it (CI on #270).

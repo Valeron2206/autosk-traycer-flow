@@ -147,45 +147,58 @@ export function decisionPayloadHash(payload) {
 /**
  * What a decision to resume a parked task into a target is about: the
  * `subject_hash` a UserDecisionRecord that decides such a resume signs. It is
- * the task, the park — its reason and its watermark, the visit counts of the
- * reason's `parks_at` steps when the park was recorded — and the target, so a
- * record decides one resume of one task from one park and nothing else
- * (CodeRabbit on #270). The answer the record signs is
+ * the project (`project_root_sha256`, as the record names it), the task, the
+ * park — its reason and its watermark, the visit counts of the reason's
+ * `parks_at` steps when the park was recorded — and the target, so a record
+ * decides one resume of one project's task from one park and nothing else
+ * (CodeRabbit on #270; the project, round 8 of #39, R8-15, as 02 §5 asks of
+ * every binding). The answer the record signs is
  * `decisionPayloadHash({ resume_target })`.
  */
-export function resumeDecisionSubject({ task_id, reason, watermark, target }) {
-  return digest(RESUME_DECISION_DOMAIN, { task_id, reason, watermark, target });
+export function resumeDecisionSubject({ project_root_sha256, task_id, reason, watermark, target }) {
+  return digest(RESUME_DECISION_DOMAIN, { project_root_sha256, task_id, reason, watermark, target });
 }
 
 /**
  * The admitter a caller hands the workflow factory for a decision-gated
- * resume (CodeRabbit and CI on #270).
+ * resume (CodeRabbit and CI on #270), built for one project.
  *
- * The factory reads the park's leaf — its watermark is this park's — and asks
- * this about the rest: `{ digest, task, reason, watermark, target }`, the
- * record digest the leaf names, the resuming task, and the park and target.
- * It answers `true` only for the record `record(digest)` returns from this
- * project's store when its digest is the one named, it verifies under
- * `verifySignature` — `noSigner` by default, under which nothing is admitted —
- * and it decided exactly this: this task (`task_id`), this task's resume from
- * this park into this target (`resumeDecisionSubject`) and that resume as its
- * answer (`decisionPayloadHash({ resume_target })`). Anything else is refused
- * with the factory's `resume_target_not_permitted`.
+ * `projectRootSha256` is the resuming project's `project_root_sha256`, 64
+ * lowercase hex as a record names it; an admitter built with anything else
+ * admits nothing and reads no record. The factory reads the park's leaf — its
+ * watermark is this park's — and asks this about the rest:
+ * `{ digest, task, reason, watermark, target }`, the record digest the leaf
+ * names, the resuming task, and the park and target. It answers `true` only
+ * for the record `record(digest)` returns from this project's store when its
+ * digest is the one named, it verifies under `verifySignature` — `noSigner` by
+ * default, under which nothing is admitted — and it decided exactly this: in
+ * this project (its `project_root_sha256`, R8-15), this task (`task_id`), this
+ * project's task's resume from this park into this target
+ * (`resumeDecisionSubject`) and that resume as its answer
+ * (`decisionPayloadHash({ resume_target })`). Anything else is refused with
+ * the factory's `resume_target_not_permitted`. So isolation between projects
+ * rests on the signed record, not on where the lookup reads or on task ids
+ * never colliding.
  *
  * It lives here rather than in the factory so the factory stays one module
  * beside the canonical form: the extensions the autosk verifiers build ship
  * only those two files.
  */
-export function resumeDecisionAdmitter({ record: lookup, verifySignature = noSigner } = {}) {
+export function resumeDecisionAdmitter({ projectRootSha256, record: lookup, verifySignature = noSigner } = {}) {
   return ({ digest: named, task, reason, watermark, target }) => {
+    demand(hex(projectRootSha256), 'resume_target_not_permitted',
+      'The admitter names no project it admits a decision for: a project_root_sha256 is 64 lowercase hex',
+      { project: projectRootSha256 ?? null });
     const record = typeof lookup === 'function' ? lookup(named) : undefined;
     const signed = verifiedUserDecision(record, { code: 'resume_target_not_permitted', verifySignature });
     demand(signed.record_hash === named, 'resume_target_not_permitted',
       'The store holds another UserDecisionRecord than the one the leaf names', { named });
+    demand(record.project_root_sha256 === projectRootSha256, 'resume_target_not_permitted',
+      'The UserDecisionRecord decided a resume in another project', { project: projectRootSha256, decided: record.project_root_sha256 });
     demand(record.task_id === task, 'resume_target_not_permitted',
       "The UserDecisionRecord decided another task's resume", { task: task ?? null, decided: record.task_id ?? null });
-    demand(record.subject_hash === resumeDecisionSubject({ task_id: task, reason, watermark, target }), 'resume_target_not_permitted',
-      'The UserDecisionRecord is about another park or target', { reason, target });
+    demand(record.subject_hash === resumeDecisionSubject({ project_root_sha256: projectRootSha256, task_id: task, reason, watermark, target }),
+      'resume_target_not_permitted', 'The UserDecisionRecord is about another project, park or target', { reason, target });
     demand(record.payload_hash === decisionPayloadHash({ resume_target: target }), 'resume_target_not_permitted',
       'The UserDecisionRecord answered something other than this resume', { target });
     return true;

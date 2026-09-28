@@ -2241,14 +2241,19 @@ const signer = testSigner();
 /** The task every decided case below resumes, unless it says otherwise. */
 const TASK = "t-decided";
 
+/** The project it resumes in: the `project_root_sha256` its records and its admitter name (R8-15). */
+const PROJECT = "0".repeat(64);
+
 /**
  * A UserDecisionRecord the user signed to resume a park into `target`: about
- * this task, this park — its reason and watermark — and this target, and
- * answering exactly that. The options let a case sign something else: another
- * task, another park or target in the subject, another answer, or another
- * record id.
+ * this project, this task, this park — its reason and watermark — and this
+ * target, and answering exactly that. The options let a case sign something
+ * else: another project (the record's field or its subject's), another task,
+ * another park or target in the subject, another answer, or another record id.
  */
 const resumeRecord = (row, visits, target, {
+  project = PROJECT,
+  subjectProject = project,
   task = TASK,
   subjectTask = task,
   watermark = watermarkOf(row, visits),
@@ -2257,10 +2262,10 @@ const resumeRecord = (row, visits, target, {
   ...issued
 } = {}) => signer.issue({
   request_id: `resume-${row.reason}`,
-  project_root_sha256: "0".repeat(64),
+  project_root_sha256: project,
   anchor_version: 1,
   task_id: task,
-  subject_hash: digest("autosk-flow/resume-decision/v1", { task_id: subjectTask, reason: row.reason, watermark, target: subjectTarget }),
+  subject_hash: digest("autosk-flow/resume-decision/v1", { project_root_sha256: subjectProject, task_id: subjectTask, reason: row.reason, watermark, target: subjectTarget }),
   payload_hash: decisionPayloadHash({ resume_target: answer }),
   ...issued,
 });
@@ -2273,18 +2278,18 @@ const lookupOf = (records) => (hash) => records.find((entry) => userDecisionReco
 
 /**
  * What a caller hands operation 2: the task, and the admitter that checks the
- * record a leaf names — `resumeDecisionAdmitter`, over the lookup and the
- * test signer's verifier (CI on #270: injected, so the factory imports none
- * of it).
+ * record a leaf names — `resumeDecisionAdmitter`, for this project, over the
+ * lookup and the test signer's verifier (CI on #270: injected, so the factory
+ * imports none of it).
  */
-const decidedBy = (records, { task = TASK, verifySignature = signer.verifySignature } = {}) => ({
+const decidedBy = (records, { task = TASK, verifySignature = signer.verifySignature, project = PROJECT } = {}) => ({
   task,
-  admitDecision: resumeDecisionAdmitter({ record: lookupOf(records), verifySignature }),
+  admitDecision: resumeDecisionAdmitter({ projectRootSha256: project, record: lookupOf(records), verifySignature }),
 });
 
 /** The factory's option that hands the veto the same admitter. */
 const deciding = (records, verifySignature = signer.verifySignature) => ({
-  admitDecision: resumeDecisionAdmitter({ record: lookupOf(records), verifySignature }),
+  admitDecision: resumeDecisionAdmitter({ projectRootSha256: PROJECT, record: lookupOf(records), verifySignature }),
 });
 
 test("a resume into a target its row declares the user's decision is refused without the decision recorded under its park, and admitted with it (R7-4; review M1, M2)", async () => {
@@ -2466,13 +2471,13 @@ test("a decision-gated resume is admitted only on a verified UserDecisionRecord 
   // Nothing handed in, or the default verifier: no signer, so no decision
   // (ADR-090, #4) — a well-formed leaf decides nothing on its own.
   refused("nothing handed in", park, undefined);
-  refused("the default verifier", park, { task: TASK, admitDecision: resumeDecisionAdmitter({ record: lookupOf([record]) }) });
+  refused("the default verifier", park, { task: TASK, admitDecision: resumeDecisionAdmitter({ projectRootSha256: PROJECT, record: lookupOf([record]) }) });
   // A well-formed leaf whose digest no record answers to.
   refused("a digest with no record", { ...origin, decision: decisionLeaf(row, visits) }, decidedBy([record]));
   // The lookup hands back another record than the one the leaf names.
   const another = resumeRecord(row, visits, "fix_artifact", { record_id: "udr-0002" });
   refused("another record than the leaf names", park,
-    { task: TASK, admitDecision: resumeDecisionAdmitter({ record: () => another, verifySignature: signer.verifySignature }) });
+    { task: TASK, admitDecision: resumeDecisionAdmitter({ projectRootSha256: PROJECT, record: () => another, verifySignature: signer.verifySignature }) });
   // Another task's record, its leaf copied onto this park.
   const theirs = resumeRecord(row, visits, "fix_artifact", { task: "t-other" });
   refused("another task's record", { ...origin, decision: leafFor(row, visits, theirs) }, decidedBy([theirs]));
@@ -2502,7 +2507,7 @@ test("a decision-gated resume is admitted only on a verified UserDecisionRecord 
     () => workflow.onTransit(context(parked("t-other")).ctx, { step: "fix_artifact" }),
     (error) => error.reason === "resume_target_not_permitted",
   );
-  for (const options of [{}, { admitDecision: resumeDecisionAdmitter({ record: lookupOf([record]) }) }]) {
+  for (const options of [{}, { admitDecision: resumeDecisionAdmitter({ projectRootSha256: PROJECT, record: lookupOf([record]) }) }]) {
     const unsigned = buildWorkflow(graph, { evaluate: always, ...options });
     await assert.rejects(
       () => unsigned.onTransit(context(parked(TASK)).ctx, { step: "fix_artifact" }),
@@ -2510,6 +2515,49 @@ test("a decision-gated resume is admitted only on a verified UserDecisionRecord 
       JSON.stringify(Object.keys(options)),
     );
   }
+});
+
+// --- Round 8 of #39, R8-15: a decision-gated resume is admitted only on a record of this project ---
+
+test("a decision-gated resume on a record of another project is refused, whatever else it matches, directly and through the veto (R8-15)", async () => {
+  // R8-15: the subject bound the task, the park and the target and not the
+  // project, and the admitter never compared the record's project with the
+  // resuming one, so a record decided in another project for a task of the
+  // same id resumed this one wherever the caller's lookup found it. The
+  // admitter is now one project's, the subject binds the project, and the
+  // factory, which imports none of it, is unchanged: it asks the same question.
+  const graph = document();
+  const state = index(graph);
+  const reason = "review_cap";
+  const row = state.recovery.get(reason);
+  const visits = { narrow_review_join: 11, record_code_verdict: 0 };
+  const origin = { origin: "narrow_review_join" };
+  const leafOf = (record) => ({ ...origin, decision: leafFor(row, visits, record) });
+  const ours = resumeRecord(row, visits, "fix_artifact");
+  assert.equal(permitsResume(state, reason, "fix_artifact", leafOf(ours), visits, decidedBy([ours])), true);
+  const elsewhere = "b".repeat(64);
+  for (const [label, record] of [
+    ["decided in another project", resumeRecord(row, visits, "fix_artifact", { project: elsewhere, record_id: "udr-0101" })],
+    ["another project's record over this project's subject", resumeRecord(row, visits, "fix_artifact", { project: elsewhere, subjectProject: PROJECT, record_id: "udr-0102" })],
+    ["this project's record over another project's subject", resumeRecord(row, visits, "fix_artifact", { subjectProject: elsewhere, record_id: "udr-0103" })],
+  ]) {
+    const error = refusalOf(() => permitsResume(state, reason, "fix_artifact", leafOf(record), visits, decidedBy([record])));
+    assert.equal(error.reason, "resume_target_not_permitted", label);
+    assert.match(error.detail, /another project/u, label);
+  }
+  // Another project's admitter does not admit this project's record.
+  const theirs = refusalOf(() => permitsResume(state, reason, "fix_artifact", leafOf(ours), visits, decidedBy([ours], { project: elsewhere })));
+  assert.equal(theirs.reason, "resume_target_not_permitted");
+  // Through the veto: the workflow's admitter is this project's, and a task
+  // of the same id whose leaf names another project's record stays parked.
+  const foreign = resumeRecord(row, visits, "fix_artifact", { project: elsewhere, record_id: "udr-0104" });
+  const parked = (record) => ({ id: TASK, step: "human", status: "human", metadata: { step_visits: visits, park: { reason, ...leafOf(record) } } });
+  const workflow = buildWorkflow(graph, { evaluate: always, ...deciding([ours, foreign]) });
+  assert.equal(await workflow.onTransit(context(parked(ours)).ctx, { step: "fix_artifact" }), undefined);
+  await assert.rejects(
+    () => workflow.onTransit(context(parked(foreign)).ctx, { step: "fix_artifact" }),
+    (error) => error.reason === "resume_target_not_permitted" && /another project/u.test(error.detail),
+  );
 });
 
 // --- CI on #270: the factory asks an injected admitter, and admits only its plain yes ---

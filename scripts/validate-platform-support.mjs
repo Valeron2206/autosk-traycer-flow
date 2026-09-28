@@ -234,7 +234,7 @@ export function validateMatrix(matrix, schema) {
   if (!service || typeof service !== "object") {
     errors.push("install.ref_custody_service: the ref-custody helper has no install record");
   } else if (JSON.stringify(service.owner_issues) !== JSON.stringify(CUSTODY_OWNERS)) {
-    errors.push(`install.ref_custody_service.owner_issues must be ${JSON.stringify(CUSTODY_OWNERS)}: #5 owns the helper, #13 its privileged install`);
+    errors.push(`install.ref_custody_service.owner_issues must be ${JSON.stringify(CUSTODY_OWNERS)}: #5 owns the helper, #13 the install that bootstraps it`);
   }
   // The model processes are the one account apart from the installing user's
   // (ADR-102): the schema fixes what it is, this says who owns it.

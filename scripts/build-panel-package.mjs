@@ -27,6 +27,7 @@ import { filesUsing } from './lib/code-references.mjs';
 import { digestOf, sourceDrift } from './lib/produced-source.mjs';
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
 import { panelVerdicts } from './validate-design-candidate.mjs';
+import { acceptanceAuthority } from './validate-integration-authorization.mjs';
 import { classifySeam } from './verify-autosk-migration-seam.mjs';
 import { PARK_REASONS as ALIGNMENT_PARK_REASONS } from '../src/host/alignment-gates.mjs';
 import { UNPINNED_DAEMON_PRIMITIVES } from '../src/host/daemon-preflight.mjs';
@@ -269,6 +270,19 @@ export async function factoryCallers({ root = ROOT } = {}) {
 
 /** The workflow graph whose recovery rows name the park reasons the design admits. */
 export const GRAPH_PATH = 'resources/workflow-graph/workflow-graph.v1.json';
+
+/** The binding a pinned auto-policy is held to, and the module that defines it. */
+export const AUTO_POLICY_EXPORT = 'autoPolicyAcceptance';
+export const AUTO_POLICY_MODULE = 'src/host/staging-acceptance.mjs';
+
+/**
+ * Who uses the auto-policy's binding, measured as the factory's users are:
+ * every code file under `scripts/` and `src/` that uses it, its own module
+ * apart (round 8 of #39, R8-3). None means no product path calls it.
+ */
+export async function autoPolicyCallers({ root = ROOT } = {}) {
+  return filesUsing({ root, dirs: ['scripts', 'src'], identifier: AUTO_POLICY_EXPORT, exclude: [AUTO_POLICY_MODULE] });
+}
 
 /** The two steps where the graph decides an alignment; its alignment reasons park at them. */
 const ALIGNMENT_STEPS = Object.freeze(['clarify_alignment', 'record_alignment']);
@@ -689,10 +703,23 @@ function injectionCell(group) {
 }
 
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null, factoryCallers: givenFactoryCallers = null, graph: givenGraph = null }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null, factoryCallers: givenFactoryCallers = null, autoPolicyCallers: givenAutoPolicyCallers = null, graph: givenGraph = null }) {
   requireTestEvidence(tests);
   const callers = givenFactoryCallers ?? await factoryCallers();
-  const alignmentGap = alignmentReasonGap(givenGraph ?? JSON.parse(await read(GRAPH_PATH)));
+  const graph = givenGraph ?? JSON.parse(await read(GRAPH_PATH));
+  const alignmentGap = alignmentReasonGap(graph);
+  // Round 8 of #39, R8-3: whether anything in v1 reaches the auto-policy's
+  // binding is read from the graph and the code, not typed — since the review
+  // of 99fd30b (L1), from every way into the CAS and delivery, by the
+  // validator's own measure, and so is the sentence that v1 has one authority.
+  const acceptance = acceptanceAuthority(graph);
+  const policyCallers = givenAutoPolicyCallers ?? await autoPolicyCallers();
+  const oneAuthority = acceptance.exits.length > 0 && acceptance.actors.length === 1 && acceptance.actors[0] === 'human'
+    && acceptance.bypasses.length === 0 && acceptance.entries.length === 0;
+  const waysIn = [
+    ...acceptance.bypasses.map((id) => `\`${id}\``),
+    ...acceptance.entries.map((step) => `\`${step}\` as an entry step`),
+  ];
   const codeList = (codes) => codes.map((code) => `\`${code}\``).join(', ');
   const srcCallers = callers.filter((file) => file.startsWith('src/'));
   const scriptCallers = callers.filter((file) => !file.startsWith('src/'));
@@ -1360,6 +1387,30 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   steps (the graph's are \`record_alignment\`, \`await_alignment\` and
   \`clarify_alignment\`); its names and steps are #4's phase 3 as well (ADR-091,
   ADR-100).
+- An acceptance does not move what it accepts, and its record chains within its
+  scope: rules with owners that no code computes. No module here computes an
+  Epic's relevant authority projection, its dependency or intent head, or
+  \`integration_authorization_head\`: the host takes the heads from its caller
+  (\`acceptanceFacts\`) and the head a record chains from as the plan names it
+  (\`composeAuthorization\`). That the Epic's own acceptance — every answer to
+  any acceptance packet of the Epic, accept or refuse, re-asks included, and
+  every \`IntegrationAuthorizationRecord\` of its scope — never enters those
+  heads (the integration-authorization contract, §3) is #4's for the daemon's
+  heads and #9's for \`integrateApproved\`'s comparison, and the chain per scope
+  under one head kept for integrity (the contract's §5) is #9's (ADR-103).
+  ${oneAuthority && policyCallers.length === 0
+    ? `v1 has one acceptance authority, the person's signature at \`accept_staging\`:
+  every edge into \`integrate_staging\` or \`deliver_staging\` leaves \`accept_staging\`
+  under a person's guard (${codeList(acceptance.exits)}) or is that step's own retry (${codeList(acceptance.retries) || 'none'}),
+  and \`autoPolicyAcceptance\`, the binding a pinned auto-policy is held to, has no
+  caller outside tests, so no v1 path reaches it`
+    : `Whether v1 has one acceptance authority is not measured here: the edges out
+  of \`accept_staging\` toward the CAS or delivery (${codeList(acceptance.exits) || 'none'}) carry guards of
+  ${codeList(acceptance.actors) || 'none'}; ${waysIn.length === 0 ? 'nothing else reaches those steps' : `${waysIn.join(', ')} ${waysIn.length === 1 ? 'reaches' : 'reach'} those steps without leaving \`accept_staging\``}; and
+  \`autoPolicyAcceptance\`, the binding a pinned auto-policy is held to, ${policyCallers.length === 0 ? 'has no caller outside tests' : `has callers outside tests: ${fileList(policyCallers)}`}`};
+  under that binding a pinned auto-policy adds no autonomy, and an unattended
+  acceptance needs a different binding, #28's post-v1 design work
+  (\`planned_after_v1\`, ADR-103).
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries
@@ -1400,8 +1451,8 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   target) is admitted only on a verified \`UserDecisionRecord\` through the caller's verifier:
   the park's leaf (\`park.decision\`: the park's watermark, \`#\` and the record's
   digest) names a record the caller looks up, and the record must verify, name
-  this task and have decided this park's resume into this target (ADR-099,
-  CodeRabbit on #270) — one round per decision past the cap, with the count and
+  this project and this task and have decided this park's resume into this target (ADR-099,
+  CodeRabbit on #270; the project, ADR-103) — one round per decision past the cap, with the count and
   the limit unchanged; a resume that runs no round owes none. The factory is handed
   the check as it is handed its evaluator — an admitter, \`resumeDecisionAdmitter\` over this
   project's store and a verifier — and admits nothing without one; the default verifier refuses, so no decision-gated resume is admitted on a real host today
