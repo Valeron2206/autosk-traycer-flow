@@ -118,7 +118,15 @@ export function normalizeGraph(document) {
   if (Array.isArray(document.transitions)) {
     normalized.transitions = document.transitions.map((entry) => ({ ...entry, guards: [...entry.guards].sort() }));
   }
-  if (Array.isArray(document.caps)) normalized.caps = byKey(document.caps, "cycle");
+  // The transitions a cap counts are one count over all of them, so which
+  // one was typed first says nothing the graph means (R8-4).
+  if (Array.isArray(document.caps)) {
+    normalized.caps = byKey(document.caps, "cycle").map((entry) =>
+      Array.isArray(entry.counted_transitions)
+        ? { ...entry, counted_transitions: [...entry.counted_transitions].sort() }
+        : entry,
+    );
+  }
   if (Array.isArray(document.recovery)) {
     normalized.recovery = byKey(document.recovery, "reason").map((entry) => ({
       ...entry,

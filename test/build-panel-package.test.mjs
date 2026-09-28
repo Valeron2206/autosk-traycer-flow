@@ -2021,6 +2021,17 @@ test("§5 says a resume the graph declares the user's decision is admitted only 
   assert.doesNotMatch(evidence, /cap_decision|shape and park only|verified by nobody/u);
 });
 
+test("§5 says every predicate a cap binds declares the quantity it compares, and names both caps a round past which is the user's (R8-4, R8-5)", async () => {
+  // Round 8 of #39, R8-5: ADR-099 left the repair cycle's cap open to #32
+  // and the package did not say so. The cap is declared now, so the package
+  // names it among the decision-gated rounds rather than in what is not
+  // claimed; and the count of cap predicates is no longer four (R8-4).
+  const evidence = section5((await build()).text);
+  assert.match(evidence, /a round past `review_cap` or `verification_cap`/u);
+  assert.match(evidence, /in the own `reads` of every predicate a cap binds/u);
+  assert.doesNotMatch(evidence, /the four cap predicates/u);
+});
+
 // Debt 11f (R7-6, round 7 of #39): the package printed
 // `covered_by_real_fault=20; complete=true` and then explained that the state
 // name "says no more than that". The run now gives each group the state that

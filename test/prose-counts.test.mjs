@@ -23,12 +23,14 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { REFUSALS } from "../src/host/workflow-factory.mjs";
+import { CONTRACT_GLOB, contractOutline } from "../scripts/build-panel-package.mjs";
+import { closedByContract, readContracts, readProducedEmitters } from "../scripts/validate-refusal-vocabulary.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
@@ -634,6 +636,17 @@ test("every count quoted in normative prose recomputes to the number the sentenc
   const graphContract = normalizeProse(read("docs/contracts/workflow-graph.md"));
   const factoryContract = normalizeProse(read("docs/contracts/workflow-factory.md"));
   const vocabularyContract = normalizeProse(read("docs/contracts/refusal-vocabulary.md"));
+  // §5's boundary in numbers: what the contracts declare as the panel
+  // package reads them, what the executed manifests measure, and what the
+  // vocabulary validator's own reader finds.
+  const declaredClasses = readdirSync(path.join(ROOT, CONTRACT_GLOB))
+    .filter((name) => name.endsWith(".md"))
+    .reduce((sum, name) => sum + contractOutline(read(`${CONTRACT_GLOB}/${name}`)).refusals.length, 0);
+  const measuredClasses = readProducedEmitters().measured;
+  const closedReading = closedByContract(readContracts());
+  const measuredReasons = vocabulary.park_reasons.filter((entry) => measuredClasses.has(entry.code));
+  const textualReasons = vocabulary.park_reasons.filter((entry) => !measuredClasses.has(entry.code));
+  const textualContract = textualReasons.filter((entry) => closedReading.has(entry.code));
   const schemaText = read("resources/workflow-graph/workflow-graph.schema.json");
   const schemaProse = normalizeProse(schemaText);
   const plan = read("03-technical-plan.md");
@@ -852,8 +865,12 @@ test("every count quoted in normative prose recomputes to the number the sentenc
   const parseClause = graphContract.match(/the parse names itself; ([^.]+)\./);
   const parseNamedCodes = parseClause ? (parseClause[1].match(/graph_\w+/g) ?? []).length : 0;
 
-  // A cap's counted transition is a single name — the distinct per-cap arity.
-  const capTransitionArity = [...new Set((graph.caps ?? []).map((cap) => typeof cap.counted_transition === "string" ? 1 : 0))];
+  // The caps and the transitions they count between them: a cap counts the
+  // takings of every transition it names as one count (R8-4), so the
+  // artifact's cap counts two — the full panel's NOT_PASS and the narrow one.
+  const caps = graph.caps ?? [];
+  const countedTransitions = caps.reduce((sum, cap) => sum + cap.counted_transitions.length, 0);
+  const artifactCap = caps.find((cap) => cap.cycle === "artifact_review_round");
 
   const claims = [
     // docs/contracts/workflow-factory.md — section 5 is the ticket's first red
@@ -952,10 +969,16 @@ test("every count quoted in normative prose recomputes to the number the sentenc
       measured: [factoryClosedByGraph.length],
     },
     {
-      id: "factory §6: transitions a cap counts — every cap names exactly one",
+      id: "factory §6: the caps the shipped document declares, and the transitions they count between them",
       text: factoryContract,
-      pattern: /counts the taking of ([\w,-]+) named transition/,
-      measured: capTransitionArity,
+      pattern: /The shipped document declares ([\w,-]+) caps over ([\w,-]+) counted transitions/,
+      measured: [caps.length, countedTransitions],
+    },
+    {
+      id: "factory §6: transitions `artifact_review_round` counts — a full panel's NOT_PASS and a narrow review's",
+      text: factoryContract,
+      pattern: /Cap `artifact_review_round` counts ([\w,-]+),/,
+      measured: [artifactCap?.counted_transitions.length ?? 0],
     },
     {
       id: "factory §7: documents the digest verifier builds — VARIANTS entries in `scripts/verify-autosk-graph-digest.mjs`, base included; and the one component each differs by",
@@ -1301,6 +1324,32 @@ test("every count quoted in normative prose recomputes to the number the sentenc
     },
 
     // docs/contracts/refusal-vocabulary.md
+    // Review of 12c, L2: §5's boundary in numbers still read 448 and 61, while
+    // the package's reading gave 450 and the manifests measured 63.
+    {
+      id: "vocabulary §5: refusal classes the contracts declare as the package reads them (`contractOutline`), the classes `produce:refusals` measures, and the rest",
+      text: vocabularyContract,
+      pattern: /of the ([\w,-]+) refusal classes the contracts declare, the run measures ([\w,-]+) and does not check production for the other ([\w,-]+)\./,
+      measured: [declaredClasses, measuredClasses.size, declaredClasses - measuredClasses.size],
+    },
+    {
+      id: "vocabulary §5: the package's reading, second site",
+      text: vocabularyContract,
+      pattern: /The ([\w,-]+) is the panel package's reading/,
+      measured: [declaredClasses],
+    },
+    {
+      id: "vocabulary §5: the validator's own reading (`closedByContract`)",
+      text: vocabularyContract,
+      pattern: /runs on to the end of that paragraph and reads ([\w,-]+):/,
+      measured: [closedReading.size],
+    },
+    {
+      id: "vocabulary §5: park reasons, the measured among them, the rest, and the contract classes among the rest",
+      text: vocabularyContract,
+      pattern: /Of the vocabulary's ([\w,-]+) park reasons, ([\w,-]+) are among the measured and the remaining ([\w,-]+) keep the textual check — ([\w,-]+) of those ([\w,-]+) are also contract classes/,
+      measured: [vocabulary.park_reasons.length, measuredReasons.length, textualReasons.length, textualContract.length, textualReasons.length],
+    },
     {
       id: "vocabulary §6: park reasons an artifact contract closes — `closed_by` naming a document under `docs/contracts/` rather than `03-technical-plan.md` — and the vocabulary's size",
       text: vocabularyContract,
@@ -1347,10 +1396,10 @@ test("every count quoted in normative prose recomputes to the number the sentenc
       measured: [outOfBandEntries],
     },
     {
-      id: "schema `caps`: transitions a cap counts — every cap names exactly one, second site",
-      text: schemaProse,
-      pattern: /counts the taking of ([\w,-]+) named transition/,
-      measured: capTransitionArity,
+      id: "graph §7: the caps the shipped document declares, and the transitions they count between them — second site",
+      text: graphContract,
+      pattern: /The shipped document declares ([\w,-]+) caps over ([\w,-]+) counted transitions/,
+      measured: [caps.length, countedTransitions],
     },
     {
       id: "schema `authority`: components criterion 2 names — the digest verifier's non-base VARIANTS",

@@ -156,17 +156,28 @@ export function index(document) {
     document.first_step,
     ...(document.entry_steps ?? []).map((entry) => entry.step),
   ]);
-  // The cap terms, bound per guard once: a cap's counted edge admits below its
-  // limit, and the sibling edges that carry its park_reason are how the flow
-  // stops at it, so their guards ask the count the other way. The counter is
-  // keyed by the pair traversed — `graph_cap_transition_shared` keeps a counted
-  // pair to one edge for exactly this — so a term reads the pair the cap's
-  // `counted_transition` traverses, never the edge's own id.
+  // The cap terms, bound per guard once: a cap counts the takings of every
+  // transition it names as ONE count against its limit, so each counted edge
+  // admits below the limit, and the sibling edges out of a counted edge's
+  // step that carry its park_reason are how the flow stops at it, so their
+  // guards ask the same count the other way. One count is what lets "ten
+  // rounds" mean ten of either kind: a narrow review's and a full panel's
+  // NOT_PASS spend the same budget (R8-4). The counter is keyed by the pair
+  // traversed — `graph_cap_transition_shared` keeps a counted pair to one
+  // edge for exactly this — so a term reads the pairs the cap's
+  // `counted_transitions` traverse, each pair once, never an edge's id.
+  // A cap that declares a `cycle_boundary` counts per cycle: the pair whose
+  // taking closes one cycle and opens the next, which the daemon counts as it
+  // counts every pair, so the count is the takings since the cycle's last
+  // recorded crossing (review of 12c, M1). Each term carries the cap's own
+  // reason, which a refusal at the limit names (review of 12c, L4).
   const capTerms = new Map();
   const capBindings = new Map();
   const boundEdges = new Map();
-  const bindCap = (id, edge, cap, counted, below) => {
-    capTerms.set(id, [...(capTerms.get(id) ?? []), { from: counted.from, to: counted.to, limit: cap.limit, below }]);
+  const boundaries = [];
+  const bindCap = (id, edge, cap, pairs, below, boundary) => {
+    const term = { pairs, limit: cap.limit, below, reason: cap.park_reason, ...(boundary ? { boundary } : {}) };
+    capTerms.set(id, [...(capTerms.get(id) ?? []), term]);
     capBindings.set(id, [...(capBindings.get(id) ?? []), { edge, cap }]);
     const entry = boundEdges.get(edge.id) ?? { edge, caps: new Set() };
     entry.caps.add(cap);
@@ -179,28 +190,74 @@ export function index(document) {
     }
   }
   for (const cap of document.caps ?? []) {
-    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
-    if (counted === undefined) {
-      throw new GraphRefusal("transition_not_declared", `cap ${cap.cycle} counts ${cap.counted_transition}`);
-    }
-    if (counted.guards.length === 0) {
+    // A cap that names nothing to count has nothing to bind below its limit,
+    // and one still written with a single `counted_transition` is refused by
+    // name rather than read as counting nothing.
+    if (!Array.isArray(cap.counted_transitions) || cap.counted_transitions.length === 0) {
       throw new GraphRefusal(
         "cap_binding_incomplete",
-        `cap ${cap.cycle} counts ${counted.id}, which declares no guards to bind below its limit`,
+        `cap ${cap.cycle} names no counted transition, so nothing it bounds is ever counted`,
       );
     }
-    for (const id of counted.guards) bindCap(id, counted, cap, counted, true);
-    const carrying = (outgoing.get(counted.from) ?? []).filter(
-      (edge) => edge.id !== counted.id && edge.guards.some((id) => guards.get(id).park_reason === cap.park_reason),
-    );
-    if (carrying.length === 0) {
-      throw new GraphRefusal(
-        "cap_binding_incomplete",
-        `cap ${cap.cycle} has no edge out of ${counted.from} carrying ${cap.park_reason} to park on at the limit`,
-      );
+    const counted = cap.counted_transitions.map((id) => {
+      const edge = document.transitions.find((candidate) => candidate.id === id);
+      if (edge === undefined) throw new GraphRefusal("transition_not_declared", `cap ${cap.cycle} counts ${id}`);
+      if (edge.guards.length === 0) {
+        throw new GraphRefusal(
+          "cap_binding_incomplete",
+          `cap ${cap.cycle} counts ${edge.id}, which declares no guards to bind below its limit`,
+        );
+      }
+      return edge;
+    });
+    const pairs = [
+      ...new Map(counted.map((edge) => [JSON.stringify([edge.from, edge.to]), { from: edge.from, to: edge.to }])).values(),
+    ];
+    // The boundary is crossed only on what its edges' guards verify — for
+    // the shipped artifact cap, the published PASS — so a pair no edge joins,
+    // a pair the cap counts (a taking that would both spend a round and close
+    // the cycle) and an unguarded edge on it are refused rather than counted.
+    let boundary;
+    if (cap.cycle_boundary !== undefined) {
+      const { from, to } = cap.cycle_boundary ?? {};
+      const crossing = document.transitions.filter((edge) => edge.from === from && edge.to === to);
+      if (crossing.length === 0) {
+        throw new GraphRefusal(
+          "transition_not_declared",
+          `cap ${cap.cycle}'s cycle boundary ${from} -> ${to} joins no declared transition`,
+        );
+      }
+      if (pairs.some((pair) => pair.from === from && pair.to === to)) {
+        throw new GraphRefusal("cap_binding_ambiguous", `cap ${cap.cycle} counts ${from} -> ${to} and closes its cycle on it`);
+      }
+      const unguarded = crossing.filter((edge) => edge.guards.length === 0);
+      if (unguarded.length > 0) {
+        throw new GraphRefusal(
+          "cap_binding_incomplete",
+          `cap ${cap.cycle}'s cycle closes on ${unguarded.map((edge) => edge.id).join(", ")}, ` +
+            "which declares no guards, so nothing verifies the boundary it crosses",
+        );
+      }
+      boundary = { cycle: cap.cycle, from, to };
+      boundaries.push({ ...boundary, pairs });
     }
-    for (const edge of carrying) {
-      for (const id of edge.guards) bindCap(id, edge, cap, counted, false);
+    const countedIds = new Set(counted.map((edge) => edge.id));
+    for (const edge of counted) {
+      for (const id of edge.guards) bindCap(id, edge, cap, pairs, true, boundary);
+    }
+    for (const from of new Set(counted.map((edge) => edge.from))) {
+      const carrying = (outgoing.get(from) ?? []).filter(
+        (edge) => !countedIds.has(edge.id) && edge.guards.some((id) => guards.get(id).park_reason === cap.park_reason),
+      );
+      if (carrying.length === 0) {
+        throw new GraphRefusal(
+          "cap_binding_incomplete",
+          `cap ${cap.cycle} has no edge out of ${from} carrying ${cap.park_reason} to park on at the limit`,
+        );
+      }
+      for (const edge of carrying) {
+        for (const id of edge.guards) bindCap(id, edge, cap, pairs, false, boundary);
+      }
     }
   }
   // The binding is per guard, and it can only be read one way: a guard a
@@ -235,7 +292,7 @@ export function index(document) {
       );
     }
   }
-  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, capTerms, document };
+  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, capTerms, boundaries, document };
 }
 
 /** A refusal carrying the code the graph names for it. */
@@ -270,17 +327,97 @@ function holds(state, edge, evaluate) {
  * Whether a guard's cap terms hold on the task's record.
  *
  * An unbound guard owes nothing and holds vacuously. A bound one asks the
- * durable counter for the pair its cap counts — below the limit for the
- * counted edge's own guards, at it for the carrying siblings' — and every one
- * of its terms must hold, because each is a cap the document declared.
+ * durable counter for the pairs its cap counts and sums them, each pair once
+ * — below the limit for a counted edge's own guards, at it for the carrying
+ * siblings' — and every one of its terms must hold, because each is a cap the
+ * document declared.
  */
 function capHolds(terms, task) {
   if (terms === undefined) return true;
   for (const term of terms) {
-    const takings = takingsOf(task, term.from, term.to);
-    if (term.below ? takings >= term.limit : takings < term.limit) return false;
+    if (!termHolds(term, task)) return false;
   }
   return true;
+}
+
+/** One cap term on the task's record: its cycle's count below the limit, or at it. */
+function termHolds(term, task) {
+  const count = cycleCount(term, task);
+  return term.below ? count < term.limit : count >= term.limit;
+}
+
+/**
+ * The count a cap term compares with its limit: the durable takings of the
+ * pairs its cap counts, each pair once — all of them for a cap with no cycle
+ * boundary, and for one with a boundary those since its cycle's baseline
+ * (review of 12c, M1).
+ */
+function cycleCount(term, task) {
+  let spent = 0;
+  for (const { from, to } of term.pairs) spent += takingsOf(task, from, to);
+  return term.boundary === undefined ? spent : spent - baselineOf(task, term.boundary, spent);
+}
+
+/** Where the factory records each cycle's baseline in the task's metadata. */
+export const BASELINES_KEY = "cap_baselines";
+
+/**
+ * Where the current cycle's count began.
+ *
+ * Which cycle a task is in is the daemon's durable count of the boundary
+ * pair's takings, `crossed`. Where the count stood at a crossing the daemon
+ * does not keep, and the factory has no write that lands with the position,
+ * so the factory records it before it takes the boundary —
+ * `cap_baselines.<cycle>.<n>`, keyed by the crossing `n` that transit makes
+ * — and this reads the entry keyed by the daemon's count. The watermark is
+ * ADR-099's pattern: a leaf of the factory's, scoped by a counter of the
+ * daemon's.
+ *
+ * What that holds is a floor, not an exact cycle: the count never falls
+ * below the rounds since the last verified publication of a PASS, since the
+ * factory writes a baseline only as it takes a boundary edge whose guards
+ * verified the publication. The daemon counts other takings of the pair as
+ * crossings too — a resume out of a park recorded as a status move keeps
+ * the step and counts `<step> -> <target>`, so resuming a park at the
+ * boundary's step into its target is one — and such a crossing opens a cycle
+ * only on a baseline written for a verified publication whose transit did
+ * not land; with none, the next artifact goes on counting the last one's
+ * rounds (narrow re-review of 12c, Low 1).
+ *
+ * A baseline never exceeds the count at its crossing, since the count only
+ * grows, so every fallback here counts more, never less: an entry keyed
+ * ahead of the daemon's count — written for a transit that did not land — is
+ * not read, nor one that is not a count or stands above the current count,
+ * and a crossing with no entry — a running session's own transit, which
+ * writes none — reads the nearest earlier one, and none at all reads zero.
+ * A negative entry is read and counts more still. The keys are the
+ * crossings' numbers in canonical decimal, and own integer keys enumerate in
+ * ascending order, so the last entry read before a key passes the daemon's
+ * count is the nearest one.
+ */
+function baselineOf(task, boundary, spent) {
+  const crossed = takingsOf(task, boundary.from, boundary.to);
+  const recorded = ownRecord(ownRecord(task.metadata, BASELINES_KEY), boundary.cycle);
+  let baseline = 0;
+  if (recorded === undefined) return baseline;
+  for (const key of Object.keys(recorded)) {
+    if (!/^[1-9][0-9]{0,8}$/u.test(key)) continue;
+    if (Number(key) > crossed) break;
+    const value = recorded[key];
+    if (Number.isSafeInteger(value) && value <= spent) baseline = value;
+  }
+  return baseline;
+}
+
+/** Whether a parsed value is a record: an object, and neither null nor an array. */
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** An own record-valued entry of a parsed record, or nothing: inherited names and arrays are not records. */
+function ownRecord(bag, key) {
+  const value = isRecord(bag) && Object.hasOwn(bag, key) ? bag[key] : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 /**
@@ -492,9 +629,12 @@ export function permitsResume(state, reason, target, park = {}, visits = {}, dec
  * step being left (empty on enroll), whether the task is parked, the reason it
  * parked with, the park record itself, the daemon's visit counter — the record
  * and the counter are what operation 2's completion receipts answer to — and
- * what a decision-gated resume is checked with (`permitsResume`).
+ * what a decision-gated resume is checked with (`permitsResume`). `explain`
+ * says what a refusing guard names: its own `park_reason` unless the caller
+ * says otherwise — the built veto names the cap's reason when the guard's own
+ * predicate held and its cap term did not (review of 12c, L4).
  */
-export function admit(state, context, to, evaluate) {
+export function admit(state, context, to, evaluate, explain = ownReason) {
   const { step, parked, parkedWith, status } = context;
 
   // A task the operation already took out of the workflow is not moved by the graph.
@@ -600,7 +740,33 @@ export function admit(state, context, to, evaluate) {
   if (typeof refused.park_reason !== "string") {
     throw new GraphRefusal("guard_unknown", `${refused.id} declares no park reason, so it can refuse nothing by name`);
   }
-  throw new GraphRefusal(refused.park_reason, `${step} -> ${to.step} is guarded by ${refused.id}`);
+  const { reason, why } = explain(refused);
+  throw new GraphRefusal(reason, `${step} -> ${to.step} is guarded by ${refused.id}${why}`);
+}
+
+/** What a refusing guard names by default: its own park reason. */
+function ownReason(guard) {
+  return { reason: guard.park_reason, why: "" };
+}
+
+/**
+ * What a guard the veto found refusing names on the task's record. A guard
+ * whose caller answered yes and whose cap term did not was refused by the
+ * cap, so the refusal names the cap's reason — the condition that refused
+ * the move — rather than the guard's own, which names a condition that held
+ * (review of 12c, L4). A guard its caller refused names its own, whatever the
+ * count.
+ */
+function capExplained(state, guard, task, evaluate) {
+  const terms = state.capTerms.get(guard.id);
+  if (terms !== undefined && evaluate(guard.predicate, guard, task)) {
+    const spent = terms.find((term) => !termHolds(term, task));
+    if (spent !== undefined) {
+      const limit = spent.below ? "at its limit" : "below its limit";
+      return { reason: spent.reason, why: `, whose cap stands ${limit} (${cycleCount(spent, task)} of ${spent.limit})` };
+    }
+  }
+  return ownReason(guard);
 }
 
 /**
@@ -735,7 +901,7 @@ export function buildWorkflow(document, { evaluate, agents = {}, admitDecision }
         // named by the record the veto just read, and the caller's admitter.
         decisions: { task: task.id, admitDecision },
       };
-      admit(state, context, to, deciding(task));
+      admit(state, context, to, deciding(task), (guard) => capExplained(state, guard, task, evaluate));
     },
   };
 }
@@ -795,6 +961,11 @@ async function run(state, step, work, deciding, ctx) {
       // task where it stood rather than mid-move.
       await clearParkReason(ctx);
     }
+    // A boundary of a cap's cycle: where the count stood is recorded before
+    // the move, keyed by the crossing it makes, so the next cycle counts from
+    // there (review of 12c, M1). A write that fails leaves the task where it
+    // stood, as a park's record does.
+    await recordBaselines(ctx, state, decision.take, task);
     await ctx.transit({ step: decision.take.to });
     return;
   }
@@ -880,6 +1051,37 @@ async function recordPark(ctx, reason, origin) {
     });
     if (result.code !== 0) {
       throw new Error(`recording ${leaf.replace(".", " ")} ${value} failed with ${result.code}: ${result.stderr}`);
+    }
+  }
+}
+
+/**
+ * Records where each cap's count stands as the flow crosses that cap's cycle
+ * boundary, before it crosses.
+ *
+ * The leaf is `cap_baselines.<cycle>.<n>`, `n` the crossing this transit
+ * makes in the daemon's count of the boundary pair, and its value the sum of
+ * the cap's counted takings — which no counted edge can move between this
+ * write and the transit, since the flow stands at the boundary. A write that
+ * lands without its transit is keyed ahead of the daemon's count and is not
+ * read; the next attempt writes it again. A counter that is not a count keys
+ * nothing the reader reads, so the cycle is counted from an earlier
+ * baseline. A failed write throws for the reason recordPark's does: a
+ * crossing without its baseline is a cycle the cap would count from an
+ * earlier one.
+ */
+async function recordBaselines(ctx, state, edge, task) {
+  for (const boundary of state.boundaries) {
+    if (boundary.from !== edge.from || boundary.to !== edge.to) continue;
+    let spent = 0;
+    for (const { from, to } of boundary.pairs) spent += takingsOf(task, from, to);
+    const leaf = `${BASELINES_KEY}.${boundary.cycle}.${takingsOf(task, boundary.from, boundary.to) + 1}`;
+    const result = await ctx.exec(["autosk", "metadata", "set", ctx.tasks.currentId, leaf, String(spent)], {
+      cwd: ctx.projectRoot,
+      env: { ...process.env, AUTOSK_CWD: ctx.projectRoot, AUTOSK_SESSION_TOKEN: ctx.sessionToken },
+    });
+    if (result.code !== 0) {
+      throw new Error(`recording ${leaf} ${spent} failed with ${result.code}: ${result.stderr}`);
     }
   }
 }

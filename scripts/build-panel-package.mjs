@@ -1438,17 +1438,22 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   not on a retracted finding and not on a wait for patch \`0034\`; ticket 17
   closed on the evaluator landing, not on \`blocked_by: 0035\`: the quantity
   the caps fire on is declared — \`transition_takings\` is in the predicates'
-  \`reads\` vocabulary and in the \`reads\` of the four cap predicates, and the
-  validator refuses a cap predicate comparing with a quantity no predicate
-  declares it reads. The evaluator is the term the factory applies over the
+  \`reads\` vocabulary and in the own \`reads\` of every predicate a cap binds
+  (a test holds each), and the validator refuses a cap predicate comparing
+  with a quantity no predicate declares it reads. A cap counts the takings of
+  every transition it names as one count: an artifact's narrow and full-panel
+  NOT_PASS share one limit per review cycle, which the publication of the
+  artifact's PASS closes, never counting fewer rounds than since the last
+  verified publication, and the repair after the checks has a cap of its own
+  (ADR-104). The evaluator is the term the factory applies over the
   caller's evaluator at both decision sites, bound per guard at build;
   \`scripts/verify-autosk-cap.mjs\` drives it against a real daemon, where an
   unenforced cap lets the count pass the limit and an enforced one parks with
   \`review_cap\` at it. Like the two measurers above, that run is carried by
   the compatibility workflow and is no band of this section.
   A resume the graph declares the user's decision (a recovery row's
-  \`decision_targets\`: a round past \`review_cap\`, a re-stage onto a moved
-  target) is admitted only on a verified \`UserDecisionRecord\` through the caller's verifier:
+  \`decision_targets\`: a round past \`review_cap\` or \`verification_cap\`, a
+  re-stage onto a moved target) is admitted only on a verified \`UserDecisionRecord\` through the caller's verifier:
   the park's leaf (\`park.decision\`: the park's watermark, \`#\` and the record's
   digest) names a record the caller looks up, and the record must verify, name
   this project and this task and have decided this park's resume into this target (ADR-099,

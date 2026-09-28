@@ -48,6 +48,20 @@
         "transition_takings"
       ],
       "description": "transition_takings >= cap — the freeze rounds are spent"
+    },
+    {
+      "id": "pass_round_open",
+      "reads": [
+        "transition_takings"
+      ],
+      "description": "transition_takings < cap — the review did not pass, so the candidate is frozen for another round"
+    },
+    {
+      "id": "pass_round_closed",
+      "reads": [
+        "transition_takings"
+      ],
+      "description": "transition_takings >= cap — the review did not pass and the cycle's rounds are spent"
     }
   ],
   "steps": [
@@ -155,6 +169,22 @@
         "actor": "agent"
       },
       "park_reason": "review_cap"
+    },
+    {
+      "id": "pass_round_open_guard",
+      "predicate": "pass_round_open",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "artifact_pass_invalid"
+    },
+    {
+      "id": "pass_round_closed_guard",
+      "predicate": "pass_round_closed",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "review_cap"
     }
   ],
   "transitions": [
@@ -224,7 +254,18 @@
       "from": "record_artifact_pass",
       "to": "freeze_artifact",
       "priority": 1,
-      "guards": []
+      "guards": [
+        "pass_round_open_guard"
+      ]
+    },
+    {
+      "id": "pass_to_await_at_cap",
+      "from": "record_artifact_pass",
+      "to": "await_alignment",
+      "priority": 2,
+      "guards": [
+        "pass_round_closed_guard"
+      ]
     },
     {
       "id": "freeze_to_await_at_cap",
@@ -239,7 +280,14 @@
   "caps": [
     {
       "cycle": "artifact_review_cycle",
-      "counted_transition": "freeze_retry",
+      "counted_transitions": [
+        "freeze_retry",
+        "pass_to_freeze"
+      ],
+      "cycle_boundary": {
+        "from": "record_artifact_pass",
+        "to": "done"
+      },
       "limit": 10,
       "park_reason": "review_cap"
     }
@@ -288,7 +336,8 @@
     {
       "reason": "review_cap",
       "parks_at": [
-        "freeze_artifact"
+        "freeze_artifact",
+        "record_artifact_pass"
       ],
       "resume_targets": [
         "freeze_artifact"
@@ -296,7 +345,7 @@
       "decision_targets": [
         "freeze_artifact"
       ],
-      "required_state": "the count is never reset and the limit never raised; a resume into freeze_artifact, one round past the cap, is only the user's, on a daemon UserDecisionRecord recorded under this park (park.decision)"
+      "required_state": "the count, per review cycle — which only the passed review's record_artifact_pass -> done closes — is never reset within it and the limit never raised; a resume into freeze_artifact, one round past the cap, is only the user's, on a daemon UserDecisionRecord recorded under this park (park.decision)"
     },
     {
       "reason": "quick_classification_invalid",
@@ -319,7 +368,7 @@
       "required_state": "a new anchor version, a daemon impact disposition, and current authority, alignment and classifier hashes"
     }
   ],
-  "canonical_digest": "8d321ed50c6e488816f920da2ac62079b0dfb4023d192005fbe98a4ab43aeb02",
+  "canonical_digest": "57758894140517b14cc5f7de54a526e9a4b27d854fbfd836a3eca8dc910d23b8",
   "external_operations": [
     {
       "status": "cancel",

@@ -273,6 +273,52 @@ export function stepCoverageErrors(document, options = {}) {
   return errors.sort();
 }
 
+/**
+ * Every row that explains a decision-gated reason and leaves out one of its
+ * decision targets.
+ *
+ * A reason whose recovery row declares `decision_targets` resumes into those
+ * targets only on the user's decision recorded under the park, and a reader
+ * of either table is the person who has to know which resumes those are.
+ * Round 8 of #39 (R8-10) found the review-cap row naming two of its three:
+ * 01 §8 said `fix_artifact` and `fix` and not `rebuild_code_anchor`, which 01
+ * §9 and the graph make a round owed the decision. So every row that explains
+ * such a reason names each of its decision targets, as a whole name, where
+ * the row says a resume goes: its resume part, the segments of its step
+ * column — the second cell's ";" parts — that open with "resume". A target
+ * named only in the "park:" part, where the park stands, or only in the
+ * requirement column is not named there (review of 12c, L3). A reason that
+ * declares none asks its rows for nothing.
+ */
+export function decisionTargetErrors(document) {
+  const declared = new Map(document.recovery.map((row) => [row.reason, row.decision_targets ?? []]));
+  const errors = [];
+  for (const view of document.views ?? []) {
+    for (const [index, row] of view.rows.entries()) {
+      const names = new Set(resumePart(row.cells[1] ?? "").split(/[^a-z0-9_]+/u));
+      for (const reason of row.covers) {
+        for (const target of declared.get(reason) ?? []) {
+          if (names.has(target)) continue;
+          errors.push(
+            `view_decision_target_unnamed: ${view.id} row ${index + 1} explains ${reason} and does not name ${target}, ` +
+              "a resume into which is the user's decision",
+          );
+        }
+      }
+    }
+  }
+  return errors.sort();
+}
+
+/** A step cell's resume part: its ";" segments that open with "resume", joined. */
+export function resumePart(cell) {
+  return cell
+    .split(";")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.startsWith("resume"))
+    .join("; ");
+}
+
 export function renderErrors(document, { root = ROOT, read = readFileSync } = {}) {
   const errors = [];
   for (const view of document.views ?? []) {
@@ -321,6 +367,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...rosterErrors(document),
       ...coverageErrors(document),
       ...stepCoverageErrors(document),
+      ...decisionTargetErrors(document),
       ...bindingErrors(document),
       ...ruleErrors(document),
       ...renderErrors(document),

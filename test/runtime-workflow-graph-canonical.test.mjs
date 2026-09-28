@@ -114,7 +114,7 @@ const graph = () => ({
     { id: "t2", from: "a", to: "b", priority: 1, guards: ["g2", "g1"] },
     { id: "t1", from: "a", to: "b", priority: 0, guards: ["g1"] },
   ],
-  caps: [{ cycle: "c2", counted_transition: "t2", limit: 1, park_reason: "r" }],
+  caps: [{ cycle: "c2", counted_transitions: ["t2", "t1"], limit: 1, park_reason: "r" }],
   recovery: [{ reason: "r", parks_at: ["b", "a"], handled_at: ["b", "a"], resume_targets: ["b", "a"], decision_targets: ["b", "a"], required_state: "n/a" }],
 });
 
@@ -125,6 +125,7 @@ test("a set reshuffled is the same document and an order-carrying array is not",
   shuffled.steps.reverse();
   shuffled.guards.reverse();
   shuffled.caps = [...shuffled.caps];
+  shuffled.caps[0] = { ...shuffled.caps[0], counted_transitions: [...shuffled.caps[0].counted_transitions].reverse() };
   shuffled.recovery[0].handled_at.reverse();
   shuffled.recovery[0].decision_targets.reverse();
   assert.equal(graphDigest(shuffled), graphDigest(written), "sets are sets however they were typed");
@@ -148,6 +149,9 @@ test("the members a set holds are sorted too", () => {
   assert.deepEqual(normalized.guards[1].authority.policy_rules, ["r1", "r2"]);
   assert.deepEqual(normalized.transitions[0].guards, ["g1", "g2"], "an edge's guards are a set");
   assert.deepEqual(normalized.transitions.map((entry) => entry.id), ["t2", "t1"], "the edges themselves are not");
+  // The transitions a cap counts are a set (R8-4): one count over all of
+  // them, so the order they were typed in says nothing the graph means.
+  assert.deepEqual(normalized.caps[0].counted_transitions, ["t1", "t2"]);
   assert.deepEqual(normalized.recovery[0].parks_at, ["a", "b"]);
   // `handled_at` is a set for the same reason `parks_at` is, and it says so here
   // rather than only in the contract: a field that reaches the digest unsorted
@@ -207,6 +211,12 @@ test("a step with no hooks and a guard with no policy rules pass through", () =>
   assert.equal(normalized.steps[1].hooks, undefined, "the status step declares none");
   assert.deepEqual(normalized.steps[0].hooks, ["onRun"]);
   assert.equal(normalized.guards[0].authority.policy_rules, undefined);
+  // A cap without a counted list — which the schema refuses and the factory
+  // refuses at build — passes through normalized, not thrown on: the
+  // canonical form runs before either sees the object.
+  const { counted_transitions, ...bare } = graph().caps[0];
+  assert.deepEqual(normalizeGraph({ ...graph(), caps: [bare] }).caps, [bare]);
+  assert.deepEqual(counted_transitions, ["t2", "t1"]);
 });
 
 test("the set ordering is a comparator contract, not a property of one engine's sort", () => {

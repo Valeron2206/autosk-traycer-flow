@@ -24,6 +24,7 @@ import {
   REQUIRED_VIEWS,
   bindingErrors,
   coverageErrors,
+  decisionTargetErrors,
   locate,
   renderErrors,
   renderRow,
@@ -282,6 +283,87 @@ test("view_park_step_unexplained: a parked step no row of its reason names", () 
   const errors = stepCoverageErrors(graph);
   assert.equal(errors.length, 1);
   assert.match(errors[0], /^view_park_step_unexplained: park_table leaves blocked_anchor at accept/);
+});
+
+// --- Round 8 of #39, R8-10: a row that explains a decision-gated reason names every decision target ---
+
+test("every shipped row that explains a decision-gated reason names each of its decision targets (R8-10)", () => {
+  // Round 8 of #39, R8-10: 01 §8's review-cap row named `fix_artifact` and
+  // `fix` and the park steps `narrow_review_join` and `record_code_verdict`,
+  // and left out `rebuild_code_anchor`, which 01 §9 and the graph make a
+  // round owed the user's decision: two sections of 01 named different target
+  // sets for one row. A row explaining a reason whose recovery row declares
+  // `decision_targets` names each of them, in either view.
+  const graph = document();
+  assert.deepEqual(decisionTargetErrors(graph), []);
+  const explaining = graph.views.flatMap((view) => view.rows
+    .filter((row) => row.covers.some((reason) => graph.recovery.find((entry) => entry.reason === reason)?.decision_targets))
+    .map((row) => `${view.id}: ${row.covers.join(", ")}`));
+  assert.deepEqual(explaining.sort(), [
+    "core_flows_resume: cas_conflict, foreign_target_movement, post_cas_mismatch",
+    "core_flows_resume: completion_predicate_unmet, unsupported_integration_mode",
+    "core_flows_resume: review_cap",
+    "park_table: completion_predicate_unmet",
+    "park_table: foreign_target_movement",
+    "park_table: review_cap",
+    "park_table: verification_cap",
+  ]);
+});
+
+test("view_decision_target_unnamed: a row that leaves out a decision target is refused, and a row of an ungated reason is asked nothing (R8-10)", () => {
+  // The defect as it shipped: the review-cap row without the anchor rebuild.
+  const graph = document();
+  const row = graph.views.find((view) => view.id === "core_flows_resume").rows.find((candidate) => candidate.covers.includes("review_cap"));
+  row.cells = row.cells.map((cell) => cell.replaceAll("rebuild_code_anchor", "anchor rebuild"));
+  const errors = decisionTargetErrors(graph);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^view_decision_target_unnamed: core_flows_resume row \d+ explains review_cap and does not name rebuild_code_anchor/u);
+  // A name inside a longer one is not the name: `fix` is not named by `fix_artifact`.
+  const narrowed = document();
+  const cap = narrowed.views.find((view) => view.id === "park_table").rows.find((candidate) => candidate.covers.includes("review_cap"));
+  cap.cells = cap.cells.map((cell) => cell.replace(/\bfix\b(?!_)/gu, "the code fixer"));
+  assert.ok(decisionTargetErrors(narrowed).some((message) => /park_table row \d+ explains review_cap and does not name fix\b/u.test(message)));
+  // A reason that declares no decision target asks its rows for nothing.
+  const ungated = document();
+  const waiver = ungated.views.find((view) => view.id === "park_table").rows.find((candidate) => candidate.covers.includes("panel_waiver_required"));
+  waiver.cells = waiver.cells.map(() => "—");
+  assert.deepEqual(decisionTargetErrors(ungated), []);
+});
+
+test("view_decision_target_unnamed reads a row's resume part only: a target named in its park part or in its requirement column is not named where a resume goes (review of 12c, L3)", () => {
+  // Review of 12c, L3: the check accepted a decision target named anywhere in
+  // the row, so one named only as a step the park stands at, or only in the
+  // requirement column, passed. The resume part is the step column's
+  // segments — its ";" parts — that open with "resume"; each decision target
+  // is named there, as a whole name.
+  assert.deepEqual(decisionTargetErrors(document()), []);
+  const rowOf = (graph, view, reason) => graph.views.find((entry) => entry.id === view).rows.find((candidate) => candidate.covers.includes(reason));
+  // A target moved from the resume part into the park part, and still named
+  // in the requirement column, is refused.
+  const parked = document();
+  const cap = rowOf(parked, "park_table", "review_cap");
+  cap.cells[1] = cap.cells[1].replace("fix или rebuild_code_anchor (Quick/Ticket)", "fix (Quick/Ticket)").replace("park: ", "park: rebuild_code_anchor, ");
+  assert.ok(cap.cells[2].includes("rebuild_code_anchor"), "the requirement column still names it");
+  assert.ok(
+    decisionTargetErrors(parked).some((message) => /^view_decision_target_unnamed: park_table row \d+ explains review_cap and does not name rebuild_code_anchor/u.test(message)),
+    decisionTargetErrors(parked).join("\n") || "(no findings)",
+  );
+  // A row whose step column names only where the park stands, with the
+  // decided resume in its requirement column, is refused: the re-stage onto
+  // a moved target, as the table wrote it.
+  const required = document();
+  for (const [view, reason] of [["park_table", "foreign_target_movement"], ["park_table", "completion_predicate_unmet"], ["core_flows_resume", "foreign_target_movement"]]) {
+    const row = rowOf(required, view, reason);
+    row.cells[1] = row.cells[1].split(";").filter((segment) => !segment.trim().startsWith("resume")).join(";");
+    assert.ok(row.cells[2].includes("apply_staging"), `${view} ${reason}: the requirement column still names it`);
+  }
+  const errors = decisionTargetErrors(required);
+  for (const [view, reason] of [["park_table", "foreign_target_movement"], ["park_table", "completion_predicate_unmet"], ["core_flows_resume", "foreign_target_movement"]]) {
+    assert.ok(
+      errors.some((message) => new RegExp(`^view_decision_target_unnamed: ${view} row \\d+ explains ${reason} and does not name apply_staging`, "u").test(message)),
+      `${view} ${reason}:\n${errors.join("\n") || "(no findings)"}`,
+    );
+  }
 });
 
 test("a step cell naming a class counts for that class's declared members", () => {
