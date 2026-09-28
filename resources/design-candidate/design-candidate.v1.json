@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "b5707ad6cb09d647c0e567ae4b9e8e103f62daf117f9879cc8e278561f062ce3"
+      "sha256": "34951a0333c2767b98a71f91cd17540699e45ad81857c2304d6d855fe5287945"
     },
     {
       "path": "02-architecture.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "730b3d66faf78a1523ebee34431d0dc49fd5f173a2e8d504d16ae674b50cb163"
+      "sha256": "62ec10b3eca73a7dd3207251ebf04aad1b7e13c98ff3811cc0bd54e631c2a53a"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "ea223a47e927201145d21064a46264fd497ae224ab3dfed55bf99c797e722744"
+      "sha256": "c3c1850282ad8d8b14084519e941e4f94ae379298ae8247a5c374fa3432603cf"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -52,7 +52,7 @@
     },
     {
       "path": "docs/contracts/artifact-registry.md",
-      "sha256": "f089c51e15a531d775579d21216605a346c66bf1de221e414bb6396794e3dcf5"
+      "sha256": "335479d8753b79a163ac4c5afc6bedf3a75ec9b27925ff303d21d7ce6bc91882"
     },
     {
       "path": "docs/contracts/artifact-write-receipt.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "7ccedc7689771ff326dad4d8df17cbfb10746b314fd64237268e99b32fda232e"
+      "sha256": "7a018c3c565f7abf45e696f29f69c944feef04e266592bc2d3858a3d989195f4"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -200,11 +200,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "9a7dbcfd6c8b30e6b548f439845dc720dbcdb10794538e77152f134cf447e2d8"
+      "sha256": "de6ec23d4c012262013ee9b9e45c128e2cee3feb9c690afba817a3b23f87506c"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "e28fdd2d7ecc9c1b14e9317af92b150ca192acf9d8362082d0607eaccc2204ce"
+      "sha256": "213015d3e3ab406a25e5b58657a9e067cb7d8380dbcf8e97bbce7a963d765e30"
     },
     {
       "path": "docs/program-capability-matrix.md",
@@ -252,7 +252,7 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.schema.json",
-      "sha256": "d77d249192c455c153a4b49e3e38fc4b789539b09df194a6ded9be5d97c4f3a2"
+      "sha256": "391c829426b381cbf9e82d5eaabcaee38d00bf80c48f501fd8ed24da65d04d6f"
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
@@ -528,7 +528,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "156c9335b1ead216ad4246a099e5eac08f51a241894d829bdacf9b79136e1e77"
+      "sha256": "96bafc284bb0d807b4776d832eb4447a88db962f815f9c18bfdec2398904025e"
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
@@ -768,7 +768,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "f4b754bfcd9838a7d92330e4700a2c49c64d2798fa010d4a98a6c3daa7f1ccf6"
+      "sha256": "ce74e81b4f001be50750b075ef2df9f09d4ad8c9847b05e0d5775dca539be474"
     },
     {
       "path": "resources/requirement-revision/revision-record.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "d7147e2de7ef4ca97259e4e23d176dfe53a2c269a5a409070b638d043488b49c"
+      "sha256": "40d85c560da8ff92eb197db8ca8c29083d6c0b2aaa82a90f09ee91ebdd6f45e9"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "0f34ec889df555d2e7041c84ead3c76215c6794fa551a17898ba5f1f5c5e97a7",
+  "candidate_digest": "93fd76e5fd421b0475130c380d9459568678765ecc76d47107dcebca92f3e568",
   "dispositions": [
     {
       "issue": 3,

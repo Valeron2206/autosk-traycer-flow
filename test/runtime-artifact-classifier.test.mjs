@@ -5,15 +5,21 @@
  * ways that goes wrong — a path nobody registered being given the cheapest
  * lifecycle, and two classes disagreeing about what a change means — plus the
  * one property that makes the registry worth having: it covers the repository
- * it claims to govern.
+ * it claims to govern. A path the classifier cannot route parks as one stop,
+ * the workflow graph's `artifact_mapping_required`, and the park says why
+ * (debt 12d, R8-6).
  */
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
   CATEGORIES,
+  PARK_CAUSES,
+  PARK_REASON,
   PARK_REASONS,
   UNGOVERNED,
   classify,
@@ -22,7 +28,8 @@ import {
   matchesPattern,
   matchingClasses,
 } from "../src/host/artifact-classifier.mjs";
-import { ROOT, changedPaths, loadRegistry, render } from "../scripts/classify-changeset.mjs";
+import { index, permitsResume } from "../src/host/workflow-factory.mjs";
+import { REMEDIES, ROOT, changedPaths, loadRegistry, parkKind, render } from "../scripts/classify-changeset.mjs";
 
 const registry = loadRegistry();
 
@@ -103,14 +110,16 @@ test("a path no class covers parks, and is not called explanatory", () => {
   // acquires the cheapest lifecycle by accident.
   const parked = classify(toy, "docs/z/unknown.md");
   assert.equal(parked.status, "parked");
-  assert.equal(parked.park_reason, "unknown_class");
+  assert.equal(parked.park_reason, "artifact_mapping_required");
+  assert.equal(parked.cause, "unknown_class");
   assert.ok(PARK_REASONS.includes(parked.park_reason));
 });
 
 test("two classes with different categories park rather than one being picked", () => {
   const parked = classify(toy, "docs/c/thing.md");
   assert.equal(parked.status, "parked");
-  assert.equal(parked.park_reason, "ambiguous_class");
+  assert.equal(parked.park_reason, "artifact_mapping_required");
+  assert.equal(parked.cause, "ambiguous_class");
   assert.deepEqual(parked.candidates, ["delta", "gamma"]);
 });
 
@@ -156,6 +165,7 @@ test("one parked path stops the whole changeset", () => {
   const outcome = classifyChangeset(toy, ["docs/b/x.json", "docs/z/unknown.md"]);
   assert.equal(outcome.admits, false);
   assert.equal(outcome.parked.length, 1);
+  assert.deepEqual(outcome.parked.map((entry) => [entry.park_reason, entry.cause]), [["artifact_mapping_required", "unknown_class"]]);
   assert.equal(classifyChangeset(toy, ["docs/b/x.json"]).admits, true);
 });
 
@@ -172,7 +182,8 @@ test("the Autobuild run record is refused by name, not routed to publication", (
   assert.deepEqual(refused, {
     status: "parked",
     path: AUTOBUILD_RUN,
-    park_reason: "unknown_class",
+    park_reason: "artifact_mapping_required",
+    cause: "class_not_v1",
     candidates: ["autobuild_run"],
     lifecycle: "planned_after_v1",
     decided_by: "#28",
@@ -189,7 +200,8 @@ test("the typed SDK write record is refused by name: #38 is after v1", () => {
   assert.deepEqual(classify(registry, path), {
     status: "parked",
     path,
-    park_reason: "unknown_class",
+    park_reason: "artifact_mapping_required",
+    cause: "class_not_v1",
     candidates: ["sdk_write_operation"],
     lifecycle: "planned_after_v1",
     decided_by: "#38",
@@ -209,7 +221,8 @@ test("every path of a class v1 governs classifies, and every path of one it does
         assert.equal(result.class, entry.class, `${entry.class}: ${pattern}`);
       } else {
         assert.equal(result.status, "parked", `${entry.class}: ${pattern}`);
-        assert.equal(result.park_reason, "unknown_class", `${entry.class}: ${pattern}`);
+        assert.equal(result.park_reason, "artifact_mapping_required", `${entry.class}: ${pattern}`);
+        assert.equal(result.cause, "class_not_v1", `${entry.class}: ${pattern}`);
         assert.deepEqual(result.candidates, [entry.class], `${entry.class}: ${pattern}`);
         assert.equal(result.lifecycle, entry.lifecycle, `${entry.class}: ${pattern}`);
         assert.equal(result.decided_by, entry.decided_by, `${entry.class}: ${pattern}`);
@@ -241,7 +254,8 @@ test("a class that does not say v1 governs it is not governed", () => {
   assert.deepEqual(classify(unmarked, "docs/a/one.md"), {
     status: "parked",
     path: "docs/a/one.md",
-    park_reason: "unknown_class",
+    park_reason: "artifact_mapping_required",
+    cause: "class_not_v1",
     candidates: ["alpha"],
     lifecycle: null,
     decided_by: null,
@@ -306,7 +320,7 @@ test("the registry covers the repository it claims to govern", () => {
     .filter(Boolean);
   const outcome = classifyChangeset(registry, tracked);
   assert.deepEqual(
-    outcome.parked.map((entry) => `${entry.path} (${entry.park_reason})`),
+    outcome.parked.map((entry) => `${entry.path} (${entry.park_reason}: ${entry.cause})`),
     [],
   );
   assert.ok(tracked.length > 100, "the tracked list looks too short to be the repository");
@@ -320,14 +334,14 @@ test("the CLI reads the same paths git would give a review", () => {
   assert.match(text, /governance_defining\s+contract_document\s+docs\/contracts\/debate.md/u);
   assert.match(text, /review: full_panel/u);
   const nowhere = render(classifyChangeset(registry, ["nowhere/at/all.txt"]));
-  assert.match(nowhere, /PARKED unknown_class/u);
+  assert.match(nowhere, /PARKED artifact_mapping_required \(unknown_class\)\s+nowhere\/at\/all\.txt/u);
   assert.match(nowhere, /1 path\(s\) are governed by no class/u);
   assert.doesNotMatch(nowhere, /does not govern/u);
   assert.doesNotMatch(text, /does not govern|governed by no class/u, "an admitted changeset has no remedy line");
   // A class v1 does not govern is named with its lifecycle and its issue, and
   // the remedy is not "add a registry entry": it is registered already.
   const later = render(classifyChangeset(registry, [AUTOBUILD_RUN]));
-  assert.match(later, /PARKED unknown_class\s+autobuild_run \(planned_after_v1, #28\)\s+docs\/autosk\/epics\/e1\/autobuild\/r1\/run\.json/u);
+  assert.match(later, /PARKED artifact_mapping_required \(class_not_v1\)\s+autobuild_run \(planned_after_v1, #28\)\s+docs\/autosk\/epics\/e1\/autobuild\/r1\/run\.json/u);
   assert.match(later, /1 path\(s\) belong to a class v1 does not govern/u);
   assert.doesNotMatch(later, /governed by no class/u);
 });
@@ -339,11 +353,11 @@ test("each parked path is given the remedy of its own reason", () => {
   // it, when two do.
   const unmarked = { classes: [{ ...toy.classes[0], lifecycle: undefined }] };
   const bare = render(classifyChangeset(unmarked, ["docs/a/one.md"]));
-  assert.match(bare, /PARKED unknown_class\s+alpha \(no lifecycle\)\s+docs\/a\/one\.md/u);
+  assert.match(bare, /PARKED artifact_mapping_required \(class_not_v1\)\s+alpha \(no lifecycle\)\s+docs\/a\/one\.md/u);
   assert.match(bare, /1 path\(s\) belong to a class that does not say whether v1 governs it; give the class its lifecycle in the registry\./u);
   assert.doesNotMatch(bare, /null|activates it|governed by no class/u);
   const ambiguous = render(classifyChangeset(toy, ["docs/c/thing.md"]));
-  assert.match(ambiguous, /PARKED ambiguous_class\s+delta,gamma\s+docs\/c\/thing\.md/u);
+  assert.match(ambiguous, /PARKED artifact_mapping_required \(ambiguous_class\)\s+delta,gamma\s+docs\/c\/thing\.md/u);
   assert.match(ambiguous, /1 path\(s\) are claimed by classes of different categories; narrow the patterns so that one class owns each path\./u);
   assert.doesNotMatch(ambiguous, /governed by no class|does not govern/u);
   // Parks of the four kinds are counted apart, one line each.
@@ -365,7 +379,131 @@ test("a class a successor matrix decides is told it waits for one, not for its i
   // Narrow re-review of 11g: #47 is outside matrix v1, so no issue of it
   // activates its classes; a successor matrix has to classify #47 first.
   const successor = render(classifyChangeset(registry, ["resources/static-analysis/static-analysis-policy.v1.json"]));
-  assert.match(successor, /PARKED unknown_class\s+static_analysis_policy \(successor_matrix_candidate, #47\)/u);
+  assert.match(successor, /PARKED artifact_mapping_required \(class_not_v1\)\s+static_analysis_policy \(successor_matrix_candidate, #47\)/u);
   assert.match(successor, /1 path\(s\) belong to a class that waits for a successor matrix; v1 governs it only once a successor matrix classifies its issue\./u);
   assert.doesNotMatch(successor, /activates it|governed by no class/u);
+});
+
+// Debt 12d (R8-6): a path the classifier cannot route parks as one stop, the
+// workflow graph's `artifact_mapping_required`, whose recovery row says where
+// the task resumes; what stopped it is the park's cause.
+
+/** The workflow graph, whose recovery rows say where a stop resumes. */
+const graph = JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+
+test("every park is the graph's artifact_mapping_required stop, which has a recovery row, and the park says why it stopped (R8-6)", () => {
+  // Round 8 of #39, R8-6: the classifier parked a path as `unknown_class` —
+  // no class governs it, or, since ADR-101, its class is not v1's — or as
+  // `ambiguous_class`, and neither is a reason the workflow graph's recovery
+  // rows or the refusal vocabulary carry, so a task stopped there had no row
+  // and no resume target: the factory refused every resume ("has no recovery
+  // row"). The park is the graph's stop for an artifact no lifecycle governs,
+  // and what stopped it is the park's cause.
+  const unmarked = { classes: [...toy.classes, { ...toy.classes[0], class: "bare", lifecycle: undefined, paths: ["docs/bare/*.md"] }] };
+  const parks = [
+    [classify(toy, "docs/z/unknown.md"), "unknown_class"],
+    [classify(registry, "nowhere/at/all.txt"), "unknown_class"],
+    [classify(toy, "docs/c/thing.md"), "ambiguous_class"],
+    [classify(registry, AUTOBUILD_RUN), "class_not_v1"],
+    [classify(registry, "resources/static-analysis/static-analysis-policy.v1.json"), "class_not_v1"],
+    [classify(unmarked, "docs/bare/one.md"), "class_not_v1"],
+  ];
+  // Every park is one stop, so the row that recovers it is one row. Where a
+  // task resumes depends on the step it stood at, which the park records as
+  // its origin (the row is scoped to its origin's edges, review M1): a Quick
+  // or a Ticket stopped at freeze re-freezes once the registry names the path
+  // and is never lent the Epic's draft_artifact; the Epic stopped at
+  // freeze_artifact re-freezes or redrafts.
+  const state = index(graph);
+  for (const [park] of parks) assert.equal(park.status, "parked", park.path);
+  assert.deepEqual([...new Set(parks.map(([park]) => park.park_reason))], [PARK_REASON]);
+  const admittedFrom = (origin) => graph.recovery.find((row) => row.reason === PARK_REASON).resume_targets.filter((target) => {
+    try {
+      return permitsResume(state, PARK_REASON, target, { origin });
+    } catch {
+      return false;
+    }
+  });
+  assert.deepEqual(admittedFrom("freeze"), ["freeze", "human"], "a Quick or Ticket stop");
+  assert.deepEqual(
+    admittedFrom("freeze_artifact"),
+    ["clarify_alignment", "draft_artifact", "freeze_artifact", "human", "present_tickets_breakdown"],
+    "an Epic stop",
+  );
+  const rows = new Map(graph.recovery.map((row) => [row.reason, row]));
+  for (const [park, cause] of parks) {
+    assert.equal(park.park_reason, "artifact_mapping_required", park.path);
+    assert.equal(park.park_reason, PARK_REASON, park.path);
+    assert.equal(park.cause, cause, park.path);
+    assert.ok(PARK_REASONS.includes(park.park_reason), park.path);
+  }
+  // A cause is not a park reason: it has no row of its own and is not in the
+  // closed set of park reasons.
+  assert.deepEqual([...PARK_CAUSES], ["unknown_class", "ambiguous_class", "class_not_v1"]);
+  for (const cause of PARK_CAUSES) {
+    assert.equal(rows.has(cause), false, `${cause} has a recovery row of its own`);
+    assert.equal(PARK_REASONS.includes(cause), false, `${cause} is listed as a park reason`);
+  }
+  // The row parks where a candidate is routed by its classes: a Quick's or a
+  // Ticket's code at `freeze`, a planning artifact at `freeze_artifact`.
+  assert.deepEqual([...rows.get(PARK_REASON).parks_at].sort(), ["freeze", "freeze_artifact"]);
+});
+
+test("a Quick or Ticket parked at freeze resumes at freeze once the registry routes the path, and is lent no Epic step (review M1)", () => {
+  // The common park: ordinary code or config no class governs
+  // (`unknown_class`), which lands at the freeze a Quick's or a Ticket's code
+  // is routed at. Its only ways out were a person's stop and the Epic's
+  // draft_artifact, so after the remedy nothing re-ran the freeze.
+  const state = index(graph);
+  for (const path of ["lib/util.js", "Makefile", "migrations/001.sql", "config/app.yaml"]) {
+    const parked = classify(registry, path);
+    assert.equal(parked.status, "parked", path);
+    assert.equal(parked.cause, "unknown_class", path);
+    assert.equal(parked.park_reason, PARK_REASON, path);
+  }
+  const parked = classify(toy, "docs/z/unknown.md");
+  assert.equal(parked.status, "parked");
+  // The remedy: a registry entry the path matches.
+  const remedied = { classes: [...toy.classes, { ...toy.classes[0], class: "z", paths: ["docs/z/*.md"] }] };
+  assert.equal(classify(remedied, "docs/z/unknown.md").status, "classified");
+  assert.equal(permitsResume(state, parked.park_reason, "freeze", { origin: "freeze" }), true);
+  for (const target of ["draft_artifact", "clarify_alignment", "present_tickets_breakdown", "freeze_artifact"]) {
+    assert.throws(
+      () => permitsResume(state, parked.park_reason, target, { origin: "freeze" }),
+      (error) => error.reason === "resume_target_not_permitted",
+      target,
+    );
+  }
+});
+
+test("the CLI reads a park's cause, not the shape of the result, and every cause has its remedy (R8-6)", () => {
+  // `parkKind` inferred the kind from the result: a park not named
+  // `ambiguous_class` that carried no `lifecycle` read as a path no class
+  // governs. Every park now has one name, so the kind is the cause's.
+  const park = (cause, extra = {}) => ({ status: "parked", path: "p", park_reason: PARK_REASON, cause, candidates: [], ...extra });
+  assert.equal(parkKind(park("unknown_class")), "unregistered");
+  assert.equal(parkKind(park("ambiguous_class", { candidates: ["a", "b"] })), "ambiguous");
+  assert.equal(parkKind(park("class_not_v1", { lifecycle: "planned_after_v1", decided_by: "#28" })), "later");
+  assert.equal(parkKind(park("class_not_v1", { lifecycle: "successor_matrix_candidate", decided_by: "#47" })), "successor");
+  assert.equal(parkKind(park("class_not_v1", { lifecycle: null, decided_by: null })), "unmarked");
+  // A cause the CLI does not know is refused, not told the remedy of the last
+  // kind (review, nit): a new cause owes its remedy.
+  for (const cause of [undefined, "no_such_cause", "unregistered_artifact"]) {
+    assert.throws(() => parkKind(park(cause)), /park cause/u, String(cause));
+  }
+  // One vocabulary: the kinds the causes give are exactly the remedies the
+  // CLI prints, and each parked line names the stop and its cause.
+  const kinds = new Set([
+    parkKind(park("unknown_class")),
+    parkKind(park("ambiguous_class")),
+    ...[null, "planned_after_v1", "successor_matrix_candidate"].map((lifecycle) => parkKind(park("class_not_v1", { lifecycle }))),
+  ]);
+  assert.deepEqual([...kinds].sort(), Object.keys(REMEDIES).sort());
+  const four = {
+    classes: [...toy.classes, { ...toy.classes[0], class: "later", lifecycle: "planned_after_v1", decided_by: "#28", paths: ["docs/later/*.md"] }],
+  };
+  const text = render(classifyChangeset(four, ["docs/z/one.md", "docs/c/two.md", "docs/later/three.md"]));
+  for (const cause of PARK_CAUSES) {
+    assert.match(text, new RegExp(`^  PARKED artifact_mapping_required \\(${cause}\\) `, "mu"), cause);
+  }
 });

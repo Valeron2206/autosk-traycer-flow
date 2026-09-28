@@ -93,15 +93,15 @@
     },
     {
       "module": "src/host/artifact-classifier.mjs",
-      "line": 114,
+      "line": 140,
       "guard": "< -> <=",
-      "reason": "The comparator's second key breaks ties in specificity by class name, and two entries with the same specificity *and* the same class name would be one class registered twice \u2014 which `ambiguous_class` refuses before any path is classified. The tie branch is therefore unreachable, and the selection property is tested directly."
+      "reason": "The comparator's second key breaks ties in specificity by class name, and two entries with the same specificity *and* the same class name would be one class registered twice \u2014 which the registry validator refuses (`declared twice`) before any path is classified. The tie branch is therefore unreachable, and the selection property is tested directly."
     }
   ],
   "non_terminating_mutants": [
     {
       "module": "src/host/artifact-classifier.mjs",
-      "line": 150,
+      "line": 178,
       "guard": "> -> >=",
       "reason": "`while (queue.length > 0)` is the only exit of `impactClosure`. `> -> >=` makes an empty queue (`length === 0`) still enter the body. `queue.shift()` then yields `undefined`; `byName.get(undefined)?.impacts ?? []` is empty, so nothing is enqueued and the condition stays true. `seen` only suppresses re-enqueue of a named class \u2014 it is not the loop condition \u2014 so even a cycle-free registry hangs once the work list drains. The mutant never returns an impact set."
     },

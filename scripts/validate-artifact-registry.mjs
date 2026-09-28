@@ -13,6 +13,11 @@
  * does since debt 10g: this validator holds a class v1 does not govern to the
  * program matrix, and a class a v1 workflow produces to v1, so the classifier
  * can refuse the first without hiding the second.
+ *
+ * The classifier parks every path it cannot route as one stop, the workflow
+ * graph's `artifact_mapping_required`, with a cause (debt 12d, ADR-105): this
+ * validator holds the contract to that reason and those causes, and the graph
+ * to a recovery row for the reason where a candidate is routed by its classes.
  */
 
 import { createHash } from "node:crypto";
@@ -20,7 +25,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { V1_LIFECYCLE } from "../src/host/artifact-classifier.mjs";
+import { PARK_CAUSES, PARK_REASON, V1_LIFECYCLE } from "../src/host/artifact-classifier.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,19 +48,29 @@ export const CONTRACTS_DIR = "docs/contracts";
  */
 export const LIFECYCLES = Object.freeze([V1_LIFECYCLE, "planned_after_v1", "successor_matrix_candidate"]);
 
-/** Closed park reasons of section 8. */
+/**
+ * Closed park reasons of section 8. The classifier parks with the first; its
+ * causes (`PARK_CAUSES`) are not park reasons (debt 12d).
+ */
 export const PARK_REASONS = Object.freeze([
-  "unknown_class",
-  "ambiguous_class",
+  "artifact_mapping_required",
   "missing_predecessor",
-  "unregistered_artifact",
   "registry_drift",
   "cyclic_impact_graph",
   "validator_missing",
   "schema_missing",
 ]);
 
-/** Categories the classifier may return. Anything else is `unknown_class`. */
+/**
+ * The steps whose edges route a candidate by its classes: a Quick's or a
+ * Ticket's code at `freeze` (to the review, the narrow review or the
+ * editorial exemption) and a planning artifact at `freeze_artifact` (to the
+ * panel, the narrow review or its PASS). The classifier's park must stop at
+ * each, or a candidate the classifier cannot route would move on unrouted.
+ */
+export const CLASSIFIED_AT = Object.freeze(["freeze", "freeze_artifact"]);
+
+/** Categories the classifier may return, which the schema must enumerate exactly. */
 export const CATEGORIES = Object.freeze([
   "behavior_defining",
   "governance_defining",
@@ -148,7 +163,10 @@ export function validateRegistry(registry, schema) {
 
   // A path claimed by two classes has no defined lifecycle: the two entries can
   // disagree on review mode and on impact closure, and nothing decides which
-  // applies. This is `ambiguous_class` in the contract, refused here.
+  // applies. Where the categories of the two classes differ, the classifier
+  // parks a path either matches with the cause `ambiguous_class`, and where
+  // they agree the most specific pattern decides — but one pattern two classes
+  // name is no specificity at all; the registry that allows it is refused here.
   const claimants = new Map();
   for (const entry of registry.classes) {
     for (const pattern of entry.paths) {
@@ -291,6 +309,50 @@ export function graphClassErrors(registry, graph) {
 }
 
 /**
+ * The classifier's park has a recovery row where a candidate is routed by its
+ * classes, and the row lets each stop re-run the step it stood at (debt 12d,
+ * R8-6 and the reviews' M1 and L-a).
+ *
+ * A reason the workflow graph has no row for is a stop no resume leaves — the
+ * factory refuses every target of it — which is what the classifier's own
+ * `unknown_class` and `ambiguous_class` were. The row must park at every step
+ * of `CLASSIFIED_AT`, or a candidate the classifier cannot route there would
+ * not stop. And a row that parks there but admits from a step only a person's
+ * stop is the same defect one step later: a Quick's or a Ticket's code, parked
+ * at `freeze` for a path no class governs, could be cancelled and nothing else
+ * once the registry named it, and a union row lent it the Epic's
+ * `draft_artifact`. So the row is scoped to its origin (`resume_scope`), and
+ * lists each of those steps among its own resume targets: what a stop needs
+ * once the remedy is made is the step it stood at again. An edge out of the
+ * step is no substitute — `freeze` is Quick's and Ticket's, and its edge into
+ * `invalidate_quick_classification` is Quick's alone, so a row listing that
+ * step in place of `freeze` would leave a Ticket with a Quick's step, or none.
+ */
+export function parkRowErrors(graph) {
+  const row = (Array.isArray(graph?.recovery) ? graph.recovery : []).find((entry) => entry?.reason === PARK_REASON);
+  if (!row) {
+    return [`${PARK_REASON}: the classifier parks with it and the graph has no recovery row for it, so a task parked there has no resume`];
+  }
+  const parksAt = Array.isArray(row.parks_at) ? row.parks_at : [];
+  const missing = CLASSIFIED_AT.filter((step) => !parksAt.includes(step));
+  const errors = missing.length === 0
+    ? []
+    : [`${PARK_REASON}: the graph does not park it at ${missing.join(", ")}, where a candidate is routed by its classes`];
+  const scope = row.resume_scope;
+  if (scope !== "origin" && scope !== "origin_edges") {
+    errors.push(`${PARK_REASON}: the row is not scoped to its origin (resume_scope), so a stop at one step is lent the targets of every step it names, another workflow's included`);
+    return errors;
+  }
+  const targets = Array.isArray(row.resume_targets) ? row.resume_targets : [];
+  for (const step of CLASSIFIED_AT.filter((name) => parksAt.includes(name))) {
+    if (!targets.includes(step)) {
+      errors.push(`${PARK_REASON}: the row does not list ${step} among its resume targets, so once the registry names the path a task stopped there cannot re-run the step it stood at`);
+    }
+  }
+  return errors;
+}
+
+/**
  * How many classes carry each lifecycle, in the order of `LIFECYCLES`, zero
  * included. #14's obligation covers the `required_for_v1` classes; the others
  * are counted apart rather than inside one total.
@@ -309,6 +371,9 @@ export function validateArtifactRegistryDesign(files) {
   if (!contract.includes(SCHEMA_PATH)) errors.push(`${CONTRACT_PATH}: does not point at ${SCHEMA_PATH}`);
   for (const reason of PARK_REASONS) {
     if (!contract.includes(reason)) errors.push(`${CONTRACT_PATH}: park reason ${reason} is not documented`);
+  }
+  for (const cause of PARK_CAUSES) {
+    if (!contract.includes(`\`${cause}\``)) errors.push(`${CONTRACT_PATH}: park cause ${cause} is not documented`);
   }
   for (const lifecycle of LIFECYCLES) {
     if (!contract.includes(lifecycle)) errors.push(`${CONTRACT_PATH}: lifecycle ${lifecycle} is not documented`);
@@ -350,6 +415,7 @@ export function validateArtifactRegistryDesign(files) {
   errors.push(
     ...[...lifecycleErrors(registry, matrix), ...graphClassErrors(registry, graph)]
       .map((message) => `${REGISTRY_PATH}: ${message}`),
+    ...parkRowErrors(graph).map((message) => `${GRAPH_PATH}: ${message}`),
   );
 
   // The load-bearing check: this repository governs itself. A contract added
@@ -368,7 +434,7 @@ export function validateArtifactRegistryDesign(files) {
       if (!name.endsWith(".md")) continue;
       const relative = `${CONTRACTS_DIR}/${name}`;
       if (!listed.has(relative)) {
-        errors.push(`${relative}: not listed by ${CONTRACT_CLASS} (unregistered_artifact)`);
+        errors.push(`${relative}: not listed by ${CONTRACT_CLASS} (unknown_class)`);
       }
     }
     for (const listedPath of governing.paths) {

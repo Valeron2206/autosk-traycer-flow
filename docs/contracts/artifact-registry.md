@@ -58,7 +58,9 @@ Four categories, and the decision is a function of the registry, not of a review
 
 An artifact matching no class, or matching two classes with different categories, **parks**. It is not classified as explanatory because nothing else fit.
 
-So does an artifact whose class v1 does not govern. The owning class is chosen first, as for any path — the most specific pattern among classes of one category — and a path whose owner is not `required_for_v1` parks as `unknown_class`, naming the class, its `lifecycle` and its `decided_by`. The class is known to the registry and unknown to v1: the path is given no review, no approval and no publication, and a v1 class never takes a path that a more specific refused class owns.
+So does an artifact whose class v1 does not govern. The owning class is chosen first, as for any path — the most specific pattern among classes of one category — and a path whose owner is not `required_for_v1` parks, naming the class, its `lifecycle` and its `decided_by`. The class is known to the registry and unknown to v1: the path is given no review, no approval and no publication, and a v1 class never takes a path that a more specific refused class owns.
+
+Whatever parks a path, the park is one stop, `artifact_mapping_required` (§8), and what parked it is the park's `cause`: `unknown_class` when no class governs the path, `ambiguous_class` when classes of two categories claim it, and `class_not_v1` when its owner is a class v1 does not govern. Each cause has its own remedy before the task resumes: `unknown_class`, a registry entry that names the path; `ambiguous_class`, patterns narrowed until one class owns it; `class_not_v1`, the activation of the class by the issue that owns it (and, for an issue outside matrix v1, a successor matrix first; a class that names no lifecycle is given one in the registry). `classify:changeset` prints the remedy of each cause; §8 says where the task resumes.
 
 The editorial exemption is deliberately narrow: it never applies to configuration, schemas, security rules, prompts, governance, migration or verification contracts, whatever the diff looks like. A typo fix in an ADR's prose is editorial; a typo fix in a schema's `pattern` is not, because the bytes that change are the bytes that decide.
 
@@ -84,7 +86,13 @@ A contract and the artifacts it defines are different classes, because their bla
 
 ## 8. Park reasons
 
-Closed set: `unknown_class`, `ambiguous_class`, `missing_predecessor`, `unregistered_artifact`, `registry_drift`, `cyclic_impact_graph`, `validator_missing`, `schema_missing`.
+Closed set: `artifact_mapping_required`, `missing_predecessor`, `registry_drift`, `cyclic_impact_graph`, `validator_missing`, `schema_missing`.
+
+The classifier parks with the first and with no other (round 8 of #39, R8-6; ADR-105). `artifact_mapping_required` is the workflow graph's stop for an artifact no lifecycle governs, and a parked path takes that reason's recovery row: the graph parks it at `freeze`, where a Quick's or a Ticket's code candidate is routed by its classes, and at `freeze_artifact`, where a planning artifact is, and the task stops in `human`. It resumes where the row permits, and the row is scoped to the step the park stood at and the edges out of it, so each stop is admitted into its own workflow's steps and lent none of another's (review of 12d, M1). A code candidate stopped at `freeze` — a Quick's or a Ticket's, which is where ordinary code or configuration no class governs stops — resumes into `freeze` once the registry names the path (an entry added, patterns narrowed, or the class activated by its issue), or stays in `human`; it is not lent the Epic's `draft_artifact`. A planning artifact stopped at `freeze_artifact` resumes into `freeze_artifact` again, into `draft_artifact` and is redrafted, or into `clarify_alignment` or `present_tickets_breakdown` and goes on to the alignment or Tickets-manifest handling by their own edges. What each cause needs before the resume is in §4: `unknown_class`, a registry entry; `ambiguous_class`, narrower patterns; `class_not_v1`, the owning issue's activation. The refusal vocabulary records the classifier, `src/host/artifact-classifier.mjs`, as the reason's producer and this contract as its owner.
+
+The park carries its `cause`, closed too: `unknown_class` — no class governs the path, the refusal `01-core-flows.md` §2 and ADR-073 called `unregistered_artifact`, the cause's older name; `ambiguous_class` — classes of two categories claim it; `class_not_v1` — its owner is a class v1 does not govern, and the park names the class's `lifecycle` and `decided_by`. A cause is not a park reason: all three stop at the same row, and they differ only in what fixes the path — a registry entry, narrower patterns, or the issue that owns the class — which `classify:changeset` prints per cause. `impactClosure` refuses a class name the registry does not have with the same `unknown_class`, thrown to its caller rather than parked.
+
+The other five are not stops a task parks at in this repository. The validator refuses a class that impacts one not registered and an impact graph with a cycle, and `impactClosure` throws `registry_drift` rather than return a partial closure, so no shipped registry reaches `registry_drift` or `cyclic_impact_graph` at runtime. `missing_predecessor`, `validator_missing` and `schema_missing` are the lifecycle's refusals #14's runtime owes: nothing here produces them, and the workflow graph has no row for them — a runtime that parks a task with one owes it a recovery row, as the classifier's park has.
 
 ## 9. Required implementation tests
 
@@ -93,6 +101,7 @@ Closed set: `unknown_class`, `ambiguous_class`, `missing_predecessor`, `unregist
 - a change to a migration plan, and to a verification recipe;
 - a governance bundle update;
 - an artifact matching no class parks, and one matching two categories parks;
+- every park is `artifact_mapping_required` with its cause, and the workflow graph has a recovery row for it that parks at `freeze` and `freeze_artifact`;
 - an artifact whose class is `planned_after_v1` or a `successor_matrix_candidate` parks, is routed to no review, approval or publication, and a `required_for_v1` class still classifies;
 - a class v1 does not govern names an issue the matrix puts after v1, or one it does not classify, and a class a v1 workflow produces is `required_for_v1`;
 - a multi-file behaviour pack with an exact path list;
