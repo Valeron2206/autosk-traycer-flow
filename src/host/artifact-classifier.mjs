@@ -4,6 +4,8 @@
  * An artifact matching no class, or matching two classes with different
  * categories, parks — it is not classified as explanatory because nothing else
  * fit, which is how an artifact acquires the cheapest lifecycle by accident.
+ * So does an artifact whose class v1 does not govern: the registry knows it,
+ * v1 does not.
  *
  * Reads the registry it is given; performs no I/O of its own.
  *
@@ -28,6 +30,15 @@ export const CATEGORIES = immutable([
   'explanatory',
   'runtime_evidence',
 ]);
+
+/**
+ * The lifecycle of a class v1 governs (debt 11g, ADR-101).
+ *
+ * A class planned after v1, or waiting for a successor matrix, is registered
+ * so its paths are known, and refused here so that registering it governs
+ * nothing — the rule a carrier key follows since ADR-093.
+ */
+export const V1_LIFECYCLE = 'required_for_v1';
 
 /** Paths that are never artifacts of this project's governance.
  *
@@ -61,9 +72,15 @@ export function matchingClasses(registry, filePath) {
 /**
  * Classifies one path.
  *
- * Returns `{ status: 'classified', class, category, review, human_approval }`
- * or `{ status: 'parked', park_reason, candidates }`. Never a class chosen
- * because it was the only one left.
+ * Returns `{ status: 'classified', class, category, review, human_approval,
+ * publication }` or `{ status: 'parked', park_reason, candidates }`. Never a
+ * class chosen because it was the only one left.
+ *
+ * A path whose owner is not `required_for_v1` parks as `unknown_class` and
+ * names the class, its `lifecycle` and the issue that owns it (`decided_by`),
+ * with no review, approval or publication to route it by. The owner is chosen
+ * before its lifecycle is read, so a v1 class never takes a path a more
+ * specific refused class owns.
  */
 export function classify(registry, filePath) {
   if (UNGOVERNED.some((prefix) => filePath.startsWith(prefix))) {
@@ -95,6 +112,19 @@ export function classify(registry, filePath) {
         .map((pattern) => (pattern.includes('*') ? pattern.replace(/\*+/gu, '').length : 10_000))),
     }))
     .sort((a, b) => b.specificity - a.specificity || (a.entry.class < b.entry.class ? -1 : 1))[0].entry;
+  // Known to the registry, unknown to v1: a class that does not say v1
+  // governs it is not governed, as a carrier key that does not say it is
+  // dispatched in v1 is not dispatched.
+  if (owner.lifecycle !== V1_LIFECYCLE) {
+    return Object.freeze({
+      status: 'parked',
+      path: filePath,
+      park_reason: 'unknown_class',
+      candidates: [owner.class],
+      lifecycle: owner.lifecycle ?? null,
+      decided_by: owner.decided_by ?? null,
+    });
+  }
   return Object.freeze({
     status: 'classified',
     path: filePath,

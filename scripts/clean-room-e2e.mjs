@@ -136,21 +136,51 @@ async function run(command, args, options) {
   }
 }
 
-/** Runs the whole thing and returns the report. */
-export async function cleanRoomRun({ keep = false, moduleCache = path.join(tmpdir(), 'autosk-clean-room-modcache') } = {}) {
+/**
+ * The steps the run takes: the commands it spawns, the extension identity it
+ * reads, the toolchain it resolves, the binaries it checks and the fault
+ * harness. `cleanRoomRun` takes them from its caller, these by default, so a
+ * test can drive each of its returns without preparing or building anything
+ * (review of 11g, C1: the first start-and-end identity read broke every
+ * return, and no test drove one).
+ */
+export const CLEAN_ROOM_IO = Object.freeze({
+  run,
+  identity: extensionIdentity,
+  resolveToolchain,
+  stat,
+  runFaults,
+});
+
+/**
+ * Runs the whole thing and returns the report.
+ *
+ * The extension's identity is read before the first step and again at the
+ * end (CodeRabbit on #271): the steps read the extension's bytes over
+ * minutes, and the report may claim only an identity that held throughout.
+ * Every return, early or not, goes through `close`, so each carries the
+ * identity the run started on.
+ */
+export async function cleanRoomRun({
+  keep = false,
+  moduleCache = path.join(tmpdir(), 'autosk-clean-room-modcache'),
+  io = CLEAN_ROOM_IO,
+} = {}) {
+  const identityAtStart = await io.identity();
   const workspace = await mkdtemp(path.join(tmpdir(), 'autosk-clean-room-'));
   const sourceDir = path.join(workspace, 'source');
   const home = path.join(workspace, 'home');
   const steps = [];
   let receipt;
+  const close = (outcome) => finish({ workspace, steps, receipt, keep, identityAtStart, io, ...outcome });
 
   try {
-    const prepare = await run('node', [path.join(ROOT, 'scripts/prepare-autosk.mjs'), sourceDir], { cwd: ROOT });
+    const prepare = await io.run('node', [path.join(ROOT, 'scripts/prepare-autosk.mjs'), sourceDir], { cwd: ROOT });
     steps.push({ step: 'prepare', ok: prepare.ok, ms: prepare.ms });
-    if (!prepare.ok) return finish({ workspace, steps, receipt, keep, error: prepare.stderr });
+    if (!prepare.ok) return close({ error: prepare.stderr });
     receipt = JSON.parse(prepare.stdout);
 
-    const toolchain = await resolveToolchain();
+    const toolchain = await io.resolveToolchain();
     const missing = TOOLCHAIN.filter((tool) => !toolchain[tool]);
     const env = {
       ...cleanRoomEnv({
@@ -173,31 +203,31 @@ export async function cleanRoomRun({ keep = false, moduleCache = path.join(tmpdi
       toolchain,
       module_cache: moduleCache,
     });
-    if (envErrors.length > 0) return finish({ workspace, steps, receipt, keep, error: 'environment' });
+    if (envErrors.length > 0) return close({ error: 'environment' });
 
     for (const [name, args, cwd] of [
       ['deps:daemon', ['install', '--frozen-lockfile'], path.join(sourceDir, 'daemon')],
       ['deps:pi-tools', ['install', '--frozen-lockfile'], path.join(sourceDir, 'pi-tools')],
     ]) {
-      const result = await run('bun', args, { cwd, env });
+      const result = await io.run('bun', args, { cwd, env });
       steps.push({ step: name, ok: result.ok, ms: result.ms });
-      if (!result.ok) return finish({ workspace, steps, receipt, keep, error: result.stderr });
+      if (!result.ok) return close({ error: result.stderr });
     }
 
-    const make = await run('make', ['-C', sourceDir, 'build', 'build-store-lock'], { env });
+    const make = await io.run('make', ['-C', sourceDir, 'build', 'build-store-lock'], { env });
     steps.push({ step: 'build:go', ok: make.ok, ms: make.ms });
-    if (!make.ok) return finish({ workspace, steps, receipt, keep, error: make.stderr });
+    if (!make.ok) return close({ error: make.stderr });
 
-    const compile = await run(
+    const compile = await io.run(
       'bun',
       ['build', '--compile', 'core/src/index.ts', '--outfile', '../bin/autoskd'],
       { cwd: path.join(sourceDir, 'daemon'), env },
     );
     steps.push({ step: 'build:daemon', ok: compile.ok, ms: compile.ms });
-    if (!compile.ok) return finish({ workspace, steps, receipt, keep, error: compile.stderr });
+    if (!compile.ok) return close({ error: compile.stderr });
 
     for (const binary of ['autosk', 'autosk-store-lock', 'autoskd']) {
-      await stat(path.join(sourceDir, 'bin', binary));
+      await io.stat(path.join(sourceDir, 'bin', binary));
     }
 
     for (const [name, script] of [
@@ -205,7 +235,7 @@ export async function cleanRoomRun({ keep = false, moduleCache = path.join(tmpdi
       ['crash', 'scripts/verify-autosk-crash.mjs'],
       ['identity', 'scripts/verify-autosk-identity.mjs'],
     ]) {
-      const result = await run('node', [path.join(ROOT, script), sourceDir], { cwd: ROOT, env });
+      const result = await io.run('node', [path.join(ROOT, script), sourceDir], { cwd: ROOT, env });
       const summary = lastJsonLine(result.stdout);
       steps.push({ step: `harness:${name}`, ok: result.ok, ms: result.ms, summary });
     }
@@ -213,18 +243,18 @@ export async function cleanRoomRun({ keep = false, moduleCache = path.join(tmpdi
     // The fault harness runs in its own temporary repositories, so it needs
     // neither the built binaries nor the pinned source — but it belongs to this
     // run, because its results are what the coverage table is derived from.
-    const started = Date.now();
-    const faults = await runFaults();
+    const faultsStarted = Date.now();
+    const faults = await io.runFaults();
     steps.push({
       step: 'harness:faults',
       ok: faults.ok,
-      ms: Date.now() - started,
+      ms: Date.now() - faultsStarted,
       summary: { detected: faults.detected, controlled: faults.controlled, total: faults.total },
     });
 
-    return finish({ workspace, steps, receipt, keep, faults });
+    return close({ faults });
   } catch (error) {
-    return finish({ workspace, steps, receipt, keep, error: String(error) });
+    return close({ error: String(error) });
   }
 }
 
@@ -245,20 +275,69 @@ function lastJsonLine(text) {
  * other half: a green run says nothing about which extension bytes produced it,
  * and a reviewer holding a frozen tree cannot tell whether the run was about
  * that tree. `dirty` is part of the answer — a run from a modified worktree is
- * about bytes that are in no commit.
+ * about bytes that are in no commit. Every identity carries `error`: `null`
+ * when it was read, and why not when it could not be.
  */
 export async function extensionIdentity(git = (args) => execFileAsync('git', args, { cwd: ROOT })) {
   try {
     const tree = (await git(['rev-parse', 'HEAD^{tree}'])).stdout.trim();
     const commit = (await git(['rev-parse', 'HEAD'])).stdout.trim();
     const status = (await git(['status', '--porcelain'])).stdout.trim();
-    return Object.freeze({ commit, tree, dirty: status.length > 0 });
+    return Object.freeze({ commit, tree, dirty: status.length > 0, error: null });
   } catch (error) {
     return Object.freeze({ commit: null, tree: null, dirty: null, error: String(error) });
   }
 }
 
-async function finish({ workspace, steps, receipt, keep, error, faults }) {
+/** One identity as a report line names it: commit, tree, and whether the worktree was clean. */
+function describeIdentity(identity) {
+  return `${identity.commit} (tree ${identity.tree}, ${identity.dirty ? 'dirty' : 'clean'})`;
+}
+
+/**
+ * The extension identity a whole run may claim (CodeRabbit on #271).
+ *
+ * The harness steps read the extension's bytes over minutes, so the identity
+ * read at the end says what they read only if nothing moved in between. A
+ * commit, a branch switch, a revert or an edit during the run — tree, commit
+ * or `dirty` differing — means the steps may have read bytes of two trees: the
+ * run claims neither clean (`dirty: null`) and names both. An identity that
+ * could not be read at either end is returned as read, with `dirty: null`.
+ * The identity is sampled twice, not watched: an edit made and reverted
+ * between the two reads is not seen.
+ */
+export function identityAcrossRun(start, end) {
+  if (start.error) return start;
+  if (end.error) return end;
+  if (start.commit === end.commit && start.tree === end.tree && start.dirty === end.dirty) return end;
+  return Object.freeze({
+    commit: start.commit,
+    tree: start.tree,
+    dirty: null,
+    error: `extension moved during the run: ${describeIdentity(start)} -> ${describeIdentity(end)}`,
+  });
+}
+
+/**
+ * The line the command prints for the extension: its tree, marked when the
+ * worktree was dirty, and — when the run cannot call it clean or dirty — the
+ * reason `identityAcrossRun` recorded.
+ */
+export function extensionSummary(extension) {
+  if (extension.dirty === false) return `extension_tree=${extension.tree}`;
+  return `extension_tree=${extension.tree} (${extension.dirty === true ? 'dirty' : extension.error})`;
+}
+
+/**
+ * Closes the run and builds its report.
+ *
+ * Removes the workspace unless it is kept, derives the coverage from the
+ * run's own steps and fault cases, and records the extension identity that
+ * held from `identityAtStart` to now (`identityAcrossRun`, read again through
+ * `io`). `ok` says only whether every step ran; whether the coverage is
+ * complete is the report's own field.
+ */
+async function finish({ workspace, steps, receipt, keep, identityAtStart, io, error, faults }) {
   // Go leaves its module cache read-only, so an ordinary recursive remove
   // fails on a tree it wrote. Making it writable first is the difference
   // between a workspace that is cleaned up and one that accumulates.
@@ -275,7 +354,7 @@ async function finish({ workspace, steps, receipt, keep, error, faults }) {
     workspace: keep ? workspace : null,
     source_tree: receipt?.source_tree ?? null,
     upstream_commit: receipt?.upstream_commit ?? null,
-    extension: await extensionIdentity(),
+    extension: identityAcrossRun(identityAtStart, await io.identity()),
     // The per-case results, not only the counts they roll up into. A reviewer
     // holding counts cannot tell a discriminating guard from one that refuses
     // everything, and that distinction is the whole reason each case runs a
@@ -298,7 +377,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`${step.ok === false ? 'FAIL' : 'ok  '} ${step.step}${step.ms ? ` (${step.ms}ms)` : ''}`);
   }
   console.log(`source_tree=${report.source_tree}`);
-  console.log(`extension_tree=${report.extension.tree}${report.extension.dirty ? ' (dirty)' : ''}`);
+  console.log(extensionSummary(report.extension));
   for (const [state, count] of Object.entries(report.coverage.counts)) console.log(`${state}: ${count}`);
   // The exit status says whether every step ran; completeness is its own line.
   console.log(`complete=${report.coverage.complete}`);

@@ -294,6 +294,16 @@ export function validateMatrix(matrix, schema, { harnessSource } = {}) {
   return errors;
 }
 
+/**
+ * The whole clean-room design, from its three files' text: the contract, the
+ * fault-matrix schema and the matrix.
+ *
+ * The contract must name the room's absences, each proof kind, every coverage
+ * state and the one that counts toward #36's gate; the schema must be closed,
+ * carry exactly four proofs per group and only injection kinds the coverage
+ * rule knows; the matrix must hold to both. Returns every error found, or
+ * stops at the first file that is not JSON.
+ */
 export function validateCleanRoomDesign(files) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
