@@ -1050,7 +1050,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Include iteration schema, progress identity, four triggers and crash-safe counters in the v1 design.",
-      "implementation_obligation_before_mvp": "Implement the controller across planning repair, debugging, implementation, fix and verification support.",
+      "implementation_obligation_before_mvp": "Implement the controller across planning repair, debugging, implementation, fix and verification support. The review cap `artifact_review_round` bounds each artifact's review cycle: it counts the artifact's narrow and full-panel NOT_PASS rounds as one count against 10, since the cycle's verified boundary — the artifact's PASS published, `publish_artifact_pass -> select_next` — from the baseline the factory records at that crossing; no decision or anchor rebuild opens a cycle, and the count never falls below the rounds since the last verified PASS publication, though a resume out of a status park at the boundary step counts as a crossing and a PASS published under binding drift closes none (narrow re-review of 12c); counted per task, it would end an Epic's autonomous planning at its fourth artifact on a host that admits no cap decision (ADR-104, review of 12c). The code review cap and the verification repair cycle's count per task: the repair cycle is bounded absolutely by the workflow graph's cap `verification_repair_round`, which counts `t_416` (`verify -> fix`) against a limit of 10 over the durable takings and parks with `verification_cap`, enforced by the factory's cap term (ADR-104). The controller's own budgets, pinned before dispatch per Ticket and per run, run inside those caps and never past them, and a resume past a cap into another round — past the repair cap `fix`, `verify` or `rebuild_code_anchor` — is the user's, one round per recorded cap decision (ADR-099).",
       "release_blocking": true,
       "dependencies": [
         18,
@@ -1588,5 +1588,5 @@
       "delivery": "extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load"
     }
   ],
-  "canonical_digest": "6e5bb78c32d558b1e103b6f45796aecb7c06bef313b6239e68042686037b0ad0"
+  "canonical_digest": "5dc0fbbf704dc30aa182384b7d86875c9ba066ffb8947b4a446d63a747d9021e"
 }

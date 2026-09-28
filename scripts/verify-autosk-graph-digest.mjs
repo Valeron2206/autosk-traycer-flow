@@ -82,7 +82,7 @@ const BASE = {
     { id: "t_done", from: "next", to: "done", priority: 0, guards: ["g_done"] },
     { id: "t_park", from: "next", to: "human", priority: 1, guards: ["g_never"] },
   ],
-  caps: [{ cycle: "round", counted_transition: "t_done", limit: 3, park_reason: "fixture_no_exit" }],
+  caps: [{ cycle: "round", counted_transitions: ["t_done"], limit: 3, park_reason: "fixture_no_exit" }],
   recovery: [
     { reason: "fixture_no_exit", parks_at: ["next"], resume_targets: ["done", "next"], required_state: "n/a" },
   ],

@@ -1596,3 +1596,212 @@ test("the documents say a resume decision binds the project, and the admitter an
   const adr = sectionOf(read("04-decisions.md"), "## ADR-099:", "## ADR-100:");
   assert.match(adr, /Изменено ADR-103[^\n]*проект/u);
 });
+
+// --- debt 12c: the caps count what they claim (R8-4, R8-5, R8-10, R8-11) ---
+
+/** The rendered row of `view` explaining `reason`, split into its cells, from the file the view renders into. */
+const renderedRow = (graph, view, reason) => {
+  const entry = graph.views.find((candidate) => candidate.id === view);
+  const row = entry.rows.find((candidate) => candidate.covers.includes(reason));
+  const line = read(entry.renders_into).split("\n").find((candidate) => candidate === `| ${row.cells.join(" | ")} |`);
+  assert.ok(line, `${view}'s ${reason} row is rendered where it belongs`);
+  return line.split(" | ").map((cell) => cell.replace(/^\| /u, "").replace(/ \|$/u, ""));
+};
+
+test("01, 03 and the factory contract say what the caps count: every NOT_PASS round of an artifact, narrow or full, one count; the code round; the repair cycle its own cap (R8-4, R8-5)", () => {
+  // Round 8 of #39, R8-4: 01 §6 and §9 called the ten-round limit absolute
+  // while the cap counted the narrow NOT_PASS alone; a full panel's NOT_PASS
+  // (t_205) was never counted. R8-5: the repair cycle's cap had no limit and
+  // no mechanism. The documents now say exactly what each cap counts.
+  const flows = read("01-core-flows.md");
+  const review = sectionOf(flows, "## 6. Freeze, Review и исправления", "## 7.");
+  assert.doesNotMatch(review, /Лимит полного цикла/u);
+  assert.match(review, /cap графа считает каждый автономный раунд/u);
+  for (const pair of ["`record_code_verdict → fix`", "`narrow_review_join → fix_artifact`", "`synthesize_panel → fix_artifact`", "`verify → fix`"]) {
+    assert.ok(review.includes(pair), pair);
+  }
+  assert.match(review, /одним счётом/u);
+  assert.match(review, /`verification_cap`/u);
+  assert.match(sectionOf(flows, "## 3. Четырёхмодельная панель", "## 4."), /Существенное изменение scope запускает новую полную панель; её NOT_PASS считается тем же cap/u);
+  const exceed = flows.split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
+  for (const name of ["`artifact_review_round`", "`code_review_round`", "`verification_repair_round`", "`verification_cap`"]) {
+    assert.ok(exceed.includes(name), name);
+  }
+  const plan = read("03-technical-plan.md");
+  assert.ok(plan.includes("| synthesize_panel | подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings >= cap | human с park.reason=review_cap |"));
+  assert.ok(plan.includes("| synthesize_panel | подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings < cap | fix_artifact |"));
+  assert.ok(plan.includes("| verify | проверки нашли candidate defect и transition_takings < cap | сохранить verification findings, fix |"));
+  assert.ok(plan.includes("| verify | проверки нашли candidate defect и transition_takings >= cap | human с park.reason=verification_cap |"));
+  assert.doesNotMatch(plan, /repair cycle (?:ниже|достиг) cap/u);
+  assert.doesNotMatch(plan, /Review cap читает монотонный current cycle round/u);
+  assert.match(plan, /Review cap и cap цикла ремонта читают durable transition_takings/u);
+  // The predicates the rows are extracted into compare the declared quantity.
+  const graph = shipped();
+  const predicate = (id) => graph.predicates.find((entry) => entry.id === id);
+  for (const [id, comparison] of [["cond_110", "<"], ["cond_460", ">="], ["cond_308", "<"], ["cond_309", ">="]]) {
+    assert.ok(predicate(id).reads.includes("transition_takings"), id);
+    assert.ok(predicate(id).description.includes(`transition_takings ${comparison} cap`), id);
+  }
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.match(factory, /Cap `artifact_review_round` counts two, `t_205` and `t_231`/u);
+  assert.match(factory, /cap `verification_repair_round` counts `t_416`/u);
+  assert.doesNotMatch(factory, /is parked by a predicate and not by a declared cap/u);
+  assert.doesNotMatch(factory, /counts the taking of one named transition/u);
+  const contract = read("docs/contracts/workflow-graph.md");
+  assert.match(contract, /counts the takings of the transitions it names/u);
+  assert.doesNotMatch(contract, /counted by the taking of one named transition/u);
+});
+
+test("the repair cycle's cap closes what ADR-099 left open to #32, and its owner holds it (R8-5)", () => {
+  const decisions = read("04-decisions.md");
+  assert.match(decisions, /^## ADR-104:/mu);
+  const adr099 = sectionOf(decisions, "## ADR-099:", "## ADR-100:");
+  assert.match(adr099, /^- Изменено ADR-104:[^\n]*`verification_cap`[^\n]*`verification_repair_round`/mu);
+  const adr104 = sectionOf(decisions, "## ADR-104:", "## Оставшиеся риски");
+  assert.match(adr104, /R8-4/u);
+  assert.match(adr104, /R8-5/u);
+  assert.match(adr104, /R8-10/u);
+  assert.match(adr104, /R8-11/u);
+  const matrix = JSON.parse(read("resources/program-capabilities/matrix.v1.json"));
+  const loop = matrix.records.find((record) => record.issue_number === 32);
+  assert.match(loop.implementation_obligation_before_mvp, /`verification_repair_round`/u);
+  assert.match(loop.implementation_obligation_before_mvp, /ADR-104/u);
+  const row = shipped().recovery.find((entry) => entry.reason === "verification_cap");
+  assert.match(row.required_state, /^Section 2 parks with this reason at verify:/u);
+  assert.match(row.required_state, /new daemon-attributed cap decision recorded under this park \(park\.decision\)/u);
+  assert.match(row.required_state, /human and invalidate_quick_classification run no round and owe none/u);
+});
+
+test("01 §8 and 03 §7 name the review cap's resume targets apart from its park steps, and the same targets 01 §9 and the graph do (R8-10)", () => {
+  // Round 8 of #39, R8-10: 01 §8's review-cap row named `fix_artifact` and
+  // `fix`, then the park steps as "также", and not `rebuild_code_anchor`,
+  // which 01 §9 and the graph make a round owed the user's decision. The row
+  // now says where a resume goes — the targets that run a round and the ones
+  // that run none — and apart from that where the park stands.
+  const graph = shipped();
+  const cap = graph.recovery.find((entry) => entry.reason === "review_cap");
+  for (const view of ["core_flows_resume", "park_table"]) {
+    const [, steps] = renderedRow(graph, view, "review_cap");
+    const [resume, park] = steps.split(/;\s*park:/u);
+    assert.ok(park !== undefined, `${view}: the park steps stand apart`);
+    const names = (text) => new Set(text.match(/[a-z][a-z0-9]*(?:_[a-z0-9]+)+|\b(?:fix|human|verify)\b/gu) ?? []);
+    for (const target of [...cap.decision_targets, "human", "invalidate_quick_classification"]) {
+      assert.ok(names(resume).has(target), `${view}: the resume part names ${target}`);
+    }
+    for (const step of cap.parks_at) {
+      assert.ok(names(park).has(step), `${view}: the park part names ${step}`);
+      assert.ok(!names(resume).has(step), `${view}: the resume part does not name the park step ${step}`);
+    }
+  }
+  const exceed = read("01-core-flows.md").split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
+  const listed = /у `review_cap` — ((?:`\w+`(?:, )?)+)/u.exec(exceed);
+  assert.ok(listed, "01 §9 lists the review cap's decision targets");
+  assert.deepEqual([...listed[1].matchAll(/`(\w+)`/gu)].map((match) => match[1]).sort(), [...cap.decision_targets].sort());
+  const repair = graph.recovery.find((entry) => entry.reason === "verification_cap");
+  const repairListed = /у `verification_cap` — ((?:`\w+`(?:, )?)+)/u.exec(exceed);
+  assert.ok(repairListed, "01 §9 lists the repair cap's decision targets");
+  assert.deepEqual([...repairListed[1].matchAll(/`(\w+)`/gu)].map((match) => match[1]).sort(), [...repair.decision_targets].sort());
+});
+
+test("01, 03, the contracts, ADR-104 and #32's obligation say the review cap bounds each artifact's review cycle, which only the verified publication of a PASS closes (review of 12c, M1)", () => {
+  // Review of 12c, M1: ADR-104 made the review cap's count the task's, so
+  // an Epic's four artifacts shared ten rounds, while 03 gives each artifact
+  // its own cycle (§4, §5, §8). The cap now counts per artifact's cycle, and
+  // every document that states the scope says the same.
+  const graph = shipped();
+  assert.deepEqual(graph.caps.find((cap) => cap.cycle === "artifact_review_round").cycle_boundary, { from: "publish_artifact_pass", to: "select_next" });
+  const schema = JSON.parse(read("resources/workflow-graph/workflow-graph.schema.json"));
+  assert.ok(JSON.stringify(schema).includes("cycle_boundary"), "the schema declares the field");
+  const flows = read("01-core-flows.md");
+  const review = sectionOf(flows, "## 6. Freeze, Review и исправления", "## 7.");
+  assert.doesNotMatch(review, /делят все её артефакты/u);
+  assert.match(review, /свой цикл review/u);
+  assert.ok(review.includes("`publish_artifact_pass → select_next`"), "01 §6 names the boundary");
+  const exceed = flows.split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
+  assert.doesNotMatch(exceed, /всех артефактов Epic/u);
+  assert.ok(exceed.includes("`publish_artifact_pass → select_next`"), "01 §9 names the boundary");
+  const plan = read("03-technical-plan.md");
+  assert.doesNotMatch(plan, /одним счётом задачи Epic на все её артефакты/u);
+  const invariant = plan.split("\n").find((line) => line.startsWith("- Review cap и cap цикла ремонта читают durable transition_takings"));
+  assert.ok(invariant.includes("publish_artifact_pass → select_next"), "03 §6 names the boundary");
+  assert.match(sectionOf(plan, "Для planning artifact current_cycle означает", "### Read-only review"), /Cap графа следует тому же/u);
+  assert.match(plan, /четыре артефакта по девять NOT_PASS не паркуют/u);
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.doesNotMatch(factory, /so an Epic task's artifacts share it/u);
+  assert.match(factory, /`cycle_boundary`/u);
+  assert.match(factory, /`cap_baselines\.<cycle>\.<n>`/u);
+  assert.match(read("docs/contracts/workflow-graph.md"), /`cycle_boundary`/u);
+  const matrix = JSON.parse(read("resources/program-capabilities/matrix.v1.json"));
+  const loop = matrix.records.find((record) => record.issue_number === 32).implementation_obligation_before_mvp;
+  assert.match(loop, /each artifact's review cycle/u);
+  assert.match(loop, /`publish_artifact_pass -> select_next`/u);
+  const adr104 = sectionOf(read("04-decisions.md"), "## ADR-104:", "## Оставшиеся риски");
+  assert.match(adr104, /\*\*Решение \(ревью, M1\)/u);
+  assert.match(adr104, /Альтернатива 9 \(ревью, M1\): счёт задачи/u);
+});
+
+test("after verification_cap a recorded decision buys a repair round: fix is the row's decision target in the graph, 01 §9, 03 §7 and #32's obligation, and ADR-104 says base 03 named it (review of 12c, M2)", () => {
+  // Review of 12c, M2: the documents said a decision past the repair cap
+  // buys another repair round, while fix was no resume target: a decision
+  // bought only a re-check of an unchanged candidate. Base 03 §7 named
+  // `fix, verify` for the row, and ADR-104's fourth alternative said 03
+  // never had fix.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "verification_cap");
+  assert.ok(row.resume_targets.includes("fix"));
+  assert.deepEqual([...row.decision_targets].sort(), ["fix", "rebuild_code_anchor", "verify"]);
+  assert.match(row.required_state, /fix, which repairs and runs verify/u);
+  const [, steps] = renderedRow(graph, "park_table", "verification_cap");
+  const resume = steps.split(";").filter((segment) => segment.trim().startsWith("resume")).join(";");
+  for (const target of row.decision_targets) assert.match(resume, new RegExp(`(?<![a-z_])${target}(?![a-z_])`, "u"), target);
+  const matrix = JSON.parse(read("resources/program-capabilities/matrix.v1.json"));
+  assert.match(matrix.records.find((record) => record.issue_number === 32).implementation_obligation_before_mvp, /`fix`, `verify` or `rebuild_code_anchor`/u);
+  const adr104 = sectionOf(read("04-decisions.md"), "## ADR-104:", "## Оставшиеся риски");
+  assert.doesNotMatch(adr104, /ни граф, ни 01, ни 03 не делают `fix` целью resume этой строки/u);
+  assert.match(adr104, /`verification_cap \| fix, verify`/u);
+});
+
+test("the documents state what the per-cycle count holds — never below the rounds since the last verified PASS publication — and where it is conservative: a resume through a status park at the boundary, and a PASS published under binding drift (narrow re-review of 12c, Low 1, Low 2)", () => {
+  // Narrow re-review of 12c: the documents said a resume opens no cycle,
+  // counted `human -> <target>`, while a status park keeps the step and a
+  // resume counts the taking out of it (Low 1); and none named that a PASS
+  // published under binding drift closes no cycle (Low 2).
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.doesNotMatch(factory, /a resume \(`human -> <target>`\), an anchor rebuild into `select_next` and every other move leave it where it stood/u);
+  assert.match(factory, /never falls below the rounds taken since the last verified publication of a PASS/u);
+  assert.match(factory, /a status move — no candidate edge — keeps the step/u);
+  assert.match(factory, /A PASS published under binding drift closes no cycle/u);
+  const source = read("src/host/workflow-factory.mjs");
+  assert.doesNotMatch(source, /a decision, a resume \(`human -> <target>`\) or any other move opens no\s+\* cycle/u);
+  const flows = sectionOf(read("01-core-flows.md"), "## 6. Freeze, Review и исправления", "## 7.");
+  assert.doesNotMatch(flows, /а не решение, resume, пересборка якоря/u);
+  assert.match(flows, /не меньше раундов с последней проверенной публикации PASS/u);
+  const plan = read("03-technical-plan.md");
+  assert.doesNotMatch(plan, /Решение, resume и возврат к более раннему kind \(anchor rebuild, aggregate remediation\) новый цикл не открывают/u);
+  assert.match(sectionOf(plan, "Для planning artifact current_cycle означает", "### Read-only review"), /при дрейфе binding/u);
+  assert.match(plan, /resume из status park на шаге публикации считается пересечением/u);
+  const adr104 = sectionOf(read("04-decisions.md"), "## ADR-104:", "## Оставшиеся риски");
+  assert.match(adr104, /\*\*Решение \(узкое ревью, Low 1–3\)/u);
+  assert.match(adr104, /Альтернатива 13 \(узкое ревью, Low 1\): ключ по visits/u);
+  const notDone = adr104.split("\n").find((line) => line.startsWith("- Что не сделано и названо:"));
+  for (const name of ["`t_246`", "`t_260`", "`t_320`", "`planning_publication_corrupt`"]) assert.ok(notDone.includes(name), name);
+  const matrix = JSON.parse(read("resources/program-capabilities/matrix.v1.json"));
+  const loop = matrix.records.find((record) => record.issue_number === 32).implementation_obligation_before_mvp;
+  assert.doesNotMatch(loop, /no decision, resume or anchor rebuild opens a cycle/u);
+  assert.match(loop, /never falls below the rounds since the last verified PASS publication/u);
+  assert.doesNotMatch(read("docs/contracts/workflow-graph.md"), /no decision, resume or anchor rebuild opens a cycle/u);
+});
+
+test("ADR-088's decision bullets that later decisions changed say so at the bullet (R8-11)", () => {
+  // Round 8 of #39, R8-11: ADR-088's decision text still said `swapTarget`
+  // has one caller, `applyDelta`, that a record signed in advance for a
+  // pinned auto-policy passes the stop, and that re-stages obey
+  // `crossEpicErrors` and wait for each other — facts ADR-095, ADR-103 and
+  // ADR-099 removed. The notes at the end of the ADR pointed forward, but the
+  // bullets read as current. Each now carries its note where it is read.
+  const adr = sectionOf(read("04-decisions.md"), "## ADR-088:", "## ADR-089:");
+  const bullet = (marker) => adr.split("\n").find((line) => line.includes(marker));
+  assert.match(bullet("один вызывающий, `applyDelta`"), /\(Изменено ADR-095: [^)]*вызывающих нет/u);
+  assert.match(bullet("и тогда только такой record"), /\(Изменено ADR-103: [^)]*`accept_staging`/u);
+  assert.match(bullet("Пересборка подчиняется `crossEpicErrors`"), /\(Изменено ADR-099: [^)]*`crossEpicErrors`[^)]*удален/u);
+});

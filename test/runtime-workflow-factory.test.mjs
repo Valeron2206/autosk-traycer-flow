@@ -1059,18 +1059,29 @@ test("a relayed park reason is the document's and not this factory's", () => {
  * record its reason before it parks — had no test at all and three mutants
  * survived in it.
  */
-const context = (task, { code = 0, failLeaf, crashLeaf } = {}) => {
+const context = (task, { code = 0, failLeaf, crashLeaf, failTransit = false } = {}) => {
   const calls = { transits: [], execs: [] };
   // What the daemon does with the two effects a run can emit: `metadata set`
   // lands the leaf in the task's bag, and a transit moves the position and
   // bumps that step's own counter in the same write (section 8). A step move
   // into the human status step is where a graph park lands, and a status move
   // parks the task standing where it is.
+  // `autosk metadata set` parses its value as a JSON literal and keeps the
+  // argument as a plain string only when it is not one (`cmd/autosk/
+  // metadata.go`), so a count written as `27` lands as the number 27 and a
+  // reason or a watermark lands as the string it was.
+  const literal = (raw) => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+  };
   const setLeaf = (dotPath, value) => {
     const keys = dotPath.split(".");
     let bag = (task.metadata ??= {});
     while (keys.length > 1) bag = bag[keys.shift()] ??= {};
-    bag[keys[0]] = value;
+    bag[keys[0]] = literal(value);
   };
   // `metadata unset` removes the leaf and prunes the parents it leaves empty.
   const unsetLeaf = (dotPath) => {
@@ -1093,6 +1104,9 @@ const context = (task, { code = 0, failLeaf, crashLeaf } = {}) => {
       sessionToken: "token",
       tasks: { currentId: task.id ?? "task-1", current: async () => task },
       transit: async (to) => {
+        // `failTransit` is a transit the daemon refuses after the step's own
+        // writes landed: the position does not move.
+        if (failTransit) throw new Error("cannot transit: the daemon refused the move");
         calls.transits.push(to);
         if ("status" in to) {
           task.status = to.status;
@@ -1899,36 +1913,52 @@ test("the way back in is not the way on: an entry is admitted where a continuati
 
 // --- the caps' term -----------------------------------------------------------
 
-test("a cap binds exactly the counted edge's guards and its carrying siblings'", () => {
-  // Derived from the document, not listed beside it: the counted edge admits
-  // below the limit, and the sibling edges carrying the cap's park_reason are
-  // how the flow stops at it. The shipped document's two caps must therefore
-  // bind exactly these four guards — a fifth means a guard the cap does not
-  // own is gated by it, and a missing one means the cap still has no evaluator.
+test("a cap binds exactly the counted edges' guards and their carrying siblings'", () => {
+  // Derived from the document, not listed beside it: each counted edge admits
+  // below the limit, and the sibling edges out of a counted edge's step that
+  // carry the cap's park_reason are how the flow stops at it. Every term of
+  // one cap reads one count — the takings of every pair the cap counts — so
+  // an artifact's narrow and full-panel rounds spend one budget (R8-4), and
+  // the repair cycle after the checks is a cap of its own (R8-5). The shipped
+  // document's three caps must therefore bind exactly these eight guards — a
+  // ninth means a guard the cap does not own is gated by it, and a missing
+  // one means a round nothing counts.
   const state = index(document());
   assert.deepEqual(
     [...state.capTerms.keys()].sort(),
-    ["guard_237", "guard_238", "guard_449", "guard_450"],
+    ["guard_212", "guard_237", "guard_238", "guard_423", "guard_424", "guard_449", "guard_450", "guard_585"],
   );
-  assert.deepEqual(state.capTerms.get("guard_237"), [
-    { from: "narrow_review_join", to: "fix_artifact", limit: 10, below: false },
-  ]);
-  assert.deepEqual(state.capTerms.get("guard_238"), [
-    { from: "narrow_review_join", to: "fix_artifact", limit: 10, below: true },
-  ]);
-  assert.deepEqual(state.capTerms.get("guard_449"), [
-    { from: "record_code_verdict", to: "fix", limit: 10, below: false },
-  ]);
-  assert.deepEqual(state.capTerms.get("guard_450"), [
-    { from: "record_code_verdict", to: "fix", limit: 10, below: true },
-  ]);
+  // Each term carries the cap's own reason, which a refusal at the limit
+  // names (review of 12c, L4). The artifact's cap also carries its cycle's
+  // boundary — the verified PASS publication, `publish_artifact_pass ->
+  // select_next` — so its count is the takings since the artifact's cycle
+  // began (review of 12c, M1); the code review and the repair cycle count per
+  // task: one artifact, one candidate.
+  const artifact = [
+    { from: "synthesize_panel", to: "fix_artifact" },
+    { from: "narrow_review_join", to: "fix_artifact" },
+  ];
+  const boundary = { cycle: "artifact_review_round", from: "publish_artifact_pass", to: "select_next" };
+  for (const [id, below] of [["guard_212", true], ["guard_238", true], ["guard_237", false], ["guard_585", false]]) {
+    assert.deepEqual(state.capTerms.get(id), [{ pairs: artifact, limit: 10, below, reason: "review_cap", boundary }], id);
+  }
+  const code = [{ from: "record_code_verdict", to: "fix" }];
+  assert.deepEqual(state.capTerms.get("guard_449"), [{ pairs: code, limit: 10, below: false, reason: "review_cap" }]);
+  assert.deepEqual(state.capTerms.get("guard_450"), [{ pairs: code, limit: 10, below: true, reason: "review_cap" }]);
+  const repair = [{ from: "verify", to: "fix" }];
+  assert.deepEqual(state.capTerms.get("guard_423"), [{ pairs: repair, limit: 10, below: true, reason: "verification_cap" }]);
+  assert.deepEqual(state.capTerms.get("guard_424"), [{ pairs: repair, limit: 10, below: false, reason: "verification_cap" }]);
 });
 
 test("the counted edge admits the tenth taking and refuses the eleventh", async () => {
-  // Both halves of the boundary, on both caps the shipped document declares.
-  for (const [from, to, predicates] of [
-    ["narrow_review_join", "fix_artifact", ["cond_135", "cond_136"]],
-    ["record_code_verdict", "fix", ["cond_332", "cond_333"]],
+  // Both halves of the boundary, on every edge the shipped document's caps
+  // count: an artifact's narrow and full-panel NOT_PASS (R8-4), the code
+  // verdict's, and the repair after the checks (R8-5).
+  for (const [from, to, predicates, reason] of [
+    ["narrow_review_join", "fix_artifact", ["cond_135", "cond_136"], "review_cap"],
+    ["synthesize_panel", "fix_artifact", ["cond_110", "cond_460"], "review_cap"],
+    ["record_code_verdict", "fix", ["cond_332", "cond_333"], "review_cap"],
+    ["verify", "fix", ["cond_308", "cond_309"], "verification_cap"],
   ]) {
     const workflow = buildWorkflow(document(), {
       evaluate: (predicate) => predicates.includes(predicate),
@@ -1945,11 +1975,512 @@ test("the counted edge admits the tenth taking and refuses the eleventh", async 
     await workflow.steps[from].onRun(ctx);
     assert.equal(capped.step, "human", `${from}: the eleventh taking is refused, so the flow parks`);
     assert.equal(capped.status, "human");
-    assert.equal(capped.metadata.park.reason, "review_cap");
+    assert.equal(capped.metadata.park.reason, reason);
+    assert.equal(capped.metadata.park.origin, from);
     assert.ok(
-      calls.execs.some((argv) => argv[4] === "park.reason" && argv[5] === "review_cap"),
+      calls.execs.some((argv) => argv[4] === "park.reason" && argv[5] === reason),
       `${from}: the cap's reason was recorded before the task parked`,
     );
+  }
+});
+
+// --- Round 8 of #39, R8-4: an artifact's rounds of either kind spend one count ---
+
+/**
+ * One autonomous review round at `join` as the daemon runs it: the join
+ * decides, and a taking of an edge bumps `transition_takings[from][to]` in
+ * the same write as the position (patch `0034`) — which the suite's context
+ * does not do — so the round's fix and its way back to a join are the
+ * caller's. Returns where the join sent the flow.
+ */
+const reviewRound = async (workflow, task, join) => {
+  task.step = join;
+  task.status = "work";
+  await workflow.steps[join].onRun(context(task).ctx);
+  if (task.status === "human") return "human";
+  const byTarget = ((task.metadata.transition_takings ??= {})[join] ??= {});
+  byTarget[task.step] = (byTarget[task.step] ?? 0) + 1;
+  return task.step;
+};
+
+test("an artifact's full-panel NOT_PASS rounds reach review_cap at the limit, and its narrow and full rounds share one count (R8-4)", async () => {
+  // Round 8 of #39, R8-4: the cap counted `narrow_review_join -> fix_artifact`
+  // alone, so a full panel's NOT_PASS (`synthesize_panel -> fix_artifact`,
+  // t_205) took the fixer at any count, and a change of scope sends the next
+  // round to a full panel again (cond_093): full-panel rounds never reached
+  // review_cap. Every NOT_PASS round of one artifact now counts, whichever
+  // panel returned it, against the one limit 01 §6 and §9 state.
+  const graph = document();
+  const workflow = buildWorkflow(graph, {
+    evaluate: (predicate) => ["cond_110", "cond_460", "cond_135", "cond_136"].includes(predicate),
+  });
+
+  // Full-panel rounds alone: ten fixes, and the eleventh NOT_PASS parks.
+  const full = { id: "t-full", metadata: {} };
+  const fullRounds = [];
+  for (let round = 1; round <= 12; round += 1) {
+    const went = await reviewRound(workflow, full, "synthesize_panel");
+    fullRounds.push(went);
+    if (went === "human") break;
+  }
+  assert.deepEqual(fullRounds, [...Array(10).fill("fix_artifact"), "human"]);
+  assert.equal(full.metadata.park.reason, "review_cap");
+  assert.equal(full.metadata.park.origin, "synthesize_panel");
+  assert.deepEqual(full.metadata.transition_takings, { synthesize_panel: { fix_artifact: 10 } });
+  // The stop at the full panel resumes as the narrow one does: into the
+  // fixer along its own edge, and only on the user's decision recorded under
+  // this park; staying parked owes none; the Quick and Ticket targets are
+  // not its to take.
+  const state = index(graph);
+  const row = state.recovery.get("review_cap");
+  assert.ok(row.parks_at.includes("synthesize_panel"));
+  const visits = full.metadata.step_visits;
+  const origin = { origin: "synthesize_panel" };
+  assert.equal(refusalOf(() => permitsResume(state, "review_cap", "fix_artifact", origin, visits)).reason, "resume_target_not_permitted");
+  const record = resumeRecord(row, visits, "fix_artifact");
+  assert.equal(permitsResume(state, "review_cap", "fix_artifact", { ...origin, decision: leafFor(row, visits, record) }, visits, decidedBy([record])), true);
+  assert.equal(permitsResume(state, "review_cap", "human", origin, visits), true);
+  for (const target of ["fix", "rebuild_code_anchor", "invalidate_quick_classification"]) {
+    const other = resumeRecord(row, visits, target);
+    assert.equal(refusalOf(() => permitsResume(state, "review_cap", target, { ...origin, decision: leafFor(row, visits, other) }, visits, decidedBy([other]))).reason,
+      "resume_target_not_permitted", target);
+  }
+
+  // Mixed rounds: one count, whichever panel returned the NOT_PASS.
+  const mixed = { id: "t-mixed", metadata: {} };
+  const joins = [];
+  for (let round = 0; round < 10; round += 1) {
+    const join = round % 3 === 0 ? "synthesize_panel" : "narrow_review_join";
+    joins.push(join);
+    assert.equal(await reviewRound(workflow, mixed, join), "fix_artifact", `round ${round + 1} at ${join} is below the cap`);
+  }
+  assert.deepEqual(mixed.metadata.transition_takings, {
+    synthesize_panel: { fix_artifact: 4 },
+    narrow_review_join: { fix_artifact: 6 },
+  });
+  for (const join of ["narrow_review_join", "synthesize_panel"]) {
+    const next = structuredClone(mixed);
+    assert.equal(await reviewRound(workflow, next, join), "human", `the eleventh round at ${join} parks`);
+    assert.equal(next.metadata.park.reason, "review_cap");
+    assert.equal(next.metadata.park.origin, join);
+  }
+
+  // Nine in all, split between the two joins: either join still takes the fixer.
+  for (const [counts, join] of [
+    [{ synthesize_panel: { fix_artifact: 4 }, narrow_review_join: { fix_artifact: 5 } }, "synthesize_panel"],
+    [{ synthesize_panel: { fix_artifact: 4 }, narrow_review_join: { fix_artifact: 5 } }, "narrow_review_join"],
+  ]) {
+    const task = { id: "t-nine", metadata: { transition_takings: structuredClone(counts) } };
+    assert.equal(await reviewRound(workflow, task, join), "fix_artifact", `nine rounds in all, at ${join}`);
+  }
+
+  // The veto holds the sum too: a running session asking for the full
+  // panel's fixer at the combined limit is refused, as the narrow edge's is,
+  // with the cap's own reason (review of 12c, L4).
+  const asking = {
+    id: "t-ask",
+    step: "synthesize_panel",
+    status: "work",
+    metadata: { transition_takings: { synthesize_panel: { fix_artifact: 3 }, narrow_review_join: { fix_artifact: 7 } } },
+  };
+  await assert.rejects(
+    () => workflow.onTransit(context(asking).ctx, { step: "fix_artifact" }),
+    (error) => error.reason === "review_cap",
+  );
+  asking.metadata.transition_takings.narrow_review_join.fix_artifact = 6;
+  assert.equal(await workflow.onTransit(context(asking).ctx, { step: "fix_artifact" }), undefined);
+
+  // The caps are per cycle: an artifact's rounds spend nothing of the code
+  // review's count, nor of the repair cycle's.
+  const code = buildWorkflow(graph, { evaluate: (predicate) => ["cond_332", "cond_333", "cond_308", "cond_309"].includes(predicate) });
+  const spent = { synthesize_panel: { fix_artifact: 10 }, narrow_review_join: { fix_artifact: 10 } };
+  for (const join of ["record_code_verdict", "verify"]) {
+    const task = { id: "t-code", metadata: { transition_takings: structuredClone(spent) } };
+    assert.equal(await reviewRound(code, task, join), "fix", `${join} does not spend the artifact's count`);
+  }
+});
+
+// --- Review of 12c, M1: the review cap bounds each artifact's review cycle ---
+
+/** The answers an Epic's planning runs on here: a NOT_PASS at both joins, and each PASS published and verified. */
+const PLANNING = ["cond_110", "cond_460", "cond_135", "cond_136", "cond_152"];
+
+/**
+ * An artifact's PASS published as the daemon runs it: `publish_artifact_pass`
+ * takes the boundary to `select_next` (t_247, the verified publication), and
+ * the daemon bumps that pair's counter in the same write as the position —
+ * which the suite's context leaves to the caller, as `reviewRound` does.
+ */
+const publishPass = async (workflow, task) => {
+  task.step = "publish_artifact_pass";
+  task.status = "work";
+  const run = context(task);
+  await workflow.steps.publish_artifact_pass.onRun(run.ctx);
+  assert.equal(task.step, "select_next", "the verified publication closes the artifact's cycle");
+  const byTarget = ((task.metadata.transition_takings ??= {}).publish_artifact_pass ??= {});
+  byTarget.select_next = (byTarget.select_next ?? 0) + 1;
+  return run.calls;
+};
+
+test("each artifact's review cycle has its own count: four artifacts of nine NOT_PASS rounds do not park, and one artifact's cycle parks at its own limit (review of 12c, M1)", async () => {
+  // Review of 12c, M1: ADR-104 made the count the task's, so once every
+  // full-panel NOT_PASS was counted an Epic whose four artifacts average three
+  // NOT_PASS rounds reached review_cap on its fourth artifact — and with no
+  // cap decision admitted on today's hosts, autonomous planning ended there.
+  // 03 gives each artifact its own cycle (§4, §5, §8). The cap's count is now
+  // the takings since the cycle's verified boundary — a PASS published,
+  // `publish_artifact_pass -> select_next` — against the same limit.
+  const graph = document();
+  const cap = graph.caps.find((entry) => entry.cycle === "artifact_review_round");
+  assert.deepEqual(cap.cycle_boundary, { from: "publish_artifact_pass", to: "select_next" });
+  for (const entry of graph.caps.filter((other) => other !== cap)) {
+    assert.equal(entry.cycle_boundary, undefined, `${entry.cycle} counts per task: one artifact, one candidate`);
+  }
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => PLANNING.includes(predicate) });
+  const epic = { id: "t-epic", metadata: {} };
+  for (let artifact = 1; artifact <= 4; artifact += 1) {
+    for (let round = 1; round <= 9; round += 1) {
+      const join = round % 2 === 0 ? "narrow_review_join" : "synthesize_panel";
+      assert.equal(await reviewRound(workflow, epic, join), "fix_artifact", `artifact ${artifact}, round ${round} at ${join}`);
+    }
+    if (artifact < 4) await publishPass(workflow, epic);
+  }
+  assert.equal(epic.metadata.park, undefined, "thirty-six rounds over four artifacts park nothing");
+  // Each crossing recorded the count its cycle began at, keyed by the
+  // crossing the daemon's counter would then read.
+  assert.deepEqual(epic.metadata.cap_baselines, { artifact_review_round: { 1: 9, 2: 18, 3: 27 } });
+  // The fourth artifact's cycle: its tenth round still takes the fixer, and
+  // with ten spent its next NOT_PASS parks review_cap — at either join,
+  // the narrow and the full rounds sharing one limit inside the cycle.
+  assert.equal(await reviewRound(workflow, epic, "synthesize_panel"), "fix_artifact", "the fourth artifact's tenth round");
+  for (const join of ["narrow_review_join", "synthesize_panel"]) {
+    const next = structuredClone(epic);
+    assert.equal(await reviewRound(workflow, next, join), "human", `the fourth artifact's eleventh NOT_PASS at ${join} parks`);
+    assert.equal(next.metadata.park.reason, "review_cap");
+    assert.equal(next.metadata.park.origin, join);
+  }
+  // Counted per task, the same thirty-seven takings would have parked at the
+  // eleventh — in the second artifact.
+  const perTask = { id: "t-task", metadata: { transition_takings: structuredClone(epic.metadata.transition_takings) } };
+  assert.equal(await reviewRound(workflow, perTask, "synthesize_panel"), "human", "without the cycles' baselines the task's count is spent");
+  // An artifact that spent all ten before its PASS leaves the next its own
+  // ten: the new cycle's first round counts none of the last cycle's.
+  const spentAll = { id: "t-spent", metadata: {} };
+  for (let round = 0; round < 10; round += 1) await reviewRound(workflow, spentAll, "synthesize_panel");
+  assert.equal(await reviewRound(workflow, structuredClone(spentAll), "synthesize_panel"), "human", "the first artifact's cycle is spent");
+  await publishPass(workflow, spentAll);
+  assert.deepEqual(spentAll.metadata.cap_baselines, { artifact_review_round: { 1: 10 } });
+  assert.equal(await reviewRound(workflow, spentAll, "narrow_review_join"), "fix_artifact", "the next artifact's first round");
+});
+
+test("only a verified artifact boundary starts a cycle: a decision resume, a move that crosses no boundary, a crossing the factory did not record and a baseline ahead of the daemon's count start none (review of 12c, M1)", async () => {
+  const graph = document();
+  const row = graph.recovery.find((entry) => entry.reason === "review_cap");
+  const signed = [];
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => [...PLANNING, "cond_225"].includes(predicate), ...deciding(signed) });
+  // The first artifact passes after four rounds; the second spends its ten
+  // and parks.
+  const task = { id: "t-round", metadata: {} };
+  for (let round = 0; round < 4; round += 1) await reviewRound(workflow, task, "synthesize_panel");
+  await publishPass(workflow, task);
+  for (let round = 0; round < 10; round += 1) {
+    assert.equal(await reviewRound(workflow, task, "narrow_review_join"), "fix_artifact", `the second artifact's round ${round + 1}`);
+  }
+  assert.equal(await reviewRound(workflow, task, "synthesize_panel"), "human");
+  assert.equal(task.metadata.park.reason, "review_cap");
+  const parkedAgain = async (label) => {
+    const next = structuredClone(task);
+    delete next.metadata.park;
+    assert.equal(await reviewRound(workflow, next, "synthesize_panel"), "human", label);
+    assert.equal(next.metadata.park.reason, "review_cap", label);
+  };
+
+  // A decision buys one round and starts no cycle: the resume is taken
+  // `human -> fix_artifact`, which the cap does not count and which is no
+  // boundary, so the bought round's NOT_PASS parks again at once.
+  const decided = resumeRecord(row, task.metadata.step_visits, "fix_artifact", { task: "t-round" });
+  signed.push(decided);
+  task.metadata.park.decision = leafFor(row, task.metadata.step_visits, decided);
+  assert.equal(await workflow.onTransit(context(task).ctx, { step: "fix_artifact" }), undefined);
+  await parkedAgain("the round a decision bought parks at its NOT_PASS");
+
+  // A move that crosses no boundary: the anchor's rebuild lands at
+  // select_next (t_320), and a resume lands there `human -> select_next`.
+  // Neither is the verified publication, so neither records a baseline, and
+  // the daemon's counter of the boundary does not move.
+  const rebuilt = structuredClone(task);
+  delete rebuilt.metadata.park;
+  rebuilt.step = "rebuild_anchor";
+  rebuilt.status = "work";
+  const rebuild = context(rebuilt);
+  await workflow.steps.rebuild_anchor.onRun(rebuild.ctx);
+  assert.equal(rebuilt.step, "select_next");
+  assert.ok(!rebuild.calls.execs.some((argv) => String(argv[4]).startsWith("cap_baselines")), "no baseline on a move that crosses no boundary");
+  const bump = (from, to) => {
+    const byTarget = ((task.metadata.transition_takings ??= {})[from] ??= {});
+    byTarget[to] = (byTarget[to] ?? 0) + 1;
+  };
+  bump("rebuild_anchor", "select_next");
+  bump("human", "select_next");
+  await parkedAgain("a move that crosses no boundary starts no cycle");
+
+  // A crossing the factory did not record — a running session asking for
+  // `select_next` by name, which the veto admits on the verified
+  // publication — reads the last recorded baseline, so it starts none either.
+  const asking = { id: "t-round", step: "publish_artifact_pass", status: "work", metadata: structuredClone(task.metadata) };
+  delete asking.metadata.park;
+  assert.equal(await workflow.onTransit(context(asking).ctx, { step: "select_next" }), undefined);
+  bump("publish_artifact_pass", "select_next");
+  await parkedAgain("a crossing the factory did not record starts no cycle");
+
+  // A baseline keyed ahead of the daemon's count — written for a crossing
+  // that never landed — or above the count it would lower is not read.
+  const crossed = task.metadata.transition_takings.publish_artifact_pass.select_next;
+  const spent = task.metadata.transition_takings.synthesize_panel.fix_artifact + task.metadata.transition_takings.narrow_review_join.fix_artifact;
+  task.metadata.cap_baselines.artifact_review_round[crossed + 1] = spent;
+  await parkedAgain("a baseline ahead of the daemon's count starts no cycle");
+  task.metadata.cap_baselines.artifact_review_round[crossed] = spent + 1;
+  await parkedAgain("a baseline above the count it would lower is not read");
+  for (const malformed of ["15", -1, 1.5, null, { value: 15 }]) {
+    task.metadata.cap_baselines.artifact_review_round[crossed] = malformed;
+    await parkedAgain(`a baseline of ${JSON.stringify(malformed)} frees no round`);
+  }
+  // A record that is an array is no record of baselines, at either level.
+  const baselines = task.metadata.cap_baselines;
+  task.metadata.cap_baselines = { artifact_review_round: [0, spent, spent] };
+  await parkedAgain("an array of baselines is not read");
+  task.metadata.cap_baselines = [{ artifact_review_round: { [crossed]: spent } }];
+  await parkedAgain("an array in place of the baselines record is not read");
+  task.metadata.cap_baselines = baselines;
+});
+
+test("the factory records a cycle's baseline, keyed by the crossing it opens, before it takes the boundary, and a baseline it could not record leaves the task where it stood (review of 12c, M1)", async () => {
+  const workflow = buildWorkflow(document(), { evaluate: (predicate) => predicate === "cond_152" });
+  const takings = () => ({
+    synthesize_panel: { fix_artifact: 5 },
+    narrow_review_join: { fix_artifact: 7 },
+    record_code_verdict: { fix: 3 },
+    publish_artifact_pass: { select_next: 2 },
+  });
+  const task = { id: "t-b", step: "publish_artifact_pass", status: "work", metadata: { transition_takings: takings() } };
+  const { ctx, calls } = context(task);
+  await workflow.steps.publish_artifact_pass.onRun(ctx);
+  assert.equal(task.step, "select_next");
+  // The artifact's pairs only — the code review's takings are another cap's —
+  // under the third crossing, the one this transit makes.
+  assert.deepEqual(
+    calls.execs.filter((argv) => String(argv[4]).startsWith("cap_baselines")),
+    [["autosk", "metadata", "set", "t-b", "cap_baselines.artifact_review_round.3", "12"]],
+  );
+  assert.deepEqual(task.metadata.cap_baselines, { artifact_review_round: { 3: 12 } });
+
+  // Written before the move: a write that fails stops the move, so no
+  // crossing ever lands without the baseline the factory meant for it.
+  for (const options of [{ failLeaf: "cap_baselines.artifact_review_round.3" }, { crashLeaf: "cap_baselines.artifact_review_round.3" }]) {
+    const stuck = { id: "t-b", step: "publish_artifact_pass", status: "work", metadata: { transition_takings: takings() } };
+    const run = context(stuck, options);
+    await assert.rejects(() => workflow.steps.publish_artifact_pass.onRun(run.ctx));
+    assert.deepEqual(run.calls.transits, [], JSON.stringify(options));
+    assert.equal(stuck.step, "publish_artifact_pass");
+  }
+
+  // Only the boundary writes one: the rounds, their stop and every other
+  // move write none — out of the publication itself too, when it goes on to
+  // the anchor's impact rather than to the next artifact.
+  const impact = buildWorkflow(document(), { evaluate: (predicate) => predicate === "cond_151" });
+  const toImpact = { id: "t-b", step: "publish_artifact_pass", status: "work", metadata: { transition_takings: takings() } };
+  const impactRun = context(toImpact);
+  await impact.steps.publish_artifact_pass.onRun(impactRun.ctx);
+  assert.equal(toImpact.step, "prepare_anchor_impact");
+  assert.ok(!impactRun.calls.execs.some((argv) => String(argv[4]).startsWith("cap_baselines")), "no baseline on the way to the anchor's impact");
+  const rounds = buildWorkflow(document(), { evaluate: (predicate) => ["cond_110", "cond_460"].includes(predicate) });
+  for (const count of [3, 10]) {
+    const round = { id: "t-b", step: "synthesize_panel", status: "work", metadata: { transition_takings: { synthesize_panel: { fix_artifact: count } } } };
+    const run = context(round);
+    await rounds.steps.synthesize_panel.onRun(run.ctx);
+    assert.ok(!run.calls.execs.some((argv) => String(argv[4]).startsWith("cap_baselines")), `no baseline at ${count}`);
+  }
+});
+
+test("a cap's cycle boundary is refused at build when no declared edge joins it, when the cap counts it, or when an edge crossing it declares no guards (review of 12c, M1)", () => {
+  // The boundary is the pair the daemon counts, so a pair no edge joins
+  // would never be crossed, a counted pair would both spend the cycle and
+  // close it, and an unguarded edge on it would close a cycle on nothing —
+  // not on a PASS recorded.
+  const artifact = (graph) => graph.caps.find((entry) => entry.cycle === "artifact_review_round");
+  for (const [mutate, reason, detail] of [
+    [(graph) => { artifact(graph).cycle_boundary = { from: "publish_artifact_pass", to: "draft_artifact" }; }, "transition_not_declared", /publish_artifact_pass -> draft_artifact/u],
+    [(graph) => { artifact(graph).cycle_boundary = { from: "select_next" }; }, "transition_not_declared", /boundary/u],
+    [(graph) => { artifact(graph).cycle_boundary = { from: "synthesize_panel", to: "fix_artifact" }; }, "cap_binding_ambiguous", /synthesize_panel -> fix_artifact/u],
+    [(graph) => { graph.transitions.find((edge) => edge.id === "t_264").guards = []; }, "cap_binding_incomplete", /t_264/u],
+  ]) {
+    const refusal = refusalOf(() => index(resealed(mutate)));
+    assert.equal(refusal.reason, reason, refusal.message);
+    assert.match(refusal.detail, detail);
+  }
+  // A boundary that shares only a step with a pair the cap counts is not
+  // that pair: the fixer's own loop, and the full panel's stop.
+  for (const shared of [{ from: "fix_artifact", to: "fix_artifact" }, { from: "synthesize_panel", to: "human" }]) {
+    const state = index(resealed((graph) => { artifact(graph).cycle_boundary = shared; }));
+    assert.deepEqual(state.boundaries.map(({ from, to }) => ({ from, to })), [shared], JSON.stringify(shared));
+  }
+});
+
+// --- Narrow re-review of 12c: what the per-cycle count holds, and where it is conservative ---
+
+/**
+ * A resume as the daemon runs it: the veto admits the target, and
+ * `Engine.resume` counts the taking out of the step the park kept — a status
+ * park keeps the step (`transition.ts` `positionFor`), and the resume counts
+ * `<step> -> <target>` (`engine.ts`), in the same write as the position.
+ */
+const resumeInto = async (workflow, task, target) => {
+  await workflow.onTransit(context(task).ctx, { step: target });
+  const byTarget = ((task.metadata.transition_takings ??= {})[task.step] ??= {});
+  byTarget[target] = (byTarget[target] ?? 0) + 1;
+  task.step = target;
+  task.status = "work";
+};
+
+test("a resume out of a status park at the boundary step is counted as a crossing: with no baseline written for it the next artifact goes on counting, and it opens a cycle only on a baseline the factory wrote at a verified PASS publication (narrow re-review of 12c, Low 1)", async () => {
+  // Narrow re-review of 12c, Low 1: the documents said a resume opens no
+  // cycle, counted `human -> <target>`. A park the factory records as a
+  // status move — no candidate edge — keeps the step, and a resume counts
+  // the taking out of it: parked at `publish_artifact_pass` with
+  // `planning_publication_corrupt`, whose row resumes into `select_next`
+  // without a decision, the resume is a taking of the boundary pair. What
+  // holds is that the count never falls below the rounds since the last
+  // verified PASS publication: every baseline is one the factory wrote as it
+  // took a boundary edge whose guards verified the publication.
+  const graph = document();
+  let answers = new Set(PLANNING);
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => answers.has(predicate) });
+  const crossed = (task) => task.metadata.transition_takings.publish_artifact_pass?.select_next ?? 0;
+
+  // P1: no baseline for the crossing — the next artifact inherits the count.
+  const inherits = { id: "t-p1", metadata: {} };
+  for (let round = 0; round < 4; round += 1) await reviewRound(workflow, inherits, "synthesize_panel");
+  await publishPass(workflow, inherits);
+  for (let round = 0; round < 9; round += 1) await reviewRound(workflow, inherits, "narrow_review_join");
+  answers = new Set(PLANNING.filter((predicate) => predicate !== "cond_152"));
+  inherits.step = "publish_artifact_pass";
+  inherits.status = "work";
+  await workflow.steps.publish_artifact_pass.onRun(context(inherits).ctx);
+  assert.equal(inherits.step, "publish_artifact_pass", "a status park keeps the step");
+  assert.equal(inherits.status, "human");
+  assert.equal(inherits.metadata.park.reason, "planning_publication_corrupt");
+  await resumeInto(workflow, inherits, "select_next");
+  assert.equal(crossed(inherits), 2, "the resume is counted as a crossing of the boundary pair");
+  assert.deepEqual(inherits.metadata.cap_baselines, { artifact_review_round: { 1: 4 } }, "and no baseline was written for it");
+  answers = new Set(PLANNING);
+  delete inherits.metadata.park;
+  assert.equal(await reviewRound(workflow, structuredClone(inherits), "synthesize_panel"), "fix_artifact");
+  const next = structuredClone(inherits);
+  await reviewRound(workflow, next, "synthesize_panel");
+  assert.equal(await reviewRound(workflow, next, "synthesize_panel"), "human", "the next artifact goes on counting the last one's nine");
+
+  // P2: a baseline the factory wrote at a verified publication whose transit
+  // did not land is read once a resume makes that crossing — the cycle opens
+  // at the rounds that publication closed, never at fewer.
+  answers = new Set(PLANNING);
+  const stale = { id: "t-p2", metadata: {} };
+  for (let round = 0; round < 6; round += 1) await reviewRound(workflow, stale, "synthesize_panel");
+  stale.step = "publish_artifact_pass";
+  stale.status = "work";
+  await assert.rejects(() => workflow.steps.publish_artifact_pass.onRun(context(stale, { failTransit: true }).ctx));
+  assert.deepEqual(stale.metadata.cap_baselines, { artifact_review_round: { 1: 6 } }, "written before the move that failed");
+  assert.equal(crossed(stale), 0);
+  stale.status = "human"; // the engine's own park after a failed run: the step kept, no reason
+  await resumeInto(workflow, stale, "publish_artifact_pass");
+  answers = new Set(PLANNING.filter((predicate) => predicate !== "cond_152"));
+  await workflow.steps.publish_artifact_pass.onRun(context(stale).ctx);
+  assert.equal(stale.metadata.park.reason, "planning_publication_corrupt");
+  await resumeInto(workflow, stale, "select_next");
+  assert.equal(crossed(stale), 1);
+  answers = new Set(PLANNING);
+  delete stale.metadata.park;
+  const rounds = [];
+  for (let round = 0; round < 12; round += 1) {
+    const went = await reviewRound(workflow, stale, "synthesize_panel");
+    rounds.push(went);
+    if (went === "human") break;
+  }
+  assert.deepEqual(rounds, [...Array(10).fill("fix_artifact"), "human"], "a cycle opened on the baseline of the verified publication");
+});
+
+test("a PASS published under binding drift closes no cycle: the anchor's impact leads to select_next without the boundary, and the next artifact goes on counting (narrow re-review of 12c, Low 2)", async () => {
+  // Narrow re-review of 12c, Low 2: a publication that verifies with binding
+  // drift goes to the anchor's impact (`t_246`, `cond_151`; `t_260`,
+  // `cond_165`) rather than to `select_next`, and the anchor's rebuild
+  // reaches `select_next` by `t_320`: no crossing, so the next artifact
+  // starts on the published one's count. That is conservative, and the drift
+  // exits are not boundaries: an anchor rebuild resets no affected
+  // artifact's cycle (03 §5).
+  const graph = document();
+  let answers = new Set(PLANNING.filter((predicate) => predicate !== "cond_152"));
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => answers.has(predicate) });
+  const task = { id: "t-p3", metadata: {} };
+  for (let round = 0; round < 8; round += 1) await reviewRound(workflow, task, "synthesize_panel");
+  answers = new Set(["cond_151"]);
+  task.step = "publish_artifact_pass";
+  task.status = "work";
+  await workflow.steps.publish_artifact_pass.onRun(context(task).ctx);
+  assert.equal(task.step, "prepare_anchor_impact");
+  answers = new Set(["cond_225"]);
+  task.step = "rebuild_anchor";
+  await workflow.steps.rebuild_anchor.onRun(context(task).ctx);
+  assert.equal(task.step, "select_next");
+  assert.equal(task.metadata.cap_baselines, undefined, "no baseline on the drift path");
+  assert.equal(task.metadata.transition_takings.publish_artifact_pass?.select_next, undefined);
+  answers = new Set(PLANNING);
+  const rounds = [];
+  for (let round = 0; round < 12; round += 1) {
+    const went = await reviewRound(workflow, task, "synthesize_panel");
+    rounds.push(went);
+    if (went === "human") break;
+  }
+  assert.deepEqual(rounds, ["fix_artifact", "fix_artifact", "human"], "the next artifact inherits the published one's eight");
+});
+
+test("a cap counts each pair it counts once, however many of its transitions traverse it", async () => {
+  // The daemon keeps one counter per pair (patch `0034`), so two counted
+  // transitions on one pair — which the design validator refuses as
+  // `graph_cap_transition_shared` — read one count, not the same count twice.
+  const shared = {
+    workflow: "cap_shared_pair",
+    first_step: "review",
+    predicates: [
+      { id: "findings", reads: ["transition_takings"], description: "findings and transition_takings < cap" },
+      { id: "spent", reads: ["transition_takings"], description: "findings and transition_takings >= cap" },
+    ],
+    steps: [
+      { name: "review", kind: "agent", no_transition_reason: "fixture_no_exit" },
+      { name: "fix", kind: "agent", no_transition_reason: "fixture_no_exit" },
+      { name: "human", kind: "status", status: "human" },
+    ],
+    guards: [
+      { id: "g_one", predicate: "findings", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+      { id: "g_two", predicate: "findings", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+      { id: "g_cap", predicate: "spent", authority: { actor: "agent" }, park_reason: "review_cap" },
+    ],
+    transitions: [
+      { id: "t_one", from: "review", to: "fix", priority: 0, guards: ["g_one"] },
+      { id: "t_two", from: "review", to: "fix", priority: 1, guards: ["g_two"] },
+      { id: "t_cap", from: "review", to: "human", priority: 2, guards: ["g_cap"] },
+    ],
+    caps: [{ cycle: "round", counted_transitions: ["t_one", "t_two"], limit: 4, park_reason: "review_cap" }],
+    recovery: [
+      { reason: "fixture_no_exit", parks_at: ["review", "fix"], resume_targets: ["review", "fix"], required_state: "n/a" },
+      { reason: "review_cap", parks_at: ["review"], resume_targets: ["review", "fix"], required_state: "n/a" },
+    ],
+  };
+  const state = index(shared);
+  assert.deepEqual(state.capTerms.get("g_one"), [{ pairs: [{ from: "review", to: "fix" }], limit: 4, below: true, reason: "review_cap" }]);
+  const workflow = buildWorkflow(shared, { evaluate: always });
+  for (const [count, step] of [[3, "fix"], [4, "human"]]) {
+    const task = { id: "t", step: "review", status: "work", metadata: { transition_takings: { review: { fix: count } } } };
+    await workflow.steps.review.onRun(context(task).ctx);
+    assert.equal(task.step, step, `${count} takings of review -> fix`);
   }
 });
 
@@ -1988,39 +2519,41 @@ test("the cap term narrows the caller's answer and never widens it", async () =>
   assert.equal(lost.metadata.park.reason, "planning_candidate_keepalive_invalid");
 });
 
-test("the veto refuses a transit onto the counted pair at the limit", async () => {
+test("the veto refuses a transit onto the counted pair at the limit with the cap's own reason, and a guard that refuses on its own with the guard's (review of 12c, L4)", async () => {
   // Selection and the veto cannot disagree about a cap any more than they can
   // about a guard. The explicit path is `ctx.transit({step})` inside a running
   // session, which `SessionRuntime.transit` hands to this veto; an operator's
   // resume is refused by `Engine.resume` before any hook runs and is not this
-  // path. A counted target refused at the limit carries its own guard's
-  // `park_reason` — `planning_candidate_keepalive_invalid` here — and not
-  // `review_cap`, which is recorded only when selection takes the carrying
-  // sibling.
-  const workflow = buildWorkflow(document(), { evaluate: always });
-  const task = {
-    id: "task-1",
-    step: "narrow_review_join",
-    status: "work",
-    metadata: { transition_takings: { narrow_review_join: { fix_artifact: 10 } } },
-  };
-  await assert.rejects(
-    () => workflow.onTransit(context(task).ctx, { step: "fix_artifact" }),
-    (error) => error.reason === "planning_candidate_keepalive_invalid",
-  );
-  task.metadata.transition_takings.narrow_review_join.fix_artifact = 9;
-  assert.equal(await workflow.onTransit(context(task).ctx, { step: "fix_artifact" }), undefined);
-
-  const code = {
-    id: "task-2",
-    step: "record_code_verdict",
-    status: "work",
-    metadata: { transition_takings: { record_code_verdict: { fix: 10 } } },
-  };
-  await assert.rejects(
-    () => workflow.onTransit(context(code).ctx, { step: "fix" }),
-    (error) => error.reason === "project_boundary_invalid",
-  );
+  // path. Review of 12c, L4: a counted target refused at the limit answered
+  // with the counted guard's own `park_reason` — `planning_candidate_
+  // keepalive_invalid` on both artifact edges, `project_boundary_invalid` on
+  // the code verdict's, `verification_environment_failed` on the repair —
+  // conditions that did not refuse it. The cap refused it, so the refusal
+  // names the cap's reason; a guard whose own predicate refuses names its
+  // own, whatever the count.
+  for (const [from, to, predicate, reason, own] of [
+    ["narrow_review_join", "fix_artifact", "cond_136", "review_cap", "planning_candidate_keepalive_invalid"],
+    ["synthesize_panel", "fix_artifact", "cond_110", "review_cap", "planning_candidate_keepalive_invalid"],
+    ["record_code_verdict", "fix", "cond_333", "review_cap", "project_boundary_invalid"],
+    ["verify", "fix", "cond_308", "verification_cap", "verification_environment_failed"],
+  ]) {
+    const admitting = buildWorkflow(document(), { evaluate: (name) => name === predicate });
+    const task = (count) => ({ id: "task-1", step: from, status: "work", metadata: { transition_takings: { [from]: { [to]: count } } } });
+    await assert.rejects(
+      () => admitting.onTransit(context(task(10)).ctx, { step: to }),
+      (error) => error.reason === reason && error.detail.includes(from) && error.detail.includes(to),
+      `${from} -> ${to} at the limit`,
+    );
+    assert.equal(await admitting.onTransit(context(task(9)).ctx, { step: to }), undefined, `${from} -> ${to} below the limit`);
+    const refusing = buildWorkflow(document(), { evaluate: never });
+    for (const count of [0, 10]) {
+      await assert.rejects(
+        () => refusing.onTransit(context(task(count)).ctx, { step: to }),
+        (error) => error.reason === own,
+        `${from} -> ${to} refused by its own guard at ${count}`,
+      );
+    }
+  }
 });
 
 test("a missing or unreadable count reads as zero takings", async () => {
@@ -2073,7 +2606,7 @@ test("the count is read by own key at both levels, so prototype names inherit no
       { id: "t_cap", from, to: "human", priority: 0, guards: ["g_cap"] },
       { id: "t_round", from, to, priority: 1, guards: ["g_round"] },
     ],
-    caps: [{ cycle: "round", counted_transition: "t_round", limit, park_reason: "review_cap" }],
+    caps: [{ cycle: "round", counted_transitions: ["t_round"], limit, park_reason: "review_cap" }],
     recovery: [
       { reason: "fixture_no_exit", parks_at: [from, to], resume_targets: [from, to], required_state: "n/a" },
       { reason: "review_cap", parks_at: [from], resume_targets: [from, to], required_state: "n/a" },
@@ -2128,27 +2661,58 @@ test("a cap whose counted edge declares no guards is refused at build", () => {
   // The below-limit term binds to the counted edge's guards, and an empty
   // conjunction holds at every count: with `guards: []` nothing carries the
   // term, so selection and the veto alike take the edge past its limit — the
-  // bypass the review measured. The document is refused where it is read.
-  const graph = document();
-  graph.transitions = graph.transitions.map((edge) =>
-    edge.id === "t_231" ? { ...edge, guards: [] } : edge,
-  );
-  const refusal = refusalOf(() => index(graph));
-  assert.equal(refusal.reason, "cap_binding_incomplete");
-  assert.match(refusal.detail, /artifact_review_round/);
-  assert.match(refusal.detail, /t_231/);
+  // bypass the review measured. The document is refused where it is read,
+  // whichever of a cap's counted edges it is (R8-4: the full panel's too).
+  for (const id of ["t_231", "t_205", "t_416"]) {
+    const graph = document();
+    graph.transitions = graph.transitions.map((edge) =>
+      edge.id === id ? { ...edge, guards: [] } : edge,
+    );
+    const refusal = refusalOf(() => index(graph));
+    assert.equal(refusal.reason, "cap_binding_incomplete", id);
+    assert.match(refusal.detail, new RegExp(`${id}\\b`, "u"), id);
+    assert.match(refusal.detail, id === "t_416" ? /verification_repair_round/u : /artifact_review_round/u, id);
+  }
 });
 
 test("a cap with no sibling carrying its park_reason is refused at build", () => {
-  // t_230 is the edge the flow parks on when the limit is reached. Without it
-  // the counted edge still stops, but the task stands still with the step's
+  // t_230 is the edge the flow parks on when the limit is reached at the
+  // narrow join, and t_581 at the full panel's (R8-4). Without one of them
+  // that counted edge still stops, but the task stands still with the step's
   // own reason and `review_cap` is never recorded.
+  for (const [id, step] of [["t_230", "narrow_review_join"], ["t_581", "synthesize_panel"]]) {
+    const graph = document();
+    graph.transitions = graph.transitions.filter((edge) => edge.id !== id);
+    const refusal = refusalOf(() => index(graph));
+    assert.equal(refusal.reason, "cap_binding_incomplete", id);
+    assert.match(refusal.detail, /artifact_review_round/, id);
+    assert.match(refusal.detail, new RegExp(`out of ${step} carrying review_cap`, "u"), id);
+  }
+  // And the repair cycle's stop at verify (R8-5).
   const graph = document();
-  graph.transitions = graph.transitions.filter((edge) => edge.id !== "t_230");
+  graph.transitions = graph.transitions.filter((edge) => edge.id !== "t_417");
   const refusal = refusalOf(() => index(graph));
   assert.equal(refusal.reason, "cap_binding_incomplete");
-  assert.match(refusal.detail, /artifact_review_round/);
-  assert.match(refusal.detail, /review_cap/);
+  assert.match(refusal.detail, /verification_repair_round has no edge out of verify carrying verification_cap/u);
+});
+
+test("a cap that names no counted transition — an empty list, or the retired singular field — is refused at build", () => {
+  // A cap counts the takings of the transitions it names (R8-4). One naming
+  // none has nothing to bind below its limit, so no round would ever spend
+  // it; and a cap still written with the single `counted_transition` a
+  // document carried before is refused by name rather than read as counting
+  // nothing.
+  for (const [label, rewrite] of [
+    ["an empty list", (cap) => ({ ...cap, counted_transitions: [] })],
+    ["the retired singular field", ({ counted_transitions, ...cap }) => ({ ...cap, counted_transition: counted_transitions[0] })],
+    ["no field at all", ({ counted_transitions, ...cap }) => cap],
+  ]) {
+    const graph = document();
+    graph.caps = graph.caps.map((cap) => (cap.cycle === "code_review_round" ? rewrite(cap) : cap));
+    const refusal = refusalOf(() => index(graph));
+    assert.equal(refusal.reason, "cap_binding_incomplete", label);
+    assert.match(refusal.detail, /code_review_round names no counted transition/u, label);
+  }
 });
 
 test("a guard the cap binding reaches that another edge also references is refused at build", () => {
@@ -2157,7 +2721,7 @@ test("a guard the cap binding reaches that another edge also references is refus
   // by a cap that never named it; the cap that would count t_443 is removed so
   // the edge stands outside every binding.
   const graph = document();
-  graph.caps = graph.caps.filter((cap) => cap.counted_transition !== "t_443");
+  graph.caps = graph.caps.filter((cap) => !cap.counted_transitions.includes("t_443"));
   graph.transitions = graph.transitions.map((edge) =>
     edge.id === "t_443" ? { ...edge, guards: ["guard_238"] } : edge,
   );
@@ -2185,7 +2749,7 @@ test("an edge the binding reaches from two caps is refused at build", () => {
   // t_231 — still parks through the same review_cap edge, so t_230's guard
   // would owe two limits.
   const graph = document();
-  graph.caps = [...graph.caps, { cycle: "second_local", counted_transition: "t_232", limit: 10, park_reason: "review_cap" }];
+  graph.caps = [...graph.caps, { cycle: "second_local", counted_transitions: ["t_232"], limit: 10, park_reason: "review_cap" }];
   const refusal = refusalOf(() => index(graph));
   assert.equal(refusal.reason, "cap_binding_ambiguous");
   assert.match(refusal.detail, /t_230/);
@@ -2194,12 +2758,15 @@ test("an edge the binding reaches from two caps is refused at build", () => {
 test("a cap counting a transition the document never declared is refused at build", () => {
   // The refusal is the factory's own `transition_not_declared` — the code an
   // undeclared edge already produces — because a counted transition that does
-  // not exist is an edge the document does not declare.
-  const graph = document();
-  graph.caps = graph.caps.map((cap) => ({ ...cap, counted_transition: "never_declared" }));
-  const refusal = refusalOf(() => index(graph));
-  assert.equal(refusal.reason, "transition_not_declared");
-  assert.match(refusal.detail, /never_declared/);
+  // not exist is an edge the document does not declare; one undeclared among
+  // declared ones is refused all the same.
+  for (const counted of [["never_declared"], ["t_205", "never_declared"]]) {
+    const graph = document();
+    graph.caps = graph.caps.map((cap) => (cap.cycle === "artifact_review_round" ? { ...cap, counted_transitions: counted } : cap));
+    const refusal = refusalOf(() => index(graph));
+    assert.equal(refusal.reason, "transition_not_declared", counted.join(", "));
+    assert.match(refusal.detail, /artifact_review_round counts never_declared/u);
+  }
 });
 
 test("an array in the count record is no count, even for a step named `length`", async () => {
@@ -2307,6 +2874,7 @@ test("a resume into a target its row declares the user's decision is refused wit
     completion_predicate_unmet: ["apply_staging"],
     foreign_target_movement: ["apply_staging"],
     review_cap: ["fix", "fix_artifact", "rebuild_code_anchor"],
+    verification_cap: ["fix", "rebuild_code_anchor", "verify"],
   });
   const reason = "review_cap";
   const row = state.recovery.get(reason);
@@ -2442,6 +3010,134 @@ test("a round past the cap leaves the count and the limit where they were, so th
   signed.push(twelfth);
   task.metadata.park.decision = leafFor(row, task.metadata.step_visits, twelfth);
   assert.equal(await workflow.onTransit(context(task).ctx, { step: "fix_artifact" }), undefined);
+});
+
+// --- Round 8 of #39, R8-5: the repair cycle after the checks is a declared cap, and a round past it is the user's ---
+
+test("the verification repair cycle is a declared cap: the eleventh repair parks verification_cap, and a resume into another repair round owes the user's decision (R8-5)", async () => {
+  // Round 8 of #39, R8-5: `verification_cap` had no limit anywhere, no caps
+  // entry and no decision targets — `cond_309` read the task record alone —
+  // so the caller's evaluator decided when the cycle ended, and a resume
+  // into `verify`, which starts another repair round, was admitted with no
+  // decision: the defect R7-4 closed for review_cap (ADR-099), left open to
+  // #32. The cycle is now the cap `verification_repair_round`: it counts
+  // `verify -> fix` (t_416) against the document's limit, and the rule the
+  // factory applies to every cap's park applies to this one.
+  const graph = document();
+  const cap = graph.caps.find((entry) => entry.park_reason === "verification_cap");
+  assert.deepEqual(cap, { cycle: "verification_repair_round", counted_transitions: ["t_416"], limit: 10, park_reason: "verification_cap" });
+
+  // A caller answering "a defect, below the cap" at every count still loses
+  // the repair at the limit: the count is the durable takings, not its word.
+  const eager = buildWorkflow(graph, { evaluate: (predicate) => predicate === "cond_308" });
+  const repairing = { id: "t-v", step: "verify", status: "work", metadata: { transition_takings: { verify: { fix: 10 } } } };
+  await eager.steps.verify.onRun(context(repairing).ctx);
+  assert.notEqual(repairing.step, "fix", "no eleventh repair on the caller's word");
+  assert.equal(repairing.status, "human");
+
+  // Resumes out of the park: a target that runs another repair round —
+  // `fix`, which repairs and runs verify (review of 12c, M2), `verify`, or
+  // `rebuild_code_anchor`, which runs verify again — owes the decision
+  // recorded under this park; staying parked and handing a Quick task to
+  // Planned run none and owe none.
+  const state = index(graph);
+  const reason = "verification_cap";
+  const row = state.recovery.get(reason);
+  assert.deepEqual(row.parks_at, ["verify"]);
+  assert.deepEqual(row.handled_at, ["fix"]);
+  const visits = { verify: 11 };
+  for (const target of ["fix", "verify", "rebuild_code_anchor"]) {
+    const bare = refusalOf(() => permitsResume(state, reason, target, {}, visits));
+    assert.equal(bare.reason, "resume_target_not_permitted", target);
+    assert.match(bare.detail, /decision/u, target);
+    const record = resumeRecord(row, visits, target);
+    assert.equal(permitsResume(state, reason, target, { decision: leafFor(row, visits, record) }, visits, decidedBy([record])), true, target);
+  }
+  for (const target of ["human", "invalidate_quick_classification"]) {
+    assert.equal(permitsResume(state, reason, target, {}, visits), true, target);
+  }
+  // A decision recorded under an earlier park of the reason buys nothing:
+  // the next park re-entered verify and moved the watermark.
+  const earlier = resumeRecord(row, { verify: 10 }, "verify");
+  assert.equal(refusalOf(() => permitsResume(state, reason, "verify", { decision: leafFor(row, { verify: 10 }, earlier) }, visits, decidedBy([earlier]))).reason,
+    "resume_target_not_permitted");
+  // And the round a decision buys is one: the count stays at the limit, so
+  // the next defect verify finds parks the cap again at once.
+  const repaired = buildWorkflow(graph, { evaluate: (predicate) => ["cond_308", "cond_309"].includes(predicate), ...deciding([resumeRecord(row, visits, "verify", { task: "t-round" })]) });
+  const task = { id: "t-round", step: "human", status: "human", metadata: { step_visits: { ...visits }, transition_takings: { verify: { fix: 10 } }, park: { reason, origin: "verify" } } };
+  await assert.rejects(
+    () => repaired.onTransit(context(task).ctx, { step: "verify" }),
+    (error) => error.reason === "resume_target_not_permitted" && /decision/u.test(error.detail),
+  );
+  task.metadata.park.decision = leafFor(row, visits, resumeRecord(row, visits, "verify", { task: "t-round" }));
+  assert.equal(await repaired.onTransit(context(task).ctx, { step: "verify" }), undefined);
+  task.step = "verify";
+  task.status = "work";
+  task.metadata.step_visits.verify += 1;
+  await repaired.steps.verify.onRun(context(task).ctx);
+  assert.equal(task.status, "human");
+  assert.equal(task.metadata.park.reason, "verification_cap", "the defect found after the bought round parks the cap again");
+  assert.deepEqual(task.metadata.transition_takings, { verify: { fix: 10 } });
+  await assert.rejects(
+    () => repaired.onTransit(context(task).ctx, { step: "verify" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+});
+
+// --- Review of 12c, M2: a decision past the repair cap buys a repair round ---
+
+test("a decision past verification_cap buys one repair round: a resume into fix repairs and runs the checks, and their next defect parks verification_cap again (review of 12c, M2)", async () => {
+  // Review of 12c, M2: after the repair cap a recorded decision could resume
+  // only into `verify` or `rebuild_code_anchor`, which run the checks again
+  // on an unchanged candidate and re-park at once, while 01, 03, the graph's
+  // row and #32's obligation said it buys another repair round. The only
+  // edges into `fix` are `t_416`, which the cap refuses at the limit, and
+  // `t_443`, so no repair could run. Base 03 §7 named `fix, verify` for this
+  // row; `fix` is a resume target again, and — since it leads to `verify` —
+  // one the user decides.
+  const graph = document();
+  const state = index(graph);
+  const reason = "verification_cap";
+  const row = state.recovery.get(reason);
+  assert.ok(row.resume_targets.includes("fix"));
+  assert.deepEqual([...row.decision_targets].sort(), ["fix", "rebuild_code_anchor", "verify"]);
+  const visits = { verify: 11 };
+  const parked = { origin: "verify" };
+  assert.equal(refusalOf(() => permitsResume(state, reason, "fix", parked, visits)).reason, "resume_target_not_permitted");
+
+  const record = resumeRecord(row, visits, "fix", { task: "t-repair" });
+  const workflow = buildWorkflow(graph, {
+    evaluate: (predicate) => ["cond_308", "cond_309", "cond_340"].includes(predicate),
+    ...deciding([record]),
+  });
+  const task = {
+    id: "t-repair",
+    step: "human",
+    status: "human",
+    metadata: {
+      step_visits: { ...visits },
+      transition_takings: { verify: { fix: 10 } },
+      park: { reason, ...parked, decision: leafFor(row, visits, record) },
+    },
+  };
+  assert.equal(await workflow.onTransit(context(task).ctx, { step: "fix" }), undefined);
+  // The engine takes the resume `human -> fix`, so the counted pair stays at
+  // its limit; the repair runs, and `fix -> verify` runs the checks.
+  task.step = "fix";
+  task.status = "work";
+  task.metadata.step_visits.fix = 1;
+  await workflow.steps.fix.onRun(context(task).ctx);
+  assert.equal(task.step, "verify", "the bought round repairs and runs the checks");
+  await workflow.steps.verify.onRun(context(task).ctx);
+  assert.equal(task.status, "human", "the checks' next defect parks at once");
+  assert.equal(task.metadata.park.reason, "verification_cap");
+  assert.deepEqual(task.metadata.transition_takings, { verify: { fix: 10 } });
+  // The decision that bought the round buys no second: the park re-entered
+  // `verify`, so its watermark moved.
+  await assert.rejects(
+    () => workflow.onTransit(context(task).ctx, { step: "fix" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
 });
 
 // --- CodeRabbit on #270: a decision-gated resume is admitted only on a verified UserDecisionRecord of this task, this park and this target ---

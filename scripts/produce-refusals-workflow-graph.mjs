@@ -1,7 +1,7 @@
 /**
  * Producing cases for the workflow-graph contract's closed set.
  *
- * Thirty-two prefixed classes are design-time: the validator refuses the
+ * Thirty-five prefixed classes are design-time: the validator refuses the
  * document, the strict parser refuses the text, and the canonical serializer
  * refuses a string with no UTF-8 spelling. The three unprefixed codes are the
  * graph's own park reasons and are produced at the factory's exported boundary,

@@ -661,6 +661,7 @@
     {
       "code": "completion_predicate_unmet",
       "named_at": [
+        "apply_staging",
         "deliver_staging"
       ],
       "named_at_classes": [],
@@ -790,6 +791,7 @@
     {
       "code": "foreign_target_movement",
       "named_at": [
+        "apply_staging",
         "integrate_staging"
       ],
       "named_at_classes": [],
@@ -1173,8 +1175,12 @@
       "named_at": [
         "fix",
         "fix_artifact",
+        "human",
+        "invalidate_quick_classification",
         "narrow_review_join",
-        "record_code_verdict"
+        "rebuild_code_anchor",
+        "record_code_verdict",
+        "synthesize_panel"
       ],
       "named_at_classes": [],
       "closed_by": "03-technical-plan.md",
@@ -1351,6 +1357,9 @@
       "code": "verification_cap",
       "named_at": [
         "fix",
+        "human",
+        "invalidate_quick_classification",
+        "rebuild_code_anchor",
         "verify"
       ],
       "named_at_classes": [],
@@ -1390,5 +1399,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "9f60d8a64b900006111fb2974fddbcdadfdfe1d51f50b77e47127a534b0b8cc4"
+  "vocabulary_digest": "1215130abacbbba892f04996e928c44502cee382733a24535dccf4604998791c"
 }

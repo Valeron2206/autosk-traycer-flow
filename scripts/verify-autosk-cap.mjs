@@ -3,8 +3,9 @@
 /**
  * The cap test for the boundary the declared quantity actually has.
  *
- * The workflow document declares `caps`: a counted transition, a limit, and
- * the park_reason the flow stops with at it. Ticket 16 made the count durable —
+ * The workflow document declares `caps`: the transitions a cap counts as one
+ * count (here one), a limit, and the park_reason the flow stops with at it.
+ * Ticket 16 made the count durable —
  * `metadata.transition_takings[from][to]` travels in the same atomic write as
  * the position — but a quantity nobody reads enforces nothing: before this
  * ticket, the counted edge was taken an eleventh time and the task never
@@ -16,6 +17,14 @@
  * lowest priority, so an unenforced cap keeps being taken — the defect is the
  * count reaching 11 — while an enforced one parks with `review_cap` at 10.
  * Nothing is seeded: the daemon drives every taking itself.
+ *
+ * The second measure is a cap that counts per cycle (review of 12c, M1): a
+ * review/fix cycle whose artifact passes and is published, and the
+ * publication is the cap's `cycle_boundary`. The first three artifacts pass
+ * after nine rounds each, so a count kept per task would park in the second;
+ * the fourth never passes, and its own tenth round is where the flow must
+ * park. The baselines the factory records at each crossing go through the
+ * real CLI's `metadata set` and are read back from the task on disk.
  *
  * Usage: node scripts/verify-autosk-cap.mjs <prefix>
  */
@@ -45,6 +54,10 @@ const sock = path.join(root, "daemon.sock");
 /** The pair the cap counts, and the limit after which it must not move again. */
 const COUNTED_EDGE = { from: "review", to: "fix" };
 const LIMIT = 10;
+/** The second measure's boundary, and how many artifacts pass across it before the last one parks. */
+const CYCLE_BOUNDARY = { from: "publish", to: "review" };
+const PASSED_ARTIFACTS = 3;
+const ROUNDS_PER_PASS = 9;
 
 const env = {
   HOME: taskHome,
@@ -139,7 +152,7 @@ const document = {
     { id: "t_cap", from: "review", to: "human", priority: 1, guards: ["g_cap"] },
     { id: "t_back", from: "fix", to: "review", priority: 0, guards: ["g_back"] },
   ],
-  caps: [{ cycle: "review_round", counted_transition: "t_round", limit: 10, park_reason: "review_cap" }],
+  caps: [{ cycle: "review_round", counted_transitions: ["t_round"], limit: 10, park_reason: "review_cap" }],
   recovery: [
     { reason: "fixture_no_exit", parks_at: ["start", "review", "fix"], resume_targets: ["start", "review", "fix"], required_state: "n/a" },
     { reason: "review_cap", parks_at: ["review"], resume_targets: ["review", "fix"], required_state: "n/a" },
@@ -151,11 +164,71 @@ const evaluate = (predicate) => {
   throw new Error(\`the test document declares no predicate \${predicate}\`);
 };
 
+// The per-cycle cap (review of 12c, M1). The artifact passes once its cycle
+// ran ${ROUNDS_PER_PASS} rounds, for the first ${PASSED_ARTIFACTS} artifacts only; the answer is read
+// off the task's own takings, which is state the predicate declares it reads.
+const cycles = {
+  workflow: "cap_cycle",
+  first_step: "start",
+  predicates: [
+    { id: "findings", reads: ["task_record"], description: "findings present" },
+    { id: "passes", reads: ["transition_takings"], description: "the artifact passes once its cycle ran its rounds" },
+    { id: "published", reads: ["task_record"], description: "the artifact's PASS is published" },
+  ],
+  steps: [
+    { name: "start", kind: "agent", no_transition_reason: "fixture_no_exit" },
+    { name: "review", kind: "agent", no_transition_reason: "fixture_no_exit" },
+    { name: "fix", kind: "agent", no_transition_reason: "fixture_no_exit" },
+    { name: "publish", kind: "agent", no_transition_reason: "fixture_no_exit" },
+    { name: "human", kind: "status", status: "human" },
+  ],
+  guards: [
+    { id: "g_start", predicate: "findings", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+    { id: "g_pass", predicate: "passes", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+    { id: "g_round", predicate: "findings", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+    { id: "g_cap", predicate: "findings", authority: { actor: "agent" }, park_reason: "review_cap" },
+    { id: "g_back", predicate: "findings", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+    { id: "g_next", predicate: "published", authority: { actor: "agent" }, park_reason: "fixture_no_exit" },
+  ],
+  transitions: [
+    { id: "t_start", from: "start", to: "review", priority: 0, guards: ["g_start"] },
+    { id: "t_pass", from: "review", to: "publish", priority: 0, guards: ["g_pass"] },
+    { id: "t_round", from: "review", to: "fix", priority: 1, guards: ["g_round"] },
+    { id: "t_cap", from: "review", to: "human", priority: 2, guards: ["g_cap"] },
+    { id: "t_back", from: "fix", to: "review", priority: 0, guards: ["g_back"] },
+    { id: "t_next", from: "publish", to: "review", priority: 0, guards: ["g_next"] },
+  ],
+  caps: [
+    {
+      cycle: "review_round",
+      counted_transitions: ["t_round"],
+      cycle_boundary: { from: "publish", to: "review" },
+      limit: ${LIMIT},
+      park_reason: "review_cap",
+    },
+  ],
+  recovery: [
+    { reason: "fixture_no_exit", parks_at: ["start", "review", "fix", "publish"], resume_targets: ["start", "review", "fix", "publish"], required_state: "n/a" },
+    { reason: "review_cap", parks_at: ["review"], resume_targets: ["review", "fix"], required_state: "n/a" },
+  ],
+};
+
+const takingsOf = (task, from, to) => task?.metadata?.transition_takings?.[from]?.[to] ?? 0;
+const evaluateCycles = (predicate, guard, task) => {
+  if (predicate === "findings" || predicate === "published") return true;
+  if (predicate === "passes") {
+    const crossed = takingsOf(task, "publish", "review");
+    return crossed < ${PASSED_ARTIFACTS} && takingsOf(task, "review", "fix") >= ${ROUNDS_PER_PASS} * (crossed + 1);
+  }
+  throw new Error("the test document declares no predicate " + predicate);
+};
+
 export default function (autosk) {
   // This document carries no canonical digest on purpose: the factory computes
   // one and refuses a document whose own digest describes different bytes, so a
   // fixture either carries the right one or carries none.
   autosk.registerWorkflow(buildWorkflow(document, { evaluate }));
+  autosk.registerWorkflow(buildWorkflow(cycles, { evaluate: evaluateCycles }));
 }
 `;
 
@@ -292,9 +365,51 @@ try {
     `the counted edge must be taken exactly ${LIMIT} times, never ${LIMIT + 1}: ${JSON.stringify(onDisk.metadata?.transition_takings)}`,
   );
 
+  // The per-cycle cap (review of 12c, M1): three artifacts of nine rounds
+  // each cross the boundary with no park, and the fourth parks at its own
+  // tenth round — 3 x 9 + 10 takings of the counted pair in all, where a count
+  // kept per task would have parked at the tenth, in the second artifact.
+  const cycled = JSON.parse(await cli(["create", "Cap per cycle", "--json"]));
+  await cli(["enroll", cycled.id, "--workflow", "cap_cycle", "--json"]);
+  const expected = PASSED_ARTIFACTS * ROUNDS_PER_PASS + LIMIT;
+  let cycleRecord = await readTask(cycled.id);
+  for (let attempt = 0; attempt < 4800; attempt += 1) {
+    cycleRecord = await readTask(cycled.id);
+    if (daemon.exitCode !== null || daemon.signalCode !== null) throw new Error(`daemon exited: ${daemonLog}`);
+    const rounds = takingsCount(cycleRecord, COUNTED_EDGE.from, COUNTED_EDGE.to);
+    if (rounds > expected) {
+      assert.fail(`the per-cycle cap let the counted pair be taken ${rounds} times, past ${expected}`);
+    }
+    if (cycleRecord.status === "human") break;
+    await delay(50);
+  }
+  const cycleOnDisk = await readTask(cycled.id);
+  evidence.cycles = {
+    step: cycleOnDisk.step,
+    status: cycleOnDisk.status,
+    park: cycleOnDisk.metadata?.park,
+    takings: cycleOnDisk.metadata?.transition_takings,
+    baselines: cycleOnDisk.metadata?.cap_baselines,
+  };
+  assert.equal(cycleOnDisk.status, "human", `the fourth artifact must park at its own limit: ${JSON.stringify(evidence.cycles)}`);
+  assert.equal(cycleOnDisk.metadata?.park?.reason, "review_cap", `the park names the cap's reason: ${JSON.stringify(evidence.cycles)}`);
+  assert.equal(
+    takingsCount(cycleOnDisk, COUNTED_EDGE.from, COUNTED_EDGE.to),
+    expected,
+    `each artifact's cycle counts from its own baseline: ${JSON.stringify(evidence.cycles)}`,
+  );
+  assert.equal(takingsCount(cycleOnDisk, CYCLE_BOUNDARY.from, CYCLE_BOUNDARY.to), PASSED_ARTIFACTS, JSON.stringify(evidence.cycles));
+  // Written by the factory through the CLI, parsed as JSON numbers, keyed by
+  // the crossing each opened.
+  assert.deepEqual(
+    cycleOnDisk.metadata?.cap_baselines,
+    { review_round: Object.fromEntries(Array.from({ length: PASSED_ARTIFACTS }, (_, at) => [String(at + 1), ROUNDS_PER_PASS * (at + 1)])) },
+    JSON.stringify(evidence.cycles),
+  );
+
   console.log(
     JSON.stringify({
-      passed: 1,
+      passed: 2,
       failed: 0,
       skipped: 0,
       runtime: process.version,
@@ -304,9 +419,11 @@ try {
       declared_limit: LIMIT,
       durable_takings: takings,
       final: evidence.final,
+      cycles: evidence.cycles,
     }),
   );
   console.log("PASS cap evaluator parks the counted edge at the declared limit");
+  console.log("PASS a cap with a cycle boundary counts each cycle from the baseline the factory records");
 } finally {
   try {
     await stopDaemon();

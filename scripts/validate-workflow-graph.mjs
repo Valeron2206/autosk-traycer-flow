@@ -58,6 +58,7 @@ export const CONTRACT_MARKER = "<!-- workflow-graph-contract:v1 -->";
 export const REFUSALS = Object.freeze([
   "graph_cap_binding_ambiguous",
   "graph_cap_binding_incomplete",
+  "graph_cap_boundary_outside_epic",
   "graph_cap_quantity_undeclared",
   "graph_cap_transition_shared",
   "graph_cap_transition_unknown",
@@ -83,6 +84,7 @@ export const REFUSALS = Object.freeze([
   "graph_recovery_parks_at_incomplete",
   "graph_recovery_parks_at_unproduced",
   "graph_recovery_reason_unknown",
+  "graph_recovery_required_state_drift",
   "graph_recovery_terminal_resume",
   "graph_schema",
   "graph_step_stranded",
@@ -122,6 +124,17 @@ export const GRAPH_PARK_REASONS = Object.freeze([
 export function parkReasons(root = ROOT) {
   const vocabulary = JSON.parse(readFileSync(path.join(root, VOCABULARY_PATH), "utf8"));
   return new Set(vocabulary.park_reasons.map((entry) => entry.code));
+}
+
+/**
+ * The Epic's steps, as the vocabulary classes them (`epic_step`), read the
+ * way the park reasons are. An Epic reviews several artifacts in one task,
+ * which is what a cap's cycle boundary is for; a Quick task or a Ticket
+ * reviews one candidate (narrow re-review of 12c, Low 3).
+ */
+export function epicSteps(root = ROOT) {
+  const vocabulary = JSON.parse(readFileSync(path.join(root, VOCABULARY_PATH), "utf8"));
+  return new Set(vocabulary.step_classes.find((entry) => entry.class === "epic_step")?.members ?? []);
 }
 
 // ---------------------------------------------------------------------------
@@ -374,8 +387,8 @@ export function encodeName(name) {
  * Three producers, and the step is a different field in each: a guard on an
  * edge into a step that stops for a person parks at the step the edge LEAVES,
  * not at the one it enters — the flow got there by taking that edge. A step's
- * own `no_transition_reason` parks where the step is. A cap parks where its
- * counted transition leaves.
+ * own `no_transition_reason` parks where the step is. A cap parks where each
+ * of its counted transitions leaves.
  */
 export function producedAt(document, steps = new Map(document.steps.map((step) => [step.name, step]))) {
   const where = new Map();
@@ -394,11 +407,35 @@ export function producedAt(document, steps = new Map(document.steps.map((step) =
   }
   for (const step of document.steps) if (step.no_transition_reason) add(step.no_transition_reason, step.name);
   for (const cap of document.caps) {
-    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
-    if (counted) add(cap.park_reason, counted.from);
+    for (const id of countedOf(cap)) {
+      const counted = document.transitions.find((edge) => edge.id === id);
+      if (counted) add(cap.park_reason, counted.from);
+    }
   }
   return where;
 }
+
+/**
+ * The transitions a cap counts, as the document names them.
+ *
+ * A cap counts the takings of every transition it names as one count against
+ * its limit (R8-4), so a narrow review's and a full panel's NOT_PASS spend one
+ * budget. The schema requires a non-empty set; a document that reaches here
+ * without one names nothing, and the schema has already said why.
+ */
+export function countedOf(cap) {
+  return Array.isArray(cap.counted_transitions) ? cap.counted_transitions : [];
+}
+
+/**
+ * The clause a row's `required_state` opens with when it says where Section 2
+ * parks the reason: the steps, then a colon. Where a row says it, the steps
+ * are exactly its `parks_at` (R8-11); a row that opens otherwise says
+ * something else — the daemon-recorded rows say where the daemon records the
+ * reason — and is not asked.
+ */
+export const PARKS_CLAUSE_PREFIX = "Section 2 parks with this reason at ";
+const PARKS_CLAUSE = /^Section 2 parks with this reason at ([a-z][a-z0-9_]*(?:, [a-z][a-z0-9_]*)*):/u;
 
 /**
  * The leaf's name as a whole token in a row's text (CodeRabbit on #270): not
@@ -416,7 +453,7 @@ export const DECISION_MARKER = /(?:^|[^\w.])park\.decision(?!\w|\.\w)/u;
  * to anything. A schema-valid document whose edges point at steps that do not
  * exist is exactly the failure prose graphs have today.
  */
-export function validateGraph(document, schema, allowed = parkReasons()) {
+export function validateGraph(document, schema, allowed = parkReasons(), epic = epicSteps()) {
   const schemaErrors = validateJsonSchema(document, schema).map((message) => `graph_schema: ${message}`);
   if (schemaErrors.length > 0) return schemaErrors;
 
@@ -536,8 +573,8 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   }
 
   for (const cap of document.caps) {
-    if (!transitions.has(cap.counted_transition)) {
-      errors.push(`graph_cap_transition_unknown: cap ${cap.cycle} counts ${cap.counted_transition}`);
+    for (const id of countedOf(cap)) {
+      if (!transitions.has(id)) errors.push(`graph_cap_transition_unknown: cap ${cap.cycle} counts ${id}`);
     }
   }
 
@@ -554,13 +591,58 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     byPair.set(pair, [...(byPair.get(pair) ?? []), edge.id]);
   }
   for (const cap of document.caps) {
-    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
-    if (!counted) continue; // already refused as graph_cap_transition_unknown
-    const siblings = (byPair.get(`${counted.from} -> ${counted.to}`) ?? []).filter((id) => id !== counted.id);
-    if (siblings.length > 0) {
+    for (const id of countedOf(cap)) {
+      const counted = document.transitions.find((edge) => edge.id === id);
+      if (!counted) continue; // already refused as graph_cap_transition_unknown
+      const siblings = (byPair.get(`${counted.from} -> ${counted.to}`) ?? []).filter((other) => other !== counted.id);
+      if (siblings.length > 0) {
+        errors.push(
+          `graph_cap_transition_shared: cap ${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), ` +
+            `which shares its pair with ${siblings.join(", ")}`,
+        );
+      }
+    }
+  }
+
+  // A cap that declares a cycle boundary counts per cycle, and a cycle closes
+  // when the daemon counts a taking of the boundary's pair (review of 12c,
+  // M1). A pair no edge joins would never close one; a pair the cap counts
+  // would both spend a round and close its cycle; an unguarded edge on the
+  // pair would close a cycle on nothing rather than on what its guards
+  // verify — the published PASS, on the shipped document.
+  for (const cap of document.caps) {
+    if (cap.cycle_boundary === undefined) continue;
+    const { from, to } = cap.cycle_boundary !== null && typeof cap.cycle_boundary === "object" ? cap.cycle_boundary : {};
+    const crossing = document.transitions.filter((edge) => edge.from === from && edge.to === to);
+    if (crossing.length === 0) {
+      errors.push(`graph_cap_transition_unknown: cap ${cap.cycle}'s cycle boundary ${from} -> ${to} joins no declared transition`);
+      continue;
+    }
+    const counted = countedOf(cap).map((id) => document.transitions.find((edge) => edge.id === id));
+    if (counted.some((edge) => edge?.from === from && edge?.to === to)) {
+      errors.push(`graph_cap_binding_ambiguous: cap ${cap.cycle} counts ${from} -> ${to} and closes its cycle on it`);
+    }
+    for (const edge of crossing) {
+      if (edge.guards.length > 0) continue;
       errors.push(
-        `graph_cap_transition_shared: cap ${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), ` +
-          `which shares its pair with ${siblings.join(", ")}`,
+        `graph_cap_binding_incomplete: cap ${cap.cycle}'s cycle closes on ${edge.id}, ` +
+          "which declares no guards, so nothing verifies the boundary it crosses",
+      );
+    }
+    // Only a cap whose rounds are an Epic's counts per cycle (narrow
+    // re-review of 12c, Low 3): an Epic reviews several artifacts in one
+    // task, while a Quick task or a Ticket reviews one candidate, and a
+    // boundary on the caps that count its rounds would restart that
+    // candidate's count — a limit raised with no decision. Every counted
+    // transition and the boundary leave an Epic step, as the vocabulary
+    // classes them.
+    const steps = [...new Set([...counted.filter((edge) => edge !== undefined).map((edge) => edge.from), from])];
+    const outside = steps.filter((name) => !epic.has(name)).sort();
+    if (outside.length > 0) {
+      errors.push(
+        `graph_cap_boundary_outside_epic: cap ${cap.cycle} declares a cycle boundary and counts or closes its cycle at ` +
+          `${outside.join(", ")}, which the vocabulary does not class as the Epic's (epic_step): ` +
+          "a cap outside the Epic reviews one candidate and counts per task",
       );
     }
   }
@@ -581,39 +663,44 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   }
   const boundGuards = new Map();
   const boundEdges = new Map();
+  const bind = (edge, cap) => {
+    const entry = boundEdges.get(edge.id) ?? { edge, caps: new Set() };
+    entry.caps.add(cap);
+    boundEdges.set(edge.id, entry);
+    for (const id of edge.guards) {
+      boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge, cap }]);
+    }
+  };
+  // Each counted transition is bound as one counted transition always was:
+  // its guards below the cap's one count, and the siblings out of its own
+  // step that carry the cap's reason at it (R8-4).
   for (const cap of document.caps) {
-    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
-    if (!counted) continue; // already refused as graph_cap_transition_unknown
-    if (counted.guards.length === 0) {
-      errors.push(
-        `graph_cap_binding_incomplete: cap ${cap.cycle} counts ${counted.id}, ` +
-          "which declares no guards to bind below its limit",
-      );
-      continue;
-    }
-    const countedEntry = boundEdges.get(counted.id) ?? { edge: counted, caps: new Set() };
-    countedEntry.caps.add(cap);
-    boundEdges.set(counted.id, countedEntry);
-    for (const id of counted.guards) {
-      boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge: counted, cap }]);
-    }
-    const carrying = (outgoing.get(counted.from) ?? []).filter(
-      (edge) => edge.id !== counted.id && edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason),
-    );
-    if (carrying.length === 0) {
-      errors.push(
-        `graph_cap_binding_incomplete: cap ${cap.cycle} has no edge out of ${counted.from} ` +
-          `carrying ${cap.park_reason} to park on at the limit`,
-      );
-      continue;
-    }
-    for (const edge of carrying) {
-      const entry = boundEdges.get(edge.id) ?? { edge, caps: new Set() };
-      entry.caps.add(cap);
-      boundEdges.set(edge.id, entry);
-      for (const id of edge.guards) {
-        boundGuards.set(id, [...(boundGuards.get(id) ?? []), { edge, cap }]);
+    const counted = countedOf(cap)
+      .map((id) => document.transitions.find((edge) => edge.id === id))
+      .filter((edge) => edge !== undefined); // an undeclared one is already refused as graph_cap_transition_unknown
+    const countedIds = new Set(counted.map((edge) => edge.id));
+    for (const edge of counted) {
+      if (edge.guards.length === 0) {
+        errors.push(
+          `graph_cap_binding_incomplete: cap ${cap.cycle} counts ${edge.id}, ` +
+            "which declares no guards to bind below its limit",
+        );
+        continue;
       }
+      bind(edge, cap);
+    }
+    for (const from of new Set(counted.map((edge) => edge.from))) {
+      const carrying = (outgoing.get(from) ?? []).filter(
+        (edge) => !countedIds.has(edge.id) && edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason),
+      );
+      if (carrying.length === 0) {
+        errors.push(
+          `graph_cap_binding_incomplete: cap ${cap.cycle} has no edge out of ${from} ` +
+            `carrying ${cap.park_reason} to park on at the limit`,
+        );
+        continue;
+      }
+      for (const edge of carrying) bind(edge, cap);
     }
   }
   for (const [id, bindings] of boundGuards) {
@@ -680,13 +767,17 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
   const isIdentifier = (token) => typeof token === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(token);
   const isParen = (token) => token === "(" || token === ")";
   for (const cap of document.caps) {
-    const counted = document.transitions.find((edge) => edge.id === cap.counted_transition);
-    if (!counted) continue; // already refused as graph_cap_transition_unknown
-    const named = new Set(counted.guards.map((id) => guards.get(id)?.predicate));
-    for (const edge of outgoing.get(counted.from) ?? []) {
-      if (edge.id === counted.id) continue;
-      if (edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason)) {
-        for (const id of edge.guards) named.add(guards.get(id)?.predicate);
+    const counted = countedOf(cap)
+      .map((id) => document.transitions.find((edge) => edge.id === id))
+      .filter((edge) => edge !== undefined); // an undeclared one is already refused as graph_cap_transition_unknown
+    const countedIds = new Set(counted.map((edge) => edge.id));
+    const named = new Set(counted.flatMap((edge) => edge.guards.map((id) => guards.get(id)?.predicate)));
+    for (const from of new Set(counted.map((edge) => edge.from))) {
+      for (const edge of outgoing.get(from) ?? []) {
+        if (countedIds.has(edge.id)) continue;
+        if (edge.guards.some((id) => guards.get(id)?.park_reason === cap.park_reason)) {
+          for (const id of edge.guards) named.add(guards.get(id)?.predicate);
+        }
       }
     }
     for (const id of named) {
@@ -959,6 +1050,43 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     }
   }
 
+  // A row's required_state that says where Section 2 parks the reason names
+  // exactly the row's parks_at (R8-11). The sentence opened 86 rows and named
+  // other steps than the field on 35 of them — the handling steps, a subset,
+  // the fixers of a cap — so a reader of the row was told a different stop
+  // than the one the factory reads. The field is the statement the graph
+  // checks; the sentence is held to it rather than left to drift again. A row
+  // whose text opens otherwise — the daemon-recorded rows say where the daemon
+  // records the reason — is not asked. A status step the field lists only
+  // because a parked task stands on it — the exemption above — is not a step
+  // Section 2 parks the reason at, so the sentence leaves it out (review of
+  // 12c, L5): it said three rows parked at `done` or `human`, where the graph
+  // parks nothing.
+  for (const row of document.recovery) {
+    if (!row.required_state.startsWith(PARKS_CLAUSE_PREFIX)) continue;
+    const clause = PARKS_CLAUSE.exec(row.required_state);
+    if (clause === null) {
+      errors.push(
+        `graph_recovery_required_state_drift: ${row.reason}'s required_state says where Section 2 parks it ` +
+          "without a list of steps and a colon the validator can read",
+      );
+      continue;
+    }
+    const named = clause[1].split(", ");
+    const where = producedFor.get(row.reason) ?? new Set();
+    const parked = row.parks_at.filter((name) => where.has(name) || steps.get(name)?.kind !== "status");
+    const parking = new Set(parked);
+    const listed = new Set(named);
+    const missing = parked.filter((name) => !listed.has(name));
+    const extra = [...listed].filter((name) => !parking.has(name));
+    if (missing.length > 0 || extra.length > 0 || listed.size !== named.length) {
+      errors.push(
+        `graph_recovery_required_state_drift: ${row.reason}'s required_state says Section 2 parks it at ${named.join(", ")}, ` +
+          `and the steps its parks_at says the graph parks it at are ${parked.join(", ")}`,
+      );
+    }
+  }
+
   // Which resume targets are the user's decision is declared per row, as
   // `decision_targets`, and the declaration is held to the graph rather than
   // to a hand-kept list (review of 11e, M1, M2). A row a cap parks with owes
@@ -1068,6 +1196,7 @@ export const SORTED_ARRAY_PATHS = new Set([
   "guards.*.authority.policy_rules",
   "transitions.*.guards",
   "caps",
+  "caps.*.counted_transitions",
   "recovery",
   "recovery.*.parks_at",
   "recovery.*.handled_at",

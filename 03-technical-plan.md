@@ -189,7 +189,8 @@ Brief, Core Flow, Tech Plan и весь комплект Tickets — четыр�
 | synthesize_panel | требуется contest | dispatch_contest |
 | synthesize_panel | подтверждены findings and candidate_keepalive phase=verified | resume candidate_audit_transfer_op through audit_ref_verified -> live_ref_deleted -> verified; only then append terminal audit receipt/history and phase=audit_retained; synthesize_panel |
 | synthesize_panel | NOT_PASS audit transfer is not committed or its exact receipt/ref proof is missing | human с park.reason=planning_candidate_keepalive_invalid; retain live/audit refs and resume synthesize_panel only from the same operation |
-| synthesize_panel | подтверждены findings and candidate_keepalive phase=audit_retained | fix_artifact |
+| synthesize_panel | подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings >= cap | human с park.reason=review_cap |
+| synthesize_panel | подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings < cap | fix_artifact |
 | synthesize_panel | PASS | record_artifact_pass |
 | dispatch_contest | canonical finding уже имеет terminal disposition той же candidate identity | human с park.reason=contest_join_invalid; новый contest child не создаётся |
 | dispatch_contest | все contest children настроены/enrolled и parent имеет exact blockers всех children | contest_join |
@@ -484,8 +485,8 @@ Parent Ticket блокируется review child и после разблоки
 | implement | completion record, включая closed `planned_triggers`/`material_questions`, и declared scope валидны, Quick classification всё ещё valid, worktree не коммитился | verify |
 | verify | runner/environment failure после retry | human с park.reason=verification_environment_failed |
 | verify | evidence отсутствует, malformed или не привязан к candidate | human с park.reason=verification_record_invalid |
-| verify | проверки нашли candidate defect и repair cycle ниже cap | сохранить verification findings, fix |
-| verify | проверки нашли candidate defect и repair cycle достиг cap | human с park.reason=verification_cap |
+| verify | проверки нашли candidate defect и transition_takings < cap | сохранить verification findings, fix |
+| verify | проверки нашли candidate defect и transition_takings >= cap | human с park.reason=verification_cap |
 | verify | evidence record валиден, проверки PASS и Quick classification всё ещё valid | freeze |
 | freeze | scope/identity/tree mint невалидны или candidate изменился во время mint | human с park.reason=freeze_candidate_invalid |
 | freeze | pending_anchor или anchor mismatch | atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor |
@@ -1354,6 +1355,8 @@ record_code_verdict выполняет аналогичную повторную
 
 Review round увеличивает только freeze_artifact/freeze при создании новой candidate identity после fix. Операция ключуется attempt + tree OID: повтор после crash не увеличивает round второй раз. Внутри одного cycle дальнейшее значение обязано быть last_round+1. Понижение round или перезапись cycle с меньшим значением отклоняются; anchor rebuild не сбрасывает текущий cycle, новый cap задаёт только пользователь.
 
+Cap графа следует тому же: `artifact_review_round` ограничивает цикл review одного артефакта — его счёт это durable takings NOT_PASS узкой проверки и полной панели с начала цикла (с baseline, который factory записывает, когда поток пересекает границу цикла, `cap_baselines.<cycle>.<n>`), а цикл закрывает и следующий открывает граница: публикация PASS артефакта, `publish_artifact_pass → select_next` (ADR-104). Решение, resume в исправление и возврат к более раннему kind (anchor rebuild, aggregate remediation) её не пересекают: раунды такого возврата идут в счёт текущего цикла, и счёт внутри цикла не понижается. Точнее, это нижняя граница, а не точный цикл: счёт никогда не меньше раундов с последней проверенной публикации PASS, потому что baseline factory пишет, только беря ребро границы, чьи guards проверили публикацию. Resume из status park на `publish_artifact_pass` (`planning_publication_corrupt` → `select_next`) демон считает пересечением: status park оставляет шаг, а resume считает переход из него; цикл такой resume открывает только на baseline проверенной публикации, чей переход не лёг, а без него следующий артефакт продолжает счёт. PASS, опубликованный при дрейфе binding (`t_246`, `t_260` → `prepare_anchor_impact`, затем `rebuild_anchor → select_next`), цикл не закрывает: следующий артефакт продолжает счёт опубликованного, что консервативно; выходы дрейфа границей не сделаны, потому что anchor rebuild не сбрасывает cycle затронутого артефакта. Cap кода и cap цикла ремонта считают по задаче: у Quick и Ticket один артефакт и один candidate, и валидатор отвергает границу у cap'а, чьи раунды не у Epic (`graph_cap_boundary_outside_epic`).
+
 ### Read-only review
 
 Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит path/branch от snapshot commit с ключом `project_root_sha256 + reviewer task ID + role + attempt`. Из-за ограничений Git worktree он живёт во внешнем, но project-namespaced cache `~/.autosk/worktrees/<project_root_sha256>/...`; metadata owner остаётся current canonical root. Каждый autosk CLI subprocess получает `AUTOSK_CWD=ctx.projectRoot`, поэтому cwd worktree никогда не выбирает другой store.
@@ -1437,7 +1440,7 @@ State path создаётся отдельно для каждой operation п�
 - select_next запрещён, пока record_artifact_pass не записал binding текущей identity; текстовый PASS сам по себе не считается.
 - Integration запрещена без commit OID, approved tree, dependency completion и daemon-attributed human/current project permission.
 - Terminal done запрещён до cleanup всех созданных sandboxes; единственное reclassified-исключение требует exact read-back ownership-transfer receipt в Planned replacement retention set, поэтому worktree остаётся учтён и не удаляется.
-- Review cap читает монотонный current cycle round, а не resettable step_visits. Переход на новый review round после cap заменяется human.
+- Review cap и cap цикла ремонта читают durable transition_takings пар, которые cap считает, а не resettable step_visits: у Planned — NOT_PASS узкой (narrow_review_join → fix_artifact) и полной панели (synthesize_panel → fix_artifact) одним счётом цикла review одного артефакта, который закрывает публикация его PASS (publish_artifact_pass → select_next), от baseline, записанного factory при её пересечении, и никогда не меньше раундов с последней проверенной публикации; у кода — record_code_verdict → fix, у цикла ремонта после проверок — verify → fix (verification_cap), по задаче; у каждого предел 10 (ADR-104). Переход на новый round после cap заменяется human, а раунд сверх cap идёт только по записанному cap decision пользователя, по одному на решение (ADR-099).
 - freeze отклоняет round меньше last_round и идемпотентно не увеличивает его повторно для того же attempt+tree OID.
 - Bare resume после эскалации отклоняется без park.reason, явной target и требуемого recovery metadata.
 
@@ -1553,10 +1556,10 @@ Resume contract:
 | artifact_freeze_invalid | freeze_artifact | scope/pathspec/tree re-minted for same current artifact/alignment; no panel child or PASS from failed mint |
 | verification_environment_failed | verify | runner/environment восстановлен и candidate identity неизменна |
 | verification_record_invalid | verify | evidence record пересоздан для той же candidate identity |
-| verification_cap | fix, verify | новый daemon-attributed cap decision и verification findings сохранены |
+| verification_cap | resume в новый раунд: fix (исправление по сохранённым verification findings), verify или rebuild_code_anchor; без раунда: human, invalidate_quick_classification (Quick); park: verify | новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых verification findings; выход без раунда решения не требует |
 | freeze_candidate_invalid | freeze | scope/candidate identity повторно mint'ится; stale review binding void |
 | artifact_pass_invalid | freeze_artifact, record_artifact_pass | старые bindings void, attempt+1, сохранённый full/narrow mode |
-| review_cap | fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict | новый daemon-attributed cap decision, сохранённые findings и identity; resume только из шага, где стоял park: fix_artifact после narrow_review_join, fix после record_code_verdict |
+| review_cap | resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (Quick); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket) | новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых findings и identity; выход без раунда решения не требует; resume только из шага, где стоял park: fix_artifact после narrow_review_join или synthesize_panel, fix, rebuild_code_anchor или invalidate_quick_classification после record_code_verdict |
 | arena_join_invalid | arena_join, dispatch_arena | новый arena attempt; старые judgments void |
 | arena_fallback_required | apply_arena_decision, arena_join | daemon `UserDecisionRecord` выбрал fallback; review_cycles.tech_plan narrow=false/full required |
 | arena_contract_invalid | fix_artifact, record_artifact_pass | исправленный autosk-arena block, review_cycles.tech_plan.narrow=false/full_panel_required=true |
@@ -1582,10 +1585,10 @@ Resume contract:
 | acceptance_missing | accept_staging | decision packet на exact staging identity (при squash — и squash commit OID с digest recipe) принят человеком на этой остановке — его UserDecisionRecord подписал payload IntegrationAuthorizationRecord, составленного до вопроса; auto-policy остановку не пропускает (ADR-103) |
 | acceptance_stale | accept_staging or integrate_staging | новая acceptance current staging identity, aggregate record hash, target base и delivery profile digest |
 | unsupported_integration_mode | accept_staging | профиль или decision разрешает move_target либо PR/merge-queue путь; тихое переключение mode запрещено |
-| foreign_target_movement | integrate_staging | ref не тронут; overwrite запрещён; движение не этого Epic — чужой commit, откат или посадка другого Epic на тот же target; после расследования записанное решение пересобрать staging на сдвинутый target: пересборка epic-staging §1 (recorded_target_base := новый target, один planning replay commit под receipt, каждая approved delta заново, не применяющиеся — delta_stale), прежние aggregate PASS и acceptance void, resume в apply_staging; cancel — отдельная status-операция |
+| foreign_target_movement | park: integrate_staging; resume по записанному решению пользователя: apply_staging | ref не тронут; overwrite запрещён; движение не этого Epic — чужой commit, откат или посадка другого Epic на тот же target; после расследования записанное решение пересобрать staging на сдвинутый target: пересборка epic-staging §1 (recorded_target_base := новый target, один planning replay commit под receipt, каждая approved delta заново, не применяющиеся — delta_stale), прежние aggregate PASS и acceptance void, resume в apply_staging; cancel — отдельная status-операция |
 | cas_conflict | integrate_staging | exact ref/reflog расследованы; повтор CAS только пока target на recorded base, уже применённый CAS не повторяется |
 | post_cas_mismatch | verify_target | read-back расследован; история не переписывается автоматически |
-| completion_predicate_unmet | deliver_staging | completion predicate выполнен: delivered commit на target, его tree = accepted staging tree, recorded target base — его предок; либо записано решение — если PR/entry не смержен и target сдвинулся, пересобрать staging (старый receipt void, PR/entry закрыт, recorded_target_base := новый target, PASS и acceptance void) и вернуться в apply_staging; смерженное непринятое дерево — только явное решение без переписывания истории; host ветку не двигает |
+| completion_predicate_unmet | park: deliver_staging; resume по записанному решению пользователя: apply_staging | completion predicate выполнен: delivered commit на target, его tree = accepted staging tree, recorded target base — его предок; либо записано решение — если PR/entry не смержен и target сдвинулся, пересобрать staging (старый receipt void, PR/entry закрыт, recorded_target_base := новый target, PASS и acceptance void) и вернуться в apply_staging; смерженное непринятое дерево — только явное решение без переписывания истории; host ветку не двигает |
 
 ## 8. Проверки
 
@@ -1609,6 +1612,7 @@ Resume contract:
 - embedded and companion-sidecar mapping proofs are deterministic, ordered and bound by `governance_mapping_set_digest`; unknown/stale/orphan/extra normative content fails closed;
 - mapping digest drift between freeze->review, review->record_code_verdict and review->commit_on_pass invalidates the candidate/verdict before side effects;
 - независимый review_cycles entry для каждого ArtifactKind;
+- cap графа считает раунды цикла одного артефакта: четыре артефакта по девять NOT_PASS не паркуют, одиннадцатый NOT_PASS одного цикла паркует review_cap, а решение, ход без пересечения границы, пересечение без записанного baseline и baseline впереди счёта демона нового цикла не открывают; resume из status park на шаге публикации считается пересечением и открывает цикл только на baseline проверенной публикации, PASS, опубликованный при дрейфе binding, цикл не закрывает, а граница у cap'а, чьи раунды не у Epic, отвергается;
 - atomic record_artifact_pass, включая malformed autosk-arena без частичной записи;
 - artifact/code `pass|waived` dispositions взаимоисключаемы; waiver branch требует signed current authority и создаёт ноль review children;
 - Arena state допускает только host path pending -> recommended -> record_alignment -> applied/fallback; recommended запрещён в normative block и не запускает draft/panel;

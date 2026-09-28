@@ -34,6 +34,7 @@ import {
   graphDigest,
   parkReasons,
   loadFiles,
+  normalizeGraph,
   parseStrict,
   producedAt,
   rewriteExampleInput,
@@ -121,7 +122,7 @@ test("graph_priority_ambiguous: two edges leave one step at one priority", () =>
 });
 
 test("graph_cap_transition_unknown: a cap counts an edge that does not exist", () => {
-  assertRefuses(mutated((document) => { document.caps[0].counted_transition = "never_declared"; }), "graph_cap_transition_unknown");
+  assertRefuses(mutated((document) => { document.caps[0].counted_transitions = ["never_declared"]; }), "graph_cap_transition_unknown");
 });
 
 test("graph_cap_transition_shared: a cap counts an edge its pair does not own alone", () => {
@@ -144,7 +145,7 @@ test("a shared pair is lawful while no cap counts it (and a cap alone on its pai
   // is about the CAP sharing a pair, not about the pair being shared: pointing
   // the cap at a transition unique to its own pair is accepted.
   const document = mutated((document) => {
-    document.caps[0].counted_transition = "freeze_to_pass";
+    document.caps[0].counted_transitions = ["freeze_to_pass"];
   });
   assert.deepEqual(validateGraph(document, schema), []);
 });
@@ -191,7 +192,7 @@ test("graph_cap_binding_ambiguous: one edge the binding reaches from two caps", 
   // sibling's guard would owe both caps' limits.
   assertRefuses(
     mutated((document) => {
-      document.caps.push({ cycle: "second_cycle", counted_transition: "freeze_to_pass", limit: 3, park_reason: "review_cap" });
+      document.caps.push({ cycle: "second_cycle", counted_transitions: ["freeze_to_pass"], limit: 3, park_reason: "review_cap" });
     }),
     "graph_cap_binding_ambiguous",
   );
@@ -383,9 +384,27 @@ test("the shipped cap predicates each declare the quantity they compare with cap
   // not move. The ticket's bar is the narrower one: each of the four carries
   // the quantity in its OWN `reads`, and its description compares that name
   // with `cap`.
+  // The set is read off the caps' edges — each counted edge's guards and the
+  // guards of each sibling carrying a cap's reason out of a counted edge's
+  // step — and pinned: eight since the full panel's round and the repair
+  // cycle are counted (R8-4, R8-5).
   const graph = document();
   const byId = new Map(graph.predicates.map((entry) => [entry.id, entry]));
-  for (const id of ["cond_135", "cond_136", "cond_332", "cond_333"]) {
+  const guardsById = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const capPredicates = new Set();
+  for (const cap of graph.caps) {
+    const counted = graph.transitions.filter((edge) => cap.counted_transitions.includes(edge.id));
+    for (const edge of counted) for (const id of edge.guards) capPredicates.add(guardsById.get(id).predicate);
+    for (const from of new Set(counted.map((edge) => edge.from))) {
+      for (const edge of graph.transitions.filter((candidate) => candidate.from === from && !cap.counted_transitions.includes(candidate.id))) {
+        if (edge.guards.some((id) => guardsById.get(id).park_reason === cap.park_reason)) {
+          for (const id of edge.guards) capPredicates.add(guardsById.get(id).predicate);
+        }
+      }
+    }
+  }
+  assert.deepEqual([...capPredicates].sort(), ["cond_110", "cond_135", "cond_136", "cond_308", "cond_309", "cond_332", "cond_333", "cond_460"]);
+  for (const id of capPredicates) {
     const entry = byId.get(id);
     assert.ok(entry.reads.includes("transition_takings"), `${id} reads: ${entry.reads.join(", ")}`);
     assert.match(
@@ -673,6 +692,7 @@ test("every path the rewrite treats as a set is one the canonicalizer sorts", ()
     },
     "transitions.*.guards": { transitions: [{ id: "t", guards: ["b", "a"] }] },
     "caps": { caps: [{ cycle: "b" }, { cycle: "a" }] },
+    "caps.*.counted_transitions": { caps: [{ cycle: "c", counted_transitions: ["b", "a"] }] },
     "recovery": {
       recovery: [{ reason: "b", parks_at: [] }, { reason: "a", parks_at: [] }],
     },
@@ -842,7 +862,7 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     (document) => { document.guards[0].predicate = "never_declared"; },
     (document) => { document.transitions[1].guards = ["never_declared"]; },
     (document) => { document.transitions[2].priority = 0; },
-    (document) => { document.caps[0].counted_transition = "never_declared"; },
+    (document) => { document.caps[0].counted_transitions = ["never_declared"]; },
     (document) => { document.transitions.push({ id: "done_to_intake", from: "done", to: "intake", priority: 0, guards: [] }); },
     (document) => { document.steps[0].no_transition_reason = "quick_classification_invalid"; document.steps.push({ name: "orphan", kind: "agent", hooks: ["onRun"], no_transition_reason: "quick_classification_invalid" }); },
     (document) => { document.recovery[0].resume_targets = ["done"]; },
@@ -882,6 +902,12 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     // And a cap row's decision targets that are not the targets running
     // another round (review of 11e, M1), for the same reason.
     (document) => { document.recovery.find((row) => row.reason === "review_cap").decision_targets = ["freeze_artifact", "record_artifact_pass"]; },
+    // And a row whose required state says Section 2 parks it elsewhere than
+    // its parks_at (R8-11), for the same reason.
+    (document) => {
+      const row = document.recovery.find((entry) => entry.reason === "review_cap");
+      row.required_state = `Section 2 parks with this reason at record_artifact_pass: ${row.required_state}`;
+    },
     // And the cap predicate's undeclared quantity, for the same reason.
     (document) => {
       document.predicates.push({ id: "rounds_left", reads: ["authority_record_id"], description: "round < cap" });
@@ -1102,43 +1128,237 @@ test("every cap counts the transition that spends a round, not merely one that e
     assert.ok(Number.isInteger(cap.limit) && cap.limit >= 1, `${cap.cycle} carries a limit`);
     assert.ok(vocabulary.has(cap.park_reason), `${cap.cycle} parks with a workflow reason`);
 
-    const counted = transitions.get(cap.counted_transition);
-    assert.ok(counted, `${cap.cycle} counts a transition that exists`);
-    // Endpoints alone let a cap latch onto a repair edge that happens to share
-    // them, which is what it did: the counter then never moved on a real round
-    // and moved on something else. The condition is what makes it the round.
-    const says = counted.guards.map((id) => predicates.get(guards.get(id).predicate) ?? "");
-    assert.ok(
-      says.some((description) => /transition_takings\s*<\s*cap/u.test(description)),
-      `${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), whose conditions are:\n${says.join("\n")}`,
-    );
+    assert.ok(cap.counted_transitions.length > 0, `${cap.cycle} counts at least one transition`);
+    for (const id of cap.counted_transitions) {
+      const counted = transitions.get(id);
+      assert.ok(counted, `${cap.cycle} counts a transition that exists`);
+      // Endpoints alone let a cap latch onto a repair edge that happens to share
+      // them, which is what it did: the counter then never moved on a real round
+      // and moved on something else. The condition is what makes it the round.
+      const says = counted.guards.map((guard) => predicates.get(guards.get(guard).predicate) ?? "");
+      assert.ok(
+        says.some((description) => /transition_takings\s*<\s*cap/u.test(description)),
+        `${cap.cycle} counts ${counted.id} (${counted.from} -> ${counted.to}), whose conditions are:\n${says.join("\n")}`,
+      );
+    }
   }
+});
+
+test("every edge into a fixer from a verdict or a check is a round some cap counts (R8-4, R8-5)", () => {
+  // Round 8 of #39: the review cap counted the narrow NOT_PASS and the code
+  // verdict's, while a full panel's NOT_PASS (t_205) and the repair after the
+  // checks (t_416) entered their fixers uncounted, so neither loop ever
+  // reached a cap. A round is a taking of an edge into `fix_artifact` or
+  // `fix` from another step — the self-loops are one round's own recovery
+  // phases — and every such edge is one a cap counts, the artifact's narrow
+  // and full rounds under one cap with one limit.
+  const graph = document();
+  const counted = new Map(graph.caps.flatMap((cap) => cap.counted_transitions.map((id) => [id, cap.cycle])));
+  const rounds = graph.transitions.filter((edge) => ["fix_artifact", "fix"].includes(edge.to) && edge.from !== edge.to);
+  assert.deepEqual(rounds.map((edge) => `${edge.id} ${edge.from} -> ${edge.to}`).sort(), [
+    "t_205 synthesize_panel -> fix_artifact",
+    "t_231 narrow_review_join -> fix_artifact",
+    "t_416 verify -> fix",
+    "t_443 record_code_verdict -> fix",
+  ]);
+  assert.deepEqual(rounds.filter((edge) => !counted.has(edge.id)).map((edge) => edge.id), []);
+  assert.equal(counted.get("t_205"), counted.get("t_231"), "an artifact's narrow and full rounds share one cap");
+  assert.deepEqual(Object.fromEntries(graph.caps.map((cap) => [cap.cycle, [cap.park_reason, cap.limit]])), {
+    artifact_review_round: ["review_cap", 10],
+    code_review_round: ["review_cap", 10],
+    verification_repair_round: ["verification_cap", 10],
+  });
+});
+
+test("a cap counting several transitions holds each one to the rules one counted transition is held to (R8-4)", () => {
+  // The working example's cap counts `freeze_retry` and `pass_to_freeze`
+  // (review of 12c, L1); a third counted
+  // transition, `record_alignment -> record_artifact_pass`, is lawful once it
+  // declares guards, is alone on its pair and has a sibling carrying the
+  // cap's reason out of its own step — and each of those is refused when it
+  // is missing. The sibling here leads to `done`, which parks nothing, so the
+  // only thing that parks the cap's reason at `record_alignment` is the cap's
+  // own count: the row must list the step for the second counted transition
+  // as it does for the first.
+  const second = (document, { guards = ["second_round_guard"], sibling = true, pairTwin = false, id = "record_to_pass_round" } = {}) => {
+    document.predicates.push(
+      { id: "second_round_open", reads: ["transition_takings"], description: "transition_takings < cap — record_artifact_pass" },
+      { id: "second_round_spent", reads: ["transition_takings"], description: "transition_takings >= cap — done" },
+    );
+    document.guards.push(
+      { id: "second_round_guard", predicate: "second_round_open", authority: { actor: "agent" }, park_reason: "artifact_freeze_invalid" },
+      { id: "second_round_cap", predicate: "second_round_spent", authority: { actor: "agent" }, park_reason: "review_cap" },
+    );
+    document.transitions.push({ id: "record_to_pass_round", from: "record_alignment", to: "record_artifact_pass", priority: 90, guards });
+    if (sibling) document.transitions.push({ id: "record_to_done_at_cap", from: "record_alignment", to: "done", priority: 91, guards: ["second_round_cap"] });
+    if (pairTwin) document.transitions.push({ id: "record_to_pass_twin", from: "record_alignment", to: "record_artifact_pass", priority: 92, guards: [] });
+    document.caps[0].counted_transitions = [...document.caps[0].counted_transitions, id];
+    const row = document.recovery.find((entry) => entry.reason === "review_cap");
+    row.parks_at = [...row.parks_at, "record_alignment"];
+  };
+  const lawful = mutated((document) => second(document));
+  assert.deepEqual(validateGraph(lawful, schema), []);
+  assert.deepEqual([...producedAt(lawful).get("review_cap")].sort(), ["freeze_artifact", "record_alignment", "record_artifact_pass"]);
+  const codes = (document) => validateGraph(document, schema).map((message) => message.split(":")[0]);
+  assert.ok(codes(mutated((document) => second(document, { id: "never_declared" }))).includes("graph_cap_transition_unknown"));
+  assert.ok(codes(mutated((document) => second(document, { pairTwin: true }))).includes("graph_cap_transition_shared"));
+  assert.ok(codes(mutated((document) => second(document, { guards: [] }))).includes("graph_cap_binding_incomplete"));
+  assert.ok(codes(mutated((document) => second(document, { sibling: false }))).includes("graph_cap_binding_incomplete"));
+  // Its predicates are the cap's: a quantity no reads declares is refused on
+  // them, on the counted edge's guard and on its sibling's alike.
+  for (const id of ["second_round_open", "second_round_spent"]) {
+    const undeclared = mutated((document) => {
+      second(document);
+      document.predicates.find((entry) => entry.id === id).description = "undeclared_rounds < cap — record_artifact_pass";
+    });
+    assert.ok(codes(undeclared).includes("graph_cap_quantity_undeclared"), id);
+  }
+  // The cap parks at the second counted edge's step too, so its row must say so.
+  const unlisted = mutated((document) => {
+    second(document);
+    const row = document.recovery.find((entry) => entry.reason === "review_cap");
+    row.parks_at = row.parks_at.filter((name) => name !== "record_alignment");
+  });
+  assert.ok(codes(unlisted).includes("graph_recovery_parks_at_incomplete"));
+  // A counted list is a closed set: empty, repeated or the retired singular field is a shape refusal.
+  for (const rewrite of [
+    (cap) => { cap.counted_transitions = []; },
+    (cap) => { cap.counted_transitions = ["freeze_retry", "freeze_retry"]; },
+    (cap) => { cap.counted_transition = cap.counted_transitions[0]; delete cap.counted_transitions; },
+  ]) {
+    assert.ok(codes(mutated((document) => rewrite(document.caps[0]))).includes("graph_schema"));
+  }
+});
+
+test("a cap's cycle boundary is a declared, guarded pair the cap does not count, and the shipped one is crossed only on a PASS published (review of 12c, M1)", () => {
+  // Review of 12c, M1: the artifact's cap counts per review cycle, and a
+  // cycle closes when the daemon counts a taking of the cap's
+  // `cycle_boundary` pair. A pair no edge joins would never be crossed; a
+  // pair the cap counts would both spend a round and close its cycle; an
+  // unguarded edge on the pair would close a cycle on nothing.
+  const lawful = example();
+  assert.deepEqual(lawful.caps[0].cycle_boundary, { from: "record_artifact_pass", to: "done" });
+  assert.deepEqual(validateGraph(lawful, schema), []);
+  const codes = (document) => validateGraph(document, schema).map((message) => message.split(":")[0]);
+  for (const [label, mutate, code] of [
+    ["a pair no edge joins", (document) => { document.caps[0].cycle_boundary = { from: "intake", to: "done" }; }, "graph_cap_transition_unknown"],
+    ["a pair the cap counts", (document) => { document.caps[0].cycle_boundary = { from: "freeze_artifact", to: "freeze_artifact" }; }, "graph_cap_binding_ambiguous"],
+    ["an unguarded edge on the pair", (document) => {
+      document.transitions.push({ id: "pass_to_done_unguarded", from: "record_artifact_pass", to: "done", priority: 9, guards: [] });
+    }, "graph_cap_binding_incomplete"],
+    ["a boundary with no target step", (document) => { delete document.caps[0].cycle_boundary.to; }, "graph_schema"],
+    ["a boundary with a field the schema does not know", (document) => { document.caps[0].cycle_boundary.cycle = "artifact_review_cycle"; }, "graph_schema"],
+  ]) {
+    assert.ok(codes(mutated(mutate)).includes(code), `${label}: expected ${code}, got ${codes(mutated(mutate)).join(", ") || "(no findings)"}`);
+  }
+  // The shipped document: the artifact's cap alone declares one — the code
+  // review and the repair cycle count per task — and its pair is the
+  // verified publication of the artifact's PASS.
+  const graph = shippedGraph();
+  assert.deepEqual(
+    graph.caps.filter((cap) => cap.cycle_boundary !== undefined).map((cap) => [cap.cycle, cap.cycle_boundary]),
+    [["artifact_review_round", { from: "publish_artifact_pass", to: "select_next" }]],
+  );
+  const predicateOf = (id) => graph.predicates.find((entry) => entry.id === graph.guards.find((guard) => guard.id === id).predicate);
+  const crossing = graph.transitions.filter((edge) => edge.from === "publish_artifact_pass" && edge.to === "select_next");
+  assert.deepEqual(crossing.map((edge) => edge.id), ["t_247", "t_264"]);
+  for (const edge of crossing) {
+    for (const id of edge.guards) assert.match(predicateOf(id).description, /phase=verified/u, edge.id);
+  }
+  // And every edge into the publication from another step carries an
+  // artifact PASS or a signed waiver recorded, so the factory takes the
+  // boundary only on one. A resume enters it too — from
+  // publish_planning_invalidation — and a resume out of a status park there
+  // is counted as a crossing, which the factory's tests hold (narrow
+  // re-review of 12c, Low 1).
+  const into = graph.transitions.filter((edge) => edge.to === "publish_artifact_pass" && edge.from !== "publish_artifact_pass");
+  assert.deepEqual(into.map((edge) => `${edge.id} ${edge.from}`).sort(), [
+    "t_110 select_next",
+    "t_234 record_artifact_pass",
+    "t_242 record_artifact_pass",
+    "t_244 record_artifact_pass",
+  ]);
+  for (const edge of into) {
+    for (const id of edge.guards) assert.match(predicateOf(id).description, /PASS|disposition=pass|waive/u, edge.id);
+  }
+});
+
+test("graph_cap_boundary_outside_epic: only a cap whose rounds are an Epic's may declare a cycle boundary (narrow re-review of 12c, Low 3)", () => {
+  // Narrow re-review of 12c, Low 3: nothing refused a cycle_boundary on the
+  // code review's cap or the repair cycle's; two tests alone held that they
+  // declare none. A Quick task or a Ticket reviews one candidate, so a
+  // boundary on those caps would restart one candidate's count — a limit
+  // raised with no decision — while an Epic reviews several artifacts in one
+  // task and its review cap counts per artifact. The rule reads the
+  // vocabulary's `epic_step` class: every counted transition and the boundary
+  // leave an Epic step.
+  const outside = (document) => validateGraph(document, schema).filter((message) => message.startsWith("graph_cap_boundary_outside_epic:"));
+  assert.deepEqual(outside(shippedGraph()), []);
+  assert.deepEqual(outside(example()), [], "the working example's cap counts and closes at Epic steps");
+  const cap = (document, cycle) => document.caps.find((entry) => entry.cycle === cycle);
+  for (const [cycle, steps] of [["code_review_round", /record_code_verdict/u], ["verification_repair_round", /verify/u]]) {
+    const errors = outside(shippedGraph((document) => { cap(document, cycle).cycle_boundary = { from: "fix", to: "verify" }; }));
+    assert.equal(errors.length, 1, `${cycle}:\n${errors.join("\n") || "(no findings)"}`);
+    assert.match(errors[0], new RegExp(`cap ${cycle} `, "u"));
+    assert.match(errors[0], steps);
+  }
+  // The Epic's own cap closing its cycle outside the Epic is refused too.
+  const leaving = outside(shippedGraph((document) => { cap(document, "artifact_review_round").cycle_boundary = { from: "fix", to: "verify" }; }));
+  assert.equal(leaving.length, 1, leaving.join("\n") || "(no findings)");
+  assert.match(leaving[0], /\bfix\b/u);
+});
+
+test("the reference's document input carries a counted list out of its canonical order, so a canonicalizer that does not sort it cannot reproduce the reference (review of 12c, L1)", () => {
+  // Review of 12c, L1: the example's cap counted one transition and the
+  // shipped list is already sorted, so a canonicalizer that kept
+  // `counted_transitions` in its written order reproduced every recorded
+  // digest. The example's cap counts two, written in canonical order; the
+  // reference's input is the example rewritten with its sets reversed, so it
+  // carries them out of that order.
+  const reference = parseStrict(files[REFERENCE_PATH]);
+  const input = parseStrict(Buffer.from(reference.document.input_utf8_base64, "base64").toString("utf8"));
+  const lists = input.caps.map((cap) => cap.counted_transitions).filter((list) => list.length > 1);
+  assert.ok(lists.some((list) => list.join() !== [...list].sort().join()), `a counted list out of canonical order: ${JSON.stringify(lists)}`);
+  assert.equal(canonicalBytes(input).toString("base64"), reference.document.canonical_utf8_base64);
+  const { canonical_digest, ...body } = input;
+  const unsorted = normalizeGraph(body);
+  unsorted.caps = unsorted.caps.map((cap) => ({
+    ...cap,
+    counted_transitions: input.caps.find((entry) => entry.cycle === cap.cycle).counted_transitions,
+  }));
+  assert.notEqual(
+    Buffer.from(canonicalText(unsorted), "utf8").toString("base64"),
+    reference.document.canonical_utf8_base64,
+    "a canonicalizer that keeps the written order of counted_transitions does not reproduce the reference",
+  );
 });
 
 test("the quantity rule binds the cap's predicates only, not every description naming a word outside its reads", () => {
   // The negative half, and the measurement that chose it. A predicate's
   // `reads` declares the state it inspects, not every word its sentence may
   // use: most descriptions name a word of the vocabulary their own list does
-  // not carry — 321 of the shipped document's 432, counted at identifier
+  // not carry — 322 of the shipped document's 433, counted at identifier
   // boundaries, which is the tokenization this measurement is stated in. A
   // rule keyed on per-predicate disagreement would redden that lawful
   // majority and could never go green. What is refused is the narrower shape:
   // a cap predicate comparing `cap` with a quantity ABSENT FROM THE WHOLE
   // VOCABULARY — which is what `round` was until it was named. The shipped
-  // document passes the check while carrying all 321 (320 until debt 10b
+  // document passes the check while carrying all 322 (320 until debt 10b
   // added the foreign-movement and delivery re-stage resumes, whose
   // `park.reason=` names a word outside their reads the way target_moved's
   // resume already did; 323 since debt 11a parked a missing ref-custody
   // capability at apply_staging, whose description says the staging `ref`
   // and the `target` ref are untouched, as the other apply_staging rows do;
   // 321 since debt 11e removed target_moved's park and resume, cond_445 and
-  // cond_448, both of this population).
+  // cond_448, both of this population; 322 since debt 12c added cond_460,
+  // the full panel's stop at the review cap, whose `park.reason=` names a word
+  // outside its reads as its narrow sibling cond_135's does).
   const graph = document();
   const vocabulary = new Set(graph.predicates.flatMap((entry) => entry.reads));
   const atBoundary = (word) => new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`, "u");
   const broad = graph.predicates.filter((entry) =>
     [...vocabulary].some((word) => !entry.reads.includes(word) && atBoundary(word).test(entry.description)));
-  assert.equal(broad.length, 321, "the broad-rule population moved — remeasure before blaming the check");
+  assert.equal(broad.length, 322, "the broad-rule population moved — remeasure before blaming the check");
   assert.deepEqual(
     validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
     [],
@@ -1833,8 +2053,10 @@ test("the shipped document lists every step the graph parks a reason at", () => 
   }
   for (const step of graph.steps) if (step.no_transition_reason) add(step.no_transition_reason, step.name);
   for (const cap of graph.caps) {
-    const counted = graph.transitions.find((edge) => edge.id === cap.counted_transition);
-    if (counted) add(cap.park_reason, counted.from);
+    for (const id of cap.counted_transitions) {
+      const counted = graph.transitions.find((edge) => edge.id === id);
+      if (counted) add(cap.park_reason, counted.from);
+    }
   }
   const missing = [];
   for (const row of graph.recovery) {
@@ -1843,6 +2065,66 @@ test("the shipped document lists every step the graph parks a reason at", () => 
     }
   }
   assert.deepEqual(missing, []);
+});
+
+test("graph_recovery_required_state_drift: a row's required state that says where Section 2 parks it names exactly its parks_at (R8-11)", () => {
+  // Round 8 of #39, R8-11: the rows' required_state opened with where
+  // Section 2 parks the reason, and 35 of the 86 rows that say so named other
+  // steps than their own parks_at — panel_waiver_required left out
+  // record_artifact_pass, verification_cap said it parks at fix, where it is
+  // handled, and review_cap named its two fixers. The clause is regenerated
+  // from parks_at, and the validator holds it there in both directions.
+  const drift = (document) => validateGraph(document, schema).filter((message) => message.startsWith("graph_recovery_required_state_drift:"));
+  const shipped = shippedGraph();
+  assert.deepEqual(drift(shipped), []);
+  const clause = /^Section 2 parks with this reason at ([^:]+):/u;
+  const saying = shipped.recovery.filter((entry) => clause.test(entry.required_state));
+  assert.equal(saying.length, 86, "the rows that say where Section 2 parks them");
+  // Review of 12c, L5: a status step a row lists only because a parked task
+  // stands there — the exemption parks_at already reads — is not a step
+  // Section 2 parks the reason at, so the clause leaves it out:
+  // blocked_anchor at done, and the external reviewer's two reasons at human.
+  const produced = producedAt(shipped);
+  const statuses = new Set(shipped.steps.filter((step) => step.kind === "status").map((step) => step.name));
+  const standing = (entry) => entry.parks_at.filter((name) => statuses.has(name) && !produced.get(entry.reason)?.has(name));
+  assert.deepEqual(
+    Object.fromEntries(saying.filter((entry) => standing(entry).length > 0).map((entry) => [entry.reason, standing(entry)])),
+    { blocked_anchor: ["done"], no_external_panel_lead: ["human"], no_external_reviewer: ["human"] },
+  );
+  for (const entry of saying) {
+    const parked = entry.parks_at.filter((name) => !standing(entry).includes(name));
+    assert.deepEqual(clause.exec(entry.required_state)[1].split(", ").sort(), [...parked].sort(), entry.reason);
+  }
+  const row = (document, reason) => document.recovery.find((entry) => entry.reason === reason);
+  const restate = (reason, steps) => (document) => {
+    const entry = row(document, reason);
+    entry.required_state = entry.required_state.replace(clause, `Section 2 parks with this reason at ${steps}:`);
+  };
+  for (const [label, mutate] of [
+    ["panel_waiver_required without record_artifact_pass, as it was written", restate("panel_waiver_required", "dispatch_panel, freeze_artifact, panel_join")],
+    ["verification_cap at fix, where it is handled, as it was written", restate("verification_cap", "fix")],
+    ["review_cap at its fixers, as it was written", restate("review_cap", "fix, fix_artifact")],
+    ["a step it does not park at, added", restate("verification_cap", "fix, verify")],
+    ["a step named twice in place of another", restate("review_cap", "narrow_review_join, narrow_review_join, record_code_verdict")],
+    ["a clause the validator cannot read", (document) => {
+      const entry = row(document, "verification_cap");
+      entry.required_state = entry.required_state.replace(clause, "Section 2 parks with this reason at verify;");
+    }],
+    ["a status step the row lists only because a task stands there, named as a park", (document) => {
+      const entry = row(document, "no_external_reviewer");
+      entry.required_state = entry.required_state.replace(clause, `Section 2 parks with this reason at ${entry.parks_at.join(", ")}:`);
+    }],
+  ]) {
+    assert.ok(drift(shippedGraph(mutate)).length > 0, label);
+  }
+  // The order is free, as it is in parks_at, a set.
+  assert.deepEqual(drift(shippedGraph(restate("review_cap", "synthesize_panel, record_code_verdict, narrow_review_join"))), []);
+  // A row that does not say where Section 2 parks it is not asked: the
+  // daemon-recorded rows say where the daemon records the reason, which is
+  // another statement.
+  assert.deepEqual(drift(shippedGraph((document) => {
+    row(document, "anchor_handoff_incomplete").required_state = "Recorded by daemon at rebuild_anchor; a resume requires the identity the park recorded to still be current.";
+  })), []);
 });
 
 test("graph_recovery_parks_at_incomplete: a cap counts an edge whose reason its row does not list there", () => {
@@ -1856,7 +2138,7 @@ test("graph_recovery_parks_at_incomplete: a cap counts an edge whose reason its 
     mutated((graph) => {
       graph.caps.push({
         cycle: "isolated_cap",
-        counted_transition: "freeze_retry",
+        counted_transitions: ["freeze_retry"],
         limit: 3,
         park_reason: "alignment_record_stale",
       });
@@ -2113,7 +2395,7 @@ test("every row whose required state says a resume waits on a recorded decision 
     assert.doesNotMatch(phrase, says, phrase);
   }
   const rows = graph.recovery.filter((entry) => says.test(entry.required_state)).map((entry) => entry.reason).sort();
-  assert.deepEqual(rows, ["completion_predicate_unmet", "foreign_target_movement", "review_cap"]);
+  assert.deepEqual(rows, ["completion_predicate_unmet", "foreign_target_movement", "review_cap", "verification_cap"]);
   for (const reason of rows) {
     assert.ok((graph.recovery.find((entry) => entry.reason === reason).decision_targets ?? []).length > 0, reason);
   }

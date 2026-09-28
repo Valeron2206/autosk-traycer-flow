@@ -881,9 +881,10 @@
       "reads": [
         "audit_retained",
         "candidate_keepalive",
-        "phase"
+        "phase",
+        "transition_takings"
       ],
-      "description": "подтверждены findings and candidate_keepalive phase=audit_retained — fix_artifact"
+      "description": "подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings < cap — fix_artifact"
     },
     {
       "id": "cond_111",
@@ -2328,16 +2329,18 @@
     {
       "id": "cond_308",
       "reads": [
-        "task_record"
+        "task_record",
+        "transition_takings"
       ],
-      "description": "проверки нашли candidate defect и repair cycle ниже cap — сохранить verification findings, fix"
+      "description": "проверки нашли candidate defect и transition_takings < cap — сохранить verification findings, fix"
     },
     {
       "id": "cond_309",
       "reads": [
-        "task_record"
+        "task_record",
+        "transition_takings"
       ],
-      "description": "проверки нашли candidate defect и repair cycle достиг cap — human с park.reason=verification_cap"
+      "description": "проверки нашли candidate defect и transition_takings >= cap — human с park.reason=verification_cap"
     },
     {
       "id": "cond_310",
@@ -3503,6 +3506,16 @@
         "status"
       ],
       "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no ref-custody helper answers the staging action — human с park.reason=planning_ref_capability_missing; staging ref не двигается, host не пишет его сам; target ref не читается и не меняется"
+    },
+    {
+      "id": "cond_460",
+      "reads": [
+        "audit_retained",
+        "candidate_keepalive",
+        "phase",
+        "transition_takings"
+      ],
+      "description": "подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings >= cap — human с park.reason=review_cap"
     }
   ],
   "steps": [
@@ -8476,6 +8489,14 @@
         "actor": "agent"
       },
       "park_reason": "planning_ref_capability_missing"
+    },
+    {
+      "id": "guard_585",
+      "predicate": "cond_460",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "review_cap"
     }
   ],
   "transitions": [
@@ -10481,7 +10502,7 @@
       "id": "t_205",
       "from": "synthesize_panel",
       "to": "fix_artifact",
-      "priority": 13,
+      "priority": 14,
       "guards": [
         "guard_212"
       ]
@@ -10490,7 +10511,7 @@
       "id": "t_206",
       "from": "synthesize_panel",
       "to": "record_artifact_pass",
-      "priority": 14,
+      "priority": 15,
       "guards": [
         "guard_213"
       ]
@@ -13563,20 +13584,46 @@
       "guards": [
         "guard_584"
       ]
+    },
+    {
+      "id": "t_581",
+      "from": "synthesize_panel",
+      "to": "human",
+      "priority": 13,
+      "guards": [
+        "guard_585"
+      ]
     }
   ],
   "caps": [
     {
       "cycle": "artifact_review_round",
-      "counted_transition": "t_231",
+      "counted_transitions": [
+        "t_205",
+        "t_231"
+      ],
+      "cycle_boundary": {
+        "from": "publish_artifact_pass",
+        "to": "select_next"
+      },
       "limit": 10,
       "park_reason": "review_cap"
     },
     {
       "cycle": "code_review_round",
-      "counted_transition": "t_443",
+      "counted_transitions": [
+        "t_443"
+      ],
       "limit": 10,
       "park_reason": "review_cap"
+    },
+    {
+      "cycle": "verification_repair_round",
+      "counted_transitions": [
+        "t_416"
+      ],
+      "limit": 10,
+      "park_reason": "verification_cap"
     }
   ],
   "recovery": [
@@ -13629,7 +13676,7 @@
         "present_tickets_breakdown",
         "record_aggregate_remediation"
       ],
-      "required_state": "Section 2 parks with this reason at record_aggregate_remediation: human с park.reason=aggregate_remediation_required; op/task side effects отсутствуют"
+      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, record_aggregate_remediation: human с park.reason=aggregate_remediation_required; op/task side effects отсутствуют"
     },
     {
       "reason": "aggregate_verify_failed",
@@ -13684,7 +13731,7 @@
         "record_alignment",
         "validate_tickets_manifest"
       ],
-      "required_state": "Section 2 parks with this reason at clarify_alignment, present_tickets_breakdown: atomically status=stale, human с park.reason=alignment_record_stale"
+      "required_state": "Section 2 parks with this reason at dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass: atomically status=stale, human с park.reason=alignment_record_stale"
     },
     {
       "reason": "anchor_handoff_incomplete",
@@ -13708,7 +13755,7 @@
         "prepare_anchor_impact",
         "rebuild_anchor"
       ],
-      "required_state": "Section 2 parks with this reason at record_anchor_impact_approval: deterministic classify all planning PASS/current kind/Ticket bindings+statuses, применить cascade, записать immutable proposal/status snapshot/rule hashes и status=proposed; await_anchor_impact_approval, human с park.reason=anchor_impact_approval_required"
+      "required_state": "Section 2 parks with this reason at prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval: deterministic classify all planning PASS/current kind/Ticket bindings+statuses, применить cascade, записать immutable proposal/status snapshot/rule hashes и status=proposed; await_anchor_impact_approval, human с park.reason=anchor_impact_approval_required"
     },
     {
       "reason": "anchor_impact_invalid",
@@ -13720,7 +13767,7 @@
         "await_anchor_impact_approval",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at prepare_anchor_impact: human с park.reason=anchor_impact_invalid; rebuild side effects отсутствуют"
+      "required_state": "Section 2 parks with this reason at prepare_anchor_impact, rebuild_anchor: human с park.reason=anchor_impact_invalid; rebuild side effects отсутствуют"
     },
     {
       "reason": "anchor_repair_ticket_live",
@@ -13793,7 +13840,7 @@
         "human",
         "verify_candidate"
       ],
-      "required_state": "Section 2 parks with this reason at build_candidate, freeze_candidate, verify_candidate: human с park.reason=arena_candidate_freeze_invalid"
+      "required_state": "Section 2 parks with this reason at freeze_candidate: human с park.reason=arena_candidate_freeze_invalid"
     },
     {
       "reason": "arena_candidate_verify_failed",
@@ -13810,7 +13857,7 @@
         "human",
         "verify_candidate"
       ],
-      "required_state": "Section 2 parks with this reason at build_candidate, freeze_candidate, verify_candidate: human с park.reason=arena_candidate_verify_failed"
+      "required_state": "Section 2 parks with this reason at verify_candidate: human с park.reason=arena_candidate_verify_failed"
     },
     {
       "reason": "arena_contract_invalid",
@@ -13826,7 +13873,7 @@
         "human",
         "present_tickets_breakdown"
       ],
-      "required_state": "Section 2 parks with this reason at fix_artifact: human с park.reason=arena_contract_invalid; ничего не записано"
+      "required_state": "Section 2 parks with this reason at fix_artifact, record_artifact_pass: human с park.reason=arena_contract_invalid; ничего не записано"
     },
     {
       "reason": "arena_fallback_required",
@@ -13837,7 +13884,7 @@
       "resume_targets": [
         "clarify_alignment"
       ],
-      "required_state": "Section 2 parks with this reason at apply_arena_decision: human с park.reason=arena_fallback_required"
+      "required_state": "Section 2 parks with this reason at apply_arena_decision, arena_join: human с park.reason=arena_fallback_required"
     },
     {
       "reason": "arena_join_invalid",
@@ -13850,7 +13897,7 @@
       "resume_targets": [
         "arena_join"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_arena: human с park.reason=arena_join_invalid"
+      "required_state": "Section 2 parks with this reason at arena_join: human с park.reason=arena_join_invalid"
     },
     {
       "reason": "arena_reexpression_missing",
@@ -13988,7 +14035,7 @@
         "record_alignment",
         "validate_tickets_manifest"
       ],
-      "required_state": "Section 2 parks with this reason at clarify_alignment, invalidate_quick_classification, present_tickets_breakdown: human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths do not match this guard. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction"
+      "required_state": "Section 2 parks with this reason at freeze, freeze_artifact: human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths do not match this guard. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction"
     },
     {
       "reason": "artifact_pass_invalid",
@@ -14008,7 +14055,7 @@
         "present_tickets_breakdown",
         "record_artifact_pass"
       ],
-      "required_state": "Section 2 parks with this reason at freeze_artifact: human с park.reason=artifact_pass_invalid; ничего не записано"
+      "required_state": "Section 2 parks with this reason at record_artifact_pass: human с park.reason=artifact_pass_invalid; ничего не записано"
     },
     {
       "reason": "authority_journal_truncated",
@@ -14065,7 +14112,7 @@
         "synthesize_panel",
         "verify"
       ],
-      "required_state": "Section 2 parks with this reason at arena_join, contest_join, done, narrow_review_join, panel_join, prepare_anchor_impact, rebuild_code_anchor, review_join: atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor"
+      "required_state": "Section 2 parks with this reason at accept, accept_staging, aggregate_verify, apply_staging, arena_join, commit_on_pass, contest_join, dispatch_ticket_dag, freeze, integrate, integrate_staging, narrow_review_join, panel_join, record_artifact_pass, record_code_verdict, record_editorial_exemption, review_join, ticket_join: atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor"
     },
     {
       "reason": "brief_alignment_required",
@@ -14092,7 +14139,7 @@
         "rebuild_code_anchor",
         "verify"
       ],
-      "required_state": "Section 2 parks with this reason at fix: human с park.reason=candidate_changed"
+      "required_state": "Section 2 parks with this reason at commit_on_pass, fix: human с park.reason=candidate_changed"
     },
     {
       "reason": "cas_conflict",
@@ -14158,7 +14205,7 @@
         "record_code_verdict",
         "record_editorial_exemption"
       ],
-      "required_state": "Section 2 parks with this reason at freeze: human с park.reason=code_verdict_invalid; ничего не записано"
+      "required_state": "Section 2 parks with this reason at freeze, record_code_verdict: human с park.reason=code_verdict_invalid; ничего не записано"
     },
     {
       "reason": "commit_cas_failed",
@@ -14209,7 +14256,7 @@
         "contest_join",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_contest: human с park.reason=contest_join_invalid; новый contest child не создаётся"
+      "required_state": "Section 2 parks with this reason at contest_join, dispatch_contest: human с park.reason=contest_join_invalid; новый contest child не создаётся"
     },
     {
       "reason": "core_flow_decision_required",
@@ -14480,7 +14527,7 @@
         "validate_judgment",
         "validate_verdict"
       ],
-      "required_state": "Section 2 parks with this reason at judge, review_artifact, review_candidate, review_disposition: human с park.reason=gate_result_invalid"
+      "required_state": "Section 2 parks with this reason at validate_disposition, validate_judgment, validate_verdict: human с park.reason=gate_result_invalid"
     },
     {
       "reason": "gate_result_missing",
@@ -14517,7 +14564,7 @@
         "validate_judgment",
         "validate_verdict"
       ],
-      "required_state": "Section 2 parks with this reason at judge, review_artifact, review_candidate, review_disposition: human с park.reason=gate_snapshot_mutated; valid parallel sibling custody receipt не считается mutation"
+      "required_state": "Section 2 parks with this reason at validate_disposition, validate_judgment, validate_verdict: human с park.reason=gate_snapshot_mutated; valid parallel sibling custody receipt не считается mutation"
     },
     {
       "reason": "implement_provider_unavailable",
@@ -14560,7 +14607,7 @@
         "rebuild_code_anchor",
         "verify"
       ],
-      "required_state": "Section 2 parks with this reason at implement, invalidate_quick_classification: human с park.reason=implementation_scope_invalid"
+      "required_state": "Section 2 parks with this reason at implement: human с park.reason=implementation_scope_invalid"
     },
     {
       "reason": "integration_authorization_required",
@@ -14615,7 +14662,7 @@
         "narrow_review_join",
         "review_join"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_narrow_review: human с park.reason=narrow_join_invalid"
+      "required_state": "Section 2 parks with this reason at dispatch_narrow_review, narrow_review_join: human с park.reason=narrow_join_invalid"
     },
     {
       "reason": "no_external_panel_lead",
@@ -14637,7 +14684,7 @@
         "present_tickets_breakdown",
         "record_artifact_pass"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_panel, freeze_artifact, human: human с park.reason=no_external_panel_lead"
+      "required_state": "Section 2 parks with this reason at dispatch_narrow_review, dispatch_panel: human с park.reason=no_external_panel_lead"
     },
     {
       "reason": "no_external_reviewer",
@@ -14659,7 +14706,7 @@
         "record_editorial_exemption",
         "review_join"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_review, freeze, human: human с park.reason=no_external_reviewer"
+      "required_state": "Section 2 parks with this reason at dispatch_narrow_review, dispatch_review: human с park.reason=no_external_reviewer"
     },
     {
       "reason": "panel_join_invalid",
@@ -14671,7 +14718,7 @@
         "human",
         "panel_join"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_panel: human с park.reason=panel_join_invalid"
+      "required_state": "Section 2 parks with this reason at dispatch_panel, panel_join: human с park.reason=panel_join_invalid"
     },
     {
       "reason": "panel_waiver_required",
@@ -14694,7 +14741,7 @@
         "record_artifact_pass",
         "synthesize_panel"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_panel, freeze_artifact, panel_join: human с park.reason=panel_waiver_required; panel child не создаётся"
+      "required_state": "Section 2 parks with this reason at dispatch_panel, freeze_artifact, panel_join, record_artifact_pass: human с park.reason=panel_waiver_required; panel child не создаётся"
     },
     {
       "reason": "planning_candidate_base_stale",
@@ -14715,7 +14762,7 @@
         "record_alignment",
         "validate_tickets_manifest"
       ],
-      "required_state": "Section 2 parks with this reason at draft_artifact, present_tickets_breakdown: human с park.reason=planning_candidate_base_stale; provider не вызывается, candidate/PASS отсутствуют"
+      "required_state": "Section 2 parks with this reason at draft_artifact, freeze_artifact: human с park.reason=planning_candidate_base_stale; provider не вызывается, candidate/PASS отсутствуют"
     },
     {
       "reason": "planning_candidate_keepalive_invalid",
@@ -14784,7 +14831,7 @@
         "select_next",
         "ticket_join"
       ],
-      "required_state": "Section 2 parks with this reason at rebuild_anchor, record_artifact_pass: human с park.reason=planning_publication_invalid; ref movement отсутствует"
+      "required_state": "Section 2 parks with this reason at publish_artifact_pass, publish_planning_invalidation: human с park.reason=planning_publication_invalid; ref movement отсутствует"
     },
     {
       "reason": "planning_ref_capability_missing",
@@ -14844,7 +14891,7 @@
         "synthesize_panel"
       ],
       "resume_scope": "origin",
-      "required_state": "Section 2 parks with this reason at cleanup, fix_artifact, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: human с park.reason=planning_ref_foreign_movement at the recorded helper-calling step; zero ref/reflog side effects; resume only into the helper-calling step the park recorded as its origin"
+      "required_state": "Section 2 parks with this reason at cleanup, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, synthesize_panel: human с park.reason=planning_ref_foreign_movement at the recorded helper-calling step; zero ref/reflog side effects; resume only into the helper-calling step the park recorded as its origin"
     },
     {
       "reason": "planning_ref_init_invalid",
@@ -14984,7 +15031,8 @@
       "reason": "review_cap",
       "parks_at": [
         "narrow_review_join",
-        "record_code_verdict"
+        "record_code_verdict",
+        "synthesize_panel"
       ],
       "handled_at": [
         "fix",
@@ -15003,7 +15051,7 @@
         "rebuild_code_anchor"
       ],
       "resume_scope": "origin_edges",
-      "required_state": "Section 2 parks with this reason at fix, fix_artifact: human с park.reason=review_cap; the count (durable takings) is never reset and the limit never raised, so a resume into a target that runs another round — fix_artifact, fix or rebuild_code_anchor, the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join resumes into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification — and neither stop is lent the other's steps"
+      "required_state": "Section 2 parks with this reason at narrow_review_join, record_code_verdict, synthesize_panel: human с park.reason=review_cap; the count (durable takings: an artifact's narrow and full-panel NOT_PASS as one count per cycle, which only the prior artifact's published PASS, publish_artifact_pass -> select_next, opens; the code verdict's per task) is never reset in its cycle and the limit never raised, so a resume into a target that runs another round — fix_artifact, fix or rebuild_code_anchor, the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join or synthesize_panel into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification — and neither stop is lent the other's steps"
     },
     {
       "reason": "review_join_invalid",
@@ -15020,7 +15068,7 @@
         "rebuild_code_anchor",
         "review_join"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_narrow_review, dispatch_review: human с park.reason=review_join_invalid"
+      "required_state": "Section 2 parks with this reason at dispatch_review, review_join: human с park.reason=review_join_invalid"
     },
     {
       "reason": "review_waiver_invalid",
@@ -15038,7 +15086,7 @@
         "record_code_verdict",
         "record_editorial_exemption"
       ],
-      "required_state": "Section 2 parks with this reason at freeze: human с park.reason=review_waiver_invalid; reviewer child не создаётся"
+      "required_state": "Section 2 parks with this reason at freeze, record_code_verdict: human с park.reason=review_waiver_invalid; reviewer child не создаётся"
     },
     {
       "reason": "staging_moved_after_pass",
@@ -15101,7 +15149,7 @@
         "human",
         "resume_repaired_tickets"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag: human с park.reason=ticket_join_invalid; live task не изменяется/не отменяется"
+      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, ticket_join: human с park.reason=ticket_join_invalid; live task не изменяется/не отменяется"
     },
     {
       "reason": "ticket_repair_op_invalid",
@@ -15125,7 +15173,7 @@
         "select_next",
         "ticket_join"
       ],
-      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, rebuild_anchor: human с park.reason=ticket_repair_op_invalid; side effects отсутствуют"
+      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, resume_repaired_tickets: human с park.reason=ticket_repair_op_invalid; side effects отсутствуют"
     },
     {
       "reason": "ticket_repair_state_invalid",
@@ -15152,7 +15200,7 @@
         "human",
         "validate_tickets_manifest"
       ],
-      "required_state": "Section 2 parks with this reason at record_alignment: await_alignment и human с park.reason=tickets_breakdown_alignment_required"
+      "required_state": "Section 2 parks with this reason at present_tickets_breakdown, record_alignment: await_alignment и human с park.reason=tickets_breakdown_alignment_required"
     },
     {
       "reason": "tickets_manifest_invalid",
@@ -15176,7 +15224,7 @@
         "record_alignment",
         "validate_tickets_manifest"
       ],
-      "required_state": "Section 2 parks with this reason at freeze, present_tickets_breakdown: human с park.reason=tickets_manifest_invalid либо tickets_manifest_stale; no graph/renderer exception and no candidate/Panel/task/blocker side effects"
+      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest: human с park.reason=tickets_manifest_invalid либо tickets_manifest_stale; no graph/renderer exception and no candidate/Panel/task/blocker side effects"
     },
     {
       "reason": "tickets_manifest_stale",
@@ -15193,7 +15241,7 @@
         "record_alignment",
         "validate_tickets_manifest"
       ],
-      "required_state": "Section 2 parks with this reason at present_tickets_breakdown: human с park.reason=tickets_manifest_stale либо tickets_manifest_invalid according to binding versus byte/semantic failure; panel/waiver/PASS and candidate keepalive creation absent"
+      "required_state": "Section 2 parks with this reason at dispatch_ticket_dag, freeze_artifact, present_tickets_breakdown, validate_tickets_manifest: human с park.reason=tickets_manifest_stale либо tickets_manifest_invalid according to binding versus byte/semantic failure; panel/waiver/PASS and candidate keepalive creation absent"
     },
     {
       "reason": "unsupported_integration_mode",
@@ -15215,12 +15263,18 @@
         "fix"
       ],
       "resume_targets": [
+        "fix",
         "human",
         "invalidate_quick_classification",
         "rebuild_code_anchor",
         "verify"
       ],
-      "required_state": "Section 2 parks with this reason at fix: human с park.reason=verification_cap"
+      "decision_targets": [
+        "fix",
+        "rebuild_code_anchor",
+        "verify"
+      ],
+      "required_state": "Section 2 parks with this reason at verify: human с park.reason=verification_cap; the verification findings stay recorded for fix, and the count (the durable takings of verify -> fix, the repairs after the checks, per task) is never reset and the limit never raised, so a resume into a target that runs another repair round — fix, which repairs and runs verify, verify, or rebuild_code_anchor, which runs verify again: the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none"
     },
     {
       "reason": "verification_environment_failed",
@@ -15499,7 +15553,7 @@
           "covers": [
             "tickets_breakdown_alignment_required"
           ],
-          "binds": "e57d606546d8b15b92dbbbd369610d037ca8c6e0563dc7e223a44ccb8f417d94",
+          "binds": "d2ac9174b85c5b05f02beb374b5d4b4eca562506309e8f0fffe6a47723a65ddf",
           "cells": [
             "tickets_breakdown_alignment_required",
             "present_tickets_breakdown, record_alignment",
@@ -15541,7 +15595,7 @@
           "covers": [
             "alignment_record_stale"
           ],
-          "binds": "19e73342a59b6c9ddb498f11240d75fa4561d78d9c0704aeaddc2c32f7c023d3",
+          "binds": "626abb18d628c11a229a8a02a4d0b6a46b2c3a56f92f8e67abd6a1869c3dd324",
           "cells": [
             "alignment_record_stale",
             "clarify_alignment для brief/core_flow/tech_plan; present_tickets_breakdown для tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
@@ -15564,7 +15618,7 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "21474e08cd55f7057aee0d387ed644bd8c0899cfc581719a9759f6dd0edc0a6e",
+          "binds": "f0d1353b0239fd0b6b239a7fe4f119bb429a05ba77441a44c4eb7587fe3e79ec",
           "cells": [
             "tickets_manifest_invalid",
             "present_tickets_breakdown before freeze and after publication; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -15585,7 +15639,7 @@
           "covers": [
             "tickets_manifest_stale"
           ],
-          "binds": "21142300a3669fb4adccea04256e043975708993fda6ba5963fec3d693fb136d",
+          "binds": "082f092672e35eb413182e4bd1654548be4dca9069a9979ec9963c5e22a0e5ea",
           "cells": [
             "tickets_manifest_stale",
             "recorded owning recovery step, then present_tickets_breakdown; also dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -15608,7 +15662,7 @@
           "covers": [
             "artifact_mapping_required"
           ],
-          "binds": "b4f60574f20ff013a0f6db60dd74ca4cc1020ff900aac9d23664ba0ff7ad936a",
+          "binds": "3e2d43aeb1428037428221641bb1999f87c04bb36d6cc342cbfbe7c170f08ddb",
           "cells": [
             "artifact_mapping_required",
             "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick; also freeze, freeze_artifact",
@@ -15641,7 +15695,7 @@
           "covers": [
             "panel_join_invalid"
           ],
-          "binds": "cecd565003cb2fa2e48c4a87f791a41519e0eb561519cfd49e5139b9d50c668f",
+          "binds": "8ca5fae50fd2266266528159716826dd82fa52d38e936906cc81c4722371156b",
           "cells": [
             "panel_join_invalid",
             "dispatch_panel, panel_join",
@@ -15673,7 +15727,7 @@
             "gate_result_missing",
             "gate_result_invalid"
           ],
-          "binds": "21c715c4846fabed99c421dd8bbe0a961a4441e83d403f8a157af8b768407b66",
+          "binds": "32996a451cb25878993d429c0799efad7241b51b43f4149e392f6a260a0a79e8",
           "cells": [
             "gate_result_missing / gate_result_invalid",
             "`<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict",
@@ -15684,7 +15738,7 @@
           "covers": [
             "gate_snapshot_mutated"
           ],
-          "binds": "db9d31be7cb1f6001f0a7b65a4225a2ed74499eb0839abf22a2cddf170c9c610",
+          "binds": "7e6e1543af98499cde238f805b81a1cd1b77256205f989fa3e907a5d6da6c64c",
           "cells": [
             "gate_snapshot_mutated",
             "`<gate_model_step>`; also validate_disposition, validate_judgment, validate_verdict",
@@ -15695,7 +15749,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "blocked_anchor, gate child",
             "`<gate_join_step>` после child done",
@@ -15731,7 +15785,7 @@
             "admits": [],
             "excludes": []
           },
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a"
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f"
         },
         {
           "covers": [
@@ -15739,7 +15793,7 @@
             "arena_candidate_verify_failed",
             "arena_candidate_freeze_invalid"
           ],
-          "binds": "57f5080a3c505198ae084f0de9c71a074f173434181cda7975689113c06f051b",
+          "binds": "d58742526d463c4b2ccf01d432b825088f178f7022b7a22cea3d1babe7414b28",
           "cells": [
             "arena_candidate_failed / arena_candidate_verify_failed / arena_candidate_freeze_invalid",
             "build_candidate, verify_candidate или freeze_candidate",
@@ -15817,7 +15871,7 @@
           "covers": [
             "planning_ref_foreign_movement"
           ],
-          "binds": "62c0bb2c1e9f0af6f4ad82dccfcd640affa182fffb58b10c97cf1f09c0720baa",
+          "binds": "d0265be7812fa8655c32b85c1ba917fa6234660ea8eb2b1580659347088c1f4a",
           "cells": [
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
@@ -15863,7 +15917,7 @@
           "covers": [
             "planning_candidate_base_stale"
           ],
-          "binds": "2fc6d2e2946f99f9fcf4daf278e711a58a6b659c0fd475b957e51efc6a48f505",
+          "binds": "c108e62422d3f4479c3674dfe952bd9e39c2e4496a9735174566d89e2d7540d9",
           "cells": [
             "planning_candidate_base_stale",
             "draft_artifact for brief/core_flow/tech_plan; present_tickets_breakdown for tickets; also freeze_artifact",
@@ -15885,7 +15939,7 @@
           "covers": [
             "planning_publication_invalid"
           ],
-          "binds": "077d760f57e7a9a04fefe96332136d11e308f85e580feaf2f94afd11e0f2826a",
+          "binds": "411297aa04c438e2da3f7eedfb1e9e09454340d39822503d82df14ec959adb0f",
           "cells": [
             "planning_publication_invalid",
             "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
@@ -15972,7 +16026,7 @@
           "covers": [
             "panel_waiver_required"
           ],
-          "binds": "f8b6bebd981abea3ffb97a35e18530b6ab9754058f492e1ffa5da24b208d21d9",
+          "binds": "9d49351a6a37032f042ed931cb37b0066fba0e9dbe8ce9a2a96e3cd35e66e790",
           "cells": [
             "panel_waiver_required",
             "freeze_artifact для full skip; dispatch_panel/panel_join для reduced roster; также record_artifact_pass",
@@ -15993,7 +16047,7 @@
           "covers": [
             "review_waiver_invalid"
           ],
-          "binds": "9db400852c321bff03db7bbee87d187a8270c6e72660f7e343225a558df0293a",
+          "binds": "07f21382dae603abb36ff0049656391421030dc52810190103631495dc2b96df",
           "cells": [
             "review_waiver_invalid",
             "freeze, record_code_verdict",
@@ -16004,7 +16058,7 @@
           "covers": [
             "contest_join_invalid"
           ],
-          "binds": "b9b853c1e19e37e118aa45c28b94a03467c61aa9af5f4cd21922d9bec39b2957",
+          "binds": "cd5582e05554c52361c28875b5f37ff2a770feff2c7d7ade1304519747cbb9a7",
           "cells": [
             "contest_join_invalid",
             "contest_join, dispatch_contest",
@@ -16023,7 +16077,7 @@
           "covers": [
             "narrow_join_invalid"
           ],
-          "binds": "1aceec11fa1107664d7f3edf1b9a8e9c5096e67914476418b75a0e6976908566",
+          "binds": "e9ce4cda90cc153b7284d39b4742e5f2ed5dbf80b70c40926f476a9589a03ffe",
           "cells": [
             "narrow_join_invalid",
             "dispatch_narrow_review, narrow_review_join",
@@ -16042,7 +16096,7 @@
           "covers": [
             "review_join_invalid"
           ],
-          "binds": "08718a5bef2e0b437877c4bf5d987684e5ea2b040d65d29cb8d74aed3dfe1305",
+          "binds": "928fd8b6bf396f118ebac3d5519c17163685699dd979139f96eab46aff7f15f5",
           "cells": [
             "review_join_invalid",
             "dispatch_review или dispatch_narrow_review; также review_join",
@@ -16062,7 +16116,7 @@
           "covers": [
             "code_verdict_invalid"
           ],
-          "binds": "0ed6e2a5f3b63e4db0f5081baf79682b5920b3386cfbd6b773a21071721ecc12",
+          "binds": "8fbab78a55cd8d91270746842ce4018c400374f20c8b49c105fab7021ac61c2e",
           "cells": [
             "code_verdict_invalid",
             "freeze, record_code_verdict",
@@ -16114,7 +16168,7 @@
           "covers": [
             "ticket_repair_op_invalid"
           ],
-          "binds": "8aec60a8bc253d0cef5a62d16669dc098e6110fa2810dbd8385b841c995dae31",
+          "binds": "45af1cbc86e3e87216306b915ae4a2d16a56a148a1e75e449e7455d2332f2532",
           "cells": [
             "ticket_repair_op_invalid",
             "dispatch_ticket_dag for fresh/current/planning/aggregate_unchanged or rebuild_anchor code_only; also resume_repaired_tickets",
@@ -16136,7 +16190,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "blocked_anchor, autosk-planned",
             "prepare_anchor_impact",
@@ -16158,7 +16212,7 @@
           "covers": [
             "anchor_impact_approval_required"
           ],
-          "binds": "97d42fa7c178fa08163cf96e9485b530b164a1eda510fe5accd33ebf4b109c2d",
+          "binds": "ca5674a77121838ebd71c45eac5cc82c858e1cf6f9c204d42c04ebb2f58df5dc",
           "cells": [
             "anchor_impact_approval_required",
             "prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval",
@@ -16177,7 +16231,7 @@
           "covers": [
             "anchor_impact_invalid"
           ],
-          "binds": "1b8ab1c9a9523207b0eef83cc377e127398e7778c9a7f84a8eda3d9e4f29df00",
+          "binds": "5415faa1565b2a585c6b535c43b506aa5de9ec3f1b3abe5fc1bafbf1fe5cfcad",
           "cells": [
             "anchor_impact_invalid",
             "prepare_anchor_impact, rebuild_anchor",
@@ -16254,7 +16308,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "blocked_anchor, standalone Quick",
             "rebuild_code_anchor",
@@ -16275,7 +16329,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "blocked_anchor, Ticket with parent",
             "rebuild_code_anchor",
@@ -16349,7 +16403,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "blocked_anchor, Ticket pending already absorbed by parent",
             "rebuild_code_anchor",
@@ -16394,7 +16448,7 @@
           "covers": [
             "implementation_scope_invalid"
           ],
-          "binds": "9e9ec1364893b746664f2fd3dbb13bbdf6c773883ae01135615085a3c9d1a00b",
+          "binds": "af798e28bb2a3a96afc51a2034f5cac351cd187e1877b1bbcec021937baa50ad",
           "cells": [
             "implementation_scope_invalid",
             "implement либо invalidate_quick_classification",
@@ -16477,11 +16531,11 @@
           "covers": [
             "verification_cap"
           ],
-          "binds": "5fe7c5a47eaa1ea1966ec52d864bd4106737c33713feb4a3e5c253f9526700e5",
+          "binds": "38911c02f990d4003de9bee1813ad3c526f4fdc10b1234ba4709c48decc9a01c",
           "cells": [
             "verification_cap",
-            "fix, verify",
-            "новый daemon-attributed cap decision и verification findings сохранены"
+            "resume в новый раунд: fix (исправление по сохранённым verification findings), verify или rebuild_code_anchor; без раунда: human, invalidate_quick_classification (Quick); park: verify",
+            "новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых verification findings; выход без раунда решения не требует"
           ]
         },
         {
@@ -16499,7 +16553,7 @@
           "covers": [
             "artifact_pass_invalid"
           ],
-          "binds": "f5026914851263e6a2fd11f7e9689b3496c1e40c093076ad625754924af10529",
+          "binds": "e57c02c0fff924c646d9cde879e94dff7c26180356cf6759c0a4827223728833",
           "cells": [
             "artifact_pass_invalid",
             "freeze_artifact, record_artifact_pass",
@@ -16519,11 +16573,11 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "b28e9266eaa23e9f8289ff94c617332b98fb7715aa9c84d3bf51fce27bcc28d3",
+          "binds": "30f4b0e43029ef6c0dba01e20c5b696b29dfb5b783c6fe82efd7fd78770865d7",
           "cells": [
             "review_cap",
-            "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
-            "новый daemon-attributed cap decision, сохранённые findings и identity; resume только из шага, где стоял park: fix_artifact после narrow_review_join, fix после record_code_verdict"
+            "resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (Quick); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket)",
+            "новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых findings и identity; выход без раунда решения не требует; resume только из шага, где стоял park: fix_artifact после narrow_review_join или synthesize_panel, fix, rebuild_code_anchor или invalidate_quick_classification после record_code_verdict"
           ],
           "rule": {
             "requires": [
@@ -16538,7 +16592,7 @@
           "covers": [
             "arena_join_invalid"
           ],
-          "binds": "6044a446c822513690eaa161aa334fb7db75a1d2dd5321b8331332066c3143a0",
+          "binds": "eb71bd3e13f4707bc30328a2f71e12d526466441da830dc51e4a26b9a181b9ab",
           "cells": [
             "arena_join_invalid",
             "arena_join, dispatch_arena",
@@ -16557,7 +16611,7 @@
           "covers": [
             "arena_fallback_required"
           ],
-          "binds": "28623fd3ce6c32e87e586ace7c25e2998cceef97def8c1ba5ee044e60e0a37a0",
+          "binds": "17cd1eb6c345c460ccf6b82167e08652353949c853f9af360068b470e96d5d58",
           "cells": [
             "arena_fallback_required",
             "apply_arena_decision, arena_join",
@@ -16576,7 +16630,7 @@
           "covers": [
             "arena_contract_invalid"
           ],
-          "binds": "5a4213561e25bc4245e320872ff18a2cd938337180c46a0eb16ba7a310606d49",
+          "binds": "d5b6e5e45c2f9356bfe543cf58625b4caef0ecda15ab3b3d4c394b01235d07c3",
           "cells": [
             "arena_contract_invalid",
             "fix_artifact, record_artifact_pass",
@@ -16595,7 +16649,7 @@
           "covers": [
             "ticket_join_invalid"
           ],
-          "binds": "0504c4a118004b595efd0d3136ac4e732001e76c7426bc9331918ab983456115",
+          "binds": "052a856e4ce395441d7f411ed3f5ed2c53eb008134de0655eef1f0d080e70f6c",
           "cells": [
             "ticket_join_invalid",
             "dispatch_ticket_dag, ticket_join",
@@ -16632,7 +16686,7 @@
           "covers": [
             "candidate_changed"
           ],
-          "binds": "98385e458859659aee5ae6171fdf047a7717213f0b94691f395301b9ed2a3197",
+          "binds": "8bcb71eee450e06040633256147c45703404b757adf2832745807659ce365bd7",
           "cells": [
             "candidate_changed",
             "commit_on_pass, fix",
@@ -16701,7 +16755,7 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "f069ffc759172c0ef0b700c15f4684d33480ed0069cd78e4471c1896ebe58930",
+          "binds": "36d833d52334bba6c7889ea1c3eb4a0d67c797840ab77b91995803e6a7419465",
           "cells": [
             "aggregate_verify_failed / aggregate_remediation_required",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
@@ -16723,7 +16777,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "09d6ceedfd7d873f6329d282f852ca7bd2bdd3e457addf4a494fe4f9459a0dd6",
+          "binds": "6e3074459122754776c9596ca26166e3c59df0ffccbeca3d338d0613ed66a08a",
           "cells": [
             "no_external_reviewer",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -16742,7 +16796,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "5912f0bb2a839496b23df932e738029553d6cfbb5892ff0571c31a9991f448a6",
+          "binds": "4e3aa0ea285c74f8616328ce40efa68f2d55b638ab6927cb24e3415263665dfb",
           "cells": [
             "no_external_panel_lead",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -16948,7 +17002,7 @@
           "binds": "0be7cd64c36b2103f9b835fddaf0ed6a95f9735ffd3da01166d00a73d731dd7e",
           "cells": [
             "foreign_target_movement",
-            "integrate_staging",
+            "park: integrate_staging; resume по записанному решению пользователя: apply_staging",
             "ref не тронут; overwrite запрещён; движение не этого Epic — чужой commit, откат или посадка другого Epic на тот же target; после расследования записанное решение пересобрать staging на сдвинутый target: пересборка epic-staging §1 (recorded_target_base := новый target, один planning replay commit под receipt, каждая approved delta заново, не применяющиеся — delta_stale), прежние aggregate PASS и acceptance void, resume в apply_staging; cancel — отдельная status-операция"
           ]
         },
@@ -16981,7 +17035,7 @@
           "binds": "3c72f988803a28a3a50e14ebc459fba74ffb0b49ae51784239b2ac109b00dcba",
           "cells": [
             "completion_predicate_unmet",
-            "deliver_staging",
+            "park: deliver_staging; resume по записанному решению пользователя: apply_staging",
             "completion predicate выполнен: delivered commit на target, его tree = accepted staging tree, recorded target base — его предок; либо записано решение — если PR/entry не смержен и target сдвинулся, пересобрать staging (старый receipt void, PR/entry закрыт, recorded_target_base := новый target, PASS и acceptance void) и вернуться в apply_staging; смерженное непринятое дерево — только явное решение без переписывания истории; host ветку не двигает"
           ]
         }
@@ -17109,7 +17163,7 @@
           "covers": [
             "tickets_breakdown_alignment_required"
           ],
-          "binds": "e57d606546d8b15b92dbbbd369610d037ca8c6e0563dc7e223a44ccb8f417d94",
+          "binds": "d2ac9174b85c5b05f02beb374b5d4b4eca562506309e8f0fffe6a47723a65ddf",
           "cells": [
             "Ticket breakdown не согласован",
             "present_tickets_breakdown, record_alignment",
@@ -17150,7 +17204,7 @@
           "covers": [
             "alignment_record_stale"
           ],
-          "binds": "19e73342a59b6c9ddb498f11240d75fa4561d78d9c0704aeaddc2c32f7c023d3",
+          "binds": "626abb18d628c11a229a8a02a4d0b6a46b2c3a56f92f8e67abd6a1869c3dd324",
           "cells": [
             "Alignment record устарел",
             "clarify_alignment для Brief/Core Flow/Tech Plan; present_tickets_breakdown для Tickets; также dispatch_panel, dispatch_ticket_dag, freeze_artifact, record_alignment, record_artifact_pass",
@@ -17170,7 +17224,7 @@
           "covers": [
             "tickets_manifest_invalid"
           ],
-          "binds": "21474e08cd55f7057aee0d387ed644bd8c0899cfc581719a9759f6dd0edc0a6e",
+          "binds": "f0d1353b0239fd0b6b239a7fe4f119bb429a05ba77441a44c4eb7587fe3e79ec",
           "cells": [
             "tickets_manifest_invalid",
             "present_tickets_breakdown до freeze и после publication; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -17191,7 +17245,7 @@
           "covers": [
             "tickets_manifest_stale"
           ],
-          "binds": "21142300a3669fb4adccea04256e043975708993fda6ba5963fec3d693fb136d",
+          "binds": "082f092672e35eb413182e4bd1654548be4dca9069a9979ec9963c5e22a0e5ea",
           "cells": [
             "tickets_manifest_stale",
             "owning recovery step, затем present_tickets_breakdown; также dispatch_ticket_dag, freeze_artifact, validate_tickets_manifest",
@@ -17259,7 +17313,7 @@
           "covers": [
             "planning_ref_foreign_movement"
           ],
-          "binds": "62c0bb2c1e9f0af6f4ad82dccfcd640affa182fffb58b10c97cf1f09c0720baa",
+          "binds": "d0265be7812fa8655c32b85c1ba917fa6234660ea8eb2b1580659347088c1f4a",
           "cells": [
             "planning_ref_foreign_movement",
             "init_planning_ref or publish_artifact_pass or publish_planning_invalidation according to recorded operation_type; freeze_artifact, fix_artifact, record_artifact_pass, rebuild_anchor, synthesize_panel, narrow_review_join or cleanup according to the recorded candidate_keepalive_op, candidate_supersession_op or audit_candidate_housekeeping_op; with no open operation use the recorded detecting gate, only after signed investigation disposition",
@@ -17305,7 +17359,7 @@
           "covers": [
             "planning_candidate_base_stale"
           ],
-          "binds": "2fc6d2e2946f99f9fcf4daf278e711a58a6b659c0fd475b957e51efc6a48f505",
+          "binds": "c108e62422d3f4479c3674dfe952bd9e39c2e4496a9735174566d89e2d7540d9",
           "cells": [
             "planning_candidate_base_stale",
             "draft_artifact for Brief/Core Flow/Tech Plan; present_tickets_breakdown for Tickets; also freeze_artifact",
@@ -17326,7 +17380,7 @@
           "covers": [
             "planning_publication_invalid"
           ],
-          "binds": "077d760f57e7a9a04fefe96332136d11e308f85e580feaf2f94afd11e0f2826a",
+          "binds": "411297aa04c438e2da3f7eedfb1e9e09454340d39822503d82df14ec959adb0f",
           "cells": [
             "planning_publication_invalid",
             "record_artifact_pass or rebuild_anchor recorded pre-failure step; also publish_artifact_pass, publish_planning_invalidation",
@@ -17430,7 +17484,7 @@
           "covers": [
             "panel_join_invalid"
           ],
-          "binds": "cecd565003cb2fa2e48c4a87f791a41519e0eb561519cfd49e5139b9d50c668f",
+          "binds": "8ca5fae50fd2266266528159716826dd82fa52d38e936906cc81c4722371156b",
           "cells": [
             "Invalid/cancelled panel child",
             "dispatch_panel, panel_join",
@@ -17449,7 +17503,7 @@
           "covers": [
             "panel_waiver_required"
           ],
-          "binds": "f8b6bebd981abea3ffb97a35e18530b6ab9754058f492e1ffa5da24b208d21d9",
+          "binds": "9d49351a6a37032f042ed931cb37b0066fba0e9dbe8ce9a2a96e3cd35e66e790",
           "cells": [
             "Сокращённая панель",
             "dispatch_panel или panel_join; также freeze_artifact, record_artifact_pass",
@@ -17470,7 +17524,7 @@
           "covers": [
             "contest_join_invalid"
           ],
-          "binds": "b9b853c1e19e37e118aa45c28b94a03467c61aa9af5f4cd21922d9bec39b2957",
+          "binds": "cd5582e05554c52361c28875b5f37ff2a770feff2c7d7ade1304519747cbb9a7",
           "cells": [
             "Invalid contest disposition",
             "contest_join, dispatch_contest",
@@ -17489,7 +17543,7 @@
           "covers": [
             "narrow_join_invalid"
           ],
-          "binds": "1aceec11fa1107664d7f3edf1b9a8e9c5096e67914476418b75a0e6976908566",
+          "binds": "e9ce4cda90cc153b7284d39b4742e5f2ed5dbf80b70c40926f476a9589a03ffe",
           "cells": [
             "Invalid narrow-review child",
             "dispatch_narrow_review, narrow_review_join",
@@ -17507,7 +17561,7 @@
           "covers": [
             "review_join_invalid"
           ],
-          "binds": "08718a5bef2e0b437877c4bf5d987684e5ea2b040d65d29cb8d74aed3dfe1305",
+          "binds": "928fd8b6bf396f118ebac3d5519c17163685699dd979139f96eab46aff7f15f5",
           "cells": [
             "Invalid code-review child",
             "dispatch_review или dispatch_narrow_review; также review_join",
@@ -17526,7 +17580,7 @@
           "covers": [
             "code_verdict_invalid"
           ],
-          "binds": "0ed6e2a5f3b63e4db0f5081baf79682b5920b3386cfbd6b773a21071721ecc12",
+          "binds": "8fbab78a55cd8d91270746842ce4018c400374f20c8b49c105fab7021ac61c2e",
           "cells": [
             "Code verdict revalidation failed",
             "freeze, record_code_verdict",
@@ -17545,7 +17599,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "BLOCKED_ANCHOR, Planned",
             "prepare_anchor_impact",
@@ -17566,7 +17620,7 @@
           "covers": [
             "anchor_impact_approval_required"
           ],
-          "binds": "97d42fa7c178fa08163cf96e9485b530b164a1eda510fe5accd33ebf4b109c2d",
+          "binds": "ca5674a77121838ebd71c45eac5cc82c858e1cf6f9c204d42c04ebb2f58df5dc",
           "cells": [
             "Anchor impact ждёт approval",
             "prepare_anchor_impact, rebuild_anchor, record_anchor_impact_approval",
@@ -17585,7 +17639,7 @@
           "covers": [
             "anchor_impact_invalid"
           ],
-          "binds": "1b8ab1c9a9523207b0eef83cc377e127398e7778c9a7f84a8eda3d9e4f29df00",
+          "binds": "5415faa1565b2a585c6b535c43b506aa5de9ec3f1b3abe5fc1bafbf1fe5cfcad",
           "cells": [
             "Invalid/stale anchor impact map",
             "prepare_anchor_impact, rebuild_anchor",
@@ -17605,7 +17659,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "BLOCKED_ANCHOR, standalone Quick",
             "rebuild_code_anchor",
@@ -17625,7 +17679,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "BLOCKED_ANCHOR, Ticket with parent",
             "rebuild_code_anchor",
@@ -17688,7 +17742,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "214456ab4e96721e9fad739115ee83d9093ee2c5a808fd3fb957e40316c11f8a",
+          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
           "cells": [
             "Parent absorbed live Ticket anchor before suspension",
             "rebuild_code_anchor",
@@ -17729,7 +17783,7 @@
             "ticket_repair_op_invalid",
             "ticket_repair_state_invalid"
           ],
-          "binds": "5473796fedf617a80fbfc917135fd3f7f0437c2ca668157915ea0f0630ead242",
+          "binds": "09249b3fc5b5628d1d7d06748c2dc0bce85577d34ae97e02c5782a10b899964a",
           "cells": [
             "Invalid/open duplicate Ticket repair operation",
             "dispatch_ticket_dag, rebuild_anchor или resume_repaired_tickets по op kind",
@@ -17763,7 +17817,7 @@
           "covers": [
             "artifact_pass_invalid"
           ],
-          "binds": "f5026914851263e6a2fd11f7e9689b3496c1e40c093076ad625754924af10529",
+          "binds": "e57c02c0fff924c646d9cde879e94dff7c26180356cf6759c0a4827223728833",
           "cells": [
             "Artifact PASS revalidation failed",
             "freeze_artifact, record_artifact_pass",
@@ -17783,11 +17837,11 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "b28e9266eaa23e9f8289ff94c617332b98fb7715aa9c84d3bf51fce27bcc28d3",
+          "binds": "30f4b0e43029ef6c0dba01e20c5b696b29dfb5b783c6fe82efd7fd78770865d7",
           "cells": [
             "Лимит review",
-            "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
-            "новый daemon-attributed cap decision, сохранённые findings и identity; resume только из шага, где стоял park: fix_artifact после narrow_review_join, fix после record_code_verdict"
+            "resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (Quick); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket)",
+            "новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых findings и identity; выход без раунда решения не требует; resume только из шага, где стоял park: fix_artifact после narrow_review_join или synthesize_panel, fix, rebuild_code_anchor или invalidate_quick_classification после record_code_verdict"
           ],
           "rule": {
             "requires": [
@@ -17802,7 +17856,7 @@
           "covers": [
             "arena_join_invalid"
           ],
-          "binds": "6044a446c822513690eaa161aa334fb7db75a1d2dd5321b8331332066c3143a0",
+          "binds": "eb71bd3e13f4707bc30328a2f71e12d526466441da830dc51e4a26b9a181b9ab",
           "cells": [
             "Invalid Arena/Judge",
             "arena_join, dispatch_arena",
@@ -17820,7 +17874,7 @@
           "covers": [
             "arena_fallback_required"
           ],
-          "binds": "28623fd3ce6c32e87e586ace7c25e2998cceef97def8c1ba5ee044e60e0a37a0",
+          "binds": "17cd1eb6c345c460ccf6b82167e08652353949c853f9af360068b470e96d5d58",
           "cells": [
             "Arena fallback",
             "apply_arena_decision, arena_join",
@@ -17839,7 +17893,7 @@
           "covers": [
             "arena_contract_invalid"
           ],
-          "binds": "5a4213561e25bc4245e320872ff18a2cd938337180c46a0eb16ba7a310606d49",
+          "binds": "d5b6e5e45c2f9356bfe543cf58625b4caef0ecda15ab3b3d4c394b01235d07c3",
           "cells": [
             "Invalid autosk-arena block",
             "fix_artifact, record_artifact_pass",
@@ -17858,7 +17912,7 @@
           "covers": [
             "ticket_join_invalid"
           ],
-          "binds": "0504c4a118004b595efd0d3136ac4e732001e76c7426bc9331918ab983456115",
+          "binds": "052a856e4ce395441d7f411ed3f5ed2c53eb008134de0655eef1f0d080e70f6c",
           "cells": [
             "Invalid Ticket set execution",
             "dispatch_ticket_dag, ticket_join",
@@ -17895,7 +17949,7 @@
           "covers": [
             "candidate_changed"
           ],
-          "binds": "98385e458859659aee5ae6171fdf047a7717213f0b94691f395301b9ed2a3197",
+          "binds": "8bcb71eee450e06040633256147c45703404b757adf2832745807659ce365bd7",
           "cells": [
             "Candidate changed before commit",
             "commit_on_pass, fix",
@@ -17953,7 +18007,7 @@
             "aggregate_verify_failed",
             "aggregate_remediation_required"
           ],
-          "binds": "f069ffc759172c0ef0b700c15f4684d33480ed0069cd78e4471c1896ebe58930",
+          "binds": "36d833d52334bba6c7889ea1c3eb4a0d67c797840ab77b91995803e6a7419465",
           "cells": [
             "Aggregate verification failed",
             "aggregate_verify, dispatch_ticket_dag, record_aggregate_remediation, draft_artifact, present_tickets_breakdown, human",
@@ -17975,7 +18029,7 @@
           "covers": [
             "no_external_reviewer"
           ],
-          "binds": "09d6ceedfd7d873f6329d282f852ca7bd2bdd3e457addf4a494fe4f9459a0dd6",
+          "binds": "6e3074459122754776c9596ca26166e3c59df0ffccbeca3d338d0613ed66a08a",
           "cells": [
             "Нет внешней code-review family",
             "freeze для signed full-skip waiver; dispatch_review/narrow для external human/re-expression; также dispatch_narrow_review",
@@ -17994,7 +18048,7 @@
           "covers": [
             "no_external_panel_lead"
           ],
-          "binds": "5912f0bb2a839496b23df932e738029553d6cfbb5892ff0571c31a9991f448a6",
+          "binds": "4e3aa0ea285c74f8616328ce40efa68f2d55b638ab6927cb24e3415263665dfb",
           "cells": [
             "Нет внешней panel Lead family",
             "freeze_artifact для signed full-skip waiver; dispatch_panel/narrow для external human Lead; также dispatch_narrow_review",
@@ -18153,8 +18207,8 @@
           "binds": "b2bea3347b3ea854710ed8f6ec67105a543c3f0bcdb91a318ff8bed25638df81",
           "cells": [
             "Target CAS: конфликт, чужое движение, read-back mismatch",
-            "integrate_staging, verify_target",
-            "ref не перезаписывается; target не на recorded base и не на результате этого Epic — движение чужое (commit в ветку, откат, посадка другого Epic на тот же target), и staging пересобирается на новом target только по записанному решению пользователя: recorded_target_base перезаписывается, staging пересоздаётся с одним planning replay commit под receipt, затем каждая approved delta применяется заново с перепроверкой (не применяющиеся — delta_stale); остальное — явное решение после расследования; cancel — отдельная status-операция"
+            "park: integrate_staging, verify_target; resume по записанному решению пользователя: apply_staging (foreign_target_movement)",
+            "ref не перезаписывается; target не на recorded base и не на результате этого Epic — движение чужое (commit в ветку, откат, посадка другого Epic на тот же target), и staging пересобирается на новом target через apply_staging только по записанному решению пользователя: recorded_target_base перезаписывается, staging пересоздаётся с одним planning replay commit под receipt, затем каждая approved delta применяется заново с перепроверкой (не применяющиеся — delta_stale); остальное — явное решение после расследования; cancel — отдельная status-операция"
           ]
         },
         {
@@ -18165,7 +18219,7 @@
           "binds": "ce9b3aeb3b19dd8d13ff920d4ab73b4f2053b0353c70466430a3b5a63777ce9f",
           "cells": [
             "Delivery profile: mode не поддержан или completion predicate не выполнен",
-            "accept_staging, deliver_staging",
+            "park: accept_staging, deliver_staging; resume по записанному решению пользователя: apply_staging (completion_predicate_unmet)",
             "профиль или decision разрешает move_target либо PR/merge-queue путь; done только когда predicate выполнен: delivered commit на target, его tree = accepted staging tree, recorded target base — его предок; несмерженная доставка при сдвиге target — пересборка через apply_staging по записанному решению, смерженное непринятое дерево — явное решение без переписывания истории"
           ]
         }
@@ -18179,7 +18233,7 @@
       ]
     }
   ],
-  "canonical_digest": "7982402c26f942bd23cdcb658b77fe1e36011b518bcadc4ee128ee887c5094e0",
+  "canonical_digest": "f26aa140d37f8ac3f953afa8ace496c1acec9cc138928be916df390abe4547b5",
   "external_operations": [
     {
       "status": "cancel",

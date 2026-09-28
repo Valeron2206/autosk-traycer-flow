@@ -144,7 +144,9 @@
   "caps": [
     {
       "cycle": "artifact_review_cycle",
-      "counted_transition": "transition_that_does_not_exist",
+      "counted_transitions": [
+        "transition_that_does_not_exist"
+      ],
       "limit": 10,
       "park_reason": "review_cap"
     }
@@ -204,7 +206,7 @@
       "required_state": "the cap that names it is the defect, and this row is refused by the cascade: with the counted transition missing, nothing attributes the cap's reason to freeze_artifact, so the row names a step the graph does not park it at; its resume into freeze_artifact would be the user's, on the decision recorded under the park (park.decision)"
     }
   ],
-  "canonical_digest": "36c96fe4b30aee74eb2cc57edd67a7298b00029eaaa854552a777b4754664f69",
+  "canonical_digest": "827e4c7d3f2fd2e01ebc3f7cf1534045810d5d6bb98cdc757f5416d739f8417e",
   "external_operations": [
     {
       "status": "cancel",

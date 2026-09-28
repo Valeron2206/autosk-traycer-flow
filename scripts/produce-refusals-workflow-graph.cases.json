@@ -76,7 +76,7 @@
     "class": "graph_cap_transition_unknown",
     "side": "design",
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
-    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/caps/0/counted_transition", "value": "t_probe_absent" }] }
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/caps/0/counted_transitions/0", "value": "t_probe_absent" }] }
   },
   {
     "class": "graph_cap_transition_shared",
@@ -97,6 +97,13 @@
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
     "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/transitions/0/guards/1", "value": "guard_238" }] },
     "note": "guard_238 is bound to the artifact_review_round cap; referencing it from t_001 carries the term onto an edge the cap never named"
+  },
+  {
+    "class": "graph_cap_boundary_outside_epic",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/caps/1/cycle_boundary", "value": { "from": "fix", "to": "verify" } }] },
+    "note": "code_review_round counts record_code_verdict -> fix, a step of Quick and the Ticket: a boundary on it would restart one candidate's count (narrow re-review of 12c, Low 3)"
   },
   {
     "class": "graph_cap_quantity_undeclared",
@@ -164,6 +171,13 @@
     "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
     "drive": { "kind": "graph_validate", "mutate": [{ "op": "add", "path": "/recovery/80/decision_targets/-", "value": "human" }] },
     "note": "review_cap is a cap's park, and human runs no round: declaring it the user's decision is refused"
+  },
+  {
+    "class": "graph_recovery_required_state_drift",
+    "side": "design",
+    "emitter": "scripts/validate-workflow-graph.mjs#validateGraph",
+    "drive": { "kind": "graph_validate", "mutate": [{ "op": "replace", "path": "/recovery/66/required_state", "value": "Section 2 parks with this reason at dispatch_panel, freeze_artifact, panel_join: human с park.reason=panel_waiver_required; panel child не создаётся" }] },
+    "note": "panel_waiver_required's row as it read before debt 12c (R8-11): its clause leaves out record_artifact_pass, where the graph parks it"
   },
   {
     "class": "graph_recovery_handled_at_parks",
