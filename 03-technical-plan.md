@@ -813,7 +813,7 @@ Optional `correlation_id` — только UUID по закрытой схеме
     },
     "session": {
       "provider_session_id": "...",
-      "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
+      "provider_session_dir": "...",
       "provider_session_file": null,
       "generation": 1,
       "replaces": null
@@ -927,7 +927,7 @@ Optional `correlation_id` — только UUID по закрытой схеме
         "gpt": {
           "task_id": "...",
           "provider_session_id": "...",
-          "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
+          "provider_session_dir": "...",
           "provider_session_file": null,
           "generation": 1,
           "replaces": null
@@ -1022,7 +1022,7 @@ Workflow custody exposes `mutateAutoskFlow(own_step_capability,expected_head,pat
     "run_id": "run-001",
     "session": {
       "provider_session_id": "...",
-      "provider_session_dir": "/absolute/project-root/.autosk/autosk-flow/provider-sessions",
+      "provider_session_dir": "...",
       "provider_session_file": null,
       "generation": 1,
       "replaces": null
@@ -1153,7 +1153,7 @@ Quick classification identity включает normalized request, project, orig
 
 Classifier precedence закрыт: Brief goal/scope/success и Core Flow user-visible behavior/rights/errors всегда `human_required`; Tech Plan public API/data/security/privacy/one-way-door/migration/delivery fields всегда `human_required`; Tickets set/scope/outcome/dependency/exclusion changes всегда `human_required`. Только Tech Plan internal choice с machine-checkable rollback/reversibility proof и без перечисленных affected fields либо Tickets scheduling при byte-identical set/scope/outcome/dependencies/exclusions может получить `local_reversible_implementation`. Любое отсутствующее proof, неизвестное поле или конфликт правил даёт `unknown -> human`, даже если модель сообщила allowed label.
 
-`await_alignment` — human status step. Signer/secure store runs in mandatory separate OS security boundary or hardware enclave. Model sandbox lacks signer RPC, keychain, accessibility and ptrace entitlement; boundary preflight actively probes and blocks unsupported deployment. Client only signs exact challenge; daemon journals/head-commits before actor=user. Headless/no boundary remains human.
+`await_alignment` — human status step. Signer/secure store runs in mandatory separate OS security boundary or hardware enclave. Model sandbox — the model account `autosk-model` that the privileged install creates and every model process runs under (`docs/contracts/platform-support.md` §5b, owned by #13 with #11 and #18) — lacks the project's Git directory, signer RPC, keychain, accessibility and ptrace entitlement; boundary preflight actively probes and blocks unsupported deployment, and `security.model_account` blocks every model workflow until #13's probe of the account exists (ADR-102). Client only signs exact challenge; daemon journals/head-commits before actor=user. Headless/no boundary remains human.
 
 `record_alignment` — deterministic step. До записи он:
 
@@ -1201,7 +1201,7 @@ Quick workflow не регистрирует alignment steps. Если на inta
 4. проверяет session binding: ID, project-owned directory и optional absolute provider_session_file;
 5. для первого запуска создаёт штатный piAgent с `--session-id` + `--session-dir`; после запуска читает get_state и атомарно сохраняет exact absolute sessionFile;
 6. для любого follow-up/full re-panel/narrow/contest открывает exact file через `--session <absolute-session-file>`; session ID без file не считается cwd-independent resume key;
-7. проверяет, что session file лежит внутри project provider-sessions, а header model/family/role/session ID совпадают;
+7. проверяет, что session file лежит в каталоге сессии процесса модели под текущим project root, вне `.autosk` (`docs/contracts/platform-support.md` §5b; где именно — открыто за #13 с #18 и #11), читает его как недоверенный ввод, а header model/family/role/session ID совпадают;
 8. перед model launch и каждым tool/process/fs adapter call reconciles secure heads, re-resolves полный authority dependency set и controlling_anchor_digest; mismatch прерывает stale live run без daemon-authored Epic comment, bytes остаются untrusted;
 9. проксирует onSteer, onFollowup и onAbort текущему inner agent.
 
@@ -1832,8 +1832,8 @@ Multi-project preflight дополнительно печатает canonical ro
 ### Slice 1 — безопасный фундамент
 
 - три upstream sets: creation-key pair; signed authority/dependency/intent stack; workflow custody with step-bound metadata CAS and protected gate-result receipts/head;
-- issue #5-owned ref-custody helper/client/protocol package at `src/git/ref-custody-helper.ts`: separate-account service, project-scoped Unix socket, daemon-only capability authentication, request nonce/journal receipts, `flock` transaction serialization and process-death stale-lock recovery;
-- privileged install converts the canonical project common Git directory into the service-owned single ODB used by target/planning/candidate/audit/staging refs, recorded as the `ref_custody_service` install record of `docs/contracts/platform-support.md` §5a (#13 with #5); each writable worktree has an isolated service-managed per-worktree Git directory for `HEAD`/index plus a read-only gitfile and `commondir` binding, autoskd mediates normal Git mutations, and helper alone writes protected refs; bootstrap pins ancestors/device/inode, keeps protected refs loose and rejects protected packed entries;
+- issue #5-owned ref-custody helper/client/protocol package at `src/git/ref-custody-helper.ts`: a process of the installing user (ADR-102), project-scoped Unix socket, daemon-only capability authentication, request nonce/journal receipts, `flock` transaction serialization and process-death stale-lock recovery;
+- the helper's non-privileged bootstrap, recorded as the `ref_custody_service` install record of `docs/contracts/platform-support.md` §5a (#13 with #5), keeps the canonical project common Git directory the installing user's ordinary repository and the single ODB used by target/planning/candidate/audit/staging refs: it closes the Git directory to every other account (mode `0700`), keeps protected refs loose with `gc.packRefs=false`, turns on per-worktree configuration and records the bootstrap receipt; each worktree has its own per-worktree Git directory for `HEAD`/index behind its gitfile and `commondir` link, autoskd mediates normal Git mutations in the installing user's account, and by protocol the helper alone writes protected refs, whose move by the user's own tools its expected-old CAS and preflight detect and park (ADR-099, ADR-102); the privileged install, the design's one administrator step, creates only the model account `autosk-model` and the one mechanism autoskd starts model processes under it through and kills each model process tree whole with, never a setuid binary of this project, and that account opens no Git directory (§5b of the same contract, ADR-102); preflight rejects protected packed entries;
 - ref-custody preflight and adversarial macOS/Linux tests cover direct update-ref, directory replacement, packed-refs/pack-refs, concurrent helper calls, lost responses and custody-generation drift;
 - compatibility preflight fail-closed запрещает model workflow без всех трёх primitives;
 - authority preflight: unpinned/headless blocked; model-process probes cannot access signer RPC/keychain/accessibility/ptrace or secure heads across OS boundary; rogue TOFU/replay/forge fail; journal/head/dependency/intent races fail-closed;

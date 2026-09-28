@@ -2,8 +2,9 @@
  *
  * The ref-custody helper writes every ref under `refs/autosk/**`, the staging ref included; the host only asks it, and the daemon's `integrateApproved` alone moves the target ref.
  *
- * The helper is the separate-account `autosk-flow-ref-custody` service of 02 §2
- * (#5, `src/git/ref-custody-helper.ts`): autoskd persists the helper intent,
+ * The helper is `autosk-flow-ref-custody` of 02 §2 (#5,
+ * `src/git/ref-custody-helper.ts`), a process of the installing user
+ * (ADR-102): autoskd persists the helper intent,
  * signs the request and calls it, and it performs one expected-old
  * `update-ref` transaction under its lock. What the host owns is the request:
  * the action of the helper's closed protocol and the exact ref updates that

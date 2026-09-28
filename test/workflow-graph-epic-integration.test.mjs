@@ -24,7 +24,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1241,7 +1241,7 @@ test("two individually green Tickets that regress together leave the target wher
   const first = await commit(base, [["a.txt", "new"]], "T-1");
   const second = await commit(base, [["b.txt", "new"]], "T-2");
   for (const [ticket, alone] of [["T-1", first], ["T-2", second]]) {
-    const { aggregate: verdict } = await verifyAggregate({
+    const { aggregate: verdict } = await verifyAggregate({ realpath,
       git, run: runner, state: identity(alone.oid, alone.tree, [ticket]), checks, dir: path.join(root, `alone-${ticket}`), instructionLockDigest,
     });
     assert.equal(verdict.outcome, "pass", `${ticket} is green alone`);
@@ -1259,7 +1259,7 @@ test("two individually green Tickets that regress together leave the target wher
   });
   assert.equal(advanced.status, "committed");
   const state = identity(together.oid, together.tree, ["T-1", "T-2"]);
-  const { aggregate } = await verifyAggregate({ git, run: runner, state, checks, dir: path.join(root, "aggregate"), instructionLockDigest });
+  const { aggregate } = await verifyAggregate({ realpath, git, run: runner, state, checks, dir: path.join(root, "aggregate"), instructionLockDigest });
   assert.equal(aggregate.outcome, "fail");
   assert.equal(aggregate.environment_outcome, "ok", "a regression is a product failure, not a machine that could not run");
   assert.ok(aggregateErrors({ ...state, aggregate }).some((error) => error.reason === "aggregate_failed"));

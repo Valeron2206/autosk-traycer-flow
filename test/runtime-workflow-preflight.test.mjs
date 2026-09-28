@@ -14,17 +14,22 @@ import { parseArgs, requiredSet } from "../scripts/autosk-flow-doctor.mjs";
 import { buildReport } from "../src/host/doctor.mjs";
 import { checkRegistry } from "../src/host/doctor-checks.mjs";
 import {
+  CUSTODY_PARK_REASON,
+  CUSTODY_STEP_CHECKS,
   MODEL_STEP_CHECKS,
   PHASE_CHECKS,
   WORKFLOW_PHASES,
   admits,
+  asksCustody,
   assertAdmits,
+  custodySteps,
   preflight,
   registeredWorkflows,
   requiredChecks,
   requiredFor,
   runsModelStep,
 } from "../src/host/workflow-preflight.mjs";
+import { HOST_REF_CUSTODY_ACTIONS } from "../src/host/ref-custody.mjs";
 
 const GRAPH_TEXT = readFileSync(new URL("../resources/workflow-graph/workflow-graph.v1.json", import.meta.url), "utf8");
 /** A fresh copy each time, so a test that edits one cannot leak into the next. */
@@ -282,18 +287,29 @@ test("preflight runs the same checks the doctor runs", async () => {
   const { report, admission } = await preflight(fakeEnv(), GRAPH, "autosk-planned", identity);
   assert.equal(report.checks.length, checkRegistry(fakeEnv()).length);
   // Debt 11c: with every other check passing, the daemon capability check
-  // alone stops the run — unverifiable with no report, and a fail on the
-  // series' own report, whose `meta.capabilities` names only ADR-014's
-  // capability. No daemon can satisfy it until ADR-023 and ADR-025 are pinned.
+  // stops the run — unverifiable with no report, and a fail on the series'
+  // own report, whose `meta.capabilities` names only ADR-014's capability. No
+  // daemon can satisfy it until ADR-023 and ADR-025 are pinned. Debt 12a
+  // (R8-1, R8-13) adds what no probe establishes yet (#13): the model account,
+  // which every model workflow requires, and the ref-custody install, which
+  // every workflow reaching a step that asks the helper requires (was: the
+  // daemon capability check alone). Review of 12a (M1): the custody check is
+  // derived from the graph after the model-step checks, not listed first by
+  // the planning phase.
   assert.equal(admission.ready, false);
-  assert.deepEqual(admission.blocking.map((entry) => entry.id), ["daemon.capabilities_pinned"]);
+  assert.deepEqual(admission.blocking.map((entry) => entry.id),
+    ["daemon.capabilities_pinned", "security.model_account", "security.ref_custody"]);
   const series = { ...fakeEnv(), daemonCapabilities: async () => ({ capabilities: [{ name: "task.creation-binding", version: 2, methods: ["task.create_bound"] }] }) };
   const panel = await preflight(series, GRAPH, "autosk-panel-seat", identity);
   assert.equal(panel.admission.ready, false);
-  assert.deepEqual(panel.admission.blocking, [{ id: "daemon.capabilities_pinned", reason: "doctor_required_set_unsatisfied" }]);
-  // The rest of the set is the probes' verdict: the same report with that
-  // one check set to pass admits both.
-  const passed = { ...report, checks: report.checks.map((entry) => entry.id === "daemon.capabilities_pinned"
+  assert.deepEqual(panel.admission.blocking, [
+    { id: "daemon.capabilities_pinned", reason: "doctor_required_set_unsatisfied" },
+    { id: "security.model_account", reason: "doctor_check_unverifiable" },
+  ]);
+  // The rest of the set is the probes' verdict: the same report with those
+  // checks set to pass admits both.
+  const settled = new Set(["daemon.capabilities_pinned", "security.model_account", "security.ref_custody"]);
+  const passed = { ...report, checks: report.checks.map((entry) => settled.has(entry.id)
     ? { id: entry.id, category: entry.category, status: "pass", evidence: {}, provenance: entry.provenance } : entry) };
   assert.equal(admits(passed, GRAPH, "autosk-planned", NOW).ready, true);
   assert.equal(admits(passed, GRAPH, "autosk-panel-seat", NOW).ready, true);
@@ -389,4 +405,116 @@ test("every workflow that runs a model step requires the daemon capability check
 test("the planning phase's rationale does not say it needs no daemon", () => {
   const source = readFileSync(new URL("../src/host/workflow-preflight.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /needs no daemon/u);
+});
+
+// Debt 12a (round 8 of #39, R8-1 and R8-13): model processes run under the
+// model account the privileged install creates, so every workflow that runs a
+// model step requires the check that proves it, derived like the signer
+// boundary; and the ref-custody install, which the helper's actions rest on,
+// is required of every workflow that reaches a step asking the helper.
+test("every workflow that runs a model step requires the model account check (R8-1)", () => {
+  assert.ok(MODEL_STEP_CHECKS.includes("security.model_account"));
+  for (const [phase, ids] of Object.entries(PHASE_CHECKS)) assert.ok(!ids.includes("security.model_account"), `${phase} lists it by hand`);
+  for (const workflow of WORKFLOWS) {
+    const first = GRAPH.workflows.find((entry) => entry.name === workflow).first_step;
+    assert.equal(requiredFor(GRAPH, workflow).includes("security.model_account"), runsModelStep(GRAPH, first), workflow);
+  }
+  const idle = graph();
+  idle.workflows.find((entry) => entry.name === "autosk-ticket").first_step = "done";
+  assert.ok(!requiredFor(idle, "autosk-ticket").includes("security.model_account"));
+  for (const status of ["fail", "unverifiable"]) {
+    const report = passingReport(new Map([["security.model_account", status]]));
+    for (const workflow of WORKFLOWS) {
+      assert.deepEqual(admits(report, GRAPH, workflow, NOW).blocking.map((entry) => entry.id), ["security.model_account"], `${workflow} on ${status}`);
+    }
+  }
+});
+
+// Review of 12a (M1): the custody check was listed by the planning and
+// delivery phases, so only the planned Epic required it, while the graph lets
+// Quick (from `intake`, one edge to `init_planning_ref`) and a Ticket (from
+// `implement`, through `freeze` to `narrow_review_join`) reach steps that ask
+// the helper. The requirement is derived from the graph, as the model-step
+// checks are (ADR-090, ADR-097): the steps its `planning_ref_capability_missing`
+// row parks at are the steps where a helper action can be refused.
+test("every workflow that reaches a step asking the ref-custody helper requires the custody install check, derived from the graph (R8-13, review M1)", () => {
+  const row = GRAPH.recovery.find((entry) => entry.reason === CUSTODY_PARK_REASON);
+  assert.equal(CUSTODY_PARK_REASON, "planning_ref_capability_missing");
+  assert.deepEqual([...custodySteps(GRAPH)], row.parks_at);
+  assert.deepEqual([...CUSTODY_STEP_CHECKS], ["security.ref_custody"]);
+  // Listed by no phase and not a model-step check: derived.
+  for (const [phase, ids] of Object.entries(PHASE_CHECKS)) assert.ok(!ids.includes("security.ref_custody"), `${phase} lists it by hand`);
+  assert.ok(!MODEL_STEP_CHECKS.includes("security.ref_custody"));
+  const requiring = WORKFLOWS.filter((workflow) => requiredFor(GRAPH, workflow).includes("security.ref_custody"));
+  assert.deepEqual(requiring, ["autosk-planned", "autosk-quick", "autosk-ticket"]);
+  for (const workflow of WORKFLOWS) {
+    const first = GRAPH.workflows.find((entry) => entry.name === workflow).first_step;
+    assert.equal(requiredFor(GRAPH, workflow).includes("security.ref_custody"), asksCustody(GRAPH, first), workflow);
+  }
+  // An unproven custody install blocks exactly the workflows that reach one.
+  for (const status of ["fail", "unverifiable"]) {
+    const report = passingReport(new Map([["security.ref_custody", status]]));
+    for (const workflow of WORKFLOWS) {
+      assert.deepEqual(admits(report, GRAPH, workflow, NOW).blocking.map((entry) => entry.id),
+        requiring.includes(workflow) ? ["security.ref_custody"] : [], `${workflow} on ${status}`);
+    }
+  }
+  // Derived, not listed: a Ticket that starts where nothing asks the helper
+  // requires none, and a code review whose first step the row names requires it.
+  const idle = graph();
+  idle.workflows.find((entry) => entry.name === "autosk-ticket").first_step = "done";
+  assert.ok(!requiredFor(idle, "autosk-ticket").includes("security.ref_custody"));
+  const wider = graph();
+  wider.recovery.find((entry) => entry.reason === CUSTODY_PARK_REASON).parks_at.push("review_candidate");
+  assert.ok(requiredFor(wider, "autosk-code-review").includes("security.ref_custody"));
+  assert.ok(!requiredFor(GRAPH, "autosk-code-review").includes("security.ref_custody"));
+  // A graph that names no helper-asking step is refused, not read as "none asks".
+  const refused = (value) => () => requiredFor(value, "autosk-planned");
+  const noRow = graph();
+  noRow.recovery = noRow.recovery.filter((entry) => entry.reason !== CUSTODY_PARK_REASON);
+  assert.throws(refused(noRow), (error) => error.code === "doctor_required_set_unsatisfied");
+  const empty = graph();
+  empty.recovery.find((entry) => entry.reason === CUSTODY_PARK_REASON).parks_at = [];
+  assert.throws(refused(empty), (error) => error.code === "doctor_required_set_unsatisfied");
+  const unlisted = graph();
+  delete unlisted.recovery.find((entry) => entry.reason === CUSTODY_PARK_REASON).parks_at;
+  assert.throws(refused(unlisted), (error) => error.code === "doctor_required_set_unsatisfied");
+  assert.throws(() => custodySteps({}), (error) => error.code === "doctor_required_set_unsatisfied");
+  // The first step is looked up as the model-step derivation looks it up.
+  assert.throws(() => asksCustody(GRAPH, "no_such_step"), (error) => error.code === "doctor_required_set_unsatisfied");
+});
+
+// Which step runs each host action of `askCustody`, as the contracts say:
+// `init` at `init_planning_ref` and `advance_planning` at the two publication
+// steps (docs/contracts/epic-planning-ref.md); `create_staging` and
+// `advance_staging` at `apply_staging`, and `delete_staging` there on a
+// re-stage and at `cleanup` (docs/contracts/epic-staging.md §1, ADR-095).
+const ASKED_AT = Object.freeze({
+  init: ["init_planning_ref"],
+  advance_planning: ["publish_artifact_pass", "publish_planning_invalidation"],
+  create_staging: ["apply_staging"],
+  advance_staging: ["apply_staging"],
+  delete_staging: ["apply_staging", "cleanup"],
+});
+
+test("every step whose driver asks the ref-custody helper is one the custody requirement is derived from (review M1)", () => {
+  // Every action a host driver hands `askCustody` is placed at a step here, and
+  // each such step is in the graph's set; a driver action at a step the set
+  // lacks would leave a workflow that asks the helper without the check.
+  assert.deepEqual(Object.keys(ASKED_AT).sort(), [...HOST_REF_CUSTODY_ACTIONS].sort());
+  const steps = new Set(custodySteps(GRAPH));
+  const declared = new Set(GRAPH.steps.map((step) => step.name));
+  for (const [action, at] of Object.entries(ASKED_AT)) {
+    for (const step of at) {
+      assert.ok(declared.has(step), `${action}: ${step} is a step of the graph`);
+      assert.ok(steps.has(step), `${action} runs at ${step}, which the custody requirement must cover`);
+    }
+  }
+  // The contracts name those steps where they place the actions.
+  const staging = readFileSync(new URL("../docs/contracts/epic-staging.md", import.meta.url), "utf8");
+  assert.match(staging, /parks it at `apply_staging` or `cleanup`/u);
+  const planning = readFileSync(new URL("../docs/contracts/epic-planning-ref.md", import.meta.url), "utf8");
+  for (const step of ["init_planning_ref", "publish_artifact_pass", "publish_planning_invalidation"]) {
+    assert.match(planning, new RegExp(`\`${step}\``, "u"), step);
+  }
 });

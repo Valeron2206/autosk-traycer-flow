@@ -1025,16 +1025,22 @@ test("invalidation object-exists recovery keeps ref and reflog guards", () => {
   );
 });
 
-test("protected ref namespace has one enforceable OS-level writer", () => {
+// ADR-102, fix round 2 of debt 12a: the helper is the sole writer by protocol
+// and runs as the installing user, whose ordinary repository the Git directory
+// stays; the OS keeps the model account out of it (was: "one enforceable
+// OS-level writer", a separate-account helper and a service-owned directory).
+test("protected ref namespace has one writer by protocol, and the model account none", () => {
   const files = fixture();
   const architecture = files["02-architecture.md"];
   const plan = files["03-technical-plan.md"];
   const contract = files["docs/contracts/epic-planning-ref.md"];
   const schema = JSON.parse(readFileSync(OPERATION_SCHEMA_PATH, "utf8"));
   const example = JSON.parse(readFileSync(OPERATION_EXAMPLE_PATH, "utf8"));
-  assert.match(architecture, /single object\/ref database.*separate-account ref-custody helper.*sole writer.*refs\/autosk/isu);
+  assert.match(architecture, /single object\/ref database.*ref-custody helper, a process of the installing user,.*sole writer.*refs\/autosk/isu);
+  assert.doesNotMatch(architecture, /separate-account ref-custody helper/u);
   assert.match(plan, /ref custody ownership\/mode\/generation drift.*retain.*candidate_keepalive.*planning_ref_capability_missing/isu);
-  assert.match(contract, /one service-owned canonical project common Git directory.*only `autosk-flow-ref-custody` writes `refs\/autosk/isu);
+  assert.match(contract, /one canonical project common Git directory, the installing user's ordinary repository.*only `autosk-flow-ref-custody` writes `refs\/autosk/isu);
+  assert.doesNotMatch(contract, /service-owned/u);
   assert.equal(schema.required.includes("ref_custody_policy_digest"), true);
   assert.match(example.ref_custody_policy_digest, /^[0-9a-f]{64}$/u);
   assert.equal(

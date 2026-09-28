@@ -147,7 +147,7 @@ In the workflow graph, `aggregate_failed` is the one class with no park reason o
 - a squash-merged and a rebase-merged PR each complete delivery, and a delivered tree other than the accepted one does not;
 - a target movement re-staged onto the moved target, with a planning change or a delta that no longer applies parking `delta_stale`;
 - planning artifacts and approved code both present in the final staging tree;
-- a direct write to the staging ref from the extension, model or project account fails, and every create, advance and delete goes through the helper's staging actions (`epic-planning-ref.md` obligation 39).
+- a direct write to the staging ref from the model account fails, one from the installing user's account — the extension's or the user's own tools — is found at the helper's next expected-old CAS and parks rather than being overwritten or adopted, and every create, advance and delete goes through the helper's staging actions (`epic-planning-ref.md` obligation 39, `platform-support.md` §5a).
 
 ## 10. Acceptance mapping
 

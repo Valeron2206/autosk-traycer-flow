@@ -1245,7 +1245,7 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   (\`src/git/ref-custody-helper.ts\`) does not exist: patches \`0016\`–\`0022\` and
   \`0024\` are the store-lock helper, its protocol and trusted-state write fixes,
   and no patch touches \`refs/autosk\`, so no fault group shows anything about a helper-mediated CAS or the
-  separate-account boundary: ${gitRecorded
+  model account's boundary: ${gitRecorded
     ? `the groups whose fault step writes a ref (${gitFaultGroups.map((entry) => `\`${entry.id}\``).join(', ') || 'none'}, as the run
   recorded them) run the harness's own git commands, and none of them goes through a host driver, the daemon or a ref-custody helper (section 5).`
     : 'the run did not record which fault groups write a ref, and none of the fault harness\'s cases runs a host driver or the daemon (section 5).'} The preflight names
@@ -1273,7 +1273,29 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   \`workflows[]\` and requires the boundary of each; its required sets' one
   caller outside tests is \`autosk-flow doctor --workflow\`, and nothing calls
   the preflight before a model launch yet (ADR-090);
-  that dispatch gate is #34's in matrix v1 (ADR-097).
+  that dispatch gate is #34's in matrix v1 (ADR-097), and its call before each model launch is #18's launch path (ADR-102).
+- The model account, its launch mechanism and both checks are design with owners, implemented nowhere.
+  Every model process the series starts, \`claude-agent\`'s and \`pi-agent\`'s among them,
+  is a child of autoskd under autoskd's uid, the installing user's: no patch of the series drops a uid
+  (patch \`0028\`'s \`autoskEnv\` sets only the environment). The platform contract's §5b gives
+  them a dedicated unprivileged account, \`autosk-model\`, which the privileged install creates
+  together with the one mechanism autoskd starts model processes under it through,
+  a sudoers rule limited to the model runtimes or a service-manager unit, never a setuid binary of this project,
+  which kills a model process tree whole on a timeout, since autoskd cannot signal another uid;
+  the account opens no Git directory of the project and reaches no signer, secure store,
+  keychain or autoskd's RPC token. Until that exists, a model process holds autoskd's rights over the project's Git
+  directory, the target ref included, and over the installing user's keychain.
+  The ref-custody helper runs as the installing user, and the project's Git directory stays the user's (§5a):
+  a protected ref the user's own tools move is found by the helper's compare-and-swap, not denied by the OS. The doctor checks
+  \`security.model_account\`, which every model workflow requires, and \`security.ref_custody\`,
+  which every workflow that reaches a step asking the ref-custody helper requires — \`autosk-planned\`, \`autosk-quick\` and \`autosk-ticket\`,
+  as the graph derives them — answer \`unverifiable\`: no probe
+  of either exists, so nothing parks \`ref_custody_unavailable\` at project open,
+  and no platform park reason of its §7 has a producer.
+  The ref-custody policy's schema admits the ADR-102 profile, the helper as the installing user, beside its committed example,
+  which predates ADR-102: the example's digest is computed over the example alone
+  and carried by the committed signed goldens, which #5 signs again when the example changes.
+  Matrix v1 gives #13 the account, its launch mechanism and both probes, #11 the model process environment, #18 the launch path, and #5 with #13 the helper's bootstrap (ADR-102).
 - ${srcCallers.length === 0
     ? `No product code evaluates the graph. \`buildWorkflow\` takes the caller's
   predicate evaluator and applies it at both decision sites; the files whose

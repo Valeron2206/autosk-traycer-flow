@@ -27,6 +27,13 @@ const provenance = (tool, version, nowMs, ttl) => ({
   expires_at: new Date(nowMs + ttl).toISOString(),
 });
 
+/**
+ * The account model processes run under: the one the platform install record
+ * names (`install.model_account` of platform-support.v1.json, ADR-102), held
+ * equal to it by a test.
+ */
+export const MODEL_ACCOUNT = 'autosk-model';
+
 /** Turns a thrown probe error into evidence rather than losing the run.
  *
  * A probe that throws has told us something — we could not look — and that is
@@ -439,6 +446,51 @@ export function checkRegistry(env) {
             : { unverifiable_reason: 'the daemon reported no signer identity, so the boundary could not be confirmed' }),
           evidence,
           remediation: distinct ? undefined : 'The daemon did not report a signer identity distinct from this process.',
+          provenance: fast(),
+        };
+      },
+    },
+    {
+      id: 'security.model_account',
+      category: 'security',
+      async run() {
+        // Model processes run under the model account the privileged install
+        // creates, started through the mechanism it sets up — never a setuid
+        // binary of this project — and that account writes no Git directory of
+        // the project and reaches no signer, secure store or keychain
+        // (platform-support.md §5b, ADR-102). Proving that means looking as
+        // that account, and no probe that does exists in this repository: the
+        // account, its launch and the probe are #13's. Until the probe exists
+        // the check says it could not look, which blocks every workflow that
+        // runs a model step, rather than passing on a boundary nobody checked.
+        return {
+          status: 'unverifiable',
+          evidence: { probe: 'none', account: MODEL_ACCOUNT },
+          unverifiable_reason:
+            `no probe of the model account ${MODEL_ACCOUNT} exists yet: the privileged install that creates it and the mechanism model processes are started through, and the probe that proves them, are #13's`,
+          provenance: fast(),
+        };
+      },
+    },
+    {
+      id: 'security.ref_custody',
+      category: 'security',
+      async run() {
+        // The ref-custody helper of platform-support.md §5a: a process of the
+        // installing user with its own socket, intents and journal, and the
+        // pins its bootstrap sets on the installing user's repository —
+        // gc.packRefs=false, loose protected refs, reflog retention, the Git
+        // directory closed to other accounts (ADR-095, ADR-102). The probe
+        // that proves them, and parks `ref_custody_unavailable` at project
+        // open when it cannot, is #13's with #5, and none exists here; this
+        // check is where that probe's answer goes, so a helper or pins it
+        // cannot prove are a `fail` carrying that park reason once it exists.
+        // Until then no workflow that reaches a step asking the helper starts.
+        return {
+          status: 'unverifiable',
+          evidence: { probe: 'none' },
+          unverifiable_reason:
+            "no probe of the ref-custody helper exists yet: the probe of its process, its socket and journal and the repository's pins, and the park of ref_custody_unavailable at project open when they are not proven, are #13's with #5",
           provenance: fast(),
         };
       },

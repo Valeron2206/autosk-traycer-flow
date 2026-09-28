@@ -146,11 +146,13 @@
       "additionalProperties": false,
       "required": [
         "binaries",
+        "binaries_run_as",
         "setuid_allowed",
         "setgid_allowed",
         "world_writable_install_allowed",
         "digest_bound_to_runtime_identity",
-        "ref_custody_service"
+        "ref_custody_service",
+        "model_account"
       ],
       "properties": {
         "binaries": {
@@ -161,6 +163,9 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "binaries_run_as": {
+          "const": "installing_user"
         },
         "setuid_allowed": {
           "const": false
@@ -187,10 +192,13 @@
             "peer_credential_apis",
             "socket_accepts",
             "protected_ref_writer",
+            "protected_paths",
+            "git_directory_owner",
             "git_directory_writers",
-            "user_account_git_writes",
-            "privileged_install",
-            "identity_pinned_by"
+            "protected_ref_guard",
+            "bootstrap",
+            "identity_pinned_by",
+            "checked_by"
           ],
           "properties": {
             "component": {
@@ -210,10 +218,10 @@
               }
             },
             "runs_as": {
-              "const": "dedicated_service_account"
+              "const": "installing_user"
             },
             "runs_as_installing_user": {
-              "const": false
+              "const": true
             },
             "service_managers": {
               "type": "array",
@@ -243,28 +251,41 @@
             "protected_ref_writer": {
               "const": "autosk-flow-ref-custody"
             },
-            "git_directory_writers": {
+            "protected_paths": {
               "const": [
-                "autosk-flow-ref-custody",
-                "autoskd"
+                "refs/autosk/**",
+                "logs/refs/autosk/**"
               ]
             },
-            "user_account_git_writes": {
-              "const": false
+            "git_directory_owner": {
+              "const": "installing_user"
             },
-            "privileged_install": {
+            "git_directory_writers": {
+              "const": {
+                "protected_refs": [
+                  "autosk-flow-ref-custody"
+                ],
+                "ordinary_objects_and_refs": [
+                  "installing_user"
+                ]
+              }
+            },
+            "protected_ref_guard": {
+              "const": {
+                "model_account": "denied_by_the_os",
+                "installing_user_tools": "detected_at_the_helper_cas",
+                "packed_protected_entry": "refused_by_the_preflight"
+              }
+            },
+            "bootstrap": {
               "type": "object",
               "additionalProperties": false,
               "required": [
                 "requires_administrator",
-                "setuid_helper",
                 "effects"
               ],
               "properties": {
                 "requires_administrator": {
-                  "const": true
-                },
-                "setuid_helper": {
                   "const": false
                 },
                 "effects": {
@@ -281,6 +302,127 @@
             },
             "identity_pinned_by": {
               "const": "ref_custody_policy_digest"
+            },
+            "checked_by": {
+              "const": "security.ref_custody"
+            }
+          }
+        },
+        "model_account": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "account",
+            "owner_issues",
+            "runs_as",
+            "runs_as_installing_user",
+            "created_by",
+            "launched_by",
+            "launch_mechanisms",
+            "setuid_binary",
+            "whole_tree_termination",
+            "writes",
+            "git_directory_writes",
+            "git_directory_reads",
+            "signer_access",
+            "secure_store_access",
+            "keychain_access",
+            "daemon_capability",
+            "privileged_install",
+            "checked_by"
+          ],
+          "properties": {
+            "account": {
+              "const": "autosk-model"
+            },
+            "owner_issues": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 3,
+                "maximum": 39
+              }
+            },
+            "runs_as": {
+              "const": "dedicated_model_account"
+            },
+            "runs_as_installing_user": {
+              "const": false
+            },
+            "created_by": {
+              "const": "privileged_install"
+            },
+            "launched_by": {
+              "const": "autoskd"
+            },
+            "launch_mechanisms": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "service_manager_unit",
+                  "sudoers_rule"
+                ]
+              }
+            },
+            "setuid_binary": {
+              "const": false
+            },
+            "whole_tree_termination": {
+              "const": true
+            },
+            "writes": {
+              "const": [
+                "own_worktree_files",
+                "own_provider_session"
+              ]
+            },
+            "git_directory_writes": {
+              "const": false
+            },
+            "git_directory_reads": {
+              "const": false
+            },
+            "signer_access": {
+              "const": false
+            },
+            "secure_store_access": {
+              "const": false
+            },
+            "keychain_access": {
+              "const": false
+            },
+            "daemon_capability": {
+              "const": false
+            },
+            "privileged_install": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "requires_administrator",
+                "effects"
+              ],
+              "properties": {
+                "requires_administrator": {
+                  "const": true
+                },
+                "effects": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            },
+            "checked_by": {
+              "const": "security.model_account"
             }
           }
         }
