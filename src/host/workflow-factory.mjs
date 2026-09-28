@@ -21,7 +21,13 @@
  * REASON permits, not at one the step permits. Two reasons can park at the same
  * step and allow different targets, so reading permission off the step would let
  * a resume that one reason forbids be laundered through another that was never
- * the reason for this park.
+ * the reason for this park. A target the row declares the user's decision
+ * (`decision_targets`) is admitted only on the decision recorded under that
+ * park — a verified daemon UserDecisionRecord of this task's resume from this
+ * park into that target, which the admitter the caller hands in looks up and
+ * verifies: a round past a cap is the user's, one per decision, and so is a
+ * re-stage onto a moved target. With no admitter, or no signer, none is
+ * admitted.
  *
  * The engine calls both through ONE hook. `WorkflowDefinition.onTransit(ctx, to)`
  * is a veto, not a selector: the engine runs it for every transition — enroll,
@@ -47,6 +53,9 @@
  * was true, which is not a state machine.
  */
 
+// The one module this imports: the extensions the autosk verifiers build ship
+// this file and the canonical form beside it and nothing else, so anything
+// more is handed in (CI on #270).
 import { graphDigest } from "./workflow-graph-canonical.mjs";
 
 /**
@@ -316,14 +325,43 @@ export function select(state, from, evaluate) {
 }
 
 /**
+ * The watermark of one park of `reason`: the reason and the visit counts of
+ * its row's parks_at steps, in row order. A completion receipt and a decision
+ * leaf carry it, and each matches only while none of those steps has been
+ * re-entered — re-entry is how another park of the reason begins, and the
+ * daemon's counter records it in the same write as the position.
+ */
+function watermarkOf(reason, row, visits) {
+  return `${reason}@${row.parks_at.map((name) => `${name}:${visits[name] ?? 0}`).join(",")}`;
+}
+
+/** A decision leaf: the watermark it was recorded under, `#`, and the decision record's digest. */
+const DECISION = /^(.+)#([a-f0-9]{64})$/u;
+
+/**
+ * The admitter a factory has when its caller hands in none: it admits no
+ * decision, so a decision-gated resume is refused (fail closed).
+ */
+function noAdmitter() {
+  throw new Error("no decision admitter is handed in, so no UserDecisionRecord admits the resume");
+}
+
+/**
  * Operation 2: whether a parked flow may resume at `target`.
  *
  * Permission is read off the reason the flow parked with, never off the step it
  * parked at. `park` is the task's park record — `park.receipts` names the
- * handling steps completed under it — and `visits` is the daemon's
- * `step_visits` counter, which the receipts are checked against.
+ * handling steps completed under it, and `park.decision` the user's decision
+ * recorded under it — and `visits` is the daemon's `step_visits` counter,
+ * which the receipts and the decision are checked against. `decisions` is
+ * what a decision-gated resume is checked with: `task`, the id of the task
+ * resuming, and `admitDecision`, the caller's admitter — asked about
+ * `{ digest, task, reason, watermark, target }` once the leaf's shape and
+ * watermark hold, it admits by returning `true` (`resumeDecisionAdmitter` in
+ * `user-decision.mjs` checks the record the digest names). Without one,
+ * nothing is admitted.
  */
-export function permitsResume(state, reason, target, park = {}, visits = {}) {
+export function permitsResume(state, reason, target, park = {}, visits = {}, decisions = {}) {
   if (reason === undefined) {
     throw new GraphRefusal(
       "resume_target_not_permitted",
@@ -354,6 +392,59 @@ export function permitsResume(state, reason, target, park = {}, visits = {}) {
       `${reason} resumes only from the step its park stood at (${park.origin ?? "none recorded"}), not into ${target}`,
     );
   }
+  // A target the row declares the user's decision (`decision_targets`, which
+  // the validator holds to the graph) owes the decision recorded under THIS
+  // park (ADR-099): for a row a cap parks with, the targets that run another
+  // round — the cap bounds the rounds that run on their own, its limit is the
+  // document's and its count the durable takings, and no decision resets the
+  // one or raises the other, so a round past it is the user's, one per
+  // decision; for any other row, the targets a person's edge enters, such as
+  // a re-stage onto a moved target. A target the row does not declare owes
+  // nothing. The park record must carry `park.decision`: this park's watermark, the
+  // same one a completion receipt carries, `#`, and the digest of the daemon
+  // UserDecisionRecord that decided it. A decision recorded under an earlier
+  // park of the reason stops matching when whatever parked it again re-enters
+  // a step the row parks at, so it buys no second resume. The leaf is what the
+  // resume path writes from a verified decision (#35).
+  //
+  // The leaf's shape and park are not the decision (CodeRabbit on #270): a
+  // leaf is metadata any holder of the CLI can write, so one copied from
+  // another task parked with the same watermark would open this one. The
+  // record it names is the decision, and the caller's admitter checks it as
+  // the decision queue checks an answer (ADR-091): the record the leaf's
+  // digest names, verified under the caller's verifier — which by default
+  // knows no signer (ADR-090, #4), so on a real host today every
+  // decision-gated resume is refused — and about this task, this park and
+  // this target, answering exactly that resume. The admitter is handed in
+  // rather than imported (CI on #270), and only its plain `true` admits: a
+  // refusal it throws, or any other answer, refuses.
+  if ((row.decision_targets ?? []).includes(target)) {
+    const decided = typeof park.decision === "string" ? DECISION.exec(park.decision) : null;
+    const watermark = watermarkOf(reason, row, visits);
+    if (decided === null || decided[1] !== watermark) {
+      throw new GraphRefusal(
+        "resume_target_not_permitted",
+        `${reason} resumes into ${target} only on the user's decision recorded under this park ` +
+          `(park.decision ${watermark}#<UserDecisionRecord digest>), and ` +
+          (decided === null ? "none is recorded" : `the one recorded is ${decided[1]}'s`),
+      );
+    }
+    const { task, admitDecision = noAdmitter } = decisions ?? {};
+    let admitted = false;
+    let why = "the admitter did not admit it";
+    try {
+      admitted = admitDecision({ digest: decided[2], task, reason, watermark, target }) === true;
+    } catch (error) {
+      why = error.message;
+    }
+    if (!admitted) {
+      throw new GraphRefusal(
+        "resume_target_not_permitted",
+        `${reason} resumes into ${target} only on a verified UserDecisionRecord of task ${task}'s resume from this park ` +
+          `into ${target}, and the one ${decided[2]} names is not admitted: ${why}`,
+      );
+    }
+  }
   // A target the row names among its own steps is the recovery surface itself —
   // resuming INTO a handled_at step is how the reason gets dealt with — so it
   // owes no further evidence. Anything else is permitted through an edge out of
@@ -377,7 +468,7 @@ export function permitsResume(state, reason, target, park = {}, visits = {}) {
   if (row.parks_at.some(reaches)) return true;
   const lending = (row.handled_at ?? []).filter(reaches);
   const receipts = park.receipts ?? {};
-  const watermark = `${reason}@${row.parks_at.map((name) => `${name}:${visits[name] ?? 0}`).join(",")}`;
+  const watermark = watermarkOf(reason, row, visits);
   if (lending.some((name) => receipts[name] === watermark)) {
     return true;
   }
@@ -396,10 +487,11 @@ export function permitsResume(state, reason, target, park = {}, visits = {}) {
  * is the shape `onTransit` is specified in — the engine rejects the transition
  * on a throw and commits it otherwise.
  *
- * `context` is `{ step, parked, parkedWith, park, visits }`: the step being
- * left (empty on enroll), whether the task is parked, the reason it parked
- * with, the park record itself, and the daemon's visit counter — the record
- * and the counter are what operation 2's completion receipts answer to.
+ * `context` is `{ step, parked, parkedWith, park, visits, decisions }`: the
+ * step being left (empty on enroll), whether the task is parked, the reason it
+ * parked with, the park record itself, the daemon's visit counter — the record
+ * and the counter are what operation 2's completion receipts answer to — and
+ * what a decision-gated resume is checked with (`permitsResume`).
  */
 export function admit(state, context, to, evaluate) {
   const { step, parked, parkedWith, status } = context;
@@ -420,7 +512,7 @@ export function admit(state, context, to, evaluate) {
   // where a flow starts, and starting is not continuing.
   //
   // Measured rather than assumed, because admitting entries could have re-opened the
-  // bypass: of the ninety-nine recovery rows exactly one names an entry step among
+  // bypass: of the ninety-eight recovery rows exactly one names an entry step among
   // its targets — one row names `implement` — and that row permits
   // it while the task is parked anyway, so nothing is reachable here that was not
   // reachable before.
@@ -458,7 +550,7 @@ export function admit(state, context, to, evaluate) {
     // five targets and not this step admitted it anyway: re-entry runs the step's
     // body and its effects again, so "it grants nothing new" was not true either.
     if (parkedWith === undefined && to.step === step) return;
-    permitsResume(state, parkedWith, to.step, context.park, context.visits);
+    permitsResume(state, parkedWith, to.step, context.park, context.visits, context.decisions);
     return;
   }
 
@@ -537,8 +629,15 @@ export function parkReasonOf(metadata) {
  * `agents` supplies the body of each step's work, keyed by step name. Bodies are
  * code and belong to the distribution digest; which steps exist and which hooks
  * they declare is structure and belongs to this document.
+ *
+ * `admitDecision` is what a decision-gated resume is checked with, handed in as
+ * the evaluator is: `resumeDecisionAdmitter({ record, verifySignature })` from
+ * `user-decision.mjs`, over this project's store and the ADR-023 verifier.
+ * Without one no decision-gated resume is admitted (CodeRabbit on #270); it is
+ * handed in rather than imported, so this module needs nothing but the
+ * canonical form beside it (CI on #270).
  */
-export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
+export function buildWorkflow(document, { evaluate, agents = {}, admitDecision } = {}) {
   if (typeof evaluate !== "function") {
     throw new TypeError("buildWorkflow needs a predicate evaluator; the document declares predicates and does not decide them");
   }
@@ -630,6 +729,9 @@ export function buildWorkflow(document, { evaluate, agents = {} } = {}) {
         // the receipts are watermarks over this counter.
         park: task.metadata?.park,
         visits: task.metadata?.step_visits,
+        // What a decision-gated resume is checked with: the task that resumes,
+        // named by the record the veto just read, and the caller's admitter.
+        decisions: { task: task.id, admitDecision },
       };
       admit(state, context, to, deciding(task));
     },
@@ -668,10 +770,10 @@ async function run(state, step, work, deciding, ctx) {
   if (decision.take) {
     // A declared edge into a parking step stops the task just as surely as
     // finding no candidate does, and operation 2 reads permission off the reason.
-    // The first writing recorded a reason only on the second of those, so the
-    // edges the shipped graph draws into a human step — 221 of them — parked
-    // with whatever reason the PREVIOUS park had left behind, or with none at
-    // all, and a resume the reason permits was refused because no reason was
+    // The first writing recorded a reason only on the second of those, so
+    // every edge the shipped graph draws into a human step parked with
+    // whatever reason the PREVIOUS park had left behind, or with none at all,
+    // and a resume the reason permits was refused because no reason was
     // there.
     if (parks(state, decision.take.to)) {
       await recordPark(ctx, parkReasonFor(state, decision.take), step.name);
@@ -726,10 +828,11 @@ function onSurface(row, park, name) {
  * It is the `park_reason` of the guards that admitted it. The plan writes the
  * pairing into the predicate descriptions themselves — `cond_002` ends by naming
  * the planning-ref capability park reason, and `guard_002` carries exactly that
- * reason — and every one of the 221 edges into a human step is now guarded
- * by guards naming ONE reason, so the document answers.
+ * reason — and every edge into a human step is now guarded by guards naming
+ * ONE reason, so the document answers; the validator refuses a document where
+ * one does not (`graph_park_reason_ambiguous`).
  *
- * Nine of them named two or three. An edge is taken when all its guards hold,
+ * Some once named two or three. An edge is taken when all its guards hold,
  * so at that moment every one of those reasons was true and the document did
  * not say which to record; picking one would have given the next resume the
  * permissions of a reason nobody chose. The refusal below is what made that
@@ -816,8 +919,7 @@ async function clearParkReason(ctx) {
  * must refuse.
  */
 async function recordReceipt(ctx, stepName, reason, row, task) {
-  const visits = task?.metadata?.step_visits ?? {};
-  const watermark = `${reason}@${row.parks_at.map((name) => `${name}:${visits[name] ?? 0}`).join(",")}`;
+  const watermark = watermarkOf(reason, row, task?.metadata?.step_visits ?? {});
   const result = await ctx.exec(
     ["autosk", "metadata", "set", ctx.tasks.currentId, `park.receipts.${stepName}`, watermark],
     {

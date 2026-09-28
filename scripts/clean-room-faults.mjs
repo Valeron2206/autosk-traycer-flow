@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { collisionErrors, environmentErrors, refMovementErrors } from '../src/host/approved-delta.mjs';
-import { aggregateBinding, casAdmission, integrationAuthorizationHash, postCasErrors, resumePlan } from '../src/host/epic-staging.mjs';
+import { aggregateRecordHash, casAdmission, integrationAuthorizationHash, postCasErrors, resumePlan } from '../src/host/epic-staging.mjs';
 import { epicRefKey, stagingRef } from '../src/host/staging-driver.mjs';
 import { batchSufficiencyErrors } from '../src/host/work-type-gates.mjs';
 import { classifyExit, dispatchOutcome, waitExceeded } from '../src/host/provider-preflight.mjs';
@@ -421,7 +421,7 @@ async function f015(root) {
   const plan = resumePlan({ ...state, phase: 'accepted' });
   const admission = casAdmission(state, { oid: observed.trim() }, ['T-1'], casContext(state));
   // The control is that this admission is not unconditional: a target holding
-  // something nobody can attribute to this Epic is refused from the same state.
+  // neither the recorded base nor this Epic's result is refused from the same state.
   const foreign = casAdmission(state, { oid: 'f'.repeat(40) }, ['T-1'], casContext(state));
   await rm(repo, { recursive: true, force: true });
   return {
@@ -525,17 +525,18 @@ function acceptedState({ head, staging }) {
     verification_config_digest: 'c'.repeat(64),
     instruction_lock_digest: 'd'.repeat(64),
     staging_commit_oid: base.staging_commit_oid,
-    record_hash: 'e'.repeat(64),
+    staging_tree_oid: base.staging_tree_oid,
+    included_tickets: ['T-1'],
   };
-  // The binding is computed the way the host computes it: a hand-written one
-  // would make every case here pass for the wrong reason.
-  base.aggregate = { ...aggregate, binding: aggregateBinding({ ...base, aggregate }) };
+  // The record hash is computed the way the host computes it: a hand-written
+  // one would make every case here pass for the wrong reason.
+  base.aggregate = { ...aggregate, record_hash: aggregateRecordHash(base, aggregate) };
   base.acceptance = {
     kind: 'human',
     decision_id: 'dec-clean-room',
     staging_commit_oid: base.staging_commit_oid,
     staging_tree_oid: base.staging_tree_oid,
-    aggregate_record_hash: aggregate.record_hash,
+    aggregate_record_hash: base.aggregate.record_hash,
     included_tickets: ['T-1'],
     target_ref: base.target_ref,
     recorded_target_base: base.recorded_target_base,

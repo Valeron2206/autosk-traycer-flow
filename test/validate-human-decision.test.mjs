@@ -233,3 +233,122 @@ test("a packet's park_reason is the task's park.reason, one of the graph's recov
     );
   }
 });
+
+// --- debt 11e: a packet resumes into its row's graph step (R7-7, ADR-099) ---
+
+/** The workflow graph the shipped packets are held to, read fresh for each test. */
+const shippedGraph = async () => {
+  const { readFileSync } = await import("node:fs");
+  return JSON.parse(readFileSync(new URL("../resources/workflow-graph/workflow-graph.v1.json", import.meta.url), "utf8"));
+};
+
+test("every shipped packet resumes into a workflow the graph registers and a step its park reason's row permits (R7-7)", async () => {
+  // Round 7 of #39, R7-7: both examples resumed to {feature-dev, panel}; the
+  // graph registers no feature-dev and has no step panel, and the schema
+  // checked the target only by length, against ADR-089's point that a packet
+  // resumes into its row's graph step.
+  const graph = await shippedGraph();
+  const workflows = graph.workflows.map((entry) => entry.name);
+  for (const request of [pending(), answered()]) {
+    const row = graph.recovery.find((entry) => entry.reason === request.park_reason);
+    assert.ok(workflows.includes(request.resume_target.workflow), request.resume_target.workflow);
+    assert.ok(row.resume_targets.includes(request.resume_target.step), request.resume_target.step);
+  }
+});
+
+test("a packet naming a workflow the graph does not register, or a step its row does not permit, is refused (R7-7)", async () => {
+  assertRejects(mutated((value) => {
+    value.resume_target.workflow = "feature-dev";
+  }), /resume_target/u);
+  assertRejects(mutated((value) => {
+    value.resume_target.step = "panel";
+  }), /resume_target\.step panel is not a target the panel_waiver_required recovery row permits \(decision_packet_incomplete\)/u);
+  // A real step another row permits is not this row's.
+  const graph = await shippedGraph();
+  assert.ok(!graph.recovery.find((entry) => entry.reason === "panel_waiver_required").resume_targets.includes("accept_staging"));
+  assertRejects(mutated((value) => {
+    value.resume_target.step = "accept_staging";
+  }), /resume_target\.step accept_staging is not a target the panel_waiver_required recovery row permits/u);
+  // And the check reads the graph it is handed: the shipped packet against a
+  // graph whose row dropped the step is refused too.
+  const narrowed = JSON.parse(JSON.stringify(graph));
+  const row = narrowed.recovery.find((entry) => entry.reason === "panel_waiver_required");
+  row.resume_targets = row.resume_targets.filter((step) => step !== pending().resume_target.step);
+  assert.ok(validateRequest(pending(), requestSchema, narrowed).some((message) => /is not a target the panel_waiver_required recovery row permits/u.test(message)));
+  const renamed = JSON.parse(JSON.stringify(graph));
+  renamed.workflows = renamed.workflows.filter((entry) => entry.name !== pending().resume_target.workflow);
+  assert.ok(validateRequest(pending(), requestSchema, renamed).some((message) => /is not a workflow the graph registers/u.test(message)));
+  assert.deepEqual(validateRequest(pending(), requestSchema, graph), []);
+});
+
+test("the request schema enumerates the resume workflows from the graph, and the validator keeps them equal (R7-7)", async () => {
+  const graph = await shippedGraph();
+  const names = graph.workflows.map((entry) => entry.name).sort();
+  assert.deepEqual([...requestSchema.properties.resume_target.properties.workflow.enum].sort(), names);
+  for (const edit of [
+    (schema) => schema.properties.resume_target.properties.workflow.enum.pop(),
+    (schema) => schema.properties.resume_target.properties.workflow.enum.push("feature-dev"),
+  ]) {
+    const schema = JSON.parse(files[REQUEST_SCHEMA_PATH]);
+    edit(schema);
+    assert.ok(
+      validateHumanDecisionDesign({ ...files, [REQUEST_SCHEMA_PATH]: JSON.stringify(schema) })
+        .some((message) => /resume workflows must be exactly the workflow graph's workflows/u.test(message)),
+    );
+  }
+  // The contract says what the validator holds a packet to.
+  assert.match(files[CONTRACT_PATH], /`validate:human-decision` holds every shipped packet to it/u);
+});
+
+test("a packet's step is one its named workflow reaches: a registered workflow that cannot reach the step is refused (review L2)", async () => {
+  // Review of 11e, L2: {autosk-arena-judge, panel_join} passed — the workflow
+  // is registered and the step is one the row permits, but a judge seat never
+  // stands where a panel joins.
+  assertRejects(mutated((value) => {
+    value.resume_target.workflow = "autosk-arena-judge";
+  }), /resume_target\.step panel_join is not a step autosk-arena-judge reaches \(decision_packet_incomplete\)/u);
+  assertRejects(mutated((value) => {
+    value.resume_target.workflow = "autosk-panel-seat";
+  }), /is not a step autosk-panel-seat reaches/u);
+  const graph = await shippedGraph();
+  assert.deepEqual(validateRequest(pending(), requestSchema, graph), []);
+});
+
+// --- debt 11e narrow re-review: a step only an out-of-band entry reaches (L-a) ---
+
+test("a step only an out-of-band entry reaches is one every workflow reaches, for a row that names that entry's region, and nothing else is lent (review L-a)", async () => {
+  // Narrow re-review of 11e, L-a: the L2 fix read reach from each workflow's
+  // first step alone, so emit_blocked_anchor — entered only from
+  // authority_recovery, where the daemon puts a task of any workflow out of
+  // band — was refused under all eight workflows for the two rows that
+  // resume into it, packets that passed before.
+  const graph = await shippedGraph();
+  const packet = (workflow, step, reason) => mutated((value) => {
+    value.park_reason = reason;
+    value.resume_target.workflow = workflow;
+    value.resume_target.step = step;
+  });
+  for (const reason of ["project_boundary_invalid", "authority_journal_truncated"]) {
+    assert.ok(graph.recovery.find((entry) => entry.reason === reason).resume_targets.includes("emit_blocked_anchor"), reason);
+    for (const { name } of graph.workflows) {
+      assert.deepEqual(validateRequest(packet(name, "emit_blocked_anchor", reason), requestSchema, graph), [], `${name}, ${reason}`);
+    }
+  }
+  // Seeding every workflow's reach with the out-of-band entries would reopen
+  // L2: authority_recovery leads through prepare_anchor_impact into the
+  // planning steps. A judge seat still never stands where a panel joins.
+  assertRejects(packet("autosk-arena-judge", "panel_join", "panel_waiver_required"),
+    /resume_target\.step panel_join is not a step autosk-arena-judge reaches/u);
+  // The region is lent only to a row that names a step of it: another row
+  // that lists the step borrows nothing.
+  const lent = JSON.parse(JSON.stringify(graph));
+  lent.recovery.find((entry) => entry.reason === "cas_conflict").resume_targets.push("emit_blocked_anchor");
+  assert.ok(validateRequest(packet("autosk-planned", "emit_blocked_anchor", "cas_conflict"), requestSchema, lent)
+    .some((message) => /resume_target\.step emit_blocked_anchor is not a step autosk-planned reaches/u.test(message)));
+  // And the entry is read from the graph, not named here: a graph that does
+  // not enter authority_recovery out of band reaches the step nowhere.
+  const unentered = JSON.parse(JSON.stringify(graph));
+  unentered.entry_steps = unentered.entry_steps.filter((entry) => entry.step !== "authority_recovery");
+  assert.ok(validateRequest(packet("autosk-planned", "emit_blocked_anchor", "authority_journal_truncated"), requestSchema, unentered)
+    .some((message) => /is not a step autosk-planned reaches/u.test(message)));
+});

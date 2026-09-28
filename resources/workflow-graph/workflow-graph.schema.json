@@ -365,7 +365,7 @@
             }
           },
           "handled_at": {
-            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 74 of the 99 rows name none, and the widest holds 35 of the 47 steps its row names. Bounded by the step count for the same reason as parks_at.",
+            "description": "The steps this row names that the graph never parks the reason at: where it is dealt with, and where resume leaves from. Optional, because 73 of the 98 rows name none, and the widest holds 35 of the 47 steps its row names. Bounded by the step count for the same reason as parks_at.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
@@ -376,6 +376,16 @@
           },
           "resume_targets": {
             "description": "Every entry must be a declared edge from one of this reason's parks_at or handled_at steps. A target outside that union is refused with graph_reasons.resume_target_not_permitted. Bounded by the step count for the same reason as parks_at.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "maxItems": 512,
+            "items": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "decision_targets": {
+            "description": "The resume targets that are the user's decision: a resume into one is admitted only on the decision recorded under this park (park.decision, the park's watermark, '#', and the digest of the daemon UserDecisionRecord that decided it), a record the caller looks up and verifies, of this task's resume from this park into that target. A set drawn from resume_targets. For a row a cap parks with, exactly the targets from which a step the row parks at is reachable without passing through a person's stop — a step where only a person moves the flow on, one with no edge out or whose every edge out carries a guard with a person's authority — the targets that run another round; for any other row that declares it, exactly the targets an edge carrying a person's guard with this reason enters from a step the row parks at. Absent, no resume from the row owes a decision. The row's required_state names park.decision exactly when it declares this. The validator refuses anything else with graph_recovery_decision_targets_invalid.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,

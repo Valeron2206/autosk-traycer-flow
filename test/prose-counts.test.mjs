@@ -1221,7 +1221,7 @@ test("every count quoted in normative prose recomputes to the number the sentenc
       measured: [unprefixedClosed.length],
     },
     {
-      id: "graph §8: things a recovery row names — its array-typed fields in the schema (`parks_at`, `handled_at`, `resume_targets`)",
+      id: "graph §8: things a recovery row names — its array-typed fields in the schema (`parks_at`, `handled_at`, `resume_targets`, `decision_targets`)",
       text: graphContract,
       pattern: /A row names ([\w,-]+) things, and each of the ([\w,-]+) is one statement/,
       measured: [rowListFields, rowListFields],

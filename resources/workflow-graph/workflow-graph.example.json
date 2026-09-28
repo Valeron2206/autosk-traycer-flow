@@ -293,7 +293,10 @@
       "resume_targets": [
         "freeze_artifact"
       ],
-      "required_state": "a daemon decision names a new finite limit; without a limit is not a decision and the schema does not accept it"
+      "decision_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "the count is never reset and the limit never raised; a resume into freeze_artifact, one round past the cap, is only the user's, on a daemon UserDecisionRecord recorded under this park (park.decision)"
     },
     {
       "reason": "quick_classification_invalid",
@@ -316,7 +319,7 @@
       "required_state": "a new anchor version, a daemon impact disposition, and current authority, alignment and classifier hashes"
     }
   ],
-  "canonical_digest": "33c7b1902fdc222f6b1a5fff5e1ee2fea27d91eba736a9cb87963da260782c6f",
+  "canonical_digest": "8d321ed50c6e488816f920da2ac62079b0dfb4023d192005fbe98a4ab43aeb02",
   "external_operations": [
     {
       "status": "cancel",

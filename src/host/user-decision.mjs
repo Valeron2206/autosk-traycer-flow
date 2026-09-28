@@ -16,7 +16,8 @@
  *
  * It names no refusal of its own: each caller passes the code its contract
  * declares (the decision queue `decision_approver_mismatch`, the Epic
- * acceptance `acceptance_missing`).
+ * acceptance `acceptance_missing`, the workflow factory's resume
+ * `resume_target_not_permitted`).
  */
 import { canonicalBytes, demand, digest, immutable, sha256 } from '../runtime/contracts.mjs';
 
@@ -79,6 +80,7 @@ export const SIGNATURE_DOMAIN = 'autosk-flow/user-presence-challenge/v1';
 const RECORD_DOMAIN = 'autosk-flow/user-decision-record/v1';
 const PROVENANCE_DOMAIN = 'autosk-flow/user-decision-provenance/v1';
 const PAYLOAD_DOMAIN = 'autosk-flow/user-decision-payload/v1';
+const RESUME_DECISION_DOMAIN = 'autosk-flow/resume-decision/v1';
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const HEX = /^[a-f0-9]{64}$/u;
@@ -140,6 +142,54 @@ export function userDecisionProvenance(record) {
 /** The digest of the answer a record signs: its `payload_hash`. */
 export function decisionPayloadHash(payload) {
   return digest(PAYLOAD_DOMAIN, payload);
+}
+
+/**
+ * What a decision to resume a parked task into a target is about: the
+ * `subject_hash` a UserDecisionRecord that decides such a resume signs. It is
+ * the task, the park — its reason and its watermark, the visit counts of the
+ * reason's `parks_at` steps when the park was recorded — and the target, so a
+ * record decides one resume of one task from one park and nothing else
+ * (CodeRabbit on #270). The answer the record signs is
+ * `decisionPayloadHash({ resume_target })`.
+ */
+export function resumeDecisionSubject({ task_id, reason, watermark, target }) {
+  return digest(RESUME_DECISION_DOMAIN, { task_id, reason, watermark, target });
+}
+
+/**
+ * The admitter a caller hands the workflow factory for a decision-gated
+ * resume (CodeRabbit and CI on #270).
+ *
+ * The factory reads the park's leaf — its watermark is this park's — and asks
+ * this about the rest: `{ digest, task, reason, watermark, target }`, the
+ * record digest the leaf names, the resuming task, and the park and target.
+ * It answers `true` only for the record `record(digest)` returns from this
+ * project's store when its digest is the one named, it verifies under
+ * `verifySignature` — `noSigner` by default, under which nothing is admitted —
+ * and it decided exactly this: this task (`task_id`), this task's resume from
+ * this park into this target (`resumeDecisionSubject`) and that resume as its
+ * answer (`decisionPayloadHash({ resume_target })`). Anything else is refused
+ * with the factory's `resume_target_not_permitted`.
+ *
+ * It lives here rather than in the factory so the factory stays one module
+ * beside the canonical form: the extensions the autosk verifiers build ship
+ * only those two files.
+ */
+export function resumeDecisionAdmitter({ record: lookup, verifySignature = noSigner } = {}) {
+  return ({ digest: named, task, reason, watermark, target }) => {
+    const record = typeof lookup === 'function' ? lookup(named) : undefined;
+    const signed = verifiedUserDecision(record, { code: 'resume_target_not_permitted', verifySignature });
+    demand(signed.record_hash === named, 'resume_target_not_permitted',
+      'The store holds another UserDecisionRecord than the one the leaf names', { named });
+    demand(record.task_id === task, 'resume_target_not_permitted',
+      "The UserDecisionRecord decided another task's resume", { task: task ?? null, decided: record.task_id ?? null });
+    demand(record.subject_hash === resumeDecisionSubject({ task_id: task, reason, watermark, target }), 'resume_target_not_permitted',
+      'The UserDecisionRecord is about another park or target', { reason, target });
+    demand(record.payload_hash === decisionPayloadHash({ resume_target: target }), 'resume_target_not_permitted',
+      'The UserDecisionRecord answered something other than this resume', { target });
+    return true;
+  };
 }
 
 /** The signed bytes and the challenge they decode to, or a refusal. */

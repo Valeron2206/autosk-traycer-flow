@@ -58,52 +58,6 @@ export function lineageFor(receipts, { base, head }) {
   });
 }
 
-/**
- * Two Epics staging onto one target.
- *
- * They may run at once; what they may not do is record the same base while
- * neither has integrated. The second to swap would then advance a branch from a
- * base that no longer describes it, and its aggregate verified a tree that is
- * not what would land.
- */
-export function crossEpicErrors(lineages) {
-  const errors = [];
-  const byTarget = new Map();
-  for (const lineage of lineages) {
-    const key = `${lineage.target_ref}`;
-    byTarget.set(key, [...(byTarget.get(key) ?? []), lineage]);
-  }
-  for (const [target, group] of byTarget) {
-    const open = group.filter((lineage) => lineage.integrated !== true);
-    const bases = new Map();
-    for (const lineage of open) {
-      const existing = bases.get(lineage.recorded_target_base);
-      if (existing) {
-        errors.push({
-          reason: 'foreign_target_movement',
-          detail: `${existing} and ${lineage.epic_id} both staged ${target} from ${lineage.recorded_target_base}`,
-        });
-        continue;
-      }
-      bases.set(lineage.recorded_target_base, lineage.epic_id);
-    }
-    for (const lineage of open) {
-      // A base taken from inside another Epic's unintegrated chain is a base
-      // that only exists if that Epic lands first, which nobody promised.
-      for (const other of open) {
-        if (other.epic_id === lineage.epic_id) continue;
-        if ((other.chain ?? []).some((link) => link.staging_commit_oid === lineage.recorded_target_base)) {
-          errors.push({
-            reason: 'foreign_target_movement',
-            detail: `${lineage.epic_id} staged from a commit inside ${other.epic_id}'s unintegrated lineage`,
-          });
-        }
-      }
-    }
-  }
-  return errors;
-}
-
 /** The digest of a receipt, over the fields that decide what it says. */
 export function receiptDigest(receipt) {
   return sha256(JSON.stringify({

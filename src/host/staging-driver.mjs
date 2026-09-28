@@ -123,33 +123,20 @@ export async function createStaging(custody = NO_REF_CUSTODY, { epicRefKey: key,
 }
 
 /**
- * Whether a movement is one this Epic can account for.
- *
- * A fast-forward this Epic recorded and a commit someone else pushed look
- * identical as OIDs. The difference is whether the observed commit is one this
- * Epic wrote down — and overwriting a movement nobody can attribute is the one
- * outcome that cannot be undone by retrying.
- */
-export async function attributable(git, { observed, recorded }) {
-  for (const oid of recorded) {
-    const result = await git(['merge-base', '--is-ancestor', observed, oid]);
-    if (result.code === 0) return true;
-    if (result.code !== 1) {
-      demand(false, 'environment_failure', `git merge-base exited ${result.code}`, { observed, oid });
-    }
-  }
-  return false;
-}
-
-/**
  * What the target ref currently is, in the shape #9's guards consume.
  *
  * `reflog_entries` is a delta, not a total: a long-lived branch has a long
  * reflog and that says nothing about this operation. What the guards ask is
  * whether the ref moved once during the window, and that is the difference
  * between the depth before and the depth now.
+ *
+ * It attributes no movement to the Epic. Under the one CAS the Epic moves the
+ * target once, and its own result is what `casAdmission` reads first; a
+ * target on an ancestor of a commit the Epic wrote — a rewind below the base,
+ * someone else's fast-forward into the Epic's unlanded line — is still
+ * someone else's movement (R7-16, ADR-099).
  */
-export async function observeTarget(git, { ref, recorded = [], recordedResult, reflogBefore = 0 }) {
+export async function observeTarget(git, { ref, recordedResult, reflogBefore = 0 }) {
   const oid = await readRef(git, ref);
   demand(oid !== null, 'environment_failure', 'The target ref does not exist', { ref });
   const tree = await ask(git, ['rev-parse', `${oid}^{tree}`]);
@@ -158,7 +145,6 @@ export async function observeTarget(git, { ref, recorded = [], recordedResult, r
     oid,
     tree_oid: tree.stdout.trim(),
     reflog_entries: depth - reflogBefore,
-    attributed_to_this_epic: await attributable(git, { observed: oid, recorded }),
   };
   if (recordedResult) {
     const contained = await git(['merge-base', '--is-ancestor', recordedResult, oid]);

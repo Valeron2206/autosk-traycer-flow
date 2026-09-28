@@ -14,11 +14,24 @@
  * both returning `{ code, stdout, stderr }`; `run` reports a command that could
  * not start as `code: null`.
  */
-import { createHash } from 'node:crypto';
+import { canonicalBytes, closedRecord, demand, digest, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
-import { demand, immutable } from '../runtime/contracts.mjs';
+import { aggregateRecordHash } from './epic-staging.mjs';
 
-import { aggregateBinding } from './epic-staging.mjs';
+const SHA256 = /^[a-f0-9]{64}$/u;
+const PROJECT_IDENTITY = /^sha256:[a-f0-9]{64}$/u;
+const VERIFICATION_CONFIG_DOMAIN = 'autosk-flow/verification-config/v1';
+
+/** A string the record's canonical identity can carry: present, non-empty, NFC, no NUL or lone surrogate. */
+function identityString(value) {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  try {
+    canonicalBytes(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function ask(git, args, options = {}) {
   const result = await git(args, options);
@@ -92,11 +105,54 @@ export async function runCheck(run, check, { cwd, env }) {
 /**
  * Runs every check on the exact staging tree and records what happened.
  *
- * The record is bound by `aggregateBinding` to the staging identity, the
- * verification configuration and the instruction lock, so a PASS cannot be
- * carried to a tree it was not run on or to a rule set it was not run under.
+ * Returns `{ aggregate, results, worktree_removed }`. `aggregate` is the record
+ * the staging record carries, and exactly the closed `aggregate` of
+ * `resources/epic-staging/epic-staging.schema.json`: the staging commit and
+ * tree, the verification configuration and instruction-lock digests, the
+ * included Tickets, the outcome, and `record_hash` over all of them and the
+ * project and Epic (`aggregateRecordHash`), so a PASS cannot be carried to a
+ * tree it was not run on or to a rule set it was not run under, and the
+ * acceptance that binds the hash binds both. What each check did and whether
+ * the throwaway worktree went are this run's evidence, reported beside the
+ * record rather than written into it (debt 11e, ADR-099).
+ *
+ * The configuration digest is always the digest of what this run executes
+ * (`checksDigest(checks, env)`), never one carried in: a prior record in the
+ * state is the previous run's evidence and pins nothing, so a run under other
+ * checks is another record, and the acceptance of the old one is stale. The
+ * caller pins what it must: `verificationConfigDigest`, when given, is the
+ * configuration the run must be, and one the checks are not is refused before
+ * anything runs; `instructionLockDigest` is the instruction lock in force,
+ * which the caller hands in and the record binds (review of 11e, H1).
+ *
+ * Everything the record is hashed over is checked before the checkout — the
+ * project and Epic, the staging commit and tree, the lock, a Ticket for every
+ * receipt — so a state the record cannot be written for runs nothing, rather
+ * than running every check and losing the evidence to a late throw (review of
+ * 11e, L1). So is the check set: it names at least one check, since a PASS
+ * over none verifies nothing, and each check is a plain closed record, so the
+ * digest covers exactly what `runCheck` reads (narrow re-review of 11e).
  */
-export async function verifyAggregate({ git, run, state, checks, dir, env = {} }) {
+export async function verifyAggregate({ git, run, state, checks, dir, env = {}, instructionLockDigest, verificationConfigDigest }) {
+  demand(PROJECT_IDENTITY.test(state.project_identity) && identityString(state.epic_id)
+      && oneObjectFormat([state.staging_commit_oid, state.staging_tree_oid]) !== null, 'aggregate_binding_void',
+    'The aggregate record binds the project, the Epic and the staging commit and tree, and the state does not name them all',
+    { project_identity: state.project_identity ?? null, epic_id: state.epic_id ?? null });
+  demand(Array.isArray(checks) && checks.length > 0, 'aggregate_binding_void',
+    'The aggregate runs at least one check: a PASS over none verifies nothing');
+  const verification_config_digest = checksDigest(checks, env);
+  demand(verificationConfigDigest === undefined || verificationConfigDigest === verification_config_digest, 'aggregate_binding_void',
+    'The checks are not the verification configuration the caller pinned',
+    { pinned: verificationConfigDigest, executed: verification_config_digest });
+  const instruction_lock_digest = instructionLockDigest;
+  demand(SHA256.test(instruction_lock_digest ?? ''), 'aggregate_binding_void',
+    'The aggregate record binds the instruction lock in force, and the caller named none',
+    { instruction_lock_digest: instruction_lock_digest ?? null });
+  const receipts = state.receipts ?? [];
+  demand(receipts.every((receipt) => identityString(receipt?.ticket_id)), 'receipt_missing',
+    'Every receipt names the Ticket it integrated');
+  const included = [...new Set(receipts.map((receipt) => receipt.ticket_id))].sort();
+  demand(included.length > 0, 'receipt_missing', 'The aggregate verifies the Tickets the receipts name, and none is named');
   const checkout = await checkoutStaging(git, { dir, commit: state.staging_commit_oid });
   const results = [];
   let cleanup;
@@ -117,33 +173,46 @@ export async function verifyAggregate({ git, run, state, checks, dir, env = {} }
     // this run and nothing after it should inherit one.
     cleanup = await removeWorktree(git, dir);
   }
-  const environmentFailure = results.find((result) => result.outcome === 'environment_failure');
-  const failed = results.filter((result) => result.outcome === 'fail');
+  const environmentFailure = results.some((result) => result.outcome === 'environment_failure');
+  const failed = results.some((result) => result.outcome === 'fail');
   const aggregate = {
-    outcome: environmentFailure ? 'indeterminate' : failed.length === 0 ? 'pass' : 'fail',
-    environment_outcome: environmentFailure ? 'environment_failure' : 'ok',
-    detail: environmentFailure?.detail ?? (failed[0] ? `${failed[0].id} exited ${failed[0].exit_code}` : null),
-    verification_config_digest: state.aggregate?.verification_config_digest ?? checksDigest(checks),
-    instruction_lock_digest: state.aggregate?.instruction_lock_digest,
     staging_commit_oid: state.staging_commit_oid,
+    staging_tree_oid: checkout.tree_oid,
+    verification_config_digest,
+    instruction_lock_digest,
+    included_tickets: included,
+    outcome: environmentFailure ? 'indeterminate' : failed ? 'fail' : 'pass',
+    environment_outcome: environmentFailure ? 'environment_failure' : 'ok',
+  };
+  aggregate.record_hash = aggregateRecordHash(state, aggregate);
+  return Object.freeze({
+    aggregate: Object.freeze({ ...aggregate, included_tickets: immutable(aggregate.included_tickets) }),
     results: immutable(results),
     worktree_removed: cleanup.removed,
-  };
-  aggregate.record_hash = createHash('sha256')
-    .update(JSON.stringify({
-      outcome: aggregate.outcome,
-      environment_outcome: aggregate.environment_outcome,
-      staging_commit_oid: aggregate.staging_commit_oid,
-      results: results.map((result) => ({ id: result.id, outcome: result.outcome })),
-    }), 'utf8')
-    .digest('hex');
-  aggregate.binding = aggregateBinding({ ...state, aggregate });
-  return Object.freeze(aggregate);
+  });
 }
 
-/** The digest of the checks that were run, when the state does not carry one. */
-export function checksDigest(checks) {
-  return createHash('sha256')
-    .update(JSON.stringify(checks.map((check) => [check.id, check.command, ...(check.args ?? [])])), 'utf8')
-    .digest('hex');
+/**
+ * The verification configuration a run executes, as its digest.
+ *
+ * Each check's full spec, in the order the run takes them — its id, command
+ * and args (absent args run as none, so they are `[]`) and every other field
+ * it carries — and the environment the run hands every check, under one
+ * domain-separated canonical digest. A caller that pins a configuration pins
+ * this (review of 11e, H1).
+ *
+ * A check is a plain closed record, as the canonical identity holds `env`: an
+ * inherited or accessor field is one `runCheck` reads and a copy of the own
+ * fields would drop, so two checks running different commands would share a
+ * digest. One that is not is refused (`invalid_record`) before anything is
+ * digested (narrow re-review of 11e, L-b).
+ */
+export function checksDigest(checks, env = {}) {
+  return digest(VERIFICATION_CONFIG_DOMAIN, {
+    checks: checks.map((check) => {
+      closedRecord(check, Object.keys(check));
+      return { ...check, args: check.args ?? [] };
+    }),
+    env,
+  });
 }

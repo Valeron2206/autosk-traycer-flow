@@ -680,6 +680,9 @@ test("every path the rewrite treats as a set is one the canonicalizer sorts", ()
     "recovery.*.handled_at": {
       recovery: [{ reason: "r", parks_at: [], handled_at: ["b", "a"] }],
     },
+    "recovery.*.decision_targets": {
+      recovery: [{ reason: "r", parks_at: [], decision_targets: ["b", "a"] }],
+    },
     "decision_options": { decision_options: ["b", "a"] },
     "views.*.cases": { views: [{ rows: [], cases: ["b", "a"] }] },
     "views.*.rows.*.rule.requires": {
@@ -876,6 +879,9 @@ test("ASTRA-S1-04: every refusal reachable from a real input is declared", () =>
     // provokes it incidentally, but the defect it exists for was a reachable step
     // with no exit, so the battery provokes it that way too.
     (document) => { document.transitions = document.transitions.filter((edge) => edge.from !== "record_alignment"); },
+    // And a cap row's decision targets that are not the targets running
+    // another round (review of 11e, M1), for the same reason.
+    (document) => { document.recovery.find((row) => row.reason === "review_cap").decision_targets = ["freeze_artifact", "record_artifact_pass"]; },
     // And the cap predicate's undeclared quantity, for the same reason.
     (document) => {
       document.predicates.push({ id: "rounds_left", reads: ["authority_record_id"], description: "round < cap" });
@@ -1113,24 +1119,26 @@ test("the quantity rule binds the cap's predicates only, not every description n
   // The negative half, and the measurement that chose it. A predicate's
   // `reads` declares the state it inspects, not every word its sentence may
   // use: most descriptions name a word of the vocabulary their own list does
-  // not carry — 323 of the shipped document's 434, counted at identifier
+  // not carry — 321 of the shipped document's 432, counted at identifier
   // boundaries, which is the tokenization this measurement is stated in. A
   // rule keyed on per-predicate disagreement would redden that lawful
   // majority and could never go green. What is refused is the narrower shape:
   // a cap predicate comparing `cap` with a quantity ABSENT FROM THE WHOLE
   // VOCABULARY — which is what `round` was until it was named. The shipped
-  // document passes the check while carrying all 323 (320 until debt 10b
+  // document passes the check while carrying all 321 (320 until debt 10b
   // added the foreign-movement and delivery re-stage resumes, whose
   // `park.reason=` names a word outside their reads the way target_moved's
   // resume already did; 323 since debt 11a parked a missing ref-custody
   // capability at apply_staging, whose description says the staging `ref`
-  // and the `target` ref are untouched, as the other apply_staging rows do).
+  // and the `target` ref are untouched, as the other apply_staging rows do;
+  // 321 since debt 11e removed target_moved's park and resume, cond_445 and
+  // cond_448, both of this population).
   const graph = document();
   const vocabulary = new Set(graph.predicates.flatMap((entry) => entry.reads));
   const atBoundary = (word) => new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`, "u");
   const broad = graph.predicates.filter((entry) =>
     [...vocabulary].some((word) => !entry.reads.includes(word) && atBoundary(word).test(entry.description)));
-  assert.equal(broad.length, 323, "the broad-rule population moved — remeasure before blaming the check");
+  assert.equal(broad.length, 321, "the broad-rule population moved — remeasure before blaming the check");
   assert.deepEqual(
     validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
     [],
@@ -2043,4 +2051,159 @@ test("a workflow name outside the registered-workflow spelling is a shape refusa
     }),
     "graph_schema",
   );
+});
+
+// --- debt 11e review: which resumes are the user's decision is declared, and held to the graph (M1, M2) ---
+
+/** The shipped document, resealed after a mutation so only the mutation is refused. */
+const shippedGraph = (mutate = () => {}) => {
+  const document = parseStrict(readFileSync(new URL(`../${DOCUMENT_PATH}`, import.meta.url), "utf8"));
+  mutate(document);
+  document.canonical_digest = graphDigest(document);
+  return document;
+};
+
+test("a row's decision targets are held to the graph: a cap row's are exactly the targets that run another round, any other row's exactly the targets its person's edges enter (review M1, M2)", () => {
+  // Review of 11e: the first fix gated every review_cap target, the hand-off
+  // out of the Quick classification and staying parked included, and left
+  // foreign_target_movement's re-stage ungated. The graph now declares which
+  // resume targets are the user's decision, and the validator holds the
+  // declaration to the graph rather than to a hand-kept list.
+  assert.deepEqual(validateGraph(shippedGraph(), schema), []);
+  const row = (document, reason) => document.recovery.find((entry) => entry.reason === reason);
+  for (const [label, mutate] of [
+    // A cap row: a target from which a step the cap parks at is reachable
+    // without passing through human runs another round, and only those owe it.
+    ["review_cap without rebuild_code_anchor, which reaches record_code_verdict", (document) => {
+      row(document, "review_cap").decision_targets = row(document, "review_cap").decision_targets.filter((target) => target !== "rebuild_code_anchor");
+    }],
+    ["review_cap with human, which runs nothing", (document) => { row(document, "review_cap").decision_targets.push("human"); }],
+    ["review_cap with the Quick hand-off, which leads only to done or human", (document) => {
+      row(document, "review_cap").decision_targets.push("invalidate_quick_classification");
+    }],
+    // Any other row that declares: its targets are exactly the ones an edge
+    // carrying a person's guard with its reason enters from a step it parks
+    // at — the decision the graph already draws as a person's.
+    ["foreign_target_movement with human, entered by an agent's edge", (document) => { row(document, "foreign_target_movement").decision_targets.push("human"); }],
+    ["completion_predicate_unmet with deliver_staging, which no person's edge enters", (document) => { row(document, "completion_predicate_unmet").decision_targets.push("deliver_staging"); }],
+    ["epic_boundary_invalid with draft_artifact alone, when its person's edges enter four more of its targets", (document) => {
+      row(document, "epic_boundary_invalid").decision_targets = ["draft_artifact"];
+    }],
+    // And a declared target is always one the row permits.
+    ["completion_predicate_unmet with a step it does not list", (document) => { row(document, "completion_predicate_unmet").decision_targets.push("accept_staging"); }],
+  ]) {
+    const errors = validateGraph(shippedGraph(mutate), schema);
+    assert.ok(errors.some((message) => message.startsWith("graph_recovery_decision_targets_invalid:")), `${label}:\n${errors.join("\n") || "(no findings)"}`);
+  }
+});
+
+test("every row whose required state says a resume waits on a recorded decision declares it (review M2)", () => {
+  // The inventory is read from the text and pinned, so a row that starts to
+  // say so without declaring the target, or stops saying so, fails here. The
+  // narrow re-review of 11e (L-c) found the first pattern read only exact
+  // wording; the validator now holds the marker itself (park.decision), and
+  // this pattern reads the ways a row can say it without the marker too.
+  const graph = shippedGraph();
+  const says = /park\.decision|\brecorded (?:user |human |re-stage |cap )?decision\b|\bdecision recorded\b|\b(?:user|human|person)(?:'s)? (?:explicit )?decision\b|\bexplicit (?:user |human )?decision\b|\bthe user decides\b|записанн\w* решени|решени\w* (?:пользователя|человека)/iu;
+  for (const phrase of ["only on the user's explicit decision to re-stage", "only after a recorded human decision", "only once the user decides (park.decision)"]) {
+    assert.match(phrase, says, phrase);
+  }
+  // What names no decision reads as none: a decision packet, a step's name, an explicit recovery.
+  for (const phrase of ["decision packet binds the exact staging identity", "parks with this reason at apply_arena_decision", "operation remains open for explicit recovery"]) {
+    assert.doesNotMatch(phrase, says, phrase);
+  }
+  const rows = graph.recovery.filter((entry) => says.test(entry.required_state)).map((entry) => entry.reason).sort();
+  assert.deepEqual(rows, ["completion_predicate_unmet", "foreign_target_movement", "review_cap"]);
+  for (const reason of rows) {
+    assert.ok((graph.recovery.find((entry) => entry.reason === reason).decision_targets ?? []).length > 0, reason);
+  }
+  assert.deepEqual(graph.recovery.filter((entry) => entry.decision_targets).map((entry) => entry.reason).sort(), rows);
+});
+
+// --- debt 11e narrow re-review: the text and the declaration say one thing (L-c); a person's stop is where only a person moves the flow on (L-d) ---
+
+test("a row names park.decision in its required state exactly when it declares decision targets (review L-c)", () => {
+  // Narrow re-review of 11e, L-c: the validator never looked at a row that
+  // declares nothing, so removing foreign_target_movement's declaration was
+  // caught by the inventory test's pinned list alone. The marker is the
+  // validator's now, in both directions.
+  const row = (document, reason) => document.recovery.find((entry) => entry.reason === reason);
+  const invalid = (errors) => errors.some((message) => message.startsWith("graph_recovery_decision_targets_invalid:"));
+  assert.deepEqual(validateGraph(shippedGraph(), schema), []);
+  for (const [label, mutate] of [
+    ["foreign_target_movement without its declaration", (document) => { delete row(document, "foreign_target_movement").decision_targets; }],
+    ["completion_predicate_unmet without its declaration", (document) => { delete row(document, "completion_predicate_unmet").decision_targets; }],
+    ["staging_moved_after_pass naming the marker and declaring nothing", (document) => {
+      row(document, "staging_moved_after_pass").required_state += "; only once the user decides (park.decision)";
+    }],
+    ["foreign_target_movement declaring, with its text silent on the marker", (document) => {
+      const entry = row(document, "foreign_target_movement");
+      entry.required_state = entry.required_state.replace(" (park.decision)", "");
+    }],
+  ]) {
+    const errors = validateGraph(shippedGraph(mutate), schema);
+    assert.ok(invalid(errors), `${label}:\n${errors.join("\n") || "(no findings)"}`);
+  }
+  // Both examples declare their cap row's target, and so name the marker.
+  for (const text of [files[EXAMPLE_PATH], files[REFUSED_PATH]]) {
+    const cap = parseStrict(text).recovery.find((entry) => entry.reason === "review_cap");
+    assert.ok(cap.decision_targets.length > 0, "declares");
+    assert.match(cap.required_state, /park\.decision/u);
+  }
+});
+
+test("a cap row's reach stops only where only a person moves the flow on, not at every step a person may stand on (review L-d)", () => {
+  // Narrow re-review of 11e, L-d: the search stopped at every status step
+  // whose status is human, and await_alignment has a policy-authority edge
+  // out (t_132 on the shipped graph), so a target that reaches a step the cap
+  // parks at through it was taken to run no round. Here the working example's
+  // cap row may also resume into await_alignment, whose policy edge leads
+  // back to freeze_artifact, where the cap parks, with no person deciding.
+  const widened = (declared, mutate = () => {}) => mutated((document) => {
+    const cap = document.recovery.find((entry) => entry.reason === "review_cap");
+    cap.resume_targets = ["freeze_artifact", "await_alignment"];
+    cap.decision_targets = declared;
+    mutate(document);
+  });
+  const invalid = (document) => validateGraph(document, schema).filter((message) => message.startsWith("graph_recovery_decision_targets_invalid:"));
+  assert.ok(invalid(widened(["freeze_artifact"])).length > 0, "await_alignment runs another round through the policy edge");
+  assert.deepEqual(invalid(widened(["await_alignment", "freeze_artifact"])), []);
+  // Where every edge out of it is a person's, the search stops there, and a
+  // resume into it runs nothing on its own.
+  const personOnly = (document) => {
+    document.transitions = document.transitions.filter((edge) => edge.id !== "await_to_record_by_policy");
+  };
+  assert.deepEqual(invalid(widened(["freeze_artifact"], personOnly)), []);
+  assert.ok(invalid(widened(["await_alignment", "freeze_artifact"], personOnly)).length > 0);
+});
+
+test("the working example's cap row says what ADR-099 says: no decision raises the limit (review nit)", () => {
+  // Narrow re-review of 11e: the example still said a daemon decision names
+  // a new finite limit.
+  const cap = example().recovery.find((entry) => entry.reason === "review_cap");
+  assert.doesNotMatch(cap.required_state, /new finite limit/u);
+  assert.match(cap.required_state, /the limit never raised/u);
+  assert.match(cap.required_state, /park\.decision/u);
+});
+
+// --- CodeRabbit on #270: the marker is a whole token ---
+
+test("park.decision is a whole token: park.decision_id and park.decisions are not the marker, and a sentence may end on it (CodeRabbit on #270)", () => {
+  // CodeRabbit on PR #270: `includes("park.decision")` also matched
+  // park.decisions and park.decision_id. The marker is the token itself: a
+  // word character or a `.x` continuation after it makes another token, and
+  // a sentence's own period after it is punctuation.
+  const row = (document, reason) => document.recovery.find((entry) => entry.reason === reason);
+  const invalid = (errors) => errors.filter((message) => message.startsWith("graph_recovery_decision_targets_invalid:"));
+  for (const name of ["park.decision_id", "park.decisions", "park.decision.recorded_at"]) {
+    const errors = validateGraph(shippedGraph((document) => {
+      row(document, "staging_moved_after_pass").required_state += `; the resume reads no ${name}`;
+    }), schema);
+    assert.deepEqual(invalid(errors), [], name);
+  }
+  const ended = shippedGraph((document) => {
+    const entry = row(document, "foreign_target_movement");
+    entry.required_state = `${entry.required_state.replace(" (park.decision)", "")}. The decision is park.decision.`;
+  });
+  assert.deepEqual(invalid(validateGraph(ended, schema)), []);
 });

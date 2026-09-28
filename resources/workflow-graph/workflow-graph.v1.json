@@ -3375,20 +3375,12 @@
       "description": "до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо IntegrationAuthorizationRecord, который она называет на обоих путях, expired/revoked/replaced или не сходится с integration_authorization_head — CAS не выполняется, human с park.reason=acceptance_stale; target ref не двигается"
     },
     {
-      "id": "cond_445",
-      "reads": [
-        "recorded_target_base",
-        "target"
-      ],
-      "description": "target ref не на recorded target base, и движение атрибутируемо этому Epic — CAS не выполняется, human с park.reason=target_moved; base перезаписывается до следующего шага"
-    },
-    {
       "id": "cond_446",
       "reads": [
         "recorded_target_base",
         "target"
       ],
-      "description": "target ref не на recorded target base, и движение этому Epic не атрибутируемо — ref не трогается, human с park.reason=foreign_target_movement; overwrite запрещён, resume в apply_staging только по записанному решению пересобрать staging; cancel — отдельная status-операция"
+      "description": "target ref не на recorded target base и не на commit хода этого Epic — движение не его: чужой commit, откат, посадка другого Epic на тот же target — ref не трогается, human с park.reason=foreign_target_movement; overwrite запрещён, resume в apply_staging только по записанному решению пересобрать staging; cancel — отдельная status-операция"
     },
     {
       "id": "cond_447",
@@ -3396,17 +3388,6 @@
         "cas_receipt"
       ],
       "description": "git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки — human с park.reason=cas_conflict; retry без расследования запрещён"
-    },
-    {
-      "id": "cond_448",
-      "reads": [
-        "approved_deltas",
-        "base_oid",
-        "planning",
-        "recorded_target_base",
-        "resume_intent"
-      ],
-      "description": "resume --to apply_staging под park.reason=target_moved: новый target записан; recorded_target_base := новый target; staging пересоздан (cleanupStaging с expected=staging OID, createStaging на новой base): один planning replay commit под receipt, затем каждая approved delta заново с revalidation (не ложащиеся — delta_stale); PASS и acceptance void — apply_staging"
     },
     {
       "id": "cond_449",
@@ -3464,7 +3445,7 @@
         "resume_intent",
         "staging_commit_oid"
       ],
-      "description": "resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано; apply_staging заново проверяет receipts и lineage от recorded_target_base до staging head (commits planning ref до verified planning_head при первом stage либо ровно один planning replay commit с receipt, затем только delta commits с receipt) либо пересобирает staging способом пересборки epic-staging §1, прежние aggregate PASS и acceptance void — apply_staging"
+      "description": "resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано; apply_staging заново проверяет receipts и lineage от recorded_target_base до staging head (commits planning ref до verified planning_head при первом stage либо ровно один planning replay commit с receipt, затем только delta commits с receipt) либо пересобирает staging на той же base (recorded_target_base не меняется: сдвинулся staging ref, а не target); прежние aggregate PASS и acceptance void — apply_staging"
     },
     {
       "id": "cond_455",
@@ -3485,7 +3466,7 @@
         "resume_intent",
         "staging_commit_oid"
       ],
-      "description": "resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано; apply_staging заново проверяет receipts и lineage от recorded_target_base до staging head (commits planning ref до verified planning_head при первом stage либо ровно один planning replay commit с receipt, затем только delta commits с receipt) либо пересобирает staging способом пересборки epic-staging §1, прежний aggregate PASS void — apply_staging"
+      "description": "resume --to apply_staging под park.reason=staging_moved_after_pass: движение staging расследовано; apply_staging заново проверяет receipts и lineage от recorded_target_base до staging head (commits planning ref до verified planning_head при первом stage либо ровно один planning replay commit с receipt, затем только delta commits с receipt) либо пересобирает staging на той же base (recorded_target_base не меняется: сдвинулся staging ref, а не target); прежний aggregate PASS void — apply_staging"
     },
     {
       "id": "cond_457",
@@ -8393,14 +8374,6 @@
       "park_reason": "acceptance_stale"
     },
     {
-      "id": "guard_570",
-      "predicate": "cond_445",
-      "authority": {
-        "actor": "agent"
-      },
-      "park_reason": "target_moved"
-    },
-    {
       "id": "guard_571",
       "predicate": "cond_446",
       "authority": {
@@ -8415,14 +8388,6 @@
         "actor": "agent"
       },
       "park_reason": "cas_conflict"
-    },
-    {
-      "id": "guard_573",
-      "predicate": "cond_448",
-      "authority": {
-        "actor": "human"
-      },
-      "park_reason": "target_moved"
     },
     {
       "id": "guard_574",
@@ -13483,15 +13448,6 @@
       ]
     },
     {
-      "id": "t_566",
-      "from": "integrate_staging",
-      "to": "human",
-      "priority": 4,
-      "guards": [
-        "guard_570"
-      ]
-    },
-    {
       "id": "t_567",
       "from": "integrate_staging",
       "to": "human",
@@ -13507,15 +13463,6 @@
       "priority": 6,
       "guards": [
         "guard_572"
-      ]
-    },
-    {
-      "id": "t_569",
-      "from": "integrate_staging",
-      "to": "apply_staging",
-      "priority": 7,
-      "guards": [
-        "guard_573"
       ]
     },
     {
@@ -14247,7 +14194,10 @@
         "deliver_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at deliver_staging: completion predicate unmet or unreadable — the delivered commit is not on the target, its tree is not the accepted staging tree, or the recorded target base is not its ancestor; human с park.reason=completion_predicate_unmet; host ветку не двигает. A merged delivery whose target tree is not the accepted tree is not re-staged: like post_cas_mismatch, an explicit human decision, no history rewrite. Only when the delivery receipt says the PR or queue entry is not merged and the target moved may a recorded re-stage decision resume into apply_staging: the old delivery receipt is void and the old PR or queue entry is closed or withdrawn before a new one opens; the re-stage is the one target_moved runs (recorded_target_base re-recorded, staging rebuilt with one receipted planning replay commit, every approved delta re-applied), prior aggregate PASS and acceptance void"
+      "decision_targets": [
+        "apply_staging"
+      ],
+      "required_state": "Section 2 parks with this reason at deliver_staging: completion predicate unmet or unreadable — the delivered commit is not on the target, its tree is not the accepted staging tree, or the recorded target base is not its ancestor; human с park.reason=completion_predicate_unmet; host ветку не двигает. A merged delivery whose target tree is not the accepted tree is not re-staged: like post_cas_mismatch, an explicit human decision, no history rewrite. Only when the delivery receipt says the PR or queue entry is not merged and the target moved may a re-stage decision recorded under this park (park.decision) resume into apply_staging: the old delivery receipt is void and the old PR or queue entry is closed or withdrawn before a new one opens; the re-stage is epic-staging §1's, the one foreign_target_movement's resume runs (recorded_target_base re-recorded, staging rebuilt with one receipted planning replay commit, every approved delta re-applied), prior aggregate PASS and acceptance void"
     },
     {
       "reason": "contest_join_invalid",
@@ -14473,7 +14423,10 @@
         "apply_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at integrate_staging: target moved away from the recorded base and the movement is not attributable to this Epic; human с park.reason=foreign_target_movement; ref не трогается, overwrite запрещён; resume into apply_staging only on a recorded user decision to re-stage: the staging record's recorded_target_base is re-recorded as the new target (planning.base_oid and planning_head do not change), the staging ref is rebuilt by cleanupStaging with the recorded staging OID as expected value and createStaging at the new base, its first commit is exactly one planning replay commit (the planning change applied onto the new base with pre-image revalidation, single parent the new base) under a durable planning-replay receipt, then every approved delta is re-applied with revalidation (a planning change or delta that does not apply parks delta_stale), prior aggregate PASS and acceptance void; cancel — отдельная status-операция"
+      "decision_targets": [
+        "apply_staging"
+      ],
+      "required_state": "Section 2 parks with this reason at integrate_staging: the target is off the recorded base and not at this Epic's result — a pushed commit, a rewind, another Epic's landing; human с park.reason=foreign_target_movement; ref не трогается, overwrite запрещён; resume into apply_staging only on a recorded user decision to re-stage (park.decision): the staging record's recorded_target_base is re-recorded as the new target (planning.base_oid and planning_head do not change), the staging ref is rebuilt by cleanupStaging with the recorded staging OID as expected value and createStaging at the new base, its first commit is exactly one planning replay commit (the planning change applied onto the new base with pre-image revalidation, single parent the new base) under a durable planning-replay receipt, then every approved delta is re-applied with revalidation (a planning change or delta that does not apply parks delta_stale), prior aggregate PASS and acceptance void; cancel — отдельная status-операция"
     },
     {
       "reason": "freeze_candidate_invalid",
@@ -15025,7 +14978,7 @@
         "apply_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at apply_staging: an applied delta has no durable integration receipt, or the staging lineage from recorded_target_base carries a commit beyond what it admits — first the planning-ref commits up to the verified planning_head (first stage) or exactly one receipted planning replay commit (after a re-stage), then receipted delta commits only; human с park.reason=receipt_missing; target ref не читается и не меняется"
+      "required_state": "Section 2 parks with this reason at apply_staging: an applied delta has no durable integration receipt, a Ticket has more than one integration receipt, or the staging lineage from recorded_target_base carries a commit beyond what it admits — first the planning-ref commits up to the verified planning_head (first stage) or exactly one receipted planning replay commit (after a re-stage), then receipted delta commits only; human с park.reason=receipt_missing; target ref не читается и не меняется"
     },
     {
       "reason": "review_cap",
@@ -15044,8 +14997,13 @@
         "invalidate_quick_classification",
         "rebuild_code_anchor"
       ],
+      "decision_targets": [
+        "fix",
+        "fix_artifact",
+        "rebuild_code_anchor"
+      ],
       "resume_scope": "origin_edges",
-      "required_state": "Section 2 parks with this reason at fix, fix_artifact: human с park.reason=review_cap; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join resumes into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification — and neither stop is lent the other's steps"
+      "required_state": "Section 2 parks with this reason at fix, fix_artifact: human с park.reason=review_cap; the count (durable takings) is never reset and the limit never raised, so a resume into a target that runs another round — fix_artifact, fix or rebuild_code_anchor, the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join resumes into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification — and neither stop is lent the other's steps"
     },
     {
       "reason": "review_join_invalid",
@@ -15092,18 +15050,7 @@
         "apply_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at aggregate_verify, accept_staging: staging moved after aggregate PASS, so the binding is void; human с park.reason=staging_moved_after_pass; resume goes back through apply_staging's receipt and lineage check from recorded_target_base (planning-ref commits to the verified planning_head on first stage, or exactly one receipted planning replay commit; then receipted deltas), or rebuilds staging by the epic-staging §1 re-stage method; target ref не двигается"
-    },
-    {
-      "reason": "target_moved",
-      "parks_at": [
-        "integrate_staging"
-      ],
-      "resume_targets": [
-        "apply_staging",
-        "human"
-      ],
-      "required_state": "Section 2 parks with this reason at integrate_staging: target moved away from the recorded base by a movement this Epic recorded; human с park.reason=target_moved; resume into apply_staging re-stages: the staging record's recorded_target_base is re-recorded as the new target (planning.base_oid and planning_head do not change), the staging ref is rebuilt by cleanupStaging with the recorded staging OID as expected value and createStaging at the new base, its first commit is exactly one planning replay commit (the planning change applied onto the new base with pre-image revalidation, single parent the new base) under a durable planning-replay receipt, then every approved delta is re-applied with revalidation (a planning change or delta that does not apply parks delta_stale), prior aggregate PASS and acceptance void"
+      "required_state": "Section 2 parks with this reason at aggregate_verify, accept_staging: staging moved after aggregate PASS, so the binding is void; human с park.reason=staging_moved_after_pass; resume goes back through apply_staging's receipt and lineage check from recorded_target_base (planning-ref commits to the verified planning_head on first stage, or exactly one receipted planning replay commit; then receipted deltas), or rebuilds staging at the recorded base (recorded_target_base unchanged: cleanupStaging by the recorded staging OID, createStaging at recorded_target_base, then the same planning commits or receipted replay commit and the receipted deltas) — the staging ref moved, not the target, so this is no re-stage onto a moved target; target ref не двигается"
     },
     {
       "reason": "tech_plan_readiness_required",
@@ -16572,7 +16519,7 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "af544163602df1af528c8d1d5bbbf2f7088ff8ea712181dfb219426201be0552",
+          "binds": "b28e9266eaa23e9f8289ff94c617332b98fb7715aa9c84d3bf51fce27bcc28d3",
           "cells": [
             "review_cap",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
@@ -16921,7 +16868,7 @@
           "covers": [
             "receipt_missing"
           ],
-          "binds": "0ba305e993125a6b0769f6bf612905909a68eddfa9b0fd232ee50ec4c1f5ebbd",
+          "binds": "58c29c64d9d6cb73369a7421074863beb1b39636c5d8139482b29b501a1dcd29",
           "cells": [
             "receipt_missing",
             "apply_staging",
@@ -16954,11 +16901,11 @@
           "covers": [
             "staging_moved_after_pass"
           ],
-          "binds": "9a0d60d78bd5cf2029bc24f8722a255bec708db3c3d324b07e5fd7bfa7699c8c",
+          "binds": "3f2e8661b55f32b701a526d7737e86ba898c56c56d084225325084c0e2b8a9f5",
           "cells": [
             "staging_moved_after_pass",
             "aggregate_verify or accept_staging",
-            "движение staging расследовано; staging заново проходит apply_staging: receipts и lineage от recorded_target_base (commits planning ref до verified planning_head либо один planning replay commit с receipt, затем delta commits) или пересборка способом epic-staging §1, затем aggregate; старый PASS не переносится"
+            "движение staging расследовано; staging заново проходит apply_staging: receipts и lineage от recorded_target_base (commits planning ref до verified planning_head либо один planning replay commit с receipt, затем delta commits) или пересборка staging на той же recorded_target_base (сдвинулся staging ref, а не target), затем aggregate; старый PASS не переносится"
           ]
         },
         {
@@ -16996,24 +16943,13 @@
         },
         {
           "covers": [
-            "target_moved"
-          ],
-          "binds": "01842171a3a225bd87950cbab4d4ed4fd1409a240ab1b1ea0b8375ed25d3e3c8",
-          "cells": [
-            "target_moved",
-            "integrate_staging",
-            "новый target записан как recorded_target_base; staging пересоздан на нём (cleanupStaging по записанному OID, createStaging на новой base) с одним planning replay commit под receipt, каждая approved delta применена заново с перепроверкой (не применяющиеся — delta_stale); прежние aggregate PASS и acceptance void"
-          ]
-        },
-        {
-          "covers": [
             "foreign_target_movement"
           ],
-          "binds": "a102a1f35b4dcea4653053fc2d0ad7d4e91b25c38b0d9264a20099e5627b7a04",
+          "binds": "0be7cd64c36b2103f9b835fddaf0ed6a95f9735ffd3da01166d00a73d731dd7e",
           "cells": [
             "foreign_target_movement",
             "integrate_staging",
-            "ref не тронут; overwrite запрещён; после расследования записанное решение пересобрать staging на сдвинутый target: та же пересборка, что после target_moved (recorded_target_base := новый target, один planning replay commit под receipt, каждая approved delta заново, не применяющиеся — delta_stale), прежние aggregate PASS и acceptance void, resume в apply_staging; cancel — отдельная status-операция"
+            "ref не тронут; overwrite запрещён; движение не этого Epic — чужой commit, откат или посадка другого Epic на тот же target; после расследования записанное решение пересобрать staging на сдвинутый target: пересборка epic-staging §1 (recorded_target_base := новый target, один planning replay commit под receipt, каждая approved delta заново, не применяющиеся — delta_stale), прежние aggregate PASS и acceptance void, resume в apply_staging; cancel — отдельная status-операция"
           ]
         },
         {
@@ -17042,7 +16978,7 @@
           "covers": [
             "completion_predicate_unmet"
           ],
-          "binds": "d219673bb689663345c6369535edaf6ad2b0cf8fc94c8eb0b50fa1cba13927db",
+          "binds": "3c72f988803a28a3a50e14ebc459fba74ffb0b49ae51784239b2ac109b00dcba",
           "cells": [
             "completion_predicate_unmet",
             "deliver_staging",
@@ -17847,7 +17783,7 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "af544163602df1af528c8d1d5bbbf2f7088ff8ea712181dfb219426201be0552",
+          "binds": "b28e9266eaa23e9f8289ff94c617332b98fb7715aa9c84d3bf51fce27bcc28d3",
           "cells": [
             "Лимит review",
             "fix_artifact для Planned; fix для Quick/Ticket; также narrow_review_join, record_code_verdict",
@@ -18176,7 +18112,7 @@
             "delta_stale",
             "receipt_missing"
           ],
-          "binds": "04d8563aace71156b64885b89a718dcbb74a5ee4453fb0d3c472d7a64c6c42eb",
+          "binds": "128e0d6b362452730e9d3665dcd8fc9c6777de87b8078d2134793f8c23771df2",
           "cells": [
             "Staging apply: delta устарела или нет receipt",
             "apply_staging",
@@ -18189,7 +18125,7 @@
             "environment_failure",
             "staging_moved_after_pass"
           ],
-          "binds": "928de602a9c1a9eca03c0883cbcce35663b50998563b190843a9139035c42e4f",
+          "binds": "bb6dc301f0a875e1cd7a609d4d23d24b2dfe49c391c5de1498c492f264eb9f07",
           "cells": [
             "Aggregate не привязан к staging: окружение, void binding, staging сдвинут после PASS",
             "aggregate_verify, accept_staging",
@@ -18212,14 +18148,13 @@
           "covers": [
             "cas_conflict",
             "foreign_target_movement",
-            "post_cas_mismatch",
-            "target_moved"
+            "post_cas_mismatch"
           ],
-          "binds": "bc6a04c28aee455061b14f064eccc8b22bda5261e49fdbfbe7acb9f46240595e",
+          "binds": "b2bea3347b3ea854710ed8f6ec67105a543c3f0bcdb91a318ff8bed25638df81",
           "cells": [
-            "Target CAS: конфликт, чужое движение, сдвиг base, read-back mismatch",
+            "Target CAS: конфликт, чужое движение, read-back mismatch",
             "integrate_staging, verify_target",
-            "ref не перезаписывается; сдвиг base, записанный этим Epic, пересобирает staging на новом target: recorded_target_base перезаписывается, staging пересоздаётся с одним planning replay commit под receipt, затем каждая approved delta применяется заново с перепроверкой (не применяющиеся — delta_stale); чужое движение пересобирает его так же только по записанному решению пользователя; остальное — явное решение после расследования; cancel — отдельная status-операция"
+            "ref не перезаписывается; target не на recorded base и не на результате этого Epic — движение чужое (commit в ветку, откат, посадка другого Epic на тот же target), и staging пересобирается на новом target только по записанному решению пользователя: recorded_target_base перезаписывается, staging пересоздаётся с одним planning replay commit под receipt, затем каждая approved delta применяется заново с перепроверкой (не применяющиеся — delta_stale); остальное — явное решение после расследования; cancel — отдельная status-операция"
           ]
         },
         {
@@ -18227,7 +18162,7 @@
             "completion_predicate_unmet",
             "unsupported_integration_mode"
           ],
-          "binds": "8dd1d1e4210683d32470e9c68778e68b747e29628224d9bba914928de24fd575",
+          "binds": "ce9b3aeb3b19dd8d13ff920d4ab73b4f2053b0353c70466430a3b5a63777ce9f",
           "cells": [
             "Delivery profile: mode не поддержан или completion predicate не выполнен",
             "accept_staging, deliver_staging",
@@ -18244,7 +18179,7 @@
       ]
     }
   ],
-  "canonical_digest": "65face034dc1b1a46d26dfa2d961aeaa58893399876dbe34b7f8b5c41f45890d",
+  "canonical_digest": "5fd3b22c54fc680d607941ba0655afacc733cc609eb2a7f020b86f4b0c0ec0a7",
   "external_operations": [
     {
       "status": "cancel",

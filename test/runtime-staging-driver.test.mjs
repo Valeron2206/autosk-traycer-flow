@@ -18,7 +18,6 @@ import { promisify } from "node:util";
 import { applySwap, casAdmission, postCasErrors, resumePlan } from "../src/host/epic-staging.mjs";
 import {
   assertStagingRef,
-  attributable,
   cleanupStaging,
   createStaging,
   epicRefKey,
@@ -128,23 +127,13 @@ test("a foreign movement is refused before the swap and the target keeps its byt
   await git(["reset", "--quiet", "--hard", "refs/heads/main"]);
   const before = await readFile(path.join(root, "c.txt"), "utf8");
 
-  const observed = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
-  assert.equal(observed.attributed_to_this_epic, false);
+  const observed = await observeTarget(git, { ref: "refs/heads/main" });
   const admission = casAdmission(state({ head, staged }), observed, ["T-1"]);
   assert.equal(admission.decision, "refused");
   assert.ok(admission.reasons.some((reason) => reason.reason === "foreign_target_movement"));
   // Refused means nothing happened: the ref and the bytes are what they were.
   assert.equal(await readRef(git, "refs/heads/main"), foreign.oid);
   assert.equal(await readFile(path.join(root, "c.txt"), "utf8"), before);
-});
-
-test("a movement this Epic recorded is attributable, and one it did not is not", async (t) => {
-  const { git, root, head } = await repository(t);
-  const mine = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "mine\n", message: "mine" });
-  const theirs = await commitOnTop(git, root, { parent: head, file: "c.txt", content: "theirs\n", message: "theirs" });
-  assert.equal(await attributable(git, { observed: head, recorded: [mine.oid] }), true);
-  assert.equal(await attributable(git, { observed: mine.oid, recorded: [mine.oid] }), true);
-  assert.equal(await attributable(git, { observed: theirs.oid, recorded: [mine.oid] }), false);
 });
 
 test("the swap moves the ref once, and the read-back is checked against the accepted identity", async (t) => {
@@ -157,7 +146,6 @@ test("the swap moves the ref once, and the read-back is checked against the acce
 
   const after = await observeTarget(git, {
     ref: "refs/heads/main",
-    recorded: [head, staged.oid],
     recordedResult: staged.oid,
     reflogBefore: depthBefore,
   });
@@ -181,7 +169,6 @@ test("a ref that moved away and back reads as expected and is caught by the refl
 
   const after = await observeTarget(git, {
     ref: "refs/heads/main",
-    recorded: [head, staged.oid],
     recordedResult: staged.oid,
     reflogBefore: depthBefore,
   });
@@ -197,14 +184,14 @@ test("a crash after the aggregate passed resumes into the swap with no model run
   const plan = resumePlan({ ...accepted, phase: "accepted" });
   assert.equal(plan.requires_model_run, false);
 
-  const observed = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
+  const observed = await observeTarget(git, { ref: "refs/heads/main" });
   assert.equal(casAdmission(accepted, observed, ["T-1"], casContext(accepted)).decision, "may_swap");
   const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
   assert.equal(result.swapped, true);
 
   // And the retry after a crash between the swap and the read-back is complete
   // rather than in conflict.
-  const again = await observeTarget(git, { ref: "refs/heads/main", recorded: [head, staged.oid] });
+  const again = await observeTarget(git, { ref: "refs/heads/main" });
   assert.equal(casAdmission(accepted, again, ["T-1"], casContext(accepted)).decision, "already_complete");
 });
 
@@ -228,7 +215,6 @@ test("cleanup removes the staging ref only while it holds what was recorded", as
 });
 
 test("a git that could not run is an environment failure, not a product refusal", async (t) => {
-  const { root } = await repository(t);
   const elsewhere = await mkdtemp(path.join(tmpdir(), "autosk-not-a-repo-"));
   t.after(() => rm(elsewhere, { recursive: true, force: true }));
   // The distinction #9 refuses to let the gate blur: none of these says
@@ -236,10 +222,6 @@ test("a git that could not run is an environment failure, not a product refusal"
   await assert.rejects(
     () => observeTarget(gitIn(elsewhere), { ref: "refs/heads/main" }),
     (error) => error.code === "environment_failure" && /rev-parse exited 128/u.test(error.message),
-  );
-  await assert.rejects(
-    () => attributable(gitIn(root), { observed: "f".repeat(40), recorded: ["e".repeat(40)] }),
-    (error) => error.code === "environment_failure" && /merge-base exited 128/u.test(error.message),
   );
   // Asserted by its own message, because both guards answer with the same code
   // and a test that only reads the code cannot tell which one fired.
@@ -268,7 +250,6 @@ test("a target that does not contain the recorded result fails the read-back", a
 
   const after = await observeTarget(git, {
     ref: "refs/heads/main",
-    recorded: [head, staged.oid],
     recordedResult: staged.oid,
     reflogBefore: depthBefore,
   });
@@ -281,7 +262,7 @@ test("a containment question git could not answer is an environment failure", as
   const { git, root, head } = await repository(t);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
   await assert.rejects(
-    () => observeTarget(git, { ref: "refs/heads/main", recorded: [head], recordedResult: "0".repeat(40) }),
+    () => observeTarget(git, { ref: "refs/heads/main", recordedResult: "0".repeat(40) }),
     (error) => error.code === "environment_failure" && /merge-base exited/u.test(error.message),
   );
   assert.equal(await readRef(git, "refs/heads/main"), head);
@@ -309,21 +290,23 @@ function state({ head, staged }) {
     staging_tree_oid: staged.tree,
     post_cas: { expected_new_oid: staged.oid },
   };
+  // The record the staging schema closes, named by its digest (ADR-099).
   const aggregate = {
     outcome: "pass",
     environment_outcome: "ok",
     verification_config_digest: "c".repeat(64),
     instruction_lock_digest: "d".repeat(64),
     staging_commit_oid: base.staging_commit_oid,
-    record_hash: "e".repeat(64),
+    staging_tree_oid: base.staging_tree_oid,
+    included_tickets: ["T-1"],
   };
-  base.aggregate = { ...aggregate, binding: aggregateBindingOf({ ...base, aggregate }) };
+  base.aggregate = { ...aggregate, record_hash: aggregateRecordHashOf(base, aggregate) };
   base.acceptance = {
     kind: "human",
     decision_id: "dec-1",
     staging_commit_oid: base.staging_commit_oid,
     staging_tree_oid: base.staging_tree_oid,
-    aggregate_record_hash: aggregate.record_hash,
+    aggregate_record_hash: base.aggregate.record_hash,
     included_tickets: ["T-1"],
     target_ref: base.target_ref,
     recorded_target_base: base.recorded_target_base,
@@ -370,7 +353,7 @@ const casContext = (accepted) => ({ ...PROFILE, authorization: authorizationFor(
 /** The delivery profile in force when the swap is admitted. */
 const PROFILE = Object.freeze({ deliveryProfileDigest: "f".repeat(64) });
 
-const { aggregateBinding: aggregateBindingOf, integrationAuthorizationHash: integrationAuthorizationHashOf } = await import("../src/host/epic-staging.mjs");
+const { aggregateRecordHash: aggregateRecordHashOf, integrationAuthorizationHash: integrationAuthorizationHashOf } = await import("../src/host/epic-staging.mjs");
 
 test("the staging ref is named by epic_ref_key, the same key the planning ref uses", async () => {
   // Round 6 of #39 (R6-1): the driver built the name from the raw Epic id,
@@ -505,7 +488,6 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
   assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
   const after = await observeTarget(git, {
     ref: "refs/heads/main",
-    recorded: [head, staged.oid],
     recordedResult: staged.oid,
     reflogBefore: depthBefore,
   });
@@ -513,7 +495,6 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
     oid: staged.oid,
     tree_oid: staged.tree,
     reflog_entries: 1,
-    attributed_to_this_epic: true,
     contains_recorded_result: true,
   });
   // A refused swap reports what the ref holds, in the repository's format.
@@ -521,4 +502,33 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
   assert.deepEqual({ swapped: refused.swapped, observed_old_oid: refused.observed_old_oid }, { swapped: false, observed_old_oid: staged.oid });
   assert.deepEqual({ ...(await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head })) }, { ref, deleted: true });
   assert.equal(await readRef(git, ref), null);
+});
+
+test("the target observation attributes no movement to the Epic: a rewind and a move into its own line are foreign at the CAS (R7-16)", async (t) => {
+  // Round 7 of #39, R7-16: `attributable` called a movement this Epic's when
+  // the target stood on an ancestor of a commit the Epic recorded — which a
+  // rewind below the base and someone else's fast-forward into the Epic's
+  // unlanded line both are. Under the one CAS neither is this Epic's: its only
+  // movement is its own result, and that reads already_complete first.
+  const { git, root, head: older } = await repository(t);
+  const base = await commitOnTop(git, root, { parent: older, file: "b.txt", content: "base\n", message: "base" });
+  await git(["update-ref", "refs/heads/main", base.oid, older]);
+  const planning = await commitOnTop(git, root, { parent: base.oid, file: "plan.md", content: "plan\n", message: "planning head" });
+  const staged = await commitOnTop(git, root, { parent: planning.oid, file: "t.txt", content: "T-1\n", message: "T-1 applied" });
+  const accepted = state({ head: base.oid, staged });
+  for (const [label, moved] of [["a rewind below the base", older], ["a move into the Epic's own line", planning.oid]]) {
+    await git(["update-ref", "refs/heads/main", moved]);
+    const observed = await observeTarget(git, { ref: "refs/heads/main" });
+    assert.ok(!Object.hasOwn(observed, "attributed_to_this_epic"), `${label}: the observation attributes the movement`);
+    const admission = casAdmission(accepted, observed, ["T-1"], casContext(accepted));
+    assert.equal(admission.decision, "refused", label);
+    assert.deepEqual(
+      admission.reasons.filter((entry) => entry.reason.includes("target")).map((entry) => entry.reason),
+      ["foreign_target_movement"],
+      label,
+    );
+  }
+  await git(["update-ref", "refs/heads/main", staged.oid]);
+  const landed = await observeTarget(git, { ref: "refs/heads/main" });
+  assert.equal(casAdmission(accepted, landed, ["T-1"], casContext(accepted)).decision, "already_complete");
 });

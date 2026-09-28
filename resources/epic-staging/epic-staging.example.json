@@ -39,13 +39,13 @@
     ],
     "outcome": "pass",
     "environment_outcome": "ok",
-    "record_hash": "a6e0b829b7f35a820a9dcec98215ce87ee1094583b982d38de20d92b111816f3"
+    "record_hash": "d697d0788317c705da19e6065396b9f75187575f2f457c783c4d52227786df35"
   },
   "acceptance": {
     "kind": "human",
     "staging_commit_oid": "cccccccccccccccccccccccccccccccccccccccc",
     "staging_tree_oid": "dddddddddddddddddddddddddddddddddddddddd",
-    "aggregate_record_hash": "a6e0b829b7f35a820a9dcec98215ce87ee1094583b982d38de20d92b111816f3",
+    "aggregate_record_hash": "d697d0788317c705da19e6065396b9f75187575f2f457c783c4d52227786df35",
     "included_tickets": [
       "T01",
       "T02",

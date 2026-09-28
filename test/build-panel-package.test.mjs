@@ -1923,3 +1923,19 @@ test("the factory's users are measured by identifier over every code extension, 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("§5 says a resume the graph declares the user's decision is admitted only on a verified record through the caller's verifier, and who writes, signs and guards the leaf (R7-4; review M1, M2; CodeRabbit on #270)", async () => {
+  // Round 7 of #39, R7-4, and the review of 11e (M1, M2): the factory refuses
+  // a resume into a declared decision target without the decision recorded
+  // under the park. CodeRabbit on #270: the leaf alone was checked, so a copy
+  // opened another task; the record it names is now verified through the
+  // caller's verifier, which refuses by default, and the package says so.
+  const evidence = section5((await build()).text);
+  assert.match(evidence, /A resume the graph declares the user's decision[^.]*is admitted only on a verified `UserDecisionRecord` through the caller's verifier/u);
+  assert.match(evidence, /the default verifier refuses, so no decision-gated resume is admitted on a real host today/u);
+  assert.match(evidence, /The leaf's writer is the resume path \(#35\), the signer and verifier are #4's, and the CAS on the leaf is #18's \(roadmap #231\)/u);
+  assert.match(evidence, /reads one more it does not write, `park\.decision`/u);
+  assert.match(evidence, /forge a receipt that opens a resume/u);
+  assert.match(evidence, /a forged `park\.decision` opens nothing without a verified record/u);
+  assert.doesNotMatch(evidence, /cap_decision|shape and park only|verified by nobody/u);
+});

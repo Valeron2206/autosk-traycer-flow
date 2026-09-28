@@ -796,8 +796,7 @@
       "closed_by": "docs/contracts/epic-staging.md",
       "producer": "host",
       "producer_files": [
-        "src/host/epic-staging.mjs",
-        "src/host/staging-lineage.mjs"
+        "src/host/epic-staging.mjs"
       ]
     },
     {
@@ -1220,18 +1219,6 @@
       ]
     },
     {
-      "code": "target_moved",
-      "named_at": [
-        "integrate_staging"
-      ],
-      "named_at_classes": [],
-      "closed_by": "docs/contracts/epic-staging.md",
-      "producer": "host",
-      "producer_files": [
-        "src/host/epic-staging.mjs"
-      ]
-    },
-    {
       "code": "tech_plan_readiness_required",
       "named_at": [
         "clarify_alignment",
@@ -1403,5 +1390,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "d848123f0dc2dbe62b64f973291b2963c5b7dcbd5f7170cea07020c142a698c4"
+  "vocabulary_digest": "9f60d8a64b900006111fb2974fddbcdadfdfe1d51f50b77e47127a534b0b8cc4"
 }
