@@ -5,10 +5,11 @@
  *
  * One command that prepares the pinned upstream source, builds the three
  * binaries, and exercises the daemon in an isolated HOME with no Traycer
- * anywhere in the environment — then reports which fault-matrix groups were
- * covered by a real fault and which were not.
+ * anywhere in the environment — then reports how each fault-matrix group was
+ * covered: by a real fault, without a control, by a written observation, with
+ * a control that failed, or not at all (`scripts/lib/clean-room-coverage.mjs`).
  *
- * The report distinguishes those two on purpose. A run that listed sixteen
+ * The report distinguishes those on purpose. A run that listed sixteen
  * groups and exercised four would be the artefact this whole program keeps
  * finding: a confident sentence nobody can check.
  */
@@ -22,81 +23,19 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { runFaults } from './clean-room-faults.mjs';
+import { coverageReport, faultCoverage, harnessCoverage } from './lib/clean-room-coverage.mjs';
+
+/**
+ * The coverage rule and the report built on it live in the shared lib, so the
+ * panel package recomputes a run's coverage with the run's own functions
+ * (review of 11f, M1); they are re-exported here for the run's callers.
+ */
+export { COVERAGE, coverageReport, faultCoverage, harnessCoverage } from './lib/clean-room-coverage.mjs';
 
 const execFileAsync = promisify(execFile);
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const MATRIX_PATH = 'resources/clean-room-e2e/fault-matrix.v1.json';
-
-/**
- * Which harness covers which fault-matrix group, and with what.
- *
- * `real_fault` means a process was actually killed or a state actually
- * corrupted during the run; anything else is named as what it is.
- *
- * F005-F020 are absent here on purpose: they are covered by the fault harness,
- * and their entries are derived from what that run actually detected rather
- * than declared in advance. A table is a claim; a run is evidence. For those
- * rows `real_fault` means the case detected its fault and its control stayed
- * silent; whether the guard was handed a measured or a written observation is
- * the matrix's `injection`, not this flag (debt 10h).
- */
-export const COVERAGE = Object.freeze({
-  // `control` says whether the group was also asked the un-faulted question.
-  // The crash harness injects at two points and never asks it, so saying so is
-  // the difference between "injected" and "shown to be specific" — and the
-  // panel read the absence of that distinction as a completeness claim the run
-  // did not support.
-  F001: { harness: 'crash', evidence: 'reservation.before / reservation.after', real_fault: true, control: false },
-  F002: { harness: 'crash', evidence: 'task.before / task.after', real_fault: true, control: false },
-  F003: { harness: 'crash', evidence: 'activation.before / activation.after', real_fault: true, control: false },
-  F004: {
-    harness: 'identity',
-    // The identity harness does run the control, and the previous wording did
-    // not say so: it names the swap and the later admission but never the
-    // resume the group is defined by.
-    evidence: 'a real resume under swapped bytes keeps the admitted pin, and the same bytes resume the task cleanly',
-    real_fault: true,
-    control: true,
-  },
-  F005: { harness: null, evidence: null, real_fault: false },
-  F006: { harness: null, evidence: null, real_fault: false },
-  F007: { harness: null, evidence: null, real_fault: false },
-  F008: { harness: null, evidence: null, real_fault: false },
-  F009: { harness: null, evidence: null, real_fault: false },
-  F010: { harness: null, evidence: null, real_fault: false },
-  F011: { harness: null, evidence: null, real_fault: false },
-  F012: { harness: null, evidence: null, real_fault: false },
-  F013: { harness: null, evidence: null, real_fault: false },
-  F014: { harness: null, evidence: null, real_fault: false },
-  F015: { harness: null, evidence: null, real_fault: false },
-  F016: { harness: null, evidence: null, real_fault: false },
-  F017: { harness: null, evidence: null, real_fault: false },
-  F018: { harness: null, evidence: null, real_fault: false },
-  F019: { harness: null, evidence: null, real_fault: false },
-  F020: { harness: null, evidence: null, real_fault: false },
-});
-
-/**
- * Coverage entries derived from a fault-harness run.
- *
- * A group counts as covered by a real fault only when the fault was detected
- * *and* the case's control stayed silent. A guard that refuses everything
- * detects every fault and means nothing by it, so a failed control demotes the
- * row rather than being reported alongside it.
- */
-export function faultCoverage(report) {
-  const entries = report.results.map((entry) => [
-    entry.id,
-    {
-      harness: 'faults',
-      evidence: entry.detail,
-      real_fault: entry.detected === true && entry.control === true,
-      control: entry.control === true,
-    },
-  ]);
-  return Object.freeze(Object.fromEntries(entries));
-}
 
 /**
  * The per-case records the report carries: the result, its control, and the
@@ -185,34 +124,6 @@ export function environmentErrors(env) {
     }
   }
   return errors;
-}
-
-/** The coverage report: covered by a real fault, covered otherwise, or not covered. */
-export function coverageReport(matrix, coverage = COVERAGE) {
-  const rows = matrix.groups.map((group) => {
-    const entry = coverage[group.id] ?? { harness: null, evidence: null, real_fault: false };
-    return Object.freeze({
-      id: group.id,
-      boundary: group.boundary,
-      state: entry.harness ? (entry.real_fault ? 'covered_by_real_fault' : 'covered_indirectly') : 'not_covered',
-      harness: entry.harness,
-      evidence: entry.evidence,
-      // Whether the un-faulted question was asked too. Carried on the row so a
-      // reader is not left to infer specificity from injection.
-      control: entry.control === true,
-    });
-  });
-  const counts = rows.reduce((totals, row) => ({ ...totals, [row.state]: (totals[row.state] ?? 0) + 1 }), {});
-  return Object.freeze({
-    rows: Object.freeze(rows),
-    counts: Object.freeze(counts),
-    // Stated rather than rounded up: a run that claimed the whole matrix while
-    // exercising part of it would be the artefact this program keeps finding.
-    complete: rows.every((row) => row.state === 'covered_by_real_fault'),
-    // Injection and specificity are different claims, so they are counted
-    // separately rather than folded into one word.
-    controlled: rows.filter((row) => row.control).length,
-  });
 }
 
 async function run(command, args, options) {
@@ -356,7 +267,9 @@ async function finish({ workspace, steps, receipt, keep, error, faults }) {
     await rm(workspace, { recursive: true, force: true });
   }
   const matrix = JSON.parse(await readFile(path.join(ROOT, MATRIX_PATH), 'utf8'));
-  const coverage = coverageReport(matrix, faults ? { ...COVERAGE, ...faultCoverage(faults) } : COVERAGE);
+  // Every entry is the run's: the daemon harnesses' steps and the fault
+  // harness's cases. A group neither reported is not covered.
+  const coverage = coverageReport(matrix, { ...harnessCoverage(steps), ...(faults ? faultCoverage(faults) : {}) });
   return Object.freeze({
     schema_version: 1,
     workspace: keep ? workspace : null,
@@ -387,6 +300,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`source_tree=${report.source_tree}`);
   console.log(`extension_tree=${report.extension.tree}${report.extension.dirty ? ' (dirty)' : ''}`);
   for (const [state, count] of Object.entries(report.coverage.counts)) console.log(`${state}: ${count}`);
+  // The exit status says whether every step ran; completeness is its own line.
+  console.log(`complete=${report.coverage.complete}`);
   if (report.error) console.error(report.error);
   process.exitCode = report.ok ? 0 : 1;
 }

@@ -48,8 +48,38 @@
 - [02-architecture.md](02-architecture.md) — компоненты, границы ответственности и хранение.
 - [03-technical-plan.md](03-technical-plan.md) — реализуемый план расширения autosk v2.
 - [04-decisions.md](04-decisions.md) — предлагаемые ADR и оставшиеся риски; статус станет accepted только после решения пользователя и PASS панели.
-- [docs/contracts/epic-planning-ref.md](docs/contracts/epic-planning-ref.md) — нормативный контракт private planning ref, candidate keepalive всей Git object closure, commit-on-PASS, CAS и crash recovery для issue #5.
-- [docs/contracts/tickets-manifest.md](docs/contracts/tickets-manifest.md) — нормативный контракт canonical machine-readable Tickets artifact, deterministic DAG/rendering и manifest-only dispatcher для issue #6.
+- Контракты дизайна в `docs/contracts/`, по одному на решение: [anchor-pack](docs/contracts/anchor-pack.md),
+  [approved-delta](docs/contracts/approved-delta.md), [arena](docs/contracts/arena.md),
+  [artifact-registry](docs/contracts/artifact-registry.md),
+  [artifact-write-receipt](docs/contracts/artifact-write-receipt.md),
+  [autobuild-run](docs/contracts/autobuild-run.md), [bounded-loop](docs/contracts/bounded-loop.md),
+  [clean-room-e2e](docs/contracts/clean-room-e2e.md),
+  [clearance-manifest](docs/contracts/clearance-manifest.md),
+  [creation-grant](docs/contracts/creation-grant.md), [debate](docs/contracts/debate.md),
+  [delivery-profile](docs/contracts/delivery-profile.md), [doctor-report](docs/contracts/doctor-report.md),
+  [epic-planning-ref](docs/contracts/epic-planning-ref.md), [epic-staging](docs/contracts/epic-staging.md),
+  [evidence-manifest](docs/contracts/evidence-manifest.md),
+  [execution-base](docs/contracts/execution-base.md),
+  [external-source-snapshot](docs/contracts/external-source-snapshot.md),
+  [finding-registry](docs/contracts/finding-registry.md),
+  [gate-store-projection](docs/contracts/gate-store-projection.md),
+  [governance-bundle](docs/contracts/governance-bundle.md), [housekeeping](docs/contracts/housekeeping.md),
+  [human-decision](docs/contracts/human-decision.md),
+  [integration-authorization](docs/contracts/integration-authorization.md),
+  [material-decisions](docs/contracts/material-decisions.md), [model-result](docs/contracts/model-result.md),
+  [platform-support](docs/contracts/platform-support.md),
+  [project-instructions-lock](docs/contracts/project-instructions-lock.md),
+  [provider-preflight](docs/contracts/provider-preflight.md),
+  [reflect-cost-watch](docs/contracts/reflect-cost-watch.md),
+  [refusal-vocabulary](docs/contracts/refusal-vocabulary.md),
+  [requirement-revision](docs/contracts/requirement-revision.md),
+  [runtime-identity-lock](docs/contracts/runtime-identity-lock.md),
+  [sdk-write-api](docs/contracts/sdk-write-api.md), [stage-carriers](docs/contracts/stage-carriers.md),
+  [static-analysis](docs/contracts/static-analysis.md),
+  [tickets-manifest](docs/contracts/tickets-manifest.md), [verify-doc](docs/contracts/verify-doc.md),
+  [walkthrough](docs/contracts/walkthrough.md), [work-type-gates](docs/contracts/work-type-gates.md),
+  [workflow-factory](docs/contracts/workflow-factory.md), [workflow-graph](docs/contracts/workflow-graph.md).
+  Список полон: `npm run validate:capabilities` сверяет его с каталогом в обе стороны.
 - [diagrams/autosk-flow.drawio](diagrams/autosk-flow.drawio) — редактируемая двухстраничная диаграмма.
 - [diagrams/autosk-flow-workflow.png](diagrams/autosk-flow-workflow.png) — обзор workflow.
 - [diagrams/autosk-flow-architecture.png](diagrams/autosk-flow-architecture.png) — global/project архитектура.
@@ -58,7 +88,11 @@
 
 ## Граница текущей работы
 
-По решению владельца SOLO_BUILD промежуточные панели разработки перенесены на финальную приёмку. Публикуются отдельные проверяемые изменения в порядке зависимостей roadmap #40. Первый runtime-компонент — [контракты создания дочерних задач](docs/runtime/creation-contracts.md) для #11/#38. Он не заменяет атомарный Store, production wiring или запуск workflows; эти обязательства остаются открытыми. Обязательные панели внутри продукта сохраняются.
+По решению владельца SOLO_BUILD промежуточные панели разработки перенесены на финальную приёмку. Публикуются отдельные проверяемые изменения в порядке зависимостей roadmap #40. Обязательные панели внутри продукта сохраняются.
+
+Что уже есть. Модули хоста в `src/host/` реализуют проверки контрактов — среди них [контракты создания дочерних задач](docs/runtime/creation-contracts.md) для #11/#38 — и каждый проходит мутационное тестирование (`npm run mutation-report`): модуль без своего runtime-теста и выживший мутант, которого никто не назвал, валят команду. Валидаторы дизайна (`npm run validate:*`) держат контракты, схемы, реестры и граф workflow друг у друга. Прогон чистой комнаты (`npm run clean-room`) собирает закреплённый autosk, проверяет на нём создание задач, восстановление после сбоя и подмену дистрибутива, запускает матрицу отказов и сообщает по каждой группе, как она покрыта (`docs/contracts/clean-room-e2e.md` §7).
+
+Чего ещё нет: примитивов демона ADR-023 (подписанный журнал `UserDecisionRecord`, `authorityGuard`, `integrateApproved`) и ADR-025 (metadata CAS, `orchestrateChildBatch`, gate-result receipts) — закреплённая серия поставляет только ADR-014; signer'а, поэтому сегодня ни одно решение пользователя не принимается ни на одном хосте; ref-custody helper'а и его привилегированной установки; точки входа расширения, которая регистрирует workflows графа и вычисляет его предикаты. Это то, что пакет финальной панели перечисляет в разделе «What is not claimed», и матрица v1 называет владельца каждого пункта.
 
 [Совместимая версия autosk](docs/runtime/autosk-compatibility.md) собирается из закреплённого upstream commit и проверяемой серии патчей этого репозитория. CI проверяет реальное создание задач, восстановление после остановки процесса и состав трёх бинарников. Это поставка предпосылки Store; полное расширение и подключение ограниченного SDK ещё не завершены.
 

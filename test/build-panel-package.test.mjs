@@ -21,6 +21,7 @@ import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
 import { UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
+import { coverageReport, faultCoverage, harnessCoverage } from "../scripts/clean-room-e2e.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
 
@@ -34,38 +35,49 @@ const candidate = JSON.parse(read("resources/design-candidate/design-candidate.v
 const matrix = JSON.parse(read("resources/clean-room-e2e/fault-matrix.v1.json"));
 const compat = JSON.parse(read("compat/autosk/manifest.v1.json"));
 
-const cleanRoom = {
-  // Only the fault harness's own cases carry a control; F001 belongs to the
-  // crash harness, which is exactly the difference the table has to show.
-  // Review of 10h (Low): the build refuses a run that did not run every
-  // fault-harness group, so the fixture carries a record for each; F020 keeps
-  // its full record, the others a minimal one.
-  faults: [
-    ...matrix.groups
-      .filter((group) => group.injection !== "real_path" && group.id !== "F020")
-      .map((group) => ({ id: group.id, detected: true, control: true, detail: `${group.id} detail`, git_ref_writes: { fixture: [], fault: [] } })),
-    {
-      id: "F020",
-      detected: true,
-      control: true,
-      detail: "the audit copy exists while the live one still does",
-      git_ref_writes: { fixture: ["commit", "update-ref --create-reflog refs/autosk/epics/k/planning"], fault: ["update-ref --create-reflog refs/autosk/epics/k/audit", "update-ref -d refs/autosk/epics/k/candidate"] },
+// Only the fault harness's own cases carry a control; F001 belongs to the
+// crash harness, which is exactly the difference the table has to show.
+// Review of 10h (Low): the build refuses a run that did not run every
+// fault-harness group, so the fixture carries a record for each; F020 keeps
+// its full record, the others a minimal one.
+const FAULTS = [
+  ...matrix.groups
+    .filter((group) => group.injection !== "real_path" && group.id !== "F020")
+    .map((group) => ({ id: group.id, detected: true, control: true, detail: `${group.id} detail`, git_ref_writes: { fixture: [], fault: [] } })),
+  {
+    id: "F020",
+    detected: true,
+    control: true,
+    detail: "the audit copy exists while the live one still does",
+    git_ref_writes: { fixture: ["commit", "update-ref --create-reflog refs/autosk/epics/k/planning"], fault: ["update-ref --create-reflog refs/autosk/epics/k/audit", "update-ref -d refs/autosk/epics/k/candidate"] },
+  },
+];
+
+// Debt 11f (R7-6): the daemon harnesses' steps in the shape they print them,
+// and a coverage table the run's own functions derive from these records —
+// it used to be written here as `covered_by_real_fault: 20`, the count the
+// run printed and the contract does not allow.
+const DAEMON_STEPS = [
+  {
+    step: "harness:crash",
+    ok: true,
+    summary: {
+      passed: 6,
+      cases: ["reservation.before", "reservation.after", "task.before", "task.after", "activation.before", "activation.after"].map((point) => ({ point })),
     },
-  ],
+  },
+  { step: "harness:identity", ok: true, summary: { passed: 6, evidence: { fault: "F004", control: "resumed under the admitted digest" } } },
+];
+
+const cleanRoom = {
+  faults: FAULTS,
   upstream_commit: compat.upstream.commit,
   source_tree: compat.result_tree,
   extension: { commit: "c".repeat(40), tree: "t".repeat(40), dirty: false },
   report_digest: "r".repeat(64),
   ok: true,
-  steps: [{ step: "prepare", ok: true }, { step: "harness:crash", ok: true }],
-  coverage: {
-    counts: { covered_by_real_fault: 20, covered_indirectly: 0, not_covered: 0 },
-    complete: true,
-    rows: [
-      { id: "F001", boundary: "task_creation", state: "covered_by_real_fault", harness: "crash", evidence: "reservation.before / reservation.after" },
-      { id: "F020", boundary: "planning_publication", state: "covered_by_real_fault", harness: "faults", evidence: "the audit copy exists while the live one still does" },
-    ],
-  },
+  steps: [{ step: "prepare", ok: true }, ...DAEMON_STEPS],
+  coverage: coverageReport(matrix, { ...harnessCoverage(DAEMON_STEPS), ...faultCoverage({ results: FAULTS }) }),
 };
 const mutation = {
   totals: { modules: 49, mutants: 513, killed: 513 },
@@ -207,16 +219,26 @@ test("the fault matrix is stated with its denominator and its groups", async () 
   for (const group of matrix.groups) assert.match(text, new RegExp(`\`${group.id}\``, "u"));
 });
 
-test("the run either was about the reviewed bytes or says it was not", async () => {
+test("the run was about the reviewed bytes, or the package refuses it", async () => {
   const same = await build();
   assert.match(same.text, /same bytes as the version under review \| yes/u);
+  assert.match(same.text, /worktree clean at run time \| yes/u);
 
-  const elsewhere = await build({ cleanRoom: { ...cleanRoom, extension: { commit: "9".repeat(40), tree: "9".repeat(40), dirty: false } } });
-  assert.match(elsewhere.text, /\| NO — this run is about other bytes/u);
-
-  const dirty = await build({ cleanRoom: { ...cleanRoom, extension: { ...cleanRoom.extension, dirty: true } } });
-  assert.match(dirty.text, /\| NO — this run is about other bytes/u);
-  assert.match(dirty.text, /worktree clean at run time \| no/u);
+  // Review of 11f (M1): the coverage is recomputed from the run's records,
+  // which are about the tree the run exercised; a run over other bytes, or
+  // over a dirty worktree, is refused rather than printed beside a "NO".
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, extension: { commit: "9".repeat(40), tree: "9".repeat(40), dirty: false } } }),
+    /the clean-room run exercised tree 9{40}, and this package is built over t{40}/u,
+  );
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, extension: { ...cleanRoom.extension, dirty: true } } }),
+    /the clean-room run exercised a dirty worktree/u,
+  );
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, extension: { commit: null, tree: null, dirty: null } } }),
+    /the clean-room run recorded no extension tree/u,
+  );
 });
 
 test("a reason owned by the workflow is shown as owned, not as missing", async () => {
@@ -1125,11 +1147,13 @@ test("the evidence is given as rows, not only as counts", async () => {
   for (const entry of mutation.modules) {
     assert.match(text, new RegExp(entry.module.replace(/[/.]/gu, "\\$&"), "u"));
   }
-  // A run that recorded no per-case results says so rather than implying rows.
-  const countsOnly = await build({
-    cleanRoom: { ...cleanRoom, faults: null, coverage: { ...cleanRoom.coverage, rows: [] } },
-  });
-  assert.match(countsOnly.text, /recorded no per-group results/u);
+  // Review of 11f (M1): a run that recorded no per-group rows used to print its
+  // counts alone; the package now holds a report to one row per matrix group,
+  // so counts with no rows behind them are refused.
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, faults: null, coverage: { ...cleanRoom.coverage, rows: [] } } }),
+    new RegExp(`the run's coverage rows are not one per matrix group: missing ${matrix.groups.map((group) => group.id).join(", ")}$`, "u"),
+  );
 });
 
 test("the mutation claim carries its own numbers and its own rules", async () => {
@@ -1598,9 +1622,22 @@ test("the injection kinds are rendered from the matrix, not from prose", async (
   const f005 = changed.groups.find((group) => group.id === "F005");
   f005.injection = "written_observation";
   f005.written_fields = ["projectRoot"];
-  const { text } = await build({ matrix: changed });
+  // Debt 11f (R7-6): the run's states are read with the matrix it ran
+  // against, and a package refuses a run whose states its matrix does not give.
+  const run = { ...cleanRoom, coverage: coverageReport(changed, { ...harnessCoverage(DAEMON_STEPS), ...faultCoverage({ results: FAULTS }) }) };
+  const { text } = await build({ matrix: changed, cleanRoom: run });
   const count = changed.groups.filter((group) => group.injection === "written_observation").length;
   assert.ok(section5(text).includes(`\`written_observation\` — ${count} groups (\`F005\``), section5(text));
+});
+
+test("the package's injection kinds are the coverage rule's, each with its meaning", async () => {
+  // Review of 11f (nit): the builder kept its own list of kinds beside the one
+  // the coverage rule and the validator read, so a fourth kind could be
+  // rendered by one and missed by the other.
+  const builder = await import("../scripts/build-panel-package.mjs");
+  const { INJECTION_KINDS } = await import("../scripts/lib/clean-room-coverage.mjs");
+  assert.deepEqual(Object.keys(builder.INJECTION_MEANINGS ?? {}), [...INJECTION_KINDS]);
+  for (const kind of INJECTION_KINDS) assert.ok(builder.INJECTION_MEANINGS[kind].length > 0, kind);
 });
 
 test("a run whose fault harness ran a group the matrix calls a real daemon path refuses", async () => {
@@ -1938,4 +1975,289 @@ test("§5 says a resume the graph declares the user's decision is admitted only 
   assert.match(evidence, /forge a receipt that opens a resume/u);
   assert.match(evidence, /a forged `park\.decision` opens nothing without a verified record/u);
   assert.doesNotMatch(evidence, /cap_decision|shape and park only|verified by nobody/u);
+});
+
+// Debt 11f (R7-6, round 7 of #39): the package printed
+// `covered_by_real_fault=20; complete=true` and then explained that the state
+// name "says no more than that". The run now gives each group the state that
+// says how it was covered, and the package prints the count of every state.
+
+import { COVERAGE_STATES } from "../scripts/lib/clean-room-coverage.mjs";
+
+test("the package prints the coverage by state, and only covered_by_real_fault counts toward the release gate", async () => {
+  const evidence = section5((await build()).text);
+  const kind = (injection) => matrix.groups.filter((group) => group.injection === injection).length;
+  const counts = {
+    covered_by_real_fault: 1 + kind("measured_observation"),
+    covered_without_control: 3,
+    covered_by_written_observation: kind("written_observation"),
+    control_failed: 0,
+    not_covered: 0,
+  };
+  const line = `Coverage, by state: ${COVERAGE_STATES.map((state) => `${state}=${counts[state]}`).join(", ")}; complete=false.`;
+  assert.ok(evidence.includes(line), evidence);
+  assert.match(evidence, /Only `covered_by_real_fault` counts toward the release gate \(#36\)/u);
+  // The prose that explained the old count away is gone, not lengthened.
+  assert.doesNotMatch(evidence, /says no more than that/u);
+  assert.doesNotMatch(evidence, /not\*\* a statement that every group was injected for real/u);
+  // The rows carry what the state is read from.
+  assert.match(evidence, /\| `F001` \| crash \| `real_path` \| yes \| not paired \|/u);
+  assert.match(evidence, /\| `F004` \| identity \| `real_path` \| yes \| yes \|/u);
+  assert.match(evidence, /\| `F005` \| faults \| `measured_observation` \| yes \| yes \|/u);
+  // A state no row is in is printed as zero, not left out; and a daemon
+  // harness that never ran names no harness on its rows (review of 11f, L3).
+  const failed = runReport({ steps: [{ step: "prepare", ok: false }] });
+  const printed = section5((await build({ cleanRoom: failed })).text);
+  assert.ok(printed.includes(`covered_without_control=0, covered_by_written_observation=${counts.covered_by_written_observation}, control_failed=0, not_covered=4;`), printed);
+  assert.match(printed, /\| `F001` \| none \| `real_path` \| NO \| not paired \| not covered \|/u);
+});
+
+/** A clean-room report as the run writes it: its coverage is what the run's own functions derive from its records. */
+function runReport({ steps = cleanRoom.steps, faults = FAULTS } = {}) {
+  return { ...cleanRoom, steps, faults, coverage: coverageReport(matrix, { ...harnessCoverage(steps), ...faultCoverage({ results: faults ?? [] }) }) };
+}
+
+test("the package prints the coverage the run's own records give, and refuses a report that says otherwise", async () => {
+  // Review of 11f (M1): the package printed the report's counts and `complete`
+  // as given and held each row only to the coverage rule, so a report could
+  // say what its records do not. It now recomputes the coverage with the
+  // run's own functions from the run's records — the daemon harnesses' steps
+  // and the fault harness's cases — and refuses rows, counts or `complete`
+  // that differ, with exactly one row per matrix group.
+  const restated = (change) => ({ ...cleanRoom, coverage: { ...cleanRoom.coverage, ...change } });
+  const rowsWith = (id, change) => cleanRoom.coverage.rows.map((row) => (row.id === id ? { ...row, ...change } : row));
+  // (a) Correct rows under the round-7 headline.
+  await assert.rejects(
+    build({ cleanRoom: restated({ counts: { ...cleanRoom.coverage.counts, covered_by_real_fault: 20, covered_without_control: 0, covered_by_written_observation: 0 } }) }),
+    /the run's counts say covered_by_real_fault=20, covered_without_control=0, covered_by_written_observation=0, and its own records give covered_by_real_fault=6, covered_without_control=3, covered_by_written_observation=11/u,
+  );
+  await assert.rejects(build({ cleanRoom: restated({ complete: true }) }), /the run says complete=true, and its own records give complete=false/u);
+  // (b) The round-7 counts with no rows behind them.
+  const everyGroup = matrix.groups.map((group) => group.id).join(", ");
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: [], counts: { covered_by_real_fault: 20 }, complete: true }) }),
+    new RegExp(`the run's coverage rows are not one per matrix group: missing ${everyGroup}$`, "u"),
+  );
+  // (c) A report missing a group's row, repeating one, or adding one the matrix does not have.
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: cleanRoom.coverage.rows.filter((row) => row.id !== "F001") }) }),
+    /the run's coverage rows are not one per matrix group: missing F001$/u,
+  );
+  await assert.rejects(build({ cleanRoom: restated({ rows: [...cleanRoom.coverage.rows, cleanRoom.coverage.rows[4]] }) }), /the run's coverage rows are not one per matrix group: repeated F005$/u);
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: [...cleanRoom.coverage.rows, { ...cleanRoom.coverage.rows[4], id: "F099" }] }) }),
+    /the run's coverage rows are not one per matrix group: not in the matrix F099$/u,
+  );
+  // (d) The crash harness asks no control; a row saying it did is refused.
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: rowsWith("F001", { control: true, state: "covered_by_real_fault" }) }) }),
+    /F001: the run's row says state "covered_by_real_fault", control true, and its own records give state "covered_without_control", control null/u,
+  );
+  // (e) A case record whose control did not stay silent, beside a row saying it did.
+  const noisy = FAULTS.map((entry) => (entry.id === "F005" ? { ...entry, control: false } : entry));
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, faults: noisy } }),
+    /F005: the run's row says state "covered_by_real_fault", control true, and its own records give state "control_failed", control false/u,
+  );
+  // (f) A crash harness step that failed, beside rows still covered.
+  const crashFailed = cleanRoom.steps.map((step) => (step.step === "harness:crash" ? { ...step, ok: false } : step));
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, steps: crashFailed } }),
+    /F001: the run's row says state "covered_without_control", evidence "reservation\.before \/ reservation\.after", detected true, and its own records give state "not_covered", evidence "the crash harness step failed", detected false/u,
+  );
+  // Round 7's own report — rows from before the run recorded what it observed,
+  // under the old headline — is refused, not reprinted.
+  const old = restated({
+    rows: cleanRoom.coverage.rows.map(({ injection, detected, ...row }) => ({ ...row, state: "covered_by_real_fault" })),
+    counts: { covered_by_real_fault: 20 },
+    complete: true,
+  });
+  await assert.rejects(build({ cleanRoom: old }), /F001: the run's row says injection undefined, state "covered_by_real_fault", detected undefined/u);
+  // A report that agrees with its records is printed from the records: a
+  // case whose control did not stay silent reads "NO", as its record says.
+  const evidence = section5((await build({ cleanRoom: runReport({ faults: noisy }) })).text);
+  assert.match(evidence, /\| `F005` \| faults \| `measured_observation` \| yes \| NO \| F005 detail \|/u);
+  assert.ok(evidence.includes("control_failed=1"), evidence);
+});
+
+// Debt 11f (R7-14 package half, R7-23 disclosure half): "No user decision is
+// accepted on any host" was true and overbroad — one host function mints an
+// authority no user signed, and the module that holds it parks with names the
+// graph does not carry. The bullet says both, and the tree is held to it here.
+
+import { KINDS, PARK_REASONS as ALIGNMENT_REASONS, alignmentIdentity, correctionEffect, gateAdmission, materialAmbiguityErrors, policyAlignment } from "../src/host/alignment-gates.mjs";
+import { filesUsing } from "../scripts/lib/code-references.mjs";
+
+const notClaimed = (text) => text.slice(text.indexOf("### What is not claimed"), text.indexOf("## 6. "));
+
+const alignmentFacts = (kind) => ({
+  project_root_sha256: "1".repeat(64), epic_id: "epic-1", kind, anchor_version: 1,
+  scope_hash: "2".repeat(64), subject_hash: "3".repeat(64), material_manifest_hash: "4".repeat(64),
+  projector: { version: 1, hash: "5".repeat(64), inputs_hash: "6".repeat(64) },
+  classifier: { version: 1, hash: "7".repeat(64) },
+  policy: { issuance_hash: "8".repeat(64), disposition_hash: "9".repeat(64) },
+  protocol_hash: "a".repeat(64),
+});
+
+/**
+ * The codes `alignment-gates.mjs` raises, read from the module itself: the
+ * code of every `demand(` in its source, and the reasons its park and its
+ * ambiguity check return when they are run.
+ */
+function raisedAlignmentCodes() {
+  const source = read("src/host/alignment-gates.mjs");
+  const codes = new Set();
+  for (const call of source.matchAll(/\bdemand\(/gu)) {
+    let depth = 0;
+    let index = call.index + call[0].length;
+    for (; index < source.length; index += 1) {
+      const char = source[index];
+      if (char === "'" || char === '"' || char === "`") {
+        for (index += 1; source[index] !== char; index += source[index] === "\\" ? 2 : 1);
+        continue;
+      }
+      if ("([{".includes(char)) depth += 1;
+      else if (")]}".includes(char)) depth -= 1;
+      else if (char === "," && depth === 0) break;
+    }
+    const code = /^\s*'([a-z_]+)'/u.exec(source.slice(index + 1));
+    if (code) codes.add(code[1]);
+  }
+  const facts = alignmentFacts("brief");
+  codes.add(gateAdmission({ records: [], facts }).reason);
+  codes.add(gateAdmission({ records: [{ kind: "brief", identity: "stale" }], facts }).reason);
+  for (const error of materialAmbiguityErrors({ assumptions: [{ id: "a", material: true }] })) codes.add(error.reason);
+  return codes;
+}
+
+/**
+ * The module's own functions that call `policyAlignment` or `gateAdmission`,
+ * directly or through each other, read from its source (review of 11f, L2): a
+ * product caller of one of them reaches the path as surely as a caller of the
+ * two functions.
+ */
+function alignmentWrappers() {
+  const source = read("src/host/alignment-gates.mjs");
+  const bodies = new Map([...source.matchAll(/^(?:export )?function (\w+)\([\s\S]*?^\}/gmu)].map((match) => [match[1], match[0].slice(match[0].indexOf("\n"))]));
+  const callers = new Set(["policyAlignment", "gateAdmission"]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [name, body] of bodies) {
+      if (!callers.has(name) && [...callers].some((callee) => new RegExp(`(?<![\\w$.])${callee}\\(`, "u").test(body))) {
+        callers.add(name);
+        grew = true;
+      }
+    }
+  }
+  return [...callers].filter((name) => name !== "policyAlignment" && name !== "gateAdmission").sort();
+}
+
+test("§5 says no user decision is accepted today, and names the one path that admits an authority no user signed", async () => {
+  // The path the bullet describes is the tree's: a policy object the caller
+  // makes up — no decision behind it, its own project, Epic, scope and expiry
+  // elsewhere, its own policy hashes — mints `authority: policy` for every
+  // kind, `brief` included, and the gate admits the record.
+  const policy = {
+    policy_ref: "made-up", kinds: [...KINDS], anchor_version: 1,
+    project_root_sha256: "e".repeat(64), epic_id: "another", scope_hash: "d".repeat(64), expires_at: "2000-01-01T00:00:00Z",
+    issuance_hash: "b".repeat(64), disposition_hash: "c".repeat(64),
+  };
+  assert.ok(KINDS.includes("brief"));
+  for (const kind of KINDS) {
+    const facts = alignmentFacts(kind);
+    const record = policyAlignment(policy, { ...facts, user_decision: null });
+    assert.equal(record.authority, "policy", kind);
+    assert.equal(record.user_decision, null, kind);
+    // Review of 11f (L1): the record is bound — its identity is the facts
+    // its caller hands in, whose policy hashes are not the policy object's
+    // own — and what nothing checks is the policy.
+    assert.equal(record.identity, alignmentIdentity({ ...facts, user_decision: null }), kind);
+    assert.notEqual(facts.policy.issuance_hash, policy.issuance_hash);
+    const gate = gateAdmission({ records: [record], facts });
+    assert.deepEqual([gate.decision, gate.authority], ["proceed", "policy"], kind);
+    assert.equal(gateAdmission({ records: [record], facts: { ...facts, project_root_sha256: "f".repeat(64) } }).reason, "alignment_stale", kind);
+  }
+  // What it does check of the policy: its name, the kinds it lists, its anchor version.
+  const brief = { ...alignmentFacts("brief"), user_decision: null };
+  const refused = (code) => (error) => error.code === code;
+  assert.throws(() => policyAlignment({ ...policy, policy_ref: "" }, brief), refused("alignment_missing"));
+  assert.throws(() => policyAlignment({ ...policy, kinds: ["tickets"] }, brief), refused("policy_scope_exceeded"));
+  assert.throws(() => policyAlignment({ ...policy, anchor_version: 2 }, brief), refused("alignment_stale"));
+  // Review of 11f (L2): nothing outside tests calls either function, nor
+  // the module's own function that calls `gateAdmission`.
+  const wrappers = alignmentWrappers();
+  assert.deepEqual(wrappers, ["resumeAdmission"]);
+  for (const identifier of ["policyAlignment", "gateAdmission", ...wrappers]) {
+    assert.deepEqual(await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier, exclude: ["src/host/alignment-gates.mjs"] }), [], identifier);
+  }
+  const text = notClaimed((await build()).text);
+  // A phrase, whatever the line wrapping.
+  const phrase = (words) => new RegExp(words.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&").replace(/ /gu, "\\s+"), "u");
+  assert.match(text, /- No user decision is accepted on any host today\./u);
+  assert.match(text, phrase("One path does admit an authority no user signed. `policyAlignment` (`src/host/alignment-gates.mjs`) mints an `authority: policy` alignment record from a policy object its caller hands in, and of that policy it checks only its name, the kinds it lists and its anchor version."));
+  assert.match(text, phrase("It does not check that a `UserDecisionRecord` issued the policy, never compares the policy's own project, Epic, scope and expiry with anything, and never compares the facts' policy hashes with the policy object."));
+  assert.match(text, phrase("The record's identity binds the facts its caller hands in — their project, Epic and scope, and whatever policy hashes they carry."));
+  assert.doesNotMatch(text, /binds the record to no project, Epic, scope or expiry/u);
+  assert.match(text, phrase("`brief` included, although 01 §2 lets no policy approve Brief framing"));
+  assert.match(text, phrase("`gateAdmission` admits the record"));
+  assert.match(text, phrase("Outside tests nothing calls either function yet, nor `resumeAdmission`, the module's own caller of `gateAdmission`."));
+  assert.match(text, phrase("open in ADR-091 and is #4's phase 3"));
+});
+
+test("§5 lists the reason names the alignment module raises and the graph does not carry, derived from the code", async () => {
+  const raised = raisedAlignmentCodes();
+  // The list the package reads is the module's own, and it is what the module raises.
+  assert.deepEqual([...raised].sort(), [...ALIGNMENT_REASONS].sort());
+  const graph = JSON.parse(read("resources/workflow-graph/workflow-graph.v1.json"));
+  const recovery = new Set(graph.recovery.map((row) => row.reason));
+  const missing = [...raised].filter((code) => !recovery.has(code)).sort();
+  // Measured on this tree: all four, `material_ambiguity_unresolved` among them.
+  assert.deepEqual(missing, ["alignment_missing", "alignment_stale", "material_ambiguity_unresolved", "policy_scope_exceeded"]);
+  const alignmentRows = graph.recovery
+    .filter((row) => row.parks_at.some((step) => step === "clarify_alignment" || step === "record_alignment"))
+    .map((row) => row.reason).sort();
+  const text = notClaimed((await build()).text);
+  assert.ok(text.includes(`parks with reason names the graph's recovery rows do not carry — ${missing.map((code) => `\`${code}\``).join(", ")} —`), text);
+  assert.ok(text.includes(`where the graph's alignment rows name ${alignmentRows.map((code) => `\`${code}\``).join(", ")}`), text);
+  // The steps it names are not the graph's either, and the bullet says so.
+  const steps = new Set(graph.steps.map((step) => step.name));
+  for (const kind of KINDS) {
+    assert.equal(steps.has(gateAdmission({ records: [], facts: alignmentFacts(kind) }).resume_target), false, kind);
+    assert.equal(steps.has(correctionEffect({ anchorVersion: 1, records: [], waitingFor: kind }).restart), false, kind);
+    assert.equal(steps.has(`record_${kind}_alignment`), false, kind);
+  }
+  assert.match(read("src/host/alignment-gates.mjs"), /resume_target: `record_\$\{kind\}_alignment`/u);
+  assert.match(text, /resumes into `record_<kind>_alignment` and\s+`await_<kind>_alignment` and restarts at `clarify_<kind>`, which are not graph\s+steps/u);
+  // Once the graph carries every name the module raises, the sentence goes.
+  const converged = structuredClone(graph);
+  for (const code of missing) converged.recovery.push({ reason: code, parks_at: ["record_alignment"], resume_targets: ["human"], required_state: "converged" });
+  const after = notClaimed((await build({ graph: converged })).text);
+  assert.doesNotMatch(after, /parks with reason names the graph's recovery rows do not carry/u);
+});
+
+// Debt 11f (R7-28): README's work boundary called the creation contracts "the
+// first runtime component"; it now says what exists and what does not, and
+// what does not is what the package does not claim.
+
+test("README's work boundary says what exists and what does not, and the package does not claim what it lists as missing", async () => {
+  const readme = read("README.md");
+  const start = readme.indexOf("## Граница текущей работы");
+  const boundary = readme.slice(start, readme.indexOf("\n## ", start + 1));
+  assert.doesNotMatch(boundary, /Первый runtime-компонент/u);
+  for (const exists of ["`src/host/`", "`npm run mutation-report`", "`npm run validate:*`", "`npm run clean-room`"]) {
+    assert.ok(boundary.includes(exists), exists);
+  }
+  const text = notClaimed((await build()).text);
+  for (const [readmeWord, packageWord] of [
+    ["ADR-023", "ADR-023"],
+    ["ADR-025", "ADR-025"],
+    ["signer", "signer"],
+    ["ref-custody helper", "ref-custody helper"],
+    ["точки входа расширения", "extension entry point"],
+  ]) {
+    assert.ok(boundary.includes(readmeWord), readmeWord);
+    assert.ok(text.includes(packageWord), packageWord);
+  }
+  // No count a validator does not measure.
+  assert.doesNotMatch(boundary, /\b\d+\s+(?:модул|валидатор|контракт|host)/u);
 });

@@ -1051,3 +1051,31 @@ test("the CLI reads the graph it is given and names a missing one (CodeRabbit on
   const accepted = spawnSync(process.execPath, [script, "--graph", graph], { encoding: "utf8" });
   assert.equal(accepted.status, 0, accepted.stderr);
 });
+
+// Debt 11f (R7-28, round 7 of #39): README's package list named 2 of the 42
+// contracts. It now points to every contract in docs/contracts/, and this
+// validator, which already reads README and every contract, holds the list to
+// the directory both ways.
+
+test("README's package list points to every contract in docs/contracts/, and to nothing else", async () => {
+  const capabilities = await import("../scripts/validate-program-capability-matrix.mjs");
+  const contracts = readContracts();
+  const readme = readFileSync(README_PATH, "utf8");
+  assert.deepEqual(capabilities.readmeContractErrors(readme, contracts), []);
+  const listed = readme.slice(readme.indexOf("## Состав пакета"), readme.indexOf("\n## ", readme.indexOf("## Состав пакета") + 1));
+  for (const contract of contracts) assert.ok(listed.includes(`](${contract.path})`), contract.path);
+  // A contract the list leaves out is refused, even when README links it in another section.
+  const dropped = readme.replace("](docs/contracts/arena.md)", "](docs/arena.md)");
+  assert.match(messages(capabilities.readmeContractErrors(dropped, contracts)), /README package list omits docs\/contracts\/arena\.md/u);
+  const elsewhere = dropped.replace("## Граница текущей работы\n", "## Граница текущей работы\n\nСм. [arena](docs/contracts/arena.md).\n");
+  assert.notEqual(elsewhere, dropped);
+  assert.match(messages(capabilities.readmeContractErrors(elsewhere, contracts)), /README package list omits docs\/contracts\/arena\.md/u);
+  // A link to a contract that is not in the directory is refused.
+  const extra = readme.replace("## Состав пакета\n", "## Состав пакета\n\n- [gone](docs/contracts/no-such-contract.md)\n");
+  assert.match(messages(capabilities.readmeContractErrors(extra, contracts)), /README package list names docs\/contracts\/no-such-contract\.md, which is not a contract in docs\/contracts\//u);
+  // No list at all is refused rather than read as empty.
+  assert.match(messages(capabilities.readmeContractErrors(readme.replace("## Состав пакета", "## Пакет"), contracts)), /README has no package list/u);
+  // The CLI's validation runs it whenever it is given the contracts.
+  assert.match(messages(validateAll({ ...fixture(), contracts, readme: dropped })), /README package list omits docs\/contracts\/arena\.md/u);
+  assert.deepEqual(validateAll({ ...fixture(), contracts }), []);
+});

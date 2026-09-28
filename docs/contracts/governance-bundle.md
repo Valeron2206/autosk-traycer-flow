@@ -32,7 +32,7 @@ One input must give one digest. That requires the canonical form to be stated ra
 
 ## 4. Required inventory
 
-`agent-selection-guide.md` and the twelve `protocol/` files of 02 §5, named individually in the manifest — a glob would let one go missing without the count changing. These thirteen are the members the digest is taken over, and their one list is `governance_files` in `resources/stage-carriers/stage-carriers.v1.json` (ADR-093): this validator takes its members from it, and the build CLI holds the manifest to it as its inventory, so a manifest cannot declare its own. `bundle-manifest.json` and `bundle-attestation.json` travel with the members but are not among them: the manifest records the digest and the attestation binds verdicts to it, so neither can be in its preimage. The envelope's role and stage contracts and the stage-carriers registry are extension resources, not members; the registry pins the bundle digest, so it cannot be inside it.
+`agent-selection-guide.md` and the twelve `protocol/` files of 02 §5, named individually in the manifest — a glob would let one go missing without the count changing. These thirteen are the members the digest is taken over, and their one list is `governance_files` in `resources/stage-carriers/stage-carriers.v1.json` (ADR-093): this validator takes its members from it, and the build command (`scripts/governance-bundle.mjs`, `npm run bundle:build`) hands it to the builder (`buildBundle` in `src/host/bundle-builder.mjs`) as the inventory the manifest is held to both ways, so a manifest cannot declare its own. The command reads only the members the manifest names, runs the stage, canonical-form, inventory and scan checks of §2–§5, prints the digest only for a bundle that passes them all, and with `--out` writes the candidate document. `bundle-manifest.json` and `bundle-attestation.json` travel with the members but are not among them: the manifest records the digest and the attestation binds verdicts to it, so neither can be in its preimage. The envelope's role and stage contracts and the stage-carriers registry are extension resources, not members; the registry pins the bundle digest, so it cannot be inside it.
 
 A missing member and an extra member are both refusals. An extra one matters as much: a bundle that carries a file nobody declared is a bundle whose contents nobody can vouch for. A member path that repeats is refused as well: two members under one name still hash in input order, so a repeat would let one manifest yield two digests — and panel verdicts bind the digest.
 
@@ -52,6 +52,8 @@ This scan is fail-closed. A member the scanner cannot read is treated as failing
 
 An attestation whose candidate digest is not the bundle's own is refused. That is the shape of a forged or stale attestation, and it is also what a fix produces: **a panel fix changes the digest**, so the verdicts collected before it are about a candidate that no longer exists and a new panel is required. Rounding that up is the temptation this rule removes.
 
+The panel runner is `runBundlePanel` in `src/host/bundle-panel.mjs`: it builds the four seats from those `src/host/governance-bundle.mjs` pins (`REQUIRED_SEATS`) and refuses a substituted route or effort before any seat runs (`bundle_panel_incomplete`), and a seat that did not answer is recorded as unavailable, never as a verdict. `attestationErrors` in `src/host/governance-bundle.mjs` holds an attestation to the candidate digest and to those seats.
+
 ## 7. Release, rollback and active Epics
 
 - a release is immutable and content-addressed. Releasing an existing digest again is idempotent, not a second release;
@@ -60,6 +62,8 @@ An attestation whose candidate digest is not the bundle's own is refused. That i
 - an Epic pinned to an old bundle keeps it, and the old version is retained while any lock references it;
 - a new Epic uses the current bundle by default;
 - moving an active Epic to a new bundle is a separate approved workflow, never a side effect of releasing.
+
+These rules are functions in `src/host/governance-bundle.mjs` — `releaseAdmission`, `releasePointer`, `rollbackPlan`, `bundleForEpic` and `epicMigrationErrors` — over values their caller holds; the store and the pointer they decide about are deferred (§9).
 
 ## 8. Refusal classes
 
@@ -79,4 +83,6 @@ An attestation whose candidate digest is not the bundle's own is refused. That i
 
 Decided: the three stages, the canonical form and what the digest covers, the required inventory, the fail-closed scan, what an attestation binds, and the release, rollback and retention rules.
 
-Deferred, and named: the CLI, the importer, the builder and the panel runner. They are built against this.
+Implemented since, outside this contract's decisions: the build command and the builder (§4), the panel runner and the attestation check (§6), and the release rules as functions (§7).
+
+Deferred, and named: the importer — `import-traycer-baseline` of 03 §3, which reads the private Traycer baseline and proposes the adaptation — and the import, review and release commands (the command in the tree builds: it reads the members a manifest names under `--root` and takes `provenance` from that manifest as given); the thirteen members themselves and `resources/governance-bundle/bundle-manifest.v1.json`, which the build command reads by default and which do not exist yet (ADR-093); a panel run over a real candidate, since the runner of §6 has no caller outside tests; and the content-addressed release store, the `current` pointer and the retention of a version while a lock references it, which the functions of §7 decide about and nothing yet holds. They are built against this (debt 11f, ADR-100).
