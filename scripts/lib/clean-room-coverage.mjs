@@ -9,6 +9,18 @@
  * group, whether the run detected the fault, and whether a control was asked
  * and stayed silent. Only the first state counts toward the release gate.
  *
+ * Debt 12e (R8-7, R8-12): counting a detected fault with a silent control was
+ * still not counting the *designed* fault on the *product path*. F002 and F003
+ * name a daemon restart and a transcript write their notes say the run does not
+ * do, and the five `measured_observation` groups hand a pure host function
+ * values read from a fixture while no host driver, daemon or helper runs. A
+ * group now counts only when its injection is `real_path` — the built daemon
+ * answering on its own path — and the matrix says the run is the fault the
+ * group designs (`injection_matches_design`); a real_path group whose run is a
+ * substitute is `covered_by_substitute_fault` (a control that did not stay
+ * silent ranks first: `control_failed`), and a measured group is
+ * `covered_by_host_function`, reported as what it is.
+ *
  * The rule and the coverage report built on it live here, shared by the run
  * (`scripts/clean-room-e2e.mjs`), the design validator
  * (`scripts/validate-clean-room-e2e.mjs`), which holds the contract to these
@@ -20,12 +32,21 @@
 
 /** The states, in the order a row falls through them from the best. */
 export const COVERAGE_STATES = Object.freeze([
-  // The fault reached what answers for real, was detected, and the same
-  // guard asked about the un-faulted state stayed silent.
+  // The designed fault met the product path (`real_path`, and the matrix says
+  // the run is the fault the group designs), was detected, and the same guard
+  // asked about the un-faulted state stayed silent.
   'covered_by_real_fault',
   // The same, with no control asked: nothing rules out a guard that would
   // refuse the un-faulted state too.
   'covered_without_control',
+  // The run made a fault on the product path, and it is not the designed one
+  // (the matrix's `injection_matches_design` is false): a substitute, which
+  // says nothing about the fault the group names — a silent control included;
+  // a control that did not stay silent is `control_failed`, which ranks first.
+  'covered_by_substitute_fault',
+  // A host function answered values read from a fixture the harness faulted:
+  // no host driver, daemon or helper ran, so the product path did not meet it.
+  'covered_by_host_function',
   // The guard was handed an observation the harness wrote and answered it:
   // an answer to a described state, not to the fault.
   'covered_by_written_observation',
@@ -35,18 +56,22 @@ export const COVERAGE_STATES = Object.freeze([
   'not_covered',
 ]);
 
-/** The injection kinds whose fault reaches what answers for real (§9). */
-export const REAL_INJECTIONS = Object.freeze(['real_path', 'measured_observation']);
+/** The only kind whose fault meets the product path: the built daemon answers on its own path (§9). */
+export const PRODUCT_INJECTION = 'real_path';
+
+/** The kind whose guard is handed values read back from a fixture the harness faulted. */
+export const MEASURED_INJECTION = 'measured_observation';
 
 /** The kind whose guard is handed the fields the harness writes. */
 export const WRITTEN_INJECTION = 'written_observation';
 
 /** Every kind this rule gives a state to; the matrix schema admits exactly these. */
-export const INJECTION_KINDS = Object.freeze([...REAL_INJECTIONS, WRITTEN_INJECTION]);
+export const INJECTION_KINDS = Object.freeze([PRODUCT_INJECTION, MEASURED_INJECTION, WRITTEN_INJECTION]);
 
 /**
- * The state of one group: `group` carries the matrix's `injection`, and
- * `observation` what the run reported — the harness that ran it, whether the
+ * The state of one group: `group` carries the matrix's `injection` and
+ * `injection_matches_design` (only `true` says the run is the designed fault),
+ * and `observation` what the run reported — the harness that ran it, whether the
  * fault was `detected`, and `control`: `true` when a control was asked and
  * stayed silent, `false` when it was asked and did not, `null` when none was
  * asked. A kind the rule does not know counts for nothing.
@@ -55,7 +80,9 @@ export function coverageState(group, observation) {
   if (!observation?.harness || observation.detected !== true) return 'not_covered';
   if (observation.control === false) return 'control_failed';
   if (group?.injection === WRITTEN_INJECTION) return 'covered_by_written_observation';
-  if (!REAL_INJECTIONS.includes(group?.injection)) return 'not_covered';
+  if (group?.injection === MEASURED_INJECTION) return 'covered_by_host_function';
+  if (group?.injection !== PRODUCT_INJECTION) return 'not_covered';
+  if (group.injection_matches_design !== true) return 'covered_by_substitute_fault';
   return observation.control === true ? 'covered_by_real_fault' : 'covered_without_control';
 }
 
@@ -187,6 +214,8 @@ export function coverageReport(matrix, coverage = {}) {
       id: group.id,
       boundary: group.boundary,
       injection: group.injection ?? null,
+      // Whether the run is the fault the group designs: only `true` counts.
+      injection_matches_design: group.injection_matches_design === true,
       state: coverageState(group, entry),
       harness: entry?.harness ?? null,
       evidence: entry?.evidence ?? null,
@@ -202,9 +231,9 @@ export function coverageReport(matrix, coverage = {}) {
   return Object.freeze({
     rows: Object.freeze(rows),
     counts: Object.freeze(counts),
-    // Stated rather than rounded up: only `covered_by_real_fault` counts
-    // toward the release gate (#36), and a run is complete only when every
-    // group is in it.
+    // Stated rather than rounded up: only `covered_by_real_fault` — the
+    // designed fault, met on the product path — counts toward the release
+    // gate (#36), and a run is complete only when every group is in it.
     complete: rows.every((row) => row.state === 'covered_by_real_fault'),
     // Injection and specificity are different claims, so they are counted
     // separately rather than folded into one word.

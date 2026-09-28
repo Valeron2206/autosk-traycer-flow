@@ -206,6 +206,139 @@ test("the design digest changes when any shipped file changes", () => {
   assert.notEqual(before, after);
 });
 
+// Debt 12e (R8-7, R8-12): whether a group's run is the fault the group designs
+// is a field of the group, so the coverage rule can read it. F002 and F003 say
+// in their own notes that the run does neither (no daemon restart; no transcript
+// or meta write), and so does every written observation but F011's, whose
+// script really prints success and exits 0.
+
+const DEPARTS = Object.freeze(["F002", "F003", "F006", "F007", "F008", "F012", "F015", "F016", "F017", "F018", "F019", "F020"]);
+
+test("every group says whether its run is its designed fault, and the twelve whose notes admit a departure say no", () => {
+  const byId = Object.fromEntries(matrix().groups.map((entry) => [entry.id, entry.injection_matches_design]));
+  for (const [id, matches] of Object.entries(byId)) assert.equal(matches, !DEPARTS.includes(id), id);
+  for (const entry of matrix().groups) {
+    // What the design says and the run does not, where the run departs; nothing where it does not.
+    assert.equal(typeof entry.design_departure, entry.injection_matches_design ? "undefined" : "string", entry.id);
+  }
+});
+
+test("a group that does not say whether its run is its designed fault is refused", () => {
+  assertRejects(mutated((value) => { delete group(value, "F001").injection_matches_design; }), /injection_matches_design/u);
+  assertRejects(mutated((value) => { group(value, "F001").injection_matches_design = "yes"; }), /injection_matches_design/u);
+});
+
+test("a run that departs from its design names the departure, and a run that does not names none", () => {
+  assertRejects(
+    mutated((value) => { delete group(value, "F002").design_departure; }),
+    /F002.*departs from its designed fault and does not say how/u,
+  );
+  assertRejects(
+    mutated((value) => { group(value, "F001").design_departure = "the run kills at the reservation only"; }),
+    /F001.*design_departure.*matches its design/u,
+  );
+  assertRejects(mutated((value) => { group(value, "F002").design_departure = ""; }), /design_departure/u);
+});
+
+test("a note that admits the run is not the designed fault, beside a flag that says it is, is refused", () => {
+  // A tripwire, not a parser: the flag is the field the rule reads, and a note
+  // that says the opposite is a matrix that contradicts itself.
+  for (const admission of [
+    "the run kills the writer, although the fault field says it kills the daemon",
+    "no process is killed: the harness writes the record",
+    "no recovery runs: the harness moves the ref",
+    "the harness's own git stands in for the helper",
+  ]) {
+    assertRejects(
+      mutated((value) => { group(value, "F001").injection_note = admission; }),
+      /F001.*injection_note.*admits the run is not the designed fault/u,
+    );
+  }
+  // The shipped notes of the groups that depart say the same, beside a flag that says no.
+  assert.deepEqual(validateMatrix(matrix(), schema), []);
+});
+
+test("a group that cannot be covered by a real fault on the product path names who converts it", () => {
+  // F002 departs, F009 is a host function, F017 is a written observation: none
+  // is counted, and each says what would count.
+  for (const id of ["F002", "F009", "F017"]) {
+    assertRejects(
+      mutated((value) => { delete group(value, id).product_path_owner; }),
+      new RegExp(`${id}.*product_path_owner`, "u"),
+    );
+    assertRejects(
+      mutated((value) => { group(value, id).product_path_owner = "the harness"; }),
+      new RegExp(`${id}.*product_path_owner.*#36`, "u"),
+    );
+  }
+  // F001 and F004 are the designed fault on the product path: nothing to convert.
+  for (const id of ["F001", "F004"]) {
+    assertRejects(
+      mutated((value) => { group(value, id).product_path_owner = "#36 converts it"; }),
+      new RegExp(`${id}.*product_path_owner.*already the designed fault`, "u"),
+    );
+  }
+});
+
+test("the owners the matrix names are the records that own each guard's driver or helper", () => {
+  const owners = Object.fromEntries(matrix().groups.filter((entry) => entry.product_path_owner).map((entry) => [entry.id, entry.product_path_owner]));
+  assert.deepEqual(Object.keys(owners), matrix().groups.map((entry) => entry.id).filter((id) => !["F001", "F004"].includes(id)));
+  for (const [id, owner] of Object.entries(owners)) assert.match(owner, /^#36 /u, id);
+  // Review of 12e (L4): each group's owner is the record the group's guard belongs
+  // to (the module that calls it: `delta-driver` for `refMovementErrors`, through
+  // `integrationProof`), and for the groups the built daemon's own writes answer,
+  // nothing else has to exist first. A pin per group, so a re-attribution is a decision.
+  const named = (owner) => [...new Set(owner.slice(4).match(/#\d+/gu) ?? [])].sort();
+  const expected = {
+    F002: [], F003: [], F005: [],
+    F006: ["#18", "#9"], F007: ["#18", "#8", "#9"], F008: ["#18", "#8"],
+    F009: ["#18", "#8"], F010: ["#18", "#8"], F011: ["#18", "#26"],
+    F012: ["#18", "#24"], F013: ["#18", "#24"], F014: ["#18", "#26"],
+    F015: ["#18", "#9"], F016: ["#18", "#9"],
+    // CodeRabbit on #278: the helper's groups reach the product path through #18's
+  // entry point too (contract §7), as every driver-owned group here says.
+  F017: ["#13", "#18", "#5"], F018: ["#13", "#18", "#5"], F019: ["#13", "#18", "#5"], F020: ["#13", "#18", "#5"],
+  };
+  for (const [id, records] of Object.entries(expected)) assert.deepEqual(named(owners[id]), records, id);
+  for (const id of ["F002", "F003", "F005"]) assert.match(owners[id], /the run builds the daemon, so no other record has to land first/u, id);
+  // F005's fault is written by the built daemon's session store (`sessionStore.create` →
+  // `write_session_transcript`, `write_session_meta` through `autosk-store-lock`), not by #21's driver.
+  assert.match(owners.F005, /built daemon's session write/u);
+  assert.doesNotMatch(owners.F005, /#21/u);
+  assert.match(owners.F008, /`integrationProof` calls `refMovementErrors`/u);
+});
+
+test("F003's designed outcome is the state its kill point leaves, and its conversion names that kill point (CodeRabbit on #278)", () => {
+  // The built daemon's `sessionStore.create` writes the transcript header, then the
+  // session meta, through `autosk-store-lock` (`daemon/core/src/store/sessionStore.ts:241-242`
+  // in the prepared source); the only other meta write, `patchMeta`, rewrites a
+  // session that exists. So a kill between the two leaves the header and loses the
+  // meta, and "meta written, header lost" has no path — the description says the former.
+  const f003 = group(matrix(), "F003");
+  assert.match(f003.fault, /between the transcript header and the meta write/u);
+  assert.match(f003.description, /^transcript header written, session meta lost$/u);
+  assert.doesNotMatch(f003.description, /meta written/u);
+  // The conversion the owner names is that kill point, in that order.
+  assert.match(f003.product_path_owner, /between the built daemon's session transcript-header write and its meta write/u);
+  assert.match(f003.product_path_owner, /`sessionStore\.create` writes the header, then the meta/u);
+});
+
+test("the contract says who is owed a conversion, that it is a decision, and when a run is the designed fault", () => {
+  const contract = files[CONTRACT_PATH];
+  // Review of 12e (L3): 19 groups do not count and 18 have owners — the rule is
+  // "each group that is not the designed fault on the product path".
+  assert.match(contract, /each group that is not the designed fault on the product path names in `product_path_owner`/u);
+  assert.doesNotMatch(contract, /each group that does not count names in `product_path_owner`/u);
+  assert.match(contract, /F001 is the designed fault on the product path and counts once #36's crash harness asks a control/u);
+  // Nits: a substitute's silent control says nothing, and a failed one is `control_failed` first.
+  assert.doesNotMatch(contract, /whatever the control did/u);
+  assert.match(contract, /a control that did not stay silent is `control_failed` first/u);
+  // Nits: `real_path` stays the built daemon; a host driver's group becomes it by a decision (ADR-106).
+  assert.match(contract, /Such a conversion is a decision and not a side effect: `real_path` stays the built daemon answering on its own path/u);
+  // Nits: the flag's standard.
+  assert.match(contract, /A run is the designed fault when the operation or window the design names actually happens/u);
+});
+
 // Debt 10h (R6-20, a1): the package said every group is injected for real and
 // that only F017–F020 touch Git directly. Eight fault-harness groups hand their
 // guard a written observation, and no group of the fault harness runs a host
@@ -364,7 +497,7 @@ test("the contract names every coverage state, and only covered_by_real_fault co
   // Review of 11f (L4): F001–F003 are real injections too, so the row says
   // which state counts toward the gate, not which state was injected.
   const mapping = contract.slice(contract.indexOf("## 10."));
-  assert.match(mapping, /\| Every fault group is covered by an injected fault, or reported as not covered \| §7 \(only `covered_by_real_fault` counts toward the gate as covered by an injected fault; every other state reports what is missing\), §9 \|/u);
+  assert.match(mapping, /\| Every fault group is covered by an injected fault, or reported as not covered \| §7 \(only `covered_by_real_fault` counts toward the gate as covered by an injected fault: the designed fault, met on the product path; every other state reports what is missing\), §9 \|/u);
   assert.doesNotMatch(mapping, /only `covered_by_real_fault` is covered by an injected fault/u);
   for (const state of COVERAGE_STATES) {
     const without = contract.replaceAll(`\`${state}\``, "`another_state`");
@@ -373,6 +506,10 @@ test("the contract names every coverage state, and only covered_by_real_fault co
       state,
     );
   }
+  // Debt 12e: and it says what the count requires — the designed fault, met on the product path.
+  assert.match(contract, /the designed fault, met on the product path/u);
+  const unqualified = contract.replaceAll("the designed fault, met on the product path", "a fault");
+  assert.ok(validateCleanRoomDesign({ ...files, [CONTRACT_PATH]: unqualified }).some((message) => /designed fault.*product path/u.test(message)));
   const silent = contract.replace("Only `covered_by_real_fault` counts toward the release gate (#36)", "Every state counts");
   assert.ok(validateCleanRoomDesign({ ...files, [CONTRACT_PATH]: silent }).some((message) => /which coverage state counts toward the release gate/u.test(message)));
 });
