@@ -2,7 +2,7 @@
 
 <!-- static-analysis-contract:v1 -->
 
-Status: issue #47 design contract. #47 is outside matrix v1 (issues #3–#39): it is a candidate for a successor matrix version and blocks neither v1 nor the release until a successor matrix classifies it. The adapter, the pilot and the webhook receiver are not implemented; the two artifact classes this contract registers in the #14 registry (`static_analysis_policy`, `static_analysis_result`) have no artifact at their paths and no v1 producer that writes them; this pins the provider-neutral interface, the policy, the identities a result is bound to, and what may never be read as a PASS.
+Status: issue #47 design contract. #47 is outside matrix v1 (issues #3–#39): it is a candidate for a successor matrix version and blocks neither v1 nor the release until a successor matrix classifies it. The adapter, the pilot and the webhook receiver are not implemented; the two artifact classes this contract registers in the #14 registry (`static_analysis_policy`, `static_analysis_result`) are marked `successor_matrix_candidate` there, so the classifier refuses their paths, and they have no artifact at their paths and no v1 producer that writes them; this pins the provider-neutral interface, the policy, the identities a result is bound to, and what may never be read as a PASS.
 
 ## 1. Authority
 

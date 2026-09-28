@@ -2,7 +2,7 @@
 
 <!-- sdk-write-api-contract:v1 -->
 
-Status: issue #38 design contract. The upstream primitives, the migration of correctness-critical call sites and the fault-injection suite remain open and are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release); this pins the write surface, what a capability may reach, and the outcomes a caller must be able to tell apart.
+Status: issue #38 design contract. The upstream primitives, the migration of correctness-critical call sites and the fault-injection suite remain open and are `planned_after_v1` (matrix v1: a post-v1 capability that does not block the release), and the artifact class this contract registers in the #14 registry (`sdk_write_operation`) is marked `planned_after_v1` there, so the classifier refuses its paths; this pins the write surface, what a capability may reach, and the outcomes a caller must be able to tell apart.
 
 ## 1. Authority
 

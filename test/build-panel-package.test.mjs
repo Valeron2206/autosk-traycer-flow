@@ -21,7 +21,8 @@ import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
 import { UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
-import { coverageReport, faultCoverage, harnessCoverage } from "../scripts/clean-room-e2e.mjs";
+import { cleanRoomRun, coverageReport, faultCoverage, harnessCoverage, identityAcrossRun } from "../scripts/clean-room-e2e.mjs";
+import { stubbedSteps } from "./support/clean-room-steps.mjs";
 
 const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
 
@@ -239,6 +240,35 @@ test("the run was about the reviewed bytes, or the package refuses it", async ()
     build({ cleanRoom: { ...cleanRoom, extension: { commit: null, tree: null, dirty: null } } }),
     /the clean-room run recorded no extension tree/u,
   );
+  // CodeRabbit on #271: an extension that moved during the run is recorded as
+  // not clean, naming both identities, and the refusal says so rather than
+  // calling the worktree dirty.
+  const moved = identityAcrossRun(cleanRoom.extension, { ...cleanRoom.extension, commit: "d".repeat(40), tree: "u".repeat(40) });
+  assert.equal(moved.dirty, null);
+  await assert.rejects(
+    build({ cleanRoom: { ...cleanRoom, extension: moved } }),
+    new RegExp(`the clean-room run cannot say its worktree of t{40} was clean: extension moved during the run: c{40} \\(tree t{40}, clean\\) -> d{40} \\(tree u{40}, clean\\)`, "u"),
+  );
+});
+
+test("a report the clean-room run itself writes is one the package builds from", async () => {
+  // Review of 11g (C1): the first start-and-end identity read recorded no
+  // tree on the run's success, so every new report was refused here; the
+  // fixtures above were written by hand and could not show it. This report
+  // is the run's own, over stubbed steps that answer as the fixtures do.
+  const identity = { ...cleanRoom.extension, error: null };
+  const { io } = stubbedSteps({
+    identities: [identity],
+    receipt: { source_tree: compat.result_tree, upstream_commit: compat.upstream.commit },
+    answers: Object.fromEntries(DAEMON_STEPS.map((step) => [step.step, { ok: true, stdout: `${JSON.stringify(step.summary)}\n`, ms: 1 }])),
+    faults: { ok: true, detected: FAULTS.length, controlled: FAULTS.length, total: FAULTS.length, results: FAULTS },
+  });
+  const report = await cleanRoomRun({ io });
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.extension, identity);
+  const { text } = await build({ cleanRoom: report });
+  assert.match(text, /extension tree exercised \| `t{40}`/u);
+  assert.match(text, /worktree clean at run time \| yes/u);
 });
 
 test("a reason owned by the workflow is shown as owned, not as missing", async () => {

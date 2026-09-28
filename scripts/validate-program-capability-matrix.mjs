@@ -1035,6 +1035,16 @@ export function arenaOwnerErrors({ matrix, parityRegistry, contracts = [] }) {
   return errors;
 }
 
+/**
+ * Every check of the program matrix, over the inputs a caller hands it.
+ *
+ * The inventory and the matrix are always checked, the matrix against the
+ * parity registry and the workflow graph. The documents rendered from the
+ * matrix — its summary, README, each contract's status line and Arena's
+ * owner — are checked only when the records can be rendered at all, and
+ * README's package list only when the contracts are given. Returns every
+ * error found.
+ */
 export function validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts = [], graph }) {
   const inventoryErrors = validateInventory(inventory);
   const matrixErrors = validateMatrix(matrix, inventory, parityRegistry, graph);

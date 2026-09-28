@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "69c5e9ca3efd93cdcb47e6311c73314a74cd5619b5651c6d3504a37e4c05ec96"
+      "sha256": "b4f559ff34787a1dd8a02ab1b99e7bf5505270c5a0ce0e718bd47d3cf0cd5425"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -52,7 +52,7 @@
     },
     {
       "path": "docs/contracts/artifact-registry.md",
-      "sha256": "9cc9d0b79db6c01e4ff9969de0eb7827bb1820ae165d8e5d7339b4bfc0b7ffca"
+      "sha256": "f089c51e15a531d775579d21216605a346c66bf1de221e414bb6396794e3dcf5"
     },
     {
       "path": "docs/contracts/artifact-write-receipt.md",
@@ -172,7 +172,7 @@
     },
     {
       "path": "docs/contracts/sdk-write-api.md",
-      "sha256": "52d08067f1d2b2e22976b8d071a80bf39ae8a85261873a8f68826b02ff678cd6"
+      "sha256": "4a3f4dce1344c208669fb2bb9e6d664583a35f78b5b66b1d25537fa3eab6a916"
     },
     {
       "path": "docs/contracts/stage-carriers.md",
@@ -180,7 +180,7 @@
     },
     {
       "path": "docs/contracts/static-analysis.md",
-      "sha256": "e086735f75e941443c98dd8072d4773154c7437bb4a962945c5420f4fb53cf2c"
+      "sha256": "31b5ad3cd243b01cecaadfd848cd3b46e75e09c4fb60b1ce108c1ad467cc7409"
     },
     {
       "path": "docs/contracts/tickets-manifest.md",
@@ -252,11 +252,11 @@
     },
     {
       "path": "resources/artifact-registry/artifact-registry.schema.json",
-      "sha256": "396b9d2a34cc85a2e3eeb038549c9e11b02bf8c5b9fcae9912c279a6edf8a8cf"
+      "sha256": "d77d249192c455c153a4b49e3e38fc4b789539b09df194a6ded9be5d97c4f3a2"
     },
     {
       "path": "resources/artifact-registry/artifact-registry.v1.json",
-      "sha256": "215b4c296fe5854101d7ae4d0eacf602189f6cc36f19a83bb4a615257857e57c"
+      "sha256": "caaa45ff9b4a708ceb71ace4a48dd6aafdedf6459e430d78e9ab3cdf6d90d262"
     },
     {
       "path": "resources/artifact-write-receipt/artifact-write-receipt.example.json",
@@ -528,7 +528,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "6d910faa329ba0292c12bd20f344e3fe5b315eecbb87fa764406be23bdc26027"
+      "sha256": "156c9335b1ead216ad4246a099e5eac08f51a241894d829bdacf9b79136e1e77"
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
@@ -955,7 +955,7 @@
       "sha256": "6b20c66603620bac1c1fc6584c43e60e9a5fa9c41664dc6b02c453496c48344e"
     }
   ],
-  "candidate_digest": "9f5b64b4e46633176acca9aee2d315e549136dfdcacce1f4920dd8a2cedb39c7",
+  "candidate_digest": "2d69f66226af1060f4a0674157a499653e86b105bcbccb601de112969e057846",
   "dispositions": [
     {
       "issue": 3,

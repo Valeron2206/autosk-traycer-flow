@@ -809,8 +809,14 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   if (typeof cleanRoom.extension?.tree !== 'string' || cleanRoom.extension.tree.length === 0) {
     throw new Error('the clean-room run recorded no extension tree, so nothing says which bytes its records are about');
   }
-  if (cleanRoom.extension.dirty !== false) {
+  if (cleanRoom.extension.dirty === true) {
     throw new Error(`the clean-room run exercised a dirty worktree of ${cleanRoom.extension.tree} — its records are about bytes in no commit`);
+  }
+  // CodeRabbit on #271: a run whose extension moved while it ran records
+  // `dirty: null` and names both identities; neither is the one it read.
+  if (cleanRoom.extension.dirty !== false) {
+    const why = cleanRoom.extension.error ? `: ${cleanRoom.extension.error}` : '';
+    throw new Error(`the clean-room run cannot say its worktree of ${cleanRoom.extension.tree} was clean${why} — its records may be about bytes in no commit`);
   }
   if (cleanRoom.extension.tree !== tree) {
     throw new Error(`the clean-room run exercised tree ${cleanRoom.extension.tree}, and this package is built over ${tree}`);

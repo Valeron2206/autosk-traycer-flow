@@ -27,6 +27,7 @@
         "additionalProperties": false,
         "required": [
           "class",
+          "lifecycle",
           "category",
           "author_roles",
           "requires",
@@ -40,10 +41,53 @@
           "retention",
           "human_approval"
         ],
+        "allOf": [
+          {
+            "description": "A class v1 does not govern names the issue that owns it; a class v1 governs names none. The design validator checks the second half in code too, because the repository's schema reader does not apply `not`.",
+            "if": {
+              "required": [
+                "lifecycle"
+              ],
+              "properties": {
+                "lifecycle": {
+                  "enum": [
+                    "planned_after_v1",
+                    "successor_matrix_candidate"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "decided_by"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "decided_by"
+                ]
+              }
+            }
+          }
+        ],
         "properties": {
           "class": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9_]{2,48}$"
+          },
+          "lifecycle": {
+            "description": "Whether v1 governs the class. `required_for_v1`: the classifier classifies its paths. `planned_after_v1`: its issue is one the program matrix puts after v1. `successor_matrix_candidate`: its issue is outside the matrix's inventory and waits for a successor matrix to classify it. The classifier refuses the paths of both as `unknown_class`.",
+            "enum": [
+              "required_for_v1",
+              "planned_after_v1",
+              "successor_matrix_candidate"
+            ]
+          },
+          "decided_by": {
+            "description": "The issue that owns a class v1 does not govern, as `#N`; held to the program matrix by the design validator.",
+            "type": "string",
+            "pattern": "^#[1-9][0-9]*$"
           },
           "category": {
             "enum": [

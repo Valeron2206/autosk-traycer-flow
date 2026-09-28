@@ -8,6 +8,11 @@
  * the registry actually governs this repository's own artifacts, so the last
  * check here is the load-bearing one: every contract under `docs/contracts/`
  * must have an entry, and adding one without registering it fails.
+ *
+ * Every class carries a lifecycle (debt 11g, ADR-101), as every carrier key
+ * does since debt 10g: this validator holds a class v1 does not govern to the
+ * program matrix, and a class a v1 workflow produces to v1, so the classifier
+ * can refuse the first without hiding the second.
  */
 
 import { createHash } from "node:crypto";
@@ -15,14 +20,28 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { V1_LIFECYCLE } from "../src/host/artifact-classifier.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_PATH = "docs/contracts/artifact-registry.md";
 export const SCHEMA_PATH = "resources/artifact-registry/artifact-registry.schema.json";
 export const REGISTRY_PATH = "resources/artifact-registry/artifact-registry.v1.json";
+export const MATRIX_PATH = "resources/program-capabilities/matrix.v1.json";
+export const GRAPH_PATH = "resources/workflow-graph/workflow-graph.v1.json";
 export const CONTRACT_MARKER = "<!-- artifact-registry-contract:v1 -->";
 export const CONTRACTS_DIR = "docs/contracts";
+
+/**
+ * The lifecycles a class may carry, closed.
+ *
+ * The first two are the program matrix's: a class v1 governs, and a class of
+ * an issue the matrix puts after v1. The third is for an issue outside the
+ * matrix's #3–#39 inventory (#47): it may not claim a lifecycle of matrix v1
+ * (debt 9d), so its classes wait for a successor matrix to classify it, and
+ * say so (round 6, R6-28).
+ */
+export const LIFECYCLES = Object.freeze([V1_LIFECYCLE, "planned_after_v1", "successor_matrix_candidate"]);
 
 /** Closed park reasons of section 8. */
 export const PARK_REASONS = Object.freeze([
@@ -49,7 +68,7 @@ export const CONTRACT_CLASS = "contract_document";
 
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, REGISTRY_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, REGISTRY_PATH, MATRIX_PATH, GRAPH_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -142,9 +161,24 @@ export function validateRegistry(registry, schema) {
     }
   }
 
+  const lifecycleOf = new Map(registry.classes.map((entry) => [entry.class, entry.lifecycle]));
   for (const entry of registry.classes) {
     for (const predecessor of entry.requires) {
       if (!names.has(predecessor)) errors.push(`${entry.class}: requires unknown class ${predecessor}`);
+    }
+    // Debt 11g: the schema requires every class v1 does not govern to name the
+    // issue that owns it; its reader does not apply `not`, so the other half —
+    // a v1 class names none — is checked here.
+    if (entry.lifecycle === V1_LIFECYCLE) {
+      if (entry.decided_by !== undefined) errors.push(`${entry.class}: a required_for_v1 class names no deciding issue`);
+      // A v1 artifact whose predecessor v1 never approves would park on
+      // `missing_predecessor` for ever: v1 classes stand on v1 classes only.
+      for (const predecessor of entry.requires) {
+        const lifecycle = lifecycleOf.get(predecessor);
+        if (lifecycle !== undefined && lifecycle !== V1_LIFECYCLE) {
+          errors.push(`${entry.class}: a required_for_v1 class requires ${predecessor}, which is ${lifecycle}`);
+        }
+      }
     }
     for (const impacted of entry.impacts) {
       if (!names.has(impacted)) errors.push(`${entry.class}: impacts unknown class ${impacted}`);
@@ -180,6 +214,94 @@ export function validateRegistry(registry, schema) {
   return errors;
 }
 
+/**
+ * A class v1 does not govern is held to the program matrix (debt 11g), as a
+ * post-v1 carrier key is (ADR-093).
+ *
+ * `planned_after_v1` names an issue the matrix puts after v1: a class marked
+ * so by an issue v1 must deliver would hide a v1 class. A
+ * `successor_matrix_candidate` names an issue the matrix does not classify at
+ * all — #47's contract says that of #47, and a lifecycle of matrix v1 claimed
+ * for such an issue is what debt 9d refused in the contracts.
+ */
+export function lifecycleErrors(registry, matrix) {
+  const errors = [];
+  const records = Array.isArray(matrix?.records) ? matrix.records : [];
+  for (const entry of Array.isArray(registry?.classes) ? registry.classes : []) {
+    if (entry?.lifecycle === V1_LIFECYCLE || typeof entry?.decided_by !== "string") continue;
+    const record = records.find((candidate) => candidate?.issue_number === Number(entry.decided_by.slice(1)));
+    if (entry.lifecycle === "planned_after_v1") {
+      if (!record) {
+        errors.push(`${entry.class}: ${entry.decided_by} is not an issue of ${MATRIX_PATH}, so the matrix does not put it after v1`);
+      } else if (record.lifecycle !== "planned_after_v1") {
+        errors.push(`${entry.class}: ${entry.decided_by} is ${record.lifecycle} in ${MATRIX_PATH}, not planned_after_v1`);
+      }
+    } else if (entry.lifecycle === "successor_matrix_candidate" && record) {
+      errors.push(`${entry.class}: ${entry.decided_by} is ${record.lifecycle} in ${MATRIX_PATH}; a successor_matrix_candidate names an issue the matrix does not classify`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * The registry classes the workflow graph names, each with the predicates
+ * that read it, in name order.
+ *
+ * Every workflow the graph registers is v1's (the matrix's
+ * `graph.workflow-registration`, #18). The graph records no producer per
+ * class; what it names are the facts its predicates read, and a fact that is
+ * a registry class — a planning kind, the Tickets, the integration
+ * authorization — is an artifact a v1 workflow produces and decides on.
+ */
+export function graphClasses(registry, graph) {
+  const names = new Set((Array.isArray(registry?.classes) ? registry.classes : []).map((entry) => entry?.class));
+  const read = new Map();
+  for (const predicate of Array.isArray(graph?.predicates) ? graph.predicates : []) {
+    for (const fact of Array.isArray(predicate?.reads) ? predicate.reads : []) {
+      if (names.has(fact)) read.set(fact, [...(read.get(fact) ?? []), predicate.id]);
+    }
+  }
+  return new Map([...read.keys()].sort().map((name) => [name, [...new Set(read.get(name))].sort()]));
+}
+
+/**
+ * A class a v1 workflow produces is `required_for_v1`.
+ *
+ * The matrix alone would admit such a class marked `planned_after_v1` by an
+ * issue the matrix does put after v1, and the classifier would then refuse an
+ * artifact v1 cannot run without. A graph whose predicates read no class
+ * holds nothing, and is refused rather than passing silently. The classes the
+ * graph does not name are held through `requires` (`validateRegistry`): a v1
+ * class stands on v1 classes only.
+ */
+export function graphClassErrors(registry, graph) {
+  const read = graphClasses(registry, graph);
+  if (read.size === 0) {
+    return [`no class is read by the predicates of ${GRAPH_PATH}, so nothing holds a class its workflows produce to v1`];
+  }
+  const lifecycleOf = new Map(registry.classes.map((entry) => [entry?.class, entry?.lifecycle]));
+  const errors = [];
+  for (const [name, predicates] of read) {
+    const lifecycle = lifecycleOf.get(name);
+    if (lifecycle !== V1_LIFECYCLE) {
+      errors.push(`${name}: the workflow graph reads it (${predicates.join(", ")}), so a v1 workflow produces it; it must be required_for_v1, not ${lifecycle}`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * How many classes carry each lifecycle, in the order of `LIFECYCLES`, zero
+ * included. #14's obligation covers the `required_for_v1` classes; the others
+ * are counted apart rather than inside one total.
+ */
+export function lifecycleCounts(registry) {
+  return Object.fromEntries(LIFECYCLES.map((lifecycle) => [
+    lifecycle,
+    registry.classes.filter((entry) => entry.lifecycle === lifecycle).length,
+  ]));
+}
+
 export function validateArtifactRegistryDesign(files) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
@@ -187,6 +309,9 @@ export function validateArtifactRegistryDesign(files) {
   if (!contract.includes(SCHEMA_PATH)) errors.push(`${CONTRACT_PATH}: does not point at ${SCHEMA_PATH}`);
   for (const reason of PARK_REASONS) {
     if (!contract.includes(reason)) errors.push(`${CONTRACT_PATH}: park reason ${reason} is not documented`);
+  }
+  for (const lifecycle of LIFECYCLES) {
+    if (!contract.includes(lifecycle)) errors.push(`${CONTRACT_PATH}: lifecycle ${lifecycle} is not documented`);
   }
 
   let schema;
@@ -202,6 +327,10 @@ export function validateArtifactRegistryDesign(files) {
   if (categories.join(",") !== CATEGORIES.join(",")) {
     errors.push(`${SCHEMA_PATH}: categories must be exactly ${CATEGORIES.join(", ")}`);
   }
+  const lifecycles = schema.properties?.classes?.items?.properties?.lifecycle?.enum ?? [];
+  if (lifecycles.join(",") !== LIFECYCLES.join(",")) {
+    errors.push(`${SCHEMA_PATH}: lifecycles must be exactly ${LIFECYCLES.join(", ")}`);
+  }
 
   let registry;
   try {
@@ -210,6 +339,18 @@ export function validateArtifactRegistryDesign(files) {
     return [...errors, `${REGISTRY_PATH}: not valid JSON: ${error.message}`];
   }
   errors.push(...validateRegistry(registry, schema).map((message) => `${REGISTRY_PATH}: ${message}`));
+  let matrix;
+  let graph;
+  try {
+    matrix = JSON.parse(files[MATRIX_PATH]);
+    graph = JSON.parse(files[GRAPH_PATH]);
+  } catch (error) {
+    return [...errors, `program matrix or workflow graph: not valid JSON: ${error.message}`];
+  }
+  errors.push(
+    ...[...lifecycleErrors(registry, matrix), ...graphClassErrors(registry, graph)]
+      .map((message) => `${REGISTRY_PATH}: ${message}`),
+  );
 
   // The load-bearing check: this repository governs itself. A contract added
   // without a registry entry is exactly the drift the issue describes, and it
@@ -250,6 +391,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log("Artifact registry design validation PASS");
     console.log(`design_digest=${artifactRegistryDesignDigest(files)}`);
     console.log(`registry_digest=${registry.registry_digest}`);
-    console.log(`classes=${registry.classes.length}`);
+    const counts = Object.entries(lifecycleCounts(registry)).map(([lifecycle, count]) => `${lifecycle}=${count}`);
+    console.log(`classes=${registry.classes.length} ${counts.join(" ")}`);
   }
 }

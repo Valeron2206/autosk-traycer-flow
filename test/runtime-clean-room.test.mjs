@@ -4,30 +4,167 @@
  * The runner itself is exercised by running it; these cover the parts that
  * decide what the run means — what the environment may carry, what the
  * toolchain is allowed to bring in, and the coverage report, which has to say
- * what was not covered rather than implying the matrix was finished.
+ * what was not covered rather than implying the matrix was finished — and,
+ * over stubbed steps (`test/support/clean-room-steps.mjs`), every return of
+ * the run itself.
  */
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
 import {
+  CLEAN_ROOM_IO,
   COVERAGE,
   FORBIDDEN_ENV,
   MATRIX_PATH,
   ROOT,
   TOOLCHAIN,
   cleanRoomEnv,
+  cleanRoomRun,
   coverageReport,
   environmentErrors,
+  extensionIdentity,
+  extensionSummary,
   faultCoverage,
   harnessCoverage,
+  identityAcrossRun,
   resolveToolchain,
 } from "../scripts/clean-room-e2e.mjs";
+import { runFaults } from "../scripts/clean-room-faults.mjs";
 import { COVERAGE_STATES, coverageState } from "../scripts/lib/clean-room-coverage.mjs";
+import { stubbedSteps } from "./support/clean-room-steps.mjs";
 
 const matrix = JSON.parse(await readFile(path.join(ROOT, MATRIX_PATH), "utf8"));
+
+/** A readable identity, as `extensionIdentity` reports one. */
+const IDENTITY = Object.freeze({ commit: "c".repeat(40), tree: "t".repeat(40), dirty: false, error: null });
+
+// Review of 11g (C1): the first start-and-end identity read shadowed its own
+// variable. Every early return threw a ReferenceError that replaced the
+// step's error, and the success return recorded an identity with no tree,
+// which the package refuses. The tests beside `identityAcrossRun` drove it
+// alone; these drive `cleanRoomRun` itself through each of its returns.
+
+test("the run takes its steps from its caller, and the defaults are the real ones", () => {
+  assert.deepEqual(Object.keys(CLEAN_ROOM_IO).sort(), ["identity", "resolveToolchain", "run", "runFaults", "stat"]);
+  assert.equal(CLEAN_ROOM_IO.identity, extensionIdentity);
+  assert.equal(CLEAN_ROOM_IO.resolveToolchain, resolveToolchain);
+  assert.equal(CLEAN_ROOM_IO.stat, stat);
+  assert.equal(CLEAN_ROOM_IO.runFaults, runFaults);
+  assert.equal(typeof CLEAN_ROOM_IO.run, "function");
+  assert.ok(Object.isFrozen(CLEAN_ROOM_IO));
+});
+
+test("a readable extension identity records no error, and an unreadable one says why", async () => {
+  const outputs = { "rev-parse HEAD^{tree}": `${"t".repeat(40)}\n`, "rev-parse HEAD": `${"c".repeat(40)}\n`, "status --porcelain": "" };
+  const clean = async (args) => ({ stdout: outputs[args.join(" ")] });
+  assert.deepEqual(await extensionIdentity(clean), IDENTITY);
+  const dirty = async (args) => ({ stdout: args[0] === "status" ? " M README.md\n" : outputs[args.join(" ")] });
+  assert.deepEqual(await extensionIdentity(dirty), { ...IDENTITY, dirty: true });
+  const broken = async () => {
+    throw new Error("not a git repository");
+  };
+  assert.deepEqual(await extensionIdentity(broken), { commit: null, tree: null, dirty: null, error: "Error: not a git repository" });
+});
+
+test("every early return records the failing step's own error and the identity the run held", async () => {
+  for (const step of ["prepare", "deps:daemon", "deps:pi-tools", "build:go", "build:daemon"]) {
+    const failed = { ok: false, stdout: "", stderr: `${step} failed on purpose`, ms: 1 };
+    const { io, calls } = stubbedSteps({ identities: [IDENTITY], answers: { [step]: failed } });
+    const report = await cleanRoomRun({ io });
+    assert.equal(report.error, `${step} failed on purpose`, step);
+    assert.equal(report.ok, false, step);
+    assert.deepEqual(report.steps.at(-1), { step, ok: false, ms: 1 }, step);
+    assert.deepEqual(report.extension, IDENTITY, step);
+    assert.deepEqual([calls[0], calls.at(-1)], ["identity", "identity"], step);
+  }
+  // The environment's return names what was missing.
+  const missing = stubbedSteps({ identities: [IDENTITY], missingTools: ["go"] });
+  const environment = await cleanRoomRun({ io: missing.io });
+  assert.equal(environment.error, "environment");
+  assert.deepEqual(environment.steps.at(-1).errors, [{ reason: "clean_room_toolchain_missing", detail: "go" }]);
+  assert.deepEqual(environment.extension, IDENTITY);
+  // A step that throws is caught with its own message.
+  const thrown = stubbedSteps({ identities: [IDENTITY], statError: new Error("ENOENT: no bin/autoskd") });
+  const threw = await cleanRoomRun({ io: thrown.io });
+  assert.equal(threw.error, "Error: ENOENT: no bin/autoskd");
+  assert.equal(threw.ok, false, "every step that ran passed, and the run still failed");
+  assert.deepEqual(threw.extension, IDENTITY);
+});
+
+test("the success return records the tree the run held, a boolean dirty and no error", async () => {
+  const crash = { ok: true, stdout: `building…\n{"passed":6}\n`, ms: 1 };
+  const { io, calls } = stubbedSteps({ identities: [IDENTITY], answers: { "harness:crash": crash } });
+  const report = await cleanRoomRun({ io });
+  // A harness's summary is its last JSON line; a harness that printed none has none.
+  assert.deepEqual(report.steps.find((step) => step.step === "harness:crash").summary, { passed: 6 });
+  assert.equal(report.steps.find((step) => step.step === "harness:creation").summary, null);
+  assert.equal(report.ok, true);
+  assert.equal(report.error, null);
+  assert.equal(typeof report.extension.tree, "string");
+  assert.equal(typeof report.extension.dirty, "boolean");
+  assert.equal(report.extension.error, null);
+  assert.deepEqual(report.extension, IDENTITY);
+  assert.equal(report.source_tree, "s".repeat(40));
+  // The identity is read before the first step and after the last.
+  assert.deepEqual(calls, [
+    "identity", "prepare", "deps:daemon", "deps:pi-tools", "build:go", "build:daemon",
+    "harness:creation", "harness:crash", "harness:identity", "harness:faults", "identity",
+  ]);
+});
+
+test("an extension that changes while the run runs is recorded as not clean", async () => {
+  const moved = { ...IDENTITY, commit: "d".repeat(40), tree: "u".repeat(40) };
+  const { io } = stubbedSteps({ identities: [IDENTITY, moved] });
+  const report = await cleanRoomRun({ io });
+  assert.deepEqual(report.extension, {
+    commit: IDENTITY.commit,
+    tree: IDENTITY.tree,
+    dirty: null,
+    error: `extension moved during the run: ${"c".repeat(40)} (tree ${"t".repeat(40)}, clean) -> ${"d".repeat(40)} (tree ${"u".repeat(40)}, clean)`,
+  });
+  // An early return is held to the same comparison.
+  const early = stubbedSteps({ identities: [IDENTITY, moved], answers: { prepare: { ok: false, stdout: "", stderr: "x", ms: 1 } } });
+  const stopped = await cleanRoomRun({ io: early.io });
+  assert.equal(stopped.error, "x");
+  assert.equal(stopped.extension.dirty, null);
+});
+
+test("the extension identity is the run's only when it held from the first step to the last", () => {
+  // CodeRabbit on #271: the identity was read once, in `finish`, minutes after
+  // the steps read the extension's bytes, so a commit, a branch switch or a
+  // revert during the run let the report claim a tree, or a clean worktree,
+  // that the run did not load.
+  const start = Object.freeze({ commit: "c".repeat(40), tree: "t".repeat(40), dirty: false });
+  assert.deepEqual(identityAcrossRun(start, { ...start }), start);
+  const moves = [
+    [{ ...start, commit: "d".repeat(40) }, `${"d".repeat(40)} (tree ${"t".repeat(40)}, clean)`],
+    [{ ...start, commit: "d".repeat(40), tree: "u".repeat(40) }, `${"d".repeat(40)} (tree ${"u".repeat(40)}, clean)`],
+    [{ ...start, dirty: true }, `${"c".repeat(40)} (tree ${"t".repeat(40)}, dirty)`],
+  ];
+  for (const [end, named] of moves) {
+    assert.deepEqual(identityAcrossRun(start, end), {
+      commit: start.commit,
+      tree: start.tree,
+      dirty: null,
+      error: `extension moved during the run: ${"c".repeat(40)} (tree ${"t".repeat(40)}, clean) -> ${named}`,
+    });
+  }
+  // An identity that could not be read at either end is not clean either.
+  const unreadable = Object.freeze({ commit: null, tree: null, dirty: null, error: "Error: not a git repository" });
+  assert.deepEqual(identityAcrossRun(unreadable, start), unreadable);
+  assert.deepEqual(identityAcrossRun(start, unreadable), unreadable);
+  // The command's line says which of the three it was.
+  assert.equal(extensionSummary(start), `extension_tree=${"t".repeat(40)}`);
+  assert.equal(extensionSummary({ ...start, dirty: true }), `extension_tree=${"t".repeat(40)} (dirty)`);
+  assert.equal(
+    extensionSummary(identityAcrossRun(start, { ...start, dirty: true })),
+    `extension_tree=${"t".repeat(40)} (extension moved during the run: ${"c".repeat(40)} (tree ${"t".repeat(40)}, clean) -> ${"c".repeat(40)} (tree ${"t".repeat(40)}, dirty))`,
+  );
+  assert.equal(extensionSummary(unreadable), "extension_tree=null (Error: not a git repository)");
+});
 
 test("the environment is a fresh HOME with no Traycer in it", () => {
   const env = cleanRoomEnv({ home: "/tmp/clean/home", sourceDir: "/tmp/clean/source" });

@@ -27,6 +27,8 @@ The closed JSON Schema is `resources/artifact-registry/artifact-registry.schema.
 Each class records:
 
 - `class` — the stable identifier;
+- `lifecycle` — whether v1 governs the class: `required_for_v1`, `planned_after_v1`, or `successor_matrix_candidate`;
+- `decided_by` — for a class v1 does not govern, the issue that owns it, as `#N`; a `required_for_v1` class names none;
 - `category` — `behavior_defining`, `governance_defining`, `explanatory`, or `runtime_evidence`;
 - `author_roles` and the model-family policy for authoring it;
 - `requires` — predecessor classes that must be approved first;
@@ -43,6 +45,8 @@ Each class records:
 
 `behavior_pack` may cover several paths under one manifest. Its scope stays exact and machine-readable: a pack is a list of paths, not a directory that "roughly" means something.
 
+The lifecycle is held to the program matrix `resources/program-capabilities/matrix.v1.json` by the validator. Its first two values are the ones a carrier key carries (`docs/contracts/stage-carriers.md`); the third is for an issue the matrix does not classify, which no carrier key has. A `planned_after_v1` class names an issue the matrix puts after v1: Autobuild (#28), Reflect and cost-watch (#29), Housekeeping (#30), Debate (#31), Changeset Walkthrough (#33) and the typed SDK write API (#38) own seven such classes. A `successor_matrix_candidate` names an issue outside the matrix's #3–#39 inventory, which may not claim a lifecycle of matrix v1 and waits for a successor matrix to classify it: #47 owns two. A class a v1 workflow produces is `required_for_v1` — every workflow the workflow graph registers is v1's, so a class the graph's predicates read is one, and a `required_for_v1` class requires only `required_for_v1` classes. #14's obligation covers the `required_for_v1` classes; the others are registered so that their paths are known, and they govern nothing in v1.
+
 ## 4. The classifier
 
 Four categories, and the decision is a function of the registry, not of a reviewer's judgement:
@@ -54,11 +58,13 @@ Four categories, and the decision is a function of the registry, not of a review
 
 An artifact matching no class, or matching two classes with different categories, **parks**. It is not classified as explanatory because nothing else fit.
 
+So does an artifact whose class v1 does not govern. The owning class is chosen first, as for any path — the most specific pattern among classes of one category — and a path whose owner is not `required_for_v1` parks as `unknown_class`, naming the class, its `lifecycle` and its `decided_by`. The class is known to the registry and unknown to v1: the path is given no review, no approval and no publication, and a v1 class never takes a path that a more specific refused class owns.
+
 The editorial exemption is deliberately narrow: it never applies to configuration, schemas, security rules, prompts, governance, migration or verification contracts, whatever the diff looks like. A typo fix in an ADR's prose is editorial; a typo fix in a schema's `pattern` is not, because the bytes that change are the bytes that decide.
 
 ## 5. Identity and the runtime lock
 
-`registry_digest` is SHA-256 over the canonical serialisation of every class entry — content, not writing order, since a class list is a set. It is a field of the runtime lock, so a task admitted under one registry is not silently governed by another.
+`registry_digest` is SHA-256 over the canonical serialisation of every class entry — content, not writing order, since a class list is a set. It is a field of the runtime lock, so a task admitted under one registry is not silently governed by another. A class's `lifecycle` is part of its entry, so bringing a class into v1 is a registry change like any other.
 
 Changing a class entry mid-Epic is a correction: it creates an impact and invalidates approvals whose evidence depended on that class.
 
@@ -87,6 +93,8 @@ Closed set: `unknown_class`, `ambiguous_class`, `missing_predecessor`, `unregist
 - a change to a migration plan, and to a verification recipe;
 - a governance bundle update;
 - an artifact matching no class parks, and one matching two categories parks;
+- an artifact whose class is `planned_after_v1` or a `successor_matrix_candidate` parks, is routed to no review, approval or publication, and a `required_for_v1` class still classifies;
+- a class v1 does not govern names an issue the matrix puts after v1, or one it does not classify, and a class a v1 workflow produces is `required_for_v1`;
 - a multi-file behaviour pack with an exact path list;
 - upstream and downstream invalidation computed from the graph;
 - a registry update during an active Epic invalidates the affected approvals only;
