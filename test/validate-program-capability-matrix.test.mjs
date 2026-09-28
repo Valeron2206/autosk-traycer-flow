@@ -1079,3 +1079,134 @@ test("README's package list points to every contract in docs/contracts/, and to 
   assert.match(messages(validateAll({ ...fixture(), contracts, readme: dropped })), /README package list omits docs\/contracts\/arena\.md/u);
   assert.deepEqual(validateAll({ ...fixture(), contracts }), []);
 });
+
+// Debt 12a (round 8 of #39, R8-1, R8-13, R8-14): model processes run under the
+// model account the privileged install creates (ADR-102). Every model workflow
+// requires the check that proves it, so the matrix names who carries it, as
+// it does every model-step check. R8-14: #34 owns the dispatch gate before any
+// model launch and #18 owns model launch, and no edge joined them. #18 → #34
+// is a cycle — #34's doctor checks the provider, clearance and evidence state
+// that #19, #20, #26 and #27 build on #18 — so the gate's call before each
+// launch is #18's own surface, and the edge is #34 → #18.
+
+test("the model account check is carried by #11, #13, #18 and #34 (R8-1)", () => {
+  assert.ok(MODEL_STEP_CHECKS.includes("security.model_account"));
+  assert.equal(preflightRequirements().find((want) => want.capability === "security.model_account")?.decision, "ADR-102");
+  const data = fixture();
+  const entry = data.matrix.preflight_primitives.find((item) => item.capability === "security.model_account");
+  assert.ok(entry, "the matrix names who carries the model account check");
+  assert.equal(entry.requirement, "model_step_check");
+  assert.equal(entry.decision, "ADR-102");
+  assert.deepEqual(entry.owner_issues, [11, 13, 18, 34]);
+  assert.deepEqual(entry.elements.map((element) => `${element.owner}:${element.surface}`), [
+    "11:model process environment",
+    "13:model account and its launch mechanism",
+    "13:model account probe",
+    "18:model launch under the model account",
+    "18:model launch only through the dispatch gate",
+    "34:dispatch gate before any model launch",
+  ]);
+  assert.equal(primitiveErrors(data), "");
+  const wrong = fixture();
+  wrong.matrix.preflight_primitives.find((item) => item.capability === "security.model_account").decision = "ADR-095";
+  assert.match(primitiveErrors(wrong), /`security\.model_account` is the preflight's ADR-102 primitive/u);
+  const dropped = fixture();
+  dropped.matrix.preflight_primitives = dropped.matrix.preflight_primitives.filter((item) => item.capability !== "security.model_account");
+  assert.match(primitiveErrors(dropped), /`security\.model_account` is required by the v1 preflight and carried by no required_for_v1 record/u);
+  for (const issue of [11, 13, 18, 34]) {
+    assert.match(record(data, issue).implementation_obligation_before_mvp, /`security\.model_account`/u, `#${issue}`);
+  }
+  assert.match(record(data, 11).implementation_obligation_before_mvp, /`AUTOSK_SESSION_TOKEN`/u);
+});
+
+test("#13's obligation names the model account, its launch and both checks, and no longer denies the user's account every Git write (R8-1, R8-13)", () => {
+  const data = fixture();
+  const text = record(data, 13).implementation_obligation_before_mvp;
+  assert.doesNotMatch(text, /no direct write to the project's \.git/u);
+  // Fix round 2 (ADR-102): the helper runs as the installing user and the Git
+  // directory stays the user's, so #13 owns no service account and no
+  // mixed-ownership topology; its privileged install creates the model account
+  // alone (was: "no direct write to a protected ref", a 3770 topology and
+  // custody-owned paths).
+  for (const withdrawn of [/dedicated service account/u, /no direct write to a protected ref/u, /3770/u, /custody-owned/u, /custody owner/u]) {
+    assert.doesNotMatch(text, withdrawn);
+  }
+  for (const phrase of [
+    /`autosk-model`/u,
+    /never a setuid binary of this project/u,
+    /`security\.ref_custody`/u,
+    /`ref_custody_unavailable`/u,
+    /`autosk-flow-ref-custody` as a process of the installing user/u,
+    /closes the project's Git directory to every other account/u,
+    /The privileged install, an administrator step, creates only the model account and its launch mechanism/u,
+  ]) {
+    assert.match(text, phrase);
+  }
+  // #5's helper finds what the installing user's own tools do to a protected ref.
+  const own5 = record(data, 5).implementation_obligation_before_mvp;
+  assert.match(own5, /runs as the installing user/u);
+  assert.match(own5, /never overwrite or adopt it/u);
+  assert.match(own5, /`--no-replace-objects`/u);
+  assert.match(record(data, 5).verification_expectation, /moved or packed by the installing user's own tool/u);
+  assert.match(record(data, 34).implementation_obligation_before_mvp, /the probe of #13 with #5 decides it/u);
+});
+
+test("the dispatch gate precedes model launch inside #18's launch path, and the matrix orders #34 after #18 (R8-14)", () => {
+  const data = fixture();
+  assert.ok(record(data, 34).dependencies.includes(18), "#34 depends on #18");
+  assert.ok(record(data, 18).downstream_blockers.includes(34));
+  assert.ok(!record(data, 18).dependencies.includes(34));
+  const without = fixture();
+  record(without, 34).dependencies = record(without, 34).dependencies.filter((item) => item !== 18);
+  record(without, 18).downstream_blockers = record(without, 18).downstream_blockers.filter((item) => item !== 34);
+  assert.match(primitiveErrors(without), /issue #34 must depend on #18 by the canonical roadmap/u);
+  // The other direction is not open: #34 reaches #18 through #19 even without
+  // the direct edge, so an edge #18 → #34 is a cycle the matrix refuses.
+  const forward = fixture();
+  record(forward, 34).dependencies = record(forward, 34).dependencies.filter((item) => item !== 18);
+  record(forward, 18).downstream_blockers = record(forward, 18).downstream_blockers.filter((item) => item !== 34);
+  record(forward, 18).dependencies = [...record(forward, 18).dependencies, 34].sort((a, b) => a - b);
+  record(forward, 34).downstream_blockers = [...record(forward, 34).downstream_blockers, 18].sort((a, b) => a - b);
+  assert.match(primitiveErrors(forward), /dependency cycle: #18 -> #34 -> #19 -> #18/u);
+  // So the gate's call before each launch is #18's, on every model-step check,
+  // beside #34's gate: no launch ships without it.
+  for (const capability of MODEL_STEP_CHECKS) {
+    const entry = data.matrix.preflight_primitives.find((item) => item.capability === capability);
+    const surfaces = entry.elements.map((element) => `${element.owner}:${element.surface}`);
+    assert.ok(surfaces.includes("18:model launch only through the dispatch gate"), `${capability}: ${surfaces.join("; ")}`);
+    assert.ok(surfaces.includes("34:dispatch gate before any model launch"), capability);
+    assert.ok(entry.owner_issues.includes(18), capability);
+  }
+  const own18 = record(data, 18).implementation_obligation_before_mvp;
+  assert.match(own18, /model launch only through the dispatch gate/u);
+  assert.match(own18, /`security\.signer_boundary`/u);
+  assert.match(record(data, 34).implementation_obligation_before_mvp, /the call before each launch sits in #18's launch path/u);
+});
+
+test("the documents name the model account check and where the gate is called (R8-1, R8-14)", () => {
+  const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
+  const core = read("01-core-flows.md");
+  const architecture = read("02-architecture.md");
+  const doctor = read("docs/contracts/doctor-report.md");
+  const readme = read("README.md");
+  for (const text of [core, architecture, doctor, readme]) assert.match(text, /`security\.model_account`/u);
+  assert.match(core, /вызов gate'а перед каждым model launch — путь запуска #18 \(ADR-102\)/u);
+  assert.match(architecture, /the gate's call before each model launch is the launch path's, #18's \(ADR-102\)/u);
+  assert.match(doctor, /Its call before each model launch sits in the launch path, #18's, and the matrix orders #34 after #18 \(ADR-102\)/u);
+  // Three model-step checks, not two, wherever the documents list them; and
+  // the doctor contract names the custody check every workflow requires that
+  // reaches a step asking the helper, as the graph derives it — not only the
+  // planned Epic's phases (review of 9b65ad3, M1).
+  assert.doesNotMatch(doctor, /the model-step checks — `daemon\.capabilities_pinned` and `security\.signer_boundary` —/u);
+  assert.match(doctor, /the model-step checks — `daemon\.capabilities_pinned`, `security\.signer_boundary` and `security\.model_account` —/u);
+  assert.doesNotMatch(doctor, /which the planning and delivery phases require/u);
+  assert.match(doctor, /`security\.ref_custody`, which every workflow that reaches a step asking the ref-custody helper requires — `autosk-planned`, `autosk-quick` and `autosk-ticket`, as the graph derives them \(`CUSTODY_STEP_CHECKS`\) —/u);
+  assert.match(core, /Третья такая проверка — `security\.model_account`/u);
+  assert.match(readme, /`security\.model_account` — #11, #13, #18 и #34 \(ADR-102\)/u);
+  assert.match(readme, /`security\.signer_boundary` — #4, #18 и #34/u);
+  const decisions = read("04-decisions.md");
+  for (const [adr, next] of [["## ADR-090:", "## ADR-091:"], ["## ADR-097:", "## ADR-098:"]]) {
+    const text = decisions.slice(decisions.indexOf(adr), decisions.indexOf(next));
+    assert.match(text, /^- Изменено ADR-102: /mu, adr);
+  }
+});

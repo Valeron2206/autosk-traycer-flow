@@ -22,16 +22,18 @@ import { buildReport } from './doctor.mjs';
  * A workflow requires a category's checks by naming them; a check added to a
  * category later is picked up by `requiredFor` rather than being silently
  * missed, which is the reason categories exist at all. No phase names a
- * model-step check — the daemon's capabilities or the signer boundary: that
- * requirement follows from what a workflow runs, and is derived from the graph
- * below.
+ * model-step check — the daemon's capabilities, the signer boundary or the
+ * model account: that requirement follows from what a workflow runs, and is
+ * derived from the graph below.
  */
 export const PHASE_CHECKS = immutable({
   // The checks planning's own document work needs. Planning still runs agent
-  // steps, and what a model step needs — the daemon's capabilities and the
-  // signer boundary — is no phase's to list: `MODEL_STEP_CHECKS` below adds it
-  // to every workflow whose first step reaches one, the planned Epic's
-  // included (debt 10d, R6-11; debt 11c, R7-26).
+  // steps, and what a model step needs — the daemon's capabilities, the signer
+  // boundary and the model account — is no phase's to list: `MODEL_STEP_CHECKS`
+  // below adds it to every workflow whose first step reaches one, the planned
+  // Epic's included (debt 10d, R6-11; debt 11c, R7-26). Neither is the custody
+  // install that planning's publication rests on: `CUSTODY_STEP_CHECKS` is
+  // derived from the steps that ask the ref-custody helper (debt 12a).
   planning: immutable(['project_identity.git_worktree', 'project_identity.compat_manifest',
     'governance.contracts_present', 'scheduler.node_version']),
   // Implementation runs code and commits it.
@@ -82,13 +84,16 @@ export const WORKFLOW_PHASES = immutable({
  * 01 §2 and 02 §5 make the signer boundary a precondition of model launch, and
  * 02 §3 a daemon that carries every capability the flow requires (ADR-083):
  * the daemon capability check hands the daemon's report to
- * `requireDaemonCapabilities` (ADR-097). Both are required of every workflow
- * whose first step reaches an agent step in the graph. The graph has no
- * model-free kind of agent step, so every `agent` step counts as one — and
- * every registered workflow's first step is itself an agent step, which is
- * what makes all eight require them today.
+ * `requireDaemonCapabilities` (ADR-097). A model process runs under the model
+ * account the privileged install creates, not the installing user's
+ * (platform-support.md §5b, ADR-102), so the check that proves that account is
+ * one too. All three are required of every workflow whose first step reaches
+ * an agent step in the graph. The graph has no model-free kind of agent step,
+ * so every `agent` step counts as one — and every registered workflow's first
+ * step is itself an agent step, which is what makes all eight require them
+ * today.
  */
-export const MODEL_STEP_CHECKS = immutable(['daemon.capabilities_pinned', 'security.signer_boundary']);
+export const MODEL_STEP_CHECKS = immutable(['daemon.capabilities_pinned', 'security.signer_boundary', 'security.model_account']);
 
 /** The workflows a graph registers and where each starts, as the graph says. */
 export function registeredWorkflows(graph) {
@@ -98,12 +103,31 @@ export function registeredWorkflows(graph) {
 }
 
 /**
- * Whether an agent step is reachable from `first`, `first` itself included.
+ * What a workflow that asks the ref-custody helper cannot start without.
+ *
+ * The helper writes every ref under `refs/autosk/**` (ADR-095), and whether
+ * its install is proven is `security.ref_custody` (platform-support.md §5a,
+ * ADR-102). Which steps ask it is the graph's to say, not a phase's: the steps
+ * its recovery row for `planning_ref_capability_missing` parks at are exactly
+ * the steps where a helper action can be refused for a missing capability. The
+ * check is required of every workflow whose first step reaches one of them —
+ * derived as the model-step checks are (ADR-090, ADR-097), so Quick and a
+ * Ticket, which reach them through the shared steps, are held to it with the
+ * planned Epic (review of 12a, M1).
+ */
+export const CUSTODY_STEP_CHECKS = immutable(['security.ref_custody']);
+
+/** The recovery reason whose parking steps are the steps that ask the helper. */
+export const CUSTODY_PARK_REASON = 'planning_ref_capability_missing';
+
+/**
+ * Whether a step `hit` accepts is reachable from `first`, `first` itself
+ * included; `hit` is asked each step's name and kind.
  *
  * A first step the graph does not declare is refused: read as "reaches
- * nothing", a typo would waive the boundary.
+ * nothing", a typo would waive the requirement.
  */
-export function runsModelStep(graph, first) {
+function reaches(graph, first, hit) {
   const kinds = new Map(graph.steps.map((step) => [step.name, step.kind]));
   demand(kinds.has(first), 'doctor_required_set_unsatisfied',
     'A workflow starts at a step the graph does not declare', { first_step: first });
@@ -113,10 +137,34 @@ export function runsModelStep(graph, first) {
   // walk is a breadth-first search with nothing to count and no revisits.
   const seen = new Set([first]);
   for (const current of seen) {
-    if (kinds.get(current) === 'agent') return true;
+    if (hit(current, kinds.get(current))) return true;
     for (const next of outgoing.get(current) ?? []) seen.add(next);
   }
   return false;
+}
+
+/** Whether an agent step is reachable from `first`, `first` itself included. */
+export function runsModelStep(graph, first) {
+  return reaches(graph, first, (name, kind) => kind === 'agent');
+}
+
+/**
+ * The steps that ask the ref-custody helper, as the graph names them.
+ *
+ * A graph without the row, or with a row that parks nowhere, is refused rather
+ * than read as "no step asks the helper", which would waive the check.
+ */
+export function custodySteps(graph) {
+  const row = (graph?.recovery ?? []).find((entry) => entry?.reason === CUSTODY_PARK_REASON);
+  demand(Array.isArray(row?.parks_at) && row.parks_at.length > 0, 'doctor_required_set_unsatisfied',
+    'The graph names no step that asks the ref-custody helper', { reason: CUSTODY_PARK_REASON });
+  return immutable([...row.parks_at]);
+}
+
+/** Whether a step that asks the helper is reachable from `first`, `first` itself included. */
+export function asksCustody(graph, first, steps = custodySteps(graph)) {
+  const asked = new Set(steps);
+  return reaches(graph, first, (name) => asked.has(name));
 }
 
 /** Every registered workflow's required set, keyed by its graph name. */
@@ -130,10 +178,12 @@ export function requiredChecks(graph) {
   const unregistered = Object.keys(WORKFLOW_PHASES).filter((name) => !names.includes(name));
   demand(undeclared.length === 0 && unregistered.length === 0, 'doctor_required_set_unsatisfied',
     'The graph registers other workflows than the gate declares sets for', { undeclared, unregistered });
+  const custody = custodySteps(graph);
   const sets = {};
   for (const { name, first_step: first } of workflows) {
     const ids = WORKFLOW_PHASES[name].flatMap((phase) => PHASE_CHECKS[phase]);
     if (runsModelStep(graph, first)) ids.push(...MODEL_STEP_CHECKS);
+    if (asksCustody(graph, first, custody)) ids.push(...CUSTODY_STEP_CHECKS);
     sets[name] = [...new Set(ids)];
   }
   return immutable(sets);

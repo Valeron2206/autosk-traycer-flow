@@ -289,8 +289,10 @@ test("a healthy host passes, and says how much it could not establish", async ()
   assert.equal(report.status, "pass");
   // The count is reported beside the status rather than folded into it.
   // Three since debt 11c: the daemon's reachability, live routes, and the
-  // daemon capability check, which this host hands no report.
-  assert.equal(unverifiableCount(report), 3);
+  // daemon capability check, which this host hands no report. Five since debt
+  // 12a: the model account and the ref-custody install, which no probe
+  // establishes yet (#13).
+  assert.equal(unverifiableCount(report), 5);
 });
 
 test("every category has a check, so requiring one cannot be empty", () => {
@@ -663,4 +665,46 @@ test("outside tests, the doctor check is the one caller of requireDaemonCapabili
   // literal call (an alias, a callback, an import).
   const users = await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier: "requireDaemonCapabilities", exclude: ["src/host/daemon-preflight.mjs"] });
   assert.deepEqual(users, ["src/host/doctor-checks.mjs"]);
+});
+
+// Debt 12a (round 8 of #39, R8-1 and R8-13): the model account the privileged
+// install creates and the ref-custody install are preconditions no check
+// probed. Each is a named check now; no probe of either exists in this
+// repository, so each says it could not be established and names who owns the
+// probe (#13) — which blocks every workflow that requires it — rather than
+// passing or being absent.
+import { MODEL_ACCOUNT } from "../src/host/doctor-checks.mjs";
+
+test("the model account and the ref-custody install are named checks no probe establishes yet (R8-1, R8-13)", async () => {
+  const registry = checkRegistry(fakeEnv());
+  for (const id of ["security.model_account", "security.ref_custody"]) {
+    const entry = registry.find((item) => item.id === id);
+    assert.ok(entry, `${id} is registered`);
+    assert.equal(entry.category, "security", id);
+  }
+  // On the healthy fixture and on the real host alike: no probe, so never a
+  // pass and never a silent absence.
+  for (const env of [fakeEnv(), hostEnv()]) {
+    const found = await statuses(env);
+    const model = found.get("security.model_account");
+    assert.equal(model.status, "unverifiable");
+    assert.equal(model.evidence.probe, "none");
+    assert.equal(model.evidence.account, "autosk-model");
+    assert.match(model.unverifiable_reason, /no probe of the model account autosk-model exists yet/u);
+    assert.match(model.unverifiable_reason, /#13/u);
+    const custody = found.get("security.ref_custody");
+    assert.equal(custody.status, "unverifiable");
+    assert.equal(custody.evidence.probe, "none");
+    // Fix round 2 (ADR-102): what the check proves is the helper — a process
+    // of the installing user with its socket and journal — and the
+    // repository's pins, no longer a service account's install (was: "no
+    // probe of the ref-custody install exists yet").
+    assert.match(custody.unverifiable_reason, /no probe of the ref-custody helper exists yet/u);
+    assert.match(custody.unverifiable_reason, /its process, its socket and journal and the repository's pins/u);
+    assert.match(custody.unverifiable_reason, /ref_custody_unavailable/u);
+    assert.match(custody.unverifiable_reason, /#13's with #5/u);
+  }
+  // The account the check names is the one the platform install record names.
+  const platform = JSON.parse(await readFile(path.join(ROOT, "resources/platform-support/platform-support.v1.json"), "utf8"));
+  assert.equal(MODEL_ACCOUNT, platform.install.model_account.account);
 });

@@ -108,7 +108,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify commit-on-PASS, CAS publication, foreign movement, recovery phases and retention in the design candidate.",
-      "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root; ship the `autosk-flow-ref-custody` helper (src/git/ref-custody-helper.ts, its client and the closed nine-action protocol, the Epic staging actions included) as the only writer of refs/autosk/**, which the host asks and never bypasses.",
+      "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root; ship the `autosk-flow-ref-custody` helper (src/git/ref-custody-helper.ts, its client and the closed nine-action protocol, the Epic staging actions included) as the only writer of refs/autosk/**, which the host asks and never bypasses. The helper runs as the installing user, a process of its own with its own socket, intents, journal and nonces (docs/contracts/platform-support.md §5a, ADR-102): it is the only writer of refs/autosk/** by protocol, its expected-old compare-and-swap and preflight find a protected ref the installing user's own tools moved or packed and never overwrite or adopt it, and its Git reads run with `--no-replace-objects`. The ref-custody policy's committed example, which predates ADR-102, changes only when this issue signs the wire goldens it binds again; the probe behind `security.ref_custody` is #13's with this issue.",
       "release_blocking": true,
       "dependencies": [
         3,
@@ -123,7 +123,7 @@
       "source_parity_ids": [],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Fault tests cover crash before/after commit/CAS, retry, foreign movement, GC reachability and anchor rebuild descendants.",
+      "verification_expectation": "Fault tests cover crash before/after commit/CAS, retry, foreign movement, GC reachability, anchor rebuild descendants, and a protected ref moved or packed by the installing user's own tool found at the helper's next request and parked, never overwritten.",
       "full_program_required": true
     },
     {
@@ -238,7 +238,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify staging lineage, receipts, integration-fix lifecycle, aggregate binding, acceptance identity and single final CAS.",
-      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, and resolves the IntegrationAuthorizationRecord the acceptance names by scope and id, checks its digest and its chain against integration_authorization_head and the heads and controlling anchor digest it names against the ones in force (ADR-096), delivered as compat/autosk patches 0052+.",
+      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, and resolves the IntegrationAuthorizationRecord the acceptance names by scope and id, checks its digest and its chain against integration_authorization_head and the heads and controlling anchor digest it names against the ones in force (ADR-096), delivered as compat/autosk patches 0052+. Aggregate verification runs its checks, which execute code models wrote, only under the model account through #18's launch path, never as the installing user (docs/contracts/platform-support.md §5b, ADR-102).",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -311,7 +311,7 @@
       "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Finalize the atomic create semantics, capability preflight, binding coverage, deletion policy and upstream dependency before #39.",
-      "implementation_obligation_before_mvp": "Implement the autoskd/API/CLI primitive, pin the compatible upstream commit and block fan-out when unavailable. It carries `task.creation-binding` v2 (ADR-014): `task.create_bound`, delivered by patches 0001 and 0028, with the session token kept out of the model environment: no model process, the claude-agent and pi-agent autoskEnv included, holds `AUTOSK_SESSION_TOKEN`, the credential a bound create takes (roadmap #231). Blocking fan-out when unavailable is this issue's `requireDaemonCapabilities` and what it checks (docs/contracts/creation-grant.md §5, criterion 6): at extension load, before the registry is built, it refuses a daemon without every required capability at its pinned revision and methods. The call site is #18's extension entry point, and this issue carries `daemon.capabilities_pinned` with #18 and #34 (ADR-097).",
+      "implementation_obligation_before_mvp": "Implement the autoskd/API/CLI primitive, pin the compatible upstream commit and block fan-out when unavailable. It carries `task.creation-binding` v2 (ADR-014): `task.create_bound`, delivered by patches 0001 and 0028, with the session token kept out of the model environment: no model process, the claude-agent and pi-agent autoskEnv included, holds `AUTOSK_SESSION_TOKEN`, the credential a bound create takes (roadmap #231). Blocking fan-out when unavailable is this issue's `requireDaemonCapabilities` and what it checks (docs/contracts/creation-grant.md §5, criterion 6): at extension load, before the registry is built, it refuses a daemon without every required capability at its pinned revision and methods. The call site is #18's extension entry point, and this issue carries `daemon.capabilities_pinned` with #18 and #34 (ADR-097). The model process environment is this issue's too (`security.model_account`, ADR-102): every model process starts under the model account `autosk-model` (docs/contracts/platform-support.md §5b) holding no daemon capability and no `AUTOSK_SESSION_TOKEN`, with its `HOME`, its provider configuration and its provider session in a session directory of its own outside `.autosk`, and a provider credential reaches it only as its launch hands it, never from the installing user's home or keychain.",
       "release_blocking": true,
       "dependencies": [
         10
@@ -382,7 +382,7 @@
       "owner": "autosk-flow filesystem maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Choose and document helper/addon strategy, threat model, API, packaging identity, capability matrix and residual risks.",
-      "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible, and the privileged install that runs `autosk-flow-ref-custody` under a dedicated service account, gives it the project's common Git directory and leaves the user's account no direct write to the project's .git (platform-support.md §5a).",
+      "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible, and the install of `autosk-flow-ref-custody` as a process of the installing user (platform-support.md §5a, ADR-102): its non-privileged bootstrap registers it, closes the project's Git directory to every other account (mode 0700), migrates protected packed refs to loose form, pins gc.packRefs=false and the planning refs' reflog retention, turns on per-worktree configuration (extensions.worktreeConfig) and records the bootstrap receipt, and the project's Git directory stays the installing user's ordinary repository, with no service account and no `safe.directory` exception. The privileged install, an administrator step, creates only the model account and its launch mechanism (platform-support.md §5b, ADR-102): the dedicated unprivileged account `autosk-model`, the group of it and the installing user through which it writes its worktrees' files and never a Git directory, and the mechanism autoskd starts model processes under it through, never a setuid binary of this project, which gives autoskd whole-tree termination of every model process tree (a service-manager unit's control group, or a supervisor under the model account where a sudoers rule starts it). `security.model_account` is this issue's with #11, #18 and #34: the model account probe proves that the account exists apart from the installing user, opens no Git directory of the project, reaches no signer, secure store or keychain, cannot read autoskd's RPC token and finds its TCP listener only on loopback, and that the launch mechanism kills a model process tree whole. So is the probe behind `security.ref_custody`, with #5: the doctor check of the helper's process, its socket and journal and the repository's pins, with the park of `ref_custody_unavailable` at project open when they are not proven. Open with #18 and #11: where a model's worktree and session directory lie under the project root.",
       "release_blocking": true,
       "dependencies": [
         10
@@ -403,7 +403,7 @@
       ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Adversarial tests cover symlink/intermediate swaps, special files, case/Unicode, mount boundaries, fsync/rename crashes and helper tampering.",
+      "verification_expectation": "Adversarial tests cover symlink/intermediate swaps, special files, case/Unicode, mount boundaries, fsync/rename crashes and helper tampering, and a process under the model account denied every read and write of the project's Git directories, and the signer endpoint, the secure store, the installing user's keychain and autoskd's RPC token, and a model process tree killed whole on a timeout through the launch mechanism.",
       "full_program_required": true
     },
     {
@@ -562,7 +562,7 @@
       "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define result schemas, role capabilities, record/read-back order, missing/multiple-submit handling and deterministic mappings.",
-      "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step. `workflow.custody` (ADR-025) is this issue's: step-capability metadata CAS against the expected protected head, write-once gate-result receipts under the result head, `orchestrateChildBatch` over the exact child set and heads with monotonic child receipts, and the daemon park.origin writer for daemon-produced scoped park reasons, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP, including resume leaves under metadata CAS: `park.reason`, `park.origin` and `park.receipts.<step>`, which the factory reads to admit a resume, are written only under the step-capability metadata CAS and never through plain `autosk metadata set` (roadmap #231). The workflow graph's evaluator mechanism is this issue's too (ADR-097): the table from each predicate id to its implementation, which the extension hands buildWorkflow and which is never a constant evaluator (`graph.predicate-evaluation`); both decision sites, where each guard's predicate and its `guards[].authority` are decided, the authority by the guard authority evaluator, which lets a transition whose guard names a human or policy actor through only on the authority #4 verifies (`graph.guard-authority`); and the extension entry point, which builds and registers the eight workflows the graph registers (`graph.workflow-registration`: `autosk-planned`, `autosk-quick`, `autosk-ticket`, `autosk-code-review`, `autosk-panel-seat`, `autosk-contest-seat`, `autosk-arena-candidate`, `autosk-arena-judge`) and calls `requireDaemonCapabilities` at extension load, before the registry is built (`daemon.capabilities_pinned`; the function and what it checks are #11's). Each predicate's meaning stays with its domain record's module (the ref-custody predicates with #5, foreign target movement with #9, review and finding predicates with #16): this issue owns the table and the decision sites, not what a predicate decides. The Arena runtime is this issue's with them (`graph.arena-runtime`): candidate isolation, the judge's structured ranking and the autosk-arena block of docs/contracts/arena.md, run through the two Arena workflows its entry point registers.",
+      "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step. `workflow.custody` (ADR-025) is this issue's: step-capability metadata CAS against the expected protected head, write-once gate-result receipts under the result head, `orchestrateChildBatch` over the exact child set and heads with monotonic child receipts, and the daemon park.origin writer for daemon-produced scoped park reasons, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP, including resume leaves under metadata CAS: `park.reason`, `park.origin` and `park.receipts.<step>`, which the factory reads to admit a resume, are written only under the step-capability metadata CAS and never through plain `autosk metadata set` (roadmap #231). The workflow graph's evaluator mechanism is this issue's too (ADR-097): the table from each predicate id to its implementation, which the extension hands buildWorkflow and which is never a constant evaluator (`graph.predicate-evaluation`); both decision sites, where each guard's predicate and its `guards[].authority` are decided, the authority by the guard authority evaluator, which lets a transition whose guard names a human or policy actor through only on the authority #4 verifies (`graph.guard-authority`); and the extension entry point, which builds and registers the eight workflows the graph registers (`graph.workflow-registration`: `autosk-planned`, `autosk-quick`, `autosk-ticket`, `autosk-code-review`, `autosk-panel-seat`, `autosk-contest-seat`, `autosk-arena-candidate`, `autosk-arena-judge`) and calls `requireDaemonCapabilities` at extension load, before the registry is built (`daemon.capabilities_pinned`; the function and what it checks are #11's). Each predicate's meaning stays with its domain record's module (the ref-custody predicates with #5, foreign target movement with #9, review and finding predicates with #16): this issue owns the table and the decision sites, not what a predicate decides. The Arena runtime is this issue's with them (`graph.arena-runtime`): candidate isolation, the judge's structured ranking and the autosk-arena block of docs/contracts/arena.md, run through the two Arena workflows its entry point registers. Model launch is this issue's under the model account (ADR-102): model launch under the model account, where the launch path starts every model process, and every check that runs code a model wrote, as `autosk-model` through the mechanism the privileged install sets up (docs/contracts/platform-support.md §5b), kills a timed-out model process tree whole through that mechanism, reads a provider session from the model's session directory only as untrusted input, creates each model worktree as the installing user with its directories setgid and group-writable for the worktree group, its gitfile at 0644 and its config.worktree pinning core.hooksPath=/dev/null and core.fsmonitor=false, hands a model step what it needs from the project's history, which the model account cannot open, and runs every Git command for a model worktree with the per-worktree Git directory and the work tree named explicitly and hooks, fsmonitor and submodule recursion off, so that a repository a model plants is never followed, and model launch only through the dispatch gate, which the launch path calls before every model launch, the workflow's first agent step included, and whose refusal launches nothing; the gate holds the workflow to its model-step checks, `daemon.capabilities_pinned`, `security.signer_boundary` and `security.model_account`, and its required sets and checks are #34's (docs/contracts/doctor-report.md §7).",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -577,6 +577,7 @@
         19,
         22,
         32,
+        34,
         35,
         36,
         38,
@@ -593,7 +594,7 @@
       ],
       "supersession_or_split": null,
       "decision_reference": null,
-      "verification_expectation": "Fake-provider tests cover malformed/multiple/missing submissions, scope mismatch, target injection and crash around record/transit, and an Arena run: two candidates of distinct families in isolated worktrees through `autosk-arena-candidate`, a judge of a third family through `autosk-arena-judge` whose ranking is not an approval, the person's decision, and its re-expression in the Tech Plan under a new full panel.",
+      "verification_expectation": "Fake-provider tests cover malformed/multiple/missing submissions, scope mismatch, target injection and crash around record/transit, a launch the dispatch gate refuses starting no model process, a model process started under the model account, a gitfile a model plants in its worktree never followed, a hook a model writes under a project core.hooksPath not run by the installing user's porcelain in its worktree, and an Arena run: two candidates of distinct families in isolated worktrees through `autosk-arena-candidate`, a judge of a third family through `autosk-arena-judge` whose ranking is not an approval, the person's decision, and its re-expression in the Tech Plan under a new full panel.",
       "full_program_required": true
     },
     {
@@ -1108,7 +1109,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define read-only check registry, required check sets, provenance/expiry and JSON output in the v1 design.",
-      "implementation_obligation_before_mvp": "Implement doctor for autoskd, locks, filesystem, provider, Git/delivery, clearance, evidence and recovery state. The `security.signer_boundary` check is this issue's: the signer boundary probe passes only once the daemon reports #4's signer (ADR-090). The `daemon.capabilities_pinned` check is this issue's with #11 and #18 (ADR-097): the daemon capability check hands the daemon's meta.capabilities report to requireDaemonCapabilities and decides nothing itself, and is unverifiable where doctor has no report. So is the dispatch gate before any model launch, the second caller of the check library (docs/contracts/doctor-report.md §7), which holds each registered workflow to its required set, both model-step checks included, before its first agent step runs.",
+      "implementation_obligation_before_mvp": "Implement doctor for autoskd, locks, filesystem, provider, Git/delivery, clearance, evidence and recovery state. The `security.signer_boundary` check is this issue's: the signer boundary probe passes only once the daemon reports #4's signer (ADR-090). The `daemon.capabilities_pinned` check is this issue's with #11 and #18 (ADR-097): the daemon capability check hands the daemon's meta.capabilities report to requireDaemonCapabilities and decides nothing itself, and is unverifiable where doctor has no report. So is the dispatch gate before any model launch, the second caller of the check library (docs/contracts/doctor-report.md §7): the required sets and the admission that hold each registered workflow to its set, every model-step check included, before its first agent step runs; the call before each launch sits in #18's launch path (ADR-102). The `security.model_account` check is this issue's with #11, #13 and #18 (ADR-102): the doctor registers it and the dispatch gate before any model launch requires it, and #13's probe decides it. The doctor registers `security.ref_custody` too, which every workflow that reaches a step asking the ref-custody helper requires (derived from the graph), and the probe of #13 with #5 decides it.",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -1117,6 +1118,7 @@
         12,
         13,
         17,
+        18,
         19,
         20,
         26,
@@ -1392,6 +1394,10 @@
           "owner": 18
         },
         {
+          "surface": "model launch only through the dispatch gate",
+          "owner": 18
+        },
+        {
           "surface": "daemon capability check",
           "owner": 34
         },
@@ -1403,17 +1409,60 @@
       "delivery": "the check is the doctor's (src/host/doctor-checks.mjs) and hands a report to requireDaemonCapabilities (src/host/daemon-preflight.mjs, #11); the call at extension load comes with #18's entry point and the dispatch gate with #34's; no report passes the check before ADR-023 and ADR-025 are pinned"
     },
     {
+      "capability": "security.model_account",
+      "requirement": "model_step_check",
+      "decision": "ADR-102",
+      "owner_issues": [
+        11,
+        13,
+        18,
+        34
+      ],
+      "elements": [
+        {
+          "surface": "model process environment",
+          "owner": 11
+        },
+        {
+          "surface": "model account and its launch mechanism",
+          "owner": 13
+        },
+        {
+          "surface": "model account probe",
+          "owner": 13
+        },
+        {
+          "surface": "model launch under the model account",
+          "owner": 18
+        },
+        {
+          "surface": "model launch only through the dispatch gate",
+          "owner": 18
+        },
+        {
+          "surface": "dispatch gate before any model launch",
+          "owner": 34
+        }
+      ],
+      "delivery": "the privileged install creates the account and the mechanism model processes start through (docs/contracts/platform-support.md §5b); the check is the doctor's (src/host/doctor-checks.mjs) and answers unverifiable until #13's probe of the account exists; the launch under the account and the gate's call come with #18's entry point, and the gate's sets with #34's"
+    },
+    {
       "capability": "security.signer_boundary",
       "requirement": "model_step_check",
       "decision": "ADR-090",
       "owner_issues": [
         4,
+        18,
         34
       ],
       "elements": [
         {
           "surface": "signer in a separate OS boundary",
           "owner": 4
+        },
+        {
+          "surface": "model launch only through the dispatch gate",
+          "owner": 18
         },
         {
           "surface": "signer boundary probe",
@@ -1539,5 +1588,5 @@
       "delivery": "extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load"
     }
   ],
-  "canonical_digest": "d331305b77069d6a167313dbf3029632220e99dc0089bb658dea992e80bb992f"
+  "canonical_digest": "e4b74598bcc8f5615fa9fc78daf7cb4cefe2cd4f73407b1273a8a36e382844e0"
 }

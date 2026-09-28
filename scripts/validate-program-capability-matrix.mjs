@@ -240,7 +240,14 @@ function validateRequiredEdges(recordsByNumber, errors) {
   // ADR-023's authority heads and admits ADR-025's gate-result receipts, and
   // the doctor's signer check passes only on #4's signer.
   requires(9, [4, 18]);
-  requires(34, [4]);
+  // The dispatch gate holds each workflow #18's entry point registers to its
+  // required set before its first agent step, and its call before each model
+  // launch sits in #18's launch path. The edge the other way, #18 → #34, is a
+  // cycle: #34's doctor checks the provider, clearance and evidence state that
+  // #19, #20, #26 and #27 build on #18. So #18 carries the call, which keeps
+  // any launch from shipping without the gate, and #34 comes after it
+  // (ADR-102, round 8 of #39, R8-14).
+  requires(34, [4, 18]);
   // The graph's guard authority evaluator lets a human or policy transition
   // through only on the authority #4's signer and verifier establish, and the
   // extension entry point calls #11's capability preflight at load and creates
@@ -474,7 +481,8 @@ const PRIMITIVE_KINDS = new Set(["daemon_capability", "model_step_check"]);
 /**
  * The decision behind each requirement the preflight source does not tag with
  * one: the pinned capability is ADR-014's, the model-step checks ADR-090's
- * (the signer boundary) and ADR-097's (the daemon's capabilities). A
+ * (the signer boundary), ADR-097's (the daemon's capabilities) and ADR-102's
+ * (the model account). A
  * requirement added to the preflight without an entry here has no decision,
  * and the matrix entry naming it is refused until one is recorded.
  */
@@ -482,6 +490,7 @@ const PINNED_DECISIONS = Object.freeze({
   "task.creation-binding": "ADR-014",
   "security.signer_boundary": "ADR-090",
   "daemon.capabilities_pinned": "ADR-097",
+  "security.model_account": "ADR-102",
 });
 
 /**

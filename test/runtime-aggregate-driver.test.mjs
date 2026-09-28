@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -91,7 +91,7 @@ test("the checks run on the exact staging tree, and the record is bound to it", 
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
   const checks = [{ id: "unit", command: "./check.sh" }];
 
-  const { aggregate, results, worktree_removed } = await verifyAggregate({ git, run: runner, state, checks, dir, instructionLockDigest: LOCK });
+  const { aggregate, results, worktree_removed } = await verifyAggregate({ realpath, git, run: runner, state, checks, dir, instructionLockDigest: LOCK });
   assert.equal(aggregate.outcome, "pass");
   // A passing check carries no detail: attaching output to a pass would make
   // every green run look like it had something to say.
@@ -112,7 +112,7 @@ test("the checks run on the exact staging tree, and the record is bound to it", 
 
 test("a check that ran and failed is a product failure", async (t) => {
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\necho 'assertion failed' >&2\nexit 3\n" });
-  const { aggregate, results } = await verifyAggregate({
+  const { aggregate, results } = await verifyAggregate({ realpath,
     git,
     run: runner,
     state,
@@ -132,7 +132,7 @@ test("a check that ran and failed is a product failure", async (t) => {
 
 test("a machine that could not run the checks is not a product that failed them", async (t) => {
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
-  const { aggregate, results } = await verifyAggregate({
+  const { aggregate, results } = await verifyAggregate({ realpath,
     git,
     run: runner,
     state,
@@ -162,7 +162,7 @@ test("a worktree that is not at the staging commit is refused before anything ru
   // A verification of the wrong tree is worse than no verification, because it
   // produces a PASS.
   await assert.rejects(
-    () => verifyAggregate({
+    () => verifyAggregate({ realpath,
       git,
       run: runner,
       state: { ...state, staging_commit_oid: moved },
@@ -179,7 +179,7 @@ test("a worktree that is not at the staging commit is refused before anything ru
 
 test("the checkout is read back, and a detached worktree carries no second name", async (t) => {
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
-  const checkout = await checkoutStaging(git, { dir, commit: state.staging_commit_oid });
+  const checkout = await checkoutStaging(git, { realpath, dir, commit: state.staging_commit_oid });
   assert.equal(checkout.tree_oid, state.staging_tree_oid);
   const head = await git(["symbolic-ref", "-q", "HEAD"], { cwd: dir });
   assert.notEqual(head.code, 0, "the worktree HEAD is detached");
@@ -196,7 +196,7 @@ test("a staging commit the repository does not have is an environment failure", 
   // git cannot check out an object it does not have, and that is a statement
   // about the machine rather than about the product.
   await assert.rejects(
-    () => verifyAggregate({
+    () => verifyAggregate({ realpath,
       git,
       run: runner,
       state: { ...state, staging_commit_oid: "0".repeat(40) },
@@ -209,23 +209,92 @@ test("a staging commit the repository does not have is an environment failure", 
 });
 
 test("a checkout that is not where it was asked to be is refused, and cleaned up", async (t) => {
-  const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
-  const calls = [];
   // The read-back exists for a checkout that lands somewhere else. Real git
-  // does not do that, which is exactly why the dependency is injected.
-  const lying = async (args, options) => {
-    calls.push(args.join(" "));
-    if (args[0] === "rev-parse" && args[1] === "HEAD") {
-      return { code: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
-    }
+  // does not do that, which is exactly why the dependency is injected. The
+  // repository's own record of its worktrees is what is read back (review of
+  // 9b65ad3, M4), so that is where each lie is told: the new worktree at
+  // another commit, and no new worktree at all.
+  // Each lie is told in whichever porcelain the driver asked for: lines end
+  // in a newline, or in NUL with `-z` (narrow re-review, Low 11). The third
+  // lie is a new worktree at the staging commit that is not the directory the
+  // checkout was asked into (narrow re-review, Low 11).
+  const lies = {
+    "at another commit": (listed, first, end) => listed.replace(new RegExp(`(${end}${end}worktree [^${end}]*${end}HEAD )[0-9a-f]+`, "u"), `$1${"a".repeat(40)}`),
+    "not added": (listed, first) => first,
+    "added somewhere else": (listed, first, end) => listed.replace(new RegExp(`(${end}${end}worktree [^${end}]*)`, "u"), "$1-elsewhere"),
+  };
+  for (const [name, lie] of Object.entries(lies)) {
+    const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+    const calls = [];
+    let first = null;
+    let added = false;
+    const lying = async (args, options) => {
+      calls.push(args.join(" "));
+      const result = await git(args, options);
+      if (args[0] === "worktree" && args[1] === "add") added = true;
+      if (args[0] === "worktree" && args[1] === "list") {
+        first ??= result.stdout;
+        if (added) return { ...result, stdout: lie(result.stdout, first, args.includes("-z") ? "\0" : "\n") };
+      }
+      return result;
+    };
+    await assert.rejects(
+      () => checkoutStaging(lying, { realpath, dir, commit: state.staging_commit_oid }),
+      code("aggregate_binding_void"),
+      name,
+    );
+    assert.ok(calls.some((call) => call.startsWith("worktree remove")), `${name}: ${calls.join(" | ")}`);
+    assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false, name);
+  }
+});
+
+test("a checkout whose directory name holds a newline is read back whole, from NUL-terminated porcelain (narrow re-review, Low 11)", async (t) => {
+  const { git, state, root } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  // Line-based porcelain splits this name in two, and the read-back compares
+  // the new worktree's path with the checkout's real path.
+  const dir = path.join(root, "verify\nworktree");
+  const asked = [];
+  const recording = async (args, options) => {
+    asked.push(args.join(" "));
     return git(args, options);
   };
-  await assert.rejects(
-    () => checkoutStaging(lying, { dir, commit: state.staging_commit_oid }),
-    code("aggregate_binding_void"),
-  );
-  assert.ok(calls.some((call) => call.startsWith("worktree remove")), calls.join(" | "));
-  assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false);
+  const checkout = await checkoutStaging(recording, { realpath, dir, commit: state.staging_commit_oid });
+  assert.equal(checkout.commit, state.staging_commit_oid);
+  assert.equal(checkout.tree_oid, state.staging_tree_oid);
+  assert.ok(asked.filter((call) => call.startsWith("worktree list")).every((call) => call.split(" ").includes("-z")), asked.join(" | "));
+  assert.equal((await removeWorktree(git, dir)).removed, true);
+});
+
+test("the checkout is read back from the repository's own records, never through the checkout, so a repository a model plants in it is never followed (review of 9b65ad3, M4)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  // A repository a model could plant: a history of its own, whose HEAD is not
+  // the staging commit.
+  const planted = path.join(root, "planted");
+  await mkdir(planted);
+  const plantedGit = gitIn(planted);
+  await plantedGit(["init", "--quiet", "--initial-branch=main"]);
+  await writeFile(path.join(planted, "planted.txt"), "planted\n");
+  await plantedGit(["add", "planted.txt"]);
+  await plantedGit(["commit", "--quiet", "-m", "planted"]);
+  const cwds = [];
+  // The model plants the moment the checkout exists: the checkout's `.git`
+  // becomes a gitfile naming the planted repository, which any Git command
+  // discovering the repository from inside the checkout would follow.
+  const planting = async (args, options = {}) => {
+    cwds.push(options.cwd ?? null);
+    const result = await git(args, options);
+    if (args[0] === "worktree" && args[1] === "add") {
+      await rm(path.join(dir, ".git"), { force: true });
+      await writeFile(path.join(dir, ".git"), `gitdir: ${path.join(planted, ".git")}\n`);
+    }
+    return result;
+  };
+  const checkout = await checkoutStaging(planting, { realpath, dir, commit: state.staging_commit_oid });
+  assert.equal(checkout.commit, state.staging_commit_oid);
+  assert.equal(checkout.tree_oid, state.staging_tree_oid);
+  // No Git command the driver ran started inside the checkout.
+  const inside = cwds.filter((cwd) => cwd !== null && path.resolve(cwd).startsWith(path.resolve(dir)));
+  assert.deepEqual(inside, []);
 });
 
 test("a command that could not start and one that exited non-zero are different outcomes", async (t) => {
@@ -287,7 +356,7 @@ test("the record the driver writes is the staging schema's closed aggregate, and
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
   const { validateJsonSchema } = await import("../scripts/validate-planning-ref-design.mjs");
   const schema = await aggregateSchema();
-  const run = await verifyAggregate({ git, run: runner, state: schemaState(state), checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK });
+  const run = await verifyAggregate({ realpath, git, run: runner, state: schemaState(state), checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK });
   assert.deepEqual(validateJsonSchema(JSON.parse(JSON.stringify(run.aggregate ?? null)), schema), []);
   assert.deepEqual(Object.keys(run.aggregate).sort(), [...schema.required].sort());
   assert.equal(run.aggregate.staging_commit_oid, state.staging_commit_oid);
@@ -309,7 +378,7 @@ test("record_hash covers the whole record — tree, configuration, lock, Tickets
   // The configuration is the checks the run executes and the lock the one the
   // caller hands in (review of 11e, H1), so those two change through the run.
   const hashOf = async (value, { executed = checks, lock = LOCK } = {}) =>
-    (await verifyAggregate({ git, run: runner, state: value, checks: executed, dir: `${dir}-${(runs += 1)}`, instructionLockDigest: lock })).aggregate.record_hash;
+    (await verifyAggregate({ realpath, git, run: runner, state: value, checks: executed, dir: `${dir}-${(runs += 1)}`, instructionLockDigest: lock })).aggregate.record_hash;
   const base = schemaState(state);
   const original = await hashOf(base);
   assert.match(original, /^[a-f0-9]{64}$/u);
@@ -340,7 +409,7 @@ test("a record rewritten after its run no longer recomputes, and is void (R7-17)
   // A failed run whose outcome is edited to pass is a PASS nobody ran.
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 3\n" });
   const base = schemaState(state);
-  const run = await verifyAggregate({ git, run: runner, state: base, checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK });
+  const run = await verifyAggregate({ realpath, git, run: runner, state: base, checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK });
   assert.equal(run.aggregate.outcome, "fail");
   assert.deepEqual(aggregateErrors({ ...base, aggregate: run.aggregate }).map((error) => error.reason), ["aggregate_failed"]);
   for (const rewrite of [
@@ -365,7 +434,7 @@ test("the driver writes no record that binds no configuration or instruction loc
     ["a pinned configuration in uppercase hex", { instructionLockDigest: LOCK, verificationConfigDigest: checksDigest(checks).toUpperCase() }],
   ]) {
     await assert.rejects(
-      () => verifyAggregate({ git, run: runner, state: schemaState(state), checks, dir, ...options }),
+      () => verifyAggregate({ realpath, git, run: runner, state: schemaState(state), checks, dir, ...options }),
       code("aggregate_binding_void"),
       label,
     );
@@ -378,7 +447,7 @@ test("an aggregate over no Ticket is refused before anything runs, since the rec
   const { git, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
   for (const receipts of [[], undefined]) {
     await assert.rejects(
-      () => verifyAggregate({ git, run: runner, state: { ...state, receipts }, checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK }),
+      () => verifyAggregate({ realpath, git, run: runner, state: { ...state, receipts }, checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK }),
       code("receipt_missing"),
     );
     assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false);
@@ -402,10 +471,10 @@ test("the record binds the checks the run executed: a re-run under another check
   const lock = LOCK;
   const unit = { id: "unit", command: "./check.sh" };
   const base = schemaState(state);
-  const first = await verifyAggregate({ git, run: runner, state: base, checks: [unit], dir: `${dir}-first`, instructionLockDigest: lock });
+  const first = await verifyAggregate({ realpath, git, run: runner, state: base, checks: [unit], dir: `${dir}-first`, instructionLockDigest: lock });
   assert.equal(first.aggregate.verification_config_digest, checksDigest([unit]));
   // A re-run finds the prior record in the state it is handed.
-  const rerun = (checks, label) => verifyAggregate({
+  const rerun = (checks, label) => verifyAggregate({ realpath,
     git, run: runner, state: { ...base, aggregate: first.aggregate }, checks, dir: `${dir}-${label}`, instructionLockDigest: lock,
   });
   const widened = await rerun([unit, { id: "lint", command: "./check.sh", args: ["--lint"] }], "widened");
@@ -430,7 +499,7 @@ test("a pinned verification configuration that the checks are not is refused bef
   for (const pinned of [checksDigest([lint]), checksDigest([unit, lint]), "e".repeat(64), "not a digest"]) {
     const spy = spying();
     await assert.rejects(
-      () => verifyAggregate({ git, run: spy.run, state: base, checks: [unit], dir, instructionLockDigest: lock, verificationConfigDigest: pinned }),
+      () => verifyAggregate({ realpath, git, run: spy.run, state: base, checks: [unit], dir, instructionLockDigest: lock, verificationConfigDigest: pinned }),
       code("aggregate_binding_void"),
       pinned,
     );
@@ -438,12 +507,12 @@ test("a pinned verification configuration that the checks are not is refused bef
     assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false);
   }
   // The pin the checks are is admitted, and the record binds it and the lock handed in.
-  const pinned = await verifyAggregate({ git, run: runner, state: base, checks: [unit], dir, instructionLockDigest: lock, verificationConfigDigest: checksDigest([unit]) });
+  const pinned = await verifyAggregate({ realpath, git, run: runner, state: base, checks: [unit], dir, instructionLockDigest: lock, verificationConfigDigest: checksDigest([unit]) });
   assert.equal(pinned.aggregate.verification_config_digest, checksDigest([unit]));
   assert.equal(pinned.aggregate.instruction_lock_digest, lock);
   // A prior record's lock is not the lock in force: a state carrying one pins nothing.
   const carried = { ...base, aggregate: { ...pinned.aggregate, instruction_lock_digest: "f".repeat(64) } };
-  const relocked = await verifyAggregate({ git, run: runner, state: carried, checks: [unit], dir: `${dir}-relocked`, instructionLockDigest: lock });
+  const relocked = await verifyAggregate({ realpath, git, run: runner, state: carried, checks: [unit], dir: `${dir}-relocked`, instructionLockDigest: lock });
   assert.equal(relocked.aggregate.instruction_lock_digest, lock);
 });
 
@@ -472,7 +541,7 @@ test("an identity the record needs and the state does not carry is refused befor
     const asked = [];
     const watched = (args, options) => { asked.push(args.join(" ")); return git(args, options); };
     await assert.rejects(
-      () => verifyAggregate({ git: watched, run: spy.run, state: value, checks: [unit], dir, instructionLockDigest: LOCK }),
+      () => verifyAggregate({ realpath, git: watched, run: spy.run, state: value, checks: [unit], dir, instructionLockDigest: LOCK }),
       code(reason),
       label,
     );
@@ -507,7 +576,7 @@ test("a check that is not a plain closed record is refused before anything runs,
   const spy = spying();
   const watched = watching(git);
   await assert.rejects(
-    () => verifyAggregate({ git: watched.git, run: spy.run, state: schemaState(state), checks: [inherited("./check.sh")], dir, instructionLockDigest: LOCK }),
+    () => verifyAggregate({ realpath, git: watched.git, run: spy.run, state: schemaState(state), checks: [inherited("./check.sh")], dir, instructionLockDigest: LOCK }),
     code("invalid_record"),
   );
   assert.deepEqual(spy.calls, [], "nothing ran");
@@ -522,7 +591,7 @@ test("an empty check set is refused before anything runs: a PASS over no check v
     const spy = spying();
     const watched = watching(git);
     await assert.rejects(
-      () => verifyAggregate({ git: watched.git, run: spy.run, state: schemaState(state), checks, dir, instructionLockDigest: LOCK }),
+      () => verifyAggregate({ realpath, git: watched.git, run: spy.run, state: schemaState(state), checks, dir, instructionLockDigest: LOCK }),
       code("aggregate_binding_void"),
       JSON.stringify(checks),
     );

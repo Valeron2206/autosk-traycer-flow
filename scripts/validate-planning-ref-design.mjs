@@ -154,7 +154,7 @@ const REQUIRED = Object.freeze({
     "reflog checkpoint",
     "candidate keepalive",
     "planning.candidate_history",
-    "separate-account ref-custody helper",
+    "ref-custody helper, a process of the installing user",
   ],
   "03-technical-plan.md": [
     "<!-- planning-ref-contract:v1 -->",

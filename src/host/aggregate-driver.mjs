@@ -9,10 +9,15 @@
  * The tree is checked out into a throwaway worktree at the exact staging
  * commit, and the checkout is read back before anything runs. A verification of
  * the wrong tree is worse than no verification, because it produces a PASS.
+ * The read-back asks the repository, never the checkout: the checks run code
+ * models wrote in it, so no Git command here discovers a repository from
+ * inside it (docs/contracts/platform-support.md §5b, review of 9b65ad3, M4).
  *
  * Injected: `git(args, { cwd, env } = {})` and `run(command, args, { cwd, env })`,
  * both returning `{ code, stdout, stderr }`; `run` reports a command that could
- * not start as `code: null`.
+ * not start as `code: null`; and `realpath(path)`, for the same reason the delta
+ * driver takes it: the module resolves paths, it does not read the filesystem
+ * itself.
  */
 import { canonicalBytes, closedRecord, demand, digest, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
@@ -43,18 +48,49 @@ async function ask(git, args, options = {}) {
 }
 
 /**
+ * The worktrees the repository records, each as its porcelain fields.
+ *
+ * `git worktree list --porcelain` answers from the common Git directory's own
+ * record of each worktree — its path and its HEAD — and opens no worktree's
+ * `.git`, so a gitfile or repository a model plants in a checkout cannot
+ * answer for it (review of 9b65ad3, M4). `-z` ends each field with NUL and
+ * each worktree with another, so a path that holds a newline stays one path
+ * (narrow re-review of 0ea81de, Low 11).
+ */
+async function worktrees(git) {
+  const listed = await ask(git, ['worktree', 'list', '--porcelain', '-z']);
+  return listed.stdout.split('\0\0').map((entry) => Object.fromEntries(entry.split('\0')
+    .map((line) => [line.split(' ', 1)[0], line.slice(line.indexOf(' ') + 1)])));
+}
+
+/**
  * Checks the staging commit out into a throwaway worktree, and proves it did.
  *
  * `--detach` because a branch here would be a second name for the staging
- * commit that could then move independently of it.
+ * commit that could then move independently of it. The proof is read from the
+ * repository, run where the caller's `git` runs and never from inside the
+ * checkout: the one worktree this run added, at the checkout's real path and
+ * the staging commit, and the tree of that commit. Discovering the repository
+ * from the checkout would ask whatever `.git` is there now, and a model can
+ * write the checkout (review of 9b65ad3, M4). A worktree some other run adds
+ * meanwhile fails the proof closed, and this run's is removed; so does a new
+ * worktree Git recorded anywhere but the directory asked for (narrow re-review
+ * of 0ea81de, Low 11).
  */
-export async function checkoutStaging(git, { dir, commit }) {
+export async function checkoutStaging(git, { dir, commit, realpath }) {
+  const before = new Set((await worktrees(git)).map((entry) => entry.worktree));
   await ask(git, ['worktree', 'add', '--detach', '--quiet', dir, commit]);
   try {
-    const head = await ask(git, ['rev-parse', 'HEAD'], { cwd: dir });
-    const tree = await ask(git, ['rev-parse', 'HEAD^{tree}'], { cwd: dir });
-    demand(head.stdout.trim() === commit, 'aggregate_binding_void',
-      'The worktree is not at the staging commit', { expected: commit, observed: head.stdout.trim() });
+    const added = (await worktrees(git)).filter((entry) => !before.has(entry.worktree));
+    // Git records the real path of the directory it checked out into.
+    const at = await Promise.resolve().then(() => realpath(dir)).catch(() => null);
+    demand(added.length === 1 && added[0].worktree === at, 'aggregate_binding_void',
+      'The checkout is not the one worktree this run added, at the directory it was asked into',
+      { added: immutable(added.map((entry) => entry.worktree ?? null)), at });
+    const [checkout] = added;
+    demand(checkout.HEAD === commit, 'aggregate_binding_void',
+      'The worktree is not at the staging commit', { expected: commit, observed: checkout.HEAD ?? null });
+    const tree = await ask(git, ['rev-parse', '--verify', `${commit}^{tree}`]);
     return Object.freeze({ dir, commit, tree_oid: tree.stdout.trim() });
   } catch (error) {
     // A refusal that leaves the worktree behind hands the next run the state
@@ -133,7 +169,7 @@ export async function runCheck(run, check, { cwd, env }) {
  * over none verifies nothing, and each check is a plain closed record, so the
  * digest covers exactly what `runCheck` reads (narrow re-review of 11e).
  */
-export async function verifyAggregate({ git, run, state, checks, dir, env = {}, instructionLockDigest, verificationConfigDigest }) {
+export async function verifyAggregate({ git, run, realpath, state, checks, dir, env = {}, instructionLockDigest, verificationConfigDigest }) {
   demand(PROJECT_IDENTITY.test(state.project_identity) && identityString(state.epic_id)
       && oneObjectFormat([state.staging_commit_oid, state.staging_tree_oid]) !== null, 'aggregate_binding_void',
     'The aggregate record binds the project, the Epic and the staging commit and tree, and the state does not name them all',
@@ -153,7 +189,7 @@ export async function verifyAggregate({ git, run, state, checks, dir, env = {}, 
     'Every receipt names the Ticket it integrated');
   const included = [...new Set(receipts.map((receipt) => receipt.ticket_id))].sort();
   demand(included.length > 0, 'receipt_missing', 'The aggregate verifies the Tickets the receipts name, and none is named');
-  const checkout = await checkoutStaging(git, { dir, commit: state.staging_commit_oid });
+  const checkout = await checkoutStaging(git, { dir, commit: state.staging_commit_oid, realpath });
   const results = [];
   let cleanup;
   try {

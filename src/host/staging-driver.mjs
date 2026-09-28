@@ -12,7 +12,7 @@
  * guards say what they mean.
  *
  * The staging ref is under `refs/autosk/**`, so this file does not write it:
- * the separate-account ref-custody helper does, on the host's request through
+ * the ref-custody helper does, on the host's request through
  * `askCustody` (ADR-095). `swapTarget` stays here as the target-CAS mechanics
  * the daemon's `integrateApproved` adapter carries; no host code calls it.
  */

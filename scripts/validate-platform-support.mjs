@@ -15,16 +15,29 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
+import { checkRegistry } from "../src/host/doctor-checks.mjs";
+import { CUSTODY_STEP_CHECKS, MODEL_STEP_CHECKS } from "../src/host/workflow-preflight.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_PATH = "docs/contracts/platform-support.md";
 export const SCHEMA_PATH = "resources/platform-support/platform-support.schema.json";
 export const MATRIX_PATH = "resources/platform-support/platform-support.v1.json";
-/** The program matrix, which must own the custody service this matrix installs. */
+/** The program matrix, which must own the custody service and the model account this matrix installs. */
 export const PROGRAM_MATRIX_PATH = "resources/program-capabilities/matrix.v1.json";
+/** The ref-custody policy schema, which must admit the ADR-102 profile beside the committed example. */
+export const POLICY_SCHEMA_PATH = "resources/planning-publication/ref-custody-policy.schema.json";
+/** The committed policy example, whose digest the signed wire goldens carry. */
+export const POLICY_EXAMPLE_PATH = "resources/planning-publication/ref-custody-policy.example.json";
 export const CONTRACT_MARKER = "<!-- platform-support-contract:v1 -->";
+
+/**
+ * The account the ref-custody helper runs as and the project's Git directory
+ * belongs to under ADR-102, as the ref-custody policy names it.
+ */
+export const POLICY_INSTALLING_USER = "installing-user";
 
 /** The adapter's guarantees, as ADR-028 states them. */
 export const GUARANTEES = Object.freeze([
@@ -56,17 +69,73 @@ export const PARK_REASONS = Object.freeze([
 ]);
 
 /**
- * The separate-account ref-custody service (02 §2, ADR-095) and who owns it:
- * #5 the helper, #13 the privileged install that gives it the project's Git
- * directory. Both are `required_for_v1`, and each names the component in its
- * implementation obligation, as ADR-092 holds the preflight's primitives.
+ * The ref-custody helper (02 §2, ADR-095, ADR-102) and who owns it: #5 the
+ * helper, #13 the install that bootstraps it. Both are `required_for_v1`, and
+ * each names the component in its implementation obligation, as ADR-092 holds
+ * the preflight's primitives.
  */
 export const CUSTODY_COMPONENT = "autosk-flow-ref-custody";
 export const CUSTODY_OWNERS = Object.freeze([5, 13]);
 
+/**
+ * The helper's account model, as the schema must fix it (ADR-102). Unix
+ * permissions are per uid (round 8 of #39, R8-1), and a Git directory two
+ * accounts write either locks the principal out of it or makes the helper
+ * trust files the principal writes (narrow re-review of 0ea81de, NH1–NH3). So
+ * the helper runs as the installing user, whose ordinary repository the Git
+ * directory stays; by protocol the helper alone writes the protected paths and
+ * the installing user's account everything else; and what keeps a protected
+ * ref where the helper left it is the OS against a model and detection against
+ * the installing user's own tools.
+ */
+export const CUSTODY_ACCOUNT_CONSTANTS = Object.freeze([
+  ["runs_as", "installing_user"],
+  ["runs_as_installing_user", true],
+  ["git_directory_owner", "installing_user"],
+  ["protected_paths", ["refs/autosk/**", "logs/refs/autosk/**"]],
+  ["git_directory_writers", { protected_refs: [CUSTODY_COMPONENT], ordinary_objects_and_refs: ["installing_user"] }],
+  ["protected_ref_guard", {
+    model_account: "denied_by_the_os",
+    installing_user_tools: "detected_at_the_helper_cas",
+    packed_protected_entry: "refused_by_the_preflight",
+  }],
+]);
+
+/**
+ * The account model processes run under (ADR-102) and who owns it: #13 the
+ * account and the mechanism the privileged install sets up to start model
+ * processes under it, #11 the model process environment, #18 the launch path.
+ * Each is `required_for_v1` and names the account in its obligation.
+ */
+export const MODEL_ACCOUNT = "autosk-model";
+export const MODEL_ACCOUNT_OWNERS = Object.freeze([11, 13, 18]);
+
+/**
+ * What the model account is, fixed in the schema rather than set by a record:
+ * a dedicated account the privileged install creates, started by autoskd
+ * through no setuid binary of this project and stopped by it as a whole tree
+ * — autoskd cannot signal another uid's processes itself (review of 12a, M3)
+ * — opening no Git directory of the project, for reads or writes (fix round 2),
+ * and reaching no signer, secure store, keychain or daemon capability.
+ */
+export const MODEL_ACCOUNT_CONSTANTS = Object.freeze([
+  ["runs_as", "dedicated_model_account"],
+  ["runs_as_installing_user", false],
+  ["created_by", "privileged_install"],
+  ["launched_by", "autoskd"],
+  ["setuid_binary", false],
+  ["whole_tree_termination", true],
+  ["git_directory_writes", false],
+  ["git_directory_reads", false],
+  ["signer_access", false],
+  ["secure_store_access", false],
+  ["keychain_access", false],
+  ["daemon_capability", false],
+]);
+
 export function loadFiles() {
   const files = {};
-  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, MATRIX_PATH, PROGRAM_MATRIX_PATH]) {
+  for (const relative of [CONTRACT_PATH, SCHEMA_PATH, MATRIX_PATH, PROGRAM_MATRIX_PATH, POLICY_SCHEMA_PATH, POLICY_EXAMPLE_PATH]) {
     files[relative] = readFileSync(path.join(ROOT, relative), "utf8");
   }
   return files;
@@ -158,13 +227,22 @@ export function validateMatrix(matrix, schema) {
   if (!install.digest_bound_to_runtime_identity) {
     errors.push("the helper digest must be bound into runtime identity (#10)");
   }
-  // The custody service is a second account, not a fourth binary of the
-  // installing user: the schema fixes what it is, this says who owns it.
+  // The ref-custody helper is a separately shipped process of the installing
+  // user, not a fourth binary of §5: the schema fixes what it is, this says
+  // who owns it.
   const service = install.ref_custody_service;
   if (!service || typeof service !== "object") {
-    errors.push("install.ref_custody_service: the separate-account ref-custody service has no install record");
+    errors.push("install.ref_custody_service: the ref-custody helper has no install record");
   } else if (JSON.stringify(service.owner_issues) !== JSON.stringify(CUSTODY_OWNERS)) {
     errors.push(`install.ref_custody_service.owner_issues must be ${JSON.stringify(CUSTODY_OWNERS)}: #5 owns the helper, #13 its privileged install`);
+  }
+  // The model processes are the one account apart from the installing user's
+  // (ADR-102): the schema fixes what it is, this says who owns it.
+  const model = install.model_account;
+  if (!model || typeof model !== "object") {
+    errors.push("install.model_account: the model processes have no install record");
+  } else if (JSON.stringify(model.owner_issues) !== JSON.stringify(MODEL_ACCOUNT_OWNERS)) {
+    errors.push(`install.model_account.owner_issues must be ${JSON.stringify(MODEL_ACCOUNT_OWNERS)}: #13 owns the account and its launch mechanism, #11 the model process environment, #18 the launch path`);
   }
   return errors;
 }
@@ -178,7 +256,7 @@ export function validateMatrix(matrix, schema) {
 export function custodyServiceErrors(matrix, program) {
   const service = matrix?.install?.ref_custody_service;
   if (!service || typeof service !== "object") {
-    return ["install.ref_custody_service: the separate-account ref-custody service has no install record"];
+    return ["install.ref_custody_service: the ref-custody helper has no install record"];
   }
   const records = Array.isArray(program?.records) ? program.records : [];
   if (records.length === 0) return [`${PROGRAM_MATRIX_PATH}: no records to hold the custody service to`];
@@ -199,6 +277,130 @@ export function custodyServiceErrors(matrix, program) {
   return errors;
 }
 
+/**
+ * The model account's owners, held to the program matrix as the custody
+ * service's are: each is a `required_for_v1` record whose implementation
+ * obligation names the account in backticks. Round 8 of #39 (R8-1) found the
+ * "model sandbox" 03 §5 rests on with no v1 owner and no record at all.
+ */
+export function modelAccountErrors(matrix, program) {
+  const model = matrix?.install?.model_account;
+  if (!model || typeof model !== "object") {
+    return ["install.model_account: the model processes have no install record"];
+  }
+  const records = Array.isArray(program?.records) ? program.records : [];
+  if (records.length === 0) return [`${PROGRAM_MATRIX_PATH}: no records to hold the model account to`];
+  const errors = [];
+  for (const issue of Array.isArray(model.owner_issues) ? model.owner_issues : []) {
+    const record = records.find((entry) => entry?.issue_number === issue);
+    if (!record) {
+      errors.push(`model_account owner #${issue} is not a record of the program matrix`);
+      continue;
+    }
+    if (record.lifecycle !== "required_for_v1") {
+      errors.push(`model_account owner #${issue} is ${record.lifecycle}, not required_for_v1`);
+    }
+    if (!String(record.implementation_obligation_before_mvp ?? "").includes(`\`${MODEL_ACCOUNT}\``)) {
+      errors.push(`model_account owner #${issue} does not name \`${MODEL_ACCOUNT}\` in its implementation obligation`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * The ADR-102 form of a ref-custody policy: the helper runs as the installing
+ * user, whose ordinary repository the Git directory is (`helper_runs_as`, each
+ * profile's `helper_account` and `owner_account`, the packed-refs policy's
+ * `maintenance_owner`); a model can replace its worktree's gitfile, so it is
+ * not read-only (`gitfile_read_only=false`); and the one topology entry is the
+ * project's common Git directory, closed to every other account (`0700`).
+ */
+export function adr102PolicyProfile(example) {
+  const value = structuredClone(example ?? {});
+  value.helper_runs_as = POLICY_INSTALLING_USER;
+  for (const entry of Array.isArray(value.supported_platforms) ? value.supported_platforms : []) {
+    Object.assign(entry, { helper_account: POLICY_INSTALLING_USER, owner_account: POLICY_INSTALLING_USER, gitfile_read_only: false });
+  }
+  if (value.packed_refs_policy && typeof value.packed_refs_policy === "object") value.packed_refs_policy.maintenance_owner = POLICY_INSTALLING_USER;
+  value.parent_topology = (Array.isArray(value.parent_topology) ? value.parent_topology : [])
+    .filter((entry) => entry?.path_role === "project-common-git-dir")
+    .map((entry) => ({ ...entry, mode_octal: "0700" }));
+  return value;
+}
+
+/**
+ * The ref-custody policy schema, held to ADR-102 (fix round 2 of debt 12a):
+ * it admits the committed example, whose digest the signed wire goldens carry
+ * and which only #5's re-signing may change; it admits that example's ADR-102
+ * form; and it refuses a policy that mixes the two, a withdrawn service
+ * account beside the installing user. The narrow re-review of 0ea81de found
+ * the `3770` topology this replaces to be one half of a Git directory two
+ * accounts write (H1, Lows 7, 8 and 10).
+ */
+export function policyProfileErrors(policySchema, example) {
+  const valid = (value) => validateJsonSchema(value, policySchema, policySchema).length === 0;
+  const errors = [];
+  if (!valid(example)) {
+    errors.push(`${POLICY_SCHEMA_PATH}: does not admit the committed example the signed goldens bind (${POLICY_EXAMPLE_PATH})`);
+  }
+  const profile = adr102PolicyProfile(example);
+  if (!valid(profile)) {
+    errors.push(`${POLICY_SCHEMA_PATH}: does not admit the ADR-102 profile (helper_runs_as=${POLICY_INSTALLING_USER})`);
+  }
+  const mixed = structuredClone(profile);
+  if (Array.isArray(mixed.supported_platforms) && mixed.supported_platforms.length > 0) {
+    mixed.supported_platforms[0].helper_account = "autosk-ref-custody";
+  }
+  if (valid(mixed)) {
+    errors.push(`${POLICY_SCHEMA_PATH}: admits a policy that mixes the ADR-102 profile with a withdrawn service account`);
+  }
+  return errors;
+}
+
+/** The doctor's check ids and the preflight's derived sets, as the code declares them. */
+function declaredChecks() {
+  return {
+    registered: checkRegistry({}).map((check) => check.id),
+    modelStepChecks: [...MODEL_STEP_CHECKS],
+    custodyStepChecks: [...CUSTODY_STEP_CHECKS],
+  };
+}
+
+/**
+ * Each install record names the doctor check that proves it (`checked_by`),
+ * and that check is registered and required where the record needs it: the
+ * model account of every workflow that runs a model step, the custody install
+ * of every workflow that reaches a step asking the helper — both derived from
+ * the graph by the preflight. Round 8 of #39 (R8-13) found
+ * `ref_custody_unavailable` with no producer and no check probing the custody
+ * install before a write; a record naming a check nobody runs, or one no
+ * workflow requires, would be that gap again (ADR-102). Review of 12a (M1):
+ * the custody check was held to two phases, which left Quick and a Ticket out.
+ */
+export function installCheckErrors(matrix, sets = declaredChecks()) {
+  const list = (value) => (Array.isArray(value) ? value : []);
+  const registered = new Set(list(sets?.registered));
+  const errors = [];
+  const named = (record, where) => {
+    const id = record?.checked_by;
+    if (typeof id !== "string" || id.length === 0) {
+      errors.push(`install.${where}.checked_by names no check`);
+      return null;
+    }
+    if (!registered.has(id)) errors.push(`install.${where}.checked_by: \`${id}\` is not a check the doctor registers`);
+    return id;
+  };
+  const model = named(matrix?.install?.model_account, "model_account");
+  if (model !== null && !list(sets?.modelStepChecks).includes(model)) {
+    errors.push(`install.model_account.checked_by: \`${model}\` is not required of every model step (MODEL_STEP_CHECKS)`);
+  }
+  const custody = named(matrix?.install?.ref_custody_service, "ref_custody_service");
+  if (custody !== null && !list(sets?.custodyStepChecks).includes(custody)) {
+    errors.push(`install.ref_custody_service.checked_by: \`${custody}\` is not required of every workflow that asks the helper (CUSTODY_STEP_CHECKS)`);
+  }
+  return errors;
+}
+
 export function validatePlatformSupportDesign(files) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
@@ -215,6 +417,10 @@ export function validatePlatformSupportDesign(files) {
   // The window the digest check cannot close is stated rather than claimed away.
   if (!contract.includes("does not close the replacement window")) {
     errors.push(`${CONTRACT_PATH}: does not state the limit of a pre-launch digest check`);
+  }
+  // Who a model process runs as is the contract's to say, by name (ADR-102).
+  if (!contract.includes(`\`${MODEL_ACCOUNT}\``)) {
+    errors.push(`${CONTRACT_PATH}: does not name the model account \`${MODEL_ACCOUNT}\``);
   }
 
   let schema;
@@ -239,6 +445,45 @@ export function validatePlatformSupportDesign(files) {
       errors.push(`${SCHEMA_PATH}: install.${field} must be fixed to ${expected}`);
     }
   }
+  // So are the account §5's binaries run as, who writes the project's Git
+  // directory by account, and what the model account is.
+  if (schema.properties?.install?.properties?.binaries_run_as?.const !== "installing_user") {
+    errors.push(`${SCHEMA_PATH}: install.binaries_run_as must be fixed to installing_user`);
+  }
+  const custodyNode = schema.properties?.install?.properties?.ref_custody_service;
+  for (const [field, expected] of CUSTODY_ACCOUNT_CONSTANTS) {
+    if (!isDeepStrictEqual(custodyNode?.properties?.[field]?.const, expected)) {
+      errors.push(`${SCHEMA_PATH}: install.ref_custody_service.${field} must be fixed to ${JSON.stringify(expected)}`);
+    }
+  }
+  // Its bootstrap needs no administrator; the one privileged step there is
+  // is the model account's (ADR-102).
+  if (custodyNode?.properties?.bootstrap?.properties?.requires_administrator?.const !== false) {
+    errors.push(`${SCHEMA_PATH}: install.ref_custody_service.bootstrap.requires_administrator must be fixed to false`);
+  }
+  const modelNode = schema.properties?.install?.properties?.model_account;
+  if (modelNode?.additionalProperties !== false) {
+    errors.push(`${SCHEMA_PATH}: install.model_account must be closed (additionalProperties:false)`);
+  }
+  for (const [field, expected] of [["account", MODEL_ACCOUNT], ...MODEL_ACCOUNT_CONSTANTS]) {
+    if (modelNode?.properties?.[field]?.const !== expected) {
+      errors.push(`${SCHEMA_PATH}: install.model_account.${field} must be fixed to ${expected}`);
+    }
+  }
+  if (modelNode?.properties?.privileged_install?.properties?.requires_administrator?.const !== true) {
+    errors.push(`${SCHEMA_PATH}: install.model_account.privileged_install.requires_administrator must be fixed to true`);
+  }
+  // The ref-custody policy admits the ADR-102 profile beside the committed
+  // example, and refuses a mix of the two (§5a).
+  let policySchema;
+  let policyExample;
+  try {
+    policySchema = JSON.parse(files[POLICY_SCHEMA_PATH]);
+    policyExample = JSON.parse(files[POLICY_EXAMPLE_PATH]);
+  } catch (error) {
+    return [...errors, `${POLICY_SCHEMA_PATH} or ${POLICY_EXAMPLE_PATH}: not valid JSON: ${error.message}`];
+  }
+  errors.push(...policyProfileErrors(policySchema, policyExample));
 
   let matrix;
   try {
@@ -255,6 +500,8 @@ export function validatePlatformSupportDesign(files) {
     return [...errors, `${PROGRAM_MATRIX_PATH}: not valid JSON: ${error.message}`];
   }
   errors.push(...custodyServiceErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
+  errors.push(...modelAccountErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
+  errors.push(...installCheckErrors(matrix).map((message) => `${MATRIX_PATH}: ${message}`));
   return errors;
 }
 

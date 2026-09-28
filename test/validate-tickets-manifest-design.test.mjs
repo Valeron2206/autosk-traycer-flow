@@ -614,7 +614,7 @@ test("tool distribution digest recipes are pinned and byte/path/domain sensitive
   assert.equal(ticketDistributionDigest("autosk-flow/ticket-renderer-distribution/v1", [...files].reverse()), baseline);
   assert.deepEqual(ticketToolDistributionDigests(ROOT), {
     renderer_distribution_digest: "a27cc1bae9e05e3d9b2259fd192a220af2693e1861556819d4c774ae2bff9c13",
-    validator_distribution_digest: "cc770ff462eb320a29b218d1401c6fac45d4282ff71a36947dfa399e3bf3c229",
+    validator_distribution_digest: "7718b0992259dd34793abbd4161458bb78f8a14da4b66c2d12374515b3f14100",
   });
 });
 

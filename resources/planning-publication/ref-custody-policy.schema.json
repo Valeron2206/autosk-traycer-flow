@@ -7,6 +7,7 @@
   "required": ["schema", "custody_generation", "platform", "supported_platforms", "object_store_identity", "helper_binary_sha256", "daemon_authorization_public_key_sha256", "helper_identity", "owner_identity", "lock_protocol", "namespace", "logs_namespace", "socket", "parent_topology", "permission_probes", "packed_refs_policy", "packaging", "lifecycle", "parent_topology_hash", "permission_probe_hash", "packed_refs_policy_hash", "policy_digest"],
   "properties": {
     "schema": { "const": 1 },
+    "helper_runs_as": { "const": "installing-user" },
     "custody_generation": { "type": "integer", "minimum": 1 },
     "platform": { "enum": ["linux", "macos"] },
     "supported_platforms": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/platform_profile" } },
@@ -23,12 +24,12 @@
       "required": ["path_role", "mode_octal", "owner_identity", "peer_credential_api"],
       "properties": { "path_role": { "const": "project-custody-socket" }, "mode_octal": { "const": "0600" }, "owner_identity": { "type": "string" }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] } }
     },
-    "parent_topology": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/topology_entry" } },
+    "parent_topology": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "$ref": "#/$defs/topology_entry" } },
     "permission_probes": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/permission_probe" } },
     "packed_refs_policy": {
       "type": "object", "additionalProperties": false,
       "required": ["gc_pack_refs", "protected_entry_allowed", "maintenance_owner", "preflight_on_every_request"],
-      "properties": { "gc_pack_refs": { "const": false }, "protected_entry_allowed": { "const": false }, "maintenance_owner": { "const": "autosk-custody" }, "preflight_on_every_request": { "const": true } }
+      "properties": { "gc_pack_refs": { "const": false }, "protected_entry_allowed": { "const": false }, "maintenance_owner": { "enum": ["autosk-custody", "installing-user"] }, "preflight_on_every_request": { "const": true } }
     },
     "packaging": {
       "type": "object", "additionalProperties": false,
@@ -47,14 +48,27 @@
   },
   "allOf": [
     { "if": { "properties": { "platform": { "const": "linux" } } }, "then": { "properties": { "socket": { "properties": { "peer_credential_api": { "const": "SO_PEERCRED" } } } } } },
-    { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "socket": { "properties": { "peer_credential_api": { "const": "getpeereid" } } } } } }
+    { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "socket": { "properties": { "peer_credential_api": { "const": "getpeereid" } } } } } },
+    {
+      "if": { "required": ["helper_runs_as"] },
+      "then": { "properties": {
+        "supported_platforms": { "items": { "properties": { "helper_account": { "const": "installing-user" }, "owner_account": { "const": "installing-user" }, "gitfile_read_only": { "const": false } } } },
+        "packed_refs_policy": { "properties": { "maintenance_owner": { "const": "installing-user" } } },
+        "parent_topology": { "maxItems": 1, "items": { "properties": { "path_role": { "const": "project-common-git-dir" }, "mode_octal": { "const": "0700" } } } }
+      } },
+      "else": { "properties": {
+        "supported_platforms": { "items": { "properties": { "helper_account": { "const": "autosk-ref-custody" }, "owner_account": { "const": "autosk-custody" }, "gitfile_read_only": { "const": true } } } },
+        "packed_refs_policy": { "properties": { "maintenance_owner": { "const": "autosk-custody" } } },
+        "parent_topology": { "minItems": 2 }
+      } }
+    }
   ],
   "$defs": {
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "platform_profile": {
       "type": "object", "additionalProperties": false,
       "required": ["platform", "service_manager", "peer_credential_api", "helper_account", "owner_account", "common_git_dir_mode_octal", "per_worktree_git_dir_mode_octal", "gitfile_read_only", "commondir_read_only", "socket_mode_octal"],
-      "properties": { "platform": { "enum": ["linux", "macos"] }, "service_manager": { "enum": ["systemd", "launchd"] }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] }, "helper_account": { "const": "autosk-ref-custody" }, "owner_account": { "const": "autosk-custody" }, "common_git_dir_mode_octal": { "const": "0700" }, "per_worktree_git_dir_mode_octal": { "const": "0700" }, "gitfile_read_only": { "const": true }, "commondir_read_only": { "const": true }, "socket_mode_octal": { "const": "0600" } },
+      "properties": { "platform": { "enum": ["linux", "macos"] }, "service_manager": { "enum": ["systemd", "launchd"] }, "peer_credential_api": { "enum": ["SO_PEERCRED", "getpeereid"] }, "helper_account": { "enum": ["autosk-ref-custody", "installing-user"] }, "owner_account": { "enum": ["autosk-custody", "installing-user"] }, "common_git_dir_mode_octal": { "const": "0700" }, "per_worktree_git_dir_mode_octal": { "const": "0700" }, "gitfile_read_only": { "type": "boolean" }, "commondir_read_only": { "const": true }, "socket_mode_octal": { "const": "0600" } },
       "allOf": [
         { "if": { "properties": { "platform": { "const": "linux" } } }, "then": { "properties": { "service_manager": { "const": "systemd" }, "peer_credential_api": { "const": "SO_PEERCRED" } } } },
         { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "service_manager": { "const": "launchd" }, "peer_credential_api": { "const": "getpeereid" } } } }

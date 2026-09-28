@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "1b6822bd04395f8a5dc3e28abe6e8444c72c721ec58d50e40f6d5fbe91302894"
+      "sha256": "78bf6e4d95b78492d76df144b8320eb13b76b2e63450914efca0304b866e70d0"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "c5614a5072d20d6204edb4afb3e36df7af9bdc5d2f2e89984057541e072f8aa9"
+      "sha256": "3291affdbc98058cd01c6d59b5f0b2e9581aaceb9c7ca07946bb691e8d5809be"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "a4b6ddf7ccf5dd6743720c0eff0082ca7b0404e219682e552165c7a231abbfaa"
+      "sha256": "0ab0a56b93a1d746fa255acb153971a5caaf5038f49074a64f68598f55317c65"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "b4f559ff34787a1dd8a02ab1b99e7bf5505270c5a0ce0e718bd47d3cf0cd5425"
+      "sha256": "c80dd21e014bb3e07e7a91fce26e95f31ee042113ca6e551bf8436e6412c443b"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "a1d45f7ce3a3646ed5b7a145a43af61a38572dcd4415a0f3365773b102cb96a8"
+      "sha256": "b37a9b04f7b5e952e66f1f8614e3536839d67430ee1f591688e08630ed464706"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -88,15 +88,15 @@
     },
     {
       "path": "docs/contracts/doctor-report.md",
-      "sha256": "683afa5b5fe6dcb5817732a66f77e9ea1bb55385ec4da080d73897da6e6b6132"
+      "sha256": "8908bec1f8c80be314894934fcff7a4807b2e43d939edbfb13ebd9bfb43e4ca9"
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
-      "sha256": "a8183e73a6bd08b208318abbd067f39f6748c9caaff04839b47cf21f812a45a4"
+      "sha256": "696325f6a0ba8c134f0a4ff75a2217edc06577b413e162e696c7393eb17a1684"
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "5a54eb498d45b02a09f5180de26ab58b7fc7ba1a082d8cb7e2f5a6043edb7f41"
+      "sha256": "d9d98bfef62c20d3f4e46efcc44b04c1de1dbd02cf2427e69ee6985e253bcdd4"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -144,7 +144,7 @@
     },
     {
       "path": "docs/contracts/platform-support.md",
-      "sha256": "507c1810a63283be25f92aaaa3200de5b4c4c9b53693e360d2b9ad475b9e62f0"
+      "sha256": "3dd2f448a79060e548e2e2a86d8e5ebe273634b1f110bd833453ae1e00309b6f"
     },
     {
       "path": "docs/contracts/project-instructions-lock.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "a29ae1728c591e5ee674070e6d2ac4e2d271f65222e1bac28e68cdaaf04c7550"
+      "sha256": "9d094bc85540e5645e05bd945d893ef4a0e2761c2a4c97f4c3429bdb4fc0e9e7"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -692,15 +692,15 @@
     },
     {
       "path": "resources/planning-publication/ref-custody-policy.schema.json",
-      "sha256": "b44514db3ef88a6bc46e611be862cbd4bdb18ecc21ac5303275995624f8619db"
+      "sha256": "42b2279b4dc743dbd806e5bb6c25948d7b08c9f326d50ab9bb46396598806773"
     },
     {
       "path": "resources/platform-support/platform-support.schema.json",
-      "sha256": "663c4552c79320657e4994a070f2696d438a08b515fc90219d24ffccfa302bdd"
+      "sha256": "d40e51c8733d0dfa988c3a42324683ebf282c2b8fbf13feec7cde6079a1fbf89"
     },
     {
       "path": "resources/platform-support/platform-support.v1.json",
-      "sha256": "1cf3e5d9334e91c6167f54755d904c96f34aecdef6fe62432fbeacf0171ab0c0"
+      "sha256": "bbd071925145f5d914df9bc3a8a992997320b72f7965d89fd23275640a3e6558"
     },
     {
       "path": "resources/program-capabilities/issue-inventory.schema.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "3b711e597da8e10317701f4140af7c4f35258be1058010a9d68ea2def3c98b64"
+      "sha256": "d2a7fbb41cff0fd54c04deb9093a2b702b41d2a44d664b25bc2851c93f1d7f72"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -955,7 +955,7 @@
       "sha256": "6b20c66603620bac1c1fc6584c43e60e9a5fa9c41664dc6b02c453496c48344e"
     }
   ],
-  "candidate_digest": "2d69f66226af1060f4a0674157a499653e86b105bcbccb601de112969e057846",
+  "candidate_digest": "df41bfa4907522522475686d2c4887fc953890ed6072343dbd99401a5c8d1aa4",
   "dispositions": [
     {
       "issue": 3,

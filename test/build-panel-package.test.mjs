@@ -208,7 +208,11 @@ test("the package says which primitives the series supplies and which it does no
   // Debt 10h (R6-20): this bullet named F017–F020 as the groups that exercise
   // Git directly; the run shows more of them do. The groups are now read from
   // the run's own record of the ref-writing git commands each case ran.
-  assert.ok(text.includes("no fault group shows anything about a helper-mediated CAS or the\n  separate-account boundary"), text);
+  // ADR-102, fix round 2 of debt 12a: the helper runs as the installing user,
+  // so the boundary no fault group shows is the model account's (was: "the
+  // separate-account boundary").
+  assert.ok(text.includes("no fault group shows anything about a helper-mediated CAS or the\n  model account's boundary"), text);
+  assert.doesNotMatch(text, /separate-account/u);
   assert.doesNotMatch(text, /planning-publication fault groups/u);
   assert.ok(text.includes("`src/git/ref-custody-helper.ts`) does not exist"));
   assert.match(text, /the preflight refuses every daemon today, including the one this series builds/u);
@@ -1706,9 +1710,17 @@ test("the contracts with no measured link are searched for under src/, and only 
   const referenced = unlinked.filter(found);
   assert.equal(unreferenced.length + referenced.length, unlinked.length);
   // The partition as measured on this tree (ADR-094): pinned so a regression in measureContracts is seen.
-  assert.equal(unlinked.length, 17);
-  assert.equal(unreferenced.length, 13);
+  // Debt 12a (R8-13): `validate:platform-support` imports the doctor's registry
+  // and the preflight's sets to hold each install record's `checked_by`, so
+  // `platform-support.md` is linked by import now (was unlinked and
+  // unreferenced: 17 unlinked and 13 unreferenced before).
+  assert.equal(unlinked.length, 16);
+  assert.equal(unreferenced.length, 12);
   assert.equal(referenced.length, 4);
+  const platform = measured.find((entry) => entry.path === "docs/contracts/platform-support.md");
+  assert.deepEqual(platform.evaluators.map((entry) => `${entry.link}:${entry.module}`),
+    ["import:src/host/doctor-checks.mjs", "import:src/host/workflow-preflight.mjs"]);
+  assert.ok(platform.evaluators.every((entry) => entry.via.includes("scripts/validate-platform-support.mjs")));
   const byPath = new Map(unlinked.map((entry) => [entry.path, entry]));
   // Debt 11b: the CAS admission's check of the named record cites the contract too.
   assert.deepEqual(byPath.get("docs/contracts/integration-authorization.md").src_references.naming, ["src/host/epic-staging.mjs", "src/host/staging-acceptance.mjs"]);
@@ -2292,4 +2304,56 @@ test("README's work boundary says what exists and what does not, and the package
   }
   // No count a validator does not measure.
   assert.doesNotMatch(boundary, /\b\d+\s+(?:модул|валидатор|контракт|host)/u);
+});
+
+// Debt 12a (round 8 of #39, R8-1, R8-13, R8-14): the model account, its launch
+// mechanism and the checks that prove it and the custody install are design
+// with owners, implemented nowhere; the package says so rather than letting
+// the platform contract read as delivered.
+test("§5 does not claim the model account, its launch or the checks that prove them (R8-1, R8-13, R8-14)", async () => {
+  const evidence = section5((await build()).text);
+  assert.match(evidence, /The model account, its launch mechanism and both checks are design with owners, implemented nowhere/u);
+  for (const phrase of [
+    /`autosk-model`/u,
+    /`security\.model_account`/u,
+    /`security\.ref_custody`/u,
+    /`ref_custody_unavailable`/u,
+    /no patch of the series drops a uid/u,
+    /never a setuid binary of this project/u,
+    /no platform park reason of its §7 has a producer/u,
+  ]) {
+    assert.match(evidence, phrase);
+  }
+  assert.match(evidence, /#13 the account, its launch mechanism and both probes, #11 the model process environment, #18 the launch path/u);
+  // Until the account exists a model process is the installing user, and the
+  // bullet says what that means rather than only what is planned.
+  assert.match(evidence, /Until that exists, a model process holds autoskd's rights over the project's Git/u);
+  // Review of 9b65ad3: the custody check is derived from the graph, so Quick
+  // and a Ticket require it too (M1); the policy's schema admits the Linux
+  // topology while the example the signed goldens bind still records `0700`,
+  // and the schema's modes are not what its digest is over (H1); the launch
+  // mechanism stops a model process tree whole (M3).
+  assert.match(evidence, /which every workflow that reaches a step asking the ref-custody helper requires — `autosk-planned`, `autosk-quick` and `autosk-ticket`/u);
+  assert.doesNotMatch(evidence, /which the planned Epic's planning and delivery phases require/u);
+  assert.doesNotMatch(evidence, /The ref-custody policy still fixes the common and per-worktree Git directories at mode `0700`/u);
+  assert.doesNotMatch(evidence, /changing it moves the policy's digest/u);
+  // Fix round 2 (ADR-102): the helper runs as the installing user and the Git
+  // directory stays the user's; the schema admits that profile beside the
+  // committed example (was: a `3770` topology beside `0700`, and "the
+  // policy's modes on each platform").
+  assert.doesNotMatch(evidence, /3770/u);
+  assert.match(evidence, /The ref-custody helper runs as the installing user, and the project's Git directory stays the user's/u);
+  assert.match(evidence, /found by the helper's compare-and-swap, not denied by the OS/u);
+  assert.match(evidence, /The ref-custody policy's schema admits the ADR-102 profile, the helper as the installing user, beside its committed example/u);
+  assert.match(evidence, /which predates ADR-102: the example's digest is computed over the example alone/u);
+  assert.match(evidence, /kills a model process tree whole on a timeout, since autoskd cannot signal another uid/u);
+  assert.match(evidence, /#5 with #13 the helper's bootstrap \(ADR-102\)/u);
+  assert.match(evidence, /that dispatch gate is #34's in matrix v1 \(ADR-097\), and its call before each model launch is #18's launch path \(ADR-102\)/u);
+  // What the bullet says of the series is the tree's: no patch sets a uid or
+  // a gid for a process it starts.
+  const patches = readdirSync(path.join(ROOT, "compat/autosk/patches")).filter((name) => name.endsWith(".patch"));
+  assert.equal(patches.length, compat.patches.length);
+  for (const name of patches) {
+    assert.doesNotMatch(read(`compat/autosk/patches/${name}`), /\bset(?:e?[ug]id|re[su]id)\b|initgroups|\bsudo\b|\brunuser\b|systemd-run|launchctl asuser/u, name);
+  }
 });

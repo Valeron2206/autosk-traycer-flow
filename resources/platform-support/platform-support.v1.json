@@ -157,6 +157,7 @@
       "bin/autoskd",
       "bin/autosk-store-lock"
     ],
+    "binaries_run_as": "installing_user",
     "setuid_allowed": false,
     "setgid_allowed": false,
     "world_writable_install_allowed": false,
@@ -168,8 +169,8 @@
         5,
         13
       ],
-      "runs_as": "dedicated_service_account",
-      "runs_as_installing_user": false,
+      "runs_as": "installing_user",
+      "runs_as_installing_user": true,
       "service_managers": [
         "launchd",
         "systemd"
@@ -180,24 +181,72 @@
       ],
       "socket_accepts": "autoskd_capability_only",
       "protected_ref_writer": "autosk-flow-ref-custody",
-      "git_directory_writers": [
-        "autosk-flow-ref-custody",
-        "autoskd"
+      "protected_paths": [
+        "refs/autosk/**",
+        "logs/refs/autosk/**"
       ],
-      "user_account_git_writes": false,
-      "privileged_install": {
-        "requires_administrator": true,
-        "setuid_helper": false,
+      "git_directory_owner": "installing_user",
+      "git_directory_writers": {
+        "protected_refs": [
+          "autosk-flow-ref-custody"
+        ],
+        "ordinary_objects_and_refs": [
+          "installing_user"
+        ]
+      },
+      "protected_ref_guard": {
+        "model_account": "denied_by_the_os",
+        "installing_user_tools": "detected_at_the_helper_cas",
+        "packed_protected_entry": "refused_by_the_preflight"
+      },
+      "bootstrap": {
+        "requires_administrator": false,
         "effects": [
-          "creates the dedicated service account and registers the helper with launchd or systemd",
-          "makes the canonical project common Git directory the service-owned single object and ref database",
-          "gives every worktree a service-managed per-worktree Git directory behind a read-only gitfile and commondir link",
-          "makes every ancestor of the common Git directory root- or helper-owned and records their identities",
-          "migrates protected packed refs to loose form and pins gc.packRefs=false",
+          "registers the helper as the installing user's launchd agent or systemd user unit, with its project-scoped socket, intents and journal",
+          "closes the project's Git directory to every other account (mode 0700), the model account among them",
+          "migrates protected packed refs to loose form, pins gc.packRefs=false and the planning refs' reflog retention",
+          "turns on per-worktree configuration (extensions.worktreeConfig), so each model worktree's config.worktree pins core.hooksPath=/dev/null and core.fsmonitor=false",
           "records the bootstrap receipt bound into the ref-custody policy digest"
         ]
       },
-      "identity_pinned_by": "ref_custody_policy_digest"
+      "identity_pinned_by": "ref_custody_policy_digest",
+      "checked_by": "security.ref_custody"
+    },
+    "model_account": {
+      "account": "autosk-model",
+      "owner_issues": [
+        11,
+        13,
+        18
+      ],
+      "runs_as": "dedicated_model_account",
+      "runs_as_installing_user": false,
+      "created_by": "privileged_install",
+      "launched_by": "autoskd",
+      "launch_mechanisms": [
+        "service_manager_unit",
+        "sudoers_rule"
+      ],
+      "setuid_binary": false,
+      "whole_tree_termination": true,
+      "writes": [
+        "own_worktree_files",
+        "own_provider_session"
+      ],
+      "git_directory_writes": false,
+      "git_directory_reads": false,
+      "signer_access": false,
+      "secure_store_access": false,
+      "keychain_access": false,
+      "daemon_capability": false,
+      "privileged_install": {
+        "requires_administrator": true,
+        "effects": [
+          "creates the dedicated unprivileged model account autosk-model and the worktree group of it and the installing user, through which it writes its worktrees' files, never a Git directory",
+          "sets up the one mechanism autoskd starts model processes under autosk-model through and kills each model process tree whole with, a service-manager unit or a sudoers rule that starts one supervisor, never a setuid binary"
+        ]
+      },
+      "checked_by": "security.model_account"
     }
   }
 }
