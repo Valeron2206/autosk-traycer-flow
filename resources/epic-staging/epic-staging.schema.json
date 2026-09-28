@@ -155,6 +155,7 @@
           ]
         },
         "record_hash": {
+          "description": "The domain-separated canonical digest (autosk-flow/aggregate-record/v1) of every other field of this record and of the project and Epic it belongs to (aggregateRecordHash in src/host/epic-staging.mjs, ADR-099): the acceptance's aggregate_record_hash is this digest, so it binds the tree, the verification configuration and the instruction lock the PASS ran on and under.",
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         }

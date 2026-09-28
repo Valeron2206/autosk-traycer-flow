@@ -135,7 +135,6 @@
         "review_join_invalid",
         "review_waiver_invalid",
         "staging_moved_after_pass",
-        "target_moved",
         "tech_plan_readiness_required",
         "ticket_completed",
         "ticket_edge_receipt_lost",
@@ -283,6 +282,7 @@
       "minLength": 20
     },
     "resume_target": {
+      "description": "A graph step this park reason's recovery row permits, in a workflow the graph registers: workflow is enumerated from the workflow graph's workflows[] (resources/workflow-graph/workflow-graph.v1.json) and kept equal to them by validate:human-decision, which also holds step to the resume_targets of the row whose reason is park_reason.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -293,7 +293,16 @@
       "properties": {
         "workflow": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "autosk-planned",
+            "autosk-quick",
+            "autosk-ticket",
+            "autosk-code-review",
+            "autosk-panel-seat",
+            "autosk-contest-seat",
+            "autosk-arena-candidate",
+            "autosk-arena-judge"
+          ]
         },
         "step": {
           "type": "string",

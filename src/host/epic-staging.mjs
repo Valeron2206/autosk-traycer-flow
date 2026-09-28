@@ -8,7 +8,6 @@
  * Everything here is about one sentence: a PASS is about a tree, not about an
  * intention. Acceptance is of an identity, not of a plan to produce one.
  */
-import { createHash } from 'node:crypto';
 
 import { demand, digest, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
@@ -25,7 +24,6 @@ export const PARK_REASONS = immutable([
   'aggregate_failed',
   'aggregate_binding_void',
   'staging_moved_after_pass',
-  'target_moved',
   'foreign_target_movement',
   'acceptance_missing',
   'acceptance_stale',
@@ -35,35 +33,57 @@ export const PARK_REASONS = immutable([
   'receipt_missing',
 ]);
 
+const AGGREGATE_RECORD_DOMAIN = 'autosk-flow/aggregate-record/v1';
+
 /**
- * What the aggregate record is bound to.
+ * The digest an aggregate record is named by, and the acceptance binds.
  *
- * The staging identity plus the configuration and the instruction lock, so a
- * PASS cannot be carried to a tree it was not run on or to a rule set it was
- * not run under.
+ * It covers the whole record the staging schema closes — the staging commit
+ * and tree, the verification configuration and instruction-lock digests, the
+ * included Tickets and the outcome — and the project and Epic the record
+ * belongs to (`owner`, the staging state), domain-separated and canonical
+ * (debt 11e, ADR-099). The acceptance's `aggregate_record_hash` is this
+ * digest, so it binds the tree a PASS ran on and the configuration and lock
+ * it ran under, not only that a PASS happened: a record's binding is its hash,
+ * and there is no second field for it.
  */
-export function aggregateBinding(state) {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        project: state.project_identity,
-        epic_id: state.epic_id,
-        staging_commit_oid: state.staging_commit_oid,
-        staging_tree_oid: state.staging_tree_oid,
-        verification_config_digest: state.aggregate?.verification_config_digest,
-        instruction_lock_digest: state.aggregate?.instruction_lock_digest,
-        tickets: [...(state.receipts ?? [])].map((receipt) => receipt.ticket_id).sort(),
-      }),
-      'utf8',
-    )
-    .digest('hex');
+export function aggregateRecordHash(owner, aggregate) {
+  return digest(AGGREGATE_RECORD_DOMAIN, {
+    project: owner.project_identity,
+    epic_id: owner.epic_id,
+    staging_commit_oid: aggregate.staging_commit_oid,
+    staging_tree_oid: aggregate.staging_tree_oid,
+    verification_config_digest: aggregate.verification_config_digest,
+    instruction_lock_digest: aggregate.instruction_lock_digest,
+    included_tickets: [...new Set(aggregate.included_tickets)].sort(),
+    outcome: aggregate.outcome,
+    environment_outcome: aggregate.environment_outcome,
+  });
+}
+
+/**
+ * A Ticket set as one reading of it: a repeat is not a second fact (ADR-089),
+ * so every place that compares Ticket sets compares these (review of 11e, L3).
+ */
+const ticketSet = (list) => [...new Set(list)].sort().join(',');
+
+/** Whether a record's hash recomputes over its own fields; one that cannot be hashed does not. */
+function recomputes(owner, aggregate) {
+  try {
+    return aggregate.record_hash === aggregateRecordHash(owner, aggregate);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Whether the aggregate still describes what would be pushed.
  *
  * Any change to staging after the PASS voids the binding: the record is about
- * the tree it ran on, and a tree that moved is a different subject.
+ * the tree it ran on, and a tree that moved is a different subject. So the
+ * record must recompute — a record rewritten after its run, another
+ * configuration, lock or outcome than the one hashed, is void — and must name
+ * this state's staging commit and tree and the Tickets its receipts name.
  */
 export function aggregateErrors(state) {
   const errors = [];
@@ -71,14 +91,19 @@ export function aggregateErrors(state) {
   if (!aggregate) return [{ reason: 'aggregate_failed', detail: 'no aggregate record' }];
 
   // A command failure and an environment failure are different outcomes: only
-  // one of them is a statement about the product.
+  // one of them is a statement about the product. Which check failed and what
+  // it said is the run's evidence, not the record's (ADR-099).
   if (aggregate.environment_outcome === 'environment_failure') {
-    errors.push({ reason: 'environment_failure', detail: aggregate.detail ?? 'the machine could not run the checks' });
+    errors.push({ reason: 'environment_failure', detail: 'the machine could not run the checks' });
   } else if (aggregate.outcome !== 'pass') {
     errors.push({ reason: 'aggregate_failed', detail: aggregate.outcome });
   }
-  if (aggregate.binding !== aggregateBinding(state)) {
-    errors.push({ reason: 'aggregate_binding_void', detail: 'the binding does not recompute' });
+  // The Tickets as a set, as the identity reads them.
+  const bound = aggregate.staging_commit_oid === state.staging_commit_oid
+    && aggregate.staging_tree_oid === state.staging_tree_oid
+    && ticketSet(aggregate.included_tickets ?? []) === ticketSet((state.receipts ?? []).map((receipt) => receipt.ticket_id));
+  if (!recomputes(state, aggregate) || !bound) {
+    errors.push({ reason: 'aggregate_binding_void', detail: 'the record does not recompute over this staging state' });
   }
   if (aggregate.staging_commit_oid !== state.staging_commit_oid) {
     errors.push({ reason: 'staging_moved_after_pass', detail: state.staging_commit_oid });
@@ -86,12 +111,26 @@ export function aggregateErrors(state) {
   return errors;
 }
 
-/** Every applied Ticket leaves a durable receipt, or the set is not what it claims. */
+/**
+ * Every applied Ticket leaves one durable receipt, or the set is not what it
+ * claims.
+ *
+ * A Ticket with two receipts is refused by name after the missing ones: the
+ * set reads it once everywhere, so nothing else would say which receipt stands
+ * for it (review of 11e, L3).
+ */
 export function receiptErrors(state, expectedTickets) {
   const present = new Set(state.receipts.map((receipt) => receipt.ticket_id));
-  return expectedTickets
-    .filter((ticket) => !present.has(ticket))
-    .map((ticket) => ({ reason: 'receipt_missing', detail: ticket }));
+  const seen = new Set();
+  const repeated = new Set();
+  for (const receipt of state.receipts) {
+    if (seen.has(receipt.ticket_id)) repeated.add(receipt.ticket_id);
+    seen.add(receipt.ticket_id);
+  }
+  return [
+    ...expectedTickets.filter((ticket) => !present.has(ticket)).map((ticket) => ({ reason: 'receipt_missing', detail: ticket })),
+    ...[...repeated].map((ticket) => ({ reason: 'receipt_missing', detail: `${ticket} has more than one integration receipt` })),
+  ];
 }
 
 /** The delivery modes a profile may allow; the acceptance names the one it is of. */
@@ -197,9 +236,8 @@ export function acceptanceErrors(state, current = {}) {
   if (acceptance.aggregate_record_hash !== state.aggregate?.record_hash) {
     stale('the accepted aggregate record is not the current one');
   }
-  const accepted = [...(acceptance.included_tickets ?? [])].sort().join(',');
-  const included = [...state.receipts.map((receipt) => receipt.ticket_id)].sort().join(',');
-  if (accepted !== included) {
+  // As sets, as the record and the acceptance facts write them (review of 11e, L3).
+  if (ticketSet(acceptance.included_tickets ?? []) !== ticketSet(state.receipts.map((receipt) => receipt.ticket_id))) {
     stale('the accepted Ticket set is not the included one');
   }
   if (!named(acceptance.target_ref) || !named(acceptance.recorded_target_base)) {
@@ -253,6 +291,10 @@ export function acceptanceErrors(state, current = {}) {
  * and it runs only while the target still holds the recorded base.
  * `current.deliveryProfileDigest` is the delivery profile in force now; the
  * acceptance must have been given under it.
+ *
+ * This is also the one serialization of two Epics on one target (ADR-099):
+ * both may be staged, verified and accepted at once, the first CAS lands, and
+ * the other finds the target off its recorded base here.
  */
 export function casAdmission(state, observedTarget, expectedTickets = [], current = {}) {
   const reasons = [
@@ -266,16 +308,21 @@ export function casAdmission(state, observedTarget, expectedTickets = [], curren
     return Object.freeze({ decision: 'already_complete', reasons: immutable(reasons.map(Object.freeze)) });
   }
   if (observedTarget.oid !== state.recorded_target_base) {
-    // Two different facts, and the operator does different things about them.
-    // A move this Epic can account for — a fast-forward it recorded, an
-    // integration it performed — is `target_moved`, and the base is re-recorded
-    // before anything else happens. A move nobody can attribute means someone
-    // else acted on that branch, and overwriting it is the one outcome that
-    // cannot be undone by retrying.
-    reasons.push({
-      reason: observedTarget.attributed_to_this_epic ? 'target_moved' : 'foreign_target_movement',
-      detail: observedTarget.oid,
-    });
+    // Off the recorded base and not at this Epic's own result. This Epic
+    // moves the target once, by its CAS, and its result was answered above,
+    // so this answer reads the movement as someone else's — a commit pushed
+    // to the branch, a rewind, another Epic landing on the same target.
+    // Overwriting it is the one outcome that cannot be undone by retrying:
+    // the ref is not touched, and only a recorded decision to re-stage onto
+    // the moved target resumes the flow (R7-5, R7-16). What this answer cannot
+    // see is named rather than guessed (review of 11e, L5): in a race both
+    // admissions may pass before either lands, and the loser's expected-old
+    // CAS is then refused at write time (cas_conflict), so this is what its
+    // retry reads; and a target holding this Epic's own landed result under
+    // commits pushed on top, found by a retry after a crash, reads here as
+    // foreign too — the pending CAS receipt resolves that case from the exact
+    // ref and reflog before any new side effect, which is #9's.
+    reasons.push({ reason: 'foreign_target_movement', detail: observedTarget.oid });
   }
   return Object.freeze({
     decision: reasons.length === 0 ? 'may_swap' : 'refused',

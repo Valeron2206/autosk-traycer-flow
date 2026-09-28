@@ -14,7 +14,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 import { validateJsonSchema } from "../scripts/validate-planning-ref-design.mjs";
-import { acceptanceErrors, aggregateBinding, casAdmission, integrationAuthorizationHash } from "../src/host/epic-staging.mjs";
+import { acceptanceErrors, aggregateRecordHash, casAdmission, integrationAuthorizationHash } from "../src/host/epic-staging.mjs";
 import {
   REQUIRED_FACTS,
   acceptanceFacts,
@@ -54,15 +54,17 @@ function state(overrides = {}) {
     post_cas: { expected_new_oid: oid("b") },
     ...overrides,
   };
+  // The record the staging schema closes, named by its digest (ADR-099).
   const aggregate = {
     outcome: "pass",
     environment_outcome: "ok",
     verification_config_digest: "c".repeat(64),
     instruction_lock_digest: "d".repeat(64),
     staging_commit_oid: base.staging_commit_oid,
-    record_hash: "e".repeat(64),
+    staging_tree_oid: base.staging_tree_oid,
+    included_tickets: [...new Set(base.receipts.map((receipt) => receipt.ticket_id))].sort(),
   };
-  base.aggregate = { ...aggregate, binding: aggregateBinding({ ...base, aggregate }) };
+  base.aggregate = { ...aggregate, record_hash: aggregateRecordHash(base, aggregate) };
   return base;
 }
 

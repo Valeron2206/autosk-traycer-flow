@@ -302,6 +302,16 @@ test("a Ticket has one integration receipt", () => {
   );
 });
 
+test("a repeated receipt is refused once, by name, and is not also another Ticket set (review L3)", () => {
+  // Review of 11e, L3: the Ticket set is a set everywhere. The receipts were
+  // refused for the repeat and then compared with the aggregate's and the
+  // acceptance's sets as multisets, so one fact came back three times, twice
+  // as a Ticket set that differs when it does not.
+  const errors = validateStaging(mutated((value) => { value.receipts.push({ ...value.receipts[0] }); }), schema);
+  assert.ok(errors.some((message) => /more than one integration receipt/u.test(message)), errors.join("\n"));
+  assert.deepEqual(errors.filter((message) => /different Ticket set/u.test(message)), []);
+});
+
 test("every phase and park reason is documented", () => {
   const contract = readFileSync(path.join(ROOT, CONTRACT_PATH), "utf8");
   for (const reason of PARK_REASONS) {
@@ -417,4 +427,55 @@ test("the recorded base is the planning base on a first stage, and a receipted r
     }),
     /planning_base_oid is required/u,
   );
+});
+
+// --- debt 11e (R7-16, R7-17, ADR-099) ---
+
+test("the closed park set is the one-CAS set: nothing parks target_moved (R7-16)", () => {
+  // Under the one CAS every movement of the target off the recorded base that
+  // is not this Epic's own result is foreign_target_movement.
+  assert.deepEqual([...PARK_REASONS].sort(), [
+    "acceptance_missing",
+    "acceptance_stale",
+    "aggregate_binding_void",
+    "aggregate_failed",
+    "cas_conflict",
+    "environment_failure",
+    "foreign_target_movement",
+    "post_cas_mismatch",
+    "receipt_missing",
+    "staging_moved_after_pass",
+  ]);
+  const contract = readFileSync(path.join(ROOT, CONTRACT_PATH), "utf8");
+  assert.ok(!contract.includes("target_moved"), "the contract still names target_moved");
+});
+
+test("the aggregate's record_hash is the digest of its record, which the acceptance binds (R7-17)", async () => {
+  // The acceptance's aggregate_record_hash binds what the hash covers, so a
+  // hash that left out the tree, the configuration and the lock bound none of
+  // them. The host's function is the one both sides use.
+  const { aggregateRecordHash } = await import("../src/host/epic-staging.mjs");
+  const value = example();
+  const owner = { project_identity: `sha256:${value.project_root_sha256}`, epic_id: value.epic_id };
+  assert.equal(value.aggregate.record_hash, aggregateRecordHash(owner, value.aggregate));
+  assert.equal(value.acceptance.aggregate_record_hash, value.aggregate.record_hash);
+  for (const [field, other] of [
+    ["verification_config_digest", "e".repeat(64)],
+    ["instruction_lock_digest", "f".repeat(64)],
+    ["outcome", "fail"],
+  ]) {
+    assertRejects(
+      mutated((record) => {
+        record.aggregate[field] = other;
+      }),
+      /aggregate record_hash is not the digest of its record \(aggregate_binding_void\)/u,
+    );
+  }
+  // One that recomputes is accepted, however it was reached.
+  const rehashed = mutated((record) => {
+    record.aggregate.instruction_lock_digest = "f".repeat(64);
+    record.aggregate.record_hash = aggregateRecordHash(owner, record.aggregate);
+    record.acceptance.aggregate_record_hash = record.aggregate.record_hash;
+  });
+  assert.deepEqual(validateStaging(rehashed, schema), []);
 });

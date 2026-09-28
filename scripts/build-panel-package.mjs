@@ -1195,8 +1195,9 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   \`claude-agent\` and \`pi-agent\` model processes, and
   \`src/host/workflow-factory.mjs\` writes the leaves it reads to admit a resume
   (\`park.reason\`, \`park.origin\`, \`park.receipts.<step>\`) through plain
-  \`autosk metadata set\`, which any holder of the CLI can run: a model session
-  could mint a bound create or forge a receipt that opens a resume. 02 §2 gives
+  \`autosk metadata set\`, which any holder of the CLI can run, and reads one more it does not write, \`park.decision\`,
+  which the same command writes: a model session could mint a bound create or
+  forge a receipt or a decision that opens a resume. 02 §2 gives
   a model session no CLI or decision capability; that is the design, not this
   series. Matrix v1 gives the token's removal to #11 and resume leaves written
   only under the metadata CAS to #18 (ADR-097); roadmap #231 tracks the change.
@@ -1246,6 +1247,18 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   unenforced cap lets the count pass the limit and an enforced one parks with
   \`review_cap\` at it. Like the two measurers above, that run is carried by
   the compatibility workflow and is no band of this section.
+  A resume the graph declares the user's decision (a recovery row's
+  \`decision_targets\`: a round past \`review_cap\`, a re-stage onto a moved
+  target) is admitted only on the decision recorded under that park (\`park.decision\`:
+  the park's watermark, \`#\` and the digest of the daemon \`UserDecisionRecord\`,
+  ADR-099), one round per decision past the cap, with the count and the limit
+  unchanged; a resume that runs no round owes none.
+  The factory checks the leaf's shape and park only: the leaf is
+  forgeable until it is written only under the metadata CAS (#18, roadmap #231),
+  written from a verified decision by the resume path (#35), and the record it
+  names is verified by nobody until the ADR-023 verifier exists (#4), which must
+  check that its subject is this task and this park; no user decision verifies
+  on any host today (above).
 - ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the
   reproducible mutation command. The daemon is not in this repository and its
   guards are not mutated by it, so nothing here is evidence about them.

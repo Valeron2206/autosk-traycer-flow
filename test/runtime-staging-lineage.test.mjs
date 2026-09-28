@@ -14,7 +14,6 @@ import test from "node:test";
 
 import {
   appendReceipt,
-  crossEpicErrors,
   lineageFor,
   loadReceipts,
   receiptDigest,
@@ -81,57 +80,6 @@ test("a lineage that loops back on itself is refused", () => {
   );
 });
 
-test("two Epics may stage the same target, but not from the same unintegrated base", () => {
-  const shared = [
-    { epic_id: "e-1", target_ref: "refs/heads/main", recorded_target_base: oid("a"), chain: [] },
-    { epic_id: "e-2", target_ref: "refs/heads/main", recorded_target_base: oid("a"), chain: [] },
-  ];
-  const errors = crossEpicErrors(shared);
-  assert.ok(errors.some((error) => /both staged/u.test(error.detail)));
-  // The second to swap would advance a branch from a base that no longer
-  // describes it.
-  const ordered = [
-    { epic_id: "e-1", target_ref: "refs/heads/main", recorded_target_base: oid("a"), chain: [], integrated: true },
-    { epic_id: "e-2", target_ref: "refs/heads/main", recorded_target_base: oid("a"), chain: [] },
-  ];
-  assert.deepEqual(crossEpicErrors(ordered), []);
-  // Different targets do not collide at all.
-  const apart = [
-    { epic_id: "e-1", target_ref: "refs/heads/main", recorded_target_base: oid("a"), chain: [] },
-    { epic_id: "e-2", target_ref: "refs/heads/release", recorded_target_base: oid("a"), chain: [] },
-  ];
-  assert.deepEqual(crossEpicErrors(apart), []);
-});
-
-test("a base taken from inside another Epic's unintegrated chain is refused", () => {
-  // That base only exists if the other Epic lands first, which nobody promised.
-  const errors = crossEpicErrors([
-    {
-      epic_id: "e-1",
-      target_ref: "refs/heads/main",
-      recorded_target_base: oid("a"),
-      chain: [{ staging_commit_oid: oid("b") }],
-    },
-    { epic_id: "e-2", target_ref: "refs/heads/main", recorded_target_base: oid("b"), chain: [] },
-  ]);
-  assert.ok(errors.some((error) => /inside e-1's unintegrated lineage/u.test(error.detail)));
-});
-
-test("an Epic that re-recorded its base to its own commit is not in conflict with itself", () => {
-  // #9 re-records the base after a fast-forward this Epic performed, so its
-  // recorded base can be a commit inside its own chain. That is the one case
-  // the check has to leave alone.
-  const errors = crossEpicErrors([
-    {
-      epic_id: "e-1",
-      target_ref: "refs/heads/main",
-      recorded_target_base: oid("b"),
-      chain: [{ staging_commit_oid: oid("b") }],
-    },
-  ]);
-  assert.deepEqual(errors, []);
-});
-
 test("receipts are appended, and the log reads back as what was written", async (t) => {
   const file = await logFile(t);
   const first = await appendReceipt(fs, { path: file, receipt: receipt(oid("a"), oid("b")) });
@@ -179,4 +127,17 @@ test("an empty or absent log is intact and empty, not an error", async (t) => {
     receiptDigest(receipt(oid("a"), oid("b"))),
     receiptDigest(receipt(oid("a"), oid("b"), { phase: "prepared" })),
   );
+});
+
+test("the lineage module carries the chain and the receipts, and no cross-Epic rule: the one CAS serializes Epics (R7-5)", async () => {
+  // Round 7 of #39, R7-5: crossEpicErrors had no caller outside its tests.
+  // Its first rule refused two open Epics with one recorded base, which two
+  // Epics planned from one target head always are (a first stage records
+  // recorded_target_base = planning.base_oid), although its own comment said
+  // they may run at once; its second named a base inside another Epic's
+  // unlanded line, which a stage records only if the target held it. The one
+  // CAS refuses a base that no longer describes the target
+  // (foreign_target_movement), and that is the serialization (ADR-099).
+  const lineage = await import("../src/host/staging-lineage.mjs");
+  assert.deepEqual(Object.keys(lineage).sort(), ["appendReceipt", "lineageFor", "loadReceipts", "receiptDigest"]);
 });

@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "b277d5615f35bdaa028865c597619ae1abf88633bddb4c044ea227add3a96f04"
+      "sha256": "8f2d8f3da586a2180db34387e53b23a238b319c5bddc217784124d5363a32db6"
     },
     {
       "path": "02-architecture.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "67e325a57124d7acac5b5eaebbf24f93ca06a34dd53a70a2e4f05b6d9785f313"
+      "sha256": "a4b6ddf7ccf5dd6743720c0eff0082ca7b0404e219682e552165c7a231abbfaa"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "cc738e1b3d7e99664c8293c61766ba377bb3176a228ce14a38d840b175e49ba8"
+      "sha256": "2ba01cb053fff14aca41b1e919dc10d1677c3c0730e5baf821be2df3f2423839"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "76b2c97076db814e3245b07a94ef839229d6c5a53dcb980b57d5789980882438"
+      "sha256": "5a54eb498d45b02a09f5180de26ab58b7fc7ba1a082d8cb7e2f5a6043edb7f41"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -128,7 +128,7 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "1817cb8ddc03327d2d6f7ccf2a0c099ec5f1a309153114fff35c9395ae25e5df"
+      "sha256": "f47d892ede29f3686ea62328849e9fcd02666c819a9a0140c8aef006cc47b687"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "0e1fd347a8528da5864e649020dc1c954b509b31c3fd7904d2b6e059d6c11f05"
+      "sha256": "d3ce6afdc46265eccf5dc2f32a0367394aaf043192533fd54ad5521a8e9b029a"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -200,11 +200,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "96885751e4f6705295775ec939e838a1428d62f349baef497359a180a40be0ab"
+      "sha256": "889cde2dcce8544fbae6e9e43a7f58ec05de6e934fba050638f78dbbb53022d2"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "430657ff82e8d144d1c7a378a51af14c519f42aa90ae3cc173b7099d7870c293"
+      "sha256": "add43ec822b9c0a3157e3de20dab169536ef3c379687cc0b2d37f23516a78434"
     },
     {
       "path": "docs/program-capability-matrix.md",
@@ -368,11 +368,11 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.example.json",
-      "sha256": "b6688dc7070a24d46d15858ae607b1a7d8fb6a511ce4368afd0f3f4ee07e843e"
+      "sha256": "de3012a5dfba1a79e70bd2a102aabc480b4e5e4927bc76161485f7d9015203ba"
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
-      "sha256": "78e8a0d87d796a386a9ce184115dc4befc31178f2da07843249960f5f22e77a7"
+      "sha256": "ecc448676aadb332a11b4594b36c72abe2f0fec4ed2215ead75083fda06f831e"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.example.json",
@@ -456,15 +456,15 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.answered.example.json",
-      "sha256": "0315ee6a132e1940923a015fd4d19e22d6a47df2546b001e6435ef0b8cfd5d29"
+      "sha256": "3b2517474d45bb6cd92b4a902249da346fb1f94e7064fa2e449c47d7a3cbfcd7"
     },
     {
       "path": "resources/human-decision/human-decision-request.example.json",
-      "sha256": "16b96e375c82663f769712e17183ee4b03eabaeda50b9352b9afdfb223c915e0"
+      "sha256": "62e748a70bd83734d44f6de57e432b549eeae4d88254dc4353072ebeb8a8f612"
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
-      "sha256": "89b5a926cc1d770ad7decef254520797fbb0aa0baf7698c188dd8f45d197ef51"
+      "sha256": "bf46de31171af9f51cdfe1941eb1e308d900a136e400a3a642f5d33e2818f358"
     },
     {
       "path": "resources/human-decision/project-status.example.json",
@@ -768,7 +768,7 @@
     },
     {
       "path": "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
-      "sha256": "119ce32a817b49e54247ddb918915bad0c94a3cd8e9440024e79cfaa39971ee1"
+      "sha256": "be3cec35fa46a6a256792053ba0f25f61c90147c2b6703147689c0a7479f0831"
     },
     {
       "path": "resources/requirement-revision/revision-record.example.json",
@@ -916,23 +916,23 @@
     },
     {
       "path": "resources/workflow-graph/canonical-reference.json",
-      "sha256": "7557d9e47415be1ba512679e6e4cf12d8adb2aac574481ef7b96fa7d308641e7"
+      "sha256": "d379be3b420355903caac110526f45b04295e8ceb5cad93b7db0aa3b765f0368"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.example.json",
-      "sha256": "2e1724c279bea5375d7592a7ef27d2f904220eb189ac853f98d4e5a450dfc63e"
+      "sha256": "f463636bef5fcb93b817d6ec765a3732237217116d114f5396f7dec04a3d971e"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.refused.example.json",
-      "sha256": "b616fb3afa346d148677feb41704fd49304afcef9ef9607f055529051419f0a5"
+      "sha256": "0d5bc91ea48513445bf1896cf94cf5803927c4a54ba2dcf31591330a8cd765de"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "c0f54ed50bbb95c2490108c2d211c61ef64405573364d24831931f3de2a744b0"
+      "sha256": "f1007ae3a79a99ce78377c56eb19be8f8c10f7e4628334e56ed9a70380e98650"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "ea2e953f8f22f5ce18472d0495f20a1b9e228906280fbaaf1607704acb4f3e35"
+      "sha256": "1f08139cdd2eb399c54222cb43af07f73c1fa3cc04b9f47a5e65e0095cf52c04"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -948,14 +948,14 @@
     },
     {
       "path": "scripts/produce-refusals-workflow-graph.cases.json",
-      "sha256": "cca8d7584689774cac96e0a24d3b183b046abb385def7394a18836971388ba3f"
+      "sha256": "dd098d0d4c9c55333402af298491fa68cd70e89431d9a9514b9af1bfe3265951"
     },
     {
       "path": "src/host/workflow-graph-canonical.mjs",
-      "sha256": "b122c09918f87870a93229f359b76c31f1b2abad6d4afa1f905d277ea7374af1"
+      "sha256": "724205c7e7d7823c4c8090f22859bd903d6bd03aff06e2f01e3d75408488080b"
     }
   ],
-  "candidate_digest": "1d8d17d020c3d2e8c15305fb2716641af624221600129c8c715c8f4bebaff795",
+  "candidate_digest": "e2b92d1a893028b1494283634de9780aac2c2d52905c47289af3bef49f13819e",
   "dispositions": [
     {
       "issue": 3,

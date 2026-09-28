@@ -76,6 +76,7 @@ export const REFUSALS = Object.freeze([
   "graph_park_reason_unknown",
   "graph_predicate_unknown",
   "graph_priority_ambiguous",
+  "graph_recovery_decision_targets_invalid",
   "graph_recovery_handled_at_parks",
   "graph_recovery_lists_overlap",
   "graph_recovery_missing",
@@ -949,6 +950,81 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
     }
   }
 
+  // Which resume targets are the user's decision is declared per row, as
+  // `decision_targets`, and the declaration is held to the graph rather than
+  // to a hand-kept list (review of 11e, M1, M2). A row a cap parks with owes
+  // the decision for exactly the targets that run another round: the ones from
+  // which a step the row parks at is reachable without passing through a
+  // person's stop — a step where only a person moves the flow on, one with no
+  // edge out or whose every edge out carries a guard with a person's authority
+  // (narrow re-review of 11e, L-d: a status step a person may stand on is not
+  // one when a policy's or an agent's edge leaves it). Any other row that
+  // declares one owes it for exactly the targets its person's edges enter: an
+  // edge out of a step the row parks at, carrying a guard with a person's
+  // authority and the row's own reason — the decision the graph already draws
+  // as a person's. A person's stop is never one, since a resume into it runs
+  // nothing on its own. And the row's text says so exactly when it declares:
+  // its required_state names the leaf, park.decision, and a row whose text
+  // names the leaf declares (L-c).
+  const capped = new Set(document.caps.map((cap) => cap.park_reason));
+  const personal = (edge) => edge.guards.some((id) => guards.get(id)?.authority?.actor === "human");
+  const personStop = (name) => (outgoing.get(name) ?? []).every(personal);
+  const reachesStop = (start, stops) => {
+    const seen = new Set([start]);
+    const queue = [start];
+    while (queue.length > 0) {
+      const name = queue.shift();
+      if (stops.has(name)) return true;
+      if (personStop(name)) continue;
+      for (const edge of outgoing.get(name) ?? []) {
+        if (seen.has(edge.to)) continue;
+        seen.add(edge.to);
+        queue.push(edge.to);
+      }
+    }
+    return false;
+  };
+  const personEnters = (row, target) => row.parks_at.some((name) => (outgoing.get(name) ?? []).some((edge) =>
+    edge.to === target && edge.guards.some((id) => guards.get(id)?.authority?.actor === "human" && guards.get(id)?.park_reason === row.reason)));
+  const listed = (names) => (names.length === 0 ? "none" : [...names].sort().join(", "));
+  for (const row of document.recovery) {
+    const declared = row.decision_targets ?? [];
+    for (const target of declared) {
+      if (!row.resume_targets.includes(target)) {
+        errors.push(`graph_recovery_decision_targets_invalid: ${row.reason} declares ${target} the user's decision, and it is not one of its resume targets`);
+      }
+    }
+    const marked = row.required_state.includes("park.decision");
+    if (marked && row.decision_targets === undefined) {
+      errors.push(`graph_recovery_decision_targets_invalid: ${row.reason} names park.decision in its required_state and declares no decision targets`);
+    }
+    if (!marked && row.decision_targets !== undefined) {
+      errors.push(
+        `graph_recovery_decision_targets_invalid: ${row.reason} declares decision targets and its required_state does not name ` +
+          "park.decision, the leaf a resume into them is admitted on",
+      );
+    }
+    const candidates = row.resume_targets.filter((target) => !personStop(target));
+    if (capped.has(row.reason)) {
+      const owed = candidates.filter((target) => reachesStop(target, new Set(row.parks_at)));
+      if (owed.length !== declared.length || owed.some((target) => !declared.includes(target))) {
+        errors.push(
+          `graph_recovery_decision_targets_invalid: ${row.reason} is a cap's park, so its decision targets are the targets ` +
+            `that run another round — those from which a step it parks at is reachable without passing through a person's stop ` +
+            `(${listed(owed)}) — and it declares ${listed(declared)}`,
+        );
+      }
+    } else if (row.decision_targets !== undefined) {
+      const owed = candidates.filter((target) => personEnters(row, target));
+      if (owed.length !== declared.length || owed.some((target) => !declared.includes(target))) {
+        errors.push(
+          `graph_recovery_decision_targets_invalid: ${row.reason} declares ${listed(declared)} the user's decision, and the targets ` +
+            `an edge carrying a person's guard with its reason enters from a step it parks at are ${listed(owed)}`,
+        );
+      }
+    }
+  }
+
   const expected = graphDigest(document);
   if (document.canonical_digest !== expected) {
     errors.push(`graph_digest_stale: recorded ${document.canonical_digest}, computed ${expected}`);
@@ -986,6 +1062,7 @@ export const SORTED_ARRAY_PATHS = new Set([
   "recovery",
   "recovery.*.parks_at",
   "recovery.*.handled_at",
+  "recovery.*.decision_targets",
   "decision_options",
   "views.*.cases",
   "views.*.rows.*.rule.requires",

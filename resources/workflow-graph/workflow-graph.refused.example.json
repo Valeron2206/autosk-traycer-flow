@@ -198,10 +198,13 @@
       "resume_targets": [
         "freeze_artifact"
       ],
-      "required_state": "the cap that names it is the defect, and this row is refused by the cascade: with the counted transition missing, nothing attributes the cap's reason to freeze_artifact, so the row names a step the graph does not park it at"
+      "decision_targets": [
+        "freeze_artifact"
+      ],
+      "required_state": "the cap that names it is the defect, and this row is refused by the cascade: with the counted transition missing, nothing attributes the cap's reason to freeze_artifact, so the row names a step the graph does not park it at; its resume into freeze_artifact would be the user's, on the decision recorded under the park (park.decision)"
     }
   ],
-  "canonical_digest": "b923044d75f65caeb945012125900f1d6884380039407bed5aaf2ab166b431b1",
+  "canonical_digest": "36c96fe4b30aee74eb2cc57edd67a7298b00029eaaa854552a777b4754664f69",
   "external_operations": [
     {
       "status": "cancel",

@@ -13,8 +13,8 @@ import {
   PARK_REASONS,
   PHASES,
   acceptanceErrors,
-  aggregateBinding,
   aggregateErrors,
+  aggregateRecordHash,
   applySwap,
   casAdmission,
   integrationAuthorizationHash,
@@ -79,17 +79,20 @@ function state(overrides = {}) {
     post_cas: { expected_new_oid: oid("c") },
     ...overrides,
   };
+  // The record the staging schema closes, named by the digest of its fields
+  // and this Epic (debt 11e, ADR-099).
   const aggregate = {
     outcome: "pass",
     environment_outcome: "ok",
     verification_config_digest: "3".repeat(64),
     instruction_lock_digest: "4".repeat(64),
     staging_commit_oid: base.staging_commit_oid,
-    record_hash: "5".repeat(64),
+    staging_tree_oid: base.staging_tree_oid,
+    included_tickets: [...new Set(base.receipts.map((receipt) => receipt.ticket_id))].sort(),
     ...overrides.aggregate,
   };
-  base.aggregate = { ...aggregate, binding: aggregateBinding({ ...base, aggregate }) };
-  if (overrides.aggregate?.binding) base.aggregate.binding = overrides.aggregate.binding;
+  base.aggregate = { ...aggregate, record_hash: aggregateRecordHash(base, aggregate) };
+  if (overrides.aggregate?.record_hash) base.aggregate.record_hash = overrides.aggregate.record_hash;
   base.acceptance = overrides.acceptance ?? {
     kind: "human",
     decision_id: "dec-1",
@@ -151,14 +154,21 @@ test("any change to staging after the PASS voids the binding", () => {
 });
 
 test("the binding covers the config and the instruction lock, not only the tree", () => {
+  // The binding is the record's hash (debt 11e, ADR-099): a record whose
+  // configuration or lock is not the one it was hashed with is void.
   const original = state();
+  assert.deepEqual(aggregateErrors(original), []);
   for (const field of ["verification_config_digest", "instruction_lock_digest"]) {
     const changed = { ...original, aggregate: { ...original.aggregate, [field]: "9".repeat(64) } };
-    assert.notEqual(aggregateBinding(changed), original.aggregate.binding);
+    assert.notEqual(aggregateRecordHash(changed, changed.aggregate), original.aggregate.record_hash);
+    assert.ok(aggregateErrors(changed).some((entry) => entry.reason === "aggregate_binding_void"), field);
   }
   // ...and the Ticket set, so a delta added afterwards is a different subject.
   const extra = { ...original, receipts: [...original.receipts, { ticket_id: "T-103" }] };
-  assert.notEqual(aggregateBinding(extra), original.aggregate.binding);
+  assert.ok(aggregateErrors(extra).some((entry) => entry.reason === "aggregate_binding_void"));
+  // ...and the tree, which a moved staging commit need not change.
+  const retreed = { ...original, staging_tree_oid: oid("9") };
+  assert.deepEqual(aggregateErrors(retreed).map((entry) => entry.reason), ["aggregate_binding_void"]);
 });
 
 test("every applied Ticket leaves a receipt", () => {
@@ -200,13 +210,24 @@ test("a target that moved is a foreign movement, and the ref is not touched", ()
   assert.ok(outcome.reasons.some((entry) => entry.reason === "foreign_target_movement"));
 });
 
-test("an attributable move and a foreign one are different facts", () => {
-  // The operator does different things about them: one re-records the base,
-  // the other means someone else acted on that branch.
-  const foreign = casAdmission(state(), { oid: oid("f") }, TICKETS, CURRENT);
-  assert.ok(foreign.reasons.some((entry) => entry.reason === "foreign_target_movement"));
-  const attributable = casAdmission(state(), { oid: oid("f"), attributed_to_this_epic: true }, TICKETS, CURRENT);
-  assert.ok(attributable.reasons.some((entry) => entry.reason === "target_moved"));
+test("every movement of the target off its recorded base is foreign, and no caller's flag makes one this Epic's (R7-16)", () => {
+  // Round 7 of #39, R7-16: under the one CAS (ADR-088) this Epic moves the
+  // target once, and its own result reads already_complete before anything
+  // else; target_moved was chosen by a flag the caller handed in, for the
+  // per-Ticket movements ADR-088 removed. Another Epic's landing, a rewind
+  // and someone else's commit are all movements this Epic did not make.
+  assert.ok(!PARK_REASONS.includes("target_moved"));
+  for (const observed of [{ oid: oid("f") }, { oid: oid("f"), attributed_to_this_epic: true }, { oid: oid("9"), attributed_to_this_epic: false }]) {
+    const outcome = casAdmission(state(), observed, TICKETS, CURRENT);
+    assert.equal(outcome.decision, "refused");
+    assert.deepEqual(
+      outcome.reasons.filter((entry) => entry.reason.includes("target")).map((entry) => entry.reason),
+      ["foreign_target_movement"],
+      JSON.stringify(observed),
+    );
+  }
+  // This Epic's own result is the completed CAS, whatever the flag says.
+  assert.equal(casAdmission(state(), { oid: oid("c"), attributed_to_this_epic: false }, TICKETS, CURRENT).decision, "already_complete");
 });
 
 test("the swap can still conflict, because the world moves between read and write", () => {
@@ -296,7 +317,6 @@ test("every park reason the contract closes can be produced", () => {
   stale.acceptance = { ...stale.acceptance, staging_tree_oid: oid("9") };
   collect(acceptanceErrors(stale, CURRENT));
   collect(casAdmission(state(), { oid: oid("f") }, TICKETS, CURRENT).reasons);
-  collect(casAdmission(state(), { oid: oid("f"), attributed_to_this_epic: true }, TICKETS, CURRENT).reasons);
   const conflict = applySwap(state(), {
     expected_old_oid: oid("a"),
     observed_old_oid: oid("f"),
@@ -603,4 +623,33 @@ test("at the CAS an accepted staging state whose OIDs are of two object formats 
   // record, which binds the commits, is compared with the receipts as before.
   const unapplied = state({ receipts: [receipts(oid("1"))[0], { ticket_id: "T-102", delta_digest: "2".repeat(64) }] });
   assert.deepEqual(acceptanceErrors(unapplied, CURRENT).map((entry) => entry.reason), ["acceptance_stale"]);
+});
+
+test("the Ticket set is a set everywhere: a repeated receipt makes no fresh acceptance stale, and the receipts refuse it by name (review L3)", () => {
+  // Review of 11e, L3: the aggregate compared sets, acceptanceErrors
+  // multisets and acceptanceFacts wrote a set, so a Ticket with two receipts
+  // passed the aggregate check and made an acceptance given for the set stale
+  // from the start. A repeat is not a second fact (ADR-089), and a Ticket
+  // with two receipts is refused where the receipts are checked.
+  const doubled = state({
+    receipts: [
+      { ticket_id: "T-101", delta_digest: "1".repeat(64), applied_commit_oid: oid("1") },
+      { ticket_id: "T-102", delta_digest: "2".repeat(64), applied_commit_oid: oid("2") },
+      { ticket_id: "T-102", delta_digest: "2".repeat(64), applied_commit_oid: oid("2") },
+    ],
+  });
+  const ticketSet = (errors) => errors.filter((entry) => entry.detail === "the accepted Ticket set is not the included one");
+  assert.deepEqual(ticketSet(acceptanceErrors(doubled, CURRENT)), []);
+  assert.ok(!aggregateErrors(doubled).some((entry) => entry.reason === "aggregate_binding_void"));
+  const repeated = receiptErrors(doubled, TICKETS);
+  assert.deepEqual(repeated, [{ reason: "receipt_missing", detail: "T-102 has more than one integration receipt" }]);
+  // And the CAS is refused on it.
+  const admission = casAdmission(doubled, { oid: oid("a") }, TICKETS, CURRENT);
+  assert.equal(admission.decision, "refused");
+  assert.ok(admission.reasons.some((entry) => entry.detail === "T-102 has more than one integration receipt"));
+  // A missing Ticket is still refused, beside a repeated one.
+  assert.deepEqual(receiptErrors(state({ receipts: [{ ticket_id: "T-101" }, { ticket_id: "T-101" }] }), TICKETS), [
+    { reason: "receipt_missing", detail: "T-102" },
+    { reason: "receipt_missing", detail: "T-101 has more than one integration receipt" },
+  ]);
 });

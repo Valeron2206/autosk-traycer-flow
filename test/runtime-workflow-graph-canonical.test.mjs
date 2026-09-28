@@ -114,7 +114,7 @@ const graph = () => ({
     { id: "t1", from: "a", to: "b", priority: 0, guards: ["g1"] },
   ],
   caps: [{ cycle: "c2", counted_transition: "t2", limit: 1, park_reason: "r" }],
-  recovery: [{ reason: "r", parks_at: ["b", "a"], handled_at: ["b", "a"], resume_targets: ["b", "a"], required_state: "n/a" }],
+  recovery: [{ reason: "r", parks_at: ["b", "a"], handled_at: ["b", "a"], resume_targets: ["b", "a"], decision_targets: ["b", "a"], required_state: "n/a" }],
 });
 
 test("a set reshuffled is the same document and an order-carrying array is not", () => {
@@ -125,6 +125,7 @@ test("a set reshuffled is the same document and an order-carrying array is not",
   shuffled.guards.reverse();
   shuffled.caps = [...shuffled.caps];
   shuffled.recovery[0].handled_at.reverse();
+  shuffled.recovery[0].decision_targets.reverse();
   assert.equal(graphDigest(shuffled), graphDigest(written), "sets are sets however they were typed");
 
   // `transitions` and `resume_targets` are declared order-carrying by the plan,
@@ -151,7 +152,14 @@ test("the members a set holds are sorted too", () => {
   // rather than only in the contract: a field that reaches the digest unsorted
   // makes the order somebody typed it in part of the graph's identity.
   assert.deepEqual(normalized.recovery[0].handled_at, ["a", "b"]);
+  // Which resume targets are the user's decision is a set too (review of 11e,
+  // M1): the order they were typed in says nothing the graph means.
+  assert.deepEqual(normalized.recovery[0].decision_targets, ["a", "b"]);
   assert.deepEqual(normalized.recovery[0].resume_targets, ["b", "a"], "and neither are resume targets");
+  // A row that declares none acquires none.
+  const { decision_targets, ...undeclared } = graph().recovery[0];
+  assert.equal(normalizeGraph({ ...graph(), recovery: [undeclared] }).recovery[0].decision_targets, undefined);
+  assert.deepEqual(decision_targets, ["b", "a"]);
 });
 
 test("a view's cases and a row's rule are sets; the rows themselves are not", () => {

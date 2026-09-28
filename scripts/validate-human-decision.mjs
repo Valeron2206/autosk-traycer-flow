@@ -34,7 +34,109 @@ export function graphParkReasons(graphText) {
   return Object.freeze(JSON.parse(graphText).recovery.map((row) => row.reason).sort());
 }
 
-export const PARK_REASONS = graphParkReasons(readFileSync(path.join(ROOT, GRAPH_PATH), "utf8"));
+/** A packet resumes into a workflow the graph registers (R7-7): its `workflows[]`. */
+export function graphWorkflows(graphText) {
+  return Object.freeze(JSON.parse(graphText).workflows.map((entry) => entry.name).sort());
+}
+
+const GRAPH_TEXT = readFileSync(path.join(ROOT, GRAPH_PATH), "utf8");
+
+/** The graph the shipped packets are held to. */
+export const GRAPH = Object.freeze(JSON.parse(GRAPH_TEXT));
+
+export const PARK_REASONS = graphParkReasons(GRAPH_TEXT);
+
+export const WORKFLOWS = graphWorkflows(GRAPH_TEXT);
+
+/** A step and every step the graph's transitions lead to from it. */
+function reachFrom(graph, start) {
+  const next = new Map();
+  for (const edge of graph.transitions) next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to]);
+  const reached = new Set([start]);
+  const queue = [start];
+  while (queue.length > 0) {
+    for (const step of next.get(queue.shift()) ?? []) {
+      if (reached.has(step)) continue;
+      reached.add(step);
+      queue.push(step);
+    }
+  }
+  return reached;
+}
+
+/**
+ * The steps a registered workflow reaches: its `first_step` and every step
+ * the graph's transitions lead to from there. A workflow the graph does not
+ * register reaches nothing.
+ */
+export function workflowReach(graph, name) {
+  const workflow = graph.workflows.find((entry) => entry.name === name);
+  return workflow === undefined ? new Set() : reachFrom(graph, workflow.first_step);
+}
+
+/**
+ * The steps only an out-of-band entry reaches, by entry (review of 11e, L-a).
+ *
+ * An out-of-band entry is an `entry_steps` step that is no registered
+ * workflow's first step: the daemon enters a task there wherever it stands,
+ * whatever its workflow. Its region is that step and every step it reaches
+ * that no workflow reaches from its first step — read from the graph, so a
+ * new entry or step needs no list here.
+ */
+export function outOfBandRegions(graph) {
+  const firsts = new Set(graph.workflows.map((entry) => entry.first_step));
+  const reached = new Set(graph.workflows.flatMap((entry) => [...reachFrom(graph, entry.first_step)]));
+  const regions = new Map();
+  for (const { step } of graph.entry_steps ?? []) {
+    if (firsts.has(step)) continue;
+    regions.set(step, new Set([...reachFrom(graph, step)].filter((name) => !reached.has(name))));
+  }
+  return regions;
+}
+
+/**
+ * Whether a task of the named workflow can stand at a packet's step under the
+ * packet's row: a step the workflow reaches from its first step, or a step
+ * only an out-of-band entry reaches when the row names a step of that entry's
+ * region — the daemon takes the entry for a task of any workflow, and the row
+ * that names it is how such a task stops there. Seeding every workflow's
+ * reach with the out-of-band entries instead would lend each workflow every
+ * step the entries lead on to, a judge seat `panel_join` among them (L2).
+ */
+export function workflowStands(graph, name, step, row) {
+  if (workflowReach(graph, name).has(step)) return true;
+  const named = new Set([...(row?.parks_at ?? []), ...(row?.handled_at ?? [])]);
+  return [...outOfBandRegions(graph).values()].some((region) => region.has(step) && [...region].some((member) => named.has(member)));
+}
+
+/**
+ * Whether a packet names a resume target a resume can admit (R7-7, ADR-099).
+ *
+ * ADR-089's point is that a packet resumes into its row's graph step, and a
+ * schema that checks the target by length admits a packet naming a workflow
+ * the graph does not register or a step no resume from its park can reach.
+ * The workflow must be one of the graph's `workflows[]`, the step one a task
+ * of that workflow can stand at (`workflowStands`: review of 11e, L2 — a
+ * registered workflow and a permitted step are not yet a workflow standing
+ * there, and a judge seat never stands where a panel joins — and L-a, a step
+ * only an out-of-band entry reaches), and one of the `resume_targets` of the
+ * recovery row whose `reason` is the packet's `park_reason`; a packet that
+ * names another is not decidable into anything.
+ */
+export function resumeTargetErrors(request, graph = GRAPH) {
+  const errors = [];
+  const target = request.resume_target;
+  const row = graph.recovery.find((entry) => entry.reason === request.park_reason);
+  if (!graph.workflows.some((entry) => entry.name === target.workflow)) {
+    errors.push(`resume_target.workflow ${target.workflow} is not a workflow the graph registers (decision_packet_incomplete)`);
+  } else if (!workflowStands(graph, target.workflow, target.step, row)) {
+    errors.push(`resume_target.step ${target.step} is not a step ${target.workflow} reaches (decision_packet_incomplete)`);
+  }
+  if (!(row?.resume_targets ?? []).includes(target.step)) {
+    errors.push(`resume_target.step ${target.step} is not a target the ${request.park_reason} recovery row permits (decision_packet_incomplete)`);
+  }
+  return errors;
+}
 
 export const REFUSALS = Object.freeze([
   "decision_identity_stale",
@@ -108,9 +210,10 @@ export function decisionDesignDigest(files) {
   );
 }
 
-export function validateRequest(request, schema) {
+export function validateRequest(request, schema, graph = GRAPH) {
   const errors = validateJsonSchema(request, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;
+  errors.push(...resumeTargetErrors(request, graph));
 
   const text = JSON.stringify(request);
   for (const { name, pattern } of FORBIDDEN_SHAPES) {
@@ -218,6 +321,10 @@ export function validateHumanDecisionDesign(files) {
   if (reasons.slice().sort().join(",") !== [...PARK_REASONS].sort().join(",")) {
     errors.push(`${REQUEST_SCHEMA_PATH}: the park reasons must be exactly the workflow graph's recovery reasons`);
   }
+  const workflows = requestSchema.properties?.resume_target?.properties?.workflow?.enum ?? [];
+  if (workflows.slice().sort().join(",") !== [...WORKFLOWS].join(",")) {
+    errors.push(`${REQUEST_SCHEMA_PATH}: the resume workflows must be exactly the workflow graph's workflows`);
+  }
 
   const requests = [];
   for (const relative of [REQUEST_EXAMPLE_PATH, ANSWERED_EXAMPLE_PATH]) {
@@ -254,6 +361,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   } else {
     console.log("Human decision design validation PASS");
     console.log(`design_digest=${decisionDesignDigest(files)}`);
-    console.log(`park_reasons=${PARK_REASONS.length} refusals=${REFUSALS.length}`);
+    console.log(`park_reasons=${PARK_REASONS.length} workflows=${WORKFLOWS.length} refusals=${REFUSALS.length}`);
   }
 }

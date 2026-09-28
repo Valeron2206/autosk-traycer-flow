@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { aggregateRecordHash } from "../src/host/epic-staging.mjs";
 import { epicRefKey } from "../src/host/staging-driver.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
@@ -43,7 +44,6 @@ export const PARK_REASONS = Object.freeze([
   "aggregate_failed",
   "aggregate_binding_void",
   "staging_moved_after_pass",
-  "target_moved",
   "foreign_target_movement",
   "acceptance_missing",
   "acceptance_stale",
@@ -105,6 +105,10 @@ export function validateStaging(state, schema) {
   if (new Set(ticketIds).size !== ticketIds.length) {
     errors.push("a Ticket has more than one integration receipt");
   }
+  // The Ticket set is a set everywhere (ADR-089): a repeated receipt is
+  // refused above, once, and does not make the aggregate's or the
+  // acceptance's set a different one (review of 11e, L3).
+  const ticketSet = (list) => [...new Set(list)].sort().join(",");
 
   // Aggregate: bound to the tree it ran on, and to the exact Ticket set. A PASS
   // that names a different tree than the state it accompanies is a PASS about
@@ -120,9 +124,16 @@ export function validateStaging(state, schema) {
       ) {
         errors.push("aggregate is bound to a different staging identity (aggregate_binding_void)");
       }
-      const included = [...aggregate.included_tickets].sort().join(",");
-      if (included !== [...ticketIds].sort().join(",")) {
+      if (ticketSet(aggregate.included_tickets) !== ticketSet(ticketIds)) {
         errors.push("aggregate covers a different Ticket set than the receipts record");
+      }
+      // The hash the acceptance binds is the digest of the whole record and of
+      // this project and Epic (ADR-099), so a record rewritten after it was
+      // hashed — another configuration, lock, tree, Ticket set or outcome —
+      // binds nothing.
+      const owner = { project_identity: `sha256:${state.project_root_sha256}`, epic_id: state.epic_id };
+      if (aggregate.record_hash !== aggregateRecordHash(owner, aggregate)) {
+        errors.push("aggregate record_hash is not the digest of its record (aggregate_binding_void)");
       }
       // A command failure and an environment failure are different facts, and
       // only one of them says anything about the product. Neither advances.
@@ -160,8 +171,7 @@ export function validateStaging(state, schema) {
       if (acceptance.recorded_target_base !== state.recorded_target_base) {
         errors.push("acceptance was given against a different target base");
       }
-      const included = [...acceptance.included_tickets].sort().join(",");
-      if (included !== [...ticketIds].sort().join(",")) {
+      if (ticketSet(acceptance.included_tickets) !== ticketSet(ticketIds)) {
         errors.push("acceptance covers a different Ticket set than the receipts record");
       }
       // A pinned auto-policy is held to the same binding as a human: the point

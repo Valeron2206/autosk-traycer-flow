@@ -877,7 +877,8 @@ test("a foreign target movement resumes into apply_staging on a recorded re-stag
   // R6-4. The movement is not this Epic's, so it is never overwritten; the
   // user may decide to re-stage onto it: the new base is recorded, every
   // approved delta is revalidated against it, and prior PASS and acceptance
-  // are void. The edge mirrors target_moved's resume, and a person decides.
+  // are void. A person decides. Since debt 11e it is the one re-stage out of
+  // the CAS: target_moved and its resume are gone (ADR-099).
   const graph = shipped();
   const row = graph.recovery.find((entry) => entry.reason === "foreign_target_movement");
   assert.deepEqual([...row.resume_targets].sort(), ["apply_staging", "human"]);
@@ -890,14 +891,12 @@ test("a foreign target movement resumes into apply_staging on a recorded re-stag
   }
   assert.match(back.says, /delta_stale/u);
   assert.match(back.says, /void/u);
-  // Both re-stages put one receipted planning replay commit on the new base
+  // The re-stage puts one receipted planning replay commit on the new base
   // before the deltas, so the rebuilt staging still carries the planning
   // artifacts while the planning ref itself is untouched.
-  const [moved] = edgeReads(graph, "integrate_staging", "apply_staging", "target_moved");
-  for (const resume of [back, moved]) {
-    assert.match(resume.says, /planning replay commit под receipt/u);
-    assert.ok(resume.reads.has("planning"), "the re-stage resume does not read the planning state");
-  }
+  assert.match(back.says, /planning replay commit под receipt/u);
+  assert.ok(back.reads.has("planning"), "the re-stage resume does not read the planning state");
+  assert.deepEqual(edgeReads(graph, "integrate_staging", "apply_staging", "target_moved"), []);
   assert.match(row.required_state, /apply_staging/u);
   // 03 section 2 carries the row the edge is drawn from.
   const plan = read("03-technical-plan.md");
@@ -972,12 +971,12 @@ test("a re-stage replays the planning change as one receipted commit, and the pl
   // staging record's own recorded_target_base moves, and the rebuilt staging
   // starts with exactly one planning replay commit bound by a receipt.
   const graph = shipped();
+  // Two since debt 11e: target_moved's resume went with the reason (ADR-099).
   const resumes = [
-    ...edgeReads(graph, "integrate_staging", "apply_staging", "target_moved"),
     ...edgeReads(graph, "integrate_staging", "apply_staging", "foreign_target_movement"),
     ...edgeReads(graph, "deliver_staging", "apply_staging", "completion_predicate_unmet"),
   ];
-  assert.equal(resumes.length, 3);
+  assert.equal(resumes.length, 2);
   for (const resume of resumes) {
     assert.match(resume.says, /recorded_target_base := новый target/u, resume.edge.id);
     assert.match(resume.says, /один planning replay commit под receipt/u, resume.edge.id);
@@ -985,9 +984,7 @@ test("a re-stage replays the planning change as one receipted commit, and the pl
     assert.match(resume.says, /createStaging на новой base/u, resume.edge.id);
     assert.match(resume.says, /каждая approved delta/u, resume.edge.id);
   }
-  for (const reason of ["target_moved", "foreign_target_movement"]) {
-    assert.match(graph.recovery.find((row) => row.reason === reason).required_state, /planning replay commit/u, reason);
-  }
+  assert.match(graph.recovery.find((row) => row.reason === "foreign_target_movement").required_state, /planning replay commit/u);
   // No republication anywhere: the planning ref's base and head never change.
   const everywhere = [
     read("docs/contracts/epic-planning-ref.md"), read("docs/contracts/epic-staging.md"), read("01-core-flows.md"),
@@ -1122,7 +1119,8 @@ test("epic-staging's park reasons and the profile's completion predicate are par
   const owned = new Map(vocabulary().park_reasons.map((entry) => [entry.code, entry]));
   const missing = [];
   const staging = closedSet("docs/contracts/epic-staging.md");
-  assert.equal(staging.length, 11, "epic-staging closes eleven classes");
+  // Ten since debt 11e: target_moved left with the per-Ticket movements that produced it (ADR-099).
+  assert.equal(staging.length, 10, "epic-staging closes ten classes");
   const expected = [
     ...staging.filter((code) => code !== "aggregate_failed").map((code) => [code, "docs/contracts/epic-staging.md"]),
     ["completion_predicate_unmet", "docs/contracts/delivery-profile.md"],
@@ -1226,22 +1224,25 @@ test("two individually green Tickets that regress together leave the target wher
     await git(["read-tree", base]);
     return { oid, tree };
   };
+  // The project identity is the staging state's sha256:<64 hex>, which the
+  // driver now checks before it runs (review of 11e, L1), and the instruction
+  // lock is the caller's input rather than a prior record's (H1).
   const identity = (commitOid, tree, tickets) => ({
-    project_identity: `sha256:${"0".repeat(58)}`,
+    project_identity: `sha256:${"0".repeat(64)}`,
     epic_id: "epic-order",
     staging_commit_oid: commitOid,
     staging_tree_oid: tree,
     receipts: tickets.map((ticket_id) => ({ ticket_id })),
-    aggregate: { verification_config_digest: "c".repeat(64), instruction_lock_digest: "d".repeat(64) },
   });
   const checks = [{ id: "unit", command: "./check.sh" }];
+  const instructionLockDigest = "d".repeat(64);
 
   // Each Ticket is green on its own.
   const first = await commit(base, [["a.txt", "new"]], "T-1");
   const second = await commit(base, [["b.txt", "new"]], "T-2");
   for (const [ticket, alone] of [["T-1", first], ["T-2", second]]) {
-    const verdict = await verifyAggregate({
-      git, run: runner, state: identity(alone.oid, alone.tree, [ticket]), checks, dir: path.join(root, `alone-${ticket}`),
+    const { aggregate: verdict } = await verifyAggregate({
+      git, run: runner, state: identity(alone.oid, alone.tree, [ticket]), checks, dir: path.join(root, `alone-${ticket}`), instructionLockDigest,
     });
     assert.equal(verdict.outcome, "pass", `${ticket} is green alone`);
   }
@@ -1258,14 +1259,14 @@ test("two individually green Tickets that regress together leave the target wher
   });
   assert.equal(advanced.status, "committed");
   const state = identity(together.oid, together.tree, ["T-1", "T-2"]);
-  const aggregate = await verifyAggregate({ git, run: runner, state, checks, dir: path.join(root, "aggregate") });
+  const { aggregate } = await verifyAggregate({ git, run: runner, state, checks, dir: path.join(root, "aggregate"), instructionLockDigest });
   assert.equal(aggregate.outcome, "fail");
   assert.equal(aggregate.environment_outcome, "ok", "a regression is a product failure, not a machine that could not run");
   assert.ok(aggregateErrors({ ...state, aggregate }).some((error) => error.reason === "aggregate_failed"));
 
   // The CAS is refused, and the target is untouched.
   const staged = { ...state, recorded_target_base: base, aggregate, post_cas: { expected_new_oid: together.oid } };
-  const observed = await observeTarget(git, { ref: "refs/heads/main", recorded: [base] });
+  const observed = await observeTarget(git, { ref: "refs/heads/main" });
   const admission = casAdmission(staged, observed, ["T-1", "T-2"]);
   assert.equal(admission.decision, "refused");
   assert.ok(admission.reasons.some((entry) => entry.reason === "aggregate_failed"));
@@ -1299,16 +1300,44 @@ test("the aggregate_verify_failed row says where it parks, as its parks_at does 
   }
 });
 
-test("01 does not let a person raise the review cap the factory holds absolute", () => {
+test("01 gives a round past the review cap to the user alone, one per recorded cap decision, and never a new limit (R7-4)", () => {
   // a1 medium: the cap's limit is the document's, its count is the durable
   // takings, and nothing a person decides resets or widens either (capHolds in
-  // src/host/workflow-factory.mjs). 01 follows the code.
+  // src/host/workflow-factory.mjs). Round 7 of #39, R7-4: "nobody" was the
+  // wrong answer to "who may exceed ten rounds" — 01 §8, 03 §7 and the graph's
+  // view resume review_cap into a new round on a new daemon-attributed cap
+  // decision, which is exactly an exceeding round. The user decides it, one
+  // round per decision, and the count and the limit stay (ADR-099).
   const flows = read("01-core-flows.md");
   const row = flows.split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
   assert.ok(row, "01 names who may exceed ten rounds");
-  assert.doesNotMatch(row, /новый конечный предел/u);
-  assert.match(row, /никто/u);
-  assert.match(row, /capHolds/u);
+  const [, , who, how] = row.split("|").map((cell) => cell.trim());
+  assert.doesNotMatch(who, /никто/u);
+  assert.match(who, /только пользователь/u);
+  assert.match(who, /один раунд на каждое записанное cap decision/u);
+  assert.doesNotMatch(how, /новый конечный предел/u);
+  assert.match(how, /capHolds/u);
+  assert.match(how, /не сбрасывает счёт и не поднимает `limit`/u);
+  assert.match(how, /`park\.decision`/u);
+  assert.match(how, /следующий NOT_PASS на этом шаге снова паркует `review_cap`/u);
+  // Review of 11e, M1: only a resume that runs another round owes the
+  // decision; the exits that run none are named, and owe none.
+  assert.match(how, /`decision_targets`/u);
+  assert.match(how, /выход без нового раунда[^|]*`invalidate_quick_classification`[^|]*решения не требует/u);
+  // The factory contract says the factory holds the resume to the decision,
+  // and no longer that the cap is absolute for want of a decision format.
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.doesNotMatch(factory, /until one exists the cap is absolute/u);
+  assert.match(factory, /`park\.decision`/u);
+  assert.match(factory, /`decision_targets`/u);
+  assert.doesNotMatch(factory, /cap_decision/u);
+  // ADR-099 supersedes ADR-089's "nobody", and the graph's row names what its resume owes.
+  const decisions = read("04-decisions.md");
+  assert.match(decisions, /^## ADR-099:/mu);
+  assert.match(sectionOf(decisions, "## ADR-089:", "## ADR-090:"), /Изменено ADR-099/u);
+  const capRow = shipped().recovery.find((entry) => entry.reason === "review_cap");
+  assert.match(capRow.required_state, /new daemon-attributed cap decision recorded under this park \(park\.decision\)/u);
+  assert.match(capRow.required_state, /human and invalidate_quick_classification run no round and owe none/u);
 });
 
 // --- debt 11a: one custody model for refs/autosk/** --------------------------
@@ -1390,4 +1419,142 @@ test("ADR-095 and README say which park answers a missing custody, and when (rev
   const rule = readme.split("\n").find((line) => line.startsWith("19. ")) ?? "";
   assert.match(rule, /обязательство #13/u);
   assert.doesNotMatch(rule, /паркуется при открытии, до первого побочного эффекта\./u);
+});
+
+// --- debt 11e: the state machine does what the documents say (R7-5, R7-16) ---
+
+test("nothing parks target_moved: under the one CAS every movement of the target off its recorded base is foreign (R7-16)", () => {
+  // Round 7 of #39, R7-16: the one-CAS model (ADR-088) moves the target once,
+  // by this Epic's own CAS, whose result reads already_complete first. What
+  // the staging driver called attributable was a movement to a commit this
+  // Epic wrote or to one below its base: a rewind, or someone else moving the
+  // target into the Epic's own unlanded line — none of them this Epic's.
+  const graph = shipped();
+  assert.ok(!JSON.stringify(graph).includes("target_moved"), "the graph still names target_moved");
+  const declared = new Set([
+    ...graph.transitions.map((edge) => edge.id),
+    ...graph.guards.map((guard) => guard.id),
+    ...graph.predicates.map((entry) => entry.id),
+  ]);
+  for (const id of ["t_566", "t_569", "guard_570", "guard_573", "cond_445", "cond_448"]) {
+    assert.ok(!declared.has(id), `${id} is still declared`);
+  }
+  // At the CAS a target off its base parks one way, and resumes one way: a
+  // person's recorded decision to re-stage onto the moved target.
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const off = graph.transitions.filter((edge) => edge.from === "integrate_staging"
+    && edge.guards.some((id) => predicates.get(guards.get(id).predicate).description.startsWith("target ref не на recorded target base")));
+  assert.deepEqual(off.map((edge) => [edge.to, guards.get(edge.guards[0]).park_reason]), [["human", "foreign_target_movement"]]);
+  const back = graph.transitions.filter((edge) => edge.from === "integrate_staging" && edge.to === "apply_staging");
+  assert.deepEqual(back.map((edge) => guards.get(edge.guards[0]).park_reason), ["foreign_target_movement"]);
+  assert.equal(guards.get(back[0].guards[0]).authority.actor, "human");
+  for (const relative of [
+    "01-core-flows.md",
+    "03-technical-plan.md",
+    "docs/contracts/epic-staging.md",
+    "resources/refusal-vocabulary/refusal-vocabulary.v1.json",
+    "resources/human-decision/human-decision-request.schema.json",
+    "scripts/validate-epic-staging.mjs",
+    "src/host/epic-staging.mjs",
+    "src/host/staging-driver.mjs",
+  ]) {
+    assert.ok(!read(relative).includes("target_moved"), `${relative} still names target_moved`);
+  }
+  assert.ok(!/attributed_to_this_epic|attributable\(/u.test(read("src/host/staging-driver.mjs") + read("src/host/epic-staging.mjs")),
+    "the host still attributes a target movement to the Epic");
+  assert.ok(!/движение атрибутируемо этому Epic|движение этому Epic не атрибутируемо/u.test(read("03-technical-plan.md")));
+  const risks = sectionOf(read("04-decisions.md"), "## Оставшиеся риски", "\n## ");
+  assert.ok(!risks.includes("target_moved"), "a remaining risk still names target_moved");
+});
+
+test("Epics on one target are serialized by the one CAS, and the documents say what it does (R7-5)", () => {
+  // Round 7 of #39, R7-5: epic-staging §1 said the second of two re-stages
+  // waits until the first lands and that no two open lines share a base,
+  // with no step, blocker or park reason for the wait; crossEpicErrors, the
+  // only detector, had no caller, and it flagged two Epics planned from one
+  // target head — whose first stages necessarily share recorded_target_base.
+  const one = sectionOf(read("docs/contracts/epic-staging.md"), "## 1.", "## 2.");
+  assert.doesNotMatch(one, /waits until the first lands/u);
+  assert.doesNotMatch(one, /no two open lines share/u);
+  assert.match(one, /serialized by the one CAS and by nothing else/u);
+  assert.match(one, /may be staged, verified and accepted at once/u);
+  assert.match(one, /parks `foreign_target_movement`/u);
+  for (const relative of ["docs/contracts/epic-staging.md", "03-technical-plan.md", "src/host/staging-lineage.mjs"]) {
+    assert.ok(!read(relative).includes("crossEpicErrors"), `${relative} still names crossEpicErrors`);
+  }
+  assert.doesNotMatch(read("03-technical-plan.md"), /второй ждёт, пока первый приземлится/u);
+  const risks = sectionOf(read("04-decisions.md"), "## Оставшиеся риски", "\n## ");
+  assert.ok(!risks.includes("crossEpicErrors"), "a remaining risk still names crossEpicErrors");
+  assert.doesNotMatch(risks, /ждёт приземления первого/u);
+
+  // What the one CAS does with two Epics planned from one head: both first
+  // stages record that head, the first CAS lands, and the second finds the
+  // target at the first Epic's result — a movement it did not make.
+  const head = "a".repeat(40);
+  const landed = "b".repeat(40);
+  const mine = { recorded_target_base: head, receipts: [], post_cas: { expected_new_oid: "c".repeat(40) } };
+  const admission = casAdmission(mine, { oid: landed }, [], {});
+  assert.equal(admission.decision, "refused");
+  assert.deepEqual(admission.reasons.filter((entry) => entry.reason.includes("target")).map((entry) => entry.reason), ["foreign_target_movement"]);
+  const row = shipped().recovery.find((entry) => entry.reason === "foreign_target_movement");
+  assert.deepEqual([...row.resume_targets].sort(), ["apply_staging", "human"]);
+  assert.match(row.required_state, /another Epic's landing/u);
+});
+
+test("the prose says what the one CAS does in a race and after a crash, and names what it leaves open (review L5, L6)", () => {
+  // Review of 11e, L5: in a true race the Epic that loses parks cas_conflict
+  // (git refuses its expected-old CAS at write time), not
+  // foreign_target_movement; and a target that holds the Epic's landed
+  // result under commits pushed on top before a crash-retry is a movement
+  // off the base that was partly the Epic's own — the pending CAS receipt
+  // resolves that from the reflog, and the case is left open for #9.
+  const staging = read("docs/contracts/epic-staging.md");
+  const one = sectionOf(staging, "## 1.", "## 2.");
+  assert.match(one, /`cas_conflict`/u);
+  assert.doesNotMatch(one, /no movement of the target off the recorded base is ever that Epic's own/u);
+  assert.match(one, /pending CAS receipt/u);
+  assert.match(sectionOf(staging, "## 9.", "## 10."), /`cas_conflict`/u);
+  assert.match(sectionOf(read("01-core-flows.md"), "## 7. ", "## 8. "), /`cas_conflict`/u);
+  assert.match(read("03-technical-plan.md"), /сериализует только один CAS[^\n]*`cas_conflict`/u);
+  const adr = sectionOf(read("04-decisions.md"), "## ADR-099:", "## Оставшиеся риски");
+  assert.match(adr, /pending CAS receipt[^\n]*#9/u);
+  // L6: what the leaf does not bind is named as the verifier's to check.
+  assert.match(adr, /`task_id`[^\n]*watermark/u);
+});
+
+// --- debt 11e narrow re-review: a rebuild under staging_moved_after_pass keeps the base (L-f), and a repeated receipt is named (nit) ---
+
+test("a rebuild under staging_moved_after_pass keeps the recorded base: the staging ref moved, not the target (review L-f)", () => {
+  // Narrow re-review of 11e, L-f: the row, cond_454, cond_456 and 03 let this
+  // resume rebuild staging "by the epic-staging §1 re-stage method", which
+  // re-records recorded_target_base onto a moved target — a re-stage with no
+  // park.decision, the one thing the factory holds to a decision. Under this
+  // reason what moved is the staging ref, so the rebuild is at the recorded
+  // base, and a re-stage stays the two rows that declare it.
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "staging_moved_after_pass");
+  assert.equal(row.decision_targets, undefined);
+  assert.match(row.required_state, /rebuilds staging at the recorded base \(recorded_target_base unchanged/u);
+  const lines = read("03-technical-plan.md").split("\n").filter((line) => line.includes("staging_moved_after_pass"));
+  const texts = [
+    ["row", row.required_state],
+    ...["cond_454", "cond_456"].map((id) => [id, graph.predicates.find((entry) => entry.id === id).description]),
+    ...lines.map((line) => [`03: ${line.slice(0, 60)}`, line]),
+  ];
+  for (const [label, text] of texts) {
+    assert.doesNotMatch(text, /re-stage method|способом пересборки|пересборка способом/u, label);
+  }
+  for (const id of ["cond_454", "cond_456"]) {
+    assert.match(graph.predicates.find((entry) => entry.id === id).description, /recorded_target_base не меняется/u, id);
+  }
+  const resumes = lines.filter((line) => /resume --to apply_staging|aggregate_verify or accept_staging/u.test(line));
+  assert.equal(resumes.length, 3, "two 03 §2 resume rows and the 03 §7 row");
+  for (const line of resumes) assert.match(line, /recorded_target_base не меняется|на той же recorded_target_base/u, line.slice(0, 60));
+});
+
+test("a Ticket with two integration receipts is receipt_missing in the graph's row and in the staging contract, as receiptErrors refuses it (review nit)", () => {
+  const row = shipped().recovery.find((entry) => entry.reason === "receipt_missing");
+  assert.match(row.required_state, /a Ticket has more than one/u);
+  assert.match(read("docs/contracts/epic-staging.md"), /more than one integration receipt[^.]*`receipt_missing`/u);
 });
