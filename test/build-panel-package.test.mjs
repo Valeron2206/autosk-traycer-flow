@@ -1176,8 +1176,10 @@ test("the evidence is given as rows, not only as counts", async () => {
     assert.match(text, new RegExp(`\\| \`${row.id}\` \\| ${row.harness}`, "u"));
   }
   // Debt 10h: each row now carries its injection kind (from the matrix).
-  assert.match(text, /\| `F001` \| crash \| `real_path` \| yes \| not paired \|/u);
-  assert.match(text, /\| `F020` \| faults \| `written_observation`: [^|]+ \| yes \| yes \|/u);
+  // Debt 12e: and whether its run is the designed fault, beside the detection.
+  assert.match(text, /\| `F001` \| crash \| `real_path` \| yes \| yes \| not paired \|/u);
+  assert.match(text, /\| `F002` \| crash \| `real_path` \| NO \| yes \| not paired \|/u);
+  assert.match(text, /\| `F020` \| faults \| `written_observation`: [^|]+ \| NO \| yes \| yes \|/u);
   for (const entry of mutation.modules) {
     assert.match(text, new RegExp(entry.module.replace(/[/.]/gu, "\\$&"), "u"));
   }
@@ -1646,9 +1648,9 @@ test("the package does not say every group is injected for real; it says how eac
   }
   assert.match(evidence, /No case of the fault harness runs a host driver or the daemon/u);
   // Each row carries its kind, and a written observation its written fields.
-  assert.match(evidence, /\| `F001` \| crash \| `real_path` \| yes \| not paired \|/u);
+  assert.match(evidence, /\| `F001` \| crash \| `real_path` \| yes \| yes \| not paired \|/u);
   const f020 = matrix.groups.find((group) => group.id === "F020");
-  assert.ok(evidence.includes(`| \`F020\` | faults | \`written_observation\`: ${f020.written_fields.map((name) => `\`${name}\``).join(", ")} | yes | yes |`), evidence);
+  assert.ok(evidence.includes(`| \`F020\` | faults | \`written_observation\`: ${f020.written_fields.map((name) => `\`${name}\``).join(", ")} | NO | yes | yes |`), evidence);
 });
 
 test("the injection kinds are rendered from the matrix, not from prose", async () => {
@@ -2042,9 +2044,12 @@ import { COVERAGE_STATES } from "../scripts/lib/clean-room-coverage.mjs";
 test("the package prints the coverage by state, and only covered_by_real_fault counts toward the release gate", async () => {
   const evidence = section5((await build()).text);
   const kind = (injection) => matrix.groups.filter((group) => group.injection === injection).length;
+  // Debt 12e: F004 alone (it was F004 and the five measured groups: 6).
   const counts = {
-    covered_by_real_fault: 1 + kind("measured_observation"),
-    covered_without_control: 3,
+    covered_by_real_fault: 1,
+    covered_without_control: 1,
+    covered_by_substitute_fault: 2,
+    covered_by_host_function: kind("measured_observation"),
     covered_by_written_observation: kind("written_observation"),
     control_failed: 0,
     not_covered: 0,
@@ -2052,19 +2057,74 @@ test("the package prints the coverage by state, and only covered_by_real_fault c
   const line = `Coverage, by state: ${COVERAGE_STATES.map((state) => `${state}=${counts[state]}`).join(", ")}; complete=false.`;
   assert.ok(evidence.includes(line), evidence);
   assert.match(evidence, /Only `covered_by_real_fault` counts toward the release gate \(#36\)/u);
+  // Debt 12e (R8-7, R8-12): the count requires the designed fault, met on the product path.
+  const flat = evidence.replace(/\s+/gu, " ");
+  assert.match(flat, /the designed fault \(`injection_matches_design`\), made against the built daemon \(`real_path`\)/u);
+  assert.doesNotMatch(flat, /`real_path` or `measured_observation`/u);
+  assert.match(flat, /The gate counts 1 of 20 groups: `F004`\./u);
   // The prose that explained the old count away is gone, not lengthened.
   assert.doesNotMatch(evidence, /says no more than that/u);
   assert.doesNotMatch(evidence, /not\*\* a statement that every group was injected for real/u);
   // The rows carry what the state is read from.
-  assert.match(evidence, /\| `F001` \| crash \| `real_path` \| yes \| not paired \|/u);
-  assert.match(evidence, /\| `F004` \| identity \| `real_path` \| yes \| yes \|/u);
-  assert.match(evidence, /\| `F005` \| faults \| `measured_observation` \| yes \| yes \|/u);
+  assert.match(evidence, /\| `F001` \| crash \| `real_path` \| yes \| yes \| not paired \|/u);
+  assert.match(evidence, /\| `F004` \| identity \| `real_path` \| yes \| yes \| yes \|/u);
+  assert.match(evidence, /\| `F005` \| faults \| `measured_observation` \| yes \| yes \| yes \|/u);
   // A state no row is in is printed as zero, not left out; and a daemon
   // harness that never ran names no harness on its rows (review of 11f, L3).
   const failed = runReport({ steps: [{ step: "prepare", ok: false }] });
   const printed = section5((await build({ cleanRoom: failed })).text);
-  assert.ok(printed.includes(`covered_without_control=0, covered_by_written_observation=${counts.covered_by_written_observation}, control_failed=0, not_covered=4;`), printed);
-  assert.match(printed, /\| `F001` \| none \| `real_path` \| NO \| not paired \| not covered \|/u);
+  assert.ok(printed.includes(`covered_by_real_fault=0, covered_without_control=0, covered_by_substitute_fault=0, covered_by_host_function=${counts.covered_by_host_function}, covered_by_written_observation=${counts.covered_by_written_observation}, control_failed=0, not_covered=4;`), printed);
+  assert.match(printed, /\| `F001` \| none \| `real_path` \| yes \| NO \| not paired \| not covered \|/u);
+});
+
+test("the package says, per group, whether the designed fault was met, and who converts each group that does not count", async () => {
+  // Debt 12e (R8-7, R8-12): the page gives what the matrix's fields say — the
+  // departure where the run is not the designed fault, and the record that
+  // owns the product path — so a reader is not left to infer either from `injection_note`.
+  const evidence = section5((await build()).text);
+  for (const entry of matrix.groups) {
+    const line = evidence.split("\n").find((text) => text.startsWith(`- \`${entry.id}\` (${entry.boundary}) — designed:`));
+    assert.ok(line, entry.id);
+    if (entry.injection_matches_design) assert.ok(line.endsWith(" Run is the designed fault: yes."), line);
+    else assert.ok(line.endsWith(` Run is the designed fault: no — ${entry.design_departure}.`), line);
+  }
+  assert.match(evidence, /Run is the designed fault: no — the run does not kill the daemon or restart it/u);
+  assert.ok(evidence.includes("**Who converts a group to the product path.**"), evidence);
+  for (const entry of matrix.groups.filter((group) => group.product_path_owner)) {
+    assert.ok(evidence.includes(`- \`${entry.id}\` — ${entry.product_path_owner}`), entry.id);
+  }
+  for (const id of ["F001", "F004"]) assert.ok(!evidence.includes(`- \`${id}\` — #36`), id);
+  // Review of 12e (L3, nits): the owners are for each group that is not the designed
+  // fault on the product path — not "each group that does not count", which F001
+  // (an owner-less group that counts once a control is asked) refutes — and a
+  // conversion of a host driver's group to `real_path` is a decision.
+  const flat = evidence.replace(/\s+/gu, " ");
+  assert.match(flat, /each group that is not the designed fault on the product path names in the matrix/u);
+  assert.doesNotMatch(flat, /each group that does not count names/u);
+  assert.match(flat, /`F001` has no owner and does not count either: it is the designed fault on the product path, and counts once #36's crash harness asks a control/u);
+  assert.match(flat, /becomes `real_path` by a decision, when the extension entry point \(#18\) reaches that driver or helper/u);
+  // The column and the bullets say "run is the designed fault", not "met", which
+  // the gate's "met on the product path" would collide with.
+  assert.ok(evidence.includes("| group | harness | injection | run is the designed fault | fault detected | control silent | evidence |"), evidence);
+  assert.doesNotMatch(evidence, /designed fault met/iu);
+  // A measured group is a host function's answer, and is not counted.
+  assert.match(evidence.replace(/\s+/gu, " "), /A `measured_observation` row shows a host function's answer to a real fixture/u);
+});
+
+test("a report whose rows lack only the flag, or that counts by the old five states, is refused (review of 12e, L2)", async () => {
+  // The package recomputes a run's coverage from its records and refuses a report
+  // that says otherwise; these two shapes of an older report are pinned by name.
+  const restated = (change) => ({ ...cleanRoom, coverage: { ...cleanRoom.coverage, ...change } });
+  const unflagged = cleanRoom.coverage.rows.map(({ injection_matches_design, ...row }) => row);
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: unflagged }) }),
+    /F001: the run's row says injection_matches_design undefined, and its own records give injection_matches_design true; F002: the run's row says injection_matches_design undefined, and its own records give injection_matches_design false/u,
+  );
+  const old = { covered_by_real_fault: 6, covered_without_control: 3, covered_by_written_observation: 11, control_failed: 0, not_covered: 0 };
+  await assert.rejects(
+    build({ cleanRoom: restated({ counts: old }) }),
+    /the run's counts say covered_by_real_fault=6, covered_without_control=3, covered_by_substitute_fault=undefined, covered_by_host_function=undefined, and its own records give covered_by_real_fault=1, covered_without_control=1, covered_by_substitute_fault=2, covered_by_host_function=5$/u,
+  );
 });
 
 /** A clean-room report as the run writes it: its coverage is what the run's own functions derive from its records. */
@@ -2084,7 +2144,7 @@ test("the package prints the coverage the run's own records give, and refuses a 
   // (a) Correct rows under the round-7 headline.
   await assert.rejects(
     build({ cleanRoom: restated({ counts: { ...cleanRoom.coverage.counts, covered_by_real_fault: 20, covered_without_control: 0, covered_by_written_observation: 0 } }) }),
-    /the run's counts say covered_by_real_fault=20, covered_without_control=0, covered_by_written_observation=0, and its own records give covered_by_real_fault=6, covered_without_control=3, covered_by_written_observation=11/u,
+    /the run's counts say covered_by_real_fault=20, covered_without_control=0, covered_by_written_observation=0, and its own records give covered_by_real_fault=1, covered_without_control=1, covered_by_written_observation=11/u,
   );
   await assert.rejects(build({ cleanRoom: restated({ complete: true }) }), /the run says complete=true, and its own records give complete=false/u);
   // (b) The round-7 counts with no rows behind them.
@@ -2108,11 +2168,22 @@ test("the package prints the coverage the run's own records give, and refuses a 
     build({ cleanRoom: restated({ rows: rowsWith("F001", { control: true, state: "covered_by_real_fault" }) }) }),
     /F001: the run's row says state "covered_by_real_fault", control true, and its own records give state "covered_without_control", control null/u,
   );
+  // (d2) Debt 12e (R8-7): F002's run is a substitute for its designed fault, and
+  // a report that counts it, with a control the crash harness never asked, is refused.
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: rowsWith("F002", { control: true, state: "covered_by_real_fault" }) }) }),
+    /F002: the run's row says state "covered_by_real_fault", control true, and its own records give state "covered_by_substitute_fault", control null/u,
+  );
+  // (d3) Debt 12e (R8-12): a measured group counted as a real fault is refused too.
+  await assert.rejects(
+    build({ cleanRoom: restated({ rows: rowsWith("F005", { state: "covered_by_real_fault" }) }) }),
+    /F005: the run's row says state "covered_by_real_fault", and its own records give state "covered_by_host_function"/u,
+  );
   // (e) A case record whose control did not stay silent, beside a row saying it did.
   const noisy = FAULTS.map((entry) => (entry.id === "F005" ? { ...entry, control: false } : entry));
   await assert.rejects(
     build({ cleanRoom: { ...cleanRoom, faults: noisy } }),
-    /F005: the run's row says state "covered_by_real_fault", control true, and its own records give state "control_failed", control false/u,
+    /F005: the run's row says state "covered_by_host_function", control true, and its own records give state "control_failed", control false/u,
   );
   // (f) A crash harness step that failed, beside rows still covered.
   const crashFailed = cleanRoom.steps.map((step) => (step.step === "harness:crash" ? { ...step, ok: false } : step));
@@ -2123,15 +2194,15 @@ test("the package prints the coverage the run's own records give, and refuses a 
   // Round 7's own report — rows from before the run recorded what it observed,
   // under the old headline — is refused, not reprinted.
   const old = restated({
-    rows: cleanRoom.coverage.rows.map(({ injection, detected, ...row }) => ({ ...row, state: "covered_by_real_fault" })),
+    rows: cleanRoom.coverage.rows.map(({ injection, injection_matches_design, detected, ...row }) => ({ ...row, state: "covered_by_real_fault" })),
     counts: { covered_by_real_fault: 20 },
     complete: true,
   });
-  await assert.rejects(build({ cleanRoom: old }), /F001: the run's row says injection undefined, state "covered_by_real_fault", detected undefined/u);
+  await assert.rejects(build({ cleanRoom: old }), /F001: the run's row says injection undefined, injection_matches_design undefined, state "covered_by_real_fault", detected undefined/u);
   // A report that agrees with its records is printed from the records: a
   // case whose control did not stay silent reads "NO", as its record says.
   const evidence = section5((await build({ cleanRoom: runReport({ faults: noisy }) })).text);
-  assert.match(evidence, /\| `F005` \| faults \| `measured_observation` \| yes \| NO \| F005 detail \|/u);
+  assert.match(evidence, /\| `F005` \| faults \| `measured_observation` \| yes \| yes \| NO \| F005 detail \|/u);
   assert.ok(evidence.includes("control_failed=1"), evidence);
 });
 

@@ -6,8 +6,10 @@
  * One command that prepares the pinned upstream source, builds the three
  * binaries, and exercises the daemon in an isolated HOME with no Traycer
  * anywhere in the environment — then reports how each fault-matrix group was
- * covered: by a real fault, without a control, by a written observation, with
- * a control that failed, or not at all (`scripts/lib/clean-room-coverage.mjs`).
+ * covered: by the designed fault on the product path, without a control, by a
+ * substitute for the designed fault, by a host function, by a written
+ * observation, with a control that failed, or not at all
+ * (`scripts/lib/clean-room-coverage.mjs`).
  *
  * The report distinguishes those on purpose. A run that listed sixteen
  * groups and exercised four would be the artefact this whole program keeps

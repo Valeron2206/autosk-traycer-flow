@@ -269,34 +269,58 @@ test("every fault-matrix group has a coverage entry, so none is silently absent"
 
 const group = (id) => matrix.groups.find((entry) => entry.id === id);
 
-test("only a detected fault that reached what answers for real, with a silent control, is covered by a real fault", () => {
+test("only the designed fault, met on the product path, detected with a silent control, is covered by a real fault", () => {
   assert.deepEqual([...COVERAGE_STATES], [
     "covered_by_real_fault",
     "covered_without_control",
+    "covered_by_substitute_fault",
+    "covered_by_host_function",
     "covered_by_written_observation",
     "control_failed",
     "not_covered",
   ]);
   const seen = (detected, control) => ({ harness: "h", evidence: "e", detected, control });
-  for (const injection of ["real_path", "measured_observation"]) {
-    assert.equal(coverageState({ injection }, seen(true, true)), "covered_by_real_fault", injection);
-    // Detected, and nobody asked the un-faulted question: the crash harness.
-    assert.equal(coverageState({ injection }, seen(true, null)), "covered_without_control", injection);
+  const designed = { injection: "real_path", injection_matches_design: true };
+  assert.equal(coverageState(designed, seen(true, true)), "covered_by_real_fault");
+  // Detected, and nobody asked the un-faulted question: the crash harness.
+  assert.equal(coverageState(designed, seen(true, null)), "covered_without_control");
+  // Debt 12e (R8-7): a real_path group whose run does something other than its
+  // designed fault is not covered by it — whatever its control does. F002-like:
+  // a control asked and silent still reaches a state that does not count.
+  const substitute = { injection: "real_path", injection_matches_design: false };
+  assert.equal(coverageState(substitute, seen(true, true)), "covered_by_substitute_fault");
+  assert.equal(coverageState(substitute, seen(true, null)), "covered_by_substitute_fault");
+  // A group that does not say the run is the designed fault is not held to be.
+  assert.equal(coverageState({ injection: "real_path" }, seen(true, true)), "covered_by_substitute_fault");
+  assert.equal(coverageState({ injection: "real_path", injection_matches_design: "true" }, seen(true, true)), "covered_by_substitute_fault");
+  // Debt 12e (R8-12): a guard handed values read from a fixture is answered by a
+  // host function, not by the product path; it is detected with a silent control
+  // and still does not count toward the gate, designed fault or not.
+  for (const matches of [true, false]) {
+    const host = { injection: "measured_observation", injection_matches_design: matches };
+    assert.equal(coverageState(host, seen(true, true)), "covered_by_host_function", String(matches));
+    assert.equal(coverageState(host, seen(true, null)), "covered_by_host_function", String(matches));
   }
+  // Review of 12e (L2): a control that did not stay silent ranks before the
+  // substitute — the detection then says nothing, whatever the flag says or omits.
+  assert.equal(coverageState(substitute, seen(true, false)), "control_failed");
+  assert.equal(coverageState({ injection: "real_path" }, seen(true, false)), "control_failed");
+  assert.equal(coverageState({ injection: "real_path", injection_matches_design: "true" }, seen(true, false)), "control_failed");
   // A guard handed a state the harness wrote answered a description, not the fault.
   assert.equal(coverageState({ injection: "written_observation" }, seen(true, true)), "covered_by_written_observation");
   assert.equal(coverageState({ injection: "written_observation" }, seen(true, null)), "covered_by_written_observation");
   // A control that did not stay silent demotes the row, whatever the kind.
   for (const injection of ["real_path", "measured_observation", "written_observation"]) {
-    assert.equal(coverageState({ injection }, seen(true, false)), "control_failed", injection);
-    assert.equal(coverageState({ injection }, seen(false, true)), "not_covered", injection);
+    const entry = { injection, injection_matches_design: true };
+    assert.equal(coverageState(entry, seen(true, false)), "control_failed", injection);
+    assert.equal(coverageState(entry, seen(false, true)), "not_covered", injection);
   }
   // Nothing ran it, or a detection no harness reported: not covered.
-  assert.equal(coverageState({ injection: "real_path" }, null), "not_covered");
-  assert.equal(coverageState({ injection: "real_path" }, { harness: null, detected: true, control: true }), "not_covered");
+  assert.equal(coverageState(designed, null), "not_covered");
+  assert.equal(coverageState(designed, { harness: null, detected: true, control: true }), "not_covered");
   // A kind the rule does not know counts for nothing.
   assert.equal(coverageState({}, seen(true, true)), "not_covered");
-  assert.equal(coverageState({ injection: "described" }, seen(true, true)), "not_covered");
+  assert.equal(coverageState({ injection: "described", injection_matches_design: true }, seen(true, true)), "not_covered");
 });
 
 /** The daemon harnesses' steps, in the shape `verify-autosk-{crash,identity}.mjs` print their summaries. */
@@ -319,8 +343,10 @@ test("a daemon group is covered only by its harness's own run, never by the tabl
     assert.equal(ran[id].detected, true, id);
     // The crash harness injects at a point in a write and asks no control.
     assert.equal(ran[id].control, null, id);
-    assert.equal(coverageState(group(id), ran[id]), "covered_without_control", id);
   }
+  // F001's run is its designed fault; F002's and F003's is a substitute (debt 12e).
+  assert.equal(coverageState(group("F001"), ran.F001), "covered_without_control");
+  for (const id of ["F002", "F003"]) assert.equal(coverageState(group(id), ran[id]), "covered_by_substitute_fault", id);
   assert.equal(ran.F004.detected, true);
   assert.equal(ran.F004.control, true);
   assert.equal(coverageState(group("F004"), ran.F004), "covered_by_real_fault");
@@ -360,7 +386,7 @@ test("a daemon group is covered only by its harness's own run, never by the tabl
   assert.equal(coverageState(group("F004"), empty), "covered_without_control");
 });
 
-test("the coverage report of the current matrix counts no uncontrolled and no written group as covered by a real fault", () => {
+test("the coverage report of the current matrix counts only the designed fault on the product path as covered by a real fault", () => {
   // Every case detected and every control silent, as the shipped run reports.
   const faults = {
     results: matrix.groups
@@ -373,12 +399,17 @@ test("the coverage report of the current matrix counts no uncontrolled and no wr
   });
   const byState = (state) => report.rows.filter((row) => row.state === state).map((row) => row.id);
   const byKind = (kind) => matrix.groups.filter((entry) => entry.injection === kind).map((entry) => entry.id);
-  assert.deepEqual(byState("covered_without_control"), ["F001", "F002", "F003"]);
+  assert.deepEqual(byState("covered_without_control"), ["F001"]);
+  assert.deepEqual(byState("covered_by_substitute_fault"), ["F002", "F003"]);
+  assert.deepEqual(byState("covered_by_host_function"), byKind("measured_observation"));
   assert.deepEqual(byState("covered_by_written_observation"), byKind("written_observation"));
-  assert.deepEqual(byState("covered_by_real_fault"), ["F004", ...byKind("measured_observation")]);
+  // Debt 12e: the gate's count was 6 (F004 and the five measured groups); it is F004.
+  assert.deepEqual(byState("covered_by_real_fault"), ["F004"]);
   assert.deepEqual(report.counts, {
-    covered_by_real_fault: 1 + byKind("measured_observation").length,
-    covered_without_control: 3,
+    covered_by_real_fault: 1,
+    covered_without_control: 1,
+    covered_by_substitute_fault: 2,
+    covered_by_host_function: byKind("measured_observation").length,
     covered_by_written_observation: byKind("written_observation").length,
     control_failed: 0,
     not_covered: 0,
@@ -388,6 +419,8 @@ test("the coverage report of the current matrix counts no uncontrolled and no wr
   assert.equal(report.controlled, matrix.groups.length - 3);
   for (const row of report.rows) {
     assert.equal(row.injection, group(row.id).injection, row.id);
+    // The row carries whether the run is the designed fault, from the matrix.
+    assert.equal(row.injection_matches_design, group(row.id).injection_matches_design, row.id);
     assert.equal(row.detected, true, row.id);
     // The row says whether a control was asked: not asked is null, not false.
     assert.equal(row.control, ["F001", "F002", "F003"].includes(row.id) ? null : true, row.id);
@@ -406,7 +439,13 @@ test("the coverage report of the current matrix counts no uncontrolled and no wr
   const everything = Object.fromEntries(
     matrix.groups.map((entry) => [entry.id, { harness: "h", evidence: "e", detected: true, control: true }]),
   );
-  const whole = coverageReport({ groups: matrix.groups.map((entry) => ({ ...entry, injection: "measured_observation" })) }, everything);
+  const whole = coverageReport({ groups: matrix.groups.map((entry) => ({ ...entry, injection: "real_path", injection_matches_design: true })) }, everything);
   assert.equal(whole.complete, true);
   assert.equal(coverageReport(matrix, everything).complete, false);
+  // Neither a measured group nor a substitute fault completes the run.
+  for (const change of [{ injection: "measured_observation" }, { injection_matches_design: false }]) {
+    const short = coverageReport({ groups: matrix.groups.map((entry) => ({ ...entry, injection: "real_path", injection_matches_design: true, ...change })) }, everything);
+    assert.equal(short.complete, false, JSON.stringify(change));
+    assert.equal(short.counts.covered_by_real_fault, 0, JSON.stringify(change));
+  }
 });

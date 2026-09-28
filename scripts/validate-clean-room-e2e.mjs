@@ -239,6 +239,57 @@ function injectionErrors(group, harnessSource) {
   return errors;
 }
 
+/**
+ * A note that says, in words, that the run is not the fault the group designs.
+ * A tripwire and not a parser: `injection_matches_design` is the field the
+ * coverage rule reads, and a note that admits a departure beside a flag that
+ * says there is none is a matrix that contradicts itself (debt 12e, R8-7).
+ */
+const DEPARTURE_WORDS = /\balthough\b|\bstands? in\b|\bnot (?:killed|a second process)\b|\bno [a-z ]{1,40}(?:runs?|is killed|is involved)\b/iu;
+
+/**
+ * Whether a group's run is the fault it designs, and what stands between a
+ * group that does not count and the product path (debt 12e, R8-7, R8-12).
+ *
+ * `injection_matches_design` is a boolean of every group. A run that departs
+ * says how in `design_departure`, and a run that does not says nothing there.
+ * A group that is not the designed fault on the product path — a departing
+ * run, or any injection but `real_path` — names in `product_path_owner` who
+ * converts it (#36, which owns the harness) and the record that owns what must
+ * exist first; a group that is the designed fault on the product path names
+ * none, F001 among them (it counts once the crash harness asks a control).
+ *
+ * `DEPARTURE_WORDS` is left as it is: a phrase it does not know is a departure
+ * the flag alone carries, and a phrase it matches beside `true` is refused —
+ * it errs toward a refusal a reader can settle, not toward counting a group.
+ */
+function designErrors(group) {
+  const errors = [];
+  const at = `${group.id} (${group.boundary})`;
+  const matches = group.injection_matches_design === true;
+  if (!matches && group.design_departure === undefined) {
+    errors.push(`${at}: the run departs from its designed fault and does not say how (design_departure)`);
+  }
+  if (matches && group.design_departure !== undefined) {
+    errors.push(`${at}: design_departure says how the run departs, and injection_matches_design says it matches its design`);
+  }
+  if (matches && DEPARTURE_WORDS.test(group.injection_note)) {
+    errors.push(`${at}: injection_note admits the run is not the designed fault, and injection_matches_design says it is`);
+  }
+  const onProductPath = matches && group.injection === "real_path";
+  if (onProductPath && group.product_path_owner !== undefined) {
+    errors.push(`${at}: product_path_owner names who converts it to the product path, and it is already the designed fault on it`);
+  }
+  if (!onProductPath) {
+    if (group.product_path_owner === undefined) {
+      errors.push(`${at}: is not the designed fault on the product path and names no product_path_owner`);
+    } else if (!/^#36\b/u.test(group.product_path_owner)) {
+      errors.push(`${at}: product_path_owner names #36, which converts the group, first`);
+    }
+  }
+  return errors;
+}
+
 export function validateMatrix(matrix, schema, { harnessSource } = {}) {
   const errors = validateJsonSchema(matrix, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;
@@ -266,6 +317,7 @@ export function validateMatrix(matrix, schema, { harnessSource } = {}) {
       }
     }
     errors.push(...injectionErrors(group, harness));
+    errors.push(...designErrors(group));
   }
 
   // A boundary with no fault group is a boundary nobody attacked.
@@ -329,6 +381,12 @@ export function validateCleanRoomDesign(files) {
   }
   if (!contract.includes("Only `covered_by_real_fault` counts toward the release gate (#36)")) {
     errors.push(`${CONTRACT_PATH}: does not say which coverage state counts toward the release gate`);
+  }
+  // Debt 12e (R8-7, R8-12): and that the count requires the designed fault
+  // met on the product path, not a fault the run made in its place or a host
+  // function's answer to a fixture.
+  if (!contract.includes("the designed fault, met on the product path")) {
+    errors.push(`${CONTRACT_PATH}: does not say the count requires the designed fault, met on the product path`);
   }
 
   let schema;

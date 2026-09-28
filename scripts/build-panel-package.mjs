@@ -689,10 +689,15 @@ function requireTestEvidence(tests) {
  * missed by the other.
  */
 export const INJECTION_MEANINGS = Object.freeze({
-  real_path: 'the fault is made against the daemon built from section 1\'s source, and the daemon answers on its own path.',
-  measured_observation: 'the fault harness makes the fault in a temporary fixture — a file, a process, an environment, a Git repository — and hands a host guard values it read back from that fixture.',
+  real_path: 'the fault is made against the daemon built from section 1\'s source, and the daemon answers on its own path — the one kind that counts toward the gate, and only where the run is also the fault the group designs.',
+  measured_observation: 'the fault harness makes the fault in a temporary fixture — a file, a process, an environment, a Git repository — and hands a host guard values it read back from that fixture; no host driver, daemon or helper runs, so the state is `covered_by_host_function` and does not count toward the gate.',
   written_observation: 'the host guard is handed an observation the harness wrote, in whole or in the fields named on the row; the harness checks its fixture beside the guard, not through it.',
 });
+
+/** Whether the run is the fault the group designs, as the page says it: yes, or no and how. */
+function designMet(group) {
+  return group.injection_matches_design === true ? 'yes' : `no — ${group.design_departure ?? 'not recorded'}`;
+}
 
 function injectionCell(group) {
   if (!group?.injection) return 'not declared';
@@ -1192,18 +1197,34 @@ nothing about the runtime it ran under.
 **${matrix.groups.length} groups**, which is the denominator for the coverage
 counts below. They are, in full:
 
-${matrix.groups.map((group) => `- \`${group.id}\` (${group.boundary}) — designed: ${group.description}. Injected: ${group.injection_note ?? 'not recorded'}.`).join('\n')}
+${matrix.groups.map((group) => `- \`${group.id}\` (${group.boundary}) — designed: ${group.description}. Injected: ${group.injection_note ?? 'not recorded'}. Run is the designed fault: ${designMet(group)}.`).join('\n')}
 
 Each line gives the group as the matrix designs it and as the run injects it
-(\`injection_note\`), because the two differ: read the second as what the rows
-below are evidence of.
+(\`injection_note\`), because the two differ, and says whether the run is the
+designed fault (\`injection_matches_design\`, and \`design_departure\` where it is
+not): read the injected fault as what the rows below are evidence of.
 
 Coverage, by state: ${COVERAGE_STATES.map((state) => `${state}=${coverage.counts[state]}`).join(', ')}; complete=${coverage.complete}.
-Only \`covered_by_real_fault\` counts toward the release gate (#36): the fault
-reached what answers for real (\`real_path\` or \`measured_observation\`), was
-detected, and its control stayed silent. Every other state names what is
-missing (the clean-room contract, §7), and \`complete\` is true only when every
-group is in that one.
+Only \`covered_by_real_fault\` counts toward the release gate (#36): the designed
+fault (\`injection_matches_design\`), made against the built daemon
+(\`real_path\`), was detected, and its control stayed silent. Every other state
+names what is missing (the clean-room contract, §7) — a fault the run made in
+place of the designed one (\`covered_by_substitute_fault\`), a host function's
+answer to a fixture (\`covered_by_host_function\`), a control not asked, a
+guard handed a written observation — and \`complete\` is true only when every
+group is in that one. The gate counts ${coverage.counts.covered_by_real_fault}
+of ${matrix.groups.length} groups: ${coverage.rows.filter((row) => row.state === 'covered_by_real_fault').map((row) => `\`${row.id}\``).join(', ') || 'none'}.
+
+**Who converts a group to the product path.** #36 owns the conversion, and each
+group that is not the designed fault on the product path names in the matrix
+(\`product_path_owner\`) what must exist before #36 can convert it. A group
+whose guard belongs to a host driver or the helper becomes \`real_path\` by a
+decision, when the extension entry point (#18) reaches that driver or helper and
+a harness meets the fault through it. \`F001\` has no owner and does not count
+either: it is the designed fault on the product path, and counts once #36's
+crash harness asks a control.
+
+${matrix.groups.filter((group) => group.product_path_owner).map((group) => `- \`${group.id}\` — ${group.product_path_owner}`).join('\n')}
 
 **How each group is injected.** Read from the matrix's \`injection\` field, which
 \`npm run validate:clean-room\` holds to the harness that runs the group: a
@@ -1217,8 +1238,10 @@ ${INJECTION_KINDS.map((kind) => {
   }).join('\n')}
 
 No case of the fault harness runs a host driver or the daemon: each asks a pure
-host function about a fixture it built. A \`written_observation\` row therefore
-shows the guard's answer to a described state, not its answer to the fault.
+host function about a fixture it built. A \`measured_observation\` row shows a host
+function's answer to a real fixture, which is not the product path meeting the
+fault; a \`written_observation\` row shows the guard's answer to a described state,
+not its answer to the fault.
 
 **Git, run directly.** ${gitRecorded
     ? `The run records, per case, the git commands that write a ref which the
@@ -1239,11 +1262,11 @@ Every group of the matrix appears here, as the run's own records give it: a
 fault-harness group's detection and control are its case record's, a daemon
 group's its harness step's. The row names the harness that ran it, how the
 fault reached what answered (the matrix's \`injection\`, with the fields a
-written observation writes), and whether a control was paired, so a partial
-row is not read as a missing one.
+written observation writes), whether the run is the designed fault, and whether
+a control was paired, so a partial row is not read as a missing one.
 
-| group | harness | injection | fault detected | control silent | evidence |
-| --- | --- | --- | --- | --- | --- |
+| group | harness | injection | run is the designed fault | fault detected | control silent | evidence |
+| --- | --- | --- | --- | --- | --- | --- |
 ${coverage.rows.map((row) => {
     // Read from the case record where there is one (as before debt 11f), and
     // otherwise from the row recomputed from the harness steps.
@@ -1251,7 +1274,7 @@ ${coverage.rows.map((row) => {
     const detected = (record ? record.detected === true : row.detected) ? 'yes' : 'NO';
     const control = record ? (record.control === true ? 'yes' : 'NO')
       : row.control === true ? 'yes' : row.control === false ? 'NO' : 'not paired';
-    return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${injectionCell(groupById.get(row.id))} | ${detected} | ${control} | ${(record ? record.detail : row.evidence) ?? 'not covered'} |`;
+    return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${injectionCell(groupById.get(row.id))} | ${row.injection_matches_design ? 'yes' : 'NO'} | ${detected} | ${control} | ${(record ? record.detail : row.evidence) ?? 'not covered'} |`;
   }).join('\n')}
 
 ### Mutation, module by module

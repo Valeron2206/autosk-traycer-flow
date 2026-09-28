@@ -60,7 +60,9 @@ test("a case that failed its control is not claimed as a real fault", () => {
     ],
   });
   const kind = (id) => matrix.groups.find((group) => group.id === id);
-  assert.equal(coverageState(kind("F005"), derived.F005), "covered_by_real_fault");
+  // Debt 12e (R8-12): F005 is a measured observation, so its detected fault with a
+  // silent control is answered by a host function — it does not count for the gate.
+  assert.equal(coverageState(kind("F005"), derived.F005), "covered_by_host_function");
   assert.equal(coverageState(kind("F006"), derived.F006), "control_failed");
   assert.equal(coverageState(kind("F007"), derived.F007), "not_covered");
   // Demoted, not dropped: the row still says which harness looked at it.
@@ -91,8 +93,12 @@ test("the coverage table is derived from the run, and says how each group was co
   const covered = coverageReport(matrix, { ...harnessCoverage(DAEMON_STEPS), ...faultCoverage(report) });
   const kinds = (kind) => matrix.groups.filter((group) => group.injection === kind).map((group) => group.id);
   const inState = (state) => covered.rows.filter((row) => row.state === state).map((row) => row.id);
-  assert.deepEqual(inState("covered_by_real_fault"), ["F004", ...kinds("measured_observation")]);
-  assert.deepEqual(inState("covered_without_control"), ["F001", "F002", "F003"]);
+  // Debt 12e: only F004 is the designed fault met on the product path, with a
+  // silent control (it was F004 and the five measured groups: 6).
+  assert.deepEqual(inState("covered_by_real_fault"), ["F004"]);
+  assert.deepEqual(inState("covered_without_control"), ["F001"]);
+  assert.deepEqual(inState("covered_by_substitute_fault"), ["F002", "F003"]);
+  assert.deepEqual(inState("covered_by_host_function"), kinds("measured_observation"));
   assert.deepEqual(inState("covered_by_written_observation"), kinds("written_observation"));
   assert.deepEqual(inState("control_failed"), []);
   assert.deepEqual(inState("not_covered"), []);
@@ -110,13 +116,18 @@ test("every row's state is the one its matrix injection and its control give", (
   for (const row of covered.rows) {
     const group = matrix.groups.find((entry) => entry.id === row.id);
     assert.equal(row.injection, group.injection, row.id);
+    assert.equal(row.injection_matches_design, group.injection_matches_design, row.id);
     const expected = !row.detected ? "not_covered"
       : row.control === false ? "control_failed"
         : group.injection === "written_observation" ? "covered_by_written_observation"
-          : row.control === true ? "covered_by_real_fault" : "covered_without_control";
+          : group.injection === "measured_observation" ? "covered_by_host_function"
+            : group.injection_matches_design !== true ? "covered_by_substitute_fault"
+              : row.control === true ? "covered_by_real_fault" : "covered_without_control";
     assert.equal(row.state, expected, row.id);
     if (row.state === "covered_by_real_fault") {
-      assert.ok(["real_path", "measured_observation"].includes(group.injection), row.id);
+      // Debt 12e: the gate counts the product path only, and only the designed fault.
+      assert.equal(group.injection, "real_path", row.id);
+      assert.equal(group.injection_matches_design, true, row.id);
       assert.equal(row.control, true, row.id);
     }
   }

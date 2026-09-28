@@ -25,6 +25,7 @@
       "description": "crash between the reservation and the task record",
       "fault": "SIGKILL after the creation index is written, before task.json",
       "injection": "real_path",
+      "injection_matches_design": true,
       "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the first creation-index write (the reservation), once before and once after it is acknowledged, and repeats the creation through the running daemon",
       "proofs": [
         {
@@ -52,7 +53,10 @@
       "description": "retry after the daemon process exited",
       "fault": "kill the daemon, restart, repeat the same creation key",
       "injection": "real_path",
+      "injection_matches_design": false,
       "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the task-record write, once before and once after it is acknowledged, and repeats the creation through the running daemon; the daemon itself is not killed or restarted, although the description and fault fields say it is",
+      "design_departure": "the run does not kill the daemon or restart it: it kills the native store writer the daemon spawns, at the task-record write, and repeats the creation through the running daemon",
+      "product_path_owner": "#36 converts it: the crash harness kills the built daemon and restarts it before the same creation key is repeated; the run builds the daemon, so no other record has to land first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -79,7 +83,10 @@
       "description": "session meta written, transcript header lost",
       "fault": "SIGKILL between the transcript header and the meta write",
       "injection": "real_path",
+      "injection_matches_design": false,
       "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the second creation-index write (the activation), once before and once after it is acknowledged, and repeats the creation through the running daemon; no session transcript or meta write is involved, although the description and fault fields describe one",
+      "design_departure": "the run writes no session transcript header or meta, so no kill falls between them: it kills the native store writer at the second creation-index write (the activation)",
+      "product_path_owner": "#36 converts it: a kill point between the built daemon's session transcript-header write and its meta write (`sessionStore.create` writes the header, then the meta, through `autosk-store-lock`); the run builds the daemon, so no other record has to land first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -106,6 +113,7 @@
       "description": "resume under a changed runtime identity",
       "fault": "swap the installed distribution between enroll and resume",
       "injection": "real_path",
+      "injection_matches_design": true,
       "injection_note": "the identity harness swaps the installed distribution on disk and resumes the task through the daemon",
       "proofs": [
         {
@@ -133,10 +141,12 @@
       "description": "symlinked project subdirectory",
       "fault": "replace .autosk/sessions with a symlink to a directory outside the project",
       "injection": "measured_observation",
+      "injection_matches_design": true,
       "guards": [
         "locationErrors"
       ],
       "injection_note": "a real symlink; the guard is handed the path the operating system resolves",
+      "product_path_owner": "#36 converts it: a symlinked .autosk/sessions met by the built daemon's session write (`sessionStore.create`, through `autosk-store-lock`, writes under it); the run builds the daemon, so no other record has to land first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -163,6 +173,7 @@
       "description": "restore returns the branch name but the wrong tree",
       "fault": "restore a branch pointing at a different tree OID",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "postCasErrors"
       ],
@@ -171,6 +182,8 @@
         "reflog_entries"
       ],
       "injection_note": "no restore runs: a later commit supplies the other tree; the tree OID is measured, the oid it is handed is the base commit read before the fault, and the rest of the observation is written",
+      "design_departure": "no restore runs: a later commit supplies the other tree, and the observation the guard is handed is written but for the tree OID",
+      "product_path_owner": "#36 converts it: a restore that lands on another tree, met by the final-CAS path; needs #9's staging and final-CAS driver reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -197,6 +210,7 @@
       "description": "foreign movement of the target between check and CAS",
       "fault": "advance the target ref from another process inside the CAS window",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "refMovementErrors"
       ],
@@ -206,6 +220,8 @@
         "reflog_entries"
       ],
       "injection_note": "no CAS runs and no second process moves the ref: the harness commits before the guard is asked; the observed OID is measured, and the ref, the post state and the reflog count it hands the guard are written",
+      "design_departure": "no CAS runs and no second process moves the ref: the harness commits before the guard is asked, and the ref, the post state and the reflog count are written",
+      "product_path_owner": "#36 converts it: a second process moving the target ref inside the CAS window; needs #8's delta driver and #9's final-CAS driver reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -232,6 +248,7 @@
       "description": "ABA movement around the recovery boundary",
       "fault": "move the ref away and back to the recorded OID during recovery",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "refMovementErrors"
       ],
@@ -240,6 +257,8 @@
         "post_state"
       ],
       "injection_note": "no recovery runs: the harness moves the ref away and back before the guard is asked; the reflog count and the OID are measured, the ref and the post state are written",
+      "design_departure": "no recovery runs: the harness moves the ref away and back before the guard is asked, and the ref and the post state are written",
+      "product_path_owner": "#36 converts it: the ref moved away and back during a real recovery; needs #8's delta driver (its `integrationProof` calls `refMovementErrors`) reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -266,10 +285,12 @@
       "description": "untracked file colliding with an approved entry",
       "fault": "create an untracked file at an approved entry's path before apply",
       "injection": "measured_observation",
+      "injection_matches_design": true,
       "guards": [
         "collisionErrors"
       ],
       "injection_note": "a real untracked file; the guard is handed the list git status reports",
+      "product_path_owner": "#36 converts it: an untracked file at an approved entry's path before a real apply; needs #8's delta driver reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -296,10 +317,12 @@
       "description": "inherited GIT_DIR redirects the operation",
       "fault": "run the integration with GIT_DIR pointing at another repository",
       "injection": "measured_observation",
+      "injection_matches_design": true,
       "guards": [
         "environmentErrors"
       ],
       "injection_note": "a real inherited GIT_DIR, shown to redirect git; the guard is handed that environment",
+      "product_path_owner": "#36 converts it: a real integration run under an inherited GIT_DIR; needs #8's delta driver reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -326,6 +349,7 @@
       "description": "harness exits 0 with no structured result",
       "fault": "replace the harness with one that prints success and exits 0",
       "injection": "written_observation",
+      "injection_matches_design": true,
       "guards": [
         "classifyExit"
       ],
@@ -333,6 +357,7 @@
         "exit_code"
       ],
       "injection_note": "a real script that prints success and exits 0; whether its output carried a structured result is measured, and the exit code handed to the guard is written as 0 (the run succeeding implies it, but it is not read)",
+      "product_path_owner": "#36 converts it: a real harness run whose exit is read, not written; needs the caller of `classifyExit` (#26's preflight runner) reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -359,6 +384,7 @@
       "description": "mutation reported applied but the target did not change",
       "fault": "no-op injector that reports success",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "batchSufficiencyErrors"
       ],
@@ -379,6 +405,8 @@
         "green_control"
       ],
       "injection_note": "no injector runs: the tree is measured unchanged, so the batch record cannot come out otherwise; the application proof it would carry and the rest of the record are written",
+      "design_departure": "no injector runs: the tree is measured unchanged, and the application proof and the rest of the batch record are written",
+      "product_path_owner": "#36 converts it: a real batch run whose injector reports success and changes nothing; needs #24's batch runner reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -405,6 +433,7 @@
       "description": "unmutated control fails",
       "fault": "break the control run while leaving the mutation out",
       "injection": "measured_observation",
+      "injection_matches_design": true,
       "guards": [
         "batchSufficiencyErrors"
       ],
@@ -418,6 +447,7 @@
         "restore_verified"
       ],
       "injection_note": "real red and green node --test runs; the guard is handed their outcomes, and the rest of the batch record is fixed between the fault and the control",
+      "product_path_owner": "#36 converts it: a real batch run whose unmutated control fails; needs #24's batch runner reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -444,6 +474,7 @@
       "description": "observation exceeds its budget",
       "fault": "hang the observation step past the harness timeout",
       "injection": "measured_observation",
+      "injection_matches_design": true,
       "guards": [
         "waitExceeded"
       ],
@@ -452,6 +483,7 @@
         "wall_clock_ms"
       ],
       "injection_note": "a real process killed at its timeout; the guard is handed the measured elapsed time against a fixed budget",
+      "product_path_owner": "#36 converts it: a real observation step hung past the timeout; needs #26's preflight runner reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -478,6 +510,7 @@
       "description": "crash after aggregate PASS, before the CAS",
       "fault": "SIGKILL between the acceptance record and the ref update",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "resumePlan",
         "casAdmission"
@@ -486,6 +519,8 @@
         "phase"
       ],
       "injection_note": "no process is killed: the durable record is written by the harness, the phase is written, and the admission reads the real target ref",
+      "design_departure": "no process is killed: the harness writes the durable record and the phase, and the admission reads the real target ref",
+      "product_path_owner": "#36 converts it: a process killed between the acceptance record and the ref update; needs #9's final-CAS driver reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -512,6 +547,7 @@
       "description": "crash after the CAS, before post-CAS verification",
       "fault": "SIGKILL between the ref update and the read-back",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "casAdmission",
         "resumePlan"
@@ -520,6 +556,8 @@
         "phase"
       ],
       "injection_note": "no process is killed: the harness moves the target ref itself, the durable record and the phase are written, and the admission reads the real target ref",
+      "design_departure": "no process is killed: the harness moves the target ref itself and writes the durable record and the phase, and the admission reads the real target ref",
+      "product_path_owner": "#36 converts it: a process killed between the ref update and the read-back; needs #9's final-CAS driver reached from the extension entry point (#18) first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -546,6 +584,7 @@
       "description": "crash after the publication commit object exists, before the CAS",
       "fault": "SIGKILL between writing the commit object and advancing the planning ref",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "publicationDecision"
       ],
@@ -558,6 +597,8 @@
         "binding"
       ],
       "injection_note": "no process is killed: the commit object is written for real, and the guard is handed a written description of the state; the harness checks the ref beside the guard; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
+      "design_departure": "no process is killed between the commit object and the ref update: the harness writes the object and a description of the state, and its own git stands in for the ref-custody helper",
+      "product_path_owner": "#36 converts it: a process killed between the commit object and the planning-ref update; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -584,6 +625,7 @@
       "description": "crash after the CAS landed, before the receipt was written",
       "fault": "SIGKILL between the planning-ref update and the operation receipt",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "publicationDecision"
       ],
@@ -596,6 +638,8 @@
         "binding"
       ],
       "injection_note": "no process is killed: the harness moves the planning ref itself, and the guard is handed a written description of the state; the harness checks the ref and reflog beside the guard; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
+      "design_departure": "no process is killed between the planning-ref update and the receipt: the harness moves the ref and writes a description of the state, and its own git stands in for the ref-custody helper",
+      "product_path_owner": "#36 converts it: a process killed between the planning-ref update and the receipt; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -622,6 +666,7 @@
       "description": "the candidate keepalive ref is deleted under a live operation",
       "fault": "the keepalive ref is removed by a second process mid-operation",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "publicationDecision"
       ],
@@ -634,6 +679,8 @@
         "binding"
       ],
       "injection_note": "the harness deletes the keepalive ref itself, not a second process, and the guard is handed a written description of the state; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
+      "design_departure": "the harness deletes the keepalive ref itself, not a second process mid-operation, and writes a description of the state; its own git stands in for the ref-custody helper",
+      "product_path_owner": "#36 converts it: the keepalive ref removed by a second process mid-operation; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
       "proofs": [
         {
           "kind": "application_proof",
@@ -660,6 +707,7 @@
       "description": "crash inside the live-to-audit custody window",
       "fault": "SIGKILL after the audit copy exists and before the live copy is deleted",
       "injection": "written_observation",
+      "injection_matches_design": false,
       "guards": [
         "publicationDecision"
       ],
@@ -672,6 +720,8 @@
         "binding"
       ],
       "injection_note": "no process is killed: the harness writes the audit ref itself, and the guard is handed a written description of the state; the harness's own git stands in for the ref-custody helper (#5), the only writer of refs/autosk/** (ADR-095), and writes only refs the helper's grammar has",
+      "design_departure": "no process is killed after the audit copy exists: the harness writes the audit ref and a description of the state, and its own git stands in for the ref-custody helper",
+      "product_path_owner": "#36 converts it: a process killed after the audit copy exists and before the live copy is deleted; needs #5's ref-custody helper, the only writer of refs/autosk/** (ADR-095), installed under #13's account model first",
       "proofs": [
         {
           "kind": "application_proof",
