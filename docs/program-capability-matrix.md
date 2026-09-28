@@ -107,7 +107,7 @@ Preflight отказывает любому model workflow без каждой �
 
 **Обязанность до #39:** Before #39 mark the workflow and bundled protocol as inactive_in_v1 with an explicit post-v1 contract and no readiness claim.
 
-**Работа после MVP:** None before MVP; after #36 implement the approved run contract, budgets, sprint Tickets, evaluation and recovery.
+**Работа после MVP:** None before MVP; after #36 implement the approved run contract, budgets, sprint Tickets, evaluation and recovery. The unattended acceptance the run contract's approved_auto_policy names — a policy that accepts at accept_staging without the person at the stop — is this issue's own post-v1 design work, which a successor panel reviews before any of it is built: under the v1 binding (`autoPolicyAcceptance`, #9's) an auto-policy adds no autonomy, because it only removes the wait after the person has signed that exact post-aggregate staging identity, so an unattended acceptance needs a different binding — something the person signs before the identity exists — and a narrow exception, for that path alone, to the rule that no policy issues the IntegrationAuthorizationRecord (docs/contracts/integration-authorization.md §1); `autoPolicyAcceptance` cannot admit it, and no v1 graph edge reaches an acceptance without the person (ADR-103).
 
 ### #29 — [P1] Реализовать Reflect + cost-watch для управляемой эволюции governance
 
@@ -189,5 +189,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `e4b74598bcc8f5615fa9fc78daf7cb4cefe2cd4f73407b1273a8a36e382844e0`
+Matrix digest: `6e5bb78c32d558b1e103b6f45796aecb7c06bef313b6239e68042686037b0ad0`
 

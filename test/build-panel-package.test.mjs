@@ -2357,3 +2357,52 @@ test("§5 does not claim the model account, its launch or the checks that prove 
     assert.doesNotMatch(read(`compat/autosk/patches/${name}`), /\bset(?:e?[ug]id|re[su]id)\b|initgroups|\bsudo\b|\brunuser\b|systemd-run|launchctl asuser/u, name);
   }
 });
+
+// Debt 12b (round 8 of #39, R8-2, R8-3, R8-15, R8-16): what an acceptance's
+// heads contain and which chain its record joins are the daemon's rules, and
+// no code here computes them, so the package does not claim them; and that no
+// v1 path reaches the pinned auto-policy is measured from the graph and the
+// code rather than typed — since the review of 99fd30b (L1), from every way
+// into the CAS and delivery, with the lead-in derived from that measure.
+import { autoPolicyCallers } from "../scripts/build-panel-package.mjs";
+import { acceptanceAuthority } from "../scripts/validate-integration-authorization.mjs";
+
+test("§5 names the acceptance rules no code computes, and measures that no v1 path reaches the auto-policy (R8-2, R8-3, R8-15, R8-16; review M1, L1)", async () => {
+  const phrase = (words) => new RegExp(words.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&").replace(/ /gu, "\\s+"), "u");
+  const text = notClaimed((await build()).text);
+  assert.match(text, phrase("- An acceptance does not move what it accepts, and its record chains within its scope: rules with owners that no code computes."));
+  assert.match(text, phrase("the host takes the heads from its caller (`acceptanceFacts`) and the head a record chains from as the plan names it (`composeAuthorization`)"));
+  assert.match(text, phrase("is #4's for the daemon's heads and #9's for `integrateApproved`'s comparison, and the chain per scope under one head kept for integrity (the contract's §5) is #9's (ADR-103)"));
+  // Review of 99fd30b (L3): the class, as the contract states it.
+  assert.match(text, phrase("every answer to any acceptance packet of the Epic, accept or refuse, re-asks included, and every `IntegrationAuthorizationRecord` of its scope"));
+  assert.match(text, phrase("v1 has one acceptance authority, the person's signature at `accept_staging`: every edge into `integrate_staging` or `deliver_staging` leaves `accept_staging` under a person's guard (`t_556`, `t_557`) or is that step's own retry (`t_563`, `t_573`), and `autoPolicyAcceptance`, the binding a pinned auto-policy is held to, has no caller outside tests, so no v1 path reaches it"));
+  // Review of 99fd30b (M1): under the binding a policy adds no autonomy, and
+  // the unattended acceptance is #28's to design, not the binding's to admit.
+  assert.match(text, phrase("under that binding a pinned auto-policy adds no autonomy, and an unattended acceptance needs a different binding, #28's post-v1 design work (`planned_after_v1`, ADR-103)."));
+  assert.doesNotMatch(text, /the unattended acceptance a pinned auto-policy would give is #28's/u);
+  // R8-15: the record a decision-gated resume stands on names this project too.
+  assert.match(text, phrase("name this project and this task and have decided this park's resume into this target"));
+  // Measured, not typed: a graph whose CAS edge a policy may take, one with
+  // another way into the CAS, or a product caller of the binding, is what the
+  // bullet says instead — and then it does not say v1 has one authority.
+  const graph = JSON.parse(read("resources/workflow-graph/workflow-graph.v1.json"));
+  assert.deepEqual(acceptanceAuthority(graph), { exits: ["t_556", "t_557"], actors: ["human"], retries: ["t_563", "t_573"], bypasses: [], entries: [] });
+  assert.deepEqual(await autoPolicyCallers(), []);
+  const policed = structuredClone(graph);
+  policed.guards.find((guard) => guard.id === "guard_560").authority = { actor: "policy", policy_rules: ["derived_rules"], policy_scope: "A policy that stands in for the person at the stop." };
+  const withPolicy = notClaimed((await build({ graph: policed })).text);
+  assert.doesNotMatch(withPolicy, /so no v1 path reaches it/u);
+  assert.doesNotMatch(withPolicy, /v1 has one acceptance authority, the person's signature/u);
+  assert.match(withPolicy, phrase("Whether v1 has one acceptance authority is not measured here: the edges out of `accept_staging` toward the CAS or delivery (`t_556`, `t_557`) carry guards of `human`, `policy`; nothing else reaches those steps;"));
+  // The reviewer's probe (L1): a policy edge from aggregate_verify straight to the CAS.
+  const bypassed = structuredClone(graph);
+  bypassed.transitions.push({ id: "t_990", from: "aggregate_verify", to: "integrate_staging", priority: 0, guards: ["guard_120"] });
+  const withBypass = notClaimed((await build({ graph: bypassed })).text);
+  assert.doesNotMatch(withBypass, /so no v1 path reaches it/u);
+  assert.doesNotMatch(withBypass, /v1 has one acceptance authority, the person's signature/u);
+  assert.match(withBypass, phrase("carry guards of `human`; `t_990` reaches those steps without leaving `accept_staging`;"));
+  const called = notClaimed((await build({ autoPolicyCallers: ["src/host/somewhere.mjs"] })).text);
+  assert.doesNotMatch(called, /so no v1 path reaches it/u);
+  assert.doesNotMatch(called, /v1 has one acceptance authority, the person's signature/u);
+  assert.match(called, phrase("nothing else reaches those steps; and `autoPolicyAcceptance`, the binding a pinned auto-policy is held to, has callers outside tests: `src/host/somewhere.mjs`;"));
+});

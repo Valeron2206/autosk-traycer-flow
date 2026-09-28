@@ -535,7 +535,8 @@ test("the authorization is signed by the decision it names, over its own fields 
   assert.throws(() => autoPolicyAcceptance(current, bare, signed), code("acceptance_missing"));
   // Revoked after it was signed: the copy the host holds no longer carries the
   // signature's bytes, so it is refused as unsigned. A revocation the host never
-  // sees is `integrateApproved`'s to enforce, by the authorization head (review M3).
+  // sees is `integrateApproved`'s to enforce, by its scope's chain under
+  // `integration_authorization_head` (review M3; R8-16).
   assert.throws(() => autoPolicyAcceptance(current, policy({ after: { terminal_disposition: "revoked" } }), signed), code("acceptance_missing"));
 });
 
@@ -775,6 +776,44 @@ test("an auto-policy's acceptance names its record too (debt 11b)", () => {
   const acceptance = autoPolicyAcceptance(current, policy, signed);
   assert.equal(acceptance.integration_authorization_id, policy.authorization.record_id);
   assert.equal(acceptance.integration_authorization_sha256, integrationAuthorizationHash(policy.authorization));
+});
+
+test("#9's criterion under v1: every acceptance, a policy's included, carries the user's signature over the exact staging identity, so what an unattended policy would carry is refused (review of 99fd30b, M1)", () => {
+  // ADR-103 after the review of 99fd30b (M1): `autoPolicyAcceptance` gives a
+  // policy no autonomy — it admits one only with the record the person signed
+  // over this exact identity, which exists only after aggregate verification.
+  // What an unattended policy could carry instead is refused here; the binding
+  // it would need is #28's own design after v1, not this function's to admit.
+  const current = state();
+  // What is admitted, of either kind, names a record the user's decision
+  // signed, over this exact identity and this record's payload.
+  const packet = openAcceptance(current, ask(current), { nowMs: NOW });
+  const response = answer(current);
+  const person = acceptanceFromDecision(current, packet, response, { nowMs: NOW, verifySignature, ...delivery });
+  const policy = pinned(current);
+  const byPolicy = autoPolicyAcceptance(current, policy, signed);
+  for (const [acceptance, authorization, record] of [
+    [person.acceptance, person.authorization, response.user_decision_record],
+    [byPolicy, policy.authorization, policy.user_decision_record],
+  ]) {
+    assert.equal(acceptance.integration_authorization_sha256, integrationAuthorizationHash(authorization));
+    assert.equal(authorization.issued_by, "user_decision_record");
+    assert.equal(authorization.user_decision_record_id, record.record_id);
+    assert.equal(record.subject_hash, stagingIdentity(current, delivery));
+    assert.equal(record.payload_hash, authorizationPayloadHash(authorization));
+  }
+  // A signature made before this identity existed is over something else: an
+  // earlier staging of the same Epic, or the policy rather than any identity.
+  const earlier = state({ staging_commit_oid: oid("8"), staging_tree_oid: oid("9"), post_cas: { expected_new_oid: oid("8") } });
+  assert.throws(() => autoPolicyAcceptance(current, { ...policy, ...authorize(earlier) }, signed), code("acceptance_stale"));
+  assert.throws(() => autoPolicyAcceptance(current, { ...policy, ...authorize(current, delivery, { record: { subject_hash: hex("7") } }) }, signed), code("acceptance_stale"));
+  // A record the policy issued — the exception an unattended path would need
+  // (IA §1) — is refused, signed as such or relabelled after.
+  assert.throws(() => autoPolicyAcceptance(current, { ...policy, ...authorize(current, delivery, { auth: { issued_by: "project_policy" } }) }, signed), code("acceptance_missing"));
+  assert.throws(() => autoPolicyAcceptance(current, { ...policy, ...authorize(current, delivery, { after: { issued_by: "project_policy" } }) }, signed), code("acceptance_missing"));
+  // And a policy with no record the person signed is refused, whatever it pinned.
+  const { authorization: _a, user_decision_record: _u, ...unsigned } = policy;
+  assert.throws(() => autoPolicyAcceptance(current, unsigned, signed), code("acceptance_missing"));
 });
 
 test("every guard on the person's path refuses on its own (debt 11b, mutation)", () => {

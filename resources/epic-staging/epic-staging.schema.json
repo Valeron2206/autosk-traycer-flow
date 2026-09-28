@@ -244,7 +244,7 @@
           "minLength": 1
         },
         "integration_authorization_id": {
-          "description": "The record_id of the signed IntegrationAuthorizationRecord this acceptance stands on, on either path (debt 11b).",
+          "description": "The record_id of the signed IntegrationAuthorizationRecord this acceptance stands on, for either kind of acceptance (debt 11b).",
           "type": "string",
           "minLength": 1,
           "maxLength": 128

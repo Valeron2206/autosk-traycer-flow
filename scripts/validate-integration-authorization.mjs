@@ -3,12 +3,13 @@
 /**
  * Validator for the integration authorization record.
  *
- * The record is the only token that may skip the human stop before the one
- * irreversible step, so the checks here are about the ways it could authorize
- * something nobody signed: an expired record still being honoured, a transition
- * that does not start where the record says the branch was or where the branch
- * is, a record issued by a policy, and a terminal record that still reads as
- * permission.
+ * The record is the only token that authorizes the one irreversible step, and
+ * in v1 the person signs it at the stop (ADR-103), so the checks here are about
+ * the ways it could authorize something nobody signed: an expired record still
+ * being honoured, a transition that does not start where the record says the
+ * branch was or where the branch is, a record issued by a policy, a terminal
+ * record that still reads as permission, and a way into the CAS or delivery
+ * that would let something other than the person accept.
  *
  * The target moves by one CAS, so a record names exactly one transition. The
  * per-Ticket order this validator was first written for — an ordered plan, a
@@ -27,7 +28,50 @@ export const CONTRACT_PATH = "docs/contracts/integration-authorization.md";
 export const SCHEMA_PATH = "resources/integration-authorization/integration-authorization.schema.json";
 export const EXAMPLE_PATH = "resources/integration-authorization/integration-authorization.example.json";
 export const REFUSED_PATH = "resources/integration-authorization/integration-authorization.refused.example.json";
+export const GRAPH_PATH = "resources/workflow-graph/workflow-graph.v1.json";
+export const MATRIX_PATH = "resources/program-capabilities/matrix.v1.json";
 export const CONTRACT_MARKER = "<!-- integration-authorization-contract:v1 -->";
+
+/** The step an Epic's acceptance is given at, and the steps that move its target or deliver it. */
+export const ACCEPTANCE_STEP = "accept_staging";
+export const ACCEPTANCE_EXITS = Object.freeze(["integrate_staging", "deliver_staging"]);
+
+/**
+ * The issue whose own post-v1 design work an unattended acceptance is — a
+ * policy that accepts at the stop without the person (ADR-103): Autobuild,
+ * whose run contract names an `approved_auto_policy`. v1 keeps
+ * `autoPolicyAcceptance`, which holds a pinned policy to the person's
+ * signature over the exact post-aggregate identity, so under it a policy adds
+ * no autonomy and an unattended acceptance cannot pass it (review of
+ * `99fd30b`, M1): that path needs another binding, which is this issue's to
+ * design and a successor panel's to review.
+ */
+export const AUTO_POLICY_OWNER = 28;
+
+/**
+ * What #28's obligation must say about an unattended acceptance, and what it
+ * may no longer say (ADR-103; review of `99fd30b`, M1 and L2). Each clause is
+ * held as written, so an obligation that names the binding only to negate it,
+ * or keeps the claim the review found unmeetable, is refused rather than
+ * matched by a word.
+ */
+export const UNATTENDED_ACCEPTANCE = Object.freeze({
+  clauses: Object.freeze([
+    "this issue's own post-v1 design work",
+    "which a successor panel reviews",
+    "an auto-policy adds no autonomy",
+    "only removes the wait after the person has signed that exact post-aggregate staging identity",
+    "needs a different binding",
+    "something the person signs before the identity exists",
+    "a narrow exception, for that path alone, to the rule that no policy issues the IntegrationAuthorizationRecord",
+    "`autoPolicyAcceptance` cannot admit it",
+  ]),
+  refused: Object.freeze([
+    "passes `autoPolicyAcceptance`",
+    "must pass `autoPolicyAcceptance`",
+    "the graph edge that reaches it",
+  ]),
+});
 
 /** The closed refusal set, as the contract states it. */
 export const REFUSALS = Object.freeze([
@@ -47,18 +91,29 @@ export const REFUSALS = Object.freeze([
  * operator fixing them one round at a time learns the second only after fixing
  * the first.
  */
-export function recordRefusals(record, { nowMs, scopeId, targetOid, authorizationHead }) {
+export function recordRefusals(record, { nowMs, scopeId, targetOid, headsBeforeStore }) {
   // Absent is its own refusal, and the one the workflow meets most often: the
   // integrate step asks for a record and there is none.
   if (!record) return [{ reason: "integration_authorization_required", detail: "no record" }];
   const refusals = [];
-  if (authorizationHead !== undefined && record.previous_authorization_head_hash !== authorizationHead) {
-    // The chain: a record whose predecessor is not the current head was
-    // written against a different history than the one on disk.
-    refusals.push({
-      reason: "integration_authorization_head_mismatch",
-      detail: `chains from ${record.previous_authorization_head_hash}, head is ${authorizationHead}`,
-    });
+  if (headsBeforeStore !== undefined) {
+    // This models autoskd's store-time check (ADR-103; review of `99fd30b`,
+    // L4): `headsBeforeStore` maps each scope to the digest of its latest
+    // record just before this one is stored, and a scope with none has no
+    // head, so its first record chains from null. A record whose predecessor
+    // is not its scope's head then was written against a different history
+    // than the one on disk; another scope's record, which moves the global
+    // `integration_authorization_head` and its own scope's head, is not its
+    // predecessor and stales nothing here. The check at the CAS is another
+    // one — its scope's head is the named record's own digest — and it is
+    // `integrateApproved`'s, against a store this model does not read (IA §5).
+    const head = Object.hasOwn(headsBeforeStore, record.scope_id) ? headsBeforeStore[record.scope_id] : null;
+    if (record.previous_authorization_head_hash !== head) {
+      refusals.push({
+        reason: "integration_authorization_head_mismatch",
+        detail: `chains from ${record.previous_authorization_head_hash}, the head of ${record.scope_id} is ${head}`,
+      });
+    }
   }
   if (Date.parse(record.expires_at) <= nowMs) {
     // Including before the CAS it was signed for: an expired record does not
@@ -116,7 +171,122 @@ export function planErrors(record) {
   return errors;
 }
 
-/** The shipped design: contract, schema, and the two examples doing their jobs. */
+/**
+ * Who may move an Epic's target or deliver it, read from the graph (ADR-103;
+ * review of `99fd30b`, L1): the edges out of the acceptance step into the CAS
+ * and delivery steps (`exits`) and the authority actors their guards name,
+ * sorted; each of those steps' own retries (`retries`), taken only from inside
+ * the step; and every other way in, which would skip the stop whoever its
+ * guard names — an edge from any other step (`bypasses`), or the step being
+ * one a workflow or the daemon starts at (`entries`). A resume re-enters the
+ * step a park recorded, on the person's own signed decision (R8-15), so it is
+ * not a way around the stop, and `integrateApproved` refuses the CAS without
+ * the acceptance's record either way.
+ */
+export function acceptanceAuthority(graph) {
+  const guards = new Map((graph?.guards ?? []).map((guard) => [guard.id, guard]));
+  const into = (graph?.transitions ?? []).filter((edge) => ACCEPTANCE_EXITS.includes(edge.to));
+  const exits = into.filter((edge) => edge.from === ACCEPTANCE_STEP);
+  const retries = into.filter((edge) => edge.from === edge.to);
+  const bypasses = into.filter((edge) => edge.from !== ACCEPTANCE_STEP && edge.from !== edge.to);
+  const starts = [
+    graph?.first_step,
+    ...(graph?.entry_steps ?? []).map((entry) => entry?.step),
+    ...(graph?.workflows ?? []).map((workflow) => workflow?.first_step),
+  ];
+  const actors = new Set(exits.flatMap((edge) => {
+    const named = edge.guards ?? [];
+    return named.length === 0 ? ["none"] : named.map((id) => guards.get(id)?.authority?.actor ?? "none");
+  }));
+  const ids = (edges) => Object.freeze(edges.map((edge) => edge.id).sort());
+  return Object.freeze({
+    exits: ids(exits),
+    actors: Object.freeze([...actors].sort()),
+    retries: ids(retries),
+    bypasses: ids(bypasses),
+    entries: Object.freeze([...new Set(starts.filter((step) => ACCEPTANCE_EXITS.includes(step)))].sort()),
+  });
+}
+
+/**
+ * Whether the graph and the matrix say what §1 says: v1 has one acceptance
+ * authority, the person's signature at the stop (ADR-103).
+ *
+ * Every edge into the CAS or delivery leaves the acceptance step or is that
+ * step's own retry, and neither step is where a run starts (review of
+ * `99fd30b`, L1); every edge out of the acceptance step toward them carries a
+ * guard, and every guard on it names the person; there is at least one such
+ * edge, or nothing accepts at all. An unattended acceptance is a
+ * `planned_after_v1` issue's own design, and its obligation says what that
+ * path needs, clause by clause, and not the claim the review found unmeetable
+ * (M1, L2). A policy guard on those edges, another way in, or the owner moved
+ * into v1, is a change of the decision, not of the data.
+ */
+export function acceptanceAuthorityErrors(graph, matrix) {
+  const errors = [];
+  const guards = new Map((graph?.guards ?? []).map((guard) => [guard.id, guard]));
+  const authority = acceptanceAuthority(graph);
+  const edges = new Map((graph?.transitions ?? []).map((edge) => [edge.id, edge]));
+  if (authority.exits.length === 0) {
+    errors.push(`${GRAPH_PATH}: no edge leaves ${ACCEPTANCE_STEP} toward ${ACCEPTANCE_EXITS.join(" or ")}, so nothing accepts at all`);
+  }
+  for (const id of authority.exits) {
+    const edge = edges.get(id);
+    const named = edge.guards ?? [];
+    if (named.length === 0) {
+      errors.push(`${GRAPH_PATH}: ${edge.id} (${ACCEPTANCE_STEP} -> ${edge.to}) carries no guard; v1 has one acceptance authority, the person at the stop (ADR-103)`);
+    }
+    for (const guard of named) {
+      const actor = guards.get(guard)?.authority?.actor ?? "none";
+      if (actor !== "human") {
+        errors.push(`${GRAPH_PATH}: ${edge.id} (${ACCEPTANCE_STEP} -> ${edge.to}) is guarded by ${guard} with authority ${actor}; v1 has one acceptance authority, the person at the stop (ADR-103)`);
+      }
+    }
+  }
+  for (const id of authority.bypasses) {
+    const edge = edges.get(id);
+    errors.push(`${GRAPH_PATH}: ${edge.id} (${edge.from} -> ${edge.to}) enters ${edge.to} without leaving ${ACCEPTANCE_STEP}, so it skips the stop; v1 has one acceptance authority, the person at the stop (ADR-103)`);
+  }
+  for (const step of authority.entries) {
+    errors.push(`${GRAPH_PATH}: ${step} is an entry step, so a run could start past the stop; v1 has one acceptance authority, the person at the stop (ADR-103)`);
+  }
+  const owner = (matrix?.records ?? []).find((record) => record.issue_number === AUTO_POLICY_OWNER);
+  if (owner?.lifecycle !== "planned_after_v1") {
+    errors.push(`${MATRIX_PATH}: #${AUTO_POLICY_OWNER} owns the design of an unattended acceptance and is ${owner?.lifecycle ?? "absent"}, not planned_after_v1 (ADR-103)`);
+  } else {
+    const text = String(owner.implementation_obligation_before_mvp);
+    for (const clause of UNATTENDED_ACCEPTANCE.clauses) {
+      if (!text.includes(clause)) {
+        errors.push(`${MATRIX_PATH}: #${AUTO_POLICY_OWNER} owns the design of an unattended acceptance and its obligation does not say "${clause}" (ADR-103; review of 99fd30b, M1)`);
+      }
+    }
+    for (const claim of UNATTENDED_ACCEPTANCE.refused) {
+      if (text.includes(claim)) {
+        errors.push(`${MATRIX_PATH}: #${AUTO_POLICY_OWNER}'s obligation says "${claim}", a binding no unattended acceptance can pass (ADR-103; review of 99fd30b, M1)`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * What the CLI reports on PASS, read from the graph rather than written
+ * (review of `99fd30b`, L1): who the acceptance edges' guards name, which
+ * edges they are, the steps' own retries, and how many other ways in there are.
+ */
+export function acceptanceSummary(graph) {
+  const authority = acceptanceAuthority(graph);
+  return [
+    `refusals=${REFUSALS.length}`,
+    `acceptance_authority=${authority.actors.join("+") || "none"}`,
+    `acceptance_edges=${authority.exits.join(",") || "none"}`,
+    `retries=${authority.retries.join(",") || "none"}`,
+    `bypasses=${authority.bypasses.length + authority.entries.length}`,
+    `auto_policy_owner=#${AUTO_POLICY_OWNER}`,
+  ].join(" ");
+}
+
+/** The shipped design: contract, schema, the two examples doing their jobs, and the one acceptance authority. */
 export function validateDesign(files, { nowMs = Date.parse("2026-09-09T00:00:00Z") } = {}) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
@@ -147,12 +317,13 @@ export function validateDesign(files, { nowMs = Date.parse("2026-09-09T00:00:00Z
   if (produced.size < 3) {
     errors.push(`${REFUSED_PATH}: the refused example produces only ${produced.size} refusal classes`);
   }
+  errors.push(...acceptanceAuthorityErrors(JSON.parse(files[GRAPH_PATH]), JSON.parse(files[MATRIX_PATH])));
   return errors;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const files = Object.fromEntries(
-    [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, REFUSED_PATH].map((relative) => [
+    [CONTRACT_PATH, SCHEMA_PATH, EXAMPLE_PATH, REFUSED_PATH, GRAPH_PATH, MATRIX_PATH].map((relative) => [
       relative,
       readFileSync(path.join(ROOT, relative), "utf8"),
     ]),
@@ -162,6 +333,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (errors.length > 0) process.exitCode = 1;
   else {
     console.log("Integration authorization contract validation PASS");
-    console.log(`refusals=${REFUSALS.length}`);
+    console.log(acceptanceSummary(JSON.parse(files[GRAPH_PATH])));
   }
 }

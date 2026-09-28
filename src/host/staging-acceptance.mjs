@@ -6,9 +6,12 @@
  * staging identity, so an answer that arrives after the tree moved is refused
  * by the queue rather than applied to something nobody looked at.
  *
- * Nothing here decides anything on the operator's behalf. A pinned auto-policy
- * is held to the same binding as a person, because a policy that accepted an
- * identity it never saw is not a policy, it is a default.
+ * Nothing here decides anything on the operator's behalf. In v1 the person
+ * accepts, at the stop (ADR-103). A pinned auto-policy is held to the same
+ * binding as a person, because a policy that accepted an identity it never saw
+ * is not a policy, it is a default; under that binding it adds no autonomy, no
+ * v1 graph edge reaches it, and an unattended acceptance needs a different
+ * binding, which is #28's own post-v1 design work.
  */
 import { demand, digest, immutable, oidFormat, oneObjectFormat } from '../runtime/contracts.mjs';
 
@@ -39,7 +42,12 @@ export const REQUIRED_FACTS = immutable([
  * The controlling anchor digest and the three heads the acceptance is asked
  * under (debt 11b, R7-30): what the IntegrationAuthorizationRecord binds and
  * `integrateApproved` compares before the CAS. The identity binds them too, so
- * an answer given under other heads is an answer to another question.
+ * an answer given under other heads is an answer to another question. The
+ * acceptance itself moves none of them: the decision that answers this
+ * question and the record it completes never enter the Epic's relevant
+ * projection or its dependency or intent head (IA §3, ADR-103), so the heads a
+ * caller hands in when the answer arrives are the ones in force without it.
+ * Only the daemon computes them; the host takes them as it is handed them.
  */
 export const HEAD_FACTS = immutable([
   'controlling_anchor_digest',
@@ -148,15 +156,18 @@ export function stagingIdentity(state, current) {
  * The IntegrationAuthorizationRecord for this identity, composed before the
  * question (debt 11b, `docs/contracts/integration-authorization.md` §1).
  *
- * One mechanism for both paths: the record is composed here from the staging
+ * One mechanism, for the person's acceptance and for the binding a pinned
+ * auto-policy is held to: the record is composed here from the staging
  * state, the facts the identity binds and what the plan names that neither
  * does — the record and run ids, the integration plan and classifier proof
- * digests, the authorization head it chains from and its expiry — and its
- * payload (`authorizationPayloadHash`) is what the user's UserDecisionRecord
- * signs. The verified decision then completes it with its own id and digest.
- * The host composes and verifies; the daemon stores and chains it under
- * `integration_authorization_head` (ADR-023), and `integrateApproved` checks
- * the heads it names against the ones in force before the CAS.
+ * digests, the head of its scope's authorization chain it chains from and its
+ * expiry — and its payload (`authorizationPayloadHash`) is what the user's
+ * UserDecisionRecord signs. The verified decision then completes it with its
+ * own id and digest. The host composes and verifies; the daemon stores it in
+ * its scope's chain, under the one `integration_authorization_head` it keeps
+ * for integrity (ADR-023, ADR-103), and `integrateApproved` checks the heads
+ * it names against the ones in force — which the acceptance itself does not
+ * move — before the CAS.
  */
 export function composeAuthorization(state, {
   recordId, runId, integrationPlanHash, classifierProofHash, previousAuthorizationHeadHash, expiresAt, ...current
@@ -172,7 +183,7 @@ export function composeAuthorization(state, {
   demand(SHA256.test(integrationPlanHash ?? '') && SHA256.test(classifierProofHash ?? ''), 'acceptance_missing',
     'The record names the integration plan and the classifier proof it was composed from', {});
   demand(previousAuthorizationHeadHash === null || SHA256.test(previousAuthorizationHeadHash ?? ''), 'acceptance_missing',
-    'The record names the authorization head it chains from, or null for the first', {});
+    'The record names the head of its scope\'s chain it chains from, or null for the scope\'s first', {});
   demand(typeof expiresAt === 'string' && RFC3339.test(expiresAt) && !Number.isNaN(Date.parse(expiresAt)),
     'acceptance_missing', 'The record names when it expires', { expires_at: expiresAt });
   return Object.freeze({
@@ -257,7 +268,8 @@ function assertComposed(authorization, facts, state) {
  * identity (`composeAuthorization`), field by field, and its `accept` option
  * signs that record's payload rather than the answer object (debt 11b): the
  * one irreversible step rests on the record's own fields under the user's
- * signature, as a pinned auto-policy's does.
+ * signature, given here at the stop — the one acceptance authority v1 has
+ * (ADR-103).
  */
 export function acceptancePacket(state, { requestId, approver, expiresAt, anchorVersion, operationId, authorization, ...current }) {
   const facts = acceptanceFacts(state, current);
@@ -335,8 +347,11 @@ export function openAcceptance(state, options, { nowMs }) {
  * state and compared, so a record cannot be assembled from the answer alone,
  * and that the presented record, completed with the verified decision's id and
  * digest, passes exactly the check a pinned auto-policy's record does
- * (`assertAuthorized`). The acceptance names that record by id and digest, and
- * the completed record is returned for the daemon to store and chain.
+ * (`assertAuthorized`). The current heads are the ones in force without the
+ * decision being answered, which moves none of them (IA §3, ADR-103): read
+ * with it, every acceptance would be stale on arrival. The acceptance names
+ * that record by id and digest, and the completed record is returned for the
+ * daemon to store and chain in its scope.
  */
 export function acceptanceFromDecision(state, request, response, { nowMs, verifySignature, anchorVersion, ...current }) {
   const { request: answered, decision, effect } = answerRequest(request, response, { nowMs, verifySignature });
@@ -384,7 +399,7 @@ export function authorizationPayloadHash(authorization) {
 
 /**
  * The signed IntegrationAuthorizationRecord an acceptance stands on (ADR-088,
- * debt 11b), on either path.
+ * debt 11b), whichever kind the acceptance is.
  *
  * `integration-authorization.md` §1: the record is always required for the
  * Epic CAS. The record must name the UserDecisionRecord presented beside it,
@@ -420,23 +435,39 @@ function assertAuthorized(policy, facts, state, identity, { nowMs, verifySignatu
   assertComposedFor(authorization, facts, state);
   // Expired by now. A revocation made after signing changes the record's
   // bytes, so that copy was refused above as unsigned; one the host never sees
-  // is enforced by `integrateApproved` against the authorization head (IA §5),
-  // not here.
+  // is enforced by `integrateApproved` against its scope's chain under
+  // `integration_authorization_head` (IA §5), not here.
   demand(Date.parse(authorization.expires_at) > nowMs, 'acceptance_stale', 'The authorization has expired',
     { expires_at: authorization.expires_at });
 }
 
 /**
- * A pinned auto-policy, held to the same binding as a person.
+ * A pinned auto-policy, held to the same binding as a person: #9's criterion
+ * that such a policy is bound to the exact staging identity, which reads
+ * under v1 as every acceptance, a policy's included, carrying the user's
+ * signature over that identity.
  *
  * The policy names the identity it was pinned to and what it tolerates. One
  * that accepted an identity it never saw is not a policy, it is a default, and
  * debt outside what it names is not something it agreed to. Its authority is
  * the signed IntegrationAuthorizationRecord it carries, not its own pin: the
  * same record, composed the same way (`composeAuthorization`) and signed the
- * same way, as a person's acceptance produces. "In advance" means before this
- * acceptance step, for this exact identity — which exists only once the
- * aggregate has passed — never before the staging it names (R7-15).
+ * same way, as a person's acceptance produces, for this exact identity — which
+ * exists only once the aggregate has passed, never before the staging it names
+ * (R7-15).
+ *
+ * It is kept, and checked, and no v1 graph edge reaches it (ADR-103): every
+ * edge into `integrate_staging` or `deliver_staging` leaves `accept_staging`
+ * under a person's guard or is that step's own retry, and nothing between
+ * aggregate verification and the stop presents the identity for a signature,
+ * so v1 has one acceptance authority, the person at the stop. Under this
+ * binding a policy adds no autonomy: it only removes the wait after the person
+ * has signed that exact identity. An unattended acceptance — a policy that
+ * accepts without the person at the stop — needs a different binding,
+ * something signable before the identity exists and a narrow exception to the
+ * rule that no policy issues the record (IA §1); that is #28's own post-v1
+ * design work, which a successor panel reviews, and this function cannot
+ * admit it (review of `99fd30b`, M1).
  */
 export function autoPolicyAcceptance(state, policy, { nowMs, verifySignature, anchorVersion, ...current } = {}) {
   demand(typeof policy?.policy_ref === 'string' && policy.policy_ref.length > 0, 'acceptance_missing',

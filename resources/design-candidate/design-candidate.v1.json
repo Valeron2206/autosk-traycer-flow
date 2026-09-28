@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "78bf6e4d95b78492d76df144b8320eb13b76b2e63450914efca0304b866e70d0"
+      "sha256": "d0d8513fe61e0575b291688a0e8db0bfa5af5dac57d58e91f0cd6470c8d96163"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "3291affdbc98058cd01c6d59b5f0b2e9581aaceb9c7ca07946bb691e8d5809be"
+      "sha256": "1d3993013afbb033cfbe904850e87775e348b0bda2c2760e1458f0257ff6bc0b"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "0ab0a56b93a1d746fa255acb153971a5caaf5038f49074a64f68598f55317c65"
+      "sha256": "9cb3d7b955b58b4b5ad2ee8e1a32d723aa1f04dbe7af584bffeae0fd2a6e464d"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "c80dd21e014bb3e07e7a91fce26e95f31ee042113ca6e551bf8436e6412c443b"
+      "sha256": "c28ec3b342fa67abb33fd5fd222e113bdaef264879ae193bb60f470f100637ba"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "b37a9b04f7b5e952e66f1f8614e3536839d67430ee1f591688e08630ed464706"
+      "sha256": "38cb868268a7a998ab4fa9e383bcd35142a4af222dc9249460088e08d6ec05dc"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "d9d98bfef62c20d3f4e46efcc44b04c1de1dbd02cf2427e69ee6985e253bcdd4"
+      "sha256": "6e073b83dd747e5dd35d37ee4814ebede4d4dd3e8a9b0d28786ea6e9c26d4e5a"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -128,11 +128,11 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "65ab5cfd38a9375c9522413468d2f7b79baaf02f9a94a76a86940281980479c7"
+      "sha256": "a8d70264fb9a576dff4788a727a9197e8a0266c850a39b9d94676471083a8bf9"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "32e90d2fb8924f8b19fadd78b895175d922b920fd24dea54d7a21c9f571565e3"
+      "sha256": "bb06b917447809dd1e6dda982cdbaf0fcc047c9e83e3ae88bc249b9d065626ac"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -200,15 +200,15 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "18ba3601735405cc4d149dba19b6f9d91a6a88451afdf1b999fdd89eef9a18f7"
+      "sha256": "d07b8db91973555ebb81378ff8758d98dd80b3fef161dea8276842032d4f4baa"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "fd2650d8c400653a974e299cf1aac5305e7a5c07991309ed3bf48441a1aa6633"
+      "sha256": "60405394eb06c76a16ab05d8ab0a070086fb4233c87c7bbca2014a939c105e84"
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "9d094bc85540e5645e05bd945d893ef4a0e2761c2a4c97f4c3429bdb4fc0e9e7"
+      "sha256": "1dfd361a19cab09ea62f046025e0d52e55d795ae2f8cbb419f791e5b6ca6cf5e"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -372,7 +372,7 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
-      "sha256": "ecc448676aadb332a11b4594b36c72abe2f0fec4ed2215ead75083fda06f831e"
+      "sha256": "01555005332221509d06df5764eff55b59661e20b554385fdff00a9cf985ce4d"
     },
     {
       "path": "resources/evidence-manifest/evidence-manifest.example.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "d2a7fbb41cff0fd54c04deb9093a2b702b41d2a44d664b25bc2851c93f1d7f72"
+      "sha256": "e0f09075a673389948e1cefc7c6ce1b31fb337eb92b3a83a4b7f8296155ac3c6"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "1f08139cdd2eb399c54222cb43af07f73c1fa3cc04b9f47a5e65e0095cf52c04"
+      "sha256": "af18b7d28f74644bf8104b785f6f51b05ee62c7364f442496c877b3432e46e6c"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "6b20c66603620bac1c1fc6584c43e60e9a5fa9c41664dc6b02c453496c48344e"
     }
   ],
-  "candidate_digest": "df41bfa4907522522475686d2c4887fc953890ed6072343dbd99401a5c8d1aa4",
+  "candidate_digest": "5970f43cff75e8a509687f3d7da0947e6bf1dba21f7f38601f7432942bb414eb",
   "dispositions": [
     {
       "issue": 3,
