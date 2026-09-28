@@ -80,7 +80,15 @@ The suite runs from one canonical command in CI, with no real provider, no netwo
 
 Each fault case does two things. It builds a fixture and makes the fault there — a symlink out of the project, a ref moved by the harness's own git command, an inherited `GIT_DIR`, a harness that prints success and exits 0 — and asks the pure host function that owns the boundary; no case runs a host driver or the daemon. And it runs a control: the same guard, asked about the state without the fault, has to stay silent. A guard that refuses everything would detect every fault and mean nothing by it, so a failed control demotes the row rather than being reported beside it. The run records, per case, the git commands that write a ref which the harness ran itself, fixture setup apart from the fault step.
 
-The coverage table is derived from that run rather than declared next to it, and a group counts as covered by a real fault only when the fault was detected and its control stayed silent. What no harness performs is reported as not covered, with no row rounded up.
+The coverage table is derived from that run rather than declared next to it — the crash and identity harnesses' results as much as the fault harness's — and each group's state says how it was covered, read from its `injection` (§9), whether the run detected its fault, and whether a control was asked and stayed silent:
+
+- `covered_by_real_fault` — the fault reached what answers for real (`real_path` or `measured_observation`), was detected, and its control stayed silent;
+- `covered_without_control` — the same, with no control asked: the crash harness injects at a point in a write and never asks the un-faulted question;
+- `covered_by_written_observation` — the guard was handed an observation the harness wrote (`written_observation`) and answered it: an answer to a described state, not to the fault;
+- `control_failed` — the fault was detected and the control did not stay silent, so the detection says nothing;
+- `not_covered` — no harness performed the group, or its fault was not detected.
+
+Only `covered_by_real_fault` counts toward the release gate (#36); every other state is reported as what it is, with no row rounded up, and the run is complete only when every group is `covered_by_real_fault`. The command's exit status says whether every step ran, not whether the run is complete.
 
 ## 8. Park reasons
 
@@ -90,7 +98,7 @@ Closed set: `mutation_not_applied`, `green_control_failed`, `restore_failed`, `t
 
 Every fault group in `resources/clean-room-e2e/fault-matrix.v1.json` carries its four proofs and its expected gate outcome. The validator refuses a group missing any of them, and refuses a matrix whose groups do not cover every boundary the flow crosses: task creation, session lifecycle, filesystem writes, ref movement, staging integration, aggregate verification and the final CAS.
 
-Each group also says how its fault reaches what answers (`injection`, with a one-line `injection_note` that states what the run injects where it differs from the designed `description` and `fault`): `real_path` — the crash or identity harness makes the fault against the built daemon, which answers on its own path; `measured_observation` — a fault-harness case whose guard is handed no written observation field; `written_observation` — a case whose guard is handed the `written_fields` it names as literals. A fault-harness group names the host functions its case asks (`guards`). The validator holds these fields to `scripts/clean-room-faults.mjs`: a `real_path` group has no entry in its `CASES`, every other group has one; every literal the faulted guard call is handed — its argument and each `const` of the case it names — is declared as a written field or as a `fixed_inputs` entry held constant between the fault and its control, and every declared field is such a literal. That a non-literal field is read from the fixture after the fault is the case's own reading, not the validator's (debt 10h, ADR-094).
+Each group also says how its fault reaches what answers (`injection`, with a one-line `injection_note` that states what the run injects where it differs from the designed `description` and `fault`): `real_path` — the crash or identity harness makes the fault against the built daemon, which answers on its own path; `measured_observation` — a fault-harness case whose guard is handed no written observation field; `written_observation` — a case whose guard is handed the `written_fields` it names as literals. A fault-harness group names the host functions its case asks (`guards`). The validator holds these fields to `scripts/clean-room-faults.mjs`: a `real_path` group has no entry in its `CASES`, every other group has one; every literal the faulted guard call is handed — its argument and each `const` of the case it names — is declared as a written field or as a `fixed_inputs` entry held constant between the fault and its control, and every declared field is such a literal. That a non-literal field is read from the fixture after the fault is the case's own reading, not the validator's (debt 10h, ADR-094). The kind bounds the state a group can reach (§7): a `written_observation` group is at most `covered_by_written_observation` whatever its case detects, and only a `real_path` or `measured_observation` group can be `covered_by_real_fault`; the validator refuses a kind the coverage rule gives no state (debt 11f, ADR-100).
 
 ## 10. Acceptance mapping
 
@@ -103,7 +111,7 @@ Each group also says how its fault reaches what answers (`injection`, with a one
 | The target ref does not move before aggregate PASS and acceptance | §3, and #9's contract |
 | Retained and removed objects match policy after success | §6 |
 | One canonical command in CI | §7 |
-| Every fault group is covered by an injected fault, or reported as not covered | §7, §9 |
+| Every fault group is covered by an injected fault, or reported as not covered | §7 (only `covered_by_real_fault` counts toward the gate as covered by an injected fault; every other state reports what is missing), §9 |
 | No real provider, network or credentials | §1, §7 |
 | An optional real-provider smoke is documented, not automatic | §7 |
 | Every fault group has a complete `VerificationBatchContract` before #39 | §4, §9 |

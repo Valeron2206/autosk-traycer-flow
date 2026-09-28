@@ -14,7 +14,8 @@ import path from "node:path";
 import test from "node:test";
 
 import { CASES, runFaults } from "../scripts/clean-room-faults.mjs";
-import { COVERAGE, MATRIX_PATH, ROOT, coverageReport, faultCoverage } from "../scripts/clean-room-e2e.mjs";
+import { COVERAGE, MATRIX_PATH, ROOT, coverageReport, faultCoverage, harnessCoverage } from "../scripts/clean-room-e2e.mjs";
+import { coverageState } from "../scripts/lib/clean-room-coverage.mjs";
 
 const matrix = JSON.parse(await readFile(path.join(ROOT, MATRIX_PATH), "utf8"));
 const report = await runFaults();
@@ -49,6 +50,8 @@ test("the harness owns exactly the groups the other two harnesses do not", () =>
 });
 
 test("a case that failed its control is not claimed as a real fault", () => {
+  // Debt 11f (R7-6): the entry carries what the run observed — detection and
+  // control — and the state is read from it with the matrix's injection.
   const derived = faultCoverage({
     results: [
       { id: "F005", detected: true, control: true, detail: "the symlink escaped" },
@@ -56,27 +59,67 @@ test("a case that failed its control is not claimed as a real fault", () => {
       { id: "F007", detected: false, control: true, detail: "nothing was detected" },
     ],
   });
-  assert.equal(derived.F005.real_fault, true);
-  assert.equal(derived.F006.real_fault, false);
-  assert.equal(derived.F007.real_fault, false);
+  const kind = (id) => matrix.groups.find((group) => group.id === id);
+  assert.equal(coverageState(kind("F005"), derived.F005), "covered_by_real_fault");
+  assert.equal(coverageState(kind("F006"), derived.F006), "control_failed");
+  assert.equal(coverageState(kind("F007"), derived.F007), "not_covered");
   // Demoted, not dropped: the row still says which harness looked at it.
   assert.equal(derived.F006.harness, "faults");
   assert.equal(derived.F006.evidence, "the guard refuses everything");
+  assert.deepEqual({ detected: derived.F006.detected, control: derived.F006.control }, { detected: true, control: false });
 });
 
-test("the coverage table is derived from the run, and the run completes it", () => {
-  const covered = coverageReport(matrix, { ...COVERAGE, ...faultCoverage(report) });
-  for (const id of Object.keys(CASES)) {
-    assert.equal(covered.rows.find((row) => row.id === id).state, "covered_by_real_fault", id);
-  }
-  // Every group is now covered by a fault that actually ran, F004 included.
-  assert.equal(covered.counts.not_covered, undefined);
-  assert.equal(covered.counts.covered_by_real_fault, matrix.groups.length);
-  assert.equal(covered.complete, true);
-  // And the table on its own still claims none of the groups this harness owns:
-  // they are covered by the run, not by the declaration beside it.
+/** The daemon harnesses' steps as they print their summaries: all six crash points, and F004 with its control. */
+const DAEMON_STEPS = Object.freeze([
+  {
+    step: "harness:crash",
+    ok: true,
+    summary: {
+      passed: 6,
+      cases: ["reservation.before", "reservation.after", "task.before", "task.after", "activation.before", "activation.after"]
+        .map((point) => ({ point })),
+    },
+  },
+  { step: "harness:identity", ok: true, summary: { passed: 6, evidence: { fault: "F004", control: "resumed under the admitted digest" } } },
+]);
+
+test("the coverage table is derived from the run, and says how each group was covered", () => {
+  // Debt 11f (R7-6): the run counted all twenty as covered by a real fault —
+  // F001–F003, which ask no control, and every group whose guard is handed a
+  // written observation. Each row's state is now the one its injection and
+  // its control give, and the run is not complete.
+  const covered = coverageReport(matrix, { ...harnessCoverage(DAEMON_STEPS), ...faultCoverage(report) });
+  const kinds = (kind) => matrix.groups.filter((group) => group.injection === kind).map((group) => group.id);
+  const inState = (state) => covered.rows.filter((row) => row.state === state).map((row) => row.id);
+  assert.deepEqual(inState("covered_by_real_fault"), ["F004", ...kinds("measured_observation")]);
+  assert.deepEqual(inState("covered_without_control"), ["F001", "F002", "F003"]);
+  assert.deepEqual(inState("covered_by_written_observation"), kinds("written_observation"));
+  assert.deepEqual(inState("control_failed"), []);
+  assert.deepEqual(inState("not_covered"), []);
+  assert.equal(covered.complete, false);
+  // And the table on its own claims none of the groups: every one is covered
+  // by the run, not by the declaration beside it — the daemon groups included.
   const declared = coverageReport(matrix);
-  assert.equal(declared.counts.not_covered, Object.keys(CASES).length);
+  assert.equal(declared.counts.not_covered, matrix.groups.length);
+});
+
+test("every row's state is the one its matrix injection and its control give", () => {
+  // Held on the real run: no written observation and no uncontrolled row is
+  // covered by a real fault, and a real fault needs a real injection.
+  const covered = coverageReport(matrix, { ...harnessCoverage(DAEMON_STEPS), ...faultCoverage(report) });
+  for (const row of covered.rows) {
+    const group = matrix.groups.find((entry) => entry.id === row.id);
+    assert.equal(row.injection, group.injection, row.id);
+    const expected = !row.detected ? "not_covered"
+      : row.control === false ? "control_failed"
+        : group.injection === "written_observation" ? "covered_by_written_observation"
+          : row.control === true ? "covered_by_real_fault" : "covered_without_control";
+    assert.equal(row.state, expected, row.id);
+    if (row.state === "covered_by_real_fault") {
+      assert.ok(["real_path", "measured_observation"].includes(group.injection), row.id);
+      assert.equal(row.control, true, row.id);
+    }
+  }
 });
 
 // Debt 10h (R6-20, a1): the package said only F017–F020 touch Git directly.
@@ -124,7 +167,11 @@ test("a real_path group is one a daemon harness covers, and no fault-harness cas
     if (group.injection === "real_path") {
       assert.equal(Object.hasOwn(CASES, group.id), false, group.id);
       assert.ok(["crash", "identity"].includes(COVERAGE[group.id].harness), group.id);
-      assert.equal(COVERAGE[group.id].real_fault, true, group.id);
+      // Debt 11f (R7-6): the table names the harness and what its run must
+      // show; whether the fault was detected is the run's, never the table's.
+      for (const claim of ["real_fault", "detected", "control"]) {
+        assert.equal(Object.hasOwn(COVERAGE[group.id], claim), false, `${group.id} declares ${claim}`);
+      }
     } else {
       assert.equal(Object.hasOwn(CASES, group.id), true, group.id);
     }

@@ -347,3 +347,42 @@ test("the cases are the harness's CASES, not every function that looks like one"
   const errors = validateMatrix(matrix(), schema, { harnessSource: dropped });
   assert.ok(errors.some((message) => /F009.*no case in the fault harness/u.test(message)), errors.join("\n"));
 });
+
+// Debt 11f (R7-6, round 7 of #39): the contract that will define #36's release
+// gate counted a group covered by a real fault only when its fault was
+// detected and its control stayed silent, while the run counted all twenty.
+// The run now follows the contract, so the contract names every state the run
+// can give a group, says which one counts toward the gate, and the rule has a
+// state for every injection kind the schema admits.
+
+test("the contract names every coverage state, and only covered_by_real_fault counts toward the release gate", async () => {
+  const { COVERAGE_STATES } = await import("../scripts/lib/clean-room-coverage.mjs");
+  const contract = files[CONTRACT_PATH];
+  for (const state of COVERAGE_STATES) assert.ok(contract.includes(`\`${state}\``), `${state} is not named`);
+  assert.match(contract, /Only `covered_by_real_fault` counts toward the release gate \(#36\)/u);
+  // The acceptance row says the same, rather than "covered by an injected fault".
+  // Review of 11f (L4): F001–F003 are real injections too, so the row says
+  // which state counts toward the gate, not which state was injected.
+  const mapping = contract.slice(contract.indexOf("## 10."));
+  assert.match(mapping, /\| Every fault group is covered by an injected fault, or reported as not covered \| §7 \(only `covered_by_real_fault` counts toward the gate as covered by an injected fault; every other state reports what is missing\), §9 \|/u);
+  assert.doesNotMatch(mapping, /only `covered_by_real_fault` is covered by an injected fault/u);
+  for (const state of COVERAGE_STATES) {
+    const without = contract.replaceAll(`\`${state}\``, "`another_state`");
+    assert.ok(
+      validateCleanRoomDesign({ ...files, [CONTRACT_PATH]: without }).some((message) => message.includes(`coverage state ${state} is not named`)),
+      state,
+    );
+  }
+  const silent = contract.replace("Only `covered_by_real_fault` counts toward the release gate (#36)", "Every state counts");
+  assert.ok(validateCleanRoomDesign({ ...files, [CONTRACT_PATH]: silent }).some((message) => /which coverage state counts toward the release gate/u.test(message)));
+});
+
+test("the coverage rule has a state for every injection kind the schema admits", async () => {
+  const { INJECTION_KINDS } = await import("../scripts/lib/clean-room-coverage.mjs");
+  const enumerated = schema.properties.groups.items.properties.injection.enum;
+  assert.deepEqual([...enumerated].sort(), [...INJECTION_KINDS].sort());
+  const widened = structuredClone(schema);
+  widened.properties.groups.items.properties.injection.enum.push("replayed_observation");
+  const errors = validateCleanRoomDesign({ ...files, [SCHEMA_PATH]: JSON.stringify(widened) });
+  assert.ok(errors.some((message) => /replayed_observation.*no coverage state/u.test(message)), errors.join("\n"));
+});

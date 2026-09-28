@@ -22,11 +22,13 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { COVERAGE_STATES, INJECTION_KINDS, coverageReport, faultCoverage, harnessCoverage } from './lib/clean-room-coverage.mjs';
 import { filesUsing } from './lib/code-references.mjs';
 import { digestOf, sourceDrift } from './lib/produced-source.mjs';
 import { RULES as MUTATION_RULES, reportDigest } from './mutation-report.mjs';
 import { panelVerdicts } from './validate-design-candidate.mjs';
 import { classifySeam } from './verify-autosk-migration-seam.mjs';
+import { PARK_REASONS as ALIGNMENT_PARK_REASONS } from '../src/host/alignment-gates.mjs';
 import { UNPINNED_DAEMON_PRIMITIVES } from '../src/host/daemon-preflight.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -263,6 +265,80 @@ export const FACTORY_EXPORT = 'buildWorkflow';
  */
 export async function factoryCallers({ root = ROOT } = {}) {
   return filesUsing({ root, dirs: ['scripts', 'src'], identifier: FACTORY_EXPORT, exclude: [FACTORY_MODULE] });
+}
+
+/** The workflow graph whose recovery rows name the park reasons the design admits. */
+export const GRAPH_PATH = 'resources/workflow-graph/workflow-graph.v1.json';
+
+/** The two steps where the graph decides an alignment; its alignment reasons park at them. */
+const ALIGNMENT_STEPS = Object.freeze(['clarify_alignment', 'record_alignment']);
+
+/**
+ * The reason names the host's alignment gates park with that the graph's
+ * recovery rows do not carry, beside the graph's own alignment reasons — the
+ * rows that park where an alignment is decided. Measured, not written into
+ * the package (round 7 of #39, R7-23): the list is the module's own
+ * `PARK_REASONS`, which `npm test` holds to the codes the module raises, so a
+ * rename in either place changes what the package says.
+ */
+export function alignmentReasonGap(graph, raised = ALIGNMENT_PARK_REASONS) {
+  const recovery = new Set((graph?.recovery ?? []).map((row) => row.reason));
+  return Object.freeze({
+    missing: Object.freeze([...raised].filter((code) => !recovery.has(code)).sort()),
+    graph: Object.freeze((graph?.recovery ?? [])
+      .filter((row) => (row.parks_at ?? []).some((step) => ALIGNMENT_STEPS.includes(step)))
+      .map((row) => row.reason)
+      .sort()),
+  });
+}
+
+/**
+ * Where a clean-room report says something its own records do not.
+ *
+ * Review of 11f (M1): the package printed a report's `counts` and `complete`
+ * as given and held each row only to the coverage rule, so correct rows could
+ * sit under the round-7 headline, a row could be missing or claim a control
+ * the crash harness never asks, and a failed case or harness could stand
+ * beside a covered row. The package now recomputes the coverage from the
+ * run's own records — the daemon harnesses' steps and the fault harness's
+ * cases — with the run's own functions, and a report must say exactly that:
+ * one row per matrix group, each equal to the recomputed one, and the same
+ * counts and `complete`.
+ */
+export function coverageRefusals(report, recomputed, matrix) {
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+  const ids = rows.map((row) => row?.id);
+  const groups = matrix.groups.map((group) => group.id);
+  const missing = groups.filter((id) => !ids.includes(id));
+  const outside = [...new Set(ids.filter((id) => !groups.includes(id)))];
+  const repeated = [...new Set(ids.filter((id, index) => groups.includes(id) && ids.indexOf(id) !== index))];
+  if (missing.length + outside.length + repeated.length > 0) {
+    return [`the run's coverage rows are not one per matrix group: ${[
+      missing.length > 0 ? `missing ${missing.join(', ')}` : null,
+      repeated.length > 0 ? `repeated ${repeated.join(', ')}` : null,
+      outside.length > 0 ? `not in the matrix ${outside.join(', ')}` : null,
+    ].filter((part) => part !== null).join('; ')}`];
+  }
+  const errors = [];
+  const said = (object, keys) => keys.map((key) => `${key} ${JSON.stringify(object[key])}`).join(', ');
+  for (const row of recomputed.rows) {
+    const given = rows.find((entry) => entry.id === row.id);
+    const differing = [...new Set([...Object.keys(row), ...Object.keys(given)])].filter((key) => !Object.is(given[key], row[key]));
+    if (differing.length > 0) {
+      errors.push(`${row.id}: the run's row says ${said(given, differing)}, and its own records give ${said(row, differing)}`);
+    }
+  }
+  const counts = report?.counts ?? {};
+  const differingCounts = [...new Set([...Object.keys(recomputed.counts), ...Object.keys(counts)])]
+    .filter((state) => !Object.is(counts[state], recomputed.counts[state]));
+  if (differingCounts.length > 0) {
+    const listed = (object) => differingCounts.map((state) => `${state}=${object[state]}`).join(', ');
+    errors.push(`the run's counts say ${listed(counts)}, and its own records give ${listed(recomputed.counts)}`);
+  }
+  if (report?.complete !== recomputed.complete) {
+    errors.push(`the run says complete=${report?.complete}, and its own records give complete=${recomputed.complete}`);
+  }
+  return errors;
 }
 
 /**
@@ -591,24 +667,18 @@ function requireTestEvidence(tests) {
 }
 
 /**
- * The injection kinds of the fault matrix, and what each one means on the
- * page. The groups under each are read from the matrix; only the meaning is
- * written here (debt 10h, R6-20).
+ * What each injection kind of the fault matrix means on the page. The groups
+ * under each are read from the matrix and the kinds from the coverage rule's
+ * own list (`INJECTION_KINDS`), which the validator holds the schema to; only
+ * the meaning is written here (debt 10h, R6-20; review of 11f), and `npm test`
+ * holds these keys to that list, so a kind cannot be rendered by one and
+ * missed by the other.
  */
-const INJECTION_KINDS = Object.freeze([
-  {
-    name: 'real_path',
-    meaning: 'the fault is made against the daemon built from section 1\'s source, and the daemon answers on its own path.',
-  },
-  {
-    name: 'measured_observation',
-    meaning: 'the fault harness makes the fault in a temporary fixture — a file, a process, an environment, a Git repository — and hands a host guard values it read back from that fixture.',
-  },
-  {
-    name: 'written_observation',
-    meaning: 'the host guard is handed an observation the harness wrote, in whole or in the fields named on the row; the harness checks its fixture beside the guard, not through it.',
-  },
-]);
+export const INJECTION_MEANINGS = Object.freeze({
+  real_path: 'the fault is made against the daemon built from section 1\'s source, and the daemon answers on its own path.',
+  measured_observation: 'the fault harness makes the fault in a temporary fixture — a file, a process, an environment, a Git repository — and hands a host guard values it read back from that fixture.',
+  written_observation: 'the host guard is handed an observation the harness wrote, in whole or in the fields named on the row; the harness checks its fixture beside the guard, not through it.',
+});
 
 function injectionCell(group) {
   if (!group?.injection) return 'not declared';
@@ -619,9 +689,11 @@ function injectionCell(group) {
 }
 
 /** The package. Deterministic: the same inputs give the same bytes. */
-export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null, factoryCallers: givenFactoryCallers = null }) {
+export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix, mutation, compat, tests, contracts, vocabulary, verdicts = panelVerdicts(), produced = null, migrationSeam = null, migrationSeamRefusal = null, panelRecords: givenPanelRecords = null, factoryCallers: givenFactoryCallers = null, graph: givenGraph = null }) {
   requireTestEvidence(tests);
   const callers = givenFactoryCallers ?? await factoryCallers();
+  const alignmentGap = alignmentReasonGap(givenGraph ?? JSON.parse(await read(GRAPH_PATH)));
+  const codeList = (codes) => codes.map((code) => `\`${code}\``).join(', ');
   const srcCallers = callers.filter((file) => file.startsWith('src/'));
   const scriptCallers = callers.filter((file) => !file.startsWith('src/'));
   const fileList = (files) => files.map((file) => `\`${file}\``).join(', ') || 'none';
@@ -731,6 +803,28 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
       }
     }
   }
+  // Review of 11f (M1): the coverage this package prints is recomputed from
+  // the run's own records, and those records are about the tree the run
+  // exercised — so the run must have exercised this package's tree, clean.
+  if (typeof cleanRoom.extension?.tree !== 'string' || cleanRoom.extension.tree.length === 0) {
+    throw new Error('the clean-room run recorded no extension tree, so nothing says which bytes its records are about');
+  }
+  if (cleanRoom.extension.dirty !== false) {
+    throw new Error(`the clean-room run exercised a dirty worktree of ${cleanRoom.extension.tree} — its records are about bytes in no commit`);
+  }
+  if (cleanRoom.extension.tree !== tree) {
+    throw new Error(`the clean-room run exercised tree ${cleanRoom.extension.tree}, and this package is built over ${tree}`);
+  }
+  // Debt 11f (R7-6) and its review (M1): the round-7 run counted all twenty
+  // groups `covered_by_real_fault`. The coverage is recomputed with the run's
+  // own functions from its records, and a report that says anything else —
+  // rows, counts or `complete` — is refused, not reprinted.
+  const coverage = coverageReport(matrix, {
+    ...harnessCoverage(cleanRoom.steps ?? []),
+    ...faultCoverage({ results: cleanRoom.faults ?? [] }),
+  });
+  const coverageErrors = coverageRefusals(cleanRoom.coverage, coverage, matrix);
+  if (coverageErrors.length > 0) throw new Error(coverageErrors.join('; '));
   const sections = [];
   const classes = contracts.reduce((sum, entry) => sum + entry.refusals.length, 0);
   const producedBy = new Map((produced?.contracts ?? []).map((entry) => [entry.contract, entry]));
@@ -790,8 +884,6 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
     ...CLOSURE_DEVIATIONS.map((kind) => closureDeviation(produced.closure[kind.list], kind)),
   ]);
   const boundRun = boundRunClause(qualifying, other);
-  const sameTree = cleanRoom.extension?.tree === tree && cleanRoom.extension?.dirty === false;
-
   sections.push(`# autosk-traycer-flow — final acceptance package
 
 This package is read-only. It names one frozen version and asks four questions
@@ -1017,9 +1109,9 @@ source, and both product harnesses plus the fault harness.
 | upstream commit | \`${cleanRoom.upstream_commit}\` |
 | reproduced source tree | \`${cleanRoom.source_tree}\` |
 | extension commit exercised | \`${cleanRoom.extension?.commit ?? 'not recorded'}\` |
-| extension tree exercised | \`${cleanRoom.extension?.tree ?? 'not recorded'}\` |
-| worktree clean at run time | ${cleanRoom.extension?.dirty === false ? 'yes' : 'no'} |
-| same bytes as the version under review | ${sameTree ? 'yes — the exercised tree equals the main tree in section 1' : 'NO — this run is about other bytes, and section 1 is not proven end to end by it'} |
+| extension tree exercised | \`${cleanRoom.extension.tree}\` |
+| worktree clean at run time | yes |
+| same bytes as the version under review | yes — the exercised tree equals the main tree in section 1; the package refuses a run over other bytes or a dirty worktree |
 | report digest | \`${cleanRoom.report_digest}\` |
 | overall | ${cleanRoom.ok ? 'ok' : 'FAILED'} |
 
@@ -1073,11 +1165,12 @@ Each line gives the group as the matrix designs it and as the run injects it
 (\`injection_note\`), because the two differ: read the second as what the rows
 below are evidence of.
 
-Coverage: ${Object.entries(cleanRoom.coverage.counts).map(([state, count]) => `${state}=${count}`).join(', ')}; complete=${cleanRoom.coverage.complete}.
-Read \`complete\` as: every group's case detected its fault, and where the case
-is paired with a control, the control stayed silent — ${cleanRoom.coverage.rows.filter((row) => row.control === true || (cleanRoom.faults ?? []).some((entry) => entry.id === row.id && entry.control)).length} of ${matrix.groups.length} groups carry a silent control. The state name
-\`covered_by_real_fault\` is the run's own and says no more than that. It is
-**not** a statement that every group was injected for real.
+Coverage, by state: ${COVERAGE_STATES.map((state) => `${state}=${coverage.counts[state]}`).join(', ')}; complete=${coverage.complete}.
+Only \`covered_by_real_fault\` counts toward the release gate (#36): the fault
+reached what answers for real (\`real_path\` or \`measured_observation\`), was
+detected, and its control stayed silent. Every other state names what is
+missing (the clean-room contract, §7), and \`complete\` is true only when every
+group is in that one.
 
 **How each group is injected.** Read from the matrix's \`injection\` field, which
 \`npm run validate:clean-room\` holds to the harness that runs the group: a
@@ -1086,8 +1179,8 @@ group has one, and each field a \`written_observation\` names is written as a
 literal in that case's source.
 
 ${INJECTION_KINDS.map((kind) => {
-    const groups = matrix.groups.filter((group) => group.injection === kind.name);
-    return `- \`${kind.name}\` — ${groups.length} groups (${groups.map((group) => `\`${group.id}\``).join(', ') || 'none'}): ${kind.meaning}`;
+    const groups = matrix.groups.filter((group) => group.injection === kind);
+    return `- \`${kind}\` — ${groups.length} groups (${groups.map((group) => `\`${group.id}\``).join(', ') || 'none'}): ${INJECTION_MEANINGS[kind]}`;
   }).join('\n')}
 
 No case of the fault harness runs a host driver or the daemon: each asks a pure
@@ -1109,23 +1202,24 @@ refuse the un-faulted state too.
 
 The per-case result is given rather than the count it rolls up into:
 
-${cleanRoom.coverage.rows.length > 0
-    ? `Every group the run reported appears here. The row names the harness that ran
-it, how the fault reached what answered (the matrix's \`injection\`, with the
-fields a written observation writes), and whether a control was paired, so a
-partial row is not read as a missing one.
+Every group of the matrix appears here, as the run's own records give it: a
+fault-harness group's detection and control are its case record's, a daemon
+group's its harness step's. The row names the harness that ran it, how the
+fault reached what answered (the matrix's \`injection\`, with the fields a
+written observation writes), and whether a control was paired, so a partial
+row is not read as a missing one.
 
 | group | harness | injection | fault detected | control silent | evidence |
 | --- | --- | --- | --- | --- | --- |
-${cleanRoom.coverage.rows.map((row) => {
-      const injected = (cleanRoom.faults ?? []).find((entry) => entry.id === row.id);
-      const detected = injected ? (injected.detected ? 'yes' : 'NO') : row.state === 'covered_by_real_fault' ? 'yes' : 'NO';
-      const control = injected
-        ? (injected.control ? 'yes' : 'NO')
-        : row.control === true ? 'yes' : 'not paired';
-      return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${injectionCell(groupById.get(row.id))} | ${detected} | ${control} | ${injected ? injected.detail : row.evidence ?? 'not covered'} |`;
-    }).join('\n')}`
-    : 'The run recorded no per-group results, so the counts above are all this package can show.'}
+${coverage.rows.map((row) => {
+    // Read from the case record where there is one (as before debt 11f), and
+    // otherwise from the row recomputed from the harness steps.
+    const record = (cleanRoom.faults ?? []).find((entry) => entry.id === row.id);
+    const detected = (record ? record.detected === true : row.detected) ? 'yes' : 'NO';
+    const control = record ? (record.control === true ? 'yes' : 'NO')
+      : row.control === true ? 'yes' : row.control === false ? 'NO' : 'not paired';
+    return `| \`${row.id}\` | ${row.harness ?? 'none'} | ${injectionCell(groupById.get(row.id))} | ${detected} | ${control} | ${(record ? record.detail : row.evidence) ?? 'not covered'} |`;
+  }).join('\n')}
 
 ### Mutation, module by module
 
@@ -1207,7 +1301,7 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   a model session no CLI or decision capability; that is the design, not this
   series. Matrix v1 gives the token's removal to #11 and resume leaves written
   only under the metadata CAS to #18 (ADR-097); roadmap #231 tracks the change.
-- No user decision is accepted on any host. The decision queue takes an answer
+- No user decision is accepted on any host today. The decision queue takes an answer
   only as a daemon \`UserDecisionRecord\` — a response that names its own
   approver, or carries no record, is refused — and checks its fields, its
   canonical challenge bytes, its binding to the request and the answer it
@@ -1218,6 +1312,26 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   sign with a key of their own. The alignment identity binds the twelve fields
   of 02 §7 (ADR-091). The signer, its key pin and the verifier are ADR-023 work
   that matrix v1 gives to #4 (ADR-092).
+  One path does admit an authority no user signed. \`policyAlignment\`
+  (\`src/host/alignment-gates.mjs\`) mints an \`authority: policy\` alignment record
+  from a policy object its caller hands in, and of that policy it checks only
+  its name, the kinds it lists and its anchor version. It does not check that a
+  \`UserDecisionRecord\` issued the policy, never compares the policy's own
+  project, Epic, scope and expiry with anything, and never compares the facts'
+  policy hashes with the policy object. The record's identity binds the facts
+  its caller hands in — their project, Epic and scope, and whatever policy
+  hashes they carry. It admits any kind the policy lists, \`brief\` included,
+  although 01 §2 lets no policy approve Brief framing, and \`gateAdmission\`
+  admits the record, since it recomputes that identity from the facts its caller
+  hands in. Outside tests nothing calls either function yet, nor
+  \`resumeAdmission\`, the module's own caller of \`gateAdmission\`. The path is
+  open in ADR-091 and is #4's phase 3.${alignmentGap.missing.length > 0 ? `
+  The same module parks with reason names the graph's recovery rows do not carry — ${codeList(alignmentGap.missing)} — where the graph's alignment rows name ${codeList(alignmentGap.graph)}.` : ''}
+  The module resumes into \`record_<kind>_alignment\` and
+  \`await_<kind>_alignment\` and restarts at \`clarify_<kind>\`, which are not graph
+  steps (the graph's are \`record_alignment\`, \`await_alignment\` and
+  \`clarify_alignment\`); its names and steps are #4's phase 3 as well (ADR-091,
+  ADR-100).
 - SonarQube Cloud (#47) has a design contract and a validator; the pilot needs
   an organisation the owner creates, and no pilot result is claimed.
 - Issue #10's criterion 2 is in this candidate, not deferred: section 3 carries

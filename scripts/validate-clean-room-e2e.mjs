@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { COVERAGE_STATES, INJECTION_KINDS } from "./lib/clean-room-coverage.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -310,6 +311,15 @@ export function validateCleanRoomDesign(files) {
   for (const kind of PROOF_KINDS) {
     if (!contract.includes(kind)) errors.push(`${CONTRACT_PATH}: does not name the proof ${kind}`);
   }
+  // Debt 11f (R7-6): the run gives every group one of these states, and the
+  // contract that will define #36's gate names each of them and the one that
+  // counts, so neither can drift from what the run reports.
+  for (const state of COVERAGE_STATES) {
+    if (!contract.includes(`\`${state}\``)) errors.push(`${CONTRACT_PATH}: coverage state ${state} is not named`);
+  }
+  if (!contract.includes("Only `covered_by_real_fault` counts toward the release gate (#36)")) {
+    errors.push(`${CONTRACT_PATH}: does not say which coverage state counts toward the release gate`);
+  }
 
   let schema;
   try {
@@ -325,6 +335,13 @@ export function validateCleanRoomDesign(files) {
   const proofs = schema.properties?.groups?.items?.properties?.proofs ?? {};
   if (proofs.minItems !== 4 || proofs.maxItems !== 4) {
     errors.push(`${SCHEMA_PATH}: a fault group carries exactly four proofs`);
+  }
+  // A kind the coverage rule does not know would give its groups no state but
+  // `not_covered` whatever the run observed, so a new kind is decided first.
+  for (const kind of schema.properties?.groups?.items?.properties?.injection?.enum ?? []) {
+    if (!INJECTION_KINDS.includes(kind)) {
+      errors.push(`${SCHEMA_PATH}: injection kind ${kind} has no coverage state in scripts/lib/clean-room-coverage.mjs`);
+    }
   }
 
   let matrix;

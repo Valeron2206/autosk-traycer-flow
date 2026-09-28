@@ -900,6 +900,37 @@ export function validateReadme(matrix, readme) {
   return errors;
 }
 
+/** The README section that lists what the design package is made of. */
+export const README_PACKAGE_HEADING = "## Состав пакета";
+
+/**
+ * README's package list points to every design contract, and to nothing that
+ * is not one.
+ *
+ * Round 7 of #39 (R7-28) found the list naming 2 of the 42 contracts. The
+ * list is read from its own section — a contract linked elsewhere in README is
+ * not listed there — and held to the contracts this validator already reads
+ * from `docs/contracts/`, both ways, so a contract added or removed there
+ * changes what README must say (debt 11f, ADR-100).
+ */
+export function readmeContractErrors(readme, contracts) {
+  if (typeof readme !== "string") return ["README.md is missing"];
+  const start = readme.indexOf(`${README_PACKAGE_HEADING}\n`);
+  if (start === -1) return [`README has no package list (${README_PACKAGE_HEADING})`];
+  const end = readme.indexOf("\n## ", start + README_PACKAGE_HEADING.length);
+  const section = readme.slice(start, end === -1 ? undefined : end);
+  const listed = new Set([...section.matchAll(/\]\((docs\/contracts\/[^)\s]+\.md)\)/gu)].map((match) => match[1]));
+  const present = new Set(asList(contracts).map((contract) => contract?.path).filter((entry) => typeof entry === "string"));
+  const errors = [];
+  for (const contractPath of [...present].sort()) {
+    if (!listed.has(contractPath)) errors.push(`README package list omits ${contractPath}`);
+  }
+  for (const contractPath of [...listed].sort()) {
+    if (!present.has(contractPath)) errors.push(`README package list names ${contractPath}, which is not a contract in docs/contracts/`);
+  }
+  return errors;
+}
+
 /** The lifecycle tokens a contract may state about its own runtime. */
 const LIFECYCLE_TOKEN = /`(required_for_v1|planned_after_v1|intentionally_deferred)`/gu;
 
@@ -1014,6 +1045,9 @@ export function validateAll({ matrix, inventory, parityRegistry, documentation, 
   if (canRender) errors.push(...validateReadme(matrix, readme));
   if (canRender) errors.push(...validateContractStatuses(matrix, contracts));
   if (canRender) errors.push(...arenaOwnerErrors({ matrix, parityRegistry, contracts }));
+  // Given the contracts, README's package list is held to them (R7-28); a
+  // validation given none does not read that list, as the Arena leg does not.
+  if (asList(contracts).length > 0) errors.push(...readmeContractErrors(readme, contracts));
   return errors;
 }
 

@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "107a850b1932af51b578e4a4f301a73fad254095298ce587cdd22fadf381e7a0"
+      "sha256": "69c5e9ca3efd93cdcb47e6311c73314a74cd5619b5651c6d3504a37e4c05ec96"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "d2f805a79805c16109e8ee272ae85166325b90c3d85c2252fdc906bb8107018f"
+      "sha256": "a1d45f7ce3a3646ed5b7a145a43af61a38572dcd4415a0f3365773b102cb96a8"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -68,7 +68,7 @@
     },
     {
       "path": "docs/contracts/clean-room-e2e.md",
-      "sha256": "e95e28ec660133d547819eb8241d33a05013683ab6529dbeca836cc5d18542fe"
+      "sha256": "f2e7687785333688d5997e0ebf14df6d1e93f8d2bccd41488193d36bbd1d8eff"
     },
     {
       "path": "docs/contracts/clearance-manifest.md",
@@ -120,7 +120,7 @@
     },
     {
       "path": "docs/contracts/governance-bundle.md",
-      "sha256": "9875e50330ea12cca418ecd9e213b36d4fa7d0ee1cfb809b112dc78891940d11"
+      "sha256": "c36660580d39c09c1ecd80929e534272b298391fe027da888737bc840a823aa8"
     },
     {
       "path": "docs/contracts/housekeeping.md",
@@ -955,7 +955,7 @@
       "sha256": "6b20c66603620bac1c1fc6584c43e60e9a5fa9c41664dc6b02c453496c48344e"
     }
   ],
-  "candidate_digest": "d1f0c4db5cce3cdef2a3d55a8ecd5ebe54fb9052b7f4c36d03c1f63a1c84469f",
+  "candidate_digest": "9f5b64b4e46633176acca9aee2d315e549136dfdcacce1f4920dd8a2cedb39c7",
   "dispositions": [
     {
       "issue": 3,

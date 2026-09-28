@@ -414,3 +414,142 @@ test("the design validator uses the runtime's content digest, over id, version a
   }
   assert.ok(files[CONTRACT_PATH].includes("autosk-flow/governance-bundle-content/v1"));
 });
+
+// Debt 11f (R7-21, round 7 of #39): §4 said the build CLI holds the manifest
+// to the inventory while §9 deferred the CLI, the importer, the builder and
+// the panel runner — and the CLI, the builder and the runner exist. The
+// contract now describes what exists where it lives, by path, and §9 defers
+// only what has no code; each claim is read from the tree here.
+
+test("the contract describes the build command, the builder and the panel runner where they live, and defers only what does not exist", async () => {
+  const { existsSync } = await import("node:fs");
+  const path = await import("node:path");
+  const { ROOT } = await import("../scripts/validate-governance-bundle.mjs");
+  const { filesUsing } = await import("../scripts/lib/code-references.mjs");
+  const contract = files[CONTRACT_PATH];
+  const section = (number) => {
+    const start = contract.indexOf(`## ${number}.`);
+    const end = contract.indexOf(`## ${number + 1}.`);
+    return contract.slice(start, end === -1 ? undefined : end);
+  };
+  // The build command and the builder, in §4, by path.
+  for (const file of ["scripts/governance-bundle.mjs", "src/host/bundle-builder.mjs"]) {
+    assert.ok(section(4).includes(`\`${file}\``), `§4 does not name ${file}`);
+  }
+  assert.ok(section(4).includes("`npm run bundle:build`"));
+  // The panel runner and the attestation check, in §6; the release rules, in §7.
+  assert.ok(section(6).includes("`src/host/bundle-panel.mjs`"));
+  assert.ok(section(7).includes("`src/host/governance-bundle.mjs`"));
+  // Every code path the contract names exists.
+  const named = [...contract.matchAll(/`((?:scripts|src)\/[\w./-]+\.mjs)`/gu)].map((match) => match[1]);
+  assert.ok(named.length >= 4);
+  for (const file of named) assert.ok(existsSync(path.join(ROOT, file)), file);
+  // §9 defers what has no code: not the CLI or the builder wholesale.
+  const deferred = section(9).slice(section(9).indexOf("Deferred"));
+  assert.doesNotMatch(deferred, /the CLI, the importer, the builder and the panel runner/u);
+  // The importer 03 §3 names is not in the tree.
+  assert.match(deferred, /`import-traycer-baseline`/u);
+  const users = await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier: "importTraycerBaseline" });
+  assert.deepEqual(users, []);
+  // The manifest the build command reads by default does not exist yet, and §9 says so.
+  assert.equal(existsSync(path.join(ROOT, "resources/governance-bundle/bundle-manifest.v1.json")), false);
+  assert.match(deferred, /`resources\/governance-bundle\/bundle-manifest\.v1\.json`/u);
+  // The panel runner and the release rules have no caller outside tests, and §9 defers their use.
+  for (const [identifier, owner] of [
+    ["runBundlePanel", "src/host/bundle-panel.mjs"],
+    ["releaseAdmission", "src/host/governance-bundle.mjs"],
+    ["releasePointer", "src/host/governance-bundle.mjs"],
+  ]) {
+    assert.deepEqual(await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier, exclude: [owner] }), [], identifier);
+  }
+  assert.match(deferred, /a panel run over a real candidate/u);
+  assert.match(deferred, /content-addressed release store/u);
+});
+
+// Review of 11f (L5): the test above read only part of §9 from the tree. Each
+// deferral is now held to the tree: the importer 03 §3 places at
+// `tools/import-traycer-baseline.ts`, the import, review and release commands,
+// the thirteen members, the default manifest, a panel run over a real
+// candidate, and a release store — no code imports §7's functions from the
+// module that defines them. The module-naming nit of the same review: §6
+// names the module `attestationErrors` lives in.
+
+test("each deferral of §9 is read from the tree, and §6 names the module of the attestation check", async () => {
+  const { existsSync, readFileSync, readdirSync } = await import("node:fs");
+  const path = await import("node:path");
+  const { ROOT } = await import("../scripts/validate-governance-bundle.mjs");
+  const { filesUsing, CODE_EXTENSIONS } = await import("../scripts/lib/code-references.mjs");
+  const contract = files[CONTRACT_PATH];
+  const section = (number) => {
+    const start = contract.indexOf(`## ${number}.`);
+    const end = contract.indexOf(`## ${number + 1}.`);
+    return contract.slice(start, end === -1 ? undefined : end);
+  };
+  assert.ok(section(6).includes("`attestationErrors` in `src/host/governance-bundle.mjs`"), section(6));
+  const deferred = section(9).slice(section(9).indexOf("Deferred"));
+  const phrase = (words) => new RegExp(words.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&").replace(/ /gu, "\\s+"), "u");
+  // Every file of the repository but the installed modules and git's own.
+  const tracked = [];
+  const walk = (relative) => {
+    for (const entry of readdirSync(path.join(ROOT, relative), { withFileTypes: true })) {
+      if (relative === "" && (entry.name === "node_modules" || entry.name === ".git")) continue;
+      const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else tracked.push(child);
+    }
+  };
+  walk("");
+  assert.ok(tracked.includes("docs/contracts/governance-bundle.md"));
+
+  // The importer: no file of that name anywhere, and no code that names it.
+  assert.match(deferred, phrase("the importer — `import-traycer-baseline` of 03 §3"));
+  assert.match(readFileSync(path.join(ROOT, "03-technical-plan.md"), "utf8"), /tools\/\n\s+import-traycer-baseline\.ts/u);
+  assert.deepEqual(tracked.filter((file) => path.basename(file).startsWith("import-traycer-baseline")), []);
+  assert.deepEqual(await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier: "importTraycerBaseline" }), []);
+
+  // The commands: the package's one bundle script is the build, and the build
+  // command reads no subcommand, only its four options.
+  assert.match(deferred, phrase("the import, review and release commands"));
+  const scripts = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")).scripts;
+  // A bundle command is a `bundle:` script or anything that runs the bundle CLI;
+  // `validate:governance-bundle` is the design validator, not a command of the bundle.
+  const bundleScripts = Object.entries(scripts).filter(([name, command]) => name.startsWith("bundle:") || /scripts\/governance-bundle\.mjs/u.test(command));
+  assert.deepEqual(bundleScripts, [["bundle:build", "node scripts/governance-bundle.mjs"]]);
+  assert.deepEqual(tracked.filter((file) => file.startsWith("scripts/") && /(?:import|review|release)/u.test(path.basename(file)) && /bundle/u.test(file)), []);
+  const cli = readFileSync(path.join(ROOT, "scripts/governance-bundle.mjs"), "utf8");
+  assert.deepEqual([...cli.matchAll(/argument\('([a-z-]+)'/gu)].map((match) => match[1]).sort(), ["manifest", "out", "root", "stage"]);
+
+  // The thirteen members: none is in the tree, where 03 §3 places them or anywhere else.
+  assert.match(deferred, phrase("the thirteen members themselves"));
+  const members = JSON.parse(readFileSync(path.join(ROOT, "resources/stage-carriers/stage-carriers.v1.json"), "utf8")).governance_files.map((file) => file.path);
+  assert.equal(members.length, 13);
+  for (const member of members) {
+    assert.equal(existsSync(path.join(ROOT, "resources/governance/bundles/autosk-v1", member)), false, member);
+    assert.deepEqual(tracked.filter((file) => file === member || file.endsWith(`/${member}`)), [], member);
+  }
+
+  // A panel run over a real candidate: the runner and its seats have no caller outside tests.
+  assert.match(deferred, phrase("a panel run over a real candidate"));
+  for (const identifier of ["runBundlePanel", "seatsFor"]) {
+    assert.deepEqual(await filesUsing({ root: ROOT, dirs: ["src", "scripts"], identifier, exclude: ["src/host/bundle-panel.mjs"] }), [], identifier);
+  }
+
+  // A release store: no code imports §7's functions from the module that
+  // defines them, or the module whole (`rollbackPlan` is also the name of the
+  // distribution registry's own function, so the import is what is read).
+  assert.match(deferred, phrase("the content-addressed release store, the `current` pointer and the retention of a version while a lock references it"));
+  const RELEASE = ["releaseAdmission", "releasePointer", "rollbackPlan", "bundleForEpic", "epicMigrationErrors"];
+  const importers = [];
+  for (const file of tracked.filter((name) => /^(?:src|scripts)\//u.test(name) && CODE_EXTENSIONS.test(name))) {
+    const text = readFileSync(path.join(ROOT, file), "utf8");
+    for (const match of text.matchAll(/import\s*(\{[^}]*\}|\*\s*as\s+\w+)\s*from\s*['"]([^'"]+)['"]/gu)) {
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), match[2]));
+      if (target === "src/host/governance-bundle.mjs") importers.push({ file, clause: match[1] });
+    }
+  }
+  assert.ok(importers.length > 0, "the module has importers, so the check reads something");
+  for (const { file, clause } of importers) {
+    assert.ok(!clause.startsWith("*"), `${file} imports the whole module`);
+    for (const name of RELEASE) assert.doesNotMatch(clause, new RegExp(`\\b${name}\\b`, "u"), `${file} imports ${name}`);
+  }
+});
