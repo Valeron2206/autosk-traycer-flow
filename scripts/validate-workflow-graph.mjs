@@ -401,6 +401,15 @@ export function producedAt(document, steps = new Map(document.steps.map((step) =
 }
 
 /**
+ * The leaf's name as a whole token in a row's text (CodeRabbit on #270): not
+ * the start of `park.decision_id` or `park.decisions`, nor of a `.x`
+ * continuation such as `park.decision.recorded_at`, nor the tail of a longer
+ * path; a sentence's own punctuation after it — `park.decision.` at the end of
+ * a sentence — is a boundary, not part of the token.
+ */
+export const DECISION_MARKER = /(?:^|[^\w.])park\.decision(?!\w|\.\w)/u;
+
+/**
  * Whether a document could be the graph it claims to be.
  *
  * The schema decides shape; everything below decides whether the shape refers
@@ -994,7 +1003,7 @@ export function validateGraph(document, schema, allowed = parkReasons()) {
         errors.push(`graph_recovery_decision_targets_invalid: ${row.reason} declares ${target} the user's decision, and it is not one of its resume targets`);
       }
     }
-    const marked = row.required_state.includes("park.decision");
+    const marked = DECISION_MARKER.test(row.required_state);
     if (marked && row.decision_targets === undefined) {
       errors.push(`graph_recovery_decision_targets_invalid: ${row.reason} names park.decision in its required_state and declares no decision targets`);
     }

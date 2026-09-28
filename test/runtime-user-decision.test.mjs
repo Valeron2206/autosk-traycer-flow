@@ -20,6 +20,7 @@ import {
   SIGNATURE_DOMAIN,
   decisionPayloadHash,
   noSigner,
+  resumeDecisionSubject,
   userDecisionProvenance,
   userDecisionRecordHash,
   verifiedUserDecision,
@@ -251,4 +252,14 @@ test("every field has its shape, refused under the caller's code (review L2)", (
   assert.equal(check(issue({ journal_sequence: 0 })).role, "owner");
   // The bounds are asked at the bound: anchor version 1 is the first there is.
   assert.equal(check(issue({ anchor_version: 1 })).role, "owner");
+});
+
+test("a resume decision's subject is the domain-separated digest of the task, the park and the target (CodeRabbit on #270)", () => {
+  // What operation 2 holds a decision-gated resume's record to: its
+  // subject_hash is this digest, under the domain the factory contract names.
+  const about = { task_id: "t-1", reason: "review_cap", watermark: "review_cap@narrow_review_join:11,record_code_verdict:0", target: "fix_artifact" };
+  assert.equal(resumeDecisionSubject(about), digest("autosk-flow/resume-decision/v1", about));
+  for (const field of Object.keys(about)) {
+    assert.notEqual(resumeDecisionSubject({ ...about, [field]: `${about[field]}x` }), resumeDecisionSubject(about), field);
+  }
 });

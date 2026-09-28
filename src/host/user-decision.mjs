@@ -16,7 +16,8 @@
  *
  * It names no refusal of its own: each caller passes the code its contract
  * declares (the decision queue `decision_approver_mismatch`, the Epic
- * acceptance `acceptance_missing`).
+ * acceptance `acceptance_missing`, the workflow factory's resume
+ * `resume_target_not_permitted`).
  */
 import { canonicalBytes, demand, digest, immutable, sha256 } from '../runtime/contracts.mjs';
 
@@ -79,6 +80,7 @@ export const SIGNATURE_DOMAIN = 'autosk-flow/user-presence-challenge/v1';
 const RECORD_DOMAIN = 'autosk-flow/user-decision-record/v1';
 const PROVENANCE_DOMAIN = 'autosk-flow/user-decision-provenance/v1';
 const PAYLOAD_DOMAIN = 'autosk-flow/user-decision-payload/v1';
+const RESUME_DECISION_DOMAIN = 'autosk-flow/resume-decision/v1';
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const HEX = /^[a-f0-9]{64}$/u;
@@ -140,6 +142,19 @@ export function userDecisionProvenance(record) {
 /** The digest of the answer a record signs: its `payload_hash`. */
 export function decisionPayloadHash(payload) {
   return digest(PAYLOAD_DOMAIN, payload);
+}
+
+/**
+ * What a decision to resume a parked task into a target is about: the
+ * `subject_hash` a UserDecisionRecord that decides such a resume signs. It is
+ * the task, the park — its reason and its watermark, the visit counts of the
+ * reason's `parks_at` steps when the park was recorded — and the target, so a
+ * record decides one resume of one task from one park and nothing else
+ * (CodeRabbit on #270). The answer the record signs is
+ * `decisionPayloadHash({ resume_target })`.
+ */
+export function resumeDecisionSubject({ task_id, reason, watermark, target }) {
+  return digest(RESUME_DECISION_DOMAIN, { task_id, reason, watermark, target });
 }
 
 /** The signed bytes and the challenge they decode to, or a refusal. */

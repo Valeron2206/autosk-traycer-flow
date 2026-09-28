@@ -509,18 +509,16 @@ test("the target observation attributes no movement to the Epic: a rewind and a 
   // the target stood on an ancestor of a commit the Epic recorded — which a
   // rewind below the base and someone else's fast-forward into the Epic's
   // unlanded line both are. Under the one CAS neither is this Epic's: its only
-  // movement is its own result, and that reads already_complete first. What a
-  // caller records of its commits changes nothing.
+  // movement is its own result, and that reads already_complete first.
   const { git, root, head: older } = await repository(t);
   const base = await commitOnTop(git, root, { parent: older, file: "b.txt", content: "base\n", message: "base" });
   await git(["update-ref", "refs/heads/main", base.oid, older]);
   const planning = await commitOnTop(git, root, { parent: base.oid, file: "plan.md", content: "plan\n", message: "planning head" });
   const staged = await commitOnTop(git, root, { parent: planning.oid, file: "t.txt", content: "T-1\n", message: "T-1 applied" });
   const accepted = state({ head: base.oid, staged });
-  const recorded = [base.oid, planning.oid, staged.oid];
   for (const [label, moved] of [["a rewind below the base", older], ["a move into the Epic's own line", planning.oid]]) {
     await git(["update-ref", "refs/heads/main", moved]);
-    const observed = await observeTarget(git, { ref: "refs/heads/main", recorded });
+    const observed = await observeTarget(git, { ref: "refs/heads/main" });
     assert.ok(!Object.hasOwn(observed, "attributed_to_this_epic"), `${label}: the observation attributes the movement`);
     const admission = casAdmission(accepted, observed, ["T-1"], casContext(accepted));
     assert.equal(admission.decision, "refused", label);
@@ -531,6 +529,6 @@ test("the target observation attributes no movement to the Epic: a rewind and a 
     );
   }
   await git(["update-ref", "refs/heads/main", staged.oid]);
-  const landed = await observeTarget(git, { ref: "refs/heads/main", recorded });
+  const landed = await observeTarget(git, { ref: "refs/heads/main" });
   assert.equal(casAdmission(accepted, landed, ["T-1"], casContext(accepted)).decision, "already_complete");
 });

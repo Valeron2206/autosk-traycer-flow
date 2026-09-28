@@ -236,6 +236,7 @@ test("a packet's park_reason is the task's park.reason, one of the graph's recov
 
 // --- debt 11e: a packet resumes into its row's graph step (R7-7, ADR-099) ---
 
+/** The workflow graph the shipped packets are held to, read fresh for each test. */
 const shippedGraph = async () => {
   const { readFileSync } = await import("node:fs");
   return JSON.parse(readFileSync(new URL("../resources/workflow-graph/workflow-graph.v1.json", import.meta.url), "utf8"));

@@ -60,6 +60,10 @@ const runner = async (command, args, { cwd, env }) =>
     }),
   );
 
+/**
+ * A repository with one staged commit holding `check.sh`, the staging state
+ * that names it, and the path its throwaway worktree is checked out at.
+ */
 async function staging(t, { checkContent }) {
   const root = await mkdtemp(path.join(tmpdir(), "autosk-aggregate-"));
   t.after(async () => {

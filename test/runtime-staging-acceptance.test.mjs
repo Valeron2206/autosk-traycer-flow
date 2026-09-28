@@ -39,6 +39,7 @@ const acceptanceSchemaErrors = (acceptance) =>
 const NOW = Date.parse("2026-09-09T10:00:00Z");
 const oid = (char) => char.repeat(40);
 
+/** A staging state with two receipted Tickets and the schema's aggregate PASS named by its digest; `overrides` replaces its fields. */
 function state(overrides = {}) {
   const base = {
     project_identity: `sha256:${"0".repeat(64)}`,

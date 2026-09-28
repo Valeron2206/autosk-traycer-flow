@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "8f2d8f3da586a2180db34387e53b23a238b319c5bddc217784124d5363a32db6"
+      "sha256": "1b6822bd04395f8a5dc3e28abe6e8444c72c721ec58d50e40f6d5fbe91302894"
     },
     {
       "path": "02-architecture.md",
@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "2ba01cb053fff14aca41b1e919dc10d1677c3c0730e5baf821be2df3f2423839"
+      "sha256": "258fa3f983bb1d5440813d6c35e345ffa321725e9f9278af333b8f81a2e67ec0"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -128,7 +128,7 @@
     },
     {
       "path": "docs/contracts/human-decision.md",
-      "sha256": "f47d892ede29f3686ea62328849e9fcd02666c819a9a0140c8aef006cc47b687"
+      "sha256": "d054183088681f865fdff690e66bf4957c71e2c55acd2f482e5adfaa31ce8923"
     },
     {
       "path": "docs/contracts/integration-authorization.md",
@@ -200,11 +200,11 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "889cde2dcce8544fbae6e9e43a7f58ec05de6e934fba050638f78dbbb53022d2"
+      "sha256": "b19f094004f059687d6faf319f573a8e9512f1cec63453693db79775d22182a2"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "add43ec822b9c0a3157e3de20dab169536ef3c379687cc0b2d37f23516a78434"
+      "sha256": "fd2650d8c400653a974e299cf1aac5305e7a5c07991309ed3bf48441a1aa6633"
     },
     {
       "path": "docs/program-capability-matrix.md",
@@ -928,7 +928,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "f1007ae3a79a99ce78377c56eb19be8f8c10f7e4628334e56ed9a70380e98650"
+      "sha256": "1c1d8601aeaaf12b4eb0a7da765bc608a3034d8acfd81ecf27250646bbd6ea1c"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
@@ -952,10 +952,10 @@
     },
     {
       "path": "src/host/workflow-graph-canonical.mjs",
-      "sha256": "724205c7e7d7823c4c8090f22859bd903d6bd03aff06e2f01e3d75408488080b"
+      "sha256": "6b20c66603620bac1c1fc6584c43e60e9a5fa9c41664dc6b02c453496c48344e"
     }
   ],
-  "candidate_digest": "e2b92d1a893028b1494283634de9780aac2c2d52905c47289af3bef49f13819e",
+  "candidate_digest": "340f3dfad7c9dccdb020f20dde28cc70ecc3b9cf4bd3445a8c640c1f37a1d7f9",
   "dispositions": [
     {
       "issue": 3,

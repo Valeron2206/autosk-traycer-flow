@@ -93,6 +93,7 @@ test("object keys are ordered by their code units, not by insertion", () => {
 
 // --- which arrays are sets and which carry order -----------------------------
 
+/** A small graph whose sets are written out of order and whose ordered arrays are not. */
 const graph = () => ({
   workflow: "w",
   first_step: "a",

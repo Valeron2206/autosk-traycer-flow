@@ -645,6 +645,11 @@ export async function buildPackage({ commit, tree, candidate, cleanRoom, matrix,
   const unlinked = contracts.filter((entry) => (entry.evaluators ?? []).length === 0);
   const srcMeasured = unlinked.every((entry) => Array.isArray(entry.named_under_src)
     && Array.isArray(entry.src_references?.naming) && Array.isArray(entry.src_references?.named_paths));
+  /**
+   * Whether `src/` holds anything of a contract no evaluator is linked to: a
+   * refusal it declares named in a src file, a src file naming the contract,
+   * or a src path the contract names that exists.
+   */
   const foundUnderSrc = (entry) => entry.named_under_src.length > 0
     || entry.src_references.naming.length > 0 || entry.src_references.named_paths.length > 0;
   const unreferenced = srcMeasured ? unlinked.filter((entry) => !foundUnderSrc(entry)) : [];
@@ -1197,7 +1202,8 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   (\`park.reason\`, \`park.origin\`, \`park.receipts.<step>\`) through plain
   \`autosk metadata set\`, which any holder of the CLI can run, and reads one more it does not write, \`park.decision\`,
   which the same command writes: a model session could mint a bound create or
-  forge a receipt or a decision that opens a resume. 02 §2 gives
+  forge a receipt that opens a resume; a forged \`park.decision\` opens nothing without a verified record
+  (below). 02 §2 gives
   a model session no CLI or decision capability; that is the design, not this
   series. Matrix v1 gives the token's removal to #11 and resume leaves written
   only under the metadata CAS to #18 (ADR-097); roadmap #231 tracks the change.
@@ -1249,16 +1255,15 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   the compatibility workflow and is no band of this section.
   A resume the graph declares the user's decision (a recovery row's
   \`decision_targets\`: a round past \`review_cap\`, a re-stage onto a moved
-  target) is admitted only on the decision recorded under that park (\`park.decision\`:
-  the park's watermark, \`#\` and the digest of the daemon \`UserDecisionRecord\`,
-  ADR-099), one round per decision past the cap, with the count and the limit
-  unchanged; a resume that runs no round owes none.
-  The factory checks the leaf's shape and park only: the leaf is
-  forgeable until it is written only under the metadata CAS (#18, roadmap #231),
-  written from a verified decision by the resume path (#35), and the record it
-  names is verified by nobody until the ADR-023 verifier exists (#4), which must
-  check that its subject is this task and this park; no user decision verifies
-  on any host today (above).
+  target) is admitted only on a verified \`UserDecisionRecord\` through the caller's verifier:
+  the park's leaf (\`park.decision\`: the park's watermark, \`#\` and the record's
+  digest) names a record the caller looks up, and the record must verify, name
+  this task and have decided this park's resume into this target (ADR-099,
+  CodeRabbit on #270) — one round per decision past the cap, with the count and
+  the limit unchanged; a resume that runs no round owes none. The factory is handed
+  its verifier as it is handed its evaluator, and without one the default verifier refuses, so no decision-gated resume is admitted on a real host today
+  (no user decision verifies on any host, above).
+  The leaf's writer is the resume path (#35), the signer and verifier are #4's, and the CAS on the leaf is #18's (roadmap #231).
 - ${mutation.modules.filter((entry) => entry.mutants > 0).length} runtime modules carry a mutable guard and are covered by the
   reproducible mutation command. The daemon is not in this repository and its
   guards are not mutated by it, so nothing here is evidence about them.

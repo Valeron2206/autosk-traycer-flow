@@ -1558,3 +1558,22 @@ test("a Ticket with two integration receipts is receipt_missing in the graph's r
   assert.match(row.required_state, /a Ticket has more than one/u);
   assert.match(read("docs/contracts/epic-staging.md"), /more than one integration receipt[^.]*`receipt_missing`/u);
 });
+
+// --- CodeRabbit on #270: the documents say what a decision-gated resume is admitted on ---
+
+test("the documents say a decision-gated resume is admitted only on a verified record of this task's resume from this park, under the domain the factory binds (CodeRabbit on #270)", () => {
+  // CodeRabbit on PR #270: the factory checked the leaf and nothing behind
+  // it. It now verifies the record the leaf names through the caller's
+  // verifier, and the documents say that, and that without a signer nothing
+  // is admitted.
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.match(factory, /`autosk-flow\/resume-decision\/v1`/u);
+  assert.match(factory, /`verifySignature`[^.]*`noSigner`/u);
+  assert.doesNotMatch(factory, /checks the leaf's shape and park, not the record it names/u);
+  const row = read("01-core-flows.md").split("\n").find((line) => line.startsWith("| Превысить 10 раундов |"));
+  assert.match(row, /проверяет своим verifier/u);
+  assert.match(read("docs/contracts/human-decision.md"), /`autosk-flow\/resume-decision\/v1`/u);
+  assert.match(read("docs/contracts/workflow-graph.md"), /verified `UserDecisionRecord`/u);
+  const adr = sectionOf(read("04-decisions.md"), "## ADR-099:", "## Оставшиеся риски");
+  assert.match(adr, /CodeRabbit на #270/u);
+});

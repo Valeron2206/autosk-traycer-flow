@@ -76,11 +76,19 @@ export function epicStagingDesignDigest(files) {
 
 const phaseIndex = (phase) => PHASES.indexOf(phase);
 
+/**
+ * What is wrong with one staging record: its schema, its staging ref named by
+ * the Epic ref key, its recorded base and replay receipt, one receipt per
+ * Ticket, and — for each phase it has reached — the aggregate, acceptance and
+ * post-CAS records that phase requires, bound to the tree and Ticket set they
+ * are about. Empty when the record holds.
+ */
 export function validateStaging(state, schema) {
   const errors = validateJsonSchema(state, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;
 
   const at = phaseIndex(state.phase);
+  /** Whether the record's phase is `phase` or later, so the records `phase` produces must be there. */
   const reached = (phase) => at >= phaseIndex(phase);
 
   // Named by the Epic ref key, never by the display id (ADR-087): the key binds

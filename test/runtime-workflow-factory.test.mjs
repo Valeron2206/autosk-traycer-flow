@@ -21,6 +21,9 @@ import test from "node:test";
 
 import { DOCUMENT_PATH, graphDigest, parseStrict } from "../scripts/validate-workflow-graph.mjs";
 import { ROOT, closedByContract, readContracts } from "../scripts/validate-refusal-vocabulary.mjs";
+import { digest } from "../src/runtime/contracts.mjs";
+import { decisionPayloadHash, userDecisionRecordHash } from "../src/host/user-decision.mjs";
+import { testSigner } from "./support/user-decision-signer.mjs";
 import {
   GraphRefusal,
   REFUSALS,
@@ -311,13 +314,19 @@ test("a foreign target movement resumes into apply_staging on a recorded decisio
   // moved target resumes into apply_staging; the CAS itself is never retried.
   // Review of 11e, M2: the row says "only on a recorded user decision", and
   // the resume was admitted with none; apply_staging is now a decision
-  // target of the row, so the park must carry the decision leaf.
+  // target of the row, so the park must carry the decision leaf. CodeRabbit
+  // on #270: and the leaf must name a verified record of this task's
+  // re-stage from this park, handed in by the caller.
   const state = index(document());
   const row = state.recovery.get("foreign_target_movement");
   assert.equal(refusalOf(() => permitsResume(state, "foreign_target_movement", "apply_staging")).reason, "resume_target_not_permitted");
-  assert.equal(permitsResume(state, "foreign_target_movement", "apply_staging", { decision: decisionLeaf(row, {}) }), true);
+  assert.equal(refusalOf(() => permitsResume(state, "foreign_target_movement", "apply_staging", { decision: decisionLeaf(row, {}) })).reason,
+    "resume_target_not_permitted");
+  const record = resumeRecord(row, {}, "apply_staging");
+  const decided = { decision: leafFor(row, {}, record) };
+  assert.equal(permitsResume(state, "foreign_target_movement", "apply_staging", decided, {}, decidedBy([record])), true);
   assert.equal(
-    refusalOf(() => permitsResume(state, "foreign_target_movement", "integrate_staging", { decision: decisionLeaf(row, {}) })).reason,
+    refusalOf(() => permitsResume(state, "foreign_target_movement", "integrate_staging", decided, {}, decidedBy([record]))).reason,
     "resume_target_not_permitted",
   );
 });
@@ -372,31 +381,35 @@ test("a row scoped to its origin's edges admits the origin and what an edge out 
   const reason = "review_cap";
   assert.equal(state.recovery.get(reason).resume_scope, "origin_edges");
   // review_cap declares the targets that run another round the user's
-  // decision, so the case carries the decision recorded under the park
-  // (ADR-099); the scope is what this case is about, and it is decided before
-  // the decision is read.
-  const decision = { decision: decisionLeaf(state.recovery.get(reason), {}) };
-  const planned = { origin: "narrow_review_join", ...decision };
-  assert.equal(permitsResume(state, reason, "fix_artifact", planned), true);
+  // decision, so each case hands in a verified record of that resume
+  // (ADR-099, CodeRabbit on #270); the scope is what this case is about, and
+  // it is decided before the decision is read.
+  const row = state.recovery.get(reason);
+  const resume = (target, park, at = state) => {
+    const record = resumeRecord(row, {}, target);
+    return () => permitsResume(at, reason, target, { ...park, decision: leafFor(row, {}, record) }, {}, decidedBy([record]));
+  };
+  const planned = { origin: "narrow_review_join" };
+  assert.equal(resume("fix_artifact", planned)(), true);
   for (const target of ["fix", "invalidate_quick_classification", "rebuild_code_anchor"]) {
-    assert.equal(refusalOf(() => permitsResume(state, reason, target, planned)).reason, "resume_target_not_permitted", target);
+    assert.equal(refusalOf(resume(target, planned)).reason, "resume_target_not_permitted", target);
   }
-  const code = { origin: "record_code_verdict", ...decision };
+  const code = { origin: "record_code_verdict" };
   for (const target of ["fix", "invalidate_quick_classification", "rebuild_code_anchor", "human"]) {
-    assert.equal(permitsResume(state, reason, target, code), true, target);
+    assert.equal(resume(target, code)(), true, target);
   }
-  assert.equal(refusalOf(() => permitsResume(state, reason, "fix_artifact", code)).reason, "resume_target_not_permitted");
+  assert.equal(refusalOf(resume("fix_artifact", code)).reason, "resume_target_not_permitted");
   // The list still bounds it: record_code_verdict has an edge into Quick's
   // accept, and the row does not list accept.
   assert.ok(state.outgoing.get("record_code_verdict").some((edge) => edge.to === "accept"));
-  assert.equal(refusalOf(() => permitsResume(state, reason, "accept", code)).reason, "resume_target_not_permitted");
+  assert.equal(refusalOf(resume("accept", code)).reason, "resume_target_not_permitted");
   // With no origin recorded there is no edge to go by, so nothing is admitted.
-  assert.equal(refusalOf(() => permitsResume(state, reason, "fix_artifact", {})).reason, "resume_target_not_permitted");
+  assert.equal(refusalOf(resume("fix_artifact", {})).reason, "resume_target_not_permitted");
   // And origin scope proper admits the origin alone, not its edges.
   const strict = index(resealed((entry) => {
-    entry.recovery.find((row) => row.reason === reason).resume_scope = "origin";
+    entry.recovery.find((candidate) => candidate.reason === reason).resume_scope = "origin";
   }));
-  assert.equal(refusalOf(() => permitsResume(strict, reason, "fix_artifact", planned)).reason, "resume_target_not_permitted");
+  assert.equal(refusalOf(resume("fix_artifact", planned, strict)).reason, "resume_target_not_permitted");
 });
 
 test("a Quick or Ticket stop under review_cap or artifact_mapping_required still resumes where its own workflow recovers", async () => {
@@ -405,26 +418,33 @@ test("a Quick or Ticket stop under review_cap or artifact_mapping_required still
   // the same two steps, freeze and record_code_verdict.
   const graph = document();
   const state = index(graph);
-  const workflow = buildWorkflow(graph, { evaluate: always });
-
   // review_cap at record_code_verdict: a new fix round — the step the table
   // names for Quick and Ticket, which the union could not list without lending
   // it to the Planned stop — the anchor rebuild and, for Quick, the hand-off
   // out of the Quick classification. The Planned fixer is not theirs.
-  // With the decision recorded under the park, which the targets that run a
-  // round owe (ADR-099): what this case is about is where the Quick and
-  // Ticket stop is admitted.
-  const capped = {
+  // With a verified record of each resume that runs a round, as the targets
+  // that run one owe (ADR-099, CodeRabbit on #270): what this case is about is
+  // where the Quick and Ticket stop is admitted.
+  const cap = state.recovery.get("review_cap");
+  const records = new Map(["fix", "rebuild_code_anchor", "fix_artifact"].map((target) => [target, resumeRecord(cap, {}, target, { task: "t-q" })]));
+  const workflow = buildWorkflow(graph, { evaluate: always, ...deciding([...records.values()]) });
+  const capped = (target) => ({
     id: "t-q",
     step: "human",
     status: "human",
-    metadata: { park: { reason: "review_cap", origin: "record_code_verdict", decision: decisionLeaf(state.recovery.get("review_cap"), {}) } },
-  };
+    metadata: {
+      park: {
+        reason: "review_cap",
+        origin: "record_code_verdict",
+        ...(records.has(target) ? { decision: leafFor(cap, {}, records.get(target)) } : {}),
+      },
+    },
+  });
   for (const target of ["fix", "rebuild_code_anchor", "invalidate_quick_classification"]) {
-    await workflow.onTransit(context(capped).ctx, { step: target });
+    await workflow.onTransit(context(capped(target)).ctx, { step: target });
   }
   await assert.rejects(
-    () => workflow.onTransit(context(capped).ctx, { step: "fix_artifact" }),
+    () => workflow.onTransit(context(capped("fix_artifact")).ctx, { step: "fix_artifact" }),
     (error) => error.reason === "resume_target_not_permitted",
   );
 
@@ -2211,6 +2231,56 @@ test("an array in the count record is no count, even for a step named `length`",
  */
 const decisionLeaf = (row, visits, record = "a".repeat(64)) => `${watermarkOf(row, visits)}#${record}`;
 
+/**
+ * The daemon's signer, as the user-decision and decision-queue tests stand
+ * it in: the product has none, and with none every decision-gated resume is
+ * refused (CodeRabbit on #270).
+ */
+const signer = testSigner();
+
+/** The task every decided case below resumes, unless it says otherwise. */
+const TASK = "t-decided";
+
+/**
+ * A UserDecisionRecord the user signed to resume a park into `target`: about
+ * this task, this park — its reason and watermark — and this target, and
+ * answering exactly that. The options let a case sign something else: another
+ * task, another park or target in the subject, another answer, or another
+ * record id.
+ */
+const resumeRecord = (row, visits, target, {
+  task = TASK,
+  subjectTask = task,
+  watermark = watermarkOf(row, visits),
+  subjectTarget = target,
+  answer = target,
+  ...issued
+} = {}) => signer.issue({
+  request_id: `resume-${row.reason}`,
+  project_root_sha256: "0".repeat(64),
+  anchor_version: 1,
+  task_id: task,
+  subject_hash: digest("autosk-flow/resume-decision/v1", { task_id: subjectTask, reason: row.reason, watermark, target: subjectTarget }),
+  payload_hash: decisionPayloadHash({ resume_target: answer }),
+  ...issued,
+});
+
+/** The leaf a park carries for `record`: this park's watermark and the record's digest. */
+const leafFor = (row, visits, record) => `${watermarkOf(row, visits)}#${userDecisionRecordHash(record)}`;
+
+/** What a caller hands operation 2: the task, a lookup of records by digest, and the verifier. */
+const decidedBy = (records, { task = TASK, verifySignature = signer.verifySignature } = {}) => ({
+  task,
+  record: (hash) => records.find((entry) => userDecisionRecordHash(entry) === hash),
+  verifySignature,
+});
+
+/** The factory's options that hand the veto the same lookup and verifier. */
+const deciding = (records, verifySignature = signer.verifySignature) => ({
+  decisionRecord: decidedBy(records).record,
+  verifySignature,
+});
+
 test("a resume into a target its row declares the user's decision is refused without the decision recorded under its park, and admitted with it (R7-4; review M1, M2)", async () => {
   // Round 7 of #39, R7-4: 01 §8, 03 §7 and the graph's view require a new
   // daemon-attributed cap decision for a round past the review cap, and
@@ -2235,7 +2305,9 @@ test("a resume into a target its row declares the user's decision is refused wit
   const bare = refusalOf(() => permitsResume(state, reason, "fix_artifact", origin, visits));
   assert.equal(bare.reason, "resume_target_not_permitted");
   assert.match(bare.detail, /decision/u);
-  assert.equal(permitsResume(state, reason, "fix_artifact", { ...origin, decision: decisionLeaf(row, visits) }, visits), true);
+  // Admitted on a verified record of this resume (CodeRabbit on #270).
+  const planned = resumeRecord(row, visits, "fix_artifact");
+  assert.equal(permitsResume(state, reason, "fix_artifact", { ...origin, decision: leafFor(row, visits, planned) }, visits, decidedBy([planned])), true);
   // The Quick and Ticket cap: a new round owes the decision, and the exits
   // that run none — the hand-off out of the Quick classification, staying
   // parked — owe nothing.
@@ -2243,7 +2315,8 @@ test("a resume into a target its row declares the user's decision is refused wit
   const coded = { narrow_review_join: 0, record_code_verdict: 4 };
   for (const target of ["fix", "rebuild_code_anchor"]) {
     assert.equal(refusalOf(() => permitsResume(state, reason, target, code, coded)).reason, "resume_target_not_permitted", target);
-    assert.equal(permitsResume(state, reason, target, { ...code, decision: decisionLeaf(row, coded) }, coded), true, target);
+    const record = resumeRecord(row, coded, target);
+    assert.equal(permitsResume(state, reason, target, { ...code, decision: leafFor(row, coded, record) }, coded, decidedBy([record])), true, target);
   }
   for (const target of ["invalidate_quick_classification", "human"]) {
     assert.equal(permitsResume(state, reason, target, code, coded), true, target);
@@ -2269,10 +2342,12 @@ test("a resume into a target its row declares the user's decision is refused wit
       JSON.stringify(malformed),
     );
   }
-  // The decision widens nothing: a target the row or its scope refuses stays refused.
-  const decided = { ...origin, decision: decisionLeaf(row, visits) };
+  // The decision widens nothing: a target the row or its scope refuses stays
+  // refused, with a verified record of that very resume in hand.
   for (const target of ["fix", "invalidate_quick_classification", "done"]) {
-    assert.equal(refusalOf(() => permitsResume(state, reason, target, decided, visits)).reason, "resume_target_not_permitted", target);
+    const record = resumeRecord(row, visits, target);
+    assert.equal(refusalOf(() => permitsResume(state, reason, target, { ...origin, decision: leafFor(row, visits, record) }, visits, decidedBy([record]))).reason,
+      "resume_target_not_permitted", target);
   }
   // A re-stage onto a moved target is the user's decision too (M2), and what
   // runs nothing — staying parked, re-reading the delivery — owes none.
@@ -2280,20 +2355,23 @@ test("a resume into a target its row declares the user's decision is refused wit
   for (const [moved, parkedAt, other] of [["foreign_target_movement", "integrate_staging", "human"], ["completion_predicate_unmet", "deliver_staging", "deliver_staging"]]) {
     const movedRow = state.recovery.get(moved);
     assert.equal(refusalOf(() => permitsResume(state, moved, "apply_staging", { origin: parkedAt }, staged)).reason, "resume_target_not_permitted", moved);
-    assert.equal(permitsResume(state, moved, "apply_staging", { origin: parkedAt, decision: decisionLeaf(movedRow, staged) }, staged), true, moved);
+    const record = resumeRecord(movedRow, staged, "apply_staging");
+    assert.equal(permitsResume(state, moved, "apply_staging", { origin: parkedAt, decision: leafFor(movedRow, staged, record) }, staged, decidedBy([record])), true, moved);
     assert.equal(permitsResume(state, moved, other, { origin: parkedAt }, staged), true, `${moved} -> ${other}`);
   }
   // A row that declares no decision target owes no decision.
   assert.equal(permitsResume(state, "staging_moved_after_pass", "apply_staging"), true);
 
-  // Through the veto the engine runs for every resume.
-  const workflow = buildWorkflow(graph, { evaluate: always });
+  // Through the veto the engine runs for every resume: the task is the one it
+  // reads, and the lookup and verifier are the workflow's options.
+  const workflow = buildWorkflow(graph, { evaluate: always, ...deciding([resumeRecord(row, visits, "fix_artifact", { task: "t-cap" })]) });
   const parked = (park) => ({ id: "t-cap", step: "human", status: "human", metadata: { step_visits: visits, park } });
   await assert.rejects(
     () => workflow.onTransit(context(parked({ reason, ...origin })).ctx, { step: "fix_artifact" }),
     (error) => error.reason === "resume_target_not_permitted" && /decision/u.test(error.detail),
   );
-  assert.equal(await workflow.onTransit(context(parked({ reason, ...decided })).ctx, { step: "fix_artifact" }), undefined);
+  const vetoed = { ...origin, decision: leafFor(row, visits, resumeRecord(row, visits, "fix_artifact", { task: "t-cap" })) };
+  assert.equal(await workflow.onTransit(context(parked({ reason, ...vetoed })).ctx, { step: "fix_artifact" }), undefined);
   const quick = { id: "t-quick", step: "human", status: "human", metadata: { step_visits: coded, park: { reason, ...code } } };
   assert.equal(await workflow.onTransit(context(quick).ctx, { step: "invalidate_quick_classification" }), undefined);
 });
@@ -2305,7 +2383,10 @@ test("a round past the cap leaves the count and the limit where they were, so th
   // after the extra round parks review_cap at once.
   const graph = document();
   const row = graph.recovery.find((entry) => entry.reason === "review_cap");
-  const workflow = buildWorkflow(graph, { evaluate: (predicate) => ["cond_135", "cond_136"].includes(predicate) });
+  // The records the user signs as the rounds go, which the caller's lookup
+  // reads (CodeRabbit on #270).
+  const signed = [];
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => ["cond_135", "cond_136"].includes(predicate), ...deciding(signed) });
   const task = {
     id: "t-round",
     step: "narrow_review_join",
@@ -2322,7 +2403,9 @@ test("a round past the cap leaves the count and the limit where they were, so th
   assert.equal(task.metadata.park.origin, "narrow_review_join");
 
   // The user decides one more round: the decision is recorded under this park.
-  task.metadata.park.decision = decisionLeaf(row, task.metadata.step_visits);
+  const eleventh = resumeRecord(row, task.metadata.step_visits, "fix_artifact", { task: "t-round" });
+  signed.push(eleventh);
+  task.metadata.park.decision = leafFor(row, task.metadata.step_visits, eleventh);
   await workflow.onTransit(context(task).ctx, { step: "fix_artifact" });
 
   // The round runs and comes back to the join with another NOT_PASS: the
@@ -2344,6 +2427,80 @@ test("a round past the cap leaves the count and the limit where they were, so th
     () => workflow.onTransit(context(task).ctx, { step: "fix_artifact" }),
     (error) => error.reason === "resume_target_not_permitted",
   );
-  task.metadata.park.decision = decisionLeaf(row, task.metadata.step_visits, "b".repeat(64));
+  const twelfth = resumeRecord(row, task.metadata.step_visits, "fix_artifact", { task: "t-round", record_id: "udr-0002" });
+  signed.push(twelfth);
+  task.metadata.park.decision = leafFor(row, task.metadata.step_visits, twelfth);
   assert.equal(await workflow.onTransit(context(task).ctx, { step: "fix_artifact" }), undefined);
+});
+
+// --- CodeRabbit on #270: a decision-gated resume is admitted only on a verified UserDecisionRecord of this task, this park and this target ---
+
+test("a decision-gated resume is admitted only on a verified UserDecisionRecord that decided this task's resume from this park into this target (CodeRabbit on #270)", async () => {
+  // CodeRabbit on PR #270 (CWE-345): operation 2 checked the leaf's shape and
+  // watermark and nothing else, so a leaf copied from another task parked
+  // with the same watermark opened this one. The leaf now names a record the
+  // caller looks up by digest, and the record must verify under the caller's
+  // verifier, name this task, and have decided this park's resume into this
+  // target. With no signer — every real host today — nothing is admitted.
+  const graph = document();
+  const state = index(graph);
+  const reason = "review_cap";
+  const row = state.recovery.get(reason);
+  const visits = { narrow_review_join: 11, record_code_verdict: 0 };
+  const origin = { origin: "narrow_review_join" };
+  const record = resumeRecord(row, visits, "fix_artifact");
+  const park = { ...origin, decision: leafFor(row, visits, record) };
+  const refused = (label, parked, decisions, target = "fix_artifact", at = visits) => {
+    const error = refusalOf(() => permitsResume(state, reason, target, parked, at, decisions));
+    assert.equal(error.reason, "resume_target_not_permitted", label);
+    assert.match(error.detail, /UserDecisionRecord/u, label);
+  };
+  // Signed for this task, this park and this target, and verified: admitted.
+  assert.equal(permitsResume(state, reason, "fix_artifact", park, visits, decidedBy([record])), true);
+  // Nothing handed in, or the default verifier: no signer, so no decision
+  // (ADR-090, #4) — a well-formed leaf decides nothing on its own.
+  refused("nothing handed in", park, undefined);
+  refused("the default verifier", park, { task: TASK, record: decidedBy([record]).record });
+  // A well-formed leaf whose digest no record answers to.
+  refused("a digest with no record", { ...origin, decision: decisionLeaf(row, visits) }, decidedBy([record]));
+  // The lookup hands back another record than the one the leaf names.
+  const another = resumeRecord(row, visits, "fix_artifact", { record_id: "udr-0002" });
+  refused("another record than the leaf names", park, { ...decidedBy([record]), record: () => another });
+  // Another task's record, its leaf copied onto this park.
+  const theirs = resumeRecord(row, visits, "fix_artifact", { task: "t-other" });
+  refused("another task's record", { ...origin, decision: leafFor(row, visits, theirs) }, decidedBy([theirs]));
+  // A record that names another task over this task's subject.
+  const misnamed = resumeRecord(row, visits, "fix_artifact", { task: "t-other", subjectTask: TASK });
+  refused("a record naming another task", { ...origin, decision: leafFor(row, visits, misnamed) }, decidedBy([misnamed]));
+  // A record of an earlier park of the reason, its leaf rewritten to this park's watermark.
+  const earlier = resumeRecord(row, visits, "fix_artifact", { watermark: watermarkOf(row, { narrow_review_join: 10, record_code_verdict: 0 }) });
+  refused("another park's record", { ...origin, decision: leafFor(row, visits, earlier) }, decidedBy([earlier]));
+  // The Quick cap: a record of the resume into rebuild_code_anchor does not
+  // decide fix, and a record of this subject that answered something else —
+  // staying parked — decides nothing.
+  const code = { origin: "record_code_verdict" };
+  const coded = { narrow_review_join: 0, record_code_verdict: 4 };
+  const rebuild = resumeRecord(row, coded, "rebuild_code_anchor");
+  refused("another target's record", { ...code, decision: leafFor(row, coded, rebuild) }, decidedBy([rebuild]), "fix", coded);
+  assert.equal(permitsResume(state, reason, "rebuild_code_anchor", { ...code, decision: leafFor(row, coded, rebuild) }, coded, decidedBy([rebuild])), true);
+  const stay = resumeRecord(row, coded, "fix", { answer: "human" });
+  refused("this subject, another answer", { ...code, decision: leafFor(row, coded, stay) }, decidedBy([stay]), "fix", coded);
+
+  // Through the veto: the task is the one the veto reads, and the lookup and
+  // the verifier are the workflow's options, as the evaluator is.
+  const parked = (id) => ({ id, step: "human", status: "human", metadata: { step_visits: visits, park: { reason, ...park } } });
+  const workflow = buildWorkflow(graph, { evaluate: always, ...deciding([record]) });
+  assert.equal(await workflow.onTransit(context(parked(TASK)).ctx, { step: "fix_artifact" }), undefined);
+  await assert.rejects(
+    () => workflow.onTransit(context(parked("t-other")).ctx, { step: "fix_artifact" }),
+    (error) => error.reason === "resume_target_not_permitted",
+  );
+  for (const options of [{}, { decisionRecord: decidedBy([record]).record }]) {
+    const unsigned = buildWorkflow(graph, { evaluate: always, ...options });
+    await assert.rejects(
+      () => unsigned.onTransit(context(parked(TASK)).ctx, { step: "fix_artifact" }),
+      (error) => error.reason === "resume_target_not_permitted",
+      JSON.stringify(Object.keys(options)),
+    );
+  }
 });

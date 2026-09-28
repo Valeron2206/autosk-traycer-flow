@@ -94,6 +94,7 @@ export function byKeyComparator(key) {
  * be typed in some order, and a reshuffle of a set must not move the digest.
  */
 export function normalizeGraph(document) {
+  /** A copy of a set of records in its one order: by `key`, compared as raw bytes. */
   const byKey = (items, key) => [...items].sort(byKeyComparator(key));
   const normalized = { ...document };
   if (Array.isArray(document.predicates)) {

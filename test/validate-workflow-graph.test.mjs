@@ -2185,3 +2185,25 @@ test("the working example's cap row says what ADR-099 says: no decision raises t
   assert.match(cap.required_state, /the limit never raised/u);
   assert.match(cap.required_state, /park\.decision/u);
 });
+
+// --- CodeRabbit on #270: the marker is a whole token ---
+
+test("park.decision is a whole token: park.decision_id and park.decisions are not the marker, and a sentence may end on it (CodeRabbit on #270)", () => {
+  // CodeRabbit on PR #270: `includes("park.decision")` also matched
+  // park.decisions and park.decision_id. The marker is the token itself: a
+  // word character or a `.x` continuation after it makes another token, and
+  // a sentence's own period after it is punctuation.
+  const row = (document, reason) => document.recovery.find((entry) => entry.reason === reason);
+  const invalid = (errors) => errors.filter((message) => message.startsWith("graph_recovery_decision_targets_invalid:"));
+  for (const name of ["park.decision_id", "park.decisions", "park.decision.recorded_at"]) {
+    const errors = validateGraph(shippedGraph((document) => {
+      row(document, "staging_moved_after_pass").required_state += `; the resume reads no ${name}`;
+    }), schema);
+    assert.deepEqual(invalid(errors), [], name);
+  }
+  const ended = shippedGraph((document) => {
+    const entry = row(document, "foreign_target_movement");
+    entry.required_state = `${entry.required_state.replace(" (park.decision)", "")}. The decision is park.decision.`;
+  });
+  assert.deepEqual(invalid(validateGraph(ended, schema)), []);
+});

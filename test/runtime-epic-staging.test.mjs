@@ -60,6 +60,12 @@ const AUTHORIZATION = Object.freeze({
 });
 const NOW = Date.parse("2026-09-09T00:00:00Z");
 
+/**
+ * An accepted staging state that may swap: two receipted Tickets, the
+ * schema's aggregate record named by its digest, and a human acceptance of
+ * this identity standing on AUTHORIZATION. `overrides` replaces fields of the
+ * state, and of the aggregate record before it is hashed.
+ */
 function state(overrides = {}) {
   const base = {
     schema_version: 1,

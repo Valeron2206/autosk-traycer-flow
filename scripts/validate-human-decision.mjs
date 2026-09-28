@@ -210,6 +210,13 @@ export function decisionDesignDigest(files) {
   );
 }
 
+/**
+ * What is wrong with one decision packet, against the request schema and the
+ * graph it resumes into: the schema, a resume target a task of the named
+ * workflow can stand at and its row permits (`resumeTargetErrors`), no
+ * transcript or secret, options that make a choice, and flags, expiry and
+ * answer that agree with each other. Empty when the packet holds.
+ */
 export function validateRequest(request, schema, graph = GRAPH) {
   const errors = validateJsonSchema(request, schema).map((message) => `schema: ${message}`);
   if (errors.length > 0) return errors;
@@ -277,6 +284,13 @@ export function crossProjectLeak(status, ownIdentity) {
   return identities.some((identity) => identity !== ownIdentity);
 }
 
+/**
+ * What is wrong with the shipped human-decision design: the contract names its
+ * marker, its request schema and every refusal it closes; both schemas are
+ * closed; the request schema requires the two load-bearing fields and
+ * enumerates exactly the graph's park reasons and workflows; and every shipped
+ * packet and status validates. Empty when the design holds.
+ */
 export function validateHumanDecisionDesign(files) {
   const errors = [];
   const contract = files[CONTRACT_PATH];
