@@ -943,6 +943,18 @@ async function run(state, step, work, deciding, ctx) {
     // whatever reason the PREVIOUS park had left behind, or with none at all,
     // and a resume the reason permits was refused because no reason was
     // there.
+    //
+    // A boundary of a cap's cycle: where the count stood is recorded before
+    // anything else of the move is, keyed by the crossing it makes, so the
+    // next cycle counts from there (review of 12c, M1). It comes before the
+    // reason is recorded or cleared: a baseline write that fails then leaves
+    // the reason, the origin and the position as they were, where clearing
+    // first left the task at its step with the reason gone, so the
+    // engine-side park that followed was unreasoned and the row's other
+    // targets were lost (CodeRabbit on #276). A record that fails after the
+    // baseline landed leaves a baseline keyed ahead of the daemon's count,
+    // which is not read, and the retry writes the same key and value again.
+    await recordBaselines(ctx, state, decision.take, task);
     if (parks(state, decision.take.to)) {
       await recordPark(ctx, parkReasonFor(state, decision.take), step.name);
     } else if (park?.reason !== undefined && !onSurface(row, park, decision.take.to)) {
@@ -957,15 +969,10 @@ async function run(state, step, work, deciding, ctx) {
       // there is still this park, and a completion still owed its receipt.
       // The clearing cannot live in the veto: the transit ctx carries no exec
       // to write through. It lands here, after the receipt write above and
-      // before the position moves, so a record whose write fails leaves the
-      // task where it stood rather than mid-move.
+      // the baseline, and before the position moves, so a record whose write
+      // fails leaves the task where it stood rather than mid-move.
       await clearParkReason(ctx);
     }
-    // A boundary of a cap's cycle: where the count stood is recorded before
-    // the move, keyed by the crossing it makes, so the next cycle counts from
-    // there (review of 12c, M1). A write that fails leaves the task where it
-    // stood, as a park's record does.
-    await recordBaselines(ctx, state, decision.take, task);
     await ctx.transit({ step: decision.take.to });
     return;
   }

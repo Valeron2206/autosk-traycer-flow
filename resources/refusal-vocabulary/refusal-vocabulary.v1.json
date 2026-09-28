@@ -520,9 +520,11 @@
         "present_tickets_breakdown"
       ],
       "named_at_classes": [],
-      "closed_by": "03-technical-plan.md",
-      "producer": "daemon",
-      "producer_files": []
+      "closed_by": "docs/contracts/artifact-registry.md",
+      "producer": "host",
+      "producer_files": [
+        "src/host/artifact-classifier.mjs"
+      ]
     },
     {
       "code": "artifact_pass_invalid",
@@ -1399,5 +1401,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "1215130abacbbba892f04996e928c44502cee382733a24535dccf4604998791c"
+  "vocabulary_digest": "0fefa241a0ee0cb6f598827844411ffbd0730e96483ffe9e53abac0e0b62b820"
 }

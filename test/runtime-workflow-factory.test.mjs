@@ -448,35 +448,42 @@ test("a Quick or Ticket stop under review_cap or artifact_mapping_required still
     (error) => error.reason === "resume_target_not_permitted",
   );
 
-  // artifact_mapping_required at freeze: dropping done took nothing a Quick
-  // or Ticket stop could reach. done was lent only by
-  // invalidate_quick_classification's completion receipt, and nothing the
-  // reason admits from freeze runs there while the reason is recorded: it is
-  // not a target, and no step the flow can stand on under the reason has an
-  // edge into it. What such a stop is admitted into is what it was admitted
-  // into before.
+  // artifact_mapping_required is scoped to its origin's edges (debt 12d,
+  // review M1), so each stop is admitted into what its own workflow recovers
+  // with and lent nothing across. A Quick or Ticket parked at freeze — the
+  // stop the classifier makes for every path it cannot route, unregistered
+  // code included — resumes at freeze once the registry names the path; the
+  // Epic's draft_artifact, which the union lent it, is no target of its own
+  // workflow. The Epic parked at freeze_artifact re-freezes, re-drafts or
+  // goes back to the alignment or Tickets-breakdown step, and loses only the
+  // targets a completion receipt lent it, which it now enters through those
+  // two.
   const row = state.recovery.get("artifact_mapping_required");
-  const named = new Set([...row.parks_at, ...(row.handled_at ?? [])]);
-  const admitted = row.resume_targets.filter((target) => {
+  assert.equal(row.resume_scope, "origin_edges");
+  const admittedFrom = (origin) => row.resume_targets.filter((target) => {
     try {
-      return permitsResume(state, row.reason, target, { origin: "freeze" });
+      return permitsResume(state, row.reason, target, { origin });
     } catch {
       return false;
     }
   });
-  assert.deepEqual(admitted, ["draft_artifact", "human"]);
-  const running = new Set();
-  const queue = admitted.filter((name) => !parks(state, name));
-  while (queue.length > 0) {
-    const name = queue.shift();
-    if (running.has(name)) continue;
-    running.add(name);
-    for (const edge of state.outgoing.get(name) ?? []) {
-      if (named.has(edge.to) && !parks(state, edge.to) && !row.parks_at.includes(edge.to)) queue.push(edge.to);
-    }
-  }
+  assert.deepEqual(admittedFrom("freeze"), ["freeze", "human"]);
+  assert.deepEqual(admittedFrom("freeze_artifact"), [
+    "clarify_alignment",
+    "draft_artifact",
+    "freeze_artifact",
+    "human",
+    "present_tickets_breakdown",
+  ]);
+  assert.equal(refusalOf(() => permitsResume(state, row.reason, "draft_artifact", { origin: "freeze" })).reason, "resume_target_not_permitted");
+  // A scoped row's surface is its origin: the step a resume lands on runs
+  // under the reason (an Epic resumed into clarify_alignment writes
+  // park.receipts.clarify_alignment there), and a take from it to any other
+  // step leaves the park and clears the reason. So invalidate_quick_classification,
+  // a step of the row's handling that no edge of a Ticket's leads to, is
+  // neither a target nor entered while the reason is recorded.
   assert.ok(!row.resume_targets.includes("invalidate_quick_classification"));
-  assert.ok(!running.has("invalidate_quick_classification"), [...running].join(", "));
+  assert.ok(!row.resume_targets.includes("done"));
 });
 
 test("permission is read off the reason and not off the step it parked at", () => {
@@ -2300,6 +2307,99 @@ test("the factory records a cycle's baseline, keyed by the crossing it opens, be
     await rounds.steps.synthesize_panel.onRun(run.ctx);
     assert.ok(!run.calls.execs.some((argv) => String(argv[4]).startsWith("cap_baselines")), `no baseline at ${count}`);
   }
+});
+
+test("the factory contract's paragraph on scoped rows names exactly the graph's scoped rows, and who records the origin of each (narrow re-review, L-b)", () => {
+  // Scoping makes the recorded origin load-bearing: a park of a scoped reason
+  // with no origin admits nothing, not even a person's stop. The paragraph
+  // that says so listed the two boundary reasons, the three planning-ref
+  // reasons and review_cap, and omitted artifact_mapping_required, the second
+  // row scoped to its origin's edges.
+  const graph = document();
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/workflow-factory.md"), "utf8");
+  const start = contract.indexOf("A row may also narrow the union by declaration.");
+  assert.ok(start >= 0, "the paragraph on scoped rows is missing");
+  const paragraph = contract.slice(start, contract.indexOf("\n\n", start));
+  const scoped = graph.recovery.filter((row) => row.resume_scope !== undefined).map((row) => row.reason).sort();
+  assert.equal(scoped.length, 7, scoped.join(", "));
+  const named = graph.recovery.map((row) => row.reason).filter((reason) => paragraph.includes(`\`${reason}\``)).sort();
+  assert.deepEqual(named, scoped, "the paragraph names a reason that is not scoped, or omits one that is");
+  // Who records the origin of the newest row: the factory's own park, and any
+  // other writer owes it before the reason.
+  assert.match(paragraph, /`artifact_mapping_required`[^.]*origin_edges/u);
+  assert.match(paragraph, /registry gate[^.]*owes `park\.origin` first/u);
+  assert.match(paragraph, /admits nothing[^.]*not even `human`/u);
+});
+
+test("a take off the reason's surface records the cap's baseline before it clears the reason, so neither failed write strands the task unreasoned (CodeRabbit on #276)", async () => {
+  // planning_publication_corrupt names publish_artifact_pass and not
+  // select_next, so the verified publication's boundary take leaves the
+  // reason's surface: the run clears park.reason and park.origin AND records
+  // the baseline of the crossing it makes. Clearing first left a failed
+  // baseline write with the reason and origin gone and the task still at its
+  // step, so the engine-side park that followed was unreasoned and the row's
+  // other targets were lost; the baseline is written first, so a failure of
+  // either leaves what a retry needs.
+  const graph = document();
+  const row = graph.recovery.find((entry) => entry.reason === "planning_publication_corrupt");
+  const surface = new Set([...row.parks_at, ...(row.handled_at ?? [])]);
+  assert.ok(surface.has("publish_artifact_pass") && !surface.has("select_next"));
+  assert.equal(row.resume_scope, undefined);
+  const workflow = buildWorkflow(graph, { evaluate: (predicate) => predicate === "cond_152" });
+  const leaf = "cap_baselines.artifact_review_round.3";
+  const parked = () => ({
+    id: "t-c",
+    step: "publish_artifact_pass",
+    status: "work",
+    metadata: {
+      park: { reason: "planning_publication_corrupt", origin: "publish_artifact_pass" },
+      transition_takings: {
+        synthesize_panel: { fix_artifact: 5 },
+        narrow_review_join: { fix_artifact: 7 },
+        publish_artifact_pass: { select_next: 2 },
+      },
+    },
+  });
+
+  // The unchanged path: the baseline is written, the reason cleared, the task moves.
+  const moved = parked();
+  const happy = context(moved);
+  await workflow.steps.publish_artifact_pass.onRun(happy.ctx);
+  assert.equal(moved.step, "select_next");
+  assert.equal(moved.metadata.park?.reason, undefined);
+  assert.equal(moved.metadata.park?.origin, undefined);
+  assert.deepEqual(moved.metadata.cap_baselines, { artifact_review_round: { 3: 12 } });
+
+  // The baseline write fails: nothing moved and nothing was cleared.
+  for (const options of [{ failLeaf: leaf }, { crashLeaf: leaf }]) {
+    const stuck = parked();
+    const run = context(stuck, options);
+    await assert.rejects(() => workflow.steps.publish_artifact_pass.onRun(run.ctx));
+    assert.deepEqual(run.calls.transits, [], JSON.stringify(options));
+    assert.equal(stuck.step, "publish_artifact_pass");
+    assert.deepEqual(stuck.metadata.park, { reason: "planning_publication_corrupt", origin: "publish_artifact_pass" }, JSON.stringify(options));
+    assert.equal(stuck.metadata.cap_baselines, undefined);
+  }
+
+  // The clear fails after the baseline landed: no move, the reason still
+  // recorded, and the baseline keyed ahead of the daemon's count, which no
+  // reader reads; the retry writes the same key and value again.
+  for (const options of [{ failLeaf: "park.reason" }, { crashLeaf: "park.reason" }]) {
+    const stuck = parked();
+    const run = context(stuck, options);
+    await assert.rejects(() => workflow.steps.publish_artifact_pass.onRun(run.ctx));
+    assert.deepEqual(run.calls.transits, [], JSON.stringify(options));
+    assert.equal(stuck.step, "publish_artifact_pass");
+    assert.deepEqual(stuck.metadata.park, { reason: "planning_publication_corrupt", origin: "publish_artifact_pass" }, JSON.stringify(options));
+    assert.deepEqual(stuck.metadata.cap_baselines, { artifact_review_round: { 3: 12 } }, JSON.stringify(options));
+    const retry = context(stuck);
+    await workflow.steps.publish_artifact_pass.onRun(retry.ctx);
+    assert.equal(stuck.step, "select_next");
+    assert.deepEqual(stuck.metadata.cap_baselines, { artifact_review_round: { 3: 12 } });
+    assert.equal(stuck.metadata.park?.reason, undefined);
+  }
+  // The order itself: the baseline, then the clear, then the move.
+  assert.deepEqual(happy.calls.execs.map((argv) => argv[2] + " " + argv[4]), [`set ${leaf}`, "unset park.reason"]);
 });
 
 test("a cap's cycle boundary is refused at build when no declared edge joins it, when the cap counts it, or when an edge crossing it declares no guards (review of 12c, M1)", () => {

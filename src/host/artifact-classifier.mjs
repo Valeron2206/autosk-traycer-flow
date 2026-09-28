@@ -7,17 +7,40 @@
  * So does an artifact whose class v1 does not govern: the registry knows it,
  * v1 does not.
  *
+ * A park is one stop, whatever caused it (debt 12d, R8-6): the workflow
+ * graph's `artifact_mapping_required`, whose recovery row says where the task
+ * resumes. What caused it rides on the park as its cause, not as a park reason
+ * of its own.
+ *
  * Reads the registry it is given; performs no I/O of its own.
  *
  * Implements: docs/contracts/artifact-registry.md
  */
 import { demand, immutable } from '../runtime/contracts.mjs';
 
+/**
+ * The stop every park of the classifier is (debt 12d, ADR-105).
+ *
+ * The workflow graph's reason for an artifact no lifecycle governs: its
+ * recovery row parks it at `freeze` and `freeze_artifact`, where a candidate
+ * is routed by its classes, and says where the task resumes. A reason of the
+ * classifier's own was a stop no recovery row names, which a task could only
+ * be cancelled out of.
+ */
+export const PARK_REASON = 'artifact_mapping_required';
+
+/**
+ * Why a path parks, closed: no class governs it, classes of two categories
+ * claim it, or its owner is a class v1 does not govern. A cause is not a park
+ * reason: all three stop at the same row and differ only in what fixes the
+ * path.
+ */
+export const PARK_CAUSES = immutable(['unknown_class', 'ambiguous_class', 'class_not_v1']);
+
+/** The registry's park reasons, the contract's closed set; the classifier parks with the first. */
 export const PARK_REASONS = immutable([
-  'unknown_class',
-  'ambiguous_class',
+  PARK_REASON,
   'missing_predecessor',
-  'unregistered_artifact',
   'registry_drift',
   'cyclic_impact_graph',
   'validator_missing',
@@ -73,14 +96,16 @@ export function matchingClasses(registry, filePath) {
  * Classifies one path.
  *
  * Returns `{ status: 'classified', class, category, review, human_approval,
- * publication }` or `{ status: 'parked', park_reason, candidates }`. Never a
- * class chosen because it was the only one left.
+ * publication }` or `{ status: 'parked', park_reason, cause, candidates }`.
+ * Never a class chosen because it was the only one left.
  *
- * A path whose owner is not `required_for_v1` parks as `unknown_class` and
- * names the class, its `lifecycle` and the issue that owns it (`decided_by`),
- * with no review, approval or publication to route it by. The owner is chosen
- * before its lifecycle is read, so a v1 class never takes a path a more
- * specific refused class owns.
+ * Every park is `PARK_REASON` with its cause: `unknown_class` names no
+ * candidate, `ambiguous_class` the classes that disagree. A path whose owner
+ * is not `required_for_v1` parks with `class_not_v1` and names the class, its
+ * `lifecycle` and the issue that owns it (`decided_by`), with no review,
+ * approval or publication to route it by. The owner is chosen before its
+ * lifecycle is read, so a v1 class never takes a path a more specific
+ * refused class owns.
  */
 export function classify(registry, filePath) {
   if (UNGOVERNED.some((prefix) => filePath.startsWith(prefix))) {
@@ -88,7 +113,7 @@ export function classify(registry, filePath) {
   }
   const matches = matchingClasses(registry, filePath);
   if (matches.length === 0) {
-    return Object.freeze({ status: 'parked', path: filePath, park_reason: 'unknown_class', candidates: [] });
+    return Object.freeze({ status: 'parked', path: filePath, park_reason: PARK_REASON, cause: 'unknown_class', candidates: [] });
   }
   const categories = new Set(matches.map((entry) => entry.category));
   if (categories.size > 1) {
@@ -98,7 +123,8 @@ export function classify(registry, filePath) {
     return Object.freeze({
       status: 'parked',
       path: filePath,
-      park_reason: 'ambiguous_class',
+      park_reason: PARK_REASON,
+      cause: 'ambiguous_class',
       candidates: matches.map((entry) => entry.class).sort(),
     });
   }
@@ -119,7 +145,8 @@ export function classify(registry, filePath) {
     return Object.freeze({
       status: 'parked',
       path: filePath,
-      park_reason: 'unknown_class',
+      park_reason: PARK_REASON,
+      cause: 'class_not_v1',
       candidates: [owner.class],
       lifecycle: owner.lifecycle ?? null,
       decided_by: owner.decided_by ?? null,
@@ -144,6 +171,7 @@ export function classify(registry, filePath) {
  */
 export function impactClosure(registry, className) {
   const byName = new Map(registry.classes.map((entry) => [entry.class, entry]));
+  // Thrown, not parked: the caller's error; no closed set of park reasons lists it (contract section 8).
   demand(byName.has(className), 'unknown_class', 'No such class', { class: className });
   const seen = new Set();
   const queue = [className];
@@ -165,9 +193,11 @@ export function impactClosure(registry, className) {
 /**
  * Classifies a changeset and reports what it costs.
  *
- * Every path is accounted for: classified, ungoverned, or parked with a reason.
- * A changeset with a single parked path does not proceed — that is what
- * "an artifact with no lifecycle does not skip its gate" means operationally.
+ * Every path is accounted for: classified, ungoverned, or parked as
+ * `PARK_REASON` with its cause. A changeset with a single parked path does not
+ * proceed — that is what "an artifact with no lifecycle does not skip its
+ * gate" means operationally — and it stops where the workflow graph's
+ * recovery row for that reason can resume it.
  */
 export function classifyChangeset(registry, paths) {
   const results = paths.map((filePath) => classify(registry, filePath));

@@ -9,12 +9,14 @@
  */
 
 import assert from "node:assert/strict";
+import { REMEDIES } from "../scripts/classify-changeset.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
 import {
   CATEGORIES,
+  CLASSIFIED_AT,
   CONTRACTS_DIR,
   CONTRACT_CLASS,
   CONTRACT_PATH,
@@ -32,10 +34,17 @@ import {
   lifecycleCounts,
   lifecycleErrors,
   loadFiles,
+  parkRowErrors,
   registryDigest,
   validateArtifactRegistryDesign,
   validateRegistry,
 } from "../scripts/validate-artifact-registry.mjs";
+import { closedByContract } from "../scripts/validate-refusal-vocabulary.mjs";
+import {
+  PARK_CAUSES,
+  PARK_REASON,
+  PARK_REASONS as CLASSIFIER_PARK_REASONS,
+} from "../src/host/artifact-classifier.mjs";
 
 const files = loadFiles();
 const schema = JSON.parse(files[SCHEMA_PATH]);
@@ -111,7 +120,7 @@ test("a contract dropped from the list fails the design", () => {
   });
   assert.ok(
     errors.some((message) => /delivery-profile\.md: not listed/u.test(message)),
-    `expected an unregistered-artifact error, got:\n${errors.join("\n") || "(none)"}`,
+    `expected an unknown_class error, got:\n${errors.join("\n") || "(none)"}`,
   );
 });
 
@@ -432,4 +441,224 @@ test("every lifecycle is documented in the contract", () => {
     [CONTRACT_PATH]: files[CONTRACT_PATH].replaceAll("successor_matrix_candidate", "a later matrix"),
   });
   assert.ok(errors.includes(`${CONTRACT_PATH}: lifecycle successor_matrix_candidate is not documented`), errors.join("\n"));
+});
+
+// Debt 12d (R8-6): the classifier parks a path as the workflow graph's
+// `artifact_mapping_required`, with a cause; the contract closes that reason,
+// names the causes apart from it, and the graph recovers it where a candidate
+// is routed by its classes.
+
+/** The text between two headings, the first included. */
+function sectionOf(text, start, end) {
+  const from = text.indexOf(start);
+  assert.ok(from >= 0, `${start} is missing`);
+  const to = text.indexOf(end, from + start.length);
+  return text.slice(from, to === -1 ? text.length : to);
+}
+
+test("the contract closes the park reasons the classifier declares, one of which it parks with, and names its causes apart (R8-6)", () => {
+  // Round 8 of #39, R8-6: section 8 closed `unknown_class` and
+  // `ambiguous_class` as park reasons, which no recovery row of the workflow
+  // graph and no entry of the refusal vocabulary carry, and
+  // `unregistered_artifact`, the name 01 §2 gave the same refusal.
+  const contract = files[CONTRACT_PATH];
+  const closed = [...closedByContract({ "artifact-registry.md": contract }).keys()].sort();
+  for (const name of ["unknown_class", "ambiguous_class", "class_not_v1", "unregistered_artifact"]) {
+    assert.equal(closed.includes(name), false, `${name} is closed as a park reason`);
+  }
+  assert.ok(closed.includes("artifact_mapping_required"), "the stop the classifier parks with is not closed");
+  assert.deepEqual(closed, [...PARK_REASONS].sort());
+  assert.deepEqual([...PARK_REASONS].sort(), [...CLASSIFIER_PARK_REASONS].sort(), "the validator closes what the classifier declares");
+  assert.ok(closed.includes(PARK_REASON));
+  assert.deepEqual([...PARK_CAUSES].sort(), ["ambiguous_class", "class_not_v1", "unknown_class"]);
+  for (const cause of PARK_CAUSES) assert.ok(contract.includes(`\`${cause}\``), `${cause} is not documented`);
+  const errors = validateArtifactRegistryDesign({
+    ...files,
+    [CONTRACT_PATH]: contract.replaceAll("`class_not_v1`", "a class v1 does not govern"),
+  });
+  assert.ok(errors.includes(`${CONTRACT_PATH}: park cause class_not_v1 is not documented`), errors.join("\n"));
+});
+
+test("the graph recovers the classifier's park where a candidate is routed by its classes, and the design refuses a graph that does not (R8-6)", () => {
+  // A reason with no recovery row is a stop no resume leaves: the factory
+  // refuses every target of a reason the graph has no row for.
+  assert.deepEqual([...CLASSIFIED_AT], ["freeze", "freeze_artifact"]);
+  assert.deepEqual(parkRowErrors(graph), []);
+  const rowless = { ...graph, recovery: graph.recovery.filter((row) => row.reason !== PARK_REASON) };
+  const missing = "artifact_mapping_required: the classifier parks with it and the graph has no recovery row for it, so a task parked there has no resume";
+  assert.deepEqual(parkRowErrors(rowless), [missing]);
+  const narrowed = structuredClone(graph);
+  narrowed.recovery.find((row) => row.reason === PARK_REASON).parks_at = ["freeze_artifact"];
+  assert.deepEqual(parkRowErrors(narrowed), [
+    "artifact_mapping_required: the graph does not park it at freeze, where a candidate is routed by its classes",
+  ]);
+  assert.deepEqual(parkRowErrors({}), [missing]);
+  // Review M1: the row must let a task stopped at each of those steps resume
+  // into its own workflow. A union row lends every step it names to every
+  // stop, so a Quick's stop at freeze was admitted into the Epic's
+  // draft_artifact and never into freeze; a row that admits only a person's
+  // stop, or only another step's targets, is a stop that can be cancelled and
+  // nothing else once the registry names the path.
+  const row = (change) => {
+    const changed = structuredClone(graph);
+    change(changed.recovery.find((entry) => entry.reason === PARK_REASON));
+    return changed;
+  };
+  const unscoped = "artifact_mapping_required: the row is not scoped to its origin (resume_scope), so a stop at one step is lent the targets of every step it names, another workflow's included";
+  assert.deepEqual(parkRowErrors(row((entry) => { delete entry.resume_scope; })), [unscoped]);
+  const own = (step) => `artifact_mapping_required: the row does not list ${step} among its resume targets, so once the registry names the path a task stopped there cannot re-run the step it stood at`;
+  // Narrow re-review, L-a: an edge out of freeze is no substitute for freeze.
+  // freeze is Quick's and Ticket's and invalidate_quick_classification is
+  // Quick's alone, so the swap leaves a Ticket at freeze only `human` and a
+  // Quick's step it never runs.
+  assert.deepEqual(
+    parkRowErrors(row((entry) => { entry.resume_targets = entry.resume_targets.map((target) => (target === "freeze" ? "invalidate_quick_classification" : target)).sort(); })),
+    [own("freeze")],
+  );
+  assert.deepEqual(parkRowErrors(row((entry) => { entry.resume_targets = entry.resume_targets.filter((target) => target !== "freeze"); })), [own("freeze")]);
+  assert.deepEqual(
+    parkRowErrors(row((entry) => { entry.resume_targets = entry.resume_targets.filter((target) => !["freeze_artifact", "draft_artifact", "clarify_alignment", "present_tickets_breakdown"].includes(target)); })),
+    [own("freeze_artifact")],
+  );
+  assert.deepEqual(
+    parkRowErrors(row((entry) => { entry.resume_targets = ["human"]; })),
+    [own("freeze"), own("freeze_artifact")],
+  );
+  // `origin` admits the origin alone, which is enough for a re-freeze.
+  assert.deepEqual(parkRowErrors(row((entry) => { entry.resume_scope = "origin"; entry.resume_targets = ["freeze", "freeze_artifact", "human"]; })), []);
+  // Under `origin` a target is admitted only from its own step: freeze_artifact does not help freeze.
+  assert.deepEqual(
+    parkRowErrors(row((entry) => { entry.resume_scope = "origin"; entry.resume_targets = ["freeze_artifact", "draft_artifact", "human"]; })),
+    [own("freeze")],
+  );
+  const errors = validateArtifactRegistryDesign({ ...files, [GRAPH_PATH]: JSON.stringify(rowless) });
+  assert.ok(errors.includes(`${GRAPH_PATH}: ${missing}`), errors.join("\n"));
+});
+
+test("01 §2, the contract and ADR-105 name the classifier's park by its stop and its cause, and unregistered_artifact only as the cause's older name (R8-6)", () => {
+  // 01 §2 said the registry refuses a path no class governs as
+  // `unregistered_artifact`, the same refusal as `artifact_mapping_required`
+  // named otherwise; the classifier answered `unknown_class`; and the
+  // vocabulary gave the stop to the daemon. One stop, one name, one producer.
+  const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
+  const order = read("01-core-flows.md").split("\n").find((line) => line.startsWith("Порядок между этим classifier'ом"));
+  assert.ok(order, "01 §2 orders the two classifiers");
+  for (const name of ["artifact_mapping_required", "unknown_class", "ambiguous_class", "class_not_v1", "src/host/artifact-classifier.mjs"]) {
+    assert.ok(order.includes(`\`${name}\``), `01 §2 does not name ${name}`);
+  }
+  assert.doesNotMatch(order, /тот же отказ, названный по-другому/u);
+  assert.doesNotMatch(order, /отвергается реестром как `unregistered_artifact`/u);
+  // Every line of 01–03, README and the contracts that still names
+  // `unregistered_artifact` names the cause it is the older name of.
+  const documents = ["01-core-flows.md", "02-architecture.md", "03-technical-plan.md", "README.md"];
+  for (const name of readdirSync(path.join(ROOT, CONTRACTS_DIR)).filter((entry) => entry.endsWith(".md"))) {
+    documents.push(`${CONTRACTS_DIR}/${name}`);
+  }
+  for (const relative of documents) {
+    for (const line of read(relative).split("\n").filter((text) => text.includes("unregistered_artifact"))) {
+      assert.match(line, /`unknown_class`/u, `${relative}: ${line.slice(0, 120)}`);
+    }
+  }
+  // The contract says which stop and which row a parked path takes, and
+  // where it resumes — a code freeze's stop into the freeze again, not the
+  // Epic's draft_artifact (review of 12d, M1; before it, "named as risk 6").
+  const parking = sectionOf(read(CONTRACT_PATH), "## 8.", "## 9.");
+  for (const step of ["freeze", "freeze_artifact", "draft_artifact", "human", "clarify_alignment", "present_tickets_breakdown"]) {
+    assert.ok(parking.includes(`\`${step}\``), `section 8 does not name ${step}`);
+  }
+  assert.doesNotMatch(parking, /has no resume of its own workflow yet/u);
+  assert.match(parking, /resumes into `freeze` once the registry names the path/u);
+  assert.match(parking, /`src\/host\/artifact-classifier\.mjs`/u);
+  // The decision is recorded, and the ADRs whose text it changes say so.
+  const decisions = read("04-decisions.md");
+  assert.match(decisions, /^## ADR-105:/mu);
+  for (const [adr, next] of [["ADR-031", "ADR-032"], ["ADR-073", "ADR-074"], ["ADR-101", "ADR-102"]]) {
+    assert.match(sectionOf(decisions, `## ${adr}:`, `## ${next}:`), /^- Изменено ADR-105:/mu, adr);
+  }
+});
+
+test("03 §2 and §7 and the graph's predicate say what the registry classifier parks, whatever the cause, and the remedy of each cause (review M2)", () => {
+  // 03 §2's row and the predicate extracted from it (`cond_024`) described the
+  // old path-role classifier: a document or governance surface parked as
+  // `unknown`, and "source/config/schema/prompt/test/migration paths do not
+  // match this guard". The producer of the stop is the registry classifier
+  // (ADR-105), which parks exactly such paths when no class governs them, so
+  // the text said the stop was not raised where it is.
+  const read = (relative) => readFileSync(path.join(ROOT, relative), "utf8");
+  const plan = read("03-technical-plan.md");
+  const row = plan.split("\n").find((line) => line.startsWith("| freeze_artifact / Quick freeze / Ticket freeze |"));
+  assert.ok(row, "03 §2 has the freeze row");
+  const [, condition, requirement] = row.replace(/^\| /u, "").replace(/ \|$/u, "").split(" | ");
+  assert.match(condition, /registry classifier parks a path \(`classify\(\)`, any cause/u);
+  for (const cause of PARK_CAUSES) assert.ok(condition.includes(`\`${cause}\``), `03 §2's condition does not name ${cause}`);
+  assert.doesNotMatch(condition, /returns `unknown` for a document\/governance surface/u);
+  // The carve-out is for the paths the classifier classified.
+  assert.match(requirement, /`ordinary_implementation`[^.]*paths the registry classifies/u);
+  assert.doesNotMatch(requirement, /migration paths do not match this guard/u);
+
+  // The predicate is the row's condition, extracted; the row's required_state its requirement.
+  const predicate = graph.predicates.find((entry) => entry.id === "cond_024");
+  const guard = graph.guards.find((entry) => entry.predicate === "cond_024");
+  assert.equal(guard.park_reason, PARK_REASON);
+  assert.ok(predicate.reads.includes("classifier_verdict"), predicate.reads.join(", "));
+  assert.ok(predicate.reads.includes("additional_normative"));
+  assert.match(predicate.description, /registry classifier parks a path \(`classify\(\)`, any cause/u);
+  for (const cause of PARK_CAUSES) assert.ok(predicate.description.includes(`\`${cause}\``), `cond_024 does not name ${cause}`);
+  const stateOf = graph.recovery.find((entry) => entry.reason === PARK_REASON).required_state;
+  assert.match(stateOf, /paths the registry classifies/u);
+  assert.doesNotMatch(stateOf, /migration paths do not match this guard/u);
+
+  // 03 §7's requirement names a remedy per cause, so a task parked by the
+  // classifier is told what unparks it, not only the mapping remedies.
+  const table = plan.split("\n").find((line) => line.startsWith("| artifact_mapping_required |"));
+  assert.ok(table, "03 §7 has the artifact_mapping_required row");
+  const remedy = table.split(" | ")[2].replace(/ \|$/u, "");
+  assert.match(remedy, /`unknown_class`: a registry entry/u);
+  assert.match(remedy, /`ambiguous_class`: [^;|]*narrow/u);
+  assert.match(remedy, /`class_not_v1`: [^;|]*activat/u);
+  // Narrow re-review, nit: the remedy of class_not_v1 is one sentence in 03 §7,
+  // the contract's §4 and the CLI's REMEDIES — an issue outside matrix v1
+  // waits for a successor matrix, and a class with no lifecycle is given one.
+  assert.match(remedy, /successor matrix/u);
+  assert.match(remedy, /no lifecycle[^;|]*registry/u);
+  const contractRemedy = sectionOf(read(CONTRACT_PATH), "## 4.", "## 5.");
+  assert.match(contractRemedy, /successor matrix first/u);
+  assert.match(contractRemedy, /no lifecycle[^.]*registry/u);
+  assert.match(REMEDIES.successor, /successor matrix/u);
+  assert.match(REMEDIES.unmarked, /lifecycle in the registry/u);
+  const view = graph.views.find((entry) => entry.id === "park_table").rows.find((entry) => entry.covers.includes(PARK_REASON));
+  assert.equal(view.cells[2], remedy, "03 §7 is rendered from the graph's view");
+});
+
+test("no resource names the classifier's old refusals: a class v1 does not govern is class_not_v1, not unknown_class (review L1)", () => {
+  // The schema's `lifecycle` description said the classifier refuses the
+  // paths of a class v1 does not govern as `unknown_class`, which ADR-105
+  // renamed `class_not_v1`. The sweep of the documents covered 01–03, the
+  // README and the contracts; the resources are read here too.
+  const description = schema.properties.classes.items.properties.lifecycle.description;
+  assert.match(description, /`class_not_v1`/u);
+  assert.doesNotMatch(description, /as `unknown_class`/u);
+  const swept = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(path.join(ROOT, directory), { withFileTypes: true })) {
+      const relative = `${directory}/${entry.name}`;
+      // A panel round is a record of what a seat said on a frozen candidate,
+      // in the words it then used; it is history, not a statement of the design.
+      if (relative === "resources/design-candidate/panel") continue;
+      if (entry.isDirectory()) walk(relative);
+      else if (/\.(json|md)$/u.test(entry.name)) swept.push(relative);
+    }
+  };
+  walk("resources");
+  assert.ok(swept.includes(SCHEMA_PATH));
+  for (const relative of swept) {
+    const text = readFileSync(path.join(ROOT, relative), "utf8");
+    for (const line of text.split("\n").filter((entry) => entry.includes("unregistered_artifact"))) {
+      assert.match(line, /`unknown_class`/u, `${relative}: ${line.slice(0, 120)}`);
+    }
+    // A statement that the classifier refuses the paths of a class as
+    // `unknown_class` is the ADR-101 wording; a class v1 does not govern is
+    // `class_not_v1` now.
+    assert.doesNotMatch(text, /classifier refuses the paths of both as `unknown_class`/u, relative);
+  }
 });

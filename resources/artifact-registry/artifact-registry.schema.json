@@ -77,7 +77,7 @@
             "pattern": "^[a-z][a-z0-9_]{2,48}$"
           },
           "lifecycle": {
-            "description": "Whether v1 governs the class. `required_for_v1`: the classifier classifies its paths. `planned_after_v1`: its issue is one the program matrix puts after v1. `successor_matrix_candidate`: its issue is outside the matrix's inventory and waits for a successor matrix to classify it. The classifier refuses the paths of both as `unknown_class`.",
+            "description": "Whether v1 governs the class. `required_for_v1`: the classifier classifies its paths. `planned_after_v1`: its issue is one the program matrix puts after v1. `successor_matrix_candidate`: its issue is outside the matrix's inventory and waits for a successor matrix to classify it. The classifier parks the paths of both with the cause `class_not_v1`.",
             "enum": [
               "required_for_v1",
               "planned_after_v1",

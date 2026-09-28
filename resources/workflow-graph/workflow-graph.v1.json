@@ -261,9 +261,10 @@
     {
       "id": "cond_024",
       "reads": [
-        "additional_normative"
+        "additional_normative",
+        "classifier_verdict"
       ],
-      "description": "closed path-role classifier returns `unknown` for a document/governance surface, or `additional_normative` lacks exactly one valid governance mapping to current named manifest decision IDs, mapping/sidecar is orphaned, ambiguous or stale, or document contains extra unmapped normative content — human с park.reason=artifact_mapping_required"
+      "description": "the registry classifier parks a path (`classify()`, any cause: `unknown_class` — no class governs it, `ambiguous_class` — classes of two categories claim it, `class_not_v1` — its owner is a class v1 does not govern), or `additional_normative` lacks exactly one valid governance mapping to current named manifest decision IDs, mapping/sidecar is orphaned, ambiguous or stale, or document contains extra unmapped normative content — human с park.reason=artifact_mapping_required"
     },
     {
       "id": "cond_025",
@@ -14029,13 +14030,15 @@
         "present_tickets_breakdown"
       ],
       "resume_targets": [
-        "await_alignment",
+        "clarify_alignment",
         "draft_artifact",
+        "freeze",
+        "freeze_artifact",
         "human",
-        "record_alignment",
-        "validate_tickets_manifest"
+        "present_tickets_breakdown"
       ],
-      "required_state": "Section 2 parks with this reason at freeze, freeze_artifact: human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths do not match this guard. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction"
+      "resume_scope": "origin_edges",
+      "required_state": "Section 2 parks with this reason at freeze, freeze_artifact: human с park.reason=artifact_mapping_required; candidate/panel/PASS mint absent. `ordinary_implementation` source/config/schema/prompt/test/migration paths the registry classifies do not match this guard; one it parks does. Quick additionally invalidates classification if new material behavior exists; Ticket propagates parent correction"
     },
     {
       "reason": "artifact_pass_invalid",
@@ -15662,11 +15665,11 @@
           "covers": [
             "artifact_mapping_required"
           ],
-          "binds": "3e2d43aeb1428037428221641bb1999f87c04bb36d6cc342cbfbe7c170f08ddb",
+          "binds": "4420082c79d11ef743c5e4407a4a75f0c484f49c31e621698f053bdf7185fad3",
           "cells": [
             "artifact_mapping_required",
-            "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick; also freeze, freeze_artifact",
-            "decision expressed in named manifest and aligned; external document reduced to verified non-normative mirror with current mapping proof, or removed from behavior-defining scope"
+            "clarify_alignment for mapped brief/core_flow/tech_plan; present_tickets_breakdown for tickets; invalidate_quick_classification for Quick; also freeze, freeze_artifact — a stop resumes into the step it stood at (a Quick's or a Ticket's code at freeze, an Epic's artifact at freeze_artifact) or, at freeze_artifact, into a re-draft or either alignment step above; no stop is lent another workflow's step",
+            "decision expressed in named manifest and aligned; external document reduced to verified non-normative mirror with current mapping proof, or removed from behavior-defining scope; for a path the registry classifier parks: `unknown_class`: a registry entry names it; `ambiguous_class`: patterns narrowed so that one class owns it; `class_not_v1`: the owning issue activates the class (for an issue outside matrix v1, a successor matrix first; a class with no lifecycle is given one in the registry)"
           ]
         },
         {
@@ -18233,7 +18236,7 @@
       ]
     }
   ],
-  "canonical_digest": "f26aa140d37f8ac3f953afa8ace496c1acec9cc138928be916df390abe4547b5",
+  "canonical_digest": "1e82ac3e6470fb6c9daabcaec91e471a11313a83d1ffb365e0d42dfe1a021eba",
   "external_operations": [
     {
       "status": "cancel",

@@ -510,8 +510,11 @@ test("review_cap and artifact_mapping_required lend an Epic planning stop no Qui
   // R9c-15. review_cap parks at narrow_review_join for the Planned cap and at
   // record_code_verdict for the Quick and Ticket one; resuming along the edges
   // out of the step the park stood at gives each its own recovery and neither
-  // the other's. artifact_mapping_required keeps the union, and done — lent
-  // only by Quick's invalidate_quick_classification — is gone from it.
+  // the other's. artifact_mapping_required is scoped the same way since debt
+  // 12d's review (M1): a stop resumes into its origin or along an edge out of
+  // it, so a Quick or Ticket stop at freeze is lent no Epic step and the
+  // Epic's stop at freeze_artifact none of Quick's; done, lent only by
+  // Quick's invalidate_quick_classification, is not a target of it.
   const graph = shipped();
   const epic = new Set(epicSteps());
   // A Quick step: one the Quick or Ticket chain draws and the Planned chain does not.
@@ -525,7 +528,7 @@ test("review_cap and artifact_mapping_required lend an Epic planning stop no Qui
   const cap = graph.recovery.find((entry) => entry.reason === "review_cap");
   assert.equal(cap.resume_scope, "origin_edges");
   const mapping = graph.recovery.find((entry) => entry.reason === "artifact_mapping_required");
-  assert.equal(mapping.resume_scope, undefined, "artifact_mapping_required keeps the union");
+  assert.equal(mapping.resume_scope, "origin_edges", "artifact_mapping_required lends nothing across its steps");
   const out = (name) => graph.transitions.filter((edge) => edge.from === name).map((edge) => edge.to);
   const stands = [...cap.parks_at, ...(cap.handled_at ?? [])].filter((name) => epic.has(name));
   assert.ok(stands.length > 0, "review_cap names an Epic step");
@@ -533,7 +536,17 @@ test("review_cap and artifact_mapping_required lend an Epic planning stop no Qui
     const admitted = cap.resume_targets.filter((target) => target === stand || out(stand).includes(target));
     assert.deepEqual(admitted.filter(foreign), [], `review_cap lends a Quick step, cleanup or done to ${stand}`);
   }
-  assert.deepEqual(mapping.resume_targets.filter(foreign), [], "artifact_mapping_required lends a Quick step, cleanup or done to every step it names");
+  const mappingStands = [...mapping.parks_at, ...(mapping.handled_at ?? [])].filter((name) => epic.has(name));
+  assert.ok(mappingStands.length > 0, "artifact_mapping_required names an Epic step");
+  for (const stand of mappingStands) {
+    const admitted = mapping.resume_targets.filter((target) => target === stand || out(stand).includes(target));
+    assert.deepEqual(admitted.filter(foreign), [], `artifact_mapping_required lends a Quick step, cleanup or done to ${stand}`);
+  }
+  // Nor is the Epic's step lent to a Quick or Ticket stop: from freeze the
+  // row admits freeze and a person's stop, and draft_artifact is an Epic step.
+  assert.ok(epic.has("draft_artifact") && !epic.has("freeze"));
+  const fromFreeze = mapping.resume_targets.filter((target) => target === "freeze" || out("freeze").includes(target));
+  assert.deepEqual(fromFreeze.filter((target) => epic.has(target)), [], "artifact_mapping_required lends an Epic step to a Quick or Ticket stop at freeze");
 });
 
 test("a boundary stop at an Epic step has its own row and resumes where the gates still hold", () => {
@@ -739,8 +752,15 @@ const CONTROLS = [
     finding: /^resume_leak_unnamed: review_cap resumes into invalidate_quick_classification -> done from narrow_review_join/u,
   },
   {
-    name: "artifact_mapping_required listing done again",
-    mutate: (graph) => { graph.recovery.find((row) => row.reason === "artifact_mapping_required").resume_targets.push("done"); },
+    // Since debt 12d's review (M1) the row is scoped to its origin's edges, so
+    // `done` listed alone is a target no origin reaches and leaks nothing; the
+    // control lists it in a row that lends its targets again, as it was.
+    name: "artifact_mapping_required listing done again and lending its targets across its steps",
+    mutate: (graph) => {
+      const row = graph.recovery.find((entry) => entry.reason === "artifact_mapping_required");
+      delete row.resume_scope;
+      row.resume_targets.push("done");
+    },
     finding: /^resume_leak_unnamed: artifact_mapping_required resumes into done from /u,
   },
   {
@@ -1672,7 +1692,7 @@ test("the repair cycle's cap closes what ADR-099 left open to #32, and its owner
   assert.match(row.required_state, /human and invalidate_quick_classification run no round and owe none/u);
 });
 
-test("01 §8 and 03 §7 name the review cap's resume targets apart from its park steps, and the same targets 01 §9 and the graph do (R8-10)", () => {
+test("01 §8 and 03 §7 name the review cap's resume targets apart from its park steps, and the same targets 01 §9, the factory contract and the graph do (R8-10; CodeRabbit on #276)", () => {
   // Round 8 of #39, R8-10: 01 §8's review-cap row named `fix_artifact` and
   // `fix`, then the park steps as "также", and not `rebuild_code_anchor`,
   // which 01 §9 and the graph make a round owed the user's decision. The row
@@ -1701,6 +1721,16 @@ test("01 §8 and 03 §7 name the review cap's resume targets apart from its park
   const repairListed = /у `verification_cap` — ((?:`\w+`(?:, )?)+)/u.exec(exceed);
   assert.ok(repairListed, "01 §9 lists the repair cap's decision targets");
   assert.deepEqual([...repairListed[1].matchAll(/`(\w+)`/gu)].map((match) => match[1]).sort(), [...repair.decision_targets].sort());
+  // CodeRabbit on #276: the factory contract's section 4 still gave
+  // `verification_cap` `verify` and `rebuild_code_anchor` after the review of
+  // 12c (M2) made `fix` a decision target too; it names each cap's targets
+  // as the graph does.
+  const factory = sectionOf(read("docs/contracts/workflow-factory.md"), "## 4.", "## 5.");
+  for (const row of [cap, repair]) {
+    const declared = new RegExp(`\`${row.reason}\` declares ((?:\`\\w+\`(?:, | and )?)+)`, "u").exec(factory);
+    assert.ok(declared, `factory §4 lists ${row.reason}'s decision targets`);
+    assert.deepEqual([...declared[1].matchAll(/`(\w+)`/gu)].map((match) => match[1]).sort(), [...row.decision_targets].sort(), row.reason);
+  }
 });
 
 test("01, 03, the contracts, ADR-104 and #32's obligation say the review cap bounds each artifact's review cycle, which only the verified publication of a PASS closes (review of 12c, M1)", () => {

@@ -443,3 +443,31 @@ test("the shipped vocabulary names no script as a producer", () => {
   const producer = schema.properties.park_reasons.items.properties.producer;
   assert.deepEqual(producer.enum, ["host", "daemon", "none"]);
 });
+
+test("the classifier's stop has one producer and one owner: artifact_mapping_required is the registry classifier's and the registry contract's (R8-6)", () => {
+  // Round 8 of #39, R8-6: 01 §2 gave this stop to the registry's refusal of a
+  // path no class governs, the classifier parked such a path as
+  // `unknown_class`, and this vocabulary declared the stop the daemon's —
+  // three producers of one stop. The classifier now parks with it (debt 12d).
+  const entry = vocabulary().park_reasons.find((candidate) => candidate.code === "artifact_mapping_required");
+  assert.deepEqual(
+    { producer: entry.producer, producer_files: entry.producer_files, closed_by: entry.closed_by },
+    { producer: "host", producer_files: ["src/host/artifact-classifier.mjs"], closed_by: "docs/contracts/artifact-registry.md" },
+  );
+  // What stopped the path is the park's cause, not a park reason.
+  const codes = new Set(vocabulary().park_reasons.map((candidate) => candidate.code));
+  for (const cause of ["unknown_class", "ambiguous_class", "class_not_v1", "unregistered_artifact"]) {
+    assert.equal(codes.has(cause), false, `${cause} is a park reason`);
+  }
+  // The rules hold both claims: declared the daemon's, the classifier refutes
+  // it; recorded as the workflow's own, the registry contract that closes it
+  // refutes that.
+  assert.deepEqual(
+    reasons(producerErrors({ park_reasons: [{ ...entry, producer: "daemon", producer_files: [] }] }, context.sources, context.produced)),
+    ["refusal_vocabulary_producer_misdeclared"],
+  );
+  assert.deepEqual(
+    reasons(ownerErrors({ park_reasons: [{ ...entry, closed_by: WORKFLOW_OWNER }] }, context.contracts)),
+    ["refusal_vocabulary_owner_missing"],
+  );
+});
