@@ -328,6 +328,7 @@
             "secure_store_access",
             "keychain_access",
             "daemon_capability",
+            "git_view",
             "privileged_install",
             "checked_by"
           ],
@@ -397,6 +398,80 @@
             },
             "daemon_capability": {
               "const": false
+            },
+            "git_view": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "owner_issues",
+                "built_by",
+                "at",
+                "owned_by",
+                "made_from",
+                "holds",
+                "other_refs_reflogs_or_project_config",
+                "git_directory_variable_in_environment",
+                "safe_directory",
+                "read_by_autoskd",
+                "read_by_helper",
+                "installing_user_git",
+                "covers",
+                "teardown"
+              ],
+              "properties": {
+                "owner_issues": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 3,
+                    "maximum": 39
+                  }
+                },
+                "built_by": {
+                  "const": "launch_under_model_account"
+                },
+                "at": {
+                  "const": "checkout_root"
+                },
+                "owned_by": {
+                  "const": "model_account"
+                },
+                "made_from": {
+                  "const": "handout_pack_written_by_autoskd"
+                },
+                "holds": {
+                  "const": "handed_commit_and_line_to_base"
+                },
+                "other_refs_reflogs_or_project_config": {
+                  "const": false
+                },
+                "git_directory_variable_in_environment": {
+                  "const": false
+                },
+                "safe_directory": {
+                  "const": "model_account_own_configuration"
+                },
+                "read_by_autoskd": {
+                  "const": false
+                },
+                "read_by_helper": {
+                  "const": false
+                },
+                "installing_user_git": {
+                  "const": "refused_as_dubious_ownership"
+                },
+                "covers": {
+                  "const": [
+                    "model_step",
+                    "check_running_project_code"
+                  ]
+                },
+                "teardown": {
+                  "const": "under_model_account_then_worktree_prune"
+                }
+              }
             },
             "privileged_install": {
               "type": "object",

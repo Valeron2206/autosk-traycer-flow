@@ -12,15 +12,15 @@
     },
     {
       "path": "02-architecture.md",
-      "sha256": "1bb28b83e01cd9f6826705270fb97da70b365ef25b140f4903cca17f51f3c96e"
+      "sha256": "19b55e0d522a188e2bba7aec4a584b7882d429d508b61f4b18da5a8fd7107c54"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "86963bbad240897c080791bf8b8277e9bf42afbb0f2c6d61d28e0fbc0c05d351"
+      "sha256": "d3ad50a00a1b0c3fc2641809e5bb08f561da053e79ff3839387d385e83d13a9d"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "29ca72e1a7953af980844dcf70664ad17eb6949f8dc4745c77b74b00ba4495c4"
+      "sha256": "e30eafa267564e0a2eb65a0be1bf4da1186e20925df7ea9ef50445858d175029"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "d982d1c1d432750d8add0adc6998ada2b0aea5f468fc29602bb20dbf65737ead"
+      "sha256": "ebea686ae1e698d66a0907640f75c16fbf120b6f99f223220cffce5d94a5e8b3"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -92,7 +92,7 @@
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
-      "sha256": "840e22acd17c203659ec264f266aca0ef1d5c8d5817638eaaff6dedcb302e139"
+      "sha256": "9b5b8a617195adebde1f26ea9a48bb021e94e34c6b22c8ef6fa65bcada5f8ae8"
     },
     {
       "path": "docs/contracts/epic-staging.md",
@@ -144,7 +144,7 @@
     },
     {
       "path": "docs/contracts/platform-support.md",
-      "sha256": "f7acd02f974b1c929c0e39d375aec8d372157d82f25a613727be77ac459942a3"
+      "sha256": "d28a92f51b0cacc455120adba6a134037fa10dd1250614ae015663535975340e"
     },
     {
       "path": "docs/contracts/project-instructions-lock.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "e5bb65566627c0367b72bd65f9ca81dec3d46784510a790b3d7d6240dcf38726"
+      "sha256": "b4ade70c46fde0096ddbfbc5d938a1d0ffab4ea581f90db4cdcdbee165b24daa"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -696,11 +696,11 @@
     },
     {
       "path": "resources/platform-support/platform-support.schema.json",
-      "sha256": "d40e51c8733d0dfa988c3a42324683ebf282c2b8fbf13feec7cde6079a1fbf89"
+      "sha256": "d4a097dcc55a710fb0fb7e8e0f5e75d78cdc18897db33fef09b716a393c78389"
     },
     {
       "path": "resources/platform-support/platform-support.v1.json",
-      "sha256": "bbd071925145f5d914df9bc3a8a992997320b72f7965d89fd23275640a3e6558"
+      "sha256": "66a4770af50b8afb1d6009cde2fd560ec271b1b6ead47c842e7e4cfa6149a5e1"
     },
     {
       "path": "resources/program-capabilities/issue-inventory.schema.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "c7b565a5919b7eb91f19d84c969981fc2bd9cff272343e63e19b51afbf0f8267"
+      "sha256": "2c69fdab39a4494b34cc3e24703060dfc49e4ef3a31146732cf27702a69d1ae6"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "ebdab99cda3a0a605bab89a42a764fb03994a84f6d02a47b5e1b25a7f22c2bb9",
+  "candidate_digest": "d8bb27c89afc358c484b9e626c97e0195e47823b9cb6cb502e0f45a0abd3084f",
   "dispositions": [
     {
       "issue": 3,

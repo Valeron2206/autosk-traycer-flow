@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,8 +32,8 @@ const code = (name) => (error) => error.code === name;
  */
 const LOCK = "d".repeat(64);
 
-const gitIn = (root) => async (args, { cwd, env = {} } = {}) =>
-  execFileAsync("git", args, {
+const gitIn = (root) => (args, { cwd, env = {}, input } = {}) => {
+  const pending = execFileAsync("git", args, {
     cwd: cwd ?? root,
     env: {
       PATH: process.env.PATH,
@@ -44,10 +44,14 @@ const gitIn = (root) => async (args, { cwd, env = {} } = {}) =>
       GIT_COMMITTER_EMAIL: "test@autosk.invalid",
       ...env,
     },
-  }).then(
+  });
+  pending.child.stdin.on("error", () => {});
+  pending.child.stdin.end(input ?? "");
+  return pending.then(
     ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
     (error) => ({ code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? String(error) }),
   );
+};
 
 /** The injected runner: a command that could not start reports `code: null`. */
 const runner = async (command, args, { cwd, env }) =>
@@ -598,4 +602,127 @@ test("an empty check set is refused before anything runs: a PASS over no check v
     assert.deepEqual(spy.calls, [], "nothing ran");
     assert.deepEqual(watched.asked, [], "nothing was checked out");
   }
+});
+
+// Debt 13b (R9-1, ADR-110): the checks run under the model account, whose own
+// `git` finds no repository in the checkout, so the run hands them a view.
+
+/** A check runner that records the options each command was started with. */
+const recording = () => {
+  const started = [];
+  return {
+    started,
+    run: async (command, args, options) => {
+      started.push({ command, args, options });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  };
+};
+
+test("a run given a handout directory writes the staging commit's handout and hands it to every check (R9-1)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  const handoutDir = path.join(root, "handout");
+  await mkdir(handoutDir);
+  const plain = await verifyAggregate({ realpath, git, run: runner, state, checks: [{ id: "unit", command: "./check.sh" }], dir, instructionLockDigest: LOCK });
+  assert.equal(plain.git_view, null);
+  const spy = recording();
+  const checks = [{ id: "one", command: "one" }, { id: "two", command: "two" }];
+  const run = await verifyAggregate({ realpath, git, run: spy.run, state, checks, dir, handoutDir, instructionLockDigest: LOCK });
+  assert.equal(run.git_view.commit, state.staging_commit_oid);
+  assert.equal(run.git_view.since, state.staging_commit_oid, "no base in the state: the commit alone");
+  assert.equal((await readdir(handoutDir)).includes(run.git_view.pack), true);
+  // Every check is handed the same handout, beside its directory and environment.
+  assert.deepEqual(spy.started.map((call) => call.options.handout), [run.git_view, run.git_view]);
+  assert.deepEqual(spy.started.map((call) => call.options.cwd), [dir, dir]);
+  // A view is evidence of the run and binds nothing: the record is the one a run without it writes.
+  const bare = await verifyAggregate({ realpath, git, run: spy.run, state, checks, dir, instructionLockDigest: LOCK });
+  assert.equal(run.aggregate.record_hash, bare.aggregate.record_hash);
+  assert.equal(bare.git_view, null);
+  assert.equal("handout" in spy.started.at(-1).options, false, "no handout was asked for, so none is handed");
+});
+
+test("the handout reaches down to the recorded target base, and no further (R9-1)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  const base = state.staging_commit_oid;
+  await writeFile(path.join(root, "next.txt"), "next\n");
+  await git(["add", "next.txt"]);
+  await git(["commit", "--quiet", "-m", "staged again"]);
+  const staged = { ...state, staging_commit_oid: (await git(["rev-parse", "HEAD"])).stdout.trim(), staging_tree_oid: (await git(["rev-parse", "HEAD^{tree}"])).stdout.trim(), recorded_target_base: base };
+  const handoutDir = path.join(root, "handout");
+  await mkdir(handoutDir);
+  const run = await verifyAggregate({ realpath, git, run: recording().run, state: staged, checks: [{ id: "unit", command: "x" }], dir, handoutDir, instructionLockDigest: LOCK });
+  assert.equal(run.git_view.commit, staged.staging_commit_oid);
+  assert.equal(run.git_view.since, base);
+  assert.equal(run.aggregate.outcome, "pass");
+});
+
+test("a recorded base that is not on the staging commit's history voids the binding before any check runs (R9-1)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  await git(["checkout", "--quiet", "--orphan", "elsewhere"]);
+  await writeFile(path.join(root, "elsewhere.txt"), "another line\n");
+  await git(["add", "elsewhere.txt"]);
+  await git(["commit", "--quiet", "-m", "another line"]);
+  const foreign = (await git(["rev-parse", "HEAD"])).stdout.trim();
+  const handoutDir = path.join(root, "handout");
+  await mkdir(handoutDir);
+  const spy = recording();
+  await assert.rejects(
+    verifyAggregate({ realpath, git, run: spy.run, state: { ...state, recorded_target_base: foreign }, checks: [{ id: "unit", command: "x" }], dir, handoutDir, instructionLockDigest: LOCK }),
+    code("aggregate_binding_void"),
+  );
+  assert.deepEqual(spy.started, [], "nothing ran");
+  assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false, "the checkout was removed");
+  assert.deepEqual(await readdir(handoutDir), []);
+});
+
+test("a handout that cannot be written is an environment failure, and the checkout is removed before anything runs (R9-1)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  const handoutDir = path.join(root, "handout");
+  await mkdir(handoutDir);
+  const failing = async (args, options) => (args.includes("pack-objects") ? { code: 128, stdout: "", stderr: "fatal: no space left" } : git(args, options));
+  const spy = recording();
+  await assert.rejects(
+    verifyAggregate({ realpath, git: failing, run: spy.run, state, checks: [{ id: "unit", command: "x" }], dir, handoutDir, instructionLockDigest: LOCK }),
+    code("environment_failure"),
+  );
+  assert.deepEqual(spy.started, [], "nothing ran");
+  assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false);
+});
+
+test("no Git command the driver runs starts inside the checkout, with a handout too, so the view is never read by autoskd (R9-1, requirement 3)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  const handoutDir = path.join(root, "handout");
+  await mkdir(handoutDir);
+  const cwds = [];
+  const watching = async (args, options = {}) => {
+    cwds.push(options.cwd ?? null);
+    const result = await git(args, options);
+    // The launch replaces the checkout's gitfile by a repository of the model account's: every later command that discovered from here would read it.
+    if (args[0] === "worktree" && args[1] === "add") {
+      await rm(path.join(dir, ".git"), { force: true });
+      await mkdir(path.join(dir, ".git"));
+    }
+    return result;
+  };
+  const run = await verifyAggregate({ realpath, git: watching, run: recording().run, state, checks: [{ id: "unit", command: "x" }], dir, handoutDir, instructionLockDigest: LOCK });
+  assert.equal(run.git_view.commit, state.staging_commit_oid);
+  assert.deepEqual(cwds.filter((cwd) => cwd !== null && path.resolve(cwd).startsWith(path.resolve(dir))), []);
+});
+
+test("a checkout whose tree is not the recorded one is refused before a handout is written (R9-1)", async (t) => {
+  const { git, root, state, dir } = await staging(t, { checkContent: "#!/bin/sh\nexit 0\n" });
+  const handoutDir = path.join(root, "handout");
+  await mkdir(handoutDir);
+  const spy = recording();
+  await assert.rejects(
+    verifyAggregate({ realpath, git, run: spy.run, state: { ...state, staging_tree_oid: "f".repeat(40) }, checks: [{ id: "unit", command: "x" }], dir, handoutDir, instructionLockDigest: LOCK }),
+    code("aggregate_binding_void"),
+  );
+  assert.deepEqual(await readdir(handoutDir), [], "no handout for a tree the record does not name");
+  assert.deepEqual(spy.started, []);
+  assert.equal((await git(["worktree", "list"])).stdout.includes("verify-worktree"), false);
+  // The same directory takes the handout of the tree the record does name.
+  const run = await verifyAggregate({ realpath, git, run: spy.run, state, checks: [{ id: "unit", command: "x" }], dir, handoutDir, instructionLockDigest: LOCK });
+  assert.equal(run.git_view.commit, state.staging_commit_oid);
+  assert.deepEqual(await readdir(handoutDir), [run.git_view.idx, run.git_view.pack].sort());
 });

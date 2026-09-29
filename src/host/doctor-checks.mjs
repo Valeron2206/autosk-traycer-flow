@@ -460,14 +460,17 @@ export function checkRegistry(env) {
         // the project and reaches no signer, secure store or keychain
         // (platform-support.md §5b, ADR-102). Proving that means looking as
         // that account, and no probe that does exists in this repository: the
-        // account, its launch and the probe are #13's. Until the probe exists
+        // account, its launch and the probe are #13's, and the probe proves the
+        // account's Git view too: `git rev-parse HEAD`, `git status`, `git diff`
+        // and `git ls-files` in a step's worktree and a check's checkout
+        // (§5b, ADR-110). Until the probe exists
         // the check says it could not look, which blocks every workflow that
         // runs a model step, rather than passing on a boundary nobody checked.
         return {
           status: 'unverifiable',
           evidence: { probe: 'none', account: MODEL_ACCOUNT },
           unverifiable_reason:
-            `no probe of the model account ${MODEL_ACCOUNT} exists yet: the privileged install that creates it and the mechanism model processes are started through, and the probe that proves them, are #13's`,
+            `no probe of the model account ${MODEL_ACCOUNT} exists yet: the privileged install that creates it and the mechanism model processes are started through, and the probe that proves them and the account's Git view, are #13's`,
           provenance: fast(),
         };
       },

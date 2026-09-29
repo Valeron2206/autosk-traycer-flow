@@ -239,6 +239,29 @@
       "secure_store_access": false,
       "keychain_access": false,
       "daemon_capability": false,
+      "git_view": {
+        "owner_issues": [
+          9,
+          13,
+          18
+        ],
+        "built_by": "launch_under_model_account",
+        "at": "checkout_root",
+        "owned_by": "model_account",
+        "made_from": "handout_pack_written_by_autoskd",
+        "holds": "handed_commit_and_line_to_base",
+        "other_refs_reflogs_or_project_config": false,
+        "git_directory_variable_in_environment": false,
+        "safe_directory": "model_account_own_configuration",
+        "read_by_autoskd": false,
+        "read_by_helper": false,
+        "installing_user_git": "refused_as_dubious_ownership",
+        "covers": [
+          "model_step",
+          "check_running_project_code"
+        ],
+        "teardown": "under_model_account_then_worktree_prune"
+      },
       "privileged_install": {
         "requires_administrator": true,
         "effects": [

@@ -692,6 +692,8 @@ test("the model account and the ref-custody install are named checks no probe es
     assert.equal(model.evidence.account, "autosk-model");
     assert.match(model.unverifiable_reason, /no probe of the model account autosk-model exists yet/u);
     assert.match(model.unverifiable_reason, /#13/u);
+    // Debt 13b (R9-1, ADR-110): the probe that will exist proves the account's Git view too.
+    assert.match(model.unverifiable_reason, /the account's Git view/u);
     const custody = found.get("security.ref_custody");
     assert.equal(custody.status, "unverifiable");
     assert.equal(custody.evidence.probe, "none");

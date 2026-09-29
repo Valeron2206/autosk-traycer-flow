@@ -133,6 +133,35 @@ export const MODEL_ACCOUNT_CONSTANTS = Object.freeze([
   ["daemon_capability", false],
 ]);
 
+/**
+ * The Git view of the model account (ADR-110, round 9 of #39, R9-1). The
+ * account opens no Git directory of the project, so its own `git` found no
+ * repository in a checkout and a suite that calls `git` failed under it. The
+ * launch builds a repository the account owns at the checkout's root from a
+ * pack of the handed commit and its line down to a base, which autoskd writes
+ * as the installing user; nothing reads the view back — autoskd names its own
+ * directories, the helper never opens it, and the installing user's Git
+ * refuses it — and the account's own configuration, never the user's, trusts
+ * the checkout for it. Who builds it, hands it over and proves it is #18, #9
+ * and #13; each is `required_for_v1` and names it in its obligation.
+ */
+export const GIT_VIEW_OWNERS = Object.freeze([9, 13, 18]);
+export const GIT_VIEW_CONSTANTS = Object.freeze([
+  ["built_by", "launch_under_model_account"],
+  ["at", "checkout_root"],
+  ["owned_by", "model_account"],
+  ["made_from", "handout_pack_written_by_autoskd"],
+  ["holds", "handed_commit_and_line_to_base"],
+  ["other_refs_reflogs_or_project_config", false],
+  ["git_directory_variable_in_environment", false],
+  ["safe_directory", "model_account_own_configuration"],
+  ["read_by_autoskd", false],
+  ["read_by_helper", false],
+  ["installing_user_git", "refused_as_dubious_ownership"],
+  ["covers", ["model_step", "check_running_project_code"]],
+  ["teardown", "under_model_account_then_worktree_prune"],
+]);
+
 export function loadFiles() {
   const files = {};
   for (const relative of [CONTRACT_PATH, SCHEMA_PATH, MATRIX_PATH, PROGRAM_MATRIX_PATH, POLICY_SCHEMA_PATH, POLICY_EXAMPLE_PATH]) {
@@ -308,6 +337,41 @@ export function modelAccountErrors(matrix, program) {
 }
 
 /**
+ * The Git view's owners, held to the program matrix as the model account's are:
+ * each is a `required_for_v1` record whose implementation obligation names the
+ * view (`git_view`) in backticks, and the record names exactly the owners of
+ * `GIT_VIEW_OWNERS`. Round 9 of #39 (R9-1) found checks that run the project's
+ * own code under an account with no Git, and no owner for what would give them
+ * one.
+ */
+export function gitViewErrors(matrix, program) {
+  const view = matrix?.install?.model_account?.git_view;
+  if (!view || typeof view !== "object") {
+    return ["install.model_account.git_view: the model account's checks and steps have no Git view record"];
+  }
+  const records = Array.isArray(program?.records) ? program.records : [];
+  if (records.length === 0) return [`${PROGRAM_MATRIX_PATH}: no records to hold the Git view to`];
+  const errors = [];
+  if (!isDeepStrictEqual(view.owner_issues, GIT_VIEW_OWNERS)) {
+    errors.push(`git_view.owner_issues must be ${JSON.stringify(GIT_VIEW_OWNERS)}: #18 builds it, #9 hands it to the aggregate's checks, #13 proves it`);
+  }
+  for (const issue of Array.isArray(view.owner_issues) ? view.owner_issues : []) {
+    const record = records.find((entry) => entry?.issue_number === issue);
+    if (!record) {
+      errors.push(`git_view owner #${issue} is not a record of the program matrix`);
+      continue;
+    }
+    if (record.lifecycle !== "required_for_v1") {
+      errors.push(`git_view owner #${issue} is ${record.lifecycle}, not required_for_v1`);
+    }
+    if (!String(record.implementation_obligation_before_mvp ?? "").includes("`git_view`")) {
+      errors.push(`git_view owner #${issue} does not name \`git_view\` in its implementation obligation`);
+    }
+  }
+  return errors;
+}
+
+/**
  * The ADR-102 form of a ref-custody policy: the helper runs as the installing
  * user, whose ordinary repository the Git directory is (`helper_runs_as`, each
  * profile's `helper_account` and `owner_account`, the packed-refs policy's
@@ -470,6 +534,18 @@ export function validatePlatformSupportDesign(files) {
       errors.push(`${SCHEMA_PATH}: install.model_account.${field} must be fixed to ${expected}`);
     }
   }
+  const viewNode = modelNode?.properties?.git_view;
+  if (viewNode?.additionalProperties !== false) {
+    errors.push(`${SCHEMA_PATH}: install.model_account.git_view must be closed (additionalProperties:false)`);
+  }
+  if (!Array.isArray(modelNode?.required) || !modelNode.required.includes("git_view")) {
+    errors.push(`${SCHEMA_PATH}: install.model_account must require git_view`);
+  }
+  for (const [field, expected] of GIT_VIEW_CONSTANTS) {
+    if (!isDeepStrictEqual(viewNode?.properties?.[field]?.const, expected)) {
+      errors.push(`${SCHEMA_PATH}: install.model_account.git_view.${field} must be fixed to ${JSON.stringify(expected)}`);
+    }
+  }
   if (modelNode?.properties?.privileged_install?.properties?.requires_administrator?.const !== true) {
     errors.push(`${SCHEMA_PATH}: install.model_account.privileged_install.requires_administrator must be fixed to true`);
   }
@@ -501,6 +577,7 @@ export function validatePlatformSupportDesign(files) {
   }
   errors.push(...custodyServiceErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
   errors.push(...modelAccountErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
+  errors.push(...gitViewErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
   errors.push(...installCheckErrors(matrix).map((message) => `${MATRIX_PATH}: ${message}`));
   return errors;
 }

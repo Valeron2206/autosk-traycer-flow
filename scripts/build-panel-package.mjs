@@ -1356,6 +1356,11 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   which predates ADR-102: the example's digest is computed over the example alone
   and carried by the committed signed goldens, which #5 signs again when the example changes.
   Matrix v1 gives #13 the account, its launch mechanism and both probes, #11 the model process environment, #18 the launch path, and #5 with #13 the helper's bootstrap (ADR-102).
+- The model account's Git view is design with owners, and its handout the one part that is code. \`handOutGitView\` (\`src/host/git-view.mjs\`) writes a pack of a commit and its line down to a base, refuses a commit outside the staging line, and \`verifyAggregate\` hands it to the checks;
+  the launch that builds the account's own repository at the checkout's root from it, writes \`safe.directory\` into the account's own configuration and removes the worktree under the account is #18's, the probe that proves it from inside the account is #13's,
+  and the production runner that starts the aggregate's checks with the handout is #9's with #18 (ADR-110). Until they exist a check that calls \`git\` finds no repository under the account:
+  measured with a throwaway account, \`git status\`, \`git ls-files\` and \`git rev-parse HEAD\` in a checkout exit 128, and this repository's own suite, whose \`test/runtime-artifact-classifier.test.mjs:317\` runs \`git ls-files\`, could not pass its checks there.
+  The view does not carry the project's configuration (a \`core.autocrlf\` conversion, filters) or submodules.
 - The host asks the helper under the asking operation's identity, and a staging apply keeps it across a crash (ADR-108): the request carries
   \`owner_operation_id\` and \`request_id\`, and \`applyDelta\` records a recipe of its commit in a durable journal before it asks, so a retry that
   finds the staging ref at the recipe's commit completes the receipt and asks nothing. What is design and not code: the daemon-side intent

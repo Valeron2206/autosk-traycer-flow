@@ -13,15 +13,24 @@
  * models wrote in it, so no Git command here discovers a repository from
  * inside it (docs/contracts/platform-support.md §5b, review of 9b65ad3, M4).
  *
- * Injected: `git(args, { cwd, env } = {})` and `run(command, args, { cwd, env })`,
- * both returning `{ code, stdout, stderr }`; `run` reports a command that could
- * not start as `code: null`; and `realpath(path)`, for the same reason the delta
- * driver takes it: the module resolves paths, it does not read the filesystem
- * itself.
+ * The checks run under the model account, which opens no Git directory of the
+ * project, so a check that calls `git` would find no repository in the checkout
+ * (round 9 of #39, R9-1). A run given a handout directory writes what the launch
+ * builds the account's own repository from, and hands it to every check beside
+ * its directory and environment (`git-view.mjs`, ADR-110). The launch builds the
+ * view under the account and this never reads it: no command here starts inside
+ * the checkout.
+ *
+ * Injected: `git(args, { cwd, env, input } = {})` and `run(command, args, { cwd,
+ * env, handout })`, both returning `{ code, stdout, stderr }`; `run` reports a
+ * command that could not start as `code: null`; and `realpath(path)`, for the
+ * same reason the delta driver takes it: the module resolves paths, it does not
+ * read the filesystem itself.
  */
 import { canonicalBytes, closedRecord, demand, digest, immutable, oneObjectFormat } from '../runtime/contracts.mjs';
 
 import { aggregateRecordHash } from './epic-staging.mjs';
+import { handOutGitView } from './git-view.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const PROJECT_IDENTITY = /^sha256:[a-f0-9]{64}$/u;
@@ -101,6 +110,28 @@ export async function checkoutStaging(git, { dir, commit, realpath }) {
 }
 
 /**
+ * The handout of the staging commit: the commit and its line down to the
+ * recorded target base, which the staging commit's history must contain.
+ *
+ * The module's own refusals are read here as this driver's: a Git command that
+ * fails is the environment's, and a base the history does not hold is a record
+ * that does not bind what it names.
+ */
+async function handOut(git, { dir, since }, commit) {
+  try {
+    return await handOutGitView(git, { dir, commit, line: [commit], since });
+  } catch (error) {
+    if (error?.code === 'git_view_git_failed') {
+      demand(false, 'environment_failure', 'The Git view handout could not be written', { detail: error.message, ...error.details });
+    }
+    if (error?.code === 'git_view_boundary_invalid') {
+      demand(false, 'aggregate_binding_void', 'The recorded target base is not on the staging commit\'s history', { commit, since: since ?? null });
+    }
+    throw error;
+  }
+}
+
+/**
  * Removes the worktree, and says so when it could not.
  *
  * A left-behind worktree is state the next run inherits, so failing to remove
@@ -117,9 +148,9 @@ export async function removeWorktree(git, dir) {
  * A command that could not start did not fail — it did not run, and the two are
  * kept apart here rather than at the end, where the difference is already lost.
  */
-export async function runCheck(run, check, { cwd, env }) {
+export async function runCheck(run, check, { cwd, env, handout }) {
   const started = Date.now();
-  const result = await run(check.command, check.args ?? [], { cwd, env });
+  const result = await run(check.command, check.args ?? [], handout === undefined ? { cwd, env } : { cwd, env, handout });
   const ms = Date.now() - started;
   if (result.code === null || result.code === undefined) {
     return Object.freeze({
@@ -141,7 +172,7 @@ export async function runCheck(run, check, { cwd, env }) {
 /**
  * Runs every check on the exact staging tree and records what happened.
  *
- * Returns `{ aggregate, results, worktree_removed }`. `aggregate` is the record
+ * Returns `{ aggregate, results, worktree_removed, git_view }`. `aggregate` is the record
  * the staging record carries, and exactly the closed `aggregate` of
  * `resources/epic-staging/epic-staging.schema.json`: the staging commit and
  * tree, the verification configuration and instruction-lock digests, the
@@ -150,7 +181,9 @@ export async function runCheck(run, check, { cwd, env }) {
  * tree it was not run on or to a rule set it was not run under, and the
  * acceptance that binds the hash binds both. What each check did and whether
  * the throwaway worktree went are this run's evidence, reported beside the
- * record rather than written into it (debt 11e, ADR-099).
+ * record rather than written into it (debt 11e, ADR-099). So is `git_view`, the
+ * handout the checks were given, or null when the run was given no handout
+ * directory: it binds nothing, and the record is the same with or without it.
  *
  * The configuration digest is always the digest of what this run executes
  * (`checksDigest(checks, env)`), never one carried in: a prior record in the
@@ -169,7 +202,7 @@ export async function runCheck(run, check, { cwd, env }) {
  * over none verifies nothing, and each check is a plain closed record, so the
  * digest covers exactly what `runCheck` reads (narrow re-review of 11e).
  */
-export async function verifyAggregate({ git, run, realpath, state, checks, dir, env = {}, instructionLockDigest, verificationConfigDigest }) {
+export async function verifyAggregate({ git, run, realpath, state, checks, dir, handoutDir, env = {}, instructionLockDigest, verificationConfigDigest }) {
   demand(PROJECT_IDENTITY.test(state.project_identity) && identityString(state.epic_id)
       && oneObjectFormat([state.staging_commit_oid, state.staging_tree_oid]) !== null, 'aggregate_binding_void',
     'The aggregate record binds the project, the Epic and the staging commit and tree, and the state does not name them all',
@@ -191,14 +224,18 @@ export async function verifyAggregate({ git, run, realpath, state, checks, dir, 
   demand(included.length > 0, 'receipt_missing', 'The aggregate verifies the Tickets the receipts name, and none is named');
   const checkout = await checkoutStaging(git, { dir, commit: state.staging_commit_oid, realpath });
   const results = [];
+  let git_view = null;
   let cleanup;
   try {
     demand(checkout.tree_oid === state.staging_tree_oid, 'aggregate_binding_void',
       'The checked-out tree is not the recorded staging tree',
       { recorded: state.staging_tree_oid, observed: checkout.tree_oid });
+    // Written for the tree the record names and no other, before anything runs.
+    git_view = handoutDir === undefined ? null
+      : await handOut(git, { dir: handoutDir, since: state.recorded_target_base }, state.staging_commit_oid);
 
     for (const check of checks) {
-      const result = await runCheck(run, check, { cwd: dir, env });
+      const result = await runCheck(run, check, { cwd: dir, env, handout: git_view ?? undefined });
       results.push(result);
       // An environment failure stops the run: the checks after it would report
       // on a machine already known not to be running them.
@@ -225,6 +262,7 @@ export async function verifyAggregate({ git, run, realpath, state, checks, dir, 
     aggregate: Object.freeze({ ...aggregate, included_tickets: immutable(aggregate.included_tickets) }),
     results: immutable(results),
     worktree_removed: cleanup.removed,
+    git_view,
   });
 }
 

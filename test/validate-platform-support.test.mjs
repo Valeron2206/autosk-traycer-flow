@@ -933,3 +933,153 @@ test("what one shared model uid does not isolate is named (review L4)", () => {
     assert.match(fiveB, phrase);
   }
 });
+
+// --- debt 13b (round 9 of #39, R9-1): a Git view for checks and model steps ---
+
+import * as viewValidator from "../scripts/validate-platform-support.mjs";
+
+const GIT_VIEW_FIELDS = Object.freeze({
+  built_by: "launch_under_model_account",
+  at: "checkout_root",
+  owned_by: "model_account",
+  made_from: "handout_pack_written_by_autoskd",
+  holds: "handed_commit_and_line_to_base",
+  other_refs_reflogs_or_project_config: false,
+  git_directory_variable_in_environment: false,
+  safe_directory: "model_account_own_configuration",
+  read_by_autoskd: false,
+  read_by_helper: false,
+  installing_user_git: "refused_as_dubious_ownership",
+  covers: ["model_step", "check_running_project_code"],
+  teardown: "under_model_account_then_worktree_prune",
+});
+
+test("the model account's Git view is a repository it owns at the checkout's root, built at launch from what autoskd hands over, and nothing trusts it (R9-1)", () => {
+  const record = matrix().install.model_account.git_view;
+  assert.ok(record, "install.model_account.git_view");
+  assert.deepEqual(record.owner_issues, [9, 13, 18]);
+  const { owner_issues: _owners, ...constants } = record;
+  assert.deepEqual(constants, GIT_VIEW_FIELDS);
+  // The validator's own list is the record's, and the account still opens no Git directory of the project.
+  assert.deepEqual(Object.fromEntries(viewValidator.GIT_VIEW_CONSTANTS ?? []), GIT_VIEW_FIELDS);
+  assert.equal(matrix().install.model_account.git_directory_reads, false);
+  assert.equal(matrix().install.model_account.git_directory_writes, false);
+  // Each field is a constant in the schema, the record is closed, and a wrong value or an extra field is refused.
+  const node = schema.properties.install.properties.model_account.properties.git_view;
+  assert.equal(node?.additionalProperties, false);
+  assert.ok(schema.properties.install.properties.model_account.required.includes("git_view"));
+  for (const [field, expected] of Object.entries(GIT_VIEW_FIELDS)) {
+    assert.deepEqual(node?.properties?.[field]?.const, expected, field);
+    const wrong = typeof expected === "boolean" ? !expected : Array.isArray(expected) ? [...expected, "project_git_directory"] : "something_else";
+    assertRejects(mutated((value) => { value.install.model_account.git_view[field] = wrong; }), /git_view/u);
+    const loose = structuredClone(schema);
+    delete loose.properties.install.properties.model_account.properties.git_view.properties[field].const;
+    assert.match(validatePlatformSupportDesign({ ...files, [SCHEMA_PATH]: JSON.stringify(loose) }).join("\n"),
+      new RegExp(`install\\.model_account\\.git_view\\.${field} must be fixed to`, "u"), field);
+  }
+  assertRejects(mutated((value) => { delete value.install.model_account.git_view; }), /git_view/u);
+  assertRejects(mutated((value) => { value.install.model_account.git_view.alternates_into_the_project = true; }), /git_view/u);
+  assert.match(viewValidator.gitViewErrors(mutated((value) => { value.install.model_account.git_view.owner_issues = [13, 18]; }), program()).join("\n"), /git_view\.owner_issues/u);
+  const open = structuredClone(schema);
+  open.properties.install.properties.model_account.properties.git_view.additionalProperties = true;
+  assert.match(validatePlatformSupportDesign({ ...files, [SCHEMA_PATH]: JSON.stringify(open) }).join("\n"), /install\.model_account\.git_view must be closed/u);
+});
+
+test("the Git view's owners are v1 records whose obligations name it (R9-1)", () => {
+  // #18 builds it in the launch path, #9 hands it to aggregate verification's checks, #13 proves it: held to the
+  // program matrix as the model account's owners are.
+  assert.deepEqual(viewValidator.gitViewErrors?.(matrix(), program()), []);
+  assert.deepEqual(viewValidator.GIT_VIEW_OWNERS, [9, 13, 18]);
+  for (const issue of [9, 13, 18]) {
+    const record = program().records.find((entry) => entry.issue_number === issue);
+    assert.match(record.implementation_obligation_before_mvp, /`git_view`/u, `#${issue}`);
+    const unnamed = program();
+    const owner = unnamed.records.find((entry) => entry.issue_number === issue);
+    owner.implementation_obligation_before_mvp = owner.implementation_obligation_before_mvp.replaceAll("`git_view`", "the view");
+    assert.match(viewValidator.gitViewErrors(matrix(), unnamed).join("\n"), new RegExp(`git_view owner #${issue} does not name`, "u"));
+    const later = program();
+    later.records.find((entry) => entry.issue_number === issue).lifecycle = "planned_after_v1";
+    assert.match(viewValidator.gitViewErrors(matrix(), later).join("\n"), new RegExp(`git_view owner #${issue} is planned_after_v1, not required_for_v1`, "u"));
+  }
+  const missing = program();
+  missing.records = missing.records.filter((entry) => entry.issue_number !== 9);
+  assert.match(viewValidator.gitViewErrors(matrix(), missing).join("\n"), /git_view owner #9 is not a record/u);
+  assert.notDeepEqual(viewValidator.gitViewErrors({}, program()), []);
+  assert.notDeepEqual(viewValidator.gitViewErrors(matrix(), {}), []);
+  // The shipped design runs the check.
+  const unnamed = program();
+  const owner = unnamed.records.find((entry) => entry.issue_number === 18);
+  owner.implementation_obligation_before_mvp = owner.implementation_obligation_before_mvp.replaceAll("`git_view`", "the view");
+  assert.match(validatePlatformSupportDesign({ ...files, [PROGRAM_PATH]: JSON.stringify(unnamed) }).join("\n"), /git_view owner #18/u);
+});
+
+test("§5b says how the Git view is built, what it holds, who never reads it, and what the installing user's Git does in it (R9-1)", () => {
+  const contract = files[CONTRACT_PATH];
+  const fiveB = sectionOf(contract, "## 5b.", "## 6.");
+  for (const phrase of [
+    /\*\*its Git view\*\*/u,
+    /`git_view`/u,
+    /a repository of its own at the checkout's root, which the launch builds under the account/u,
+    /a pack of the handed commit and its line down to a base[^\n]*written by autoskd, as the installing user, into a directory it names/u,
+    /`git rev-parse HEAD` names the commit the launch hands over/u,
+    /`git status`, `git diff` and `git ls-files` reflect the checkout's files/u,
+    /aligns the index/u,
+    /no other ref, no reflog of the project, no configuration of the project and no object of another line/u,
+    /no `GIT_DIR` and no `GIT_WORK_TREE` in its environment/u,
+    /`safe\.directory` for the checkout in the model account's own configuration, never the installing user's/u,
+    /autoskd never reads it, and the helper never does/u,
+    /the installing user's Git refuses it as dubious ownership/u,
+    /`git worktree remove` refuses a checkout whose `\.git` is a directory/u,
+    /removes a model worktree under the model account and prunes it/u,
+    /a commit outside the staging line is refused/u,
+  ]) {
+    assert.match(fiveB, phrase);
+  }
+  // The measured refusals of the installing user's porcelain, restated for the view.
+  assert.match(fiveB, /the installing user's Git in a model worktree refuses every command with `detected dubious ownership`[^\n]*`--git-dir=<per-worktree Git directory> --work-tree=<checkout>`/u);
+  // The check paragraph says a check runs in the view, not in a checkout with no Git.
+  assert.match(fiveB, /a check that runs the project's own code[^\n]*runs in the checkout's Git view/u);
+  // The sentence the finding is about is gone.
+  assert.doesNotMatch(fiveB, /so its own `git` in its worktree finds no repository \(measured\)/u);
+  assert.doesNotMatch(fiveB, /The installing user's own Git needs no `safe\.directory` exception: a model worktree's root, gitfile and administrative directory are the installing user's, so the user's Git discovers the worktree/u);
+  // What is not carried is named.
+  assert.match(fiveB, /`core\.autocrlf=true`[^\n]*status is not clean/u);
+  const tests = sectionOf(contract, "## 8.", "## 9.");
+  assert.match(tests, /`git rev-parse HEAD` in a model step's worktree and in a check's checkout naming the commit the launch hands over/u);
+  assert.match(tests, /a repository a check makes in a temporary directory being its own/u);
+  assert.match(tests, /the installing user's Git refusing the model worktree's view as dubious ownership/u);
+  assert.match(tests, /a view holding no ref but `HEAD`/u);
+});
+
+test("the obligations name who builds, hands over and proves the Git view (R9-1)", () => {
+  const records = program().records;
+  const obligation = (issue) => records.find((entry) => entry.issue_number === issue).implementation_obligation_before_mvp;
+  const expectation = (issue) => records.find((entry) => entry.issue_number === issue).verification_expectation;
+  assert.match(obligation(18), /builds the model account's Git view \(`git_view`\)[^.]*for every model step and every check that runs code a model wrote/u);
+  assert.match(obligation(18), /from the handout `handOutGitView` writes/u);
+  assert.match(obligation(9), /hands the checks the handout of the staging commit and its line down to the recorded target base \(`git_view`, `handOutGitView`\)/u);
+  assert.match(obligation(13), /the model account probe proves[^.]*its Git view \(`git_view`\)/u);
+  assert.match(expectation(13), /Git view/u);
+  assert.match(expectation(18), /Git view/u);
+  assert.match(expectation(9), /Git view/u);
+});
+
+test("README, 02 and 03 say a model works in a Git view of its own, and not that it has no Git (R9-1)", () => {
+  assert.match(read("README.md"), /`git_view`, ADR-110/u);
+  assert.match(read("README.md"), /`detected dubious ownership`/u);
+  assert.match(read("README.md"), /`safe\.directory` для него не добавляйте/u);
+  assert.match(read("02-architecture.md"), /Git-вид `git_view` \(ADR-110\)/u);
+  assert.match(read("03-technical-plan.md"), /works in a Git view of its own[^\n]*\(`git_view`, ADR-110\)/u);
+  assert.match(read("docs/contracts/epic-planning-ref.md"), /works in a Git view of its own that holds nothing of the project's refs/u);
+});
+
+test("ADR-110 records the decision, and ADR-102's Git text says it changed (R9-1)", () => {
+  const decisions = read("04-decisions.md");
+  assert.ok(decisions.includes("## ADR-110:"), "ADR-110");
+  const adr = decisions.slice(decisions.indexOf("## ADR-110:"));
+  for (const phrase of [/R9-1/u, /Альтернатива/u, /pack/u, /`safe\.directory`/u, /GIT_DIR/u, /--shared/u, /synthetic|синтетическ/u, /`git_view`/u, /Что не сделано/u, /Ожидания, изменённые решением/u]) {
+    assert.match(adr, phrase);
+  }
+  const adr102 = sectionOf(decisions, "## ADR-102:", "## ADR-103:");
+  assert.match(adr102, /Изменено ADR-110/u);
+});

@@ -2450,6 +2450,27 @@ test("§5 does not claim the model account, its launch or the checks that prove 
   }
 });
 
+// Debt 13b (round 9 of #39, R9-1): the Git view of the model account is design
+// with owners, and its handout the one part that is code.
+test("§5 says the model account's Git view is design with owners and a handout, built nowhere (R9-1)", async () => {
+  const evidence = section5((await build()).text);
+  for (const phrase of [
+    /The model account's Git view is design with owners, and its handout the one part that is code/u,
+    /`handOutGitView` \(`src\/host\/git-view\.mjs`\) writes a pack of a commit and its line down to a base, refuses a commit outside the staging line, and `verifyAggregate` hands it to the checks/u,
+    /the launch that builds the account's own repository at the checkout's root from it[^\n]*is #18's, the probe that proves it from inside the account is #13's/u,
+    /Until they exist a check that calls `git` finds no repository under the account/u,
+    /`git status`, `git ls-files` and `git rev-parse HEAD` in a checkout exit 128/u,
+    /`test\/runtime-artifact-classifier\.test\.mjs:317`/u,
+    /does not carry the project's configuration/u,
+  ]) {
+    assert.match(evidence, phrase);
+  }
+  // The claim is the tree's: the module and the driver's hand-over exist.
+  assert.match(read("src/host/git-view.mjs"), /export async function handOutGitView/u);
+  assert.match(read("src/host/aggregate-driver.mjs"), /handOutGitView/u);
+  assert.match(read("test/runtime-artifact-classifier.test.mjs").split("\n")[316] ?? "", /ls-files/u);
+});
+
 // Debt 12b (round 8 of #39, R8-2, R8-3, R8-15, R8-16): what an acceptance's
 // heads contain and which chain its record joins are the daemon's rules, and
 // no code here computes them, so the package does not claim them; and that no
