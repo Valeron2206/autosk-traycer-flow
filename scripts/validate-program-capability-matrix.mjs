@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { REQUIRED_DAEMON_CAPABILITIES, UNPINNED_DAEMON_PRIMITIVES } from "../src/host/daemon-preflight.mjs";
 import { MODEL_STEP_CHECKS } from "../src/host/workflow-preflight.mjs";
+import { SCHEMA_PATH as GRAPH_SCHEMA_PATH, parseStrict, validateGraph } from "./validate-workflow-graph.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const MATRIX_PATH = path.join(ROOT, "resources/program-capabilities/matrix.v1.json");
@@ -1313,6 +1314,7 @@ function parseArgs(argv) {
     parityPath: PARITY_PATH,
     docPath: DOC_PATH,
     graphPath: GRAPH_PATH,
+    graphOverridden: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -1325,10 +1327,41 @@ function parseArgs(argv) {
       if (arg === "--inventory") result.inventoryPath = path.resolve(value);
       if (arg === "--parity") result.parityPath = path.resolve(value);
       if (arg === "--docs") result.docPath = path.resolve(value);
-      if (arg === "--graph") result.graphPath = path.resolve(value);
+      if (arg === "--graph") {
+        result.graphPath = path.resolve(value);
+        result.graphOverridden = true;
+      }
     } else throw new Error(`unknown argument: ${arg}`);
   }
   return result;
+}
+
+/**
+ * A graph given with `--graph`, checked before any ownership is derived from it.
+ *
+ * The matrix's ownership requirements are read from the graph it is given: a
+ * predicate, a guard or a workflow that input leaves out adds no requirement, so
+ * an input that is not the graph that was shipped would let the matrix pass
+ * without owning all of the shipped predicates (CodeRabbit on #279). The
+ * override therefore has to be a graph — the repository's own graph validator
+ * (`validateGraph`: the schema, the closed sets, its references and its
+ * recorded `canonical_digest`, recomputed) — and the result names the graph it
+ * attests. The shipped graph's own validation is `validate:workflow-graph`'s.
+ */
+export function overriddenGraphErrors(text) {
+  let document;
+  let schema;
+  try {
+    document = parseStrict(text);
+  } catch (error) {
+    return [`not a graph: ${error.message}`];
+  }
+  try {
+    schema = parseStrict(readFileSync(path.join(ROOT, GRAPH_SCHEMA_PATH), "utf8"));
+  } catch (error) {
+    return [`${GRAPH_SCHEMA_PATH}: ${error.message}`];
+  }
+  return validateGraph(document, schema);
 }
 
 function run(argv) {
@@ -1343,11 +1376,17 @@ function run(argv) {
   const documentation = existsSync(args.docPath) ? readFileSync(args.docPath, "utf8") : null;
   const readme = existsSync(README_PATH) ? readFileSync(README_PATH, "utf8") : null;
   const contracts = existsSync(CONTRACTS_DIR) ? readContracts() : [];
+  if (args.graphOverridden) {
+    const found = overriddenGraphErrors(readFileSync(args.graphPath, "utf8"));
+    if (found.length) return fail(found.map((message) => `--graph ${args.graphPath} is not a valid v1 workflow graph, so no ownership is derived from it: ${message}`));
+  }
   const graph = parseJson(args.graphPath);
   const errors = validateAll({ matrix, inventory, parityRegistry, documentation, readme, contracts, graph });
   if (documentation === null) errors.push(`missing documentation: ${args.docPath}`);
   if (errors.length) return fail(errors);
-  console.log(`OK: ${matrix.records.length} program issues; ${matrix.summary.required_for_v1} required_for_v1; ${matrix.summary.planned_after_v1} planned_after_v1; digest ${matrix.canonical_digest}`);
+  // A result that rests on an override says which graph it attests; the shipped graph's result is what it always was.
+  const attested = args.graphOverridden ? `; graph ${args.graphPath} canonical_digest ${graph.canonical_digest}` : "";
+  console.log(`OK: ${matrix.records.length} program issues; ${matrix.summary.required_for_v1} required_for_v1; ${matrix.summary.planned_after_v1} planned_after_v1; digest ${matrix.canonical_digest}${attested}`);
   return 0;
 }
 

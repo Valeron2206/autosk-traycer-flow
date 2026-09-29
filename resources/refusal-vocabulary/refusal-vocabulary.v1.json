@@ -217,6 +217,7 @@
       "code": "acceptance_stale",
       "named_at": [
         "accept_staging",
+        "deliver_staging",
         "integrate_staging"
       ],
       "named_at_classes": [],
@@ -555,6 +556,7 @@
         "aggregate_verify",
         "apply_staging",
         "commit_on_pass",
+        "deliver_staging",
         "dispatch_ticket_dag",
         "done",
         "freeze",
@@ -721,7 +723,8 @@
     {
       "code": "environment_failure",
       "named_at": [
-        "aggregate_verify"
+        "aggregate_verify",
+        "apply_staging"
       ],
       "named_at_classes": [],
       "closed_by": "docs/contracts/epic-staging.md",
@@ -730,7 +733,8 @@
         "src/host/aggregate-driver.mjs",
         "src/host/delta-driver.mjs",
         "src/host/epic-staging.mjs",
-        "src/host/staging-driver.mjs"
+        "src/host/staging-driver.mjs",
+        "src/host/staging-lineage.mjs"
       ]
     },
     {
@@ -1169,7 +1173,9 @@
       "closed_by": "docs/contracts/epic-staging.md",
       "producer": "host",
       "producer_files": [
-        "src/host/epic-staging.mjs"
+        "src/host/delta-driver.mjs",
+        "src/host/epic-staging.mjs",
+        "src/host/staging-lineage.mjs"
       ]
     },
     {
@@ -1401,5 +1407,5 @@
       "producer_files": []
     }
   ],
-  "vocabulary_digest": "0fefa241a0ee0cb6f598827844411ffbd0730e96483ffe9e53abac0e0b62b820"
+  "vocabulary_digest": "e815c3d00caf4703b3e23b491207e97c7466ffb480e9212168a8db288a3f634f"
 }

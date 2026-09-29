@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -27,6 +27,7 @@ import {
   stagingRef,
   swapTarget,
 } from "../src/host/staging-driver.mjs";
+import * as stagingDriver from "../src/host/staging-driver.mjs";
 import { gitRefCustody } from "./support/git-ref-custody.mjs";
 
 // epicRefKey("0".repeat(64), "e-1"), spelled out so a broken derivation fails a
@@ -82,10 +83,10 @@ async function commitOnTop(git, root, { parent, file, content, message }) {
 test("the staging ref is private, and creating it twice at the same base is a retry", async (t) => {
   const { git, head, custody } = await repository(t);
   assert.equal(stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/staging`);
-  const created = await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  const created = await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
   assert.deepEqual({ ...created }, { ref: `refs/autosk/epics/${EPIC_KEY}/staging`, oid: head, created: true });
   // A crash between creating the ref and recording it looks exactly like this.
-  const again = await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  const again = await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
   assert.equal(again.created, false);
   assert.equal(await readRef(git, "refs/heads/main"), head);
   // And the ref is not a branch: nothing lists it as one.
@@ -96,8 +97,8 @@ test("the staging ref is private, and creating it twice at the same base is a re
 test("a staging ref already at another commit is a conflict, not an overwrite", async (t) => {
   const { git, root, head, custody } = await repository(t);
   const other = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "x\n", message: "other" });
-  await createStaging(custody, { epicRefKey: EPIC_KEY, base: other.oid });
-  await assert.rejects(() => createStaging(custody, { epicRefKey: EPIC_KEY, base: head }), code("cas_conflict"));
+  await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: other.oid });
+  await assert.rejects(() => createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head }), code("cas_conflict"));
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), other.oid);
 });
 
@@ -198,18 +199,18 @@ test("a crash after the aggregate passed resumes into the swap with no model run
 test("cleanup removes the staging ref only while it holds what was recorded", async (t) => {
   const { git, root, head, custody } = await repository(t);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
-  await createStaging(custody, { epicRefKey: EPIC_KEY, base: staged.oid });
+  await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: staged.oid });
   const moved = await commitOnTop(git, root, { parent: staged.oid, file: "c.txt", content: "late\n", message: "late" });
   await git(["update-ref", stagingRef(EPIC_KEY), moved.oid, staged.oid]);
 
   // Deleting whatever is there would destroy the evidence in the one case worth
   // keeping.
-  const refused = await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: staged.oid });
+  const refused = await cleanupStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, expectedOid: staged.oid });
   assert.equal(refused.deleted, false);
   assert.equal(refused.reason, "staging_moved_after_pass");
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), moved.oid);
 
-  const removed = await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: moved.oid });
+  const removed = await cleanupStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, expectedOid: moved.oid });
   assert.equal(removed.deleted, true);
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), null);
 });
@@ -403,16 +404,72 @@ test("creating and removing the staging ref are requests to the ref-custody help
   // the driver forms the one request each action carries and reads the answer.
   const { git, head, custody } = await repository(t);
   const ref = stagingRef(EPIC_KEY);
-  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
-  await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head });
-  assert.deepEqual(JSON.parse(JSON.stringify(custody.requests)), [
+  await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
+  await cleanupStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, expectedOid: head });
+  // Each request carries a pair of its own, derived from what it asks (the ref, the generation, the commit): the create and
+  // the delete are two requests.
+  const pairs = custody.requests.map(({ owner_operation_id: owner, request_id: request }) => ({ owner, request }));
+  for (const { owner, request } of pairs) assert.match(`${owner} ${request}`, /^[0-9a-f-]{36} [0-9a-f-]{36}$/u);
+  assert.notEqual(pairs[0].request, pairs[1].request);
+  assert.deepEqual(custody.requests.map(({ owner_operation_id: owner, request_id: request, ...rest }) => JSON.parse(JSON.stringify(rest))), [
     { action: "create_staging", ref_updates: [{ operation: "update", ref, expected_old_oid: null, new_oid: head }] },
     { action: "delete_staging", ref_updates: [{ operation: "delete", ref, expected_old_oid: head, new_oid: null }] },
   ]);
   assert.equal(await readRef(git, ref), null);
   // The helper created the ref's reflog, so the post-CAS check can count on it.
-  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
   assert.equal(await reflogDepth(git, ref), 1);
+});
+
+test("a create or a cleanup made under no generation of the staging record is refused before the helper is asked (debt 12g)", async (t) => {
+  const { git, head, custody } = await repository(t);
+  const ref = stagingRef(EPIC_KEY);
+  for (const generation of [undefined, null, -1, 1.5, "0", Number.NaN]) {
+    await assert.rejects(() => createStaging(custody, { epicRefKey: EPIC_KEY, base: head, generation }), code("cas_conflict"), String(generation));
+    await assert.rejects(() => cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head, generation }), code("cas_conflict"), String(generation));
+  }
+  assert.equal(await readRef(git, ref), null);
+  assert.equal(custody.requests.length, 0, "a request that named no generation was asked");
+});
+
+/** A helper stand-in that answers a repeated request as the daemon's journal does: the same answer, no second transaction. */
+function replaying(custody) {
+  const answered = new Map();
+  const wrap = (action) => async (request) => {
+    if (answered.has(request.request_id)) return answered.get(request.request_id);
+    const answer = await custody[action](request);
+    answered.set(request.request_id, answer);
+    return answer;
+  };
+  return { requests: custody.requests, create_staging: wrap("create_staging"), delete_staging: wrap("delete_staging"), advance_staging: wrap("advance_staging") };
+}
+
+test("a re-stage or a rebuild asks under a pair of its own: the create and the delete of one generation are a retry, the next generation's are new requests (review N6)", async (t) => {
+  const { git, head, custody } = await repository(t);
+  const daemon = replaying(custody);
+  const ref = stagingRef(EPIC_KEY);
+  await createStaging(daemon, { epicRefKey: EPIC_KEY, base: head, generation: 0 });
+  assert.equal(await readRef(git, ref), head);
+  // The person's cleanup, then a rebuild at the same base: the record is the same, its generation is the next.
+  await cleanupStaging(daemon, { epicRefKey: EPIC_KEY, expectedOid: head, generation: 0 });
+  assert.equal(await readRef(git, ref), null);
+  await createStaging(daemon, { epicRefKey: EPIC_KEY, base: head, generation: 1 });
+  assert.equal(await readRef(git, ref), head, "the daemon answered a rebuild's create from the journal of the first create, and the ref was never made");
+  await cleanupStaging(daemon, { epicRefKey: EPIC_KEY, expectedOid: head, generation: 1 });
+  assert.equal(await readRef(git, ref), null, "the daemon answered a rebuild's delete from the journal of the first delete");
+  // A re-stage onto a moved base: a new commit, a new generation, and the same again.
+  const other = (await git(["commit-tree", (await git(["rev-parse", `${head}^{tree}`])).stdout.trim(), "-m", "moved"])).stdout.trim();
+  await createStaging(daemon, { epicRefKey: EPIC_KEY, base: other, generation: 2 });
+  assert.equal(await readRef(git, ref), other);
+  // The same generation asked again is the retry it is: the daemon's answer is replayed, whatever the ref holds now.
+  await git(["update-ref", "-d", ref]);
+  const replayed = await createStaging(daemon, { epicRefKey: EPIC_KEY, base: other, generation: 2 });
+  assert.equal(replayed.created, true);
+  assert.equal(await readRef(git, ref), null, "a retry of one create made the ref again");
+  // Four distinct creates and deletes, and one repeated request.
+  const pairs = new Set(custody.requests.map((request) => request.request_id));
+  assert.equal(custody.requests.length, 5);
+  assert.equal(pairs.size, 5);
 });
 
 test("with no helper the staging ref is neither created nor removed, and the host writes nothing itself", async (t) => {
@@ -420,10 +477,10 @@ test("with no helper the staging ref is neither created nor removed, and the hos
   // the drivers refuse rather than fall back to a direct `git update-ref`.
   const { git, head, custody } = await repository(t);
   const ref = stagingRef(EPIC_KEY);
-  await assert.rejects(() => createStaging(undefined, { epicRefKey: EPIC_KEY, base: head }), code("planning_ref_capability_missing"));
+  await assert.rejects(() => createStaging(undefined, { generation: 0, epicRefKey: EPIC_KEY, base: head }), code("planning_ref_capability_missing"));
   assert.equal(await readRef(git, ref), null);
-  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
-  await assert.rejects(() => cleanupStaging(undefined, { epicRefKey: EPIC_KEY, expectedOid: head }), code("planning_ref_capability_missing"));
+  await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
+  await assert.rejects(() => cleanupStaging(undefined, { generation: 0, epicRefKey: EPIC_KEY, expectedOid: head }), code("planning_ref_capability_missing"));
   assert.equal(await readRef(git, ref), head);
 });
 
@@ -446,9 +503,9 @@ test("a refused create reads what the ref holds from the helper's answer", async
       })),
     }),
   };
-  await assert.rejects(() => createStaging(refusing, { epicRefKey: EPIC_KEY, base }), (error) =>
+  await assert.rejects(() => createStaging(refusing, { generation: 0, epicRefKey: EPIC_KEY, base }), (error) =>
     error.code === "cas_conflict" && error.details.held === held && error.details.expected === base);
-  const retried = await createStaging(refusing, { epicRefKey: EPIC_KEY, base: held });
+  const retried = await createStaging(refusing, { generation: 0, epicRefKey: EPIC_KEY, base: held });
   assert.deepEqual({ ...retried }, { ref: stagingRef(EPIC_KEY), oid: held, created: false });
 });
 
@@ -457,7 +514,7 @@ test("swapTarget refuses any ref under refs/autosk/**, which is the helper's alo
   // target ref; a private ref under refs/autosk/** has one writer, the helper.
   const { git, root, head, custody } = await repository(t);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
-  await createStaging(custody, { epicRefKey: EPIC_KEY, base: head });
+  await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
   for (const ref of [stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/planning`, "refs/autosk/anything"]) {
     await assert.rejects(() => swapTarget(git, { ref, expectedOld: head, newOid: staged.oid }), code("cas_conflict"), ref);
   }
@@ -478,11 +535,11 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
   assert.equal(await reflogDepth(git, "refs/heads/main"), 1);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
   const ref = stagingRef(EPIC_KEY);
-  assert.deepEqual({ ...(await createStaging(custody, { epicRefKey: EPIC_KEY, base: head })) }, { ref, oid: head, created: true });
+  assert.deepEqual({ ...(await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head })) }, { ref, oid: head, created: true });
   assert.equal(await readRef(git, ref), head);
   assert.equal(await reflogDepth(git, ref), 1);
   // Creating it again at the same base is the retry, read from what the ref holds.
-  assert.equal((await createStaging(custody, { epicRefKey: EPIC_KEY, base: head })).created, false);
+  assert.equal((await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head })).created, false);
 
   const depthBefore = await reflogDepth(git, "refs/heads/main");
   assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
@@ -500,7 +557,7 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
   // A refused swap reports what the ref holds, in the repository's format.
   const refused = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: head });
   assert.deepEqual({ swapped: refused.swapped, observed_old_oid: refused.observed_old_oid }, { swapped: false, observed_old_oid: staged.oid });
-  assert.deepEqual({ ...(await cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head })) }, { ref, deleted: true });
+  assert.deepEqual({ ...(await cleanupStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, expectedOid: head })) }, { ref, deleted: true });
   assert.equal(await readRef(git, ref), null);
 });
 
@@ -531,4 +588,69 @@ test("the target observation attributes no movement to the Epic: a rewind and a 
   await git(["update-ref", "refs/heads/main", staged.oid]);
   const landed = await observeTarget(git, { ref: "refs/heads/main" });
   assert.equal(casAdmission(accepted, landed, ["T-1"], casContext(accepted)).decision, "already_complete");
+});
+
+test("a read of the reflog that fails is an environment failure unless the ref is not there, and only then is its depth none (review F4)", async (t) => {
+  const { git, head } = await repository(t);
+  const ref = stagingRef(EPIC_KEY);
+  const failing = (exit) => async (args) => (args.includes("reflog") ? { code: exit, stdout: "", stderr: "fatal: a transient fault" } : git(args));
+  // A ref that is not there has no reflog: none, and no failure. Git's own exit for it (128) is the exit a failing read shares.
+  assert.equal(await reflogDepth(git, ref), 0);
+  await git(["update-ref", "--create-reflog", "-m", "fixture: staging created", ref, head]);
+  assert.equal(await reflogDepth(git, ref), 1);
+  // The same exit from a ref that is there is a failing read: it says nothing about the line.
+  for (const exit of [1, 2, 128]) {
+    const error = await reflogDepth(failing(exit), ref).then(() => null, (thrown) => thrown);
+    assert.equal(error?.code, "environment_failure", `exit ${exit}`);
+    assert.equal(error.message, `git reflog exited ${exit}`);
+  }
+  // Another exit is a failure even for an absent ref: only git's two "no such ref" answers are read as none.
+  await git(["update-ref", "-d", ref]);
+  assert.equal(await reflogDepth(failing(1), ref), 0);
+  assert.equal(await reflogDepth(failing(128), ref), 0);
+  const other = await reflogDepth(failing(2), ref).then(() => null, (thrown) => thrown);
+  assert.equal(other?.code, "environment_failure");
+});
+
+test("the newest reflog entry: none for an absent ref or a ref without a reflog, and a failing read of a ref that is there is not none (review F4)", async (t) => {
+  const { git, head } = await repository(t);
+  const ref = stagingRef(EPIC_KEY);
+  const failing = (exit) => async (args) => (args.includes("reflog") ? { code: exit, stdout: "", stderr: "fatal: a transient fault" } : git(args));
+  assert.equal(await stagingDriver.reflogNewest(git, ref, "%gs"), null);
+  await git(["update-ref", "--create-reflog", "-m", "fixture: staging created", ref, head]);
+  assert.equal(await stagingDriver.reflogNewest(git, ref, "%gs"), "fixture: staging created");
+  for (const exit of [1, 2, 128]) {
+    const error = await stagingDriver.reflogNewest(failing(exit), ref, "%gs").then(() => null, (thrown) => thrown);
+    assert.equal(error?.code, "environment_failure", `exit ${exit}`);
+    assert.equal(error.message, `git reflog exited ${exit}`);
+  }
+  await git(["update-ref", "-d", ref]);
+  assert.equal(await stagingDriver.reflogNewest(failing(128), ref, "%gs"), null);
+  assert.equal((await stagingDriver.reflogNewest(failing(2), ref, "%gs").then(() => null, (thrown) => thrown))?.code, "environment_failure");
+});
+
+test("the newest reflog entry is the marked line, whatever the repository prints around it, and a ref with no reflog has none (review F1)", async (t) => {
+  const { root, git, head } = await repository(t);
+  const ref = stagingRef(EPIC_KEY);
+  const tool = path.join(path.dirname(root), `fakegpg-${path.basename(root)}`);
+  t.after(() => rm(tool, { force: true }));
+  await writeFile(tool, '#!/bin/sh\necho "gpg: Signature made Thu Nov 14 22:13:20 2023 UTC" >&2\necho "gpg: Good signature" >&2\nexit 0\n');
+  await chmod(tool, 0o755);
+  const tree = (await git(["rev-parse", "HEAD^{tree}"])).stdout.trim();
+  const body = `tree ${tree}\nauthor p <p@x> 1700000000 +0000\ncommitter p <p@x> 1700000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n\nsigned\n`;
+  const signed = await new Promise((resolve, reject) => {
+    const child = execFile("git", ["hash-object", "-t", "commit", "-w", "--stdin"], { cwd: root, env: { PATH: process.env.PATH, HOME: root } }, (error, stdout) => (error ? reject(error) : resolve(stdout.trim())));
+    child.stdin.end(body);
+  });
+  await git(["config", "log.showSignature", "true"]);
+  await git(["config", "gpg.program", tool]);
+  // A ref whose entry names a signed commit: git writes a report in front of the entry, and the first line is not the entry.
+  await git(["update-ref", "--create-reflog", "-m", "the entry", ref, signed]);
+  assert.match((await git(["reflog", "show", "--format=%gs", "-n", "1", ref])).stdout.split("\n")[0], /^gpg: /u, "the fixture does not show a signature");
+  assert.equal(await stagingDriver.reflogNewest(git, ref, "%gs"), "the entry");
+  assert.equal(await stagingDriver.reflogNewest(git, ref, "%H%x1f%gs"), `${signed}\u001fthe entry`);
+  // A ref that keeps no reflog has no entry, and that is not a failure.
+  const bare = stagingRef("b".repeat(64));
+  await git(["update-ref", bare, head]);
+  assert.equal(await stagingDriver.reflogNewest(git, bare, "%gs"), null);
 });

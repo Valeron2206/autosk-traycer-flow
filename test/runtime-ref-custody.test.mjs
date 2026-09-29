@@ -14,12 +14,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import * as custodyModule from "../src/host/ref-custody.mjs";
 import {
   HOST_REF_CUSTODY_ACTIONS,
   NO_REF_CUSTODY,
   PROTECTED_REF,
   REF_CUSTODY_ACTIONS,
-  askCustody,
+  askCustody as askCustodyWith,
 } from "../src/host/ref-custody.mjs";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -32,6 +33,16 @@ const CANDIDATE = "c".repeat(64);
 const STAGING = `refs/autosk/epics/${KEY}/staging`;
 const PLANNING = `refs/autosk/epics/${KEY}/planning`;
 const LIVE = `refs/autosk/epics/${KEY}/candidates/${CANDIDATE}`;
+// The operation identity every request carries (debt 12g): the pair the
+// daemon-side intent requires. Existing tests ask with this one.
+// Literal, not derived at load: a fault in the derivation must fail the tests that name it, not the file's loading.
+const IDENTITY = Object.freeze({
+  owner_operation_id: "5b0f4d1e-9c3a-4e7b-8a21-6d0c7e9f1a35",
+  request_id: "c1d2e3f4-a5b6-4c7d-9e8f-0a1b2c3d4e5f",
+});
+// One request per action, as the derivation gives them: an action's own pair, not one pair for all of them.
+// (An action the host does not ask for has no pair to derive; the request is refused on the action, not the pair.)
+const askCustody = (custody, action, updates, identity = HOST_REF_CUSTODY_ACTIONS.includes(action) ? custodyModule.custodyIdentity("test-operation", action) : IDENTITY) => askCustodyWith(custody, action, updates, identity);
 const A = "1".repeat(40);
 const B = "2".repeat(40);
 const C = "3".repeat(40);
@@ -147,11 +158,11 @@ test("with no helper, every action is refused as a missing capability and nothin
   assert.deepEqual(Object.keys(NO_REF_CUSTODY), []);
 });
 
-test("the request the client receives is exactly the action and its ref updates, frozen", async () => {
+test("the request the client receives is exactly the action, its operation identity and its ref updates, frozen", async () => {
   const { asked, custody } = client(committed);
   const answer = await askCustody(custody, "advance_staging", advance);
   assert.equal(asked.length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(asked[0])), { action: "advance_staging", ref_updates: advance });
+  assert.deepEqual(JSON.parse(JSON.stringify(asked[0])), { action: "advance_staging", ...custodyModule.custodyIdentity("test-operation", "advance_staging"), ref_updates: advance });
   assert.equal(Object.isFrozen(asked[0]), true);
   assert.equal(Object.isFrozen(asked[0].ref_updates[0]), true);
   assert.equal(answer.status, "committed");
@@ -385,4 +396,75 @@ test("a helper that observes an OID of another object format did not observe thi
   };
   await assert.rejects(() => askCustody(client(planningWide).custody, "advance_planning", VALID.advance_planning),
     code("planning_ref_capability_missing"));
+});
+
+// --- debt 12g (R8-9): the request carries the operation's identity -----------
+
+test("the request carries the pair the daemon-side intent requires, under the intent's own names", async () => {
+  const intents = read("resources/planning-publication/ref-custody-helper-intents.schema.json");
+  const required = intents.$defs.intent.required;
+  for (const field of ["owner_operation_id", "request_id"]) assert.ok(required.includes(field), field);
+  const { asked, custody } = client(committed);
+  await askCustody(custody, "advance_staging", advance);
+  for (const field of ["owner_operation_id", "request_id"]) assert.equal(asked[0][field], custodyModule.custodyIdentity("test-operation", "advance_staging")[field], field);
+  // Nothing else crosses the boundary: the daemon mints the nonce, the digests and the signature.
+  assert.deepEqual(Object.keys(asked[0]).sort(), ["action", "owner_operation_id", "ref_updates", "request_id"]);
+  // A retry hands the same pair over again: the daemon finds its intent, it does not mint a second request.
+  await askCustody(custody, "advance_staging", advance);
+  assert.deepEqual([asked[1].owner_operation_id, asked[1].request_id], [asked[0].owner_operation_id, asked[0].request_id]);
+});
+
+test("a request with no operation identity, or a malformed one, is refused before the client is asked", async () => {
+  const intents = read("resources/planning-publication/ref-custody-helper-intents.schema.json");
+  const uuid = new RegExp(intents.$defs.uuid.pattern, "u");
+  assert.ok(uuid.test(IDENTITY.owner_operation_id) && uuid.test(IDENTITY.request_id));
+  const bad = [
+    undefined,
+    null,
+    "5b0f4d1e-9c3a-4e7b-8a21-6d0c7e9f1a35",
+    {},
+    { owner_operation_id: IDENTITY.owner_operation_id },
+    { request_id: IDENTITY.request_id },
+    { ...IDENTITY, owner_operation_id: "op-1" },
+    { ...IDENTITY, request_id: "not-a-uuid" },
+    // Not a version-4 UUID, and not lowercase: the intent schema's pattern refuses both.
+    { ...IDENTITY, request_id: "c1d2e3f4-a5b6-1c7d-9e8f-0a1b2c3d4e5f" },
+    { ...IDENTITY, request_id: "C1D2E3F4-A5B6-4C7D-9E8F-0A1B2C3D4E5F" },
+    { ...IDENTITY, owner_operation_id: 7 },
+    { ...IDENTITY, extra: true },
+  ];
+  const { asked, custody } = client(committed);
+  for (const action of HOST_REF_CUSTODY_ACTIONS) {
+    for (const identity of bad) {
+      await assert.rejects(() => askCustodyWith(custody, action, VALID[action], identity), code("cas_conflict"), `${action} ${JSON.stringify(identity)}`);
+    }
+  }
+  assert.deepEqual(asked, []);
+});
+
+test("custodyIdentity derives the pair from the operation: stable across a retry, one owner, one request per action", () => {
+  const intents = read("resources/planning-publication/ref-custody-helper-intents.schema.json");
+  const uuid = new RegExp(intents.$defs.uuid.pattern, "u");
+  const { custodyIdentity } = custodyModule;
+  const first = custodyIdentity("op-7f3c1a", "advance_staging");
+  assert.deepEqual(Object.keys(first).sort(), ["owner_operation_id", "request_id"]);
+  assert.ok(uuid.test(first.owner_operation_id) && uuid.test(first.request_id));
+  // The same operation and action give the same pair again, after a crash and in another process.
+  assert.deepEqual(custodyIdentity("op-7f3c1a", "advance_staging"), first);
+  // One operation has one owner id across its actions, and one request per action (the helper's
+  // transfer takes a different request for each of its two calls).
+  const other = custodyIdentity("op-7f3c1a", "create_staging");
+  assert.equal(other.owner_operation_id, first.owner_operation_id);
+  assert.notEqual(other.request_id, first.request_id);
+  const elsewhere = custodyIdentity("op-other", "advance_staging");
+  assert.notEqual(elsewhere.owner_operation_id, first.owner_operation_id);
+  assert.notEqual(elsewhere.request_id, first.request_id);
+  assert.notEqual(first.owner_operation_id, first.request_id);
+  assert.equal(Object.isFrozen(first), true);
+  // The names it accepts are the ones it can be derived from: an empty operation and an action the
+  // host does not ask for name nothing.
+  for (const operation of ["", undefined, 7]) assert.throws(() => custodyIdentity(operation, "advance_staging"), code("cas_conflict"));
+  for (const action of ["swap_target", "", undefined, "toString"]) assert.throws(() => custodyIdentity("op-7f3c1a", action), code("cas_conflict"));
+  // The derived pair is a pair the request accepts.
+  return askCustody(client(committed).custody, "advance_staging", advance, first);
 });

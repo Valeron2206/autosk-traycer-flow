@@ -915,9 +915,10 @@ test("a protected ref moved outside the helper parks under a stop the graph has,
   }
   assert.match(fiveA, /`packed_refs_drift`/u);
   assert.match(fiveA, /`git pack-refs --all` writes one even with `gc\.packRefs=false` \(measured\)/u);
-  // The stop with no row is named, with who settles it.
+  // The stop that had no row (12a) is receipt_missing's, moved behind the base, and the driver's own name is no stop (debt 12g).
   assert.ok(!rows.has("foreign_ref_movement"));
-  assert.match(fiveA, /`foreign_ref_movement`[^\n]*debt 12g's \(R8-9's missing edge\) with #18/u);
+  assert.match(fiveA, /`receipt_missing`[^\n]*moved `behind` the base[^\n]*`foreign_ref_movement`[^\n]*is not a stop of the graph/u);
+  assert.doesNotMatch(fiveA, /debt 12g's \(R8-9's missing edge\) with #18/u);
 });
 
 // L4: what another uid does not isolate.

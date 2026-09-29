@@ -1356,6 +1356,12 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   which predates ADR-102: the example's digest is computed over the example alone
   and carried by the committed signed goldens, which #5 signs again when the example changes.
   Matrix v1 gives #13 the account, its launch mechanism and both probes, #11 the model process environment, #18 the launch path, and #5 with #13 the helper's bootstrap (ADR-102).
+- The host asks the helper under the asking operation's identity, and a staging apply keeps it across a crash (ADR-108): the request carries
+  \`owner_operation_id\` and \`request_id\`, and \`applyDelta\` records a recipe of its commit in a durable journal before it asks, so a retry that
+  finds the staging ref at the recipe's commit completes the receipt and asks nothing. What is design and not code: the daemon-side intent
+  found by that pair, its journal and the helper (#5), the journal file's product wiring and the receipt's caller (#8 with #9), and the delivery
+  handler that reads the anchor and the acceptance identity before its hand-off, which the graph's \`deliver_staging\` edges stop for (#17, with #18's
+  predicate table). No fault group injects a crash between the helper's commit and the receipt.
 - ${srcCallers.length === 0
     ? `No product code evaluates the graph. \`buildWorkflow\` takes the caller's
   predicate evaluator and applies it at both decision sites; the files whose

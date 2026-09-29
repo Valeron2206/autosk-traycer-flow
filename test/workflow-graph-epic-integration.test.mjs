@@ -23,7 +23,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -34,7 +34,7 @@ import { promisify } from "node:util";
 import { verifyAggregate } from "../src/host/aggregate-driver.mjs";
 import { aggregateErrors, casAdmission } from "../src/host/epic-staging.mjs";
 import { createStaging, epicRefKey, observeTarget, readRef, stagingRef } from "../src/host/staging-driver.mjs";
-import { gitRefCustody } from "./support/git-ref-custody.mjs";
+import { gitRefCustody, identityFor } from "./support/git-ref-custody.mjs";
 import { readChains } from "../scripts/check-workflow-chains.mjs";
 import { DOCUMENT_PATH, parseStrict, producedAt } from "../scripts/validate-workflow-graph.mjs";
 
@@ -558,12 +558,14 @@ test("a boundary stop at an Epic step has its own row and resumes where the gate
   for (const name of EPIC_STEPS) assert.ok(epic.has(name), `${name} is not an Epic step`);
 });
 
-test("the Epic boundary row claims the anchor and acceptance re-check only where a guard reads them", () => {
+test("the Epic boundary row claims the anchor and acceptance re-check only where a guard reads them (R9c-16, closed for the hand-off by debt 12g)", () => {
   // R9c-16. integrate_staging's edges read the acceptance and the anchor;
-  // verify_target's read the post-CAS observation and deliver_staging's the
-  // completion predicate, so an origin resume into either re-checks neither.
-  // The row and the park table said all three did; risk 8 names the hand-off
-  // window that leaves.
+  // verify_target's read the post-CAS observation and deliver_staging's read the
+  // completion predicate, so an origin resume into either re-checked neither.
+  // Risk 8 named the hand-off window that left. Debt 12g gave deliver_staging
+  // the two edges integrate_staging has (blocked_anchor, acceptance_stale), so
+  // the hand-off re-reads both, after a resume too; verify_target still reads
+  // back a target the CAS already moved, and re-checks neither.
   const graph = shipped();
   const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
   const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
@@ -571,15 +573,25 @@ test("the Epic boundary row claims the anchor and acceptance re-check only where
     .flatMap((edge) => edge.guards.flatMap((id) => predicates.get(guards.get(id)?.predicate)?.reads ?? [])));
   const rechecks = AFTER_ACCEPTANCE.filter((name) =>
     reads(name).has("staging_acceptance") && reads(name).has("controlling_anchor_digest"));
-  assert.deepEqual(rechecks, ["integrate_staging"]);
+  assert.deepEqual(rechecks.sort(), ["deliver_staging", "integrate_staging"]);
   const row = graph.recovery.find((entry) => entry.reason === "epic_boundary_invalid");
-  assert.doesNotMatch(row.required_state, /verify_target and deliver_staging that step's guards re-check/u);
-  assert.match(row.required_state, /re-checked at integrate_staging only/u);
+  assert.doesNotMatch(row.required_state, /re-checked at integrate_staging only/u);
+  assert.doesNotMatch(row.required_state, /re-runs the hand-off without re-checking the anchor/u);
+  assert.match(row.required_state, /re-checked at integrate_staging and at deliver_staging/u);
+  assert.match(row.required_state, /verify_target only re-reads the target the CAS already moved/u);
   const plan = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("| epic_boundary_invalid |")) ?? "";
-  assert.doesNotMatch(plan, /verify_target и deliver_staging, чьи guards заново сверяют/u);
-  assert.match(plan, /сверяются заново только в integrate_staging/u);
-  const risks = read("04-decisions.md").split("\n").find((line) => line.startsWith("8. (ADR-084)")) ?? "";
-  assert.match(risks, /deliver_staging[^\n]*окно/u, "risk 8 names the deliver_staging hand-off window");
+  assert.doesNotMatch(plan, /сверяются заново только в integrate_staging/u);
+  assert.doesNotMatch(plan, /повторяет передачу без сверки anchor/u);
+  assert.match(plan, /сверяются заново в integrate_staging и deliver_staging/u);
+  // Risk 8 is closed, with the ADR that closed it, and no longer says the window is open.
+  const risks = read("04-decisions.md").split("\n").find((line) => line.startsWith("8. (ADR-084")) ?? "";
+  assert.match(risks, /ADR-108/u);
+  assert.match(risks, /закрыт/u);
+  assert.doesNotMatch(risks, /это окно передачи названо, а не закрыто/u);
+  // The row says nothing the graph does not: both edges are at deliver_staging, parked under the two reasons.
+  for (const reason of ["blocked_anchor", "acceptance_stale"]) {
+    assert.ok(graph.recovery.find((entry) => entry.reason === reason).parks_at.includes("deliver_staging"), reason);
+  }
 });
 
 test("the vocabulary's epic_step class is the set only the Planned chain draws", () => {
@@ -1271,10 +1283,11 @@ test("two individually green Tickets that regress together leave the target wher
   const key = epicRefKey("0".repeat(64), "epic-order");
   // The helper writes the staging ref (ADR-095); the test hands its stand-in.
   const custody = gitRefCustody(root);
-  await createStaging(custody, { epicRefKey: key, base });
+  await createStaging(custody, { generation: 0, epicRefKey: key, base });
   const together = await commit(first.oid, [["b.txt", "new"]], "T-2 on staging");
   const advanced = await custody.advance_staging({
     action: "advance_staging",
+    ...identityFor("advance_staging"),
     ref_updates: [{ operation: "update", ref: stagingRef(key), expected_old_oid: base, new_oid: together.oid }],
   });
   assert.equal(advanced.status, "committed");
@@ -1834,4 +1847,310 @@ test("ADR-088's decision bullets that later decisions changed say so at the bull
   assert.match(bullet("один вызывающий, `applyDelta`"), /\(Изменено ADR-095: [^)]*вызывающих нет/u);
   assert.match(bullet("и тогда только такой record"), /\(Изменено ADR-103: [^)]*`accept_staging`/u);
   assert.match(bullet("Пересборка подчиняется `crossEpicErrors`"), /\(Изменено ADR-099: [^)]*`crossEpicErrors`[^)]*удален/u);
+});
+
+// --- debt 12g (R8-9): a crash-safe staging apply keeps its operation identity ---------
+
+test("the stop a moved staging ref parks under is one the graph has: the driver refuses with receipt_missing, whose row says what restores the receipt (R8-9, ADR-108)", () => {
+  const graph = shipped();
+  const source = read("src/host/delta-driver.mjs");
+  // The driver's refusal for a staging ref that is not where the apply left it is a park reason parked at apply_staging.
+  assert.match(source, /demand\(false, 'receipt_missing'/u);
+  assert.doesNotMatch(source, /demand\([^)]*'foreign_ref_movement'/u);
+  const row = graph.recovery.find((entry) => entry.reason === "receipt_missing");
+  assert.ok(row.parks_at.includes("apply_staging"));
+  assert.ok(row.resume_targets.includes("apply_staging"));
+  // The row names the mechanism, the rewound case 12a left open, and the way back.
+  for (const phrase of [/recipe/u, /already done/u, /no second helper request/u, /behind a commit a receipt names/u, /fresh operation/u, /staging_moved_after_pass/u, /cannot vouch/u]) {
+    assert.match(row.required_state, phrase);
+  }
+  // The way back says only what is true: the graph rebuilds nothing, and a re-applied delta is a new operation with its own pair
+  // (review M2) — not "from their recipes", which re-sends a request that already committed.
+  assert.doesNotMatch(row.required_state, /from their recipes|same commits|the same planning commits/u);
+  // And a name that no edge carries is no name the driver refuses a staging ref with.
+  assert.equal(graph.recovery.some((entry) => entry.reason === "foreign_ref_movement"), false);
+  const edge = edgeReads(graph, "apply_staging", "human", "receipt_missing");
+  assert.ok(edge.length >= 1, "no edge parks receipt_missing at apply_staging");
+});
+
+test("epic-staging §7, approved-delta, 02 and the planning-ref contract say the crash between the helper's commit and the receipt, and the pair a request carries (R8-9, ADR-108)", () => {
+  const staging = read("docs/contracts/epic-staging.md");
+  const recovery = staging.slice(staging.indexOf("## 7. Recovery"), staging.indexOf("## 8. Park reasons"));
+  assert.match(recovery, /A crash between the helper's `advance_staging` and the durable integration receipt resumes \*\*without a second helper request/u);
+  for (const phrase of [/`expected_commit_oid`/u, /recipeJournal/u, /the apply is already done/u, /rewritten from the recorded bytes/u, /`behind` the base/u, /`receipt_missing` at `apply_staging`/u, /`state_identity_collision`/u]) {
+    assert.match(recovery, phrase);
+  }
+  assert.match(staging, /`owner_operation_id` and `request_id`/u);
+  assert.match(staging, /a crash before and after each staging apply: after the helper committed and before the receipt/u);
+  assert.match(read("docs/contracts/approved-delta.md"), /apply recipe[^\n]*not `foreign_ref_movement`/u);
+  assert.match(read("docs/contracts/epic-planning-ref.md"), /Every host request carries the identity of the operation that asks, `owner_operation_id` and `request_id`/u);
+  assert.match(read("02-architecture.md"), /the host's request carries the asking operation's `owner_operation_id` and `request_id`/u);
+  // The stop 12a named open, and 12g's ADR, say the same thing.
+  const decisions = read("04-decisions.md");
+  const guard = decisions.slice(decisions.indexOf("## ADR-102"), decisions.indexOf("## ADR-103"));
+  assert.doesNotMatch(guard, /дело долга 12g с #18/u);
+  assert.match(guard, /`receipt_missing`[^\n]*`behind`|Изменено ADR-108/u);
+  const adr = decisions.slice(decisions.indexOf("## ADR-108"), decisions.indexOf("## Оставшиеся риски"));
+  assert.ok(adr.length > 0, "ADR-108 is not in 04-decisions.md");
+  for (const phrase of [/R8-9/u, /Альтернатива/u, /`applyDelta`/u, /`custodyIdentity`/u, /`recipeJournal`/u, /test\/runtime-delta-driver\.test\.mjs/u, /Что не сделано и названо/u, /Источники/u, /изменяет ADR-095/u]) {
+    assert.match(adr, phrase);
+  }
+  const note = decisions.slice(decisions.indexOf("## ADR-095"), decisions.indexOf("## ADR-096"));
+  assert.match(note, /Изменено ADR-108/u);
+});
+
+test("the documents say what the recipe key, the journal and the reflog check are, and what a rebuild is (review M1, M2, L1, L2)", () => {
+  const staging = read("docs/contracts/epic-staging.md");
+  const recovery = staging.slice(staging.indexOf("## 7. Recovery"), staging.indexOf("## 8. Park reasons"));
+  // Scoped, not the free-string id alone: two Epics or projects naming an operation alike do not share a pair.
+  assert.match(recovery, /scoped key/u);
+  assert.match(recovery, /staging ref[^.]*operation id[^.]*base[^.]*delta digest|ref, the operation id, the base commit and the delta digest/u);
+  // The journal's layout: a file per key, made atomically (it was one appended file until the narrow re-review, N1).
+  assert.match(recovery, /one file per apply key/u);
+  assert.match(recovery, /fsyncs it/u);
+  // The ref at the base after the recipe's movement is behind, and the helper is not asked again.
+  assert.match(recovery, /reflog[^.]*recorded depth/u);
+  assert.match(recovery, /`autosk-flow staging <owner_operation_id>`/u);
+  assert.doesNotMatch(recovery, /can only be this apply's/u);
+  // A rebuild and a re-stage are fresh operations.
+  assert.match(recovery, /fresh operation/u);
+  assert.match(recovery, /re-stage[^.]*new base/u);
+  assert.match(read("docs/contracts/approved-delta.md"), /fresh operation/u);
+});
+
+test("ADR-108 records the review decisions of the fix round, and every test it names exists (M1-M3, L1-L5)", () => {
+  const decisions = read("04-decisions.md");
+  const adr = decisions.slice(decisions.indexOf("## ADR-108"), decisions.indexOf("## Оставшиеся риски"));
+  const review = adr.slice(adr.indexOf("**Решения ревью"), adr.indexOf("- Альтернатива 1:"));
+  assert.ok(review.length > 0, "ADR-108 has no review decisions");
+  for (const finding of ["M1", "M2", "M3", "L1", "L2", "L3", "L4", "L5"]) assert.match(review, new RegExp(`- ${finding} `, "u"), finding);
+  // What the ADR no longer says: a journal that is called append-only and is not, and a cond_462 that mirrors cond_444 and does not.
+  assert.doesNotMatch(adr, /append-only, как receipts/u);
+  assert.match(adr, /`cond_462` читает всё, что читает `cond_444`/u);
+  // Every test named in «…» is a test of the suite (by its opening words).
+  const tests = readdirSync(path.join(ROOT, "test")).filter((name) => name.endsWith(".test.mjs")).map((name) => read(`test/${name}`)).join("\n");
+  const named = [...review.matchAll(/«([^»]+)»/gu)].map((match) => match[1].replace(/…$/u, "").replace(/\s+$/u, ""));
+  assert.ok(named.length >= 10, `${named.length} tests named`);
+  for (const name of named) assert.ok(tests.includes(`test("${name}`), `ADR-108 names a test that is not in the suite: ${name}`);
+});
+
+// --- debt 12g, narrow re-review (N1-N10) -----------------------------------------------------------
+
+test("an environment failure at apply_staging is a stop the graph has, and the recipe journal's I/O is one of its causes (N3)", () => {
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "environment_failure");
+  for (const step of ["aggregate_verify", "apply_staging"]) assert.ok(row.parks_at.includes(step), `environment_failure does not park at ${step}`);
+  assert.ok(row.resume_targets.includes("apply_staging"));
+  assert.match(row.required_state, /recipe journal/u);
+  assert.match(row.required_state, /apply_staging/u);
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const edges = graph.transitions.filter((edge) => edge.from === "apply_staging" && edge.to === "human"
+    && edge.guards.some((id) => guards.get(id).park_reason === "environment_failure"));
+  assert.equal(edges.length, 1, "apply_staging has no environment_failure edge");
+  const predicate = predicates.get(guards.get(edges[0].guards[0]).predicate);
+  assert.equal(predicate.domain, "staging_aggregate", "the apply's own outcome at apply_staging is the Epic staging's, #9's (ADR-107; review F-b)");
+  assert.match(predicate.description, /(?:recipe journal|journal)/u);
+  // The driver and the journal produce it, and the vocabulary says so.
+  const entry = vocabulary().park_reasons.find((reason) => reason.code === "environment_failure");
+  assert.ok(entry.named_at.includes("apply_staging"));
+  for (const file of ["src/host/delta-driver.mjs", "src/host/staging-lineage.mjs"]) assert.ok(entry.producer_files.includes(file), file);
+  for (const file of ["src/host/delta-driver.mjs", "src/host/staging-lineage.mjs"]) assert.match(read(file), /'environment_failure'/u, file);
+  // Every stop of the apply carries a row at apply_staging: none of the codes the journal or the driver raise is without one.
+  const parked = new Set(graph.recovery.filter((r) => r.parks_at.includes("apply_staging")).map((r) => r.reason));
+  for (const reason of ["receipt_missing", "environment_failure", "delta_stale", "planning_ref_capability_missing", "blocked_anchor"]) assert.ok(parked.has(reason), reason);
+});
+
+test("a staging ref rebuilt after it moved is rebuilt the way receipt_missing says: no receipted deltas from their recipes, and a fresh operation each (N4)", () => {
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "staging_moved_after_pass");
+  assert.doesNotMatch(row.required_state, /cleanupStaging by the recorded staging OID/u);
+  assert.doesNotMatch(row.required_state, /the receipted deltas\)/u);
+  assert.match(row.required_state, /fresh operation/u);
+  assert.match(row.required_state, /receipt_missing/u);
+  assert.match(row.required_state, /recorded_target_base/u);
+  const plan = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("| staging_moved_after_pass |")) ?? "";
+  assert.match(plan, /под новой операцией/u);
+  assert.doesNotMatch(plan, /receipted deltas заново из своих recipes/u);
+  const missing = graph.recovery.find((entry) => entry.reason === "receipt_missing");
+  // The journal that cannot vouch stops its own key, and the way back for that key is named, with its owner.
+  assert.match(missing.required_state, /(?:quarantine|quarantined)/u);
+  assert.match(missing.required_state, /that key/u);
+  const staging = read("docs/contracts/epic-staging.md");
+  const recovery = staging.slice(staging.indexOf("## 7. Recovery"), staging.indexOf("## 8. Park reasons"));
+  assert.match(recovery, /newest reflog entry/u);
+  assert.match(recovery, /generation/u);
+  assert.match(recovery, /one file per apply key/u);
+  assert.match(recovery, /link/u);
+  assert.match(recovery, /quarantine/u);
+  // Not the premise that was false: applies are not serialized by the one CAS, and Epics may be staged at once.
+  assert.doesNotMatch(recovery, /serializes the Epic's applies/u);
+  assert.doesNotMatch(recovery, /the journal of an Epic is written by the host/u);
+  assert.doesNotMatch(recovery, /can only be this apply's/u);
+});
+
+test("the hand-off's acceptance re-read reads what the CAS's does, the profile digest included, in the graph and in the documents (N9)", () => {
+  const graph = shipped();
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const stale = (from) => graph.transitions.filter((edge) => edge.from === from && edge.guards.some((id) => guards.get(id).park_reason === "acceptance_stale" && guards.get(id).authority.actor === "agent"))
+    .map((edge) => predicates.get(guards.get(edge.guards[0]).predicate))[0];
+  const atCas = stale("integrate_staging");
+  const atHandOff = stale("deliver_staging");
+  assert.ok(atCas.reads.includes("delivery_profile_digest"), "the CAS's acceptance check does not read the delivery profile digest");
+  assert.match(atCas.description, /delivery_profile_digest/u);
+  for (const fact of atCas.reads) assert.ok(atHandOff.reads.includes(fact), fact);
+  const risks = read("04-decisions.md").split("\n").find((line) => line.startsWith("8. (ADR-084")) ?? "";
+  assert.match(risks, /IntegrationAuthorizationRecord/u);
+  assert.match(risks, /delivery_profile_digest/u);
+});
+
+test("risk 8 is closed for the hand-off's re-read, and the window of a live PR or queue entry while parked is named with its owner (N5)", () => {
+  const risks = read("04-decisions.md").split("\n").find((line) => line.startsWith("8. (ADR-084")) ?? "";
+  assert.match(risks, /ADR-108/u);
+  assert.match(risks, /не закрыт[оаы]? целиком|остаётся окно/u, "risk 8 says it is closed whole");
+  assert.match(risks, /#17/u);
+  assert.match(risks, /(?:PR|entry)[^.]*(?:пока|во время)[^.]*(?:припаркован|парк)/u);
+  const adr = read("04-decisions.md");
+  const section = adr.slice(adr.indexOf("## ADR-108"), adr.indexOf("## Оставшиеся риски"));
+  assert.match(section, /N5/u);
+});
+
+test("ADR-108 records the narrow re-review's decisions and every test it names exists (N1-N10)", () => {
+  const decisions = read("04-decisions.md");
+  const adr = decisions.slice(decisions.indexOf("## ADR-108"), decisions.indexOf("## Оставшиеся риски"));
+  const start = adr.indexOf("**Решения узкого ревью");
+  assert.ok(start >= 0, "ADR-108 has no narrow re-review decisions");
+  const review = adr.slice(start, adr.indexOf("- Альтернатива 1:"));
+  for (const finding of ["N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9", "N10"]) assert.match(review, new RegExp(`- ${finding} `, "u"), finding);
+  // What ADR-108 and the contract no longer say.
+  assert.doesNotMatch(decisions, /может быть только этого apply/u);
+  assert.doesNotMatch(adr, /журнал Epic пишет host, который сериализует/u);
+  assert.match(adr, /по одному файлу на ключ apply/u);
+  const tests = readdirSync(path.join(ROOT, "test")).filter((name) => name.endsWith(".test.mjs")).map((name) => read(`test/${name}`)).join("\n");
+  const named = [...review.matchAll(/«([^»]+)»/gu)].map((match) => match[1].replace(/…$/u, "").replace(/\s+$/u, ""));
+  assert.ok(named.length >= 10, `${named.length} tests named`);
+  for (const name of named) assert.ok(tests.includes(`test("${name}`), `ADR-108 names a test that is not in the suite: ${name}`);
+});
+
+test("the priming entry says what the tests were red on, and no more (N8)", () => {
+  const priming = read("docs/cloud-agent-priming.md");
+  assert.doesNotMatch(priming, /"two applies saving at once…" \(one recipe lost\)/u);
+  assert.match(priming, /Narrow re-review \(on `56b03eb`, a fresh process\)/u);
+});
+
+// --- debt 12g, focused re-review (F1-F4, a-f) -------------------------------------------------------------
+
+const MD = (file) => read(file);
+const resumesFromRecipe = /recipe/u;
+
+test("the environment failure at apply_staging says what is true of a resume, in the predicate, the row, 03 and both views (review F-a)", () => {
+  const graph = shipped();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const edge = graph.transitions.find((entry) => entry.from === "apply_staging" && entry.guards.some((id) => guards.get(id).park_reason === "environment_failure"));
+  const predicate = graph.predicates.find((entry) => entry.id === guards.get(edge.guards[0]).predicate);
+  const row = graph.recovery.find((entry) => entry.reason === "environment_failure");
+  const views = graph.views.flatMap((view) => view.rows).filter((entry) => entry.covers.includes("environment_failure"));
+  assert.equal(views.length, 2);
+  const texts = [predicate.description, row.required_state, ...views.map((entry) => entry.cells[2])];
+  const plan = MD("03-technical-plan.md").split("\n").find((line) => line.startsWith("| apply_staging | git-команда или recipe journal")) ?? "";
+  assert.notEqual(plan, "", "03 has no row for an environment failure at apply_staging");
+  for (const text of [...texts, plan]) {
+    // The helper may have been asked and may have committed: the apply is resumed, and a recorded recipe is what it resumes from.
+    assert.doesNotMatch(text, /helper не спрашивался|helper was not asked|восстанавливать нечего|nothing is restored|so nothing to restore/u);
+    assert.match(text, resumesFromRecipe, text.slice(0, 80));
+  }
+  for (const text of [predicate.description, plan, views[0].cells[2]]) assert.match(text, /expected_commit_oid/u);
+  assert.match(row.required_state, /recovered, not asked again/u);
+});
+
+test("cond_464 belongs to the domain of the other predicates at apply_staging, staging_aggregate (review F-b)", () => {
+  const graph = shipped();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const domains = new Map();
+  for (const edge of graph.transitions.filter((entry) => entry.from === "apply_staging")) {
+    for (const id of edge.guards) {
+      const predicate = predicates.get(guards.get(id).predicate);
+      domains.set(predicate.id, predicate.domain);
+    }
+  }
+  assert.equal(domains.get("cond_464"), "staging_aggregate");
+  // ADR-107's rule as the graph keeps it: what parks at apply_staging is #9's, except the anchor's and the planning ref's stops.
+  assert.deepEqual([...new Set([...domains.values()])].sort(), ["anchor_binding", "planning_ref_lifecycle", "staging_aggregate"]);
+  const matrix = JSON.parse(read("resources/program-capabilities/matrix.v1.json"));
+  const staging = matrix.predicate_domains.find((entry) => entry.domain === "staging_aggregate");
+  assert.deepEqual([...staging.owner_issues], [9]);
+  assert.match(staging.delivery, /applying the approved deltas/u);
+  const nine = matrix.records.find((entry) => entry.issue_number === 9).implementation_obligation_before_mvp;
+  assert.match(nine, /environment failure at apply_staging[^.]*parks environment_failure and the resume continues from the recipe/u);
+});
+
+test("receipt_missing's row says what the rebuild and the quarantine are, and staging_moved_after_pass's row points at it truthfully (review F-d, F3)", () => {
+  const graph = shipped();
+  const missing = graph.recovery.find((entry) => entry.reason === "receipt_missing");
+  const moved = graph.recovery.find((entry) => entry.reason === "staging_moved_after_pass");
+  assert.ok(missing.required_state.length <= 1024);
+  // The row the other row points at says what it is pointed at for.
+  assert.match(moved.required_state, /as receipt_missing's row says: a new generation/u);
+  assert.match(missing.required_state, /new generation/u);
+  assert.match(missing.required_state, /fresh operation/u);
+  assert.match(missing.required_state, /<key>\.recipe\.quarantined/u);
+  assert.match(missing.required_state, /refusing that key alone/u);
+  const view = graph.views.flatMap((entry) => entry.rows).find((entry) => entry.covers.length === 1 && entry.covers[0] === "receipt_missing");
+  assert.match(view.cells[2], /новом поколении/u);
+  assert.match(view.cells[2], /<key>\.recipe\.quarantined/u);
+  assert.doesNotMatch(view.cells[2], /убирается в карантин/u);
+  // The quarantine is one procedure everywhere it is written: the file's new name, and a fresh operation.
+  for (const [file, pattern] of [
+    ["docs/contracts/epic-staging.md", /`<key>\.recipe\.quarantined`[\s\S]{0,500}fresh operation/u],
+    ["src/host/staging-lineage.mjs", /`\.quarantined`[\s\S]{0,400}fresh\s+operation/u],
+    ["resources/program-capabilities/matrix.v1.json", /`\.recipe\.quarantined`, which the journal then refuses by name/u],
+    ["04-decisions.md", /`<key>\.recipe\.quarantined`/u],
+  ]) assert.match(MD(file), pattern, file);
+});
+
+test("no document says a temporary file's name says it is abandoned, and the reflog check and the durable read are written where the journal is (review F-e, F1, F2, F4)", () => {
+  for (const file of ["docs/contracts/epic-staging.md", "src/host/staging-lineage.mjs"]) {
+    assert.doesNotMatch(MD(file), /whose name says it is abandoned/u, file);
+  }
+  const contract = MD("docs/contracts/epic-staging.md");
+  assert.match(contract, /only its age tells them apart/u);
+  assert.match(contract, /A recipe that is found is made durable before it is relied on/u);
+  assert.match(contract, /display options[^)]*signature report[^)]*switched off/u);
+  assert.match(contract, /never an entry that is not there/u);
+  assert.match(contract, /a git command that fails while the apply reads the line \(the reflog included\)/u);
+  const lineage = MD("src/host/staging-lineage.mjs");
+  assert.match(lineage, /only its age tells them apart/u);
+  assert.match(lineage, /A recipe that is found is made durable before it is relied on/u);
+  const driver = MD("src/host/staging-driver.mjs");
+  for (const flag of ["log.showSignature=false", "--no-show-signature"]) assert.ok(driver.includes(flag), flag);
+});
+
+test("01's row for an environment failure at apply_staging says the apply resumes from its recipe (review F-f)", () => {
+  const line = MD("01-core-flows.md").split("\n").find((entry) => entry.startsWith("| Aggregate не привязан к staging")) ?? "";
+  assert.match(line, /apply_staging/u);
+  assert.match(line, /окружение в apply_staging — apply возобновляется из своего recipe, без model run/u);
+  assert.match(line, /expected_commit_oid — apply уже сделан/u);
+});
+
+test("ADR-108 records the focused re-review's decisions and every test it names exists (F1-F4, F-a to F-f)", () => {
+  const decisions = read("04-decisions.md");
+  const adr = decisions.slice(decisions.indexOf("## ADR-108"), decisions.indexOf("## Оставшиеся риски"));
+  const start = adr.indexOf("**Решения повторного узкого ревью");
+  assert.ok(start >= 0, "ADR-108 has no focused re-review decisions");
+  const review = adr.slice(start, adr.indexOf("- Альтернатива 1:"));
+  for (const finding of ["F1", "F2", "F3", "F4", "F-a", "F-b", "F-c", "F-d", "F-e", "F-f"]) assert.match(review, new RegExp(`- ${finding} `, "u"), finding);
+  const tests = readdirSync(path.join(ROOT, "test")).filter((name) => name.endsWith(".test.mjs")).map((name) => read(`test/${name}`)).join("\n");
+  const named = [...review.matchAll(/«([^»]+)»/gu)].map((match) => match[1].replace(/…$/u, "").replace(/\s+$/u, ""));
+  assert.ok(named.length >= 18, `${named.length} tests named`);
+  for (const name of named) assert.ok(tests.includes(`test("${name}`), `ADR-108 names a test that is not in the suite: ${name}`);
+  // The earlier round's record no longer says the domain it moved from.
+  assert.doesNotMatch(adr, /`cond_464` в домене `delta_commit`/u);
+});
+
+test("the priming entry records the focused re-review, and no further round (review)", () => {
+  const priming = read("docs/cloud-agent-priming.md");
+  assert.match(priming, /Focused re-review \(on `07ff672`, a fresh process\): no Critical, High or Medium; N1–N6 closed; four Low and six nits, all addressed test-first in a follow-up commit/u);
+  assert.match(priming, /No further re-review: the focused re-review raised only Lows and nits/u);
 });

@@ -412,6 +412,8 @@ test("the recorded base is the planning base on a first stage, and a receipted r
     value.recorded_target_base = base;
     value.acceptance.recorded_target_base = base;
     value.planning_replay_receipt_sha256 = "7".repeat(64);
+    // A re-stage creates the ref again: the record is in a later generation (review F-c).
+    value.generation = 1;
     mutate?.(value);
   });
   assert.deepEqual(validateStaging(restaged(), schema), []);
@@ -427,6 +429,34 @@ test("the recorded base is the planning base on a first stage, and a receipted r
     }),
     /planning_base_oid is required/u,
   );
+});
+
+test("the record keeps the generation createStaging and cleanupStaging ask under, and a re-staged record is in a later one (review F-c)", () => {
+  // epic-staging.md section 7 speaks of "the staging record's generation": a closed record that cannot hold it would
+  // leave a host that reloads after a crash with nothing to derive its request pair from.
+  assert.ok(schema.properties.generation, "the closed schema has no generation");
+  assert.equal(schema.properties.generation.type, "integer");
+  assert.equal(schema.properties.generation.minimum, 0);
+  assert.equal(example().generation, 0);
+  assert.deepEqual(validateStaging(example(), schema), []);
+  // Absent on a record that has only ever staged once.
+  assert.deepEqual(validateStaging(mutated((value) => { delete value.generation; }), schema), []);
+  for (const bad of [-1, 1.5, "1", null]) {
+    assertRejects(mutated((value) => { value.generation = bad; }), /generation/u);
+  }
+  const restaged = (mutate) => mutated((value) => {
+    const base = "8".repeat(40);
+    value.recorded_target_base = base;
+    value.acceptance.recorded_target_base = base;
+    value.planning_replay_receipt_sha256 = "7".repeat(64);
+    mutate(value);
+  });
+  assertRejects(restaged((value) => { delete value.generation; }), /a re-staged record is in generation 1 or later/u);
+  assertRejects(restaged((value) => { value.generation = 0; }), /a re-staged record is in generation 1 or later/u);
+  assert.deepEqual(validateStaging(restaged((value) => { value.generation = 2; }), schema), []);
+  // The contract says where the generation lives.
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/epic-staging.md"), "utf8");
+  assert.match(contract, /The record keeps a `generation`/u);
 });
 
 // --- debt 11e (R7-16, R7-17, ADR-099) ---

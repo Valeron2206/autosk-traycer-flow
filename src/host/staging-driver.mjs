@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 
 import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
-import { NO_REF_CUSTODY, askCustody } from './ref-custody.mjs';
+import { NO_REF_CUSTODY, askCustody, custodyIdentity } from './ref-custody.mjs';
 
 /**
  * The key an Epic's private refs are named by: the domain-separated SHA-256 of
@@ -90,10 +90,49 @@ export async function readRef(git, ref) {
   return oidFormat(oid) === null ? null : oid;
 }
 
+/**
+ * What a read of a ref's reflog says. A ref that is not there has no reflog, and git says so with an exit that a
+ * failing read shares (a lock, a full disk), so the exit alone proves nothing: only a ref that is absent makes the
+ * failure an empty answer, and any other is an environment failure that the resume answers, not a fact about the line.
+ */
+async function reflogRead(git, ref, args) {
+  const result = await git(args);
+  if (result.code === 0) return result.stdout;
+  if ([1, 128].includes(result.code) && (await readRef(git, ref)) === null) return '';
+  demand(false, 'environment_failure', `git reflog exited ${result.code}`,
+    { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
+}
+
 /** How many entries a ref's reflog holds, in either object format. Counted, never assumed. */
 export async function reflogDepth(git, ref) {
-  const result = await ask(git, ['reflog', 'show', '--format=%H', ref], { tolerate: [1, 128] });
-  return result.stdout.split('\n').filter((line) => oidFormat(line.trim()) !== null).length;
+  const out = await reflogRead(git, ref, ['reflog', 'show', '--format=%H', ref]);
+  return out.split('\n').filter((line) => oidFormat(line.trim()) !== null).length;
+}
+
+/**
+ * The newest reflog entry of a ref, formatted, or null when the ref keeps none.
+ *
+ * The line is marked, and read from the mark: a repository's own configuration
+ * decides what git prints around an entry (`log.showSignature` puts a
+ * signature report in front of it whenever the commit the entry names is
+ * signed, and that report reads the keyring, the locale and the time), so the
+ * first line of the output is not the entry. The report is switched off, and a
+ * line without the mark is not the entry either way.
+ */
+export async function reflogNewest(git, ref, format) {
+  const MARK = '\u001f';
+  const out = await reflogRead(git, ref, ['-c', 'log.showSignature=false', 'reflog', 'show', '--no-show-signature', '--date=raw',
+    `--format=%x1f${format}`, '-n', '1', ref]);
+  const line = out.split('\n').find((candidate) => candidate.startsWith(MARK));
+  return line === undefined ? null : line.slice(MARK.length).trim();
+}
+
+/** The pair one create or one delete of a staging ref is asked under: what it asks, and the record's generation. */
+function requestIdentity(action, ref, generation, oid) {
+  demand(Number.isSafeInteger(generation) && generation >= 0, 'cas_conflict',
+    'A staging request is made in a generation of the staging record, a count from zero', { action, generation });
+  const key = createHash('sha256').update(`autosk-flow/staging-request-key/v1\0${action}\0${ref}\0${generation}\0${oid}`, 'utf8').digest('hex');
+  return custodyIdentity(key, action);
 }
 
 /**
@@ -106,11 +145,20 @@ export async function reflogDepth(git, ref) {
  * Epics racing to create the same staging ref is a conflict the helper reports
  * rather than a window this code has to reason about. The helper creates the
  * ref's reflog, because the post-CAS check asks the ref whether it moved once.
+ *
+ * `generation` is the staging record's count of stagings: 0 for the first, and
+ * one more for every re-stage and every rebuild (#9's record keeps it). The
+ * request pair is derived from the ref, the generation and the commit, so a
+ * retry of one create asks under the same pair, and the next staging of the same
+ * record asks under a new one — the daemon answers a repeated request from its
+ * journal without moving the ref, so a create that re-sent the pair of the one
+ * before would create nothing, and the first apply after it would park.
  */
-export async function createStaging(custody = NO_REF_CUSTODY, { epicRefKey: key, base }) {
+export async function createStaging(custody = NO_REF_CUSTODY, { epicRefKey: key, base, generation }) {
   const ref = stagingRef(key);
+  const identity = requestIdentity('create_staging', ref, generation, base);
   const answer = await askCustody(custody, 'create_staging',
-    [{ operation: 'update', ref, expected_old_oid: null, new_oid: base }]);
+    [{ operation: 'update', ref, expected_old_oid: null, new_oid: base }], identity);
   if (answer.status === 'committed') return Object.freeze({ ref, oid: base, created: true });
   const held = answer.ref_observations[0].observed_old_oid;
   if (held === base) {
@@ -201,12 +249,13 @@ export async function swapTarget(git, { ref, expectedOld, newOid }) {
  * Cleanup that deletes whatever is there would destroy the evidence in exactly
  * the case worth keeping: a staging ref that moved after the aggregate passed.
  * The helper's `delete_staging` deletes by expected OID, and its refusal says
- * what the ref holds instead.
+ * what the ref holds instead. `generation` is `createStaging`'s: the delete of the
+ * staging a generation made is asked under a pair of its own.
  */
-export async function cleanupStaging(custody = NO_REF_CUSTODY, { epicRefKey: key, expectedOid }) {
+export async function cleanupStaging(custody = NO_REF_CUSTODY, { epicRefKey: key, expectedOid, generation }) {
   const ref = stagingRef(key);
   const answer = await askCustody(custody, 'delete_staging',
-    [{ operation: 'delete', ref, expected_old_oid: expectedOid, new_oid: null }]);
+    [{ operation: 'delete', ref, expected_old_oid: expectedOid, new_oid: null }], requestIdentity('delete_staging', ref, generation, expectedOid));
   if (answer.status === 'committed') return Object.freeze({ ref, deleted: true });
   const held = answer.ref_observations[0].observed_old_oid;
   return Object.freeze({ ref, deleted: false, reason: 'staging_moved_after_pass', held });

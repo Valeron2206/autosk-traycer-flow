@@ -2321,7 +2321,8 @@ test("the factory contract's paragraph on scoped rows names exactly the graph's 
   assert.ok(start >= 0, "the paragraph on scoped rows is missing");
   const paragraph = contract.slice(start, contract.indexOf("\n\n", start));
   const scoped = graph.recovery.filter((row) => row.resume_scope !== undefined).map((row) => row.reason).sort();
-  assert.equal(scoped.length, 7, scoped.join(", "));
+  // Eight since the narrow re-review of 12g (N3): environment_failure parks at apply_staging too, and each stop resumes where it stood.
+  assert.equal(scoped.length, 8, scoped.join(", "));
   const named = graph.recovery.map((row) => row.reason).filter((reason) => paragraph.includes(`\`${reason}\``)).sort();
   assert.deepEqual(named, scoped, "the paragraph names a reason that is not scoped, or omits one that is");
   // Who records the origin of the newest row: the factory's own park, and any
@@ -3442,5 +3443,141 @@ test("every module the factory imports, and every module those import, is one th
     for (const imported of needed) {
       assert.ok(shipped.has(imported), `${name} does not ship ${imported}, which the factory needs to load`);
     }
+  }
+});
+
+// --- debt 12g: the hand-off to the delivery profile re-reads what it rests on (04 risk 8) ---------
+
+test("an origin resume into deliver_staging re-reads the anchor and the acceptance before the hand-off: a moved anchor parks blocked_anchor, a stale acceptance acceptance_stale, and an unchanged flow goes on", async () => {
+  // Risk 8 of 04 (ADR-084), CodeRabbit on #275: only integrate_staging re-checked, so an epic_boundary_invalid
+  // stop at deliver_staging — and the long wait for a PR — resumed into the hand-off without looking again.
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const agentEdges = graph.transitions.filter((edge) => edge.from === "deliver_staging"
+    && edge.guards.every((id) => guards.get(id).authority.actor === "agent"));
+  const edgeFor = (reason) => agentEdges.filter((edge) => edge.guards.some((id) => guards.get(id).park_reason === reason));
+  const predicateOf = (edge) => guards.get(edge.guards[0]).predicate;
+  const [anchor] = edgeFor("blocked_anchor");
+  const [stale] = edgeFor("acceptance_stale");
+  assert.ok(anchor && stale, "deliver_staging has no blocked_anchor and acceptance_stale edge");
+  assert.equal(anchor.to, "human");
+  assert.equal(stale.to, "human");
+  const waiting = agentEdges.find((edge) => edge.to === "deliver_staging");
+  const delivered = agentEdges.find((edge) => edge.to === "cleanup");
+  // A delivery that already merged an unaccepted tree is the more severe stop, and it is named first (review L4):
+  // the anchor or the acceptance parked ahead of it would hide it.
+  const [merged] = edgeFor("completion_predicate_unmet").filter((edge) => edge.to === "human" && edge !== anchor && edge !== stale)
+    .filter((edge) => predicates.get(predicateOf(edge)).description.includes("смержен"));
+  assert.ok(merged, "deliver_staging names no merged-unaccepted stop ahead of the re-read");
+  // Before every edge the hand-off's own outcome takes, and the anchor's before the acceptance's, as at integrate_staging.
+  const rank = (edge) => edge.priority;
+  assert.ok(rank(delivered) < rank(merged) && rank(merged) < rank(anchor) && rank(anchor) < rank(stale));
+  for (const edge of agentEdges.filter((candidate) => ![delivered, merged, anchor, stale].includes(candidate))) assert.ok(rank(stale) < rank(edge), edge.id);
+
+  const resumed = async (facts) => {
+    const workflow = buildWorkflow(graph, { evaluate: (predicate) => facts.includes(predicate) });
+    const task = {
+      id: "t-deliver",
+      step: "human",
+      status: "human",
+      metadata: { step_visits: { deliver_staging: 1 }, park: { reason: "epic_boundary_invalid", origin: "deliver_staging" } },
+    };
+    // The origin resume the boundary row admits: back into the step that stood, nowhere else.
+    assert.equal(await workflow.onTransit(context(task).ctx, { step: "deliver_staging" }), undefined);
+    task.step = "deliver_staging";
+    task.status = "work";
+    await workflow.steps.deliver_staging.onRun(context(task).ctx);
+    return task;
+  };
+
+  // The anchor moved while the flow waited: the hand-off is not repeated, and the stop is the one blocked_anchor names.
+  // The moved anchor wins over the PR still being open, and over an acceptance that is stale as well.
+  for (const facts of [[predicateOf(anchor)], [predicateOf(anchor), predicateOf(stale), predicateOf(waiting)]]) {
+    const task = await resumed(facts);
+    assert.equal(task.status, "human");
+    assert.equal(task.metadata.park.reason, "blocked_anchor");
+    assert.equal(task.metadata.park.origin, "deliver_staging");
+  }
+  // The acceptance names a staging identity that moved: acceptance_stale, over the wait.
+  const staleTask = await resumed([predicateOf(stale), predicateOf(waiting)]);
+  assert.equal(staleTask.status, "human");
+  assert.equal(staleTask.metadata.park.reason, "acceptance_stale");
+  assert.equal(staleTask.metadata.park.origin, "deliver_staging");
+  // Nothing moved: the flow takes the edges it took before — still waiting, and delivered.
+  const goingOn = await resumed([predicateOf(waiting)]);
+  assert.equal(goingOn.step, "deliver_staging");
+  assert.equal(goingOn.status, "work");
+  const done = await resumed([predicateOf(delivered)]);
+  assert.equal(done.step, "cleanup");
+  // A delivery that already landed is not undone by an anchor that moved afterwards.
+  const landed = await resumed([predicateOf(delivered), predicateOf(anchor)]);
+  assert.equal(landed.step, "cleanup");
+  // A merged tree nobody accepted parks completion_predicate_unmet, whatever else moved (review L4).
+  const mergedTask = await resumed([predicateOf(merged), predicateOf(anchor), predicateOf(stale), predicateOf(waiting)]);
+  assert.equal(mergedTask.status, "human");
+  assert.equal(mergedTask.metadata.park.reason, "completion_predicate_unmet");
+  assert.equal(mergedTask.metadata.park.origin, "deliver_staging");
+});
+
+test("the deliver_staging re-read covers what integrate_staging's does — the authorization record, the delivery profile — and says what becomes of an outstanding delivery (review M3, L4)", () => {
+  const graph = document();
+  const predicates = new Map(graph.predicates.map((entry) => [entry.id, entry]));
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const at = (from, reason) => graph.transitions.filter((edge) => edge.from === from
+    && edge.guards.some((id) => guards.get(id).park_reason === reason && guards.get(id).authority.actor === "agent"))
+    .map((edge) => predicates.get(guards.get(edge.guards[0]).predicate));
+  const [atIntegrate] = at("integrate_staging", "acceptance_stale");
+  const [atDeliver] = at("deliver_staging", "acceptance_stale");
+  // Every fact the CAS's acceptance check reads, the hand-off's reads too, and the profile the acceptance was given under.
+  for (const fact of atIntegrate.reads) assert.ok(atDeliver.reads.includes(fact), `cond at deliver_staging does not read ${fact}`);
+  assert.ok(atDeliver.reads.includes("delivery_profile_digest"));
+  assert.match(atDeliver.description, /IntegrationAuthorizationRecord/u);
+  assert.match(atDeliver.description, /delivery_profile_digest/u);
+  assert.equal(atDeliver.domain, "target_integration");
+  // What becomes of a delivery that is already out: the old receipt is void and the PR or queue entry is withdrawn first.
+  const row = graph.recovery.find((entry) => entry.reason === "acceptance_stale");
+  for (const text of [atDeliver.description, row.required_state]) {
+    assert.match(text, /(?:old delivery receipt|старый delivery receipt)[^;]*void/u, text);
+    assert.match(text, /(?:withdrawn|отозван)/u, text);
+  }
+  const [anchor] = at("deliver_staging", "blocked_anchor");
+  assert.match(anchor.description, /(?:withdrawn|отозван)/u);
+});
+
+test("verify_target names no anchor edge: it reads back a target the CAS already moved, and the stops are integrate_staging's and deliver_staging's", () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const reasons = (from) => new Set(graph.transitions.filter((edge) => edge.from === from)
+    .flatMap((edge) => edge.guards.map((id) => guards.get(id).park_reason)));
+  for (const reason of ["blocked_anchor", "acceptance_stale"]) {
+    assert.ok(reasons("integrate_staging").has(reason), `integrate_staging ${reason}`);
+    assert.ok(reasons("deliver_staging").has(reason), `deliver_staging ${reason}`);
+    assert.ok(!reasons("verify_target").has(reason), `verify_target ${reason}`);
+    const row = graph.recovery.find((entry) => entry.reason === reason);
+    assert.ok(row.parks_at.includes("deliver_staging"), `${reason} does not park at deliver_staging`);
+    assert.ok(!row.parks_at.includes("verify_target"), `${reason} parks at verify_target`);
+  }
+});
+
+test("an environment failure at apply_staging parks environment_failure, ahead of the edges that record progress (review N3)", async () => {
+  const graph = document();
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  const at = (reason) => graph.transitions.filter((edge) => edge.from === "apply_staging"
+    && edge.guards.some((id) => guards.get(id).park_reason === reason && guards.get(id).authority.actor === "agent"));
+  const [failure] = at("environment_failure").filter((edge) => edge.to === "human");
+  assert.ok(failure, "apply_staging has no environment_failure edge");
+  const predicateOf = (edge) => guards.get(edge.guards[0]).predicate;
+  const progress = graph.transitions.filter((edge) => edge.from === "apply_staging" && ["apply_staging", "aggregate_verify"].includes(edge.to));
+  for (const edge of progress) assert.ok(failure.priority < edge.priority, `${failure.id} does not come before ${edge.id}`);
+  // After the anchor and the missing capability, which are stops of their own.
+  for (const reason of ["blocked_anchor", "planning_ref_capability_missing"]) for (const edge of at(reason).filter((candidate) => candidate.to === "human")) assert.ok(edge.priority < failure.priority, edge.id);
+  for (const facts of [[predicateOf(failure)], [predicateOf(failure), ...progress.map(predicateOf)]]) {
+    const workflow = buildWorkflow(graph, { evaluate: (predicate) => facts.includes(predicate) });
+    const task = { id: "t-apply", step: "apply_staging", status: "work", metadata: { step_visits: { apply_staging: 1 } } };
+    await workflow.steps.apply_staging.onRun(context(task).ctx);
+    assert.equal(task.status, "human");
+    assert.equal(task.metadata.park.reason, "environment_failure");
+    assert.equal(task.metadata.park.origin, "apply_staging");
   }
 });

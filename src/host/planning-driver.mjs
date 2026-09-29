@@ -133,15 +133,19 @@ export async function rewriteExactObject(git, { recordedOid, bytes }) {
  * the planning ref in one helper transaction, so a keepalive that moved
  * refuses the whole advance. The helper creates the reflog, because the state
  * machine reads it to tell this operation's movement from somebody else's.
+ *
+ * `identity` is the pair the publication operation asks under
+ * (`owner_operation_id` its own `operation_id`, `request_id` the one its
+ * `helper_request_binding` persists): a retry asks under the same one.
  */
-export async function advanceRef(git, { custody = NO_REF_CUSTODY, ref, expectedParent, commit, keepalive }) {
+export async function advanceRef(git, { custody = NO_REF_CUSTODY, ref, expectedParent, commit, keepalive, identity }) {
   const before = await reflogDepth(git, ref);
   const answer = expectedParent === null || expectedParent === undefined
-    ? await askCustody(custody, 'init', [{ operation: 'update', ref, expected_old_oid: null, new_oid: commit }])
+    ? await askCustody(custody, 'init', [{ operation: 'update', ref, expected_old_oid: null, new_oid: commit }], identity)
     : await askCustody(custody, 'advance_planning', [
       { operation: 'verify', ref: keepalive?.ref, expected_old_oid: keepalive?.oid, new_oid: keepalive?.oid },
       { operation: 'update', ref, expected_old_oid: expectedParent, new_oid: commit },
-    ]);
+    ], identity);
   const held = await readRef(git, ref);
   return Object.freeze({
     advanced: answer.status === 'committed',
