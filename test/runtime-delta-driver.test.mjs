@@ -1995,3 +1995,200 @@ test("what a dependency's failure says: its message, its errno as the cause and 
   assert.equal(ours.code, "receipt_missing");
   assert.equal(ours.message, "ours");
 });
+
+// --- debt 13a, second review-fix round --------------------------------------------------------
+
+/** Every stop the apply reports, and only those: what a step body may be handed back. */
+const STOP_NAMES = ["delta_stale", "receipt_missing", "environment_failure", "planning_ref_capability_missing"];
+const NFD_PATH = "src/cafe\u0301.ts";
+const caught = (promise) => promise.then((value) => value, (thrown) => thrown);
+
+test("the details of a stop are a total copy: an undefined field, text that is not NFC and a cut inside a surrogate pair never turn a stop into a raw throw (N1)", async (t) => {
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const plain = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, delta: plain, ref, base, indexFile, message: "T-1", realpath };
+  const answering = (status, reason) => ({ advance_staging: async (request) => ({
+    action: request.action,
+    status,
+    ...(reason === undefined ? {} : { not_applied_reason: reason }),
+    ref_observations: request.ref_updates.map((update) => ({ operation: update.operation, ref: update.ref, expected_old_oid: update.expected_old_oid, requested_new_oid: update.new_oid, observed_old_oid: update.expected_old_oid, observed_new_oid: status === "committed" ? update.new_oid : update.expected_old_oid })),
+  }) });
+  const nfd = delta(base, [{ path: NFD_PATH, status: "A", new_blob: oid, new_mode: "100644" }]);
+  const stderrOf = (text) => async (args, opts) => (args[0] === "write-tree" ? { code: 128, stdout: "", stderr: text } : git(args, opts));
+  // 199 units, then an astral character: the 200-unit cut lands between its two halves.
+  const split = `${"x".repeat(199)}\u{1F600}`;
+  for (const [what, runner, extra] of [
+    ["a not_applied answer with no reason field", git, { custody: answering("not_applied") }],
+    ["a committed answer with no reason field", git, { custody: answering("committed") }],
+    ["an untracked collision at a path that is not NFC", git, { delta: nfd, worktree: { untracked: [NFD_PATH], ignored: [] } }],
+    ["a git failure whose stderr is not NFC", stderrOf("fatal: cafe\u0301"), {}],
+    ["a git failure whose 200-unit cut splits a surrogate pair", stderrOf(split), {}],
+    ["a realpath that resolves to nothing", git, { realpath: async () => undefined }],
+  ]) {
+    const outcome = await caught(deltaModule.applyWithOutcome(runner, { ...options, ...extra }));
+    assert.ok(!(outcome instanceof Error), `${what}: thrown ${outcome?.code} ${outcome?.message}`);
+    assert.ok(STOP_NAMES.includes(outcome.stop?.reason), `${what}: ${outcome.stop?.reason}`);
+    // The details survive a round trip through JSON and are frozen; no text in them is longer than the bound.
+    const copy = JSON.parse(JSON.stringify(outcome.stop.details));
+    for (const value of JSON.stringify(copy).match(/"(?:[^"\\]|\\.)*"/gu) ?? []) assert.ok(value.length <= 420, `${what}: a value of ${value.length}`);
+    assert.ok(Object.isFrozen(outcome.stop.details), what);
+  }
+  // Text is kept as it is: a path that is not NFC is reported as written.
+  const collision = await deltaModule.applyWithOutcome(git, { ...options, delta: nfd, worktree: { untracked: [NFD_PATH], ignored: [] } });
+  assert.equal(collision.stop.cause, "untracked_collision");
+  assert.equal(collision.stop.details.detail, NFD_PATH);
+  // The cut is on a code point: what remains of the split pair is not a lone surrogate.
+  const cut = await deltaModule.applyWithOutcome(stderrOf(split), options);
+  assert.doesNotMatch(cut.stop.details.stderr, /[\uD800-\uDFFF]/u);
+  assert.ok([...cut.stop.details.stderr].length <= 200);
+});
+
+test("nothing that passed the checks before the ask makes a re-entry after the commit throw: a path, a message and an author that are not NFC (N3)", async (t) => {
+  const repo = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = repo;
+  const oid = await blob(git, root, "a\n");
+  const cases = [
+    ["a path that is not NFC", { path: NFD_PATH, message: "T-1", author: AUTHOR }],
+    ["a commit message that is not NFC", { path: "src/a.ts", message: "cafe\u0301", author: AUTHOR }],
+    ["an author name that is not NFC", { path: "src/a.ts", message: "T-1", author: { ...AUTHOR, name: "cafe\u0301 flow" } }],
+  ];
+  for (const [what, spec] of cases) {
+    // Each case is its own Epic's staging ref at the same base.
+    const epic = await secondEpicFor(repo, what);
+    const d = delta(base, [{ path: spec.path, status: "A", new_blob: oid, new_mode: "100644" }]);
+    const options = { recipes: journals.get(git), author: spec.author, delta: d, ref: epic.ref, base, indexFile: epic.indexFile, message: spec.message, realpath };
+    const first = await caught(deltaModule.applyWithOutcome(git, { ...options, custody }));
+    assert.ok(!(first instanceof Error), `${what}, first: ${first?.code} ${first?.message}`);
+    assert.equal(first.stop, null, `${what}, first`);
+    const asked = custody.requests.length;
+    const again = await caught(deltaModule.applyWithOutcome(git, { ...options, custody }));
+    assert.ok(!(again instanceof Error), `${what}, resume: ${again?.code} ${again?.message}`);
+    assert.equal(again.stop, null, `${what}, resume`);
+    assert.equal(again.result.recovered_from_recipe, true, what);
+    assert.equal(custody.requests.length, asked, `${what}: the resume asked the helper`);
+  }
+});
+
+/** Another Epic's staging ref at the same base, for a case of its own. */
+async function secondEpicFor(repo, name) {
+  const key = createHash("sha256").update(`13a-${name}`).digest("hex");
+  const ref = stagingRef(key);
+  await repo.git(["update-ref", "--create-reflog", "-m", "fixture: staging created", ref, repo.base.commit_oid]);
+  return { ref, indexFile: path.join(path.dirname(repo.indexFile), `${key.slice(0, 8)}.index`) };
+}
+
+test("a crash after the helper committed, over a message that is not NFC, is recovered from the recipe (N3)", async (t) => {
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const options = { recipes: journals.get(git), author: AUTHOR, delta: d, ref, base, indexFile, message: "cafe\u0301", realpath };
+  const dying = { advance_staging: async (request) => { await custody.advance_staging(request); throw Object.assign(new Error("late"), { code: "ETIMEDOUT" }); } };
+  const first = await deltaModule.applyWithOutcome(git, { ...options, custody: dying });
+  assert.equal(first.stop.reason, "planning_ref_capability_missing");
+  const resumed = await caught(deltaModule.applyWithOutcome(git, { ...options, custody }));
+  assert.ok(!(resumed instanceof Error), `${resumed?.code} ${resumed?.message}`);
+  assert.equal(resumed.stop, null);
+  assert.equal(resumed.result.recovered_from_recipe, true);
+});
+
+test("what a dependency hands back is checked, and what it throws is named and bounded: a runner, realpath, a journal and a custody getter (N6)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, delta: d, ref, base, indexFile, message: "T-1", realpath };
+  const stops = async (runner, extra = {}) => {
+    const outcome = await caught(deltaModule.applyWithOutcome(runner, { ...options, ...extra }));
+    assert.ok(!(outcome instanceof Error), `thrown ${outcome?.name} ${outcome?.code} ${outcome?.message}`);
+    return outcome.stop;
+  };
+  const after = (command, answer) => async (args, opts) => (args[0] === command ? answer : git(args, opts));
+  for (const [what, runner] of [
+    ["a runner that answers undefined", after("rev-parse", undefined)],
+    ["a runner that answers null", after("read-tree", null)],
+    ["a runner with no stdout", after("write-tree", { code: 0 })],
+    ["a runner whose code is a string", after("write-tree", { code: "0", stdout: "", stderr: "" })],
+  ]) {
+    const stop = await stops(runner);
+    assert.equal(stop?.reason, "environment_failure", what);
+  }
+  for (const [what, resolve] of [["undefined", async () => undefined], ["an object", async () => ({})], ["a number", async () => 42]]) {
+    const stop = await stops(git, { realpath: resolve });
+    assert.equal(stop?.reason, "environment_failure", `realpath resolving to ${what}`);
+    assert.notEqual(stop.cause, "state_identity_collision", `realpath resolving to ${what} was read as a collision`);
+  }
+  for (const [what, load] of [["undefined", async () => undefined], ["a string", async () => "recipe"]]) {
+    const stop = await stops(git, { recipes: { load, save: async () => {} } });
+    assert.ok(["receipt_missing", "environment_failure"].includes(stop?.reason), `a journal loading ${what}: ${stop?.reason}`);
+  }
+  assert.equal(custody.requests.length, 0);
+  // A FlowError a dependency raises that is not one of the four stops is that dependency's failure, not a code the graph lacks.
+  for (const code of ["aggregate_failed", "cas_conflict", "custody_request_invalid", "invalid_identity"]) {
+    const stop = await stops(async () => { throw new FlowError(code, "x", {}); });
+    assert.equal(stop?.reason, "environment_failure", code);
+    assert.equal(stop.cause, code, code);
+    const journal = await stops(git, { recipes: { load: async () => { throw new FlowError(code, "x", {}); }, save: async () => {} } });
+    assert.equal(journal?.reason, "environment_failure", `journal ${code}`);
+  }
+  // A getter that throws on the custody client is the helper's failure.
+  const getter = { get advance_staging() { throw Object.assign(new Error("getter"), { code: "EBADF" }); } };
+  const stop = await stops(git, { custody: getter });
+  assert.equal(stop?.reason, "planning_ref_capability_missing");
+  assert.equal(stop.cause, "EBADF");
+  // Cause and message are bounded.
+  const long = await caught(applyDeltaWith(git, { ...options, realpath: async () => { throw Object.assign(new Error("m".repeat(5000)), { code: "E".repeat(5000) }); } }));
+  assert.ok(long.message.length <= 300, `${long.message.length}`);
+  assert.ok(String(long.details.cause).length <= 64);
+  const client = await caught(applyDeltaWith(git, { ...options, custody: { advance_staging: async () => { throw Object.assign(new Error("m".repeat(100031)), { code: "E".repeat(9000) }); } } }));
+  assert.ok(client.message.length <= 300, `${client.message.length}`);
+  assert.ok(String(client.details.cause).length <= 64);
+});
+
+test("a path that names an object of another type is delta_stale, not an integration whose tree fails fsck (N9)", async (t) => {
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, ref, base, indexFile, message: "T-1", realpath };
+  for (const [what, name, mode] of [
+    ["a regular file naming a tree", base.tree_oid, "100644"],
+    ["a regular file naming a commit", base.commit_oid, "100644"],
+    ["a symlink naming a tree", base.tree_oid, "120000"],
+  ]) {
+    const bad = delta(base, [{ path: "src/a.ts", status: "A", new_blob: name, new_mode: mode }]);
+    const outcome = await deltaModule.applyWithOutcome(git, { ...options, delta: bad });
+    assert.equal(outcome.stop?.reason, "delta_stale", what);
+    assert.equal(outcome.stop.cause, "containment_mismatch", what);
+  }
+  assert.equal(custody.requests.length, 0);
+  assert.equal(await readRef(git, ref), base.commit_oid);
+  // A gitlink names a commit, and may name one that is a blob here: it is not looked at.
+  const oid = await blob(git, root, "a\n");
+  const link = delta(base, [{ path: "src/mod", status: "A", new_blob: oid, new_mode: "160000" }]);
+  assert.equal((await deltaModule.applyWithOutcome(git, { ...options, delta: link })).stop, null);
+});
+
+test("a runner that answers nothing usable after the helper committed is a stop, and the resume recovers the commit and asks nothing (N6)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, delta: d, ref, base, indexFile, message: "T-1", realpath };
+  const listing = async (args, opts) => (args[0] === "ls-tree" ? { code: 0, stdout: 42 } : git(args, opts));
+  const first = await caught(deltaModule.applyWithOutcome(listing, options));
+  assert.ok(!(first instanceof Error), `thrown ${first?.name} ${first?.message}`);
+  assert.equal(first.stop.reason, "environment_failure");
+  assert.equal(first.stop.cause, "bad_result");
+  const asked = custody.requests.length;
+  const resumed = await deltaModule.applyWithOutcome(git, options);
+  assert.equal(resumed.stop, null);
+  assert.equal(resumed.result.recovered_from_recipe, true);
+  assert.equal(custody.requests.length, asked);
+});
+
+test("a path with characters git would quote is read back as it is written: an apply of it integrates (N3)", async (t) => {
+  const { git, root, ref, base, indexFile, custody } = await repository(t);
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: NFD_PATH, status: "A", new_blob: oid, new_mode: "100644" }]);
+  const result = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  assert.deepEqual([...result.applied_entries].map((entry) => entry.path), [NFD_PATH]);
+  assert.deepEqual(integrationProof(d, result), []);
+  assert.equal(integrationReceipt(d, result).phase, "ref_advanced");
+  // And a file of the operator's at that path is found as the collision it is.
+  await mkdir(path.join(root, "src"), { recursive: true });
+  await writeFile(path.join(root, NFD_PATH), "mine\n");
+  const state = await worktreeState(git);
+  assert.ok(state.untracked.includes(NFD_PATH), JSON.stringify(state.untracked));
+});

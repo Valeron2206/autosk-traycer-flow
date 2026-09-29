@@ -8,7 +8,7 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "dc484146799a4e809b6607191f914708be800cbbe25f163d488457a9d3b2c3ca"
+      "sha256": "e430949300d68e95d49cd412523aab5a2db351d6df9e7969fbee2efdf8df1b63"
     },
     {
       "path": "02-architecture.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "8abd1443be2b6dc97384cbde8706b02933085798d476d483f18f7246973484ba"
+      "sha256": "4483843e98592a1da4b3e490e588f6e4cc92e62c42feeb85cfd22cbf59984299"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "ed4b8014cd4199930323ebbde8fe24ff4f41df16c211ca5cf822a377aab4a9ee"
+      "sha256": "09eb2e840b40f28d020c3e299879d9d6bfd6ebf55fc352f3e7a903ffbf08ba77"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -44,7 +44,7 @@
     },
     {
       "path": "docs/contracts/approved-delta.md",
-      "sha256": "d007b4c6f5ad0dcafa3b91246c59d0c19defdd65a54d0f878a2833350257d4f6"
+      "sha256": "51d6e6aaf41a1ae84165f54d35f3efa3337f7c4960313b5ecb332686ba83bd18"
     },
     {
       "path": "docs/contracts/arena.md",
@@ -96,7 +96,7 @@
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "3821f0d1599fd25ad200fc91c08c2ff75533f2aceafe9ad6fc884c8d7c5834b4"
+      "sha256": "860ee7541a90d4b5433408011c28c05a07a95b897ac202f4d2b0be8eaa02254c"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "02d1a16408e5d193c20dd268bc965c623f5e6242d25afeccea61412674e1bb5c"
+      "sha256": "f83d36e11060be0bad92d06e0399cfa3db8c150f635e8a5f14d9423bd31fbe67"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "bb8b800934c3c42ae19ca39ec271fa45ff719e23f5bc3bf632c9cc5c64cb06f7"
+      "sha256": "9d1f7c1939efe0d6abad8b89e9e82c6c941821d3d6fe6cb6838be70a9fb37d05"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -528,7 +528,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "f998e2daeae55cfe0620bba72891263c19880c7a1a981775756d082153b523cc"
+      "sha256": "199d49cdc362339f6187ab98a362c6b93a7ae9a9ff88a216a0bcfebc31ffe8b3"
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "9f2fdc91a71f79babd4328b5249768b83221a40c3484c627fd1751d2d5557c0c"
+      "sha256": "699dec3b75e85ba89ce4ec3451e11dea6931f6f6bc33f3c0c2a518677510c8df"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "b54b21008a06e9a939062ae9bd0cba209ac692764bbf369d0173dbaee6b9616f"
+      "sha256": "0cfe1fff084cb46335beae2a44d6d74d3fbe8553c6cd77e49669bf861de38b0d"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "fb6827288b8b89125b3af170688117a96a5237c0f2892950a6414da92121d43f",
+  "candidate_digest": "32a004ed68d404a13ac7e5c566033adebf560d51b7d2e545cda1ab70f7906f6b",
   "dispositions": [
     {
       "issue": 3,

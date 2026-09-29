@@ -110,7 +110,7 @@ test("the compare-and-swap is git's, so a concurrent movement refuses the write"
   const foreign = await commitOnTop(git, root, { parent: head, file: "c.txt", content: "foreign\n", message: "foreign" });
   await git(["update-ref", "refs/heads/main", foreign.oid, head]);
 
-  const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
+  const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } });
   assert.equal(result.swapped, false);
   assert.equal(result.observed_old_oid, foreign.oid);
   // The foreign commit is still what the branch holds: nothing was overwritten.
@@ -142,7 +142,7 @@ test("the swap moves the ref once, and the read-back is checked against the acce
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
   const depthBefore = await reflogDepth(git, "refs/heads/main");
 
-  const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
+  const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } });
   assert.equal(applySwap({ recorded_target_base: head }, result).outcome, "swapped");
 
   const after = await observeTarget(git, {
@@ -163,10 +163,10 @@ test("a ref that moved away and back reads as expected and is caught by the refl
   const { git, root, head } = await repository(t);
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
   const depthBefore = await reflogDepth(git, "refs/heads/main");
-  await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
+  await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } });
   // Somebody resets it back and forward again during recovery.
   await git(["update-ref", "refs/heads/main", head, staged.oid]);
-  await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
+  await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } });
 
   const after = await observeTarget(git, {
     ref: "refs/heads/main",
@@ -187,7 +187,7 @@ test("a crash after the aggregate passed resumes into the swap with no model run
 
   const observed = await observeTarget(git, { ref: "refs/heads/main" });
   assert.equal(casAdmission(accepted, observed, ["T-1"], casContext(accepted)).decision, "may_swap");
-  const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid });
+  const result = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } });
   assert.equal(result.swapped, true);
 
   // And the retry after a crash between the swap and the read-back is complete
@@ -516,11 +516,11 @@ test("swapTarget refuses any ref under refs/autosk/**, which is the helper's alo
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
   await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
   for (const ref of [stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/planning`, "refs/autosk/anything"]) {
-    await assert.rejects(() => swapTarget(git, { ref, expectedOld: head, newOid: staged.oid }), code("custody_request_invalid"), ref);
+    await assert.rejects(() => swapTarget(git, { ref, expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } }), code("custody_request_invalid"), ref);
   }
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), head);
   // A target ref is still swapped.
-  assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
+  assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } })).swapped, true);
 });
 
 // --- debt 11d: one object format ----------------------------------------------
@@ -542,7 +542,7 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
   assert.equal((await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head })).created, false);
 
   const depthBefore = await reflogDepth(git, "refs/heads/main");
-  assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid })).swapped, true);
+  assert.equal((await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } })).swapped, true);
   const after = await observeTarget(git, {
     ref: "refs/heads/main",
     recordedResult: staged.oid,
@@ -555,7 +555,7 @@ test("a SHA-256 repository's refs and reflogs are read as they are, not as absen
     contains_recorded_result: true,
   });
   // A refused swap reports what the ref holds, in the repository's format.
-  const refused = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: head });
+  const refused = await swapTarget(git, { ref: "refs/heads/main", expectedOld: head, newOid: head, state: { recorded_target_base: head } });
   assert.deepEqual({ swapped: refused.swapped, observed_old_oid: refused.observed_old_oid }, { swapped: false, observed_old_oid: staged.oid });
   assert.deepEqual({ ...(await cleanupStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, expectedOid: head })) }, { ref, deleted: true });
   assert.equal(await readRef(git, ref), null);
@@ -653,4 +653,19 @@ test("the newest reflog entry is the marked line, whatever the repository prints
   const bare = stagingRef("b".repeat(64));
   await git(["update-ref", bare, head]);
   assert.equal(await stagingDriver.reflogNewest(git, bare, "%gs"), null);
+});
+
+test("swapTarget asks git only for a swap from the base the record names: any other expected-old is refused before update-ref (debt 13a review N2)", async (t) => {
+  const { git, root, head } = await repository(t);
+  const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
+  const asked = [];
+  const watching = async (args, options) => { asked.push(args[0]); return git(args, options); };
+  const other = await commitOnTop(git, root, { parent: head, file: "c.txt", content: "other\n", message: "other" });
+  for (const state of [{ recorded_target_base: other.oid }, { recorded_target_base: "" }, {}, undefined]) {
+    await assert.rejects(() => swapTarget(watching, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state }), code("custody_request_invalid"), JSON.stringify(state));
+  }
+  assert.deepEqual(asked, [], "git was asked over a swap from a base the record does not name");
+  assert.equal(await readRef(git, "refs/heads/main"), head);
+  // From the recorded base it swaps.
+  assert.equal((await swapTarget(watching, { ref: "refs/heads/main", expectedOld: head, newOid: staged.oid, state: { recorded_target_base: head } })).swapped, true);
 });

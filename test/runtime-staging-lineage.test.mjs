@@ -625,3 +625,42 @@ test("a receipt log that cannot be read says so by message and errno, and a fail
   assert.equal(bare.message, "The receipt log could not be read");
   assert.deepEqual(bare.details, { cause: "journal_io", errno: null });
 });
+
+test("a receipt log with a torn last line is refused by name, on load and on append, and a failed write is the journal's I/O (N10)", async (t) => {
+  const file = await logFile(t);
+  await appendReceipt(fs, { path: file, receipt: receipt(oid("a"), oid("b")) });
+  const whole = (await fs.readFile(file)).toString("utf8");
+  // A crash in the middle of the last line leaves a fragment with no newline.
+  await writeFile(file, `${whole}{"operation_id":"op-c","base_comm`);
+  const loaded = await problem(loadReceipts(fs, { path: file }));
+  assert.equal(loaded?.code, "receipt_missing");
+  assert.equal(loaded.details.cause, "receipt_log");
+  assert.equal(loaded.details.line, 1);
+  const before = (await fs.readFile(file)).toString("utf8");
+  const appended = await problem(appendReceipt(fs, { path: file, receipt: receipt(oid("b"), oid("c")) }));
+  assert.equal(appended?.code, "receipt_missing");
+  assert.equal(appended.details.cause, "receipt_log");
+  assert.equal((await fs.readFile(file)).toString("utf8"), before, "the append went onto the torn line");
+  // A complete line that is not a record is refused the same way.
+  await writeFile(file, `${whole}not json\n`);
+  assert.equal((await problem(loadReceipts(fs, { path: file })))?.details.cause, "receipt_log");
+  // A write that fails is the environment's, with the errno, not a raw error.
+  await writeFile(file, whole);
+  const full = { readFile: (name) => fs.readFile(name), writeFile: async () => { throw Object.assign(new Error("no space"), { code: "ENOSPC" }); } };
+  const failed = await problem(appendReceipt(full, { path: file, receipt: receipt(oid("b"), oid("c")) }));
+  assert.equal(failed?.code, "environment_failure");
+  assert.deepEqual({ ...failed.details }, { cause: "journal_io", errno: "ENOSPC" });
+  assert.equal((await fs.readFile(file)).toString("utf8"), whole);
+});
+
+test("a recipe that is not NFC is loaded as it was written (N3)", async (t) => {
+  const directory = await journalDir(t);
+  const journal = journalAt(fs, directory);
+  const noted = { ...recipe(key("1")), message: "café", author: { name: "café", email: "flow@autosk.invalid", date: "1700000000 +0000" } };
+  await journal.save(noted);
+  const loaded = await journal.load(key("1"));
+  assert.equal(loaded.message, "café");
+  assert.equal(loaded.author.name, "café");
+  assert.ok(Object.isFrozen(loaded));
+  assert.ok(Object.isFrozen(loaded.author));
+});

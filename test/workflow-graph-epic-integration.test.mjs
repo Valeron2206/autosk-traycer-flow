@@ -2278,7 +2278,7 @@ test("cas_conflict's row and predicate say a swap from a base the record does no
   const edge = edgeReads(graph, "integrate_staging", "human", "cas_conflict")[0];
   assert.match(edge.says, /unrecorded_base/u);
   const staging = read("docs/contracts/epic-staging.md");
-  assert.match(staging, /`unrecorded_base`/u);
+  assert.match(staging, /unrecorded_base`/u);
   assert.match(read("04-decisions.md").slice(read("04-decisions.md").indexOf("## ADR-109")), /`assertSwapRequest`/u);
 });
 
@@ -2365,4 +2365,80 @@ test("ADR-109 records the review's decisions, weighs integration_obstruction, an
   assert.match(note, /трёх остановок/u);
   const priming = read("docs/cloud-agent-priming.md");
   assert.match(priming, /Review \(independent, on `31cc3bd`\): no Critical or High; four Medium, seven Low, four nits and three defects that predate the change, all addressed test-first in a follow-up commit/u);
+});
+
+// --- debt 13a, second review-fix round --------------------------------------------------------
+
+test("a swap that landed from a base the record does not name says what to restore, in the row, the predicate, 03 §2, the park table and 01, and one definition of cas_conflict holds (N4, N5)", () => {
+  const graph = shipped();
+  const row = graph.recovery.find((entry) => entry.reason === "cas_conflict");
+  const predicate = edgeReads(graph, "integrate_staging", "human", "cas_conflict")[0].says;
+  for (const [where, text] of [["the row", row.required_state], ["the predicate", predicate]]) {
+    assert.match(text, /swapped_from_unrecorded_base/u, where);
+    assert.match(text, /refused_from_unrecorded_base/u, where);
+  }
+  assert.match(row.required_state, /restore_to/u);
+  const staging = read("docs/contracts/epic-staging.md");
+  assert.match(staging, /restore_to/u);
+  const cells = [
+    ["03 §2", read("03-technical-plan.md").split("\n").find((line) => line.startsWith("| integrate_staging |") && line.includes("park.reason=cas_conflict"))],
+    ["the park table", graph.views.find((view) => view.id === "park_table").rows.find((entry) => entry.covers.length === 1 && entry.covers[0] === "cas_conflict").cells[2]],
+    ["01", graph.views.find((view) => view.id === "core_flows_resume").rows.find((entry) => entry.covers.includes("cas_conflict")).cells[2]],
+  ];
+  for (const [where, text] of cells) {
+    assert.ok(text, where);
+    assert.match(text, /swapped_from_unrecorded_base/u, where);
+    assert.match(text, /restore_to|возвращает/u, where);
+    assert.match(text, /foreign_target_movement/u, where);
+  }
+  // The park table no longer allows a retry of the CAS that the row forbids for a swap from an unrecorded base.
+  assert.doesNotMatch(cells[1][1], /повтор CAS только пока target на recorded base\s*$/u);
+  // One definition, in the contract, the vocabulary and the test title: git refused the CAS, or the CAS ran from a base the record does not name.
+  const vocabularyText = read("docs/contracts/refusal-vocabulary.md");
+  for (const [where, text] of [["epic-staging.md", staging], ["refusal-vocabulary.md", vocabularyText]]) {
+    assert.doesNotMatch(text, /`cas_conflict` is git's refusal of a compare-and-swap and nothing else/u, where);
+    assert.match(text, /`cas_conflict`[^\n]*(?:ran from a base the record does not name|from a base the record does not name)/u, where);
+  }
+  assert.match(read("test/runtime-ref-custody.test.mjs"), /test\("cas_conflict is raised only for a compare-and-swap that did not go as the record expected/u);
+});
+
+test("the capability stop says what it reads at every step that carries it, and what may have happened (N7)", () => {
+  const graph = shipped();
+  const shared = graph.predicates.find((entry) => entry.id === "cond_010");
+  assert.match(shared.description, /no (?:custody )?helper|нет helper/u);
+  assert.match(shared.description, /client|клиент/u);
+  assert.match(shared.description, /unanswered/u);
+  const row = graph.recovery.find((entry) => entry.reason === "planning_ref_capability_missing");
+  assert.doesNotMatch(row.required_state, /model\/ref\/cleanup side effects absent/u);
+  assert.match(row.required_state, /helper may have committed|may already be made|may have made/u);
+  for (const [where, text] of [
+    ["cond_459", graph.predicates.find((entry) => entry.id === "cond_459").description],
+    ["03 §2", APPLY_ROWS_03().find((line) => line.includes("park.reason=planning_ref_capability_missing"))],
+    ["epic-staging.md", read("docs/contracts/epic-staging.md")],
+    ["approved-delta.md", read("docs/contracts/approved-delta.md")],
+  ]) assert.match(text, /client_failed/u, where);
+  assert.match(read("docs/contracts/approved-delta.md"), /dependency_failed/u);
+});
+
+test("the records name the owners the package does, and the environment rows name the remedy of every cause (N8, nits)", () => {
+  const decisions = read("04-decisions.md");
+  const adr = decisions.slice(decisions.indexOf("## ADR-109"), decisions.indexOf("## Оставшиеся риски"));
+  const priming = read("docs/cloud-agent-priming.md");
+  const entry = priming.slice(priming.indexOf("- 2026-09-29: debt 13a (R9-3"));
+  const open = entry.slice(entry.indexOf("  - Left open, named in ADR-109"), entry.indexOf("  - Review (independent, on `31cc3bd`)"));
+  const notDone = adr.slice(adr.indexOf("- Что не сделано и названо"), adr.indexOf("- Источники"));
+  for (const [where, text] of [["ADR-109", notDone], ["the entry", open]]) {
+    assert.match(text, /`quick-flow` — #4/u, where);
+    assert.match(text, /`dirty_worktree` — #8/u, where);
+    assert.doesNotMatch(text, /`quick-flow`(?: — | )#14|и `quick-flow` #14/u, where);
+  }
+  assert.doesNotMatch(adr, /причины — в предикате/u);
+  assert.doesNotMatch(entry, /so its causes ride on `cond_425` and the cell/u);
+  const env = shipped().recovery.find((row) => row.reason === "environment_failure").required_state;
+  assert.match(env, /placed the index outside the project|index outside the project/u);
+  assert.match(read("docs/contracts/epic-staging.md"), /not on btrfs or xfs|btrfs and xfs were not measured|btrfs or xfs/u);
+  const delta = read("docs/contracts/approved-delta.md");
+  const row = delta.split("\n").find((line) => line.startsWith("| `delta_stale` |"));
+  assert.doesNotMatch(row, /until the delta is replaced or approved again/u);
+  assert.match(row, /cancel/u);
 });

@@ -36,7 +36,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { FlowError, demand, immutable, oidFormat } from '../runtime/contracts.mjs';
+import { FlowError, boundedText, demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 /** The helper's closed action roster, in the order of its wire schema. */
 export const REF_CUSTODY_ACTIONS = immutable([
@@ -189,6 +189,14 @@ function answersUpdate(observation, update, status, format) {
   return observation.observed_old_oid === update.expected_old_oid && observation.observed_new_oid === after;
 }
 
+/** A client that failed: what it threw, with its errno as the cause (`client_failed` when it has none), both bounded. */
+function clientFailure(action, error) {
+  const code = error instanceof FlowError ? error.code : error?.code;
+  const said = typeof error?.message === 'string' && error.message.length > 0 ? `: ${boundedText(error.message, 200)}` : '';
+  return new FlowError('planning_ref_capability_missing', `The ref-custody client failed${said}`,
+    { action, cause: typeof code === 'string' && code.length > 0 ? boundedText(code, 64) : 'client_failed' });
+}
+
 /**
  * Asks the helper for one action and returns its answer, read against the request.
  *
@@ -201,7 +209,15 @@ function answersUpdate(observation, update, status, format) {
  */
 export async function askCustody(custody, action, refUpdates, identity) {
   const request = formRequest(action, refUpdates, identity);
-  const ask = isRecord(custody) && Object.hasOwn(custody, action) ? custody[action] : null;
+  // Looking the client up can throw too (a getter): that is the client's failure like any other.
+  let ask = null;
+  let lookup = null;
+  try {
+    ask = isRecord(custody) && Object.hasOwn(custody, action) ? custody[action] : null;
+  } catch (error) {
+    lookup = error;
+  }
+  if (lookup !== null) throw clientFailure(action, lookup);
   // Every way the helper cannot be relied on is the one code, with what it said as the cause (debt 13a, review M1, M3): `no_helper`,
   // the reason the helper gave (`packed_refs_drift`, `authorization_invalid`), `unanswered` for an answer that answers nothing,
   // or the errno of a client call that threw. What a client that fails after the helper committed did is not known here, so the
@@ -212,15 +228,15 @@ export async function askCustody(custody, action, refUpdates, identity) {
   try {
     answer = await ask(request);
   } catch (error) {
-    if (error instanceof FlowError) throw error;
-    throw new FlowError('planning_ref_capability_missing', `The ref-custody client failed${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
-      { action, cause: typeof error?.code === 'string' ? error.code : 'client_failed' });
+    // A stop the client raises is its answer; any other code it raises is its failure, and the code becomes the cause.
+    if (error instanceof FlowError && error.code === 'planning_ref_capability_missing') throw error;
+    throw clientFailure(action, error);
   }
   const status = isRecord(answer) ? answer.status : undefined;
   const unanswered = (message, extra = {}) => new FlowError('planning_ref_capability_missing', message, { action, cause: 'unanswered', ...extra });
   if (!(isRecord(answer) && answer.action === action && (status === 'committed' || status === 'not_applied'))) throw unanswered('The helper did not answer this request');
   if (!(status === 'committed' ? answer.not_applied_reason === null : NOT_APPLIED.includes(answer.not_applied_reason))) {
-    throw unanswered('The helper answered with a reason its protocol does not give', { reason: answer.not_applied_reason });
+    throw unanswered('The helper answered with a reason its protocol does not give', { reason: answer.not_applied_reason ?? null });
   }
   const observations = answer.ref_observations;
   const format = formatOf(request);
@@ -229,7 +245,7 @@ export async function askCustody(custody, action, refUpdates, identity) {
     throw unanswered('The helper observed something other than the refs it was asked about');
   }
   demand(status === 'committed' || answer.not_applied_reason === 'expected_old_mismatch', 'planning_ref_capability_missing',
-    'The helper refused for a capability reason', { action, reason: answer.not_applied_reason, cause: answer.not_applied_reason, status });
+    'The helper refused for a capability reason', { action, reason: answer.not_applied_reason ?? null, cause: answer.not_applied_reason ?? 'unanswered', status });
   // A mismatch the helper saw is a ref that did not hold its expected value.
   if (!(status === 'committed'
     || observations.some((observation, index) => observation.observed_old_oid !== request.ref_updates[index].expected_old_oid))) {

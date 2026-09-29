@@ -389,19 +389,37 @@ export function assertSwapRequest(state, { expectedOld }) {
  * write is a compare-and-swap and not a write. A conflict here is not a
  * refusal to try — it is the try, reporting that the world moved.
  *
- * A swap that ran from a base the record does not name — `swapped: true`, so the user's branch moved from somewhere nobody
- * recorded — is no request the host formed wrongly (`assertSwapRequest` refuses that before the swap): it is a result, and
- * the moved target has to be investigated. It is the conflict the graph's `cas_conflict` row carries, with the cause
- * `unrecorded_base`, and never a retry (debt 13a, review M2).
+ * A swap that ran from a base the record does not name is no request the host formed wrongly (`assertSwapRequest`, which
+ * `swapTarget` calls, refuses that before git is asked): it is a result, and the target has to be investigated. It is the conflict the
+ * graph's `cas_conflict` row carries, never thrown past the step, and the two cases are told apart (debt 13a, review M2, N5):
+ * `swapped_from_unrecorded_base` — the swap landed, so the user's branch was overwritten, `landed` is true and `restore_to` is
+ * the commit it held, which is to be put back before anything resumes (a resume into `integrate_staging` over it reads the result as
+ * `already_complete`), and `refused_from_unrecorded_base` — git refused it, `landed` is false and `observed_old_oid` is what
+ * the ref held. The input is checked, not read as it happens to be.
  */
 export function applySwap(state, casResult) {
+  demand(typeof state?.recorded_target_base === 'string' && state.recorded_target_base.length > 0
+    && casResult !== null && typeof casResult === 'object' && typeof casResult.expected_old_oid === 'string'
+    && typeof casResult.swapped === 'boolean', 'custody_request_invalid',
+  'The result of a swap is read against a recorded base, with the base it was made from and whether it landed', {});
   if (casResult.expected_old_oid !== state.recorded_target_base) {
+    if (casResult.swapped) {
+      return Object.freeze({
+        outcome: 'conflict',
+        reason: 'cas_conflict',
+        cause: 'swapped_from_unrecorded_base',
+        landed: true,
+        restore_to: casResult.expected_old_oid,
+        detail: `the swap landed from ${casResult.expected_old_oid}, and the record names ${state.recorded_target_base}: the target was overwritten and ${casResult.expected_old_oid} is to be restored`,
+      });
+    }
     return Object.freeze({
       outcome: 'conflict',
       reason: 'cas_conflict',
-      cause: 'unrecorded_base',
-      swapped: casResult.swapped === true,
-      detail: `the swap was made from ${casResult.expected_old_oid}, and the record names ${state.recorded_target_base}`,
+      cause: 'refused_from_unrecorded_base',
+      landed: false,
+      observed_old_oid: casResult.observed_old_oid ?? null,
+      detail: `git refused a swap made from ${casResult.expected_old_oid}, and the record names ${state.recorded_target_base}; the ref held ${casResult.observed_old_oid ?? 'nothing'}`,
     });
   }
   if (casResult.swapped) {

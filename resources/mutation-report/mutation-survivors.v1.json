@@ -45,19 +45,19 @@
     },
     {
       "module": "src/host/delta-driver.mjs",
-      "line": 169,
+      "line": 173,
       "guard": "<= -> <",
       "reason": "The same one-line helper, used only on a temporary index path built by this module under a directory it created. That path always has a separator past position zero, so the zero case \u2014 the only place the branches differ \u2014 is unreachable from any call site."
     },
     {
       "module": "src/host/delta-driver.mjs",
-      "line": 233,
+      "line": 237,
       "guard": "< -> <=",
       "reason": "Paths in a tree listing are unique by construction \u2014 a tree cannot hold one path twice \u2014 and the declared-entry loop de-duplicates before this sort runs. The comparator's tie branch is therefore unreachable, and the ordering property is tested directly."
     },
     {
       "module": "src/host/delta-driver.mjs",
-      "line": 233,
+      "line": 237,
       "guard": "> -> >=",
       "reason": "Paths in a tree listing are unique by construction \u2014 a tree cannot hold one path twice \u2014 and the declared-entry loop de-duplicates before this sort runs. The comparator's tie branch is therefore unreachable, and the ordering property is tested directly."
     },

@@ -18,8 +18,9 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
+import { boundedText, demand, frozenCopy, oidFormat } from '../runtime/contracts.mjs';
 
+import { assertSwapRequest } from './epic-staging.mjs';
 import { NO_REF_CUSTODY, askCustody, custodyIdentity } from './ref-custody.mjs';
 
 /**
@@ -74,7 +75,7 @@ async function ask(git, args, { tolerate = [] } = {}) {
   const result = await git(args);
   if (result.code !== 0 && !tolerate.includes(result.code)) {
     demand(false, 'environment_failure', `git ${args[0]} exited ${result.code}`,
-      { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
+      { args: frozenCopy([...args]), stderr: boundedText((result.stderr ?? '').trim(), 200) });
   }
   return result;
 }
@@ -100,7 +101,7 @@ async function reflogRead(git, ref, args) {
   if (result.code === 0) return result.stdout;
   if ([1, 128].includes(result.code) && (await readRef(git, ref)) === null) return '';
   demand(false, 'environment_failure', `git reflog exited ${result.code}`,
-    { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
+    { args: frozenCopy([...args]), stderr: boundedText((result.stderr ?? '').trim(), 200) });
 }
 
 /** How many entries a ref's reflog holds, in either object format. Counted, never assumed. */
@@ -221,13 +222,16 @@ export async function observeTarget(git, { ref, recordedResult, reflogBefore = 0
  * and then writing it would leave exactly the window this issue exists to
  * close, and would pass every test that does not race.
  *
- * The result is a record for `applySwap`, which decides what it means.
+ * `state` is the staging record whose `recorded_target_base` the swap is made from: `assertSwapRequest` refuses any other expected-old before
+ * git is asked. The result is a record for `applySwap`, which decides what it means.
  */
-export async function swapTarget(git, { ref, expectedOld, newOid }) {
+export async function swapTarget(git, { ref, expectedOld, newOid, state }) {
   // A ref under refs/autosk/** has one writer, the ref-custody helper
   // (ADR-095); these mechanics move a target ref and nothing under it.
   demand(typeof ref === 'string' && !ref.startsWith('refs/autosk/'), 'custody_request_invalid',
     'refs/autosk/** is the ref-custody helper\'s to write', { ref });
+  // The swap is requested from the base the staging record names and from no other, before git is asked (debt 13a review N2).
+  assertSwapRequest(state ?? {}, { expectedOld });
   const result = await git(['update-ref', '--create-reflog', ref, newOid, expectedOld]);
   if (result.code === 0) {
     return Object.freeze({ swapped: true, expected_old_oid: expectedOld, new_oid: newOid });

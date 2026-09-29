@@ -220,5 +220,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `7818a2adc5ac1f69122d68b681c2e68b7abe9960eb1e83e659b959ede3251b50`
+Matrix digest: `d046dc216e64b48e553a1e56426824b1afbe81a182e518cf4773149b85297b11`
 

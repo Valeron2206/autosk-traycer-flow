@@ -167,7 +167,7 @@
         "status"
       ],
       "domain": "planning_ref_lifecycle",
-      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid — human с park.reason=planning_ref_capability_missing at the recorded helper-calling step"
+      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no custody helper answers, an answer that answers nothing (unanswered), or the client call fails (its errno, or client_failed) — human с park.reason=planning_ref_capability_missing at the recorded helper-calling step"
     },
     {
       "id": "cond_011",
@@ -3816,7 +3816,7 @@
         "cas_receipt"
       ],
       "domain": "target_integration",
-      "description": "git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки — human с park.reason=cas_conflict; retry без расследования запрещён; либо swap прошёл от base, которой запись не называет (cause=unrecorded_base, target сдвинулся с незаписанной base) — то же расследование"
+      "description": "git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки — human с park.reason=cas_conflict; retry без расследования запрещён; либо swap прошёл от base, которой запись не называет: swapped_from_unrecorded_base (ref target перезаписан, человек возвращает commit restore_to до любого resume) или refused_from_unrecorded_base (git отказал, ref не двигался) — то же расследование"
     },
     {
       "id": "cond_449",
@@ -3943,7 +3943,7 @@
         "status"
       ],
       "domain": "planning_ref_lifecycle",
-      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no ref-custody helper answers the staging action, либо вызов клиента упал (apply_outcome=planning_ref_capability_missing; cause — no_helper, packed_refs_drift, authorization_invalid, unanswered или errno клиента) — human с park.reason=planning_ref_capability_missing; host не пишет staging ref сам, resume узнаёт свой commit из recipe; target ref не читается и не меняется"
+      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no ref-custody helper answers the staging action, либо вызов клиента упал (apply_outcome=planning_ref_capability_missing; cause — no_helper, packed_refs_drift, authorization_invalid, unanswered, client_failed или errno клиента) — human с park.reason=planning_ref_capability_missing; host не пишет staging ref сам, resume узнаёт свой commit из recipe; target ref не читается и не меняется"
     },
     {
       "id": "cond_460",
@@ -14702,7 +14702,7 @@
         "human",
         "integrate_staging"
       ],
-      "required_state": "Section 2 parks with this reason at integrate_staging: git refused the one target CAS at write time or the outcome stayed indeterminate; human с park.reason=cas_conflict; ref не перезаписывается, retry только после exact ref/reflog resolution; also a swap that ran from a base the record does not name (cause unrecorded_base): the target moved from an unrecorded base, and it is investigated, never retried"
+      "required_state": "Section 2 parks with this reason at integrate_staging: git refused the one target CAS at write time or the outcome stayed indeterminate; human с park.reason=cas_conflict; ref не перезаписывается, retry только после exact ref/reflog resolution; also a swap that ran from a base the record does not name: swapped_from_unrecorded_base (it landed and overwrote the target: put back the commit `restore_to` names before any resume, since a resume into integrate_staging over it reads already_complete; the target is then off the recorded base, foreign_target_movement) or refused_from_unrecorded_base (git refused it, the ref did not move); investigate, never retry"
     },
     {
       "reason": "child_creation_key_invalid",
@@ -14860,7 +14860,7 @@
         "aggregate_verify",
         "apply_staging"
       ],
-      "required_state": "Section 2 parks with this reason at aggregate_verify, apply_staging: at aggregate_verify aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; at apply_staging a git command or the recipe journal (a full disk, a directory the process may not use) could not run: nothing is half done and no verdict was made, and a resume runs the apply again from its recipe if one was recorded — a commit the helper made is recovered, not asked again; human с park.reason=environment_failure; target ref не двигается; resume re-enters the step that stood; also at apply_staging, causes inherited_git_env, state_identity_collision (index inside the project), untracked_collision, ignored_collision (a file of the operator's at an approved path, never deleted): no verdict on the delta, and a resume is refused again until the person has moved the file or cleared the variable",
+      "required_state": "Section 2 parks with this reason at aggregate_verify, apply_staging: at aggregate_verify aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; at apply_staging a git command or the recipe journal (a full disk, a directory the process may not use) could not run: nothing is half done and no verdict was made, and a resume runs the apply again from its recipe if one was recorded — a commit the helper made is recovered, not asked again; human с park.reason=environment_failure; target ref не двигается; resume re-enters the step that stood; also at apply_staging, causes inherited_git_env, state_identity_collision (index inside the project), untracked_collision, ignored_collision (a file of the operator's at an approved path, never deleted): no verdict on the delta, and a resume is refused again until the person has moved the file, cleared the variable or placed the index outside the project",
       "resume_scope": "origin"
     },
     {
@@ -15414,7 +15414,7 @@
         "synthesize_panel"
       ],
       "resume_scope": "origin",
-      "required_state": "Section 2 parks with this reason at apply_staging, cleanup, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: retain every candidate_keepalive; human с park.reason=planning_ref_capability_missing; model/ref/cleanup side effects absent; resume only the recorded helper-calling step"
+      "required_state": "Section 2 parks with this reason at apply_staging, cleanup, freeze_artifact, init_planning_ref, narrow_review_join, publish_artifact_pass, publish_planning_invalidation, rebuild_anchor, record_artifact_pass, synthesize_panel: retain every candidate_keepalive; human с park.reason=planning_ref_capability_missing; no model side effects, and the helper may have committed before its client failed (the apply recovers its own commit from its recipe on the resume); resume only the recorded helper-calling step"
     },
     {
       "reason": "planning_ref_foreign_movement",
@@ -16403,7 +16403,7 @@
           "covers": [
             "planning_ref_capability_missing"
           ],
-          "binds": "a7fa3ac2c87722667cea7045188b8c220ff0a7a91e68f0e28b2d93f0855bee1e",
+          "binds": "7ccf14163628e2eb76b0a8ed08c1c11d531f98877025bb34d7610f0eb20873c1",
           "cells": [
             "planning_ref_capability_missing",
             "recorded helper-calling step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation, apply_staging or cleanup",
@@ -17487,11 +17487,11 @@
           "covers": [
             "environment_failure"
           ],
-          "binds": "7987fd9efad4b0f448b2be99564bc314294dfb863509a29e374e95acd11b5712",
+          "binds": "97617b3e7227c846ae30d0e1e9cf10f4d69022982f0b73c0cdc9fed1c6e09199",
           "cells": [
             "environment_failure",
             "aggregate_verify, apply_staging",
-            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict; в apply_staging — git-команда или recipe journal не смогли выполниться (диск, права): ничего не записано наполовину, verdict нет; apply возобновляется в apply_staging из своего recipe, если он записан (commit helper а на expected_commit_oid — apply уже сделан, второго запроса нет); окружение, в котором apply не запускается, — inherited_git_env, state_identity_collision, untracked_collision, ignored_collision (cause): apply отказывает при старте, и обычный resume отказывает снова, пока человек не убрал файл или переменную"
+            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict; в apply_staging — git-команда или recipe journal не смогли выполниться (диск, права): ничего не записано наполовину, verdict нет; apply возобновляется в apply_staging из своего recipe, если он записан (commit helper а на expected_commit_oid — apply уже сделан, второго запроса нет); окружение, в котором apply не запускается, — inherited_git_env, state_identity_collision, untracked_collision, ignored_collision (cause): apply отказывает при старте, и обычный resume отказывает снова, пока человек не переложил файл, не очистил переменную или не вынес index за пределы проекта"
           ]
         },
         {
@@ -17564,11 +17564,11 @@
           "covers": [
             "cas_conflict"
           ],
-          "binds": "8ed80b0e40762e3ef9298e76fb5c51a3fe38243c2e33b97218202795910ca939",
+          "binds": "9cf2958dd955eca3ed8beff4ac6840d49b54282b9568c24150dddf5d6adaee8e",
           "cells": [
             "cas_conflict",
             "integrate_staging",
-            "exact ref/reflog расследованы; повтор CAS только пока target на recorded base, уже применённый CAS не повторяется"
+            "exact ref/reflog расследованы; повтор CAS только пока target на recorded base, уже применённый CAS не повторяется; swap, прошедший от незаписанной base (swapped_from_unrecorded_base), перезаписал target: человек возвращает commit restore_to до любого resume (иначе resume в integrate_staging читает результат как already_complete), и target вне recorded base читается как foreign_target_movement"
           ]
         },
         {
@@ -17845,7 +17845,7 @@
           "covers": [
             "planning_ref_capability_missing"
           ],
-          "binds": "a7fa3ac2c87722667cea7045188b8c220ff0a7a91e68f0e28b2d93f0855bee1e",
+          "binds": "7ccf14163628e2eb76b0a8ed08c1c11d531f98877025bb34d7610f0eb20873c1",
           "cells": [
             "planning_ref_capability_missing",
             "recorded helper-calling step: init_planning_ref, freeze_artifact, rebuild_anchor, synthesize_panel, narrow_review_join, record_artifact_pass, publish_artifact_pass, publish_planning_invalidation, apply_staging or cleanup",
@@ -18733,11 +18733,11 @@
             "environment_failure",
             "staging_moved_after_pass"
           ],
-          "binds": "0ff38a41a2622d24aff8964ebe44ac949de80784765d7a98e77d6be4be4e789c",
+          "binds": "3c7cf7376a5f1654719b7b284bfef85efb1e89f661b8c1de5a8c307d97173cc0",
           "cells": [
             "Aggregate не привязан к staging: окружение, void binding, staging сдвинут после PASS",
             "aggregate_verify, accept_staging, apply_staging",
-            "aggregate заново на exact current staging commit/tree без model run; окружение в apply_staging — apply возобновляется из своего recipe, без model run (commit helper а на expected_commit_oid — apply уже сделан); staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится; файл оператора или переменную Git, из-за которых apply не запустился, человек убирает сам (перекладывает файл, очищает окружение), а до того обычный resume отказывает снова"
+            "aggregate заново на exact current staging commit/tree без model run; окружение в apply_staging — apply возобновляется из своего recipe, без model run (commit helper а на expected_commit_oid — apply уже сделан); staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится; файл оператора или переменную Git, из-за которых apply не запустился, человек убирает сам (перекладывает файл, очищает окружение, выносит index за пределы проекта), а до того обычный resume отказывает снова"
           ]
         },
         {
@@ -18758,11 +18758,11 @@
             "foreign_target_movement",
             "post_cas_mismatch"
           ],
-          "binds": "f66c8373c6aeb3399e331e2cb8c2271a914346021c49da8d5e6e232065f9deff",
+          "binds": "accce28fa5e52ce8ea688e2da95c85106ecc3234a90f1cbfbaa5a23e8c7d5fc3",
           "cells": [
             "Target CAS: конфликт, чужое движение, read-back mismatch",
             "park: integrate_staging, verify_target; resume по записанному решению пользователя: apply_staging (foreign_target_movement)",
-            "ref не перезаписывается; target не на recorded base и не на результате этого Epic — движение чужое (commit в ветку, откат, посадка другого Epic на тот же target), и staging пересобирается на новом target через apply_staging только по записанному решению пользователя: recorded_target_base перезаписывается, staging пересоздаётся с одним planning replay commit под receipt, затем каждая approved delta применяется заново с перепроверкой (не применяющиеся — delta_stale); остальное — явное решение после расследования; cancel — отдельная status-операция"
+            "ref не перезаписывается, кроме swap от незаписанной base (swapped_from_unrecorded_base): он перезаписал target, и человек возвращает commit restore_to до любого resume, после чего target вне recorded base читается как foreign_target_movement; target не на recorded base и не на результате этого Epic — движение чужое (commit в ветку, откат, посадка другого Epic на тот же target), и staging пересобирается на новом target через apply_staging только по записанному решению пользователя: recorded_target_base перезаписывается, staging пересоздаётся с одним planning replay commit под receipt, затем каждая approved delta применяется заново с перепроверкой (не применяющиеся — delta_stale); остальное — явное решение после расследования; cancel — отдельная status-операция"
           ]
         },
         {
@@ -18787,7 +18787,7 @@
       ]
     }
   ],
-  "canonical_digest": "5569c2d739c930e141f0399fa99f33b20084c4b229f70bb2d971af04ec7a2807",
+  "canonical_digest": "6b1199f6cbcb1b2c22f7cb847447cd8f624d633e977786c30c24dda5440929f5",
   "external_operations": [
     {
       "status": "cancel",

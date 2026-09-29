@@ -247,14 +247,30 @@ test("the swap can still conflict, because the world moves between read and writ
   assert.equal(conflict.reason, "cas_conflict");
   // A CAS that already ran from a base the record does not name is not a request the host formed wrongly: it is a result, and a
   // moved target nobody has investigated (review M2, ADR-109). It is reported as the conflict the graph's row for cas_conflict
-  // carries, with its cause, and never thrown past the step.
-  for (const swapped of [true, false]) {
-    const unrecorded = applySwap(state(), { expected_old_oid: oid("9"), swapped, new_oid: oid("c"), observed_old_oid: oid("f") });
-    assert.equal(unrecorded.outcome, "conflict", String(swapped));
-    assert.equal(unrecorded.reason, "cas_conflict");
-    assert.equal(unrecorded.cause, "unrecorded_base");
-    assert.equal(unrecorded.swapped, swapped);
-  }
+  // carries, never thrown past the step, and the two cases are told apart: a swap that landed overwrote the target and names the
+  // commit to restore; one git refused moved nothing and names what the ref held (review N5).
+  const landed = applySwap(state(), { expected_old_oid: oid("9"), swapped: true, new_oid: oid("c") });
+  assert.deepEqual({ ...landed }, {
+    outcome: "conflict",
+    reason: "cas_conflict",
+    cause: "swapped_from_unrecorded_base",
+    landed: true,
+    restore_to: oid("9"),
+    detail: `the swap landed from ${oid("9")}, and the record names ${oid("a")}: the target was overwritten and ${oid("9")} is to be restored`,
+  });
+  const refused = applySwap(state(), { expected_old_oid: oid("9"), swapped: false, new_oid: oid("c"), observed_old_oid: oid("f") });
+  assert.deepEqual({ ...refused }, {
+    outcome: "conflict",
+    reason: "cas_conflict",
+    cause: "refused_from_unrecorded_base",
+    landed: false,
+    observed_old_oid: oid("f"),
+    detail: `git refused a swap made from ${oid("9")}, and the record names ${oid("a")}; the ref held ${oid("f")}`,
+  });
+  // The success flag of the swap's own record is a boolean, and the input is checked rather than read as it happens to be.
+  assert.throws(() => applySwap(state(), { expected_old_oid: oid("9"), swapped: 1 }), (error) => error.code === "custody_request_invalid");
+  assert.throws(() => applySwap({}, { expected_old_oid: oid("a"), swapped: true }), (error) => error.code === "custody_request_invalid");
+  assert.throws(() => applySwap(state(), {}), (error) => error.code === "custody_request_invalid");
 });
 
 test("a swap is requested only from the base the record names: any other expected-old is a request the host cannot form, before git is asked (review M2)", () => {

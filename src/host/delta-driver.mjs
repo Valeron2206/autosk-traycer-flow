@@ -56,7 +56,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { FlowError, demand, immutable, oidFormat } from '../runtime/contracts.mjs';
+import { FlowError, boundedText, demand, frozenCopy, immutable, oidFormat, safeDetails } from '../runtime/contracts.mjs';
 
 import {
   collisionErrors,
@@ -112,7 +112,7 @@ async function ask(git, args, options = {}) {
   const result = await git(args, options);
   if (result.code !== 0) {
     demand(false, 'environment_failure', `git ${args[0] === '-c' ? args[2] : args[0]} exited ${result.code}`,
-      { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
+      { args: frozenCopy([...args]), stderr: boundedText((result.stderr ?? '').trim(), 200) });
   }
   return result;
 }
@@ -132,14 +132,18 @@ export function assertCleanEnvironment(env) {
 
 /** What the worktree holds that is not committed, read rather than assumed. */
 export async function worktreeState(git, options = {}) {
-  const status = await ask(git, ['status', '--porcelain', '--untracked-files=all'], options);
+  // NUL-separated, so that a path git would quote is read as it is written; a rename or copy is followed by the path it came from.
+  const status = await ask(git, ['status', '--porcelain', '-z', '--untracked-files=all'], options);
   const untracked = [];
   let dirty = false;
-  for (const line of status.stdout.split('\n')) {
-    if (line.startsWith('?? ')) untracked.push(line.slice(3).trim());
-    else if (line.trim().length > 0) dirty = true;
+  const entries = status.stdout.split('\0');
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.startsWith('?? ')) untracked.push(entry.slice(3));
+    else if (entry.trim().length > 0) dirty = true;
+    if (/^[RC]/u.test(entry) || /^.[RC]/u.test(entry)) index += 1;
   }
-  return Object.freeze({ untracked: immutable(untracked), dirty });
+  return Object.freeze({ untracked: frozenCopy(untracked), dirty });
 }
 
 /**
@@ -230,16 +234,17 @@ export async function appliedEntries(git, { tree, baseTree, delta, options = {} 
       applied.push(Object.freeze({ path, ...held }));
     }
   }
-  return immutable(applied.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
+  return frozenCopy(applied.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
 }
 
 /** One tree, as path → blob and mode; a blob OID in either object format (ADR-098). */
 async function listTree(git, tree, options) {
-  const listing = await ask(git, ['ls-tree', '-r', '--full-tree', tree], options);
+  // NUL-separated, so that a path git would quote (a name that is not ASCII, or has a tab or a newline) is read as it is written.
+  const listing = await ask(git, ['ls-tree', '-r', '-z', '--full-tree', tree], options);
   const held = new Map();
-  for (const line of listing.stdout.split('\n')) {
+  for (const line of listing.stdout.split('\0')) {
     // A gitlink is a `commit` entry of mode 160000 (a submodule), as much an entry of the tree as a blob (P1).
-    const match = /^(\d{6}) (?:blob|commit) ([0-9a-f]+)\t(.*)$/u.exec(line);
+    const match = /^(\d{6}) (?:blob|commit) ([0-9a-f]+)\t([\s\S]*)$/u.exec(line);
     if (match && oidFormat(match[2]) !== null) held.set(match[3], { new_mode: match[1], new_blob: match[2] });
   }
   return held;
@@ -252,7 +257,7 @@ async function listTree(git, tree, options) {
  * so it is reported rather than left to be inferred from an absence.
  */
 export async function removedPaths(git, { tree, baseTree, delta, options = {} }) {
-  if (!baseTree) return immutable([]);
+  if (!baseTree) return frozenCopy([]);
   const [now, before] = await Promise.all([
     listTree(git, tree, options),
     listTree(git, baseTree, options),
@@ -261,15 +266,15 @@ export async function removedPaths(git, { tree, baseTree, delta, options = {} })
   for (const path of before.keys()) {
     if (!now.has(path) && withinPathspec(delta.pathspec, path)) gone.push(path);
   }
-  return immutable(gone.sort());
+  return frozenCopy(gone.sort());
 }
 
 /** Whether paths another Ticket integrated are still in the tree. */
 export async function preservedPaths(git, { tree, paths, options = {} }) {
-  if (paths.length === 0) return immutable([]);
-  const listing = await ask(git, ['ls-tree', '-r', '--full-tree', '--name-only', tree], options);
-  const present = new Set(listing.stdout.split('\n').map((line) => line.trim()).filter(Boolean));
-  return immutable(paths.map((path) => Object.freeze({ path, present: present.has(path) })));
+  if (paths.length === 0) return frozenCopy([]);
+  const listing = await ask(git, ['ls-tree', '-r', '-z', '--full-tree', '--name-only', tree], options);
+  const present = new Set(listing.stdout.split('\0').filter(Boolean));
+  return frozenCopy(paths.map((path) => Object.freeze({ path, present: present.has(path) })));
 }
 
 
@@ -380,7 +385,7 @@ async function isAncestor(git, older, newer) {
   if (result.code === 0) return true;
   if (result.code === 1) return false;
   return demand(false, 'environment_failure', `git merge-base exited ${result.code}`,
-    { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
+    { args: frozenCopy([...args]), stderr: boundedText((result.stderr ?? '').trim(), 200) });
 }
 
 /**
@@ -398,34 +403,65 @@ function refuseRecipe(cause, details) {
   demand(false, 'receipt_missing', 'The recorded recipe cannot vouch for this apply: the receipts cannot be restored from it', { cause, ...details });
 }
 
-/** The failure of something the apply was handed — a git runner, a `realpath`, a journal — as the environment's, with the errno as its cause. */
+/**
+ * The failure of something the apply was handed — a git runner, a `realpath`, a journal — as the environment's, with the errno as its
+ * cause. Cause and message are bounded, because they are whatever the dependency said.
+ */
 function dependencyFailure(what, error) {
-  const errno = typeof error?.code === 'string' ? error.code : null;
+  const code = typeof error?.code === 'string' && error.code.length > 0 ? boundedText(error.code, 64) : null;
+  const said = typeof error?.message === 'string' && error.message.length > 0 ? `: ${boundedText(error.message, 200)}` : '';
   // A journal that fails raw is the journal's own I/O, as `recipeJournal` names it.
-  return new FlowError('environment_failure', `The apply's ${what} failed${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
-    { cause: what === 'journal' ? 'journal_io' : (errno ?? 'dependency_failed'), errno, dependency: what });
+  return new FlowError('environment_failure', `The apply's ${what} failed${said}`,
+    { cause: what === 'journal' ? 'journal_io' : (code ?? 'dependency_failed'), errno: code, dependency: what });
 }
 
-/** Runs an injected function and makes anything but a refusal of ours the environment's: a raw error would fail the step and park it with no reason. */
-function guarded(what, fn) {
+/**
+ * Runs an injected function and keeps its failure inside the apply: what it throws — a raw error, or a FlowError that is not one of the
+ * stops the apply reports — is that dependency's failure, and what it hands back has to have the shape the apply reads, or that is its
+ * failure too (`bad_result`). A stop the dependency raises itself (a journal that cannot vouch) passes as it is. Anything else thrown
+ * out of the apply would fail the step, and the daemon would park it with no reason.
+ */
+function guarded(what, fn, shaped = () => true) {
   return async (...args) => {
+    let answer;
     try {
-      return await fn(...args);
+      answer = await fn(...args);
     } catch (error) {
-      if (error instanceof FlowError) throw error;
+      if (error instanceof FlowError && APPLY_STOP_REASONS.includes(error.code)) throw error;
+      if (error instanceof FlowError) {
+        throw new FlowError('environment_failure', `The apply's ${what} failed: ${boundedText(error.message, 200)}`,
+          { cause: boundedText(error.code, 64), errno: null, dependency: what });
+      }
       throw dependencyFailure(what, error);
     }
+    if (!shaped(answer)) throw dependencyFailure(what, { code: 'bad_result', message: `answered ${answer === null ? 'null' : typeof answer}` });
+    return answer;
   };
 }
 
-/** The blobs a delta names are in the repository, or the delta cannot be assembled as approved: that is the delta's, not the machine's (P2). */
+/** What the apply reads of one command: an exit code and the text on both streams. */
+const commandAnswered = (answer) => answer !== null && typeof answer === 'object' && Number.isInteger(answer.code)
+  && typeof answer.stdout === 'string' && (answer.stderr === undefined || typeof answer.stderr === 'string');
+const pathResolved = (answer) => typeof answer === 'string' && answer.length > 0;
+
+/**
+ * The objects a delta names are blobs that are in the repository, or the delta cannot be assembled as approved: that is the delta's, not
+ * the machine's (P2). A path that names a tree or a commit is no file — the tree it made would fail `git fsck` — so the type is read too (N9).
+ */
 async function assertApprovedObjects(git, delta, options = {}) {
   // A gitlink names a commit of another repository, which need not be here.
   const wanted = [...new Set(delta.entries.filter((entry) => entry.status !== 'D' && entry.new_mode !== '160000').map((entry) => entry.new_blob))];
   if (wanted.length === 0) return;
   const answer = await ask(git, ['cat-file', '--batch-check'], { ...options, stdin: `${wanted.join('\n')}\n` });
-  const missing = answer.stdout.split('\n').filter((line) => line.endsWith(' missing')).map((line) => line.split(' ')[0]);
-  demand(missing.length === 0, 'containment_mismatch', 'An approved blob is not in the repository', { detail: `${missing[0]}: no such object` });
+  const seen = new Map();
+  for (const line of answer.stdout.split('\n')) {
+    const [name, type] = line.split(' ');
+    if (name) seen.set(name, type);
+  }
+  const wrong = wanted.find((name) => seen.get(name) !== 'blob');
+  demand(wrong === undefined, 'containment_mismatch',
+    seen.get(wrong) === 'missing' || seen.get(wrong) === undefined ? 'An approved blob is not in the repository' : 'An approved blob is not a blob',
+    { detail: `${wrong}: ${seen.get(wrong) === 'missing' || seen.get(wrong) === undefined ? 'no such object' : `is a ${seen.get(wrong)}, not a blob`}` });
 }
 
 /** The apply itself: refusals leave it under the contract's names or as stops; `applyDelta` makes every one a stop. */
@@ -444,15 +480,24 @@ async function applyInside(rawGit, {
   otherTicketPaths = [],
   options = {},
 }) {
-  const git = guarded('git runner', rawGit);
-  const realpath = guarded('realpath', rawRealpath);
+  const git = guarded('git runner', rawGit, commandAnswered);
+  const realpath = guarded('realpath', rawRealpath, pathResolved);
   // The apply asks for the private staging ref and nothing else: a target ref
   // is the daemon's integrateApproved's to move (ADR-088), and the helper
   // writes every ref under refs/autosk/** (ADR-095).
   assertStagingRef(ref);
   assertCleanEnvironment(env);
   const checked = assertRecipes(recipes);
-  const journal = { load: guarded('journal', checked.load.bind(checked)), save: guarded('journal', checked.save.bind(checked)) };
+  const loadRecipe = guarded('journal', checked.load.bind(checked));
+  const journal = {
+    // A journal answers with the recipe it holds or with nothing (`null`); anything else cannot vouch for the apply.
+    load: async (name) => {
+      const held = await loadRecipe(name);
+      if (held !== null && (typeof held !== 'object' || Array.isArray(held))) refuseRecipe('journal', { operation_id: delta.operation_id });
+      return held;
+    },
+    save: guarded('journal', checked.save.bind(checked)),
+  };
   const hostIdentity = assertAuthor(author);
   // Revalidated immediately before the apply, not when it was approved: the
   // staging base moves as other Tickets integrate, and `revalidate` validates
@@ -623,7 +668,7 @@ export function integrationReceipt(delta, result) {
     staging_commit_oid: result.commit_oid,
     staging_tree_oid: result.tree_oid,
     phase: errors.length === 0 && result.applied ? 'ref_advanced' : 'prepared',
-    errors: immutable(errors.map(Object.freeze)),
+    errors: frozenCopy(errors),
   });
 }
 
@@ -642,7 +687,7 @@ export function applyOutcome(receipt) {
   return Object.freeze({
     reason: Object.hasOwn(APPLY_STOPS, cause) ? (APPLY_STOPS[cause].after ?? 'receipt_missing') : 'receipt_missing',
     cause,
-    causes: immutable(names),
+    causes: frozenCopy(names),
   });
 }
 
@@ -653,10 +698,12 @@ export function applyOutcome(receipt) {
  * fact `apply_outcome` that the predicates of the `apply_staging` edges read — and the step ends normally, so the flow
  * parks with that reason. A refusal thrown out of the step instead would fail it, and the daemon would park with no
  * reason at all, which `admit` lets re-enter the same step: a retry, forbidden for foreign or indeterminate movement
- * (`approved-delta.md` §6). What is thrown past it is a host invariant (`custody_request_invalid`, a fault of the caller's own
- * arguments — it can follow the recipe's save and the commit's making, so it is not "before anything is written") and an
- * error no dependency of the apply raised, a defect of the host. Whatever a dependency it was handed does — the git runner,
- * `realpath`, the recipe journal, the custody client — is a stop: the environment's or the helper's.
+ * (`approved-delta.md` §6). What is kept inside the apply is what its dependencies do: a git runner, `realpath`, the recipe journal and the
+ * custody client that throw, or hand back an answer of another shape than the apply reads, are the environment's (or the helper's) failure,
+ * with the errno or `bad_result` as the cause; a FlowError of theirs that is not one of the four stops is their failure too. What is thrown
+ * past it is a host invariant (`custody_request_invalid`, a fault of the caller's own arguments — it can follow the recipe's save, so it is
+ * not "before anything is written") and an error no dependency raised, a defect of the host. A dependency that fails in a way this does not
+ * look at — a custody client that never returns, a git runner that hangs — is not covered.
  */
 export async function applyWithOutcome(git, options) {
   try {
@@ -665,10 +712,12 @@ export async function applyWithOutcome(git, options) {
     return Object.freeze({ result, receipt, stop: applyOutcome(receipt) });
   } catch (error) {
     if (error instanceof FlowError && APPLY_STOP_REASONS.includes(error.code)) {
+      const said = error.details?.cause;
+      const cause = typeof said === 'string' ? boundedText(said, 64) : null;
       return Object.freeze({
         result: null,
         receipt: null,
-        stop: Object.freeze({ reason: error.code, cause: error.details?.cause ?? null, causes: immutable(error.details?.cause ? [error.details.cause] : []), details: immutable({ ...error.details }) }),
+        stop: Object.freeze({ reason: error.code, cause, causes: frozenCopy(cause === null ? [] : [cause]), details: safeDetails(error.details ?? {}) }),
       });
     }
     throw error;

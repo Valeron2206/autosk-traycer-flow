@@ -152,3 +152,50 @@ export function immutable(value) {
   }
   return freeze(copied);
 }
+
+/**
+ * Text cut at `max` code points, never inside a surrogate pair. A cut by UTF-16 unit can leave half of an astral character,
+ * which is not text, and this is what error details carry when a command's own words are long.
+ */
+export function boundedText(value, max = 200) {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  const points = Array.from(text);
+  return points.length <= max ? text : points.slice(0, max).join('');
+}
+
+/**
+ * A deep copy of plain data, frozen, that keeps it as it is. `immutable` is for identity and refuses what an identity may not
+ * hold — text that is not NFC, a lone surrogate, an undefined field — and a path, a commit message or an author's name is data,
+ * not identity: it is reported and recovered as written, and a refusal on the way back would leave a re-entry unable to
+ * recover what the helper already committed.
+ */
+export function frozenCopy(value) {
+  function copy(item) {
+    if (Array.isArray(item)) return Object.freeze(item.map(copy));
+    if (item !== null && typeof item === 'object') {
+      return Object.freeze(Object.fromEntries(Object.entries(item).map(([key, held]) => [key, copy(held)])));
+    }
+    return item;
+  }
+  return copy(value);
+}
+
+/**
+ * The details of a stop as a step body may hand them on: JSON-safe, total and bounded. An undefined field is dropped, text is kept
+ * as it is and cut at `max` code points, a number that is not finite is null, and anything that is not plain data is its string.
+ */
+export function safeDetails(value, { max = 200, depth = 6 } = {}) {
+  function copy(item, level) {
+    if (item === null || typeof item === 'boolean') return item;
+    if (typeof item === 'string') return boundedText(item, max);
+    if (typeof item === 'number') return Number.isFinite(item) ? item : null;
+    if (level >= depth) return boundedText(String(item), max);
+    if (Array.isArray(item)) return Object.freeze(item.map((held) => (held === undefined ? null : copy(held, level + 1))));
+    if (typeof item === 'object') {
+      const entries = Object.entries(item).filter(([, held]) => held !== undefined && typeof held !== 'function' && typeof held !== 'symbol');
+      return Object.freeze(Object.fromEntries(entries.map(([key, held]) => [boundedText(key, 64), copy(held, level + 1)])));
+    }
+    return boundedText(String(item), max);
+  }
+  return copy(value, 0);
+}

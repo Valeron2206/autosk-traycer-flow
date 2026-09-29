@@ -472,14 +472,14 @@ test("custodyIdentity derives the pair from the operation: stable across a retry
 
 // --- debt 13a (R9-9, ADR-109): one code for a request the host cannot form, and cas_conflict only where git refused a CAS ---
 
-test("cas_conflict is raised only where git refused a compare-and-swap: a request the host cannot form is custody_request_invalid (R9-9)", () => {
+test("cas_conflict is raised only for a compare-and-swap that did not go as the record expected: a request the host cannot form is custody_request_invalid (R9-9)", () => {
   const host = path.join(ROOT, "src/host");
   const literal = /'cas_conflict'/gu;
   const found = readdirSync(host).filter((file) => file.endsWith(".mjs"))
     .map((file) => [file, (readFileSync(path.join(host, file), "utf8").match(literal) ?? []).length]).filter(([, count]) => count > 0);
-  // epic-staging.mjs: the vocabulary entry and both conflict outcomes of the swap (git's refusal, and a swap from an unrecorded base);
+  // epic-staging.mjs: the vocabulary entry and the three conflict outcomes of the swap (git's refusal, and a swap from an unrecorded base that landed or was refused);
   // staging-driver.mjs: the helper's expected-absent create finding the ref at another commit.
-  assert.deepEqual(found, [["epic-staging.mjs", 3], ["staging-driver.mjs", 1]]);
+  assert.deepEqual(found, [["epic-staging.mjs", 4], ["staging-driver.mjs", 1]]);
   for (const file of ["ref-custody.mjs", "delta-driver.mjs", "planning-driver.mjs"]) {
     assert.doesNotMatch(readFileSync(path.join(host, file), "utf8"), literal, file);
   }
@@ -519,7 +519,7 @@ test("a stop for the helper says why: no helper, a capability refusal, an answer
   assert.equal((await cause({ advance_staging: async () => { throw new Error("plain"); } })).details.cause, "client_failed");
 });
 
-test("a client that throws is named by its message and the action, with a cause only when it has an errno (debt 13a review M3)", async () => {
+test("a client that throws is named by its message and the action, with client_failed as the cause when it has no errno (debt 13a review M3)", async () => {
   const failing = (error) => ({ advance_staging: async () => { throw error; } });
   const named = await askCustody(failing(Object.assign(new Error("reset by peer"), { code: "ECONNRESET" })), "advance_staging", advance).then(() => null, (thrown) => thrown);
   assert.equal(named.message, "The ref-custody client failed: reset by peer");
@@ -527,7 +527,18 @@ test("a client that throws is named by its message and the action, with a cause 
   const bare = await askCustody(failing({}), "advance_staging", advance).then(() => null, (thrown) => thrown);
   assert.equal(bare.message, "The ref-custody client failed");
   assert.deepEqual(bare.details, { action: "advance_staging", cause: "client_failed" });
-  // A refusal of ours that the client raises is not wrapped.
-  const ours = await askCustody(failing(new FlowError("custody_request_invalid", "ours", {})), "advance_staging", advance).then(() => null, (thrown) => thrown);
-  assert.equal(ours.code, "custody_request_invalid");
+  // A stop the client raises is the client's answer and passes as it is; any other code a client raises is the client's failure, and the
+  // code becomes its cause (review N6).
+  const stop = await askCustody(failing(new FlowError("planning_ref_capability_missing", "ours", { cause: "no_helper" })), "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.equal(stop.message, "ours");
+  const other = await askCustody(failing(new FlowError("custody_request_invalid", "ours", {})), "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.equal(other.code, "planning_ref_capability_missing");
+  assert.equal(other.details.cause, "custody_request_invalid");
+  // A getter that throws on the client is the client's failure too, and cause and message are bounded.
+  const getter = await askCustody({ get advance_staging() { throw Object.assign(new Error("getter"), { code: "EBADF" }); } }, "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.equal(getter.code, "planning_ref_capability_missing");
+  assert.equal(getter.details.cause, "EBADF");
+  const long = await askCustody(failing(Object.assign(new Error("m".repeat(100031)), { code: "E".repeat(9000) })), "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.ok(long.message.length <= 300);
+  assert.ok(long.details.cause.length <= 64);
 });

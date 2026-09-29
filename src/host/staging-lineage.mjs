@@ -12,7 +12,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { FlowError, demand, immutable } from '../runtime/contracts.mjs';
+import { FlowError, demand, frozenCopy, immutable } from '../runtime/contracts.mjs';
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -70,10 +70,33 @@ export function receiptDigest(receipt) {
   }));
 }
 
-/** A receipt log that cannot be read: the journal's I/O, as `recipeJournal` names it, with the errno. */
-function receiptLogFailure(error) {
-  return new FlowError('environment_failure', `The receipt log could not be read${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
+/** A receipt log that cannot be read or written: the journal's I/O, as `recipeJournal` names it, with the errno. */
+function receiptLogFailure(error, what = 'read') {
+  return new FlowError('environment_failure', `The receipt log could not be ${what}${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
     { cause: 'journal_io', errno: typeof error?.code === 'string' ? error.code : null });
+}
+
+/**
+ * The lines of a log, or a refusal by name: a log whose last line has no newline is a write that died in the middle, and a complete line
+ * that is not a JSON record is not one this log wrote. Either way it is `receipt_missing` with `cause: receipt_log` and the line's index, and
+ * nothing is appended to it (N10).
+ */
+function receiptLines(text) {
+  const lines = text.split('\n');
+  const torn = lines.pop();
+  const refuse = (index, detail) => demand(false, 'receipt_missing', `The receipt log cannot be read as written: ${detail}`, { cause: 'receipt_log', line: index });
+  if (torn !== '') refuse(lines.length, 'its last line was cut short');
+  return lines.filter((line, index) => {
+    if (line === '') return false;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      refuse(index, 'a line is not JSON');
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) refuse(index, 'a line is not a record');
+    return true;
+  });
 }
 
 /**
@@ -82,6 +105,11 @@ function receiptLogFailure(error) {
  * Append-only, and the previous digest is carried into the next line, so a line
  * edited afterwards breaks the chain rather than sitting there looking
  * original.
+ *
+ * This log is not the durable store of an apply: nothing under `src/` calls it, and the crash-safe record of an apply is the recipe
+ * journal (`recipeJournal`). It rewrites the whole file to append a line, which is not atomic, so a crash can lose it; what it does
+ * refuse is to build on a log it cannot read — a failed read (`environment_failure`, `journal_io`, the errno) or a torn or
+ * unparsable line (`receipt_missing`, `receipt_log`) — and to lose a receipt to a failed write, which is `environment_failure`.
  */
 export async function appendReceipt(fs, { path, receipt, previous = null }) {
   const digest = receiptDigest(receipt);
@@ -95,7 +123,12 @@ export async function appendReceipt(fs, { path, receipt, previous = null }) {
     if (error?.code !== 'ENOENT') throw receiptLogFailure(error);
     existing = '';
   }
-  await fs.writeFile(path, `${existing}${line}\n`);
+  receiptLines(existing);
+  try {
+    await fs.writeFile(path, `${existing}${line}\n`);
+  } catch (error) {
+    throw receiptLogFailure(error, 'written');
+  }
   return Object.freeze({ digest, previous_digest: previous });
 }
 
@@ -116,7 +149,7 @@ export async function loadReceipts(fs, { path }) {
   const receipts = [];
   let previous = null;
   let brokenAt = null;
-  for (const [index, line] of text.split('\n').filter(Boolean).entries()) {
+  for (const [index, line] of receiptLines(text).entries()) {
     const parsed = JSON.parse(line);
     const expected = receiptDigest(parsed);
     if (brokenAt === null && (parsed.receipt_digest !== expected || parsed.previous_digest !== previous)) {
@@ -126,7 +159,7 @@ export async function loadReceipts(fs, { path }) {
     previous = parsed.receipt_digest;
   }
   return Object.freeze({
-    receipts: immutable(receipts),
+    receipts: frozenCopy(receipts),
     intact: brokenAt === null,
     broken_at: brokenAt,
   });
@@ -254,7 +287,7 @@ export function recipeJournal(fs, { directory }) {
       if (held === null) return null;
       // Relied on from here: whatever linked it may have died before it made the name durable.
       await syncDirectory();
-      return immutable(held);
+      return frozenCopy(held);
     },
     async save(recipe) {
       assertKey(recipe?.apply_key);
