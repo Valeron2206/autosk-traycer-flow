@@ -1585,7 +1585,7 @@
           "owner": 18
         }
       ],
-      "delivery": "extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load"
+      "delivery": "extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon under the name of its `workflows` entry, which is the workflow the veto holds a resume to (`steps[].workflow`, ADR-113), after the capability refusal at extension load"
     }
   ],
   "predicate_domains": [
@@ -1930,5 +1930,5 @@
       "delivery": "verification evidence: that it is present, well formed and bound to the candidate, that the runner did not fail, and that the checks passed"
     }
   ],
-  "canonical_digest": "7818a2adc5ac1f69122d68b681c2e68b7abe9960eb1e83e659b959ede3251b50"
+  "canonical_digest": "f281a2d52690cbea35b981de3d2eafabe47f64d09e1cd2fb75603a29f6998020"
 }

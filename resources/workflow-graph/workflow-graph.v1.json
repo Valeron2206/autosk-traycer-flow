@@ -4002,7 +4002,8 @@
     {
       "name": "accept",
       "kind": "agent",
-      "no_transition_reason": "integration_authorization_required"
+      "no_transition_reason": "integration_authorization_required",
+      "workflow": "autosk-quick"
     },
     {
       "name": "accept_staging",
@@ -4182,7 +4183,8 @@
     {
       "name": "integrate",
       "kind": "agent",
-      "no_transition_reason": "integration_obstruction"
+      "no_transition_reason": "integration_obstruction",
+      "workflow": "autosk-quick"
     },
     {
       "name": "integrate_staging",
@@ -4192,12 +4194,14 @@
     {
       "name": "integration_recovery",
       "kind": "agent",
-      "no_transition_reason": "foreign_movement"
+      "no_transition_reason": "foreign_movement",
+      "workflow": "autosk-quick"
     },
     {
       "name": "invalidate_quick_classification",
       "kind": "agent",
-      "no_transition_reason": "quick_classification_invalid"
+      "no_transition_reason": "quick_classification_invalid",
+      "workflow": "autosk-quick"
     },
     {
       "name": "judge",
@@ -4282,7 +4286,8 @@
     {
       "name": "record_editorial_exemption",
       "kind": "agent",
-      "no_transition_reason": "project_boundary_invalid"
+      "no_transition_reason": "project_boundary_invalid",
+      "workflow": "autosk-quick"
     },
     {
       "name": "repair_anchor_handoff",
@@ -15605,7 +15610,7 @@
         "rebuild_code_anchor"
       ],
       "resume_scope": "origin_edges",
-      "required_state": "Section 2 parks with this reason at narrow_review_join, record_code_verdict, synthesize_panel: human с park.reason=review_cap; the count (durable takings: an artifact's narrow and full-panel NOT_PASS as one count per cycle, which only the prior artifact's published PASS, publish_artifact_pass -> select_next, opens; the code verdict's per task) is never reset in its cycle and the limit never raised, so a resume into a target that runs another round — fix_artifact, fix or rebuild_code_anchor, the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join or synthesize_panel into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification — and neither stop is lent the other's steps"
+      "required_state": "Section 2 parks with this reason at narrow_review_join, record_code_verdict, synthesize_panel: human с park.reason=review_cap; the count (durable takings: an artifact's narrow and full-panel NOT_PASS as one count per cycle, which only the prior artifact's published PASS, publish_artifact_pass -> select_next, opens; the code verdict's per task) is never reset in its cycle and the limit never raised, so a resume into a target that runs another round — fix_artifact, fix or rebuild_code_anchor, the row's decision_targets — is one round past the cap, only the user's, on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none; a resume leaves from the step the park stood at — the Planned cap at narrow_review_join or synthesize_panel into fix_artifact, the Quick and Ticket cap at record_code_verdict into fix, rebuild_code_anchor or invalidate_quick_classification (Quick only) — neither stop is lent the other's steps"
     },
     {
       "reason": "review_join_invalid",
@@ -15828,7 +15833,7 @@
         "rebuild_code_anchor",
         "verify"
       ],
-      "required_state": "Section 2 parks with this reason at verify: human с park.reason=verification_cap; the verification findings stay recorded for fix, and the count (the durable takings of verify -> fix, the repairs after the checks, per task) is never reset and the limit never raised, so a resume into a target that runs another repair round — fix, which repairs and runs verify, verify, or rebuild_code_anchor, which runs verify again: the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none"
+      "required_state": "Section 2 parks with this reason at verify: human с park.reason=verification_cap; the verification findings stay recorded for fix, and the count (the durable takings of verify -> fix, the repairs after the checks, per task) is never reset and the limit never raised, so a resume into a target that runs another repair round — fix, which repairs and runs verify, verify, or rebuild_code_anchor, which runs verify again: the row's decision_targets — is one round past the cap, only the user's, and only on a new daemon-attributed cap decision recorded under this park (park.decision), while human and invalidate_quick_classification run no round and owe none (a Quick task's step alone: a Ticket is refused it, ADR-113)"
     },
     {
       "reason": "verification_environment_failed",
@@ -17085,10 +17090,10 @@
           "covers": [
             "verification_cap"
           ],
-          "binds": "38911c02f990d4003de9bee1813ad3c526f4fdc10b1234ba4709c48decc9a01c",
+          "binds": "723235078bbd5c77f6331a75aefa0c0ad992ce17cfda3d783d4da319b7e003f0",
           "cells": [
             "verification_cap",
-            "resume в новый раунд: fix (исправление по сохранённым verification findings), verify или rebuild_code_anchor; без раунда: human, invalidate_quick_classification (Quick); park: verify",
+            "resume в новый раунд: fix (исправление по сохранённым verification findings), verify или rebuild_code_anchor; без раунда: human, invalidate_quick_classification (только Quick: Ticket в него не возобновляется, ADR-113); park: verify",
             "новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых verification findings; выход без раунда решения не требует"
           ]
         },
@@ -17127,10 +17132,10 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "30f4b0e43029ef6c0dba01e20c5b696b29dfb5b783c6fe82efd7fd78770865d7",
+          "binds": "577cc09e12ff3e2c9c1fe15730e012a2350696bd7010523d98f59e3823f13fab",
           "cells": [
             "review_cap",
-            "resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (Quick); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket)",
+            "resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (только Quick: Ticket в него не возобновляется, ADR-113); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket)",
             "новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых findings и identity; выход без раунда решения не требует; resume только из шага, где стоял park: fix_artifact после narrow_review_join или synthesize_panel, fix, rebuild_code_anchor или invalidate_quick_classification после record_code_verdict"
           ],
           "rule": {
@@ -18391,10 +18396,10 @@
           "covers": [
             "review_cap"
           ],
-          "binds": "30f4b0e43029ef6c0dba01e20c5b696b29dfb5b783c6fe82efd7fd78770865d7",
+          "binds": "577cc09e12ff3e2c9c1fe15730e012a2350696bd7010523d98f59e3823f13fab",
           "cells": [
             "Лимит review",
-            "resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (Quick); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket)",
+            "resume в новый раунд: fix_artifact (Planned), fix или rebuild_code_anchor (Quick/Ticket); без раунда: human, invalidate_quick_classification (только Quick: Ticket в него не возобновляется, ADR-113); park: narrow_review_join или synthesize_panel (Planned), record_code_verdict (Quick/Ticket)",
             "новый раунд — только по новому daemon-attributed cap decision, записанному под этот park (park.decision), при сохранённых findings и identity; выход без раунда решения не требует; resume только из шага, где стоял park: fix_artifact после narrow_review_join или synthesize_panel, fix, rebuild_code_anchor или invalidate_quick_classification после record_code_verdict"
           ],
           "rule": {
@@ -18787,7 +18792,7 @@
       ]
     }
   ],
-  "canonical_digest": "5569c2d739c930e141f0399fa99f33b20084c4b229f70bb2d971af04ec7a2807",
+  "canonical_digest": "4ba37e6ca66ac4dbf511adaa7c33afb7e218286123c049aee3511cf5f0b123cd",
   "external_operations": [
     {
       "status": "cancel",

@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -20,7 +20,6 @@ import * as review from "../src/host/cross-family-review.mjs";
 import {
   NEVER_EXEMPT,
   PARK_REASONS,
-  ROUND_LIMIT,
   assertNotSubstitute,
   editorialExemption,
   excludedFamilies,
@@ -207,13 +206,38 @@ test("the reviewer session is never one of the author sessions", () => {
   );
 });
 
-test("the full cycle has a limit, after which it is a person's", () => {
-  assert.equal(reviewAdmission({ partition, reviewers: LIVE, authors: [OPUS], round: ROUND_LIMIT }).decision, "review");
-  assert.equal(reviewAdmission({ partition, reviewers: LIVE, authors: [OPUS], round: ROUND_LIMIT }).family, "gpt");
-  const exhausted = reviewAdmission({ partition, reviewers: LIVE, authors: [OPUS], round: ROUND_LIMIT + 1 });
-  assert.equal(exhausted.decision, "park");
-  assert.equal(exhausted.reason, "review_round_limit");
-  assert.deepEqual([...exhausted.options], ["human_review", "re_express_candidate", "exact_waiver"]);
+test("the review admission keeps no round count of its own: the graph's cap is the one limit (R9-4, ADR-113)", async () => {
+  // The module had a ROUND_LIMIT of 10 and parked review_round_limit past it.
+  // The graph's cap admits the tenth NOT_PASS and parks the eleventh at
+  // review_cap, so the admission stopped one review earlier, with a reason no
+  // recovery row carries and no decision gate governs: permitsResume refused
+  // every resume from it. The cap counts the takings (ADR-104) and the
+  // admission has no count to compare it with, so no round number is asked.
+  for (const round of [1, 10, 11, 1000]) {
+    const admitted = reviewAdmission({ partition, reviewers: LIVE, authors: [OPUS], round });
+    assert.equal(admitted.decision, "review", `round ${round}`);
+    assert.equal(admitted.family, "gpt", `round ${round}`);
+  }
+  assert.equal("ROUND_LIMIT" in review, false);
+  assert.equal(PARK_REASONS.includes("review_round_limit"), false);
+  // The limit is the graph's: each cap that parks review_cap counts to ten.
+  const graph = JSON.parse(await readFile(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+  const caps = graph.caps.filter((cap) => cap.park_reason === "review_cap");
+  assert.deepEqual(caps.map((cap) => cap.cycle).sort(), ["artifact_review_round", "code_review_round"]);
+  for (const cap of caps) assert.equal(cap.limit, 10, cap.cycle);
+  // And no module of the host and no design text keeps a second one; the
+  // retired name stays in the decision log and the handoff log alone.
+  const texts = [
+    ...(await readdir(path.join(ROOT, "src/host"))).filter((name) => name.endsWith(".mjs")).map((name) => `src/host/${name}`),
+    ...(await readdir(path.join(ROOT, "docs/contracts"))).filter((name) => name.endsWith(".md")).map((name) => `docs/contracts/${name}`),
+    "01-core-flows.md", "02-architecture.md", "03-technical-plan.md",
+    "resources/refusal-vocabulary/refusal-vocabulary.v1.json", "resources/workflow-graph/workflow-graph.v1.json",
+  ];
+  for (const relative of texts) {
+    assert.doesNotMatch(await readFile(path.join(ROOT, relative), "utf8"), /ROUND_LIMIT|review_round_limit/u, relative);
+  }
+  // 03 says where the limit is, next to the function that has none.
+  assert.match(await readFile(path.join(ROOT, "03-technical-plan.md"), "utf8"), /`reviewAdmission`[^\n]*раунды не считает[^\n]*`review_cap`/u);
 });
 
 test("an editorial exemption is classified, not argued", () => {

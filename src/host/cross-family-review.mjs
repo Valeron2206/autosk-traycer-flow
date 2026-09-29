@@ -20,12 +20,8 @@ export const PARK_REASONS = immutable([
   'review_family_unknown',
   'review_session_reused',
   'review_exemption_not_permitted',
-  'review_round_limit',
   'review_not_a_panel',
 ]);
-
-/** The maximum full review cycles before the task is a person's. */
-export const ROUND_LIMIT = 10;
 
 /** The categories no editorial exemption may cover. */
 export const NEVER_EXEMPT = immutable(['behavior_defining', 'governance_defining']);
@@ -123,21 +119,19 @@ export function reviewerRoute({ partition, authors, fixers = [] }) {
  *
  * With no family left the review does not quietly not happen: the task goes to
  * a person, with the three things they can actually do about it.
+ *
+ * How many rounds may run is not decided here. The graph's caps count the
+ * takings of every NOT_PASS (`code_review_round`, `artifact_review_round`) and
+ * park at their limit, a stop with a recovery row and the user's decision for
+ * each round past it (ADR-104). A count of this module's own parked one review
+ * earlier, with a reason no row carries (ADR-113).
  */
-export function reviewAdmission({ partition, authors, fixers = [], reviewers, round = 1, reviewerSession, authorSessions = [] }) {
+export function reviewAdmission({ partition, authors, fixers = [], reviewers, reviewerSession, authorSessions = [] }) {
   const ranked = reviewerRoute({ partition, authors, fixers });
   demand(Array.isArray(reviewers), 'review_family_unknown',
     'The available exact reviewer routes are named, not assumed', { reviewers });
   const available = reviewers.map((reviewer) => ({ reviewer, family: participantFamily(reviewer, partition) }));
   const route = immutable(ranked.filter((family) => available.some((entry) => entry.family === family)));
-  if (round > ROUND_LIMIT) {
-    return Object.freeze({
-      decision: 'park',
-      reason: 'review_round_limit',
-      detail: `${round} rounds`,
-      options: immutable(['human_review', 're_express_candidate', 'exact_waiver']),
-    });
-  }
   if (route.length === 0) {
     return Object.freeze({
       decision: 'park',

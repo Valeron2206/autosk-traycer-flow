@@ -2339,6 +2339,71 @@ test("a workflow name outside the registered-workflow spelling is a shape refusa
   );
 });
 
+// --- debt 13e: a step one registered workflow alone runs (R9-5, ADR-113) ---
+
+test("a step names the one registered workflow that runs it, and the shipped graph scopes the Quick-only steps", () => {
+  const graph = document();
+  const scoped = graph.steps.filter((step) => step.workflow !== undefined);
+  assert.deepEqual(
+    scoped.map((step) => step.name).sort(),
+    ["accept", "integrate", "integration_recovery", "invalidate_quick_classification", "record_editorial_exemption"],
+  );
+  for (const step of scoped) assert.equal(step.workflow, "autosk-quick", step.name);
+  assert.deepEqual(validateGraph(graph, schema), []);
+});
+
+test("a step scoped to a workflow the document does not register is refused", () => {
+  assertRefuses(
+    reshipped((graph) => {
+      graph.steps.find((step) => step.name === "invalidate_quick_classification").workflow = "autosk-nothing";
+    }),
+    "graph_entry_step_unknown",
+  );
+});
+
+test("a step scoped to a workflow that never reaches it is refused", () => {
+  // autosk-code-review starts at review_candidate and ends at validate_verdict:
+  // a step it cannot reach is not a step it runs.
+  assertRefuses(
+    reshipped((graph) => {
+      graph.steps.find((step) => step.name === "invalidate_quick_classification").workflow = "autosk-code-review";
+    }),
+    "graph_step_unreachable",
+  );
+});
+
+test("a status step cannot be scoped, and a workflow's name keeps the registered spelling", () => {
+  // The refusals below are about the field, so the field is first shown to be
+  // one an agent step may carry: a schema that knew no such field refuses them
+  // all for the wrong reason.
+  assert.deepEqual(
+    validateGraph(reshipped((graph) => {
+      graph.steps.find((step) => step.name === "invalidate_quick_classification").workflow = "autosk-quick";
+    }), schema),
+    [],
+  );
+  assertRefuses(
+    reshipped((graph) => {
+      graph.steps.find((step) => step.name === "human").workflow = "autosk-quick";
+    }),
+    "graph_schema",
+  );
+  assertRefuses(
+    reshipped((graph) => {
+      graph.steps.find((step) => step.name === "invalidate_quick_classification").workflow = "Autosk Quick";
+    }),
+    "graph_schema",
+  );
+});
+
+test("a step's workflow is part of the digest", () => {
+  const graph = document();
+  const other = reshipped((copy) => {
+    delete copy.steps.find((step) => step.name === "invalidate_quick_classification").workflow;
+  });
+  assert.notEqual(graphDigest(graph), graphDigest(other));
+});
+
 // --- debt 11e review: which resumes are the user's decision is declared, and held to the graph (M1, M2) ---
 
 /** The shipped document, resealed after a mutation so only the mutation is refused. */

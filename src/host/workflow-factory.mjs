@@ -292,7 +292,14 @@ export function index(document) {
       );
     }
   }
-  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, capTerms, boundaries, document };
+  // The registered workflows and the steps only one of them runs. A resume is
+  // held to the workflow the task was built for, and reachability cannot say
+  // which that is: the workflows share steps and draw guarded edges out of their
+  // own into one another's, so the document declares it (`steps[].workflow`,
+  // held by the validator to a workflow that reaches the step).
+  const workflows = new Set((document.workflows ?? []).map((entry) => entry.name));
+  const scopes = new Map(document.steps.filter((step) => step.workflow !== undefined).map((step) => [step.name, step.workflow]));
+  return { steps, guards, predicates, outgoing, recovery, externalOperations, entries, capTerms, boundaries, workflows, scopes, document };
 }
 
 /** A refusal carrying the code the graph names for it. */
@@ -497,8 +504,17 @@ function noAdmitter() {
  * watermark hold, it admits by returning `true` (`resumeDecisionAdmitter` in
  * `user-decision.mjs` checks the record the digest names). Without one,
  * nothing is admitted.
+ *
+ * `workflow` is the registered workflow the task was built for, which the
+ * engine names on every transition. A target is a step of that workflow: a step
+ * the document scopes to another registered workflow (`steps[].workflow`) is
+ * refused whatever the row lists, because a row's list is the union of every
+ * workflow that parks with its reason, and a resume evaluates no guard that
+ * could tell them apart. A workflow the document does not register, or none, is
+ * held to nothing: a definition that serves the document as a whole cannot say
+ * which workflow a task is in (ADR-113).
  */
-export function permitsResume(state, reason, target, park = {}, visits = {}, decisions = {}) {
+export function permitsResume(state, reason, target, park = {}, visits = {}, decisions = {}, workflow = undefined) {
   if (reason === undefined) {
     throw new GraphRefusal(
       "resume_target_not_permitted",
@@ -512,6 +528,13 @@ export function permitsResume(state, reason, target, park = {}, visits = {}, dec
     throw new GraphRefusal(
       "resume_target_not_permitted",
       `${reason} permits ${row.resume_targets.join(", ")} and not ${target}`,
+    );
+  }
+  const scope = state.scopes.get(target);
+  if (scope !== undefined && workflow !== scope && state.workflows.has(workflow)) {
+    throw new GraphRefusal(
+      "resume_target_not_permitted",
+      `${target} is a step of ${scope} alone and the task is ${workflow}'s, so ${reason} does not resume it there`,
     );
   }
   // A scoped row lends none of its targets across its steps. Under `origin`
@@ -625,11 +648,12 @@ export function permitsResume(state, reason, target, park = {}, visits = {}, dec
  * is the shape `onTransit` is specified in — the engine rejects the transition
  * on a throw and commits it otherwise.
  *
- * `context` is `{ step, parked, parkedWith, park, visits, decisions }`: the
- * step being left (empty on enroll), whether the task is parked, the reason it
- * parked with, the park record itself, the daemon's visit counter — the record
- * and the counter are what operation 2's completion receipts answer to — and
- * what a decision-gated resume is checked with (`permitsResume`). `explain`
+ * `context` is `{ step, parked, parkedWith, park, visits, decisions, workflow }`:
+ * the step being left (empty on enroll), whether the task is parked, the reason
+ * it parked with, the park record itself, the daemon's visit counter — the record
+ * and the counter are what operation 2's completion receipts answer to — what a
+ * decision-gated resume is checked with, and the workflow the task was built
+ * for, which a resume's target is held to (`permitsResume`). `explain`
  * says what a refusing guard names: its own `park_reason` unless the caller
  * says otherwise — the built veto names the cap's reason when the guard's own
  * predicate held and its cap term did not (review of 12c, L4).
@@ -691,7 +715,7 @@ export function admit(state, context, to, evaluate, explain = ownReason) {
     // five targets and not this step admitted it anyway: re-entry runs the step's
     // body and its effects again, so "it grants nothing new" was not true either.
     if (parkedWith === undefined && to.step === step) return;
-    permitsResume(state, parkedWith, to.step, context.park, context.visits, context.decisions);
+    permitsResume(state, parkedWith, to.step, context.park, context.visits, context.decisions, context.workflow);
     return;
   }
 
@@ -900,6 +924,9 @@ export function buildWorkflow(document, { evaluate, agents = {}, admitDecision }
         // What a decision-gated resume is checked with: the task that resumes,
         // named by the record the veto just read, and the caller's admitter.
         decisions: { task: task.id, admitDecision },
+        // The registered workflow the engine names on the transition: which of
+        // the workflows sharing a step's row the task was built for.
+        workflow: ctx.workflow,
       };
       admit(state, context, to, deciding(task), (guard) => capExplained(state, guard, task, evaluate));
     },

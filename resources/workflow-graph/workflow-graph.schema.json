@@ -181,6 +181,13 @@
           "no_transition_reason": {
             "description": "The reason the flow parks at this step when no outgoing edge is a candidate. Required for a non-terminal step; a step that can neither leave nor say why it did not leave is refused.",
             "$ref": "#/$defs/park_reason"
+          },
+          "workflow": {
+            "description": "The one registered workflow that runs this step, by its name in workflows; absent, every workflow that reaches it. A resume of a task of another registered workflow into this step is refused whatever the recovery row lists (ADR-113): reachability cannot say it, because the workflows share steps and draw guarded edges from their own steps into one another's (a Ticket's implement, verify and record_code_verdict have edges into invalidate_quick_classification). Only an agent step carries it; it is a workflows name, held to the workflows that reach the step.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
           }
         },
         "allOf": [
@@ -228,7 +235,8 @@
                 "name": {},
                 "kind": {},
                 "hooks": {},
-                "no_transition_reason": {}
+                "no_transition_reason": {},
+                "workflow": {}
               },
               "additionalProperties": false
             }

@@ -874,6 +874,26 @@ export function validateGraph(document, schema, allowed = parkReasons(), epic = 
     }
   }
 
+  // A step that names the workflow which alone runs it (ADR-113): a workflow the
+  // list registers, and one that reaches the step from where it starts. The
+  // factory holds a resume into the step to that workflow, so a name nothing
+  // registers would hold every task out of it, and one that cannot reach it
+  // would say a workflow runs a step it never gets to.
+  const registered = new Map((document.workflows ?? []).map((entry) => [entry.name, entry.first_step]));
+  for (const step of document.steps) {
+    if (step.workflow === undefined) continue;
+    const start = registered.get(step.workflow);
+    if (start === undefined) {
+      errors.push(`graph_entry_step_unknown: step ${step.name} is scoped to workflow ${step.workflow}, which workflows does not register`);
+      continue;
+    }
+    const seen = new Set([start]);
+    for (const current of seen) for (const edge of outgoing.get(current) ?? []) seen.add(edge.to);
+    if (!seen.has(step.name)) {
+      errors.push(`graph_step_unreachable: step ${step.name} is scoped to workflow ${step.workflow}, which does not reach it from ${start}`);
+    }
+  }
+
   const reached = new Set();
   const queue = entries.filter((name) => steps.has(name));
   const entered = queue.join(", ");

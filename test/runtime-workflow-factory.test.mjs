@@ -3581,3 +3581,118 @@ test("an environment failure at apply_staging parks environment_failure, ahead o
     assert.equal(task.metadata.park.origin, "apply_staging");
   }
 });
+
+// --- a resume stays in its workflow (R9-5, ADR-113) --------------------------
+
+/**
+ * The steps only one registered workflow runs. Read off the document: the
+ * `workflow` a step declares is the workflow that alone runs it.
+ */
+const scopedSteps = (graph) => new Map(graph.steps.filter((step) => step.workflow !== undefined).map((step) => [step.name, step.workflow]));
+
+/** What a resume answers, as a value two answers can be compared by. */
+const outcomeOf = (fn) => {
+  try {
+    return { ok: fn() };
+  } catch (error) {
+    assert.ok(error instanceof GraphRefusal, `expected a GraphRefusal, got ${error}`);
+    return { reason: error.reason, detail: error.detail };
+  }
+};
+
+test("a Ticket parked at verification_cap or review_cap cannot resume into the Quick step that supersedes it, and a Quick one still can (R9-5, ADR-113)", async () => {
+  // permitsResume never asked which workflow the task was built for, and
+  // invalidate_quick_classification is a row target of both caps. The step
+  // creates a Planned replacement and marks the task superseded, and a resume
+  // evaluates no guard, so a Ticket — whose verify and record_code_verdict are
+  // the Quick's — was admitted into it, owing no decision because the step is
+  // not one of the rows' decision targets.
+  const graph = document();
+  const state = index(graph);
+  const target = "invalidate_quick_classification";
+  for (const [reason, origin] of [["verification_cap", "verify"], ["review_cap", "record_code_verdict"]]) {
+    const row = state.recovery.get(reason);
+    assert.ok(row.resume_targets.includes(target), reason);
+    assert.ok(!(row.decision_targets ?? []).includes(target), `${reason} owes no decision for ${target}`);
+    const park = { origin };
+    assert.equal(permitsResume(state, reason, target, park, {}, {}, "autosk-quick"), true, `${reason}: a Quick task`);
+    const refused = refusalOf(() => permitsResume(state, reason, target, park, {}, {}, "autosk-ticket"));
+    assert.equal(refused.reason, "resume_target_not_permitted", reason);
+    assert.match(refused.detail, /autosk-ticket/u, reason);
+    assert.match(refused.detail, /autosk-quick/u, reason);
+
+    // Through the veto the engine runs for every resume: the workflow is the
+    // one the engine names on the transition context.
+    const workflow = buildWorkflow(graph, { evaluate: never });
+    const parked = () => ({ id: "t-1", step: "human", status: "human", metadata: { step_visits: { [origin]: 1 }, park: { reason, origin } } });
+    const named = (name) => ({ ...context(parked()).ctx, workflow: name });
+    assert.equal(await workflow.onTransit(named("autosk-quick"), { step: target }), undefined, `${reason}: the veto admits a Quick task`);
+    await assert.rejects(
+      () => workflow.onTransit(named("autosk-ticket"), { step: target }),
+      (error) => error.reason === "resume_target_not_permitted" && /autosk-ticket/u.test(error.detail),
+      `${reason}: the veto refuses a Ticket`,
+    );
+  }
+});
+
+test("only the steps a workflow alone runs are held to it, and every other resume of every workflow is what it was (R9-5, ADR-113)", () => {
+  const graph = document();
+  const state = index(graph);
+  const scoped = scopedSteps(graph);
+  // The Quick-only steps of 03 §2: the reclassification, the exemption, and
+  // the acceptance and integration path that Epic and Ticket walk by other
+  // steps (`accept_staging`, `integrate_staging`, `commit_on_pass`).
+  assert.deepEqual(
+    [...scoped].sort(),
+    ["accept", "integrate", "integration_recovery", "invalidate_quick_classification", "record_editorial_exemption"].map((name) => [name, "autosk-quick"]),
+  );
+  const registered = graph.workflows.map((entry) => entry.name);
+  for (const workflow of scoped.values()) assert.ok(registered.includes(workflow), workflow);
+  let compared = 0;
+  let held = 0;
+  for (const row of graph.recovery) {
+    const visits = {};
+    for (const origin of new Set([...row.parks_at, ...(row.handled_at ?? [])])) {
+      const park = { origin, ...receipted(row, visits) };
+      for (const target of row.resume_targets) {
+        const before = outcomeOf(() => permitsResume(state, row.reason, target, park, visits, {}));
+        for (const workflow of registered) {
+          const after = outcomeOf(() => permitsResume(state, row.reason, target, park, visits, {}, workflow));
+          if (scoped.has(target) && scoped.get(target) !== workflow) {
+            held += 1;
+            assert.equal(after.reason, "resume_target_not_permitted", `${row.reason} at ${origin} into ${target} for ${workflow}`);
+            assert.match(after.detail, new RegExp(workflow, "u"));
+          } else {
+            compared += 1;
+            assert.deepEqual(after, before, `${row.reason} at ${origin} into ${target} for ${workflow}`);
+          }
+        }
+      }
+    }
+  }
+  assert.ok(compared > 1000, `${compared} resumes compared`);
+  assert.ok(held > 100, `${held} resumes held to their workflow`);
+  // A definition that names no registered workflow, as every fixture and the
+  // verifiers' documents do, is held to none.
+  for (const workflow of [undefined, "autosk_flow", "not-registered"]) {
+    assert.equal(permitsResume(state, "verification_cap", "invalidate_quick_classification", { origin: "verify" }, {}, {}, workflow), true, String(workflow));
+  }
+});
+
+test("the workflows a step is scoped to are registered ones that reach it (R9-5, ADR-113)", () => {
+  const graph = document();
+  const scoped = scopedSteps(graph);
+  assert.ok(scoped.size > 0);
+  const registered = new Map(graph.workflows.map((entry) => [entry.name, entry.first_step]));
+  const out = new Map();
+  for (const edge of graph.transitions) out.set(edge.from, [...(out.get(edge.from) ?? []), edge.to]);
+  for (const [step, workflow] of scoped) {
+    const reached = new Set([registered.get(workflow)]);
+    for (const current of reached) for (const next of out.get(current) ?? []) reached.add(next);
+    assert.ok(reached.has(step), `${workflow} never reaches ${step}`);
+  }
+  // The claim that the graph alone cannot tell the workflows apart: Ticket's
+  // first step reaches the step, so reachability is no scope.
+  assert.equal(graph.workflows.find((entry) => entry.name === "autosk-ticket").first_step, "implement");
+  assert.ok(out.get("implement").includes("invalidate_quick_classification"));
+});

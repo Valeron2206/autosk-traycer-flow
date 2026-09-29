@@ -93,7 +93,7 @@ Preflight отказывает любому model workflow без каждой �
 | `graph.arena-runtime` | graph_workflows | ADR-077 | #18 | Arena runtime (#18) | the host-mediated candidate and judge steps of the Arena workflows the graph registers, as docs/contracts/arena.md decides them: candidates isolated from each other, a judge of a third family that ranks and does not approve, the person's decision re-expressed in the Tech Plan |
 | `graph.guard-authority` | graph_guard_authority | ADR-091 | #18 | guard authority evaluator (#18) | extension product code that admits human authority only as a UserDecisionRecord #4's verifier accepts, and policy authority only within the rules and scope the guard records (ADR-023, ADR-091) |
 | `graph.predicate-evaluation` | graph_predicates | ADR-082 | #18 | table from each predicate id to its implementation (#18) | extension product code that binds each predicate id to the implementation in the module of the record that owns its domain (`predicate_domains`, ADR-107) and hands the table to buildWorkflow (src/host/workflow-factory.mjs), which applies it at both decision sites |
-| `graph.workflow-registration` | graph_workflows | ADR-090 | #18 | extension entry point (#18) | extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load |
+| `graph.workflow-registration` | graph_workflows | ADR-090 | #18 | extension entry point (#18) | extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon under the name of its `workflows` entry, which is the workflow the veto holds a resume to (`steps[].workflow`, ADR-113), after the capability refusal at extension load |
 
 ## Предикаты графа и их владельцы
 
@@ -220,5 +220,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `7818a2adc5ac1f69122d68b681c2e68b7abe9960eb1e83e659b959ede3251b50`
+Matrix digest: `f281a2d52690cbea35b981de3d2eafabe47f64d09e1cd2fb75603a29f6998020`
 
