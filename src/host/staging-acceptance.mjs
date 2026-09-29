@@ -170,7 +170,7 @@ export function stagingIdentity(state, current) {
  * move — before the CAS.
  */
 export function composeAuthorization(state, {
-  recordId, runId, integrationPlanHash, classifierProofHash, previousAuthorizationHeadHash, expiresAt, ...current
+  recordId, runId, integrationPlanHash, classifierProofHash, previousScopeAuthorizationHash, expiresAt, ...current
 } = {}) {
   const facts = acceptanceFacts(state, current);
   const project = /^sha256:([a-f0-9]{64})$/u.exec(facts.project_identity);
@@ -182,7 +182,7 @@ export function composeAuthorization(state, {
   demand(named(recordId) && named(runId), 'acceptance_missing', 'The record names itself and its run', {});
   demand(SHA256.test(integrationPlanHash ?? '') && SHA256.test(classifierProofHash ?? ''), 'acceptance_missing',
     'The record names the integration plan and the classifier proof it was composed from', {});
-  demand(previousAuthorizationHeadHash === null || SHA256.test(previousAuthorizationHeadHash ?? ''), 'acceptance_missing',
+  demand(previousScopeAuthorizationHash === null || SHA256.test(previousScopeAuthorizationHash ?? ''), 'acceptance_missing',
     'The record names the head of its scope\'s chain it chains from, or null for the scope\'s first', {});
   demand(typeof expiresAt === 'string' && RFC3339.test(expiresAt) && !Number.isNaN(Date.parse(expiresAt)),
     'acceptance_missing', 'The record names when it expires', { expires_at: expiresAt });
@@ -207,7 +207,7 @@ export function composeAuthorization(state, {
     relevant_authority_projection_hash: facts.relevant_authority_projection_hash,
     dependency_head_hash: facts.dependency_head_hash,
     intent_head_hash: facts.intent_head_hash,
-    previous_authorization_head_hash: previousAuthorizationHeadHash,
+    previous_scope_authorization_hash: previousScopeAuthorizationHash,
     expires_at: expiresAt,
     terminal_disposition: 'active',
     issued_by: 'user_decision_record',

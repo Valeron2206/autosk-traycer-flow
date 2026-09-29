@@ -29,6 +29,7 @@ import {
   recordRefusals,
   validateDesign,
 } from "../scripts/validate-integration-authorization.mjs";
+import * as validator from "../scripts/validate-integration-authorization.mjs";
 import { validateJsonSchema } from "../scripts/validate-planning-ref-design.mjs";
 import { filesUsing } from "../scripts/lib/code-references.mjs";
 
@@ -99,7 +100,7 @@ test("an absent record and a mismatched chain are refusals, not silences", () =>
   // The chain is the record's scope's (R8-16), and the model is autoskd's
   // store-time check (review of 99fd30b, L4): the head compared is the one
   // its scope had just before the record is stored.
-  assert.deepEqual(reasons(record, { headsBeforeStore: { [record.scope_id]: record.previous_authorization_head_hash } }), []);
+  assert.deepEqual(reasons(record, { headsBeforeStore: { [record.scope_id]: record.previous_scope_authorization_hash } }), []);
   assert.ok(
     reasons(record, { headsBeforeStore: { [record.scope_id]: "f".repeat(64) } }).includes("integration_authorization_head_mismatch"),
   );
@@ -366,7 +367,7 @@ test("an acceptance does not move what it accepts: the heads a record names excl
   const binds = section(read(CONTRACT_PATH), "## 3.", "## 4.");
   assert.match(binds, /\*\*An acceptance does not move what it accepts\*\* \(ADR-103\)/u);
   assert.match(binds, /every answer to any acceptance packet of the scope — `accept` or `refuse`, to any question, re-asks included — and every `IntegrationAuthorizationRecord` of the scope/u);
-  assert.match(binds, /by the kind of request the decision answers — a packet parked with `acceptance_missing` at `accept_staging` for this scope/u);
+  assert.match(binds, /by the kind of request the decision answers/u);
   assert.match(binds, /never by its payload/u);
   assert.match(binds, /never enters the scope's relevant authority projection, its dependency head or its intent head/u);
   assert.match(binds, /committing it moves the global authority and nonce heads/u);
@@ -388,29 +389,29 @@ test("an acceptance does not move what it accepts: the heads a record names excl
   assert.match(two, /отзыв или замену record дополнительно держит цепочка scope/u);
   const five = section(flows, "## 5. ", "## 6. ");
   assert.match(five, /приёмка не двигает то, что принимает[^\n]*ADR-103/u);
-  assert.match(five, /каждый ответ на любой пакет приёмки Epic \(accept или refuse, повторные включительно\) и каждая её `IntegrationAuthorizationRecord`/u);
+  assert.match(five, /каждый ответ на любой пакет приёмки этого scope \(accept или refuse, повторные включительно\) и каждая её `IntegrationAuthorizationRecord`/u);
   assert.match(five, /любое другое решение, включая отзыв или замену приёмки, входит/u);
   const architecture = read("02-architecture.md").split("\n");
   const guard = architecture.find((line) => line.startsWith("Authority/dependency/user-instruction/correction appends")) ?? "";
-  assert.match(guard, /в эту projection и в dependency\/intent heads Epic не входит[^\n]*ADR-103/u);
-  assert.match(guard, /каждый ответ на любой пакет приёмки Epic — accept или refuse, повторные включительно — и каждая `IntegrationAuthorizationRecord` её scope/u);
+  assert.match(guard, /в эту projection и в dependency\/intent heads scope не входит[^\n]*ADR-103/u);
+  assert.match(guard, /каждый ответ на любой пакет приёмки scope — accept или refuse, повторные включительно — и каждая `IntegrationAuthorizationRecord` его/u);
   assert.match(guard, /по виду запроса, на который решение отвечает/u);
   // Review of 99fd30b (L5): committing the class moves the nonce head too.
   assert.match(guard, /глобальные authority и nonce heads/u);
   assert.match(guard, /любое другое решение, включая отзыв или замену приёмки, учитывается/u);
   const record = architecture.find((line) => line.startsWith("`IntegrationAuthorizationRecord` authoritative source")) ?? "";
-  assert.match(record, /which the Epic's own acceptance does not move/u);
+  assert.match(record, /which the scope's own acceptance does not move/u);
   const plan = read("03-technical-plan.md").split("\n");
   const integrate = plan.find((line) => line.startsWith("| integrate_staging | daemon `integrateApproved(")) ?? "";
-  assert.match(integrate, /собственная приёмка Epic не двигает[^|]*ADR-103/u);
+  assert.match(integrate, /собственная приёмка этого scope не двигает[^|]*ADR-103/u);
   const authorityGuard = plan.find((line) => line.startsWith("`authorityGuard(expected_relevant_authority_projection_hash")) ?? "";
-  assert.match(authorityGuard, /An Epic's own integration acceptance[^.]*never enters its relevant projection or its dependency or intent head/u);
-  assert.match(authorityGuard, /every answer to any acceptance packet of the Epic, accept or refuse, re-asks included, and every IntegrationAuthorizationRecord of its scope/u);
+  assert.match(authorityGuard, /A scope's own integration acceptance[^.]*never enters its relevant projection or its dependency or intent head/u);
+  assert.match(authorityGuard, /every answer to any acceptance packet of the scope, accept or refuse, re-asks included, and every IntegrationAuthorizationRecord of it/u);
   assert.match(authorityGuard, /keyed at commit by the kind of request answered/u);
   assert.match(authorityGuard, /the global authority and nonce heads/u);
   assert.match(authorityGuard, /any other decision, a later one revoking or replacing an acceptance decision or record included, counts/u);
   assert.match(authorityGuard, /additionally enforced by the scope's chain/u);
-  assert.match(authorityGuard, /Unrelated project authority append therefore does not stale an Epic after re-resolution, and neither does the Epic's own acceptance/u);
+  assert.match(authorityGuard, /Unrelated project authority append therefore does not stale an Epic or a Quick run after re-resolution, and neither does the scope's own acceptance/u);
   // The graph's CAS predicate says it too.
   assert.match(described().cond_441, /heads в силе без своей приёмки Epic \(ADR-103\)/u);
   // No host code computes a head: where one appears under src/, it is taken
@@ -428,17 +429,171 @@ test("an acceptance does not move what it accepts: the heads a record names excl
   // So the rule is the daemon's, given to the owners inside matrix v1
   // (ADR-097's rule): #4 for the heads, #9 for the comparison in
   // integrateApproved — and both say the class as the contract does.
-  assert.match(obligation(4), /An Epic's own integration acceptance[^.]*never enters the Epic's relevant authority projection or its dependency or intent head/u);
-  assert.match(obligation(4), /every answer to any acceptance packet of the Epic, accept or refuse, re-asks included, and every IntegrationAuthorizationRecord of its scope/u);
+  assert.match(obligation(4), /A scope's own integration acceptance[^.]*never enters the scope's relevant authority projection or its dependency or intent head/u);
+  assert.match(obligation(4), /every answer to any acceptance packet of the scope, accept or refuse, re-asks included, and every IntegrationAuthorizationRecord of it/u);
   assert.match(obligation(4), /by the kind of request each decision answers/u);
   assert.match(obligation(4), /any other decision — a later one revoking or replacing an acceptance decision or record included — enters them as before/u);
   assert.match(obligation(4), /global authority and nonce heads/u);
   assert.match(obligation(4), /so an acceptance does not move what it accepts \(docs\/contracts\/integration-authorization\.md §3, ADR-103\)/u);
-  assert.match(obligation(9), /heads and controlling anchor digest it names against the ones in force, which an Epic's own acceptance does not move \(docs\/contracts\/integration-authorization\.md §3, ADR-103\)/u);
-  assert.match(obligation(9), /every answer to the Epic's acceptance packets and every IntegrationAuthorizationRecord of its scope stay out of them/u);
+  assert.match(obligation(9), /heads and controlling anchor digest it names against the ones in force, which a scope's own acceptance does not move \(docs\/contracts\/integration-authorization\.md §3, ADR-103, ADR-112\)/u);
+  assert.match(obligation(9), /every answer to the scope's acceptance packets and every IntegrationAuthorizationRecord of it stay out of them/u);
   assert.match(obligation(9), /any other decision, a later one revoking or replacing an acceptance included, counts/u);
   // The alternative the ADR weighed and rejected.
   assert.match(adr103(), /previous_secure_head_hash/u);
+});
+
+test("the acceptance class is keyed by both kinds of acceptance request, one rule for the Epic's scope and the Quick run's (R9-7)", () => {
+  // Round 9 of #39, R9-7 (feasibility medium, architecture medium): 12b keyed
+  // the excluded class only for an Epic — a packet parked with
+  // `acceptance_missing` at `accept_staging` — while a Quick run's record binds
+  // the same three heads under `quick:<task-id>` and its acceptance is asked at
+  // `accept`, parked with `integration_authorization_required`. No text
+  // excluded that decision from the scope's heads, so read literally a daemon
+  // built from the texts counted it, and a Quick acceptance moved the heads it
+  // accepts and went stale at `integrateApproved` — R8-2, still open for Quick.
+  // The rule is one: the scope's own acceptance, keyed by either request kind.
+  assert.equal(typeof validator.ACCEPTANCE_REQUESTS, "object", "the validator names the request kinds");
+  const kinds = validator.ACCEPTANCE_REQUESTS;
+  assert.deepEqual(kinds.map((kind) => [kind.scope, kind.reason, kind.step]), [
+    ["epic:<epic-id>", "acceptance_missing", "accept_staging"],
+    ["quick:<task-id>", "integration_authorization_required", "accept"],
+  ]);
+  const binds = section(read(CONTRACT_PATH), "## 3.", "## 4.");
+  assert.match(binds, /one rule for both kinds of scope \(ADR-112\)/u);
+  for (const kind of kinds) {
+    assert.ok(binds.includes(`\`${kind.reason}\` at \`${kind.step}\` for ${kind.scope.startsWith("epic") ? "an Epic's scope" : "a Quick run's scope"} (\`${kind.scope}\`)`), `IA §3 keys ${kind.reason}`);
+  }
+  assert.match(binds, /the scope's own integration acceptance never enters the scope's relevant authority projection/u);
+  // Every place that restates the class says both kinds, in its own language.
+  const ru = (kind) => `\`${kind.reason}\` на \`${kind.step}\``;
+  const flows = read("01-core-flows.md");
+  const two = section(flows, "### Согласование решений человеком", "## 3. ");
+  const guard = read("02-architecture.md").split("\n").find((line) => line.startsWith("Authority/dependency/user-instruction/correction appends")) ?? "";
+  for (const kind of kinds) {
+    for (const [where, text] of [["01 §2", two], ["02 §7", guard]]) {
+      assert.ok(text.includes(ru(kind)), `${where} keys ${kind.reason}`);
+      assert.ok(text.includes(`\`${kind.scope}\``), `${where} names ${kind.scope}`);
+    }
+  }
+  const authorityGuard = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("`authorityGuard(expected_relevant_authority_projection_hash")) ?? "";
+  for (const kind of kinds) {
+    assert.ok(authorityGuard.includes(`\`${kind.reason}\` at \`${kind.step}\``), `03 authorityGuard keys ${kind.reason}`);
+    assert.ok(authorityGuard.includes(`\`${kind.scope}\``), `03 authorityGuard names ${kind.scope}`);
+    assert.ok(obligation(4).includes(`\`${kind.reason}\` at \`${kind.step}\``), `matrix #4 keys ${kind.reason}`);
+    assert.ok(obligation(4).includes(`\`${kind.scope}\``), `matrix #4 names ${kind.scope}`);
+  }
+  // The daemon-side keying has its owners: #4 recognizes the class at commit,
+  // #9 compares and owns the Quick accept step (ADR-097's rule).
+  assert.match(obligation(4), /recognizes at commit, for either kind of scope/u);
+  assert.match(obligation(9), /Quick run's acceptance, asked at accept, stays out of the Quick scope's heads as an Epic's stays out of its own/u);
+  // No place still keeps the Epic-only class.
+  const live = {
+    [CONTRACT_PATH]: read(CONTRACT_PATH),
+    "01-core-flows.md": flows,
+    "02-architecture.md": read("02-architecture.md"),
+    "03-technical-plan.md": read("03-technical-plan.md"),
+    [MATRIX_PATH]: read(MATRIX_PATH),
+    "scripts/build-panel-package.mjs": read("scripts/build-panel-package.mjs"),
+  };
+  for (const [file, text] of Object.entries(live)) {
+    assert.doesNotMatch(text, /An Epic's own integration acceptance|which the Epic's own acceptance|Собственная приёмка интеграции Epic|собственная приёмка Epic не двигает|every answer to any acceptance packet of the Epic/u, file);
+  }
+  // Both scope shapes are ones the schema admits, and both kinds are parks the graph has.
+  const scopePattern = new RegExp(JSON.parse(read(SCHEMA_PATH)).properties.scope_id.pattern, "u");
+  for (const kind of kinds) assert.ok(scopePattern.test(kind.scope.replace(/<[a-z-]+>/u, "x")), kind.scope);
+  assert.deepEqual(validator.acceptanceRequestErrors(graph(), read(CONTRACT_PATH), matrix()), []);
+  // The ADR states it, and ADR-103 points at it.
+  const adr = section(read("04-decisions.md"), "## ADR-112:", "\n## ");
+  assert.match(adr, /R9-7/u);
+  assert.match(adr, /`integration_authorization_required` на `accept`/u);
+  assert.match(adr103(), /Изменено ADR-112/u);
+});
+
+test("the validator holds the two request kinds to the graph and the class to the contract and the matrix (R9-7)", () => {
+  assert.equal(typeof validator.acceptanceRequestErrors, "function");
+  const errors = (mutate) => {
+    const parts = { graph: graph(), contract: read(CONTRACT_PATH), matrix: matrix() };
+    mutate(parts);
+    return validator.acceptanceRequestErrors(parts.graph, parts.contract, parts.matrix);
+  };
+  assert.deepEqual(errors(() => {}), []);
+  // A kind the graph does not park is not a key the daemon could use.
+  const withoutRow = (reason) => ({ graph }) => { graph.recovery = graph.recovery.filter((row) => row.reason !== reason); };
+  assert.match(errors(withoutRow("integration_authorization_required")).join("\n"), /integration_authorization_required[^\n]*no recovery row/u);
+  assert.match(errors(withoutRow("acceptance_missing")).join("\n"), /acceptance_missing[^\n]*no recovery row/u);
+  const elsewhere = (reason) => ({ graph }) => { graph.recovery.find((row) => row.reason === reason).parks_at = ["human"]; };
+  assert.match(errors(elsewhere("integration_authorization_required")).join("\n"), /integration_authorization_required[^\n]*does not park at accept/u);
+  assert.match(errors(elsewhere("acceptance_missing")).join("\n"), /acceptance_missing[^\n]*does not park at accept_staging/u);
+  // The contract keys the class by either kind: dropping the Quick one, or the Epic one, is refused.
+  const quick = "`integration_authorization_required` at `accept` for a Quick run's scope (`quick:<task-id>`)";
+  const epic = "`acceptance_missing` at `accept_staging` for an Epic's scope (`epic:<epic-id>`)";
+  assert.ok(read(CONTRACT_PATH).includes(quick) && read(CONTRACT_PATH).includes(epic));
+  assert.match(errors((parts) => { parts.contract = parts.contract.replace(quick, "a Quick packet"); }).join("\n"), /contract[^\n]*integration_authorization_required/u);
+  assert.match(errors((parts) => { parts.contract = parts.contract.replace(epic, "an Epic packet"); }).join("\n"), /contract[^\n]*acceptance_missing/u);
+  // #4's obligation names the keying of both kinds.
+  const four = (parts) => parts.matrix.records.find((record) => record.issue_number === 4);
+  assert.match(errors((parts) => { four(parts).implementation_obligation_before_mvp = four(parts).implementation_obligation_before_mvp.replaceAll("`integration_authorization_required` at `accept`", "a Quick packet"); }).join("\n"), /#4[^\n]*integration_authorization_required/u);
+  assert.match(errors((parts) => { four(parts).implementation_obligation_before_mvp = four(parts).implementation_obligation_before_mvp.replaceAll("`acceptance_missing` at `accept_staging`", "an Epic packet"); }).join("\n"), /#4[^\n]*acceptance_missing/u);
+  // And it is part of the design's validation, so the CLI reports it.
+  assert.ok(validateDesign({ ...files, [CONTRACT_PATH]: files[CONTRACT_PATH].replace(quick, "a Quick packet") }).some((message) => /integration_authorization_required/u.test(message)));
+});
+
+test("one name means one thing: the record's chain field is the previous record of the same scope, not the project's head (R9-10)", () => {
+  // Round 9 of #39, R9-10 (feasibility low): since ADR-103 the field means the
+  // previous record of the same `scope_id`, yet its name said "head", the
+  // project's `integration_authorization_head` — the misreading R8-16 raised.
+  // Nothing outside this repository reads the name: no compat patch mentions
+  // it or the schemas that carry it, and the prepared autosk tree does not
+  // either (ADR-112), so it is renamed to what it means, everywhere.
+  const oldName = "previous_authorization_head_hash";
+  const newName = "previous_scope_authorization_hash";
+  const patches = readdirSync(path.join(ROOT, "compat/autosk"), { recursive: true }).filter((name) => /\.(patch|json)$/u.test(name));
+  assert.ok(patches.length > 0, "the compat series is measured");
+  for (const name of patches) {
+    const text = read(path.join("compat/autosk", name));
+    assert.ok(!text.includes(oldName) && !text.includes(newName), `compat/autosk/${name} does not read the field`);
+    assert.ok(!/integration-authorization\.schema|human-decision-request\.schema/u.test(text), `compat/autosk/${name} pins neither schema`);
+  }
+  // The old name occurs in no live text, script, schema, example or test. It
+  // stays in the history that recorded it: the decisions log, the handoff log
+  // and the panel's round records.
+  const history = new Set(["04-decisions.md", "docs/cloud-agent-priming.md"]);
+  const skipped = (relative) => relative.startsWith("node_modules") || relative.startsWith(".git/") || relative.startsWith("resources/design-candidate/panel/") || history.has(relative);
+  const stale = [];
+  const listed = readdirSync(ROOT, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      return ["src", "scripts", "resources", "docs", "test", "compat", ".github"].includes(entry.name)
+        ? readdirSync(path.join(ROOT, entry.name), { recursive: true }).map((name) => path.join(entry.name, String(name)))
+        : [];
+    }
+    return [entry.name];
+  });
+  for (const relative of listed) {
+    const name = relative.split(path.sep).join("/");
+    if (skipped(name) || !/\.(mjs|json|md|yml|yaml)$/u.test(name) || name === "test/validate-integration-authorization.test.mjs") continue;
+    let text;
+    try { text = read(name); } catch { continue; }
+    if (text.includes(oldName)) stale.push(name);
+  }
+  assert.deepEqual(stale, []);
+  // The schema, its two examples and the human-decision request schema carry the new one and say what it is.
+  const schema = JSON.parse(read(SCHEMA_PATH));
+  assert.ok(schema.required.includes(newName) && newName in schema.properties && !(oldName in schema.properties));
+  assert.match(schema.properties[newName].description, /previous record of the same scope_id, not the project's integration_authorization_head/u);
+  assert.equal(newName in JSON.parse(files[EXAMPLE_PATH]), true);
+  assert.equal(newName in JSON.parse(files[REFUSED_PATH]), true);
+  const request = JSON.parse(read("resources/human-decision/human-decision-request.schema.json"));
+  assert.match(JSON.stringify(request), new RegExp(`"${newName}"`, "u"));
+  assert.match(JSON.stringify(request), /previous record of the same scope_id, not the project's integration_authorization_head/u);
+  assert.doesNotMatch(JSON.stringify(request), new RegExp(oldName, "u"));
+  // IA §3 says it once, and the record's other consumers say the same.
+  assert.match(section(read(CONTRACT_PATH), "## 3.", "## 4."), /`previous_scope_authorization_hash` — the chain of the record's scope: the previous record of the same `scope_id`[^\n]*not the project's `integration_authorization_head`/u);
+  assert.match(obligation(9), /previous_scope_authorization_hash names the previous record of the same scope_id/u);
+  // The decision record says it.
+  const adr = section(read("04-decisions.md"), "## ADR-112:", "\n## ");
+  assert.match(adr, /R9-10/u);
+  assert.match(adr, /previous_scope_authorization_hash/u);
+  assert.match(adr103(), /Изменено ADR-112[^\n]*previous_scope_authorization_hash/u);
 });
 
 test("v1 has one acceptance authority, the person's signature at the stop: a policy held to it adds no autonomy, and an unattended acceptance needs another binding, #28's to design after v1 (R8-3; review M1, L1, L5)", async () => {
@@ -671,7 +826,7 @@ test("the authorization chain is per scope under one head kept for integrity, so
   // the CAS made this one's chain stale and asked the person again — a
   // coupling between Epics the one CAS (ADR-099) does not need.
   const contract = read(CONTRACT_PATH);
-  assert.match(section(contract, "## 3.", "## 4."), /`previous_authorization_head_hash` — the chain of the record's scope: the previous record of the same `scope_id`/u);
+  assert.match(section(contract, "## 3.", "## 4."), /`previous_scope_authorization_hash` — the chain of the record's scope: the previous record of the same `scope_id`/u);
   const five = section(contract, "## 5.", "## 6.");
   assert.match(five, /\*\*One head for integrity, one chain per scope\*\* \(ADR-103\)/u);
   assert.match(five, /does not stale this acceptance/u);
@@ -685,11 +840,11 @@ test("the authorization chain is per scope under one head kept for integrity, so
   const plan = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("`integration_authorization` — daemon-owned signed record")) ?? "";
   assert.match(plan, /chained within its scope/u);
   assert.match(plan, /one protected `integration_authorization_head` per project/u);
-  assert.match(obligation(9), /previous_authorization_head_hash names the previous record of the same scope_id/u);
+  assert.match(obligation(9), /previous_scope_authorization_hash names the previous record of the same scope_id/u);
   assert.match(obligation(9), /one integration_authorization_head per project kept for integrity/u);
   assert.match(described().cond_444, /head своего scope/u);
   // The model is autoskd's store-time check (review of 99fd30b, L4): when a
-  // record is stored, its `previous_authorization_head_hash` is the head its
+  // record is stored, its `previous_scope_authorization_hash` is the head its
   // own scope had just before, and only that scope's head is compared. The
   // CAS-time check — the scope's head is the named record's own digest — is
   // `integrateApproved`'s against the store the host cannot read (IA §5).
@@ -697,14 +852,14 @@ test("the authorization chain is per scope under one head kept for integrity, so
   const theirs = "epic:epic-0002";
   const mismatched = (record, headsBeforeStore) => reasons(record, { headsBeforeStore }).includes("integration_authorization_head_mismatch");
   // Another Epic's record, stored before this one is, moved its own scope's head, not this one's.
-  assert.equal(mismatched(ours, { [ours.scope_id]: ours.previous_authorization_head_hash, [theirs]: "a".repeat(64) }), false);
+  assert.equal(mismatched(ours, { [ours.scope_id]: ours.previous_scope_authorization_hash, [theirs]: "a".repeat(64) }), false);
   // A scope that has no record yet has no head: its first record chains from null.
   assert.equal(mismatched(ours, { [theirs]: "a".repeat(64), "quick:ask-0a1b2c": "b".repeat(64) }), false);
   // A record stored in this scope after this one was composed is another history.
-  assert.equal(mismatched(ours, { [ours.scope_id]: "c".repeat(64), [theirs]: ours.previous_authorization_head_hash }), true);
+  assert.equal(mismatched(ours, { [ours.scope_id]: "c".repeat(64), [theirs]: ours.previous_scope_authorization_hash }), true);
   // A record naming a predecessor its scope does not have.
-  assert.equal(mismatched({ ...ours, previous_authorization_head_hash: "d".repeat(64) }, {}), true);
-  assert.equal(mismatched({ ...ours, previous_authorization_head_hash: "d".repeat(64) }, { [theirs]: "d".repeat(64) }), true);
+  assert.equal(mismatched({ ...ours, previous_scope_authorization_hash: "d".repeat(64) }, {}), true);
+  assert.equal(mismatched({ ...ours, previous_scope_authorization_hash: "d".repeat(64) }, { [theirs]: "d".repeat(64) }), true);
   // The model says which check it is, and the contract names the other one.
   assert.match(read("scripts/validate-integration-authorization.mjs"), /autoskd's store-time check/u);
   assert.match(five, /At the CAS, `integrateApproved` requires its scope's head to be the named record's own digest/u);

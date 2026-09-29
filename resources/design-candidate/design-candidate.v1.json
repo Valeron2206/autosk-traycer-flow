@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "1d6688c79c24b1c8f38dd3a129b6f4b1c25f9eb0d5c724103bfe18cc20f64b07"
+      "sha256": "a4f2b4cb1c3dd3514647f812376834daf014f59283e4a43d2c15bef552b038a1"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "1bb28b83e01cd9f6826705270fb97da70b365ef25b140f4903cca17f51f3c96e"
+      "sha256": "0a36c78a988e64d88ea43c1eae277512a020513038168b7021d6759b42c4c9a5"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "86963bbad240897c080791bf8b8277e9bf42afbb0f2c6d61d28e0fbc0c05d351"
+      "sha256": "b0ed063024c338c1c573501a8380a195ee8837f80c2719e3b86ae863bd10d111"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "29ca72e1a7953af980844dcf70664ad17eb6949f8dc4745c77b74b00ba4495c4"
+      "sha256": "36449ffa5cac12a3087944269ec27acbd5b7f8a48cb38749c87ff4cbafdacb87"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -132,7 +132,7 @@
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "bb06b917447809dd1e6dda982cdbaf0fcc047c9e83e3ae88bc249b9d065626ac"
+      "sha256": "577173a429dc7b767243de3220ef58d67847a86e216e3d99a524c90cb177e177"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "e5bb65566627c0367b72bd65f9ca81dec3d46784510a790b3d7d6240dcf38726"
+      "sha256": "a25b2c2978842c37fcc8091e7f5d33125dae945a83c6dfc02b705f2e79eb229b"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -368,7 +368,7 @@
     },
     {
       "path": "resources/epic-staging/epic-staging.example.json",
-      "sha256": "8497d8bad143dd96b79d96b2951050b2812dfd2e188257219580efb889ad1425"
+      "sha256": "5d486c5876cdf41d56dc4a3c3aec5f305f4e26a9fcf420b13572feae12967739"
     },
     {
       "path": "resources/epic-staging/epic-staging.schema.json",
@@ -464,7 +464,7 @@
     },
     {
       "path": "resources/human-decision/human-decision-request.schema.json",
-      "sha256": "bf46de31171af9f51cdfe1941eb1e308d900a136e400a3a642f5d33e2818f358"
+      "sha256": "e1eff6893d9af3a84e3dfb91b2f3fc0e51ee32177297c76cf040ab8053547385"
     },
     {
       "path": "resources/human-decision/project-status.example.json",
@@ -476,15 +476,15 @@
     },
     {
       "path": "resources/integration-authorization/integration-authorization.example.json",
-      "sha256": "33dd4f06d391b126af7c6d7c9bd79c300113e85a2d978e369f1d018148fb4276"
+      "sha256": "c5afe3c37569e188e07c9b27fc3ecb33d6c24f332f67bbdfd10b87fcf265cf65"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.refused.example.json",
-      "sha256": "933f7dfb96b48bd1a6671a92e4b2fc7286e7768dc18bbf9446d8f9c56d0fafb3"
+      "sha256": "9a4a9af110b90563770968d651604c1babc371abd92e6b4f2f079e4d491fff43"
     },
     {
       "path": "resources/integration-authorization/integration-authorization.schema.json",
-      "sha256": "252137ca652c41eb32fe033a8730eec1c345fd90447fb6647ef97f569c8d437a"
+      "sha256": "1a0f6bc222f87cd238af198f672c65236220e76f558931aff45b01b59332374d"
     },
     {
       "path": "resources/iteration-result/iteration-result.escalated.example.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "c7b565a5919b7eb91f19d84c969981fc2bd9cff272343e63e19b51afbf0f8267"
+      "sha256": "6dfd3b750e2e69982cb8a02084d5340afbed3ab3e5d98b0b1728462c986e7d92"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "ebdab99cda3a0a605bab89a42a764fb03994a84f6d02a47b5e1b25a7f22c2bb9",
+  "candidate_digest": "31e2df5d0a18bec13ee70656f70be3542b0fd1f909c352535538eb63d0162c46",
   "dispositions": [
     {
       "issue": 3,

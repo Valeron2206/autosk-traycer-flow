@@ -23,7 +23,7 @@
   "relevant_authority_projection_hash": "4444444444444444444444444444444444444444444444444444444444444444",
   "dependency_head_hash": "5555555555555555555555555555555555555555555555555555555555555555",
   "intent_head_hash": "6666666666666666666666666666666666666666666666666666666666666666",
-  "previous_authorization_head_hash": null,
+  "previous_scope_authorization_hash": null,
   "expires_at": "2026-09-10T12:00:00Z",
   "terminal_disposition": "active",
   "issued_by": "user_decision_record",
