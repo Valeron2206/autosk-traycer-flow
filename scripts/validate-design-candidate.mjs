@@ -123,6 +123,8 @@ export const PANEL_BY_ROUND = Object.freeze({
   7: CLOUD_PANEL,
   // Round 8 sat the same cloud roster by the same decision, in one attempt.
   8: CLOUD_PANEL,
+  // Round 9 sat the same cloud roster by the same decision, in one attempt.
+  9: CLOUD_PANEL,
 });
 
 /**

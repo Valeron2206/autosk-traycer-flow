@@ -1762,6 +1762,7 @@ test("the panel records say which is a member and why the others are not", async
     ["round-6.json", false, 0],
     ["round-7.json", false, 0],
     ["round-8.json", false, 0],
+    ["round-9.json", false, 0],
   ]);
   const { text } = await build();
   assert.match(text, /`resources\/design-candidate\/panel\/round-4\.json` is a member because it carries the operative membership rule/u);
@@ -1769,6 +1770,7 @@ test("the panel records say which is a member and why the others are not", async
   assert.ok(text.includes("`resources/design-candidate/panel/round-6.json`"), text);
   assert.ok(text.includes("`resources/design-candidate/panel/round-7.json`"), text);
   assert.ok(text.includes("`resources/design-candidate/panel/round-8.json`"), text);
+  assert.ok(text.includes("`resources/design-candidate/panel/round-9.json`"), text);
   assert.match(text, /records of what a round found, not design the verdict binds/u);
 });
 
