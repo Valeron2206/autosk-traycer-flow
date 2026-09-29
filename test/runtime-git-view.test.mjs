@@ -250,6 +250,43 @@ test("a Git command that fails is reported as the handout's, not as a refusal of
   await assert.rejects(handOutGitView(p.git, { dir: path.join(p.root, "missing", "deeper"), commit: p.c3, line: [p.c3] }), code("git_view_git_failed"));
 });
 
+test("a failing Git command's report names the command and no more than 200 characters of what Git said (R9-1)", async () => {
+  const { handOutGitView } = await viewModule();
+  const good = "a".repeat(40);
+  const noisy = `  ${"x".repeat(300)}  `;
+  // Every ancestry question answers yes, so the failure is the pack's; then the ancestry question itself fails.
+  const failing = (which) => async (args) => (args.includes(which) ? { code: 128, stdout: "", stderr: noisy } : { code: 0, stdout: "", stderr: "" });
+  const packed = await handOutGitView(failing("pack-objects"), { dir: "/tmp/x", commit: good, line: [good] }).catch((error) => error);
+  assert.equal(packed.code, "git_view_git_failed");
+  assert.equal(packed.message, "git pack-objects exited 128");
+  assert.deepEqual(packed.details.args, ["-c", "pack.writeReverseIndex=false", "pack-objects", "--revs", "--quiet", "/tmp/x/view"]);
+  assert.equal(packed.details.stderr, "x".repeat(200));
+  const asked = await handOutGitView(failing("merge-base"), { dir: "/tmp/x", commit: good, line: [good] }).catch((error) => error);
+  assert.equal(asked.code, "git_view_git_failed");
+  assert.equal(asked.message, "git merge-base exited 128");
+  assert.equal(asked.details.stderr, "x".repeat(200));
+});
+
+test("a pack command that succeeds and names no pack is refused, with the start of what it said (R9-1)", async () => {
+  const { handOutGitView } = await viewModule();
+  const good = "a".repeat(40);
+  const git = async (args) => ({ code: 0, stdout: args.includes("pack-objects") ? `not a pack name ${"y".repeat(200)}` : "", stderr: "" });
+  const error = await handOutGitView(git, { dir: "/tmp/x", commit: good, line: [good] }).catch((caught) => caught);
+  assert.equal(error.code, "git_view_git_failed");
+  assert.equal(error.message, "git pack-objects named no pack");
+  assert.equal(error.details.stdout, `not a pack name ${"y".repeat(200)}`.slice(0, 80));
+  // A name of the wrong width is no pack either, and a 64-hex name is one.
+  for (const stdout of ["a".repeat(39), "a".repeat(41), "A".repeat(40), "a".repeat(63), "a".repeat(65)]) {
+    const wrong = await handOutGitView(async (args) => ({ code: 0, stdout: args.includes("pack-objects") ? stdout : "", stderr: "" }), { dir: "/tmp/x", commit: good, line: [good] }).catch((caught) => caught);
+    assert.equal(wrong.code, "git_view_git_failed", stdout);
+  }
+  for (const stdout of ["a".repeat(40), `${"b".repeat(64)}\n`]) {
+    const right = await handOutGitView(async (args) => ({ code: 0, stdout: args.includes("pack-objects") ? stdout : "", stderr: "" }), { dir: "/tmp/x", commit: good, line: [good] });
+    assert.equal(right.pack, `view-${stdout.trim()}.pack`);
+    assert.equal(right.idx, `view-${stdout.trim()}.idx`);
+  }
+});
+
 test("the handout writes no ref into the project, only the pack and its index into the directory it was given (R9-1, requirement 2)", async (t) => {
   const p = await project(t);
   const { handOutGitView } = await viewModule();

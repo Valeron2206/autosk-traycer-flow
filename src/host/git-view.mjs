@@ -32,9 +32,9 @@ export const GIT_VIEW_FORMAT = 'autosk-git-view/v1';
 /** Every command of this module reads the true objects, whatever replace refs the user wrote (§5a). */
 const TRUE_OBJECTS = '--no-replace-objects';
 
-async function ask(git, args, options) {
+async function ask(git, command, args, options) {
   const result = await git([TRUE_OBJECTS, ...args], options);
-  demand(result.code === 0, 'git_view_git_failed', `git ${args[0]} exited ${result.code}`,
+  demand(result.code === 0, 'git_view_git_failed', `git ${command} exited ${result.code}`,
     { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
   return result;
 }
@@ -88,7 +88,7 @@ export async function handOutGitView(git, { dir, commit, line, since }) {
     'The boundary is not on the commit\'s history', { commit, since: boundary });
 
   // `--shallow` cuts the walk at the boundary, whose own commit and tree are kept.
-  const packed = await ask(git, ['-c', 'pack.writeReverseIndex=false', 'pack-objects', '--revs', '--quiet', path.join(dir, 'view')],
+  const packed = await ask(git, 'pack-objects', ['-c', 'pack.writeReverseIndex=false', 'pack-objects', '--revs', '--quiet', path.join(dir, 'view')],
     { input: `--shallow ${boundary}\n${commit}\n` });
   const name = packed.stdout.trim();
   demand(/^[a-f0-9]{40}$|^[a-f0-9]{64}$/u.test(name), 'git_view_git_failed', 'git pack-objects named no pack', { stdout: packed.stdout.slice(0, 80) });
