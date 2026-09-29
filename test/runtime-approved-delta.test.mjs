@@ -440,3 +440,14 @@ test("a delta's base, candidate tree and blobs are OIDs of one object format (re
   assert.deepEqual(validateDelta(delta({ entries: [entry({ status: "A", old_blob: undefined, old_mode: undefined })] })), []);
   assert.deepEqual(validateDelta(delta({ entries: [entry({ status: "D", new_blob: undefined, new_mode: undefined })] })), []);
 });
+
+test("an entry with no mode cannot be assembled, and the error names the path and says so (debt 13a, P2)", () => {
+  const entry = { path: "src/a.ts", status: "A", new_blob: "b".repeat(40) };
+  const body = { operation_id: "op-1", base_commit_oid: "a".repeat(40), base_tree_oid: "c".repeat(40), candidate_tree_oid: "d".repeat(40), pathspec: ["src/**"], entries: [entry] };
+  const errors = validateDelta({ ...body, delta_digest: deltaDigest(body) });
+  assert.deepEqual(errors, [{ reason: "containment_mismatch", detail: "src/a.ts: no new mode" }]);
+  // A deletion has no new side, and so no new mode.
+  const removal = { path: "src/a.ts", status: "D", old_blob: "b".repeat(40), old_mode: "100644" };
+  const gone = { ...body, entries: [removal] };
+  assert.deepEqual(validateDelta({ ...gone, delta_digest: deltaDigest(gone) }), []);
+});

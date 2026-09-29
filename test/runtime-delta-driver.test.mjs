@@ -18,6 +18,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { deltaDigest, integrationProof } from "../src/host/approved-delta.mjs";
+import { FlowError } from "../src/runtime/contracts.mjs";
 import * as deltaModule from "../src/host/delta-driver.mjs";
 import {
   appliedEntries,
@@ -1970,4 +1971,27 @@ test("a submodule entry integrates: the proof reads a gitlink as the entry it is
   assert.equal(integrationReceipt(linked, result).phase, "ref_advanced");
   const outcome = deltaModule.applyOutcome(integrationReceipt(linked, result));
   assert.equal(outcome, null);
+});
+
+test("what a dependency's failure says: its message, its errno as the cause and the dependency named, and a failure that has neither (review M3)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, delta: d, ref, base, indexFile, message: "T-1" };
+  const caught = (promise) => promise.then(() => null, (thrown) => thrown);
+  const named = await caught(applyDeltaWith(git, { ...options, realpath: async () => { throw Object.assign(new Error("gone"), { code: "ENOENT" }); } }));
+  assert.equal(named.code, "environment_failure");
+  assert.equal(named.message, "The apply's realpath failed: gone");
+  assert.deepEqual({ ...named.details }, { cause: "ENOENT", errno: "ENOENT", dependency: "realpath" });
+  const bare = await caught(applyDeltaWith(git, { ...options, realpath: async () => { throw {}; } }));
+  assert.equal(bare.message, "The apply's realpath failed");
+  assert.deepEqual({ ...bare.details }, { cause: "dependency_failed", errno: null, dependency: "realpath" });
+  const journal = await caught(applyDeltaWith(git, { ...options, realpath, recipes: { load: async () => { throw Object.assign(new Error("io"), { code: "EIO" }); }, save: async () => {} } }));
+  assert.equal(journal.message, "The apply's journal failed: io");
+  assert.deepEqual({ ...journal.details }, { cause: "journal_io", errno: "EIO", dependency: "journal" });
+  const runner = await caught(applyDeltaWith(async () => { throw Object.assign(new Error("spawn git EAGAIN"), { code: "EAGAIN" }); }, { ...options, realpath }));
+  assert.equal(runner.message, "The apply's git runner failed: spawn git EAGAIN");
+  assert.equal(runner.details.dependency, "git runner");
+  // A refusal of ours that a dependency raises passes through as it is.
+  const ours = await caught(applyDeltaWith(git, { ...options, realpath: async () => { throw new FlowError("receipt_missing", "ours", { cause: "journal" }); } }));
+  assert.equal(ours.code, "receipt_missing");
+  assert.equal(ours.message, "ours");
 });

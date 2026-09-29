@@ -14,6 +14,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { FlowError } from "../src/runtime/contracts.mjs";
 import * as custodyModule from "../src/host/ref-custody.mjs";
 import {
   HOST_REF_CUSTODY_ACTIONS,
@@ -516,4 +517,17 @@ test("a stop for the helper says why: no helper, a capability refusal, an answer
   assert.equal(thrown?.code, "planning_ref_capability_missing");
   assert.equal(thrown.details.cause, "ECONNRESET");
   assert.equal((await cause({ advance_staging: async () => { throw new Error("plain"); } })).details.cause, "client_failed");
+});
+
+test("a client that throws is named by its message and the action, with a cause only when it has an errno (debt 13a review M3)", async () => {
+  const failing = (error) => ({ advance_staging: async () => { throw error; } });
+  const named = await askCustody(failing(Object.assign(new Error("reset by peer"), { code: "ECONNRESET" })), "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.equal(named.message, "The ref-custody client failed: reset by peer");
+  assert.deepEqual(named.details, { action: "advance_staging", cause: "ECONNRESET" });
+  const bare = await askCustody(failing({}), "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.equal(bare.message, "The ref-custody client failed");
+  assert.deepEqual(bare.details, { action: "advance_staging", cause: "client_failed" });
+  // A refusal of ours that the client raises is not wrapped.
+  const ours = await askCustody(failing(new FlowError("custody_request_invalid", "ours", {})), "advance_staging", advance).then(() => null, (thrown) => thrown);
+  assert.equal(ours.code, "custody_request_invalid");
 });

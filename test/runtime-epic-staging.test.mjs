@@ -673,3 +673,13 @@ test("the Ticket set is a set everywhere: a repeated receipt makes no fresh acce
     { reason: "receipt_missing", detail: "T-101 has more than one integration receipt" },
   ]);
 });
+
+test("a swap request from another base says which base the record names and which was attempted, and an empty base is no base (debt 13a review M2)", () => {
+  const error = (() => { try { stagingModule.assertSwapRequest(state(), { expectedOld: oid("9") }); } catch (thrown) { return thrown; } return null; })();
+  assert.equal(error?.code, "custody_request_invalid");
+  assert.equal(error.message, "The swap would be attempted against another base");
+  assert.deepEqual(error.details, { expected: oid("a"), attempted: oid("9") });
+  // Equal to the record's base is not enough when the record names none: an empty string is not an OID.
+  assert.throws(() => stagingModule.assertSwapRequest(state({ recorded_target_base: "" }), { expectedOld: "" }), (thrown) => thrown.code === "custody_request_invalid");
+  assert.throws(() => stagingModule.assertSwapRequest(state(), { expectedOld: 7 }), (thrown) => thrown.code === "custody_request_invalid");
+});

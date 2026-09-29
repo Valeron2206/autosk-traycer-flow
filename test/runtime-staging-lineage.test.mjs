@@ -614,3 +614,14 @@ test("a receipt log that cannot be read is an environment failure, and a transie
   await appendReceipt(fs, { path: missing, receipt: receipt(oid("a"), oid("b")) });
   assert.equal((await loadReceipts(fs, { path: missing })).receipts.length, 1);
 });
+
+test("a receipt log that cannot be read says so by message and errno, and a failure with no errno has none (P3)", async (t) => {
+  const file = await logFile(t);
+  const failing = (error) => ({ readFile: async () => { throw error; }, writeFile: async () => {} });
+  const named = await problem(loadReceipts(failing(Object.assign(new Error("disk said no"), { code: "EIO" })), { path: file }));
+  assert.equal(named.message, "The receipt log could not be read: disk said no");
+  assert.deepEqual(named.details, { cause: "journal_io", errno: "EIO" });
+  const bare = await problem(loadReceipts(failing({}), { path: file }));
+  assert.equal(bare.message, "The receipt log could not be read");
+  assert.deepEqual(bare.details, { cause: "journal_io", errno: null });
+});
