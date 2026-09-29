@@ -238,7 +238,8 @@ async function listTree(git, tree, options) {
   const listing = await ask(git, ['ls-tree', '-r', '--full-tree', tree], options);
   const held = new Map();
   for (const line of listing.stdout.split('\n')) {
-    const match = /^(\d{6}) blob ([0-9a-f]+)\t(.*)$/u.exec(line);
+    // A gitlink is a `commit` entry of mode 160000 (a submodule), as much an entry of the tree as a blob (P1).
+    const match = /^(\d{6}) (?:blob|commit) ([0-9a-f]+)\t(.*)$/u.exec(line);
     if (match && oidFormat(match[2]) !== null) held.set(match[3], { new_mode: match[1], new_blob: match[2] });
   }
   return held;
@@ -397,8 +398,38 @@ function refuseRecipe(cause, details) {
   demand(false, 'receipt_missing', 'The recorded recipe cannot vouch for this apply: the receipts cannot be restored from it', { cause, ...details });
 }
 
+/** The failure of something the apply was handed — a git runner, a `realpath`, a journal — as the environment's, with the errno as its cause. */
+function dependencyFailure(what, error) {
+  const errno = typeof error?.code === 'string' ? error.code : null;
+  // A journal that fails raw is the journal's own I/O, as `recipeJournal` names it.
+  return new FlowError('environment_failure', `The apply's ${what} failed${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
+    { cause: what === 'journal' ? 'journal_io' : (errno ?? 'dependency_failed'), errno, dependency: what });
+}
+
+/** Runs an injected function and makes anything but a refusal of ours the environment's: a raw error would fail the step and park it with no reason. */
+function guarded(what, fn) {
+  return async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      if (error instanceof FlowError) throw error;
+      throw dependencyFailure(what, error);
+    }
+  };
+}
+
+/** The blobs a delta names are in the repository, or the delta cannot be assembled as approved: that is the delta's, not the machine's (P2). */
+async function assertApprovedObjects(git, delta, options = {}) {
+  // A gitlink names a commit of another repository, which need not be here.
+  const wanted = [...new Set(delta.entries.filter((entry) => entry.status !== 'D' && entry.new_mode !== '160000').map((entry) => entry.new_blob))];
+  if (wanted.length === 0) return;
+  const answer = await ask(git, ['cat-file', '--batch-check'], { ...options, stdin: `${wanted.join('\n')}\n` });
+  const missing = answer.stdout.split('\n').filter((line) => line.endsWith(' missing')).map((line) => line.split(' ')[0]);
+  demand(missing.length === 0, 'containment_mismatch', 'An approved blob is not in the repository', { detail: `${missing[0]}: no such object` });
+}
+
 /** The apply itself: refusals leave it under the contract's names or as stops; `applyDelta` makes every one a stop. */
-async function applyInside(git, {
+async function applyInside(rawGit, {
   custody = NO_REF_CUSTODY,
   recipes,
   author,
@@ -408,17 +439,20 @@ async function applyInside(git, {
   indexFile,
   env = {},
   message,
-  realpath,
+  realpath: rawRealpath,
   worktree,
   otherTicketPaths = [],
   options = {},
 }) {
+  const git = guarded('git runner', rawGit);
+  const realpath = guarded('realpath', rawRealpath);
   // The apply asks for the private staging ref and nothing else: a target ref
   // is the daemon's integrateApproved's to move (ADR-088), and the helper
   // writes every ref under refs/autosk/** (ADR-095).
   assertStagingRef(ref);
   assertCleanEnvironment(env);
-  const journal = assertRecipes(recipes);
+  const checked = assertRecipes(recipes);
+  const journal = { load: guarded('journal', checked.load.bind(checked)), save: guarded('journal', checked.save.bind(checked)) };
   const hostIdentity = assertAuthor(author);
   // Revalidated immediately before the apply, not when it was approved: the
   // staging base moves as other Tickets integrate, and `revalidate` validates
@@ -466,6 +500,7 @@ async function applyInside(git, {
     await refuseMovement(git, { ref, held, expected, base: base.commit_oid, cause: 'reflog', movement: 'behind' });
   }
 
+  await assertApprovedObjects(git, delta, options);
   const tree = await composeTree(git, { delta, base: base.commit_oid, indexFile, realpath });
   let recipe = recorded;
   if (recipe === null) {
@@ -618,8 +653,10 @@ export function applyOutcome(receipt) {
  * fact `apply_outcome` that the predicates of the `apply_staging` edges read — and the step ends normally, so the flow
  * parks with that reason. A refusal thrown out of the step instead would fail it, and the daemon would park with no
  * reason at all, which `admit` lets re-enter the same step: a retry, forbidden for foreign or indeterminate movement
- * (`approved-delta.md` §6). Only a host invariant (`custody_request_invalid`), a fault of the caller's own arguments raised
- * before anything is written or asked, and a defect that is no FlowError, are thrown past it.
+ * (`approved-delta.md` §6). What is thrown past it is a host invariant (`custody_request_invalid`, a fault of the caller's own
+ * arguments — it can follow the recipe's save and the commit's making, so it is not "before anything is written") and an
+ * error no dependency of the apply raised, a defect of the host. Whatever a dependency it was handed does — the git runner,
+ * `realpath`, the recipe journal, the custody client — is a stop: the environment's or the helper's.
  */
 export async function applyWithOutcome(git, options) {
   try {
@@ -631,7 +668,7 @@ export async function applyWithOutcome(git, options) {
       return Object.freeze({
         result: null,
         receipt: null,
-        stop: Object.freeze({ reason: error.code, cause: error.details?.cause ?? null, causes: immutable(error.details?.cause ? [error.details.cause] : []) }),
+        stop: Object.freeze({ reason: error.code, cause: error.details?.cause ?? null, causes: immutable(error.details?.cause ? [error.details.cause] : []), details: immutable({ ...error.details }) }),
       });
     }
     throw error;

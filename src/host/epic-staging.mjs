@@ -372,17 +372,38 @@ export function resumePlan(state) {
 }
 
 /**
+ * The request of the swap, checked before git is asked: the compare-and-swap is made from the base the staging record names and
+ * from no other. Anything else is a request the host cannot form (`custody_request_invalid`, a host invariant, ADR-109) and it
+ * is refused before the target ref is touched. `applySwap` reads a swap that already ran; this is the one that has not.
+ */
+export function assertSwapRequest(state, { expectedOld }) {
+  demand(typeof expectedOld === 'string' && expectedOld.length > 0 && expectedOld === state.recorded_target_base, 'custody_request_invalid',
+    'The swap would be attempted against another base', { expected: state.recorded_target_base, attempted: expectedOld });
+}
+
+/**
  * The swap itself.
  *
  * The compare-and-swap can fail even after admission: the target can move in
  * the window between reading it and writing it, which is precisely why the
  * write is a compare-and-swap and not a write. A conflict here is not a
  * refusal to try — it is the try, reporting that the world moved.
+ *
+ * A swap that ran from a base the record does not name — `swapped: true`, so the user's branch moved from somewhere nobody
+ * recorded — is no request the host formed wrongly (`assertSwapRequest` refuses that before the swap): it is a result, and
+ * the moved target has to be investigated. It is the conflict the graph's `cas_conflict` row carries, with the cause
+ * `unrecorded_base`, and never a retry (debt 13a, review M2).
  */
 export function applySwap(state, casResult) {
-  demand(casResult.expected_old_oid === state.recorded_target_base, 'custody_request_invalid',
-    'The swap was attempted against another base',
-    { expected: state.recorded_target_base, attempted: casResult.expected_old_oid });
+  if (casResult.expected_old_oid !== state.recorded_target_base) {
+    return Object.freeze({
+      outcome: 'conflict',
+      reason: 'cas_conflict',
+      cause: 'unrecorded_base',
+      swapped: casResult.swapped === true,
+      detail: `the swap was made from ${casResult.expected_old_oid}, and the record names ${state.recorded_target_base}`,
+    });
+  }
   if (casResult.swapped) {
     return Object.freeze({ outcome: 'swapped', new_oid: casResult.new_oid });
   }

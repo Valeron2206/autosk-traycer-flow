@@ -51,7 +51,7 @@ export const PARK_REASONS = Object.freeze([
 ]);
 
 /** The stops of the graph at apply_staging an apply reports; section 9 maps the names above onto them. */
-export const APPLY_STOPS = Object.freeze(["delta_stale", "receipt_missing", "environment_failure", "planning_ref_capability_missing"]);
+export const APPLY_STOP_NAMES = Object.freeze(["delta_stale", "receipt_missing", "environment_failure", "planning_ref_capability_missing"]);
 
 /** Git environment variables that silently redirect every command that follows. */
 export const INHERITED_GIT_ENV = Object.freeze([
@@ -210,7 +210,7 @@ export function validateApprovedDeltaDesign(files) {
     // A cell that names a stop opens with it, in backticks; a cell that opens with a dash names none.
     for (const cell of line.split("|").slice(2, 4)) {
       const stop = /^\s*`([a-z_]+)`/u.exec(cell)?.[1];
-      if (stop !== undefined && !APPLY_STOPS.includes(stop)) errors.push(`${CONTRACT_PATH}: section 9's table names ${stop}, which is no stop of apply_staging`);
+      if (stop !== undefined && !APPLY_STOP_NAMES.includes(stop)) errors.push(`${CONTRACT_PATH}: section 9's table names ${stop}, which is no stop of apply_staging`);
     }
   }
   // The three environment variables the issue names by hand must be named in the

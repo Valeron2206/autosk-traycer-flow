@@ -115,6 +115,11 @@ export function validateDelta(delta) {
     if (entry.status !== 'A' && entry.status !== 'C' && !entry.old_blob) {
       errors.push({ reason: 'containment_mismatch', detail: `${entry.path}: no old blob` });
     }
+    if (entry.status !== 'D' && entry.new_mode === undefined) {
+      // An entry with no mode cannot be assembled: `update-index --cacheinfo` has nothing to write, and the apply would fail as the
+      // machine's when the delta is what is malformed (debt 13a, P2).
+      errors.push({ reason: 'containment_mismatch', detail: `${entry.path}: no new mode` });
+    }
     for (const [field, mode] of [['old_mode', entry.old_mode], ['new_mode', entry.new_mode]]) {
       if (mode !== undefined && !MODES.includes(mode)) {
         errors.push({ reason: 'containment_mismatch', detail: `${entry.path}: unknown ${field} ${mode}` });

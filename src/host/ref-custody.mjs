@@ -36,7 +36,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
+import { FlowError, demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 /** The helper's closed action roster, in the order of its wire schema. */
 export const REF_CUSTODY_ACTIONS = immutable([
@@ -195,33 +195,46 @@ function answersUpdate(observation, update, status, format) {
  * `committed` is the transaction done; `not_applied` with `expected_old_mismatch`
  * is an answer the caller reads, with what each ref holds. Anything else — no
  * helper for the action, a refusal for a capability reason (`packed_refs_drift`,
- * `authorization_invalid`), or an answer that does not answer the request — is
+ * `authorization_invalid`), an answer that does not answer the request, or a client call that throws — is
  * `planning_ref_capability_missing`, the code the helper's contract maps its
- * capability failures to, whatever the action.
+ * capability failures to, whatever the action, with what the helper said as `details.cause`.
  */
 export async function askCustody(custody, action, refUpdates, identity) {
   const request = formRequest(action, refUpdates, identity);
   const ask = isRecord(custody) && Object.hasOwn(custody, action) ? custody[action] : null;
+  // Every way the helper cannot be relied on is the one code, with what it said as the cause (debt 13a, review M1, M3): `no_helper`,
+  // the reason the helper gave (`packed_refs_drift`, `authorization_invalid`), `unanswered` for an answer that answers nothing,
+  // or the errno of a client call that threw. What a client that fails after the helper committed did is not known here, so the
+  // stop leaves the apply to its recipe, which recognises a commit that was made.
   demand(typeof ask === 'function', 'planning_ref_capability_missing',
-    'No ref-custody helper answers this action, and the host never writes the ref itself', { action });
-  const answer = await ask(request);
+    'No ref-custody helper answers this action, and the host never writes the ref itself', { action, cause: 'no_helper' });
+  let answer;
+  try {
+    answer = await ask(request);
+  } catch (error) {
+    if (error instanceof FlowError) throw error;
+    throw new FlowError('planning_ref_capability_missing', `The ref-custody client failed${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
+      { action, cause: typeof error?.code === 'string' ? error.code : 'client_failed' });
+  }
   const status = isRecord(answer) ? answer.status : undefined;
-  demand(isRecord(answer) && answer.action === action && (status === 'committed' || status === 'not_applied'),
-    'planning_ref_capability_missing', 'The helper did not answer this request', { action });
-  demand(status === 'committed' ? answer.not_applied_reason === null : NOT_APPLIED.includes(answer.not_applied_reason),
-    'planning_ref_capability_missing', 'The helper answered with a reason its protocol does not give',
-    { action, reason: answer.not_applied_reason });
+  const unanswered = (message, extra = {}) => new FlowError('planning_ref_capability_missing', message, { action, cause: 'unanswered', ...extra });
+  if (!(isRecord(answer) && answer.action === action && (status === 'committed' || status === 'not_applied'))) throw unanswered('The helper did not answer this request');
+  if (!(status === 'committed' ? answer.not_applied_reason === null : NOT_APPLIED.includes(answer.not_applied_reason))) {
+    throw unanswered('The helper answered with a reason its protocol does not give', { reason: answer.not_applied_reason });
+  }
   const observations = answer.ref_observations;
   const format = formatOf(request);
-  demand(Array.isArray(observations) && observations.length === request.ref_updates.length
-    && request.ref_updates.every((update, index) => answersUpdate(observations[index], update, status, format)),
-  'planning_ref_capability_missing', 'The helper observed something other than the refs it was asked about', { action });
+  if (!(Array.isArray(observations) && observations.length === request.ref_updates.length
+    && request.ref_updates.every((update, index) => answersUpdate(observations[index], update, status, format)))) {
+    throw unanswered('The helper observed something other than the refs it was asked about');
+  }
   demand(status === 'committed' || answer.not_applied_reason === 'expected_old_mismatch', 'planning_ref_capability_missing',
-    'The helper refused for a capability reason', { action, reason: answer.not_applied_reason });
+    'The helper refused for a capability reason', { action, reason: answer.not_applied_reason, cause: answer.not_applied_reason, status });
   // A mismatch the helper saw is a ref that did not hold its expected value.
-  demand(status === 'committed'
-    || observations.some((observation, index) => observation.observed_old_oid !== request.ref_updates[index].expected_old_oid),
-  'planning_ref_capability_missing', 'The helper reported a mismatch on refs that held their expected values', { action });
+  if (!(status === 'committed'
+    || observations.some((observation, index) => observation.observed_old_oid !== request.ref_updates[index].expected_old_oid))) {
+    throw unanswered('The helper reported a mismatch on refs that held their expected values');
+  }
   return immutable({
     status,
     not_applied_reason: answer.not_applied_reason,

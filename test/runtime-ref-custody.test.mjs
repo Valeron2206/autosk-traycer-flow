@@ -476,9 +476,9 @@ test("cas_conflict is raised only where git refused a compare-and-swap: a reques
   const literal = /'cas_conflict'/gu;
   const found = readdirSync(host).filter((file) => file.endsWith(".mjs"))
     .map((file) => [file, (readFileSync(path.join(host, file), "utf8").match(literal) ?? []).length]).filter(([, count]) => count > 0);
-  // epic-staging.mjs: the vocabulary entry and the swap's own outcome, git's refusal of the one target CAS;
+  // epic-staging.mjs: the vocabulary entry and both conflict outcomes of the swap (git's refusal, and a swap from an unrecorded base);
   // staging-driver.mjs: the helper's expected-absent create finding the ref at another commit.
-  assert.deepEqual(found, [["epic-staging.mjs", 2], ["staging-driver.mjs", 1]]);
+  assert.deepEqual(found, [["epic-staging.mjs", 3], ["staging-driver.mjs", 1]]);
   for (const file of ["ref-custody.mjs", "delta-driver.mjs", "planning-driver.mjs"]) {
     assert.doesNotMatch(readFileSync(path.join(host, file), "utf8"), literal, file);
   }
@@ -499,4 +499,21 @@ test("every way the host can fail to form a request is custody_request_invalid, 
   assert.deepEqual(asked, []);
   // A helper that is not there is a capability, not a fault of the request.
   await assert.rejects(() => askCustody({}, "advance_staging", advance, identity), code("planning_ref_capability_missing"));
+});
+
+test("a stop for the helper says why: no helper, a capability refusal, an answer that answers nothing, a client that throws (review M1, M3)", async () => {
+  const request = advance;
+  const cause = async (custody) => (await askCustody(custody, "advance_staging", request).then(() => null, (thrown) => thrown));
+  const none = await cause({});
+  assert.equal(none?.code, "planning_ref_capability_missing");
+  assert.equal(none.details.cause, "no_helper");
+  const refused = await cause(client((asked) => ({ ...mismatch(asked), not_applied_reason: "packed_refs_drift" })).custody);
+  assert.equal(refused?.code, "planning_ref_capability_missing");
+  assert.equal(refused.details.cause, "packed_refs_drift");
+  const garbage = await cause(client(() => ({ status: "committed" })).custody);
+  assert.equal(garbage.details.cause, "unanswered");
+  const thrown = await cause({ advance_staging: async () => { throw Object.assign(new Error("reset"), { code: "ECONNRESET" }); } });
+  assert.equal(thrown?.code, "planning_ref_capability_missing");
+  assert.equal(thrown.details.cause, "ECONNRESET");
+  assert.equal((await cause({ advance_staging: async () => { throw new Error("plain"); } })).details.cause, "client_failed");
 });

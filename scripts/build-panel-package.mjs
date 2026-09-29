@@ -313,21 +313,32 @@ export function alignmentReasonGap(graph, raised = ALIGNMENT_PARK_REASONS) {
  */
 export const HOST_REASON_OWNERS = Object.freeze({
   'src/host/alignment-gates.mjs': "#4's phase 3",
+  'src/host/approved-delta.mjs': '#8',
   'src/host/artifact-classifier.mjs': '#14',
   'src/host/cross-family-review.mjs': '#32',
   'src/host/delivery-profile.mjs': '#17',
   'src/host/execution-base.mjs': '#7',
+  'src/host/execution-base-driver.mjs': '#7',
   'src/host/finding-registry.mjs': '#16',
   'src/host/gate-projection.mjs': '#15',
   'src/host/model-result.mjs': '#18',
-  'src/host/quick-flow.mjs': '#14',
+  'src/host/quick-flow.mjs': '#4',
+});
+
+/**
+ * A code a driver raises that no module's export lists, with the identifier through which it raises it: the Ticket step's
+ * temporary index (`composeBase` → `assertIndexOutsideProject`) raises `state_identity_collision`, which no graph row carries (#7's).
+ */
+export const DRIVER_RAISED = Object.freeze({
+  'src/host/execution-base-driver.mjs': Object.freeze({ reasons: Object.freeze(['state_identity_collision']), through: 'assertIndexOutsideProject(' }),
 });
 
 /**
  * The host modules that export a `PARK_REASONS` with names the graph's recovery rows do not carry, read from the modules
- * and the graph (debt 13a, ADR-109). Two modules map their names by contract instead and are not listed for them: the
- * approved delta's twelve names become the stops of `apply_staging` (`APPLY_STOPS`, `approved-delta.md` §9), and the epic
- * staging's `aggregate_failed` is `aggregate_verify_failed` (`epic-staging.md` §8).
+ * and the graph (debt 13a, ADR-109), and the drivers that raise a code no export lists (`DRIVER_RAISED`). A name is not
+ * listed when it has a stop: the approved delta's names that `APPLY_STOPS` maps at `apply_staging` (`approved-delta.md`
+ * §9), and the epic staging's `aggregate_failed`, which is `aggregate_verify_failed` (`epic-staging.md` §8). The one
+ * approved-delta name with no stop, `dirty_worktree`, is raised by nothing on the apply path, and is listed as that.
  */
 export async function hostReasonGaps(graph, { root = ROOT, owners = HOST_REASON_OWNERS } = {}) {
   const rows = new Set((graph?.recovery ?? []).map((row) => row.reason));
@@ -336,15 +347,23 @@ export async function hostReasonGaps(graph, { root = ROOT, owners = HOST_REASON_
   for (const file of (await readdir(path.join(root, 'src/host'))).filter((name) => name.endsWith('.mjs')).sort()) {
     const exported = await import(path.join(root, 'src/host', file));
     if (!Array.isArray(exported.PARK_REASONS)) continue;
+    const hasStop = (reason) => Object.hasOwn(APPLY_STOPS, reason) && (APPLY_STOPS[reason].before !== null || APPLY_STOPS[reason].after !== null);
     const reasons = exported.PARK_REASONS.filter((reason) => !rows.has(reason)
-      && !(file === 'approved-delta.mjs' && Object.hasOwn(APPLY_STOPS, reason))
+      && !(file === 'approved-delta.mjs' && hasStop(reason))
       && !(file === 'epic-staging.mjs' && reason === 'aggregate_failed'));
     if (reasons.length === 0) continue;
     const module = `src/host/${file}`;
     if (!Object.hasOwn(owners, module)) throw new Error(`${module} parks with reasons the graph carries no row for (${reasons.join(', ')}) and names no owner`);
     gaps.push(Object.freeze({ module, reasons: Object.freeze([...reasons].sort()), owner: owners[module] }));
   }
-  return Object.freeze(gaps);
+  for (const [module, { reasons: raised, through }] of Object.entries(DRIVER_RAISED)) {
+    const reasons = raised.filter((reason) => !rows.has(reason));
+    if (reasons.length === 0) continue;
+    if (!(await readFile(path.join(root, module), 'utf8')).includes(through)) throw new Error(`${module} no longer raises ${reasons.join(', ')} through ${through}`);
+    if (!Object.hasOwn(owners, module)) throw new Error(`${module} raises ${reasons.join(', ')}, which no graph row carries, and names no owner`);
+    gaps.push(Object.freeze({ module, reasons: Object.freeze([...reasons].sort()), owner: owners[module] }));
+  }
+  return Object.freeze(gaps.sort((a, b) => (a.module < b.module ? -1 : 1)));
 }
 
 /**
@@ -1509,7 +1528,7 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   This paragraph said the opposite until the work landed and the sentence was
   not rewritten; a panel was dispatched on the stale text and three of its four
   seats found it independently.
-- Host modules park with reason names the graph carries no recovery row for (ADR-105 called them candidate debt; ADR-109 measures the list from the modules' \`PARK_REASONS\` and the graph, and \`npm test\` holds it): ${reasonGaps.map((gap) => `\`${gap.module}\` (owner ${gap.owner}): ${codeList(gap.reasons)}`).join('; ')}. Each is a name of its module's own contract until its owner gives it a stop, a cause of a stop or a place in the resume table; a park under one of them would be a park with no row. The approved delta's twelve names are mapped, not listed: at \`apply_staging\` each becomes \`delta_stale\`, \`receipt_missing\` or \`environment_failure\` with its own name as the cause (\`approved-delta.md\` §9), and \`epic-staging.mjs\`'s \`aggregate_failed\` is \`aggregate_verify_failed\`. A request the host cannot form is \`custody_request_invalid\`, a host invariant that is no park reason and has no row by design (ADR-109). What is left of the apply's stops: \`createStaging\`'s \`cas_conflict\` (the helper's expected-absent create finding the ref at another commit) has no step that runs it and no row where it would park, which is #9's.
+- Host modules park with reason names the graph carries no recovery row for (ADR-105 called them candidate debt; ADR-109 measures the list from the modules' \`PARK_REASONS\` and the graph, and \`npm test\` holds it): ${reasonGaps.map((gap) => `\`${gap.module}\` (owner ${gap.owner}): ${codeList(gap.reasons)}`).join('; ')}. Each is a name of its module's own contract until its owner gives it a stop, a cause of a stop or a place in the resume table; a park under one of them would be a park with no row. Eleven of the approved delta's twelve names are mapped, not listed: at \`apply_staging\` each becomes \`delta_stale\`, \`receipt_missing\` or \`environment_failure\` with its own name as the cause (\`approved-delta.md\` §9); the twelfth, \`dirty_worktree\`, is raised by nothing on the apply path, which runs in a temporary index, and is listed above as that. Also mapped: \`epic-staging.mjs\`'s \`aggregate_failed\` is \`aggregate_verify_failed\`. A request the host cannot form is \`custody_request_invalid\`, a host invariant that is no park reason and has no row by design (ADR-109). What is left of the apply's stops: \`createStaging\`'s \`cas_conflict\` (the helper's expected-absent create finding the ref at another commit) has no step that runs it and no row where it would park, which is #9's.
 - The panel's round records: ${records.filter((record) => record.member).map((record) => `\`${record.path}\` is a member because it carries the operative membership rule (its last anchor correction, checked by \`membershipRuleErrors\`)`).join('; ') || 'none is a member'}. ${records.filter((record) => !record.member).map((record) => `\`${record.path}\``).join(', ') || 'None'} carry no anchor correction and are
   not members: they are records of what a round found, not design the verdict binds,
   and each is checked by \`npm test\` (\`test/validate-design-candidate.test.mjs\`) against the roster its round sat, whether listed or not.

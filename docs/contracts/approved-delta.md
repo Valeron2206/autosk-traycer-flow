@@ -64,7 +64,7 @@ The staging ref is advanced with `--create-reflog`. Git keeps reflogs only for r
 - an ignored or untracked file colliding with an approved entry: **fail closed**, and nothing is deleted to make room. The file is someone's, and "it was in the way" is not a reason to remove it;
 - foreign or indeterminate ref movement: classified separately from an ordinary error, and **not retried**. A retry against an unknown post-state is how one uncertain outcome becomes two;
 - an inherited Git environment — `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the rest — neutralised before any operation, because an inherited variable silently redirects every command that follows;
-- a dirty worktree, a linked worktree, an autostash configuration: recorded and refused rather than tidied.
+- a dirty worktree, a linked worktree, an autostash configuration: not the apply's concern, and so not refused by it. The apply runs in a temporary index and neither reads nor writes the operator's worktree or its index; a collision is checked against the worktree because the delta names its paths, so a file of the operator's at an approved path is a conflict with this delta, while a tracked change elsewhere, a linked worktree or an autostash setting is a fact about no approved path. `worktreeErrors` reports them for a caller that must refuse on them, and none does on this path (§9). A caller that tidied them would delete work nobody reviewed, which is the reason none is tidied.
 
 Explicitly not in scope: cherry-pick as a hidden fallback, history rewriting, automatic resolution of semantic conflicts, and any runtime call to `traycer-protocol`.
 
@@ -89,19 +89,19 @@ These twelve are this contract's names, and the workflow graph does not carry th
 | name | before the ref moves | after the helper was asked | a resume of the stop |
 | --- | --- | --- | --- |
 | `delta_stale` | `delta_stale`: the base moved, or the digest does not recompute | — | re-enters `apply_staging` and revalidates again; refused until the delta is replaced or approved again |
-| `scope_violation` | `delta_stale`: an entry outside the delta's pathspec | `receipt_missing`: the result introduced or removed a path outside it | before: re-enters and is refused again; after: re-enters, and the recipe and reflog checks refuse it without asking the helper |
-| `containment_mismatch` | `delta_stale`: the delta does not assemble as approved (a path twice, a rename with no origin, an unknown status, blobs of two object formats) | `receipt_missing`: the result does not contain what was approved, or lost another Ticket's work | re-enters; before the ref moved it is refused again, after the helper was asked the recipe and reflog checks refuse it and the helper is not asked |
-| `unreviewed_bytes` | — (not raised before the ref moves) | `receipt_missing`: the applied bytes are not the approved ones | re-enters; refused by the recipe and reflog checks, the helper is not asked |
+| `scope_violation` | `delta_stale`: an entry outside the delta's pathspec | `receipt_missing`: the result introduced or removed a path inside the pathspec that the delta did not approve (paths beyond the pathspec are not looked at) | before: re-enters and is refused again; after: re-enters, the result is recovered from the recipe (`recovered_from_recipe`), the proof fails again and the helper is not asked |
+| `containment_mismatch` | `delta_stale`: the delta does not assemble as approved (a path twice, a rename with no origin, an unknown status, no new mode, a blob that is not in the repository, blobs of two object formats) | `receipt_missing`: the result does not contain what was approved, or lost another Ticket's work | before: re-enters and is refused again; after: re-enters, the result is recovered from the recipe (`recovered_from_recipe`), the proof fails again and the helper is not asked |
+| `unreviewed_bytes` | — (not raised before the ref moves) | `receipt_missing`: the applied bytes are not the approved ones | re-enters; the result is recovered from the recipe (`recovered_from_recipe`), the proof fails again and the helper is not asked |
 | `untracked_collision` | `environment_failure`: a file of the operator's at an approved path, nothing deleted | — | re-enters and applies again once the person has moved the file |
 | `ignored_collision` | `environment_failure`: as above, an ignored file | — | re-enters and applies again once the person has moved the file |
 | `inherited_git_env` | `environment_failure`: a Git variable in the environment | — | re-enters and applies again once the environment is clean |
 | `state_identity_collision` | `environment_failure`: the temporary index would sit inside the project | — | re-enters and applies again once the index is placed outside it |
-| `dirty_worktree` | — (not raised: the apply runs in a temporary index and `worktreeErrors` has no caller on this path) | — | not raised |
+| `dirty_worktree` | — (not raised: the apply runs in a temporary index and `worktreeErrors` has no caller on this path; §6) | — | not raised |
 | `foreign_ref_movement` | — (a ref that is not where the apply left it is refused as `receipt_missing` `movement`, §7) | `receipt_missing`: the helper refused the swap and observed a ref other than the base | re-enters; the ref is not at the base or the recipe's commit, so it is refused as `movement` and the helper is not asked |
-| `indeterminate_post_state` | — | `receipt_missing`: the ref cannot be read after the swap | re-enters; the ref cannot be read or is not at the base or the recipe's commit, so it is refused as `movement` and the helper is not asked |
+| `indeterminate_post_state` | — | `receipt_missing`: the ref is absent after the swap (a read of it that fails is `environment_failure`, not this) | re-enters; the ref is not at the base or the recipe's commit, so it is refused as `movement` and the helper is not asked |
 | `reflog_ambiguous` | — | `receipt_missing`: the reflog moved by other than one entry, also when the apply is recovered from its recipe | re-enters and reaches the same result from the recipe, asking nothing; the person restores the line (`epic-staging.md` §7) |
 
-A cause names the contract's name whichever stop it rides on, so the person reads `receipt_missing` with `cause: reflog_ambiguous` and the contract says what that is. `custody_request_invalid` is not among the names: it is a host invariant, a request the host cannot form, raised before anything is written or asked, and no state of any task (`epic-staging.md` §1).
+A cause names the contract's name whichever stop it rides on, so the person reads `receipt_missing` with `cause: reflog_ambiguous` and the contract says what that is. `custody_request_invalid` is not among the names: it is a host invariant, a request the host cannot form, and no state of any task (`epic-staging.md` §1); it can follow the recipe's save, so it is not "before anything is written". A refusal before the ref moves is not "before anything is asked" either: a resume after a crash finds the helper's commit already made and recovers it from the recipe, and a stop raised on that resume (a file of the operator's now at an approved path) leaves the commit in place.
 
 ## 10. Required implementation tests
 
@@ -111,7 +111,7 @@ A cause names the contract's name whichever stop it rides on, so the person read
 - an inherited `GIT_DIR`, `GIT_WORK_TREE` and `GIT_INDEX_FILE`;
 - concurrent and foreign ref movement, and an indeterminate post-state;
 - reflog ambiguity;
-- a dirty worktree, a linked worktree, an autostash configuration;
+- a dirty worktree, a linked worktree, an autostash configuration: reported by `worktreeErrors` and not refused by the apply, which still integrates;
 - a crash in every phase, and a resume from each;
 - a failed merge, an abort, and the recovery path;
 - containment against the recorded result OID;

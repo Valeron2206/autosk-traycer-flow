@@ -23,6 +23,7 @@ import {
   receiptErrors,
   resumePlan,
 } from "../src/host/epic-staging.mjs";
+import * as stagingModule from "../src/host/epic-staging.mjs";
 
 const code = (name) => (error) => error.code === name;
 
@@ -244,10 +245,23 @@ test("the swap can still conflict, because the world moves between read and writ
   );
   const conflict = applySwap(state(), { expected_old_oid: oid("a"), observed_old_oid: oid("f"), swapped: false });
   assert.equal(conflict.reason, "cas_conflict");
-  assert.throws(
-    () => applySwap(state(), { expected_old_oid: oid("9"), swapped: true }),
-    (error) => error.code === "custody_request_invalid",
-  );
+  // A CAS that already ran from a base the record does not name is not a request the host formed wrongly: it is a result, and a
+  // moved target nobody has investigated (review M2, ADR-109). It is reported as the conflict the graph's row for cas_conflict
+  // carries, with its cause, and never thrown past the step.
+  for (const swapped of [true, false]) {
+    const unrecorded = applySwap(state(), { expected_old_oid: oid("9"), swapped, new_oid: oid("c"), observed_old_oid: oid("f") });
+    assert.equal(unrecorded.outcome, "conflict", String(swapped));
+    assert.equal(unrecorded.reason, "cas_conflict");
+    assert.equal(unrecorded.cause, "unrecorded_base");
+    assert.equal(unrecorded.swapped, swapped);
+  }
+});
+
+test("a swap is requested only from the base the record names: any other expected-old is a request the host cannot form, before git is asked (review M2)", () => {
+  assert.doesNotThrow(() => stagingModule.assertSwapRequest(state(), { expectedOld: oid("a") }));
+  for (const expectedOld of [oid("9"), null, undefined, ""]) {
+    assert.throws(() => stagingModule.assertSwapRequest(state(), { expectedOld }), (error) => error.code === "custody_request_invalid", String(expectedOld));
+  }
 });
 
 test("a retry of the final CAS is idempotent", () => {

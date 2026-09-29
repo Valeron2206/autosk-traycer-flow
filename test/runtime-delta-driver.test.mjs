@@ -1610,7 +1610,7 @@ test("a git that fails while the staging ref's place is read is an environment f
     assert.equal(error.details.stderr.length, 200, "the stderr is bounded");
   }
   assert.equal(custody.requests.length, 0);
-  // A plain "not an ancestor" is still a movement the graph names: the ref is beyond nothing and behind nothing.
+  // Exit 1 is still "not an ancestor", and the movement stays one the graph names: the foreign commit descends from the base, so the ref is beyond it.
   const error = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" }).then(() => null, (thrown) => thrown);
   assert.equal(error?.code, "receipt_missing");
   assert.equal(error.details.movement, "beyond");
@@ -1876,4 +1876,98 @@ test("an apply whose journal's directory cannot be synced does not ask the helpe
   assert.equal(await readRef(git, ref), base.commit_oid);
   // The resume, on a filesystem that syncs, applies.
   assert.equal((await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" })).applied, true);
+});
+
+// --- debt 13a, review-fix round ------------------------------------------------------------
+
+test("a stop for the helper carries what it said: no helper, a capability refusal, an answer that is none, a client that fails (review M1, M3)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { recipes: journals.get(git), author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" };
+  const answered = (reason) => ({ advance_staging: async (request) => ({
+    action: request.action,
+    status: "not_applied",
+    not_applied_reason: reason,
+    ref_observations: request.ref_updates.map((update) => ({ operation: update.operation, ref: update.ref, expected_old_oid: update.expected_old_oid, requested_new_oid: update.new_oid, observed_old_oid: update.expected_old_oid, observed_new_oid: update.expected_old_oid })),
+  }) });
+  for (const [what, helper, cause] of [
+    ["no helper", {}, "no_helper"],
+    ["packed refs", answered("packed_refs_drift"), "packed_refs_drift"],
+    ["authorization", answered("authorization_invalid"), "authorization_invalid"],
+    ["garbage", { advance_staging: async () => ({ status: "committed" }) }, "unanswered"],
+    ["a socket reset", { advance_staging: async () => { throw Object.assign(new Error("reset"), { code: "ECONNRESET" }); } }, "ECONNRESET"],
+    ["a client with no code", { advance_staging: async () => { throw new Error("no code"); } }, "client_failed"],
+  ]) {
+    const outcome = await deltaModule.applyWithOutcome(git, { ...options, custody: helper });
+    assert.equal(outcome.stop?.reason, "planning_ref_capability_missing", what);
+    assert.equal(outcome.stop.cause, cause, what);
+  }
+  assert.equal(custody.requests.length, 0);
+  assert.equal(await readRef(git, ref), base.commit_oid);
+});
+
+test("a helper that dies after it committed is a stop too, and the resume recovers the commit and asks nothing (review M3)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { recipes: journals.get(git), author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" };
+  const timingOut = { advance_staging: async (request) => { await custody.advance_staging(request); throw Object.assign(new Error("late"), { code: "ETIMEDOUT" }); } };
+  const first = await deltaModule.applyWithOutcome(git, { ...options, custody: timingOut });
+  assert.equal(first.stop.reason, "planning_ref_capability_missing");
+  assert.equal(first.stop.cause, "ETIMEDOUT");
+  const asked = custody.requests.length;
+  const resumed = await deltaModule.applyWithOutcome(git, { ...options, custody });
+  assert.equal(resumed.stop, null);
+  assert.equal(resumed.result.recovered_from_recipe, true);
+  assert.equal(custody.requests.length, asked, "the resume asked the helper again");
+});
+
+test("a dependency the apply was handed that fails is an environment failure with the errno as its cause, never a raw error thrown into the daemon (review M3)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, delta: d, ref, base, indexFile, message: "T-1" };
+  for (const [what, extra, cause] of [
+    ["realpath ENOENT", { realpath: async () => { throw Object.assign(new Error("gone"), { code: "ENOENT" }); } }, "ENOENT"],
+    ["realpath EACCES", { realpath: async () => { throw Object.assign(new Error("denied"), { code: "EACCES" }); } }, "EACCES"],
+  ]) {
+    const outcome = await deltaModule.applyWithOutcome(git, { ...options, realpath, ...extra });
+    assert.equal(outcome.stop?.reason, "environment_failure", what);
+    assert.equal(outcome.stop.cause, cause, what);
+  }
+  const throwing = async (args, opts) => {
+    if (args[0] === "write-tree") throw Object.assign(new Error("spawn git EAGAIN"), { code: "EAGAIN" });
+    return git(args, opts);
+  };
+  const spawned = await deltaModule.applyWithOutcome(throwing, { ...options, realpath });
+  assert.equal(spawned.stop?.reason, "environment_failure");
+  assert.equal(spawned.stop.cause, "EAGAIN");
+  // A journal that fails with a raw error is the journal's I/O.
+  const raw = { load: async () => { throw Object.assign(new Error("io"), { code: "EIO" }); }, save: async () => {} };
+  const journal = await deltaModule.applyWithOutcome(git, { ...options, realpath, recipes: raw });
+  assert.equal(journal.stop?.reason, "environment_failure");
+  assert.equal(journal.stop.cause, "journal_io");
+  assert.equal(custody.requests.length, 0);
+});
+
+test("a delta that cannot be assembled as approved is delta_stale with a cause, not an environment failure: a missing blob, no mode (P2)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, ref, base, indexFile, message: "T-1", realpath };
+  const missing = delta(base, [{ path: "src/a.ts", status: "A", new_blob: "0".repeat(40), new_mode: "100644" }]);
+  const noMode = delta(base, [{ path: "src/a.ts", status: "A", new_blob: d.entries[0].new_blob }]);
+  for (const [what, bad] of [["a blob that is not in the repository", missing], ["an entry with no mode", noMode]]) {
+    const outcome = await deltaModule.applyWithOutcome(git, { ...options, delta: bad });
+    assert.equal(outcome.stop?.reason, "delta_stale", what);
+    assert.equal(outcome.stop.cause, "containment_mismatch", what);
+  }
+  assert.equal(custody.requests.length, 0);
+  assert.equal(await readRef(git, ref), base.commit_oid);
+});
+
+test("a submodule entry integrates: the proof reads a gitlink as the entry it is (P1)", async (t) => {
+  const { git, ref, base, indexFile, custody } = await repository(t);
+  // A gitlink names a commit of another repository, which need not exist here.
+  const linked = delta(base, [{ path: "src/mod", status: "A", new_blob: "1".repeat(40), new_mode: "160000" }]);
+  const result = await applyDelta(git, { custody, delta: linked, realpath, ref, base, indexFile, message: "T-1" });
+  assert.equal(result.applied, true);
+  assert.deepEqual([...result.applied_entries], [{ path: "src/mod", new_blob: "1".repeat(40), new_mode: "160000" }]);
+  assert.deepEqual(integrationProof(linked, result), []);
+  assert.equal(integrationReceipt(linked, result).phase, "ref_advanced");
+  const outcome = deltaModule.applyOutcome(integrationReceipt(linked, result));
+  assert.equal(outcome, null);
 });

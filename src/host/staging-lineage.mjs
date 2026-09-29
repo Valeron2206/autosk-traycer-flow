@@ -70,6 +70,12 @@ export function receiptDigest(receipt) {
   }));
 }
 
+/** A receipt log that cannot be read: the journal's I/O, as `recipeJournal` names it, with the errno. */
+function receiptLogFailure(error) {
+  return new FlowError('environment_failure', `The receipt log could not be read${typeof error?.message === 'string' ? `: ${error.message}` : ''}`,
+    { cause: 'journal_io', errno: typeof error?.code === 'string' ? error.code : null });
+}
+
 /**
  * Appends a receipt to the durable log.
  *
@@ -83,7 +89,10 @@ export async function appendReceipt(fs, { path, receipt, previous = null }) {
   let existing = '';
   try {
     existing = (await fs.readFile(path)).toString('utf8');
-  } catch {
+  } catch (error) {
+    // Only a log that is not there yet is empty. Any other failure to read — a transient EIO, a permission — is not an empty log,
+    // and writing after it would replace every receipt the log holds with one line (P3).
+    if (error?.code !== 'ENOENT') throw receiptLogFailure(error);
     existing = '';
   }
   await fs.writeFile(path, `${existing}${line}\n`);
@@ -100,7 +109,8 @@ export async function loadReceipts(fs, { path }) {
   let text;
   try {
     text = (await fs.readFile(path)).toString('utf8');
-  } catch {
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw receiptLogFailure(error);
     return Object.freeze({ receipts: immutable([]), intact: true, broken_at: null });
   }
   const receipts = [];
@@ -221,10 +231,11 @@ export function recipeJournal(fs, { directory }) {
   }
 
   async function syncDirectory() {
-    // No refusal of the sync is tolerated (#280 carry, debt 13a): a directory that cannot be opened or synced is a
-    // filesystem on which the name of a recipe may be lost, and an apply that then asks the helper can leave a commit no
-    // recipe vouches for. The supported platforms — linux-x64 on ext4, btrfs and xfs, darwin-arm64 on APFS — sync a
-    // directory, so a refusal is an unsupported filesystem, and it stops the apply where it can be told.
+    // No refusal of the sync is tolerated (#280 carry, debt 13a): a directory that cannot be opened or synced is a filesystem on
+    // which the name of a recipe may be lost, and an apply that then asks the helper can leave a commit no recipe vouches for
+    // after a crash. What was measured: `open` and `fsync` of a directory succeed on ext4 (a supported linux-x64 filesystem) and
+    // on tmpfs; APFS (darwin-arm64) was not measured, and no CI job runs this path on macOS. A refusal is therefore read as a
+    // filesystem that cannot promise durability, and it stops the apply where it can be told.
     let handle;
     try {
       handle = await fs.open(directory, 'r');

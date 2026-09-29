@@ -585,3 +585,32 @@ test("a directory whose sync is refused leaves no recipe relied on: a save and a
     }
   }
 });
+
+test("a receipt log that cannot be read is an environment failure, and a transient read error never rewrites the log as one line (P3)", async (t) => {
+  const file = await logFile(t);
+  const directory = path.dirname(file);
+  await appendReceipt(fs, { path: file, receipt: receipt(oid("a"), oid("b")) });
+  await appendReceipt(fs, { path: file, receipt: receipt(oid("b"), oid("c")), previous: null });
+  const before = (await fs.readFile(file)).toString("utf8");
+  for (const errno of ["EIO", "EACCES", "EMFILE"]) {
+    let wrote = 0;
+    const flaky = {
+      readFile: async () => { throw Object.assign(new Error(`${errno}: transient`), { code: errno }); },
+      writeFile: async (...rest) => { wrote += 1; return fs.writeFile(...rest); },
+    };
+    const appended = await problem(appendReceipt(flaky, { path: file, receipt: receipt(oid("c"), oid("d")) }));
+    assert.equal(appended?.code, "environment_failure", errno);
+    assert.equal(appended.details.cause, "journal_io", errno);
+    assert.equal(appended.details.errno, errno, errno);
+    assert.equal(wrote, 0, `${errno}: the log was written after a failed read`);
+    const loaded = await problem(loadReceipts(flaky, { path: file }));
+    assert.equal(loaded?.code, "environment_failure", errno);
+    assert.equal(loaded.details.errno, errno);
+  }
+  assert.equal((await fs.readFile(file)).toString("utf8"), before);
+  // A log that is not there is empty: the first receipt creates it.
+  const missing = path.join(directory, "nothing.log");
+  assert.deepEqual([...(await loadReceipts(fs, { path: missing })).receipts], []);
+  await appendReceipt(fs, { path: missing, receipt: receipt(oid("a"), oid("b")) });
+  assert.equal((await loadReceipts(fs, { path: missing })).receipts.length, 1);
+});

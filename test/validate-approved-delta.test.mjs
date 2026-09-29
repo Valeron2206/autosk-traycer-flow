@@ -12,6 +12,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import * as validator from "../scripts/validate-approved-delta.mjs";
+
 import {
   CONTRACT_PATH,
   EXAMPLE_PATH,
@@ -283,4 +285,34 @@ test("section 9 maps every park reason to the graph stop it becomes at apply_sta
   assert.ok(errors.some((message) => /reflog_ambiguous/u.test(message) && /table/u.test(message)), errors.join("\n"));
   const stops = contract.replace(/\| `reflog_ambiguous` \| [^|]*\|[^|]*\|/u, "| `reflog_ambiguous` | — | `invented_stop` |");
   assert.ok(validateApprovedDeltaDesign({ ...files, [CONTRACT_PATH]: stops }).some((message) => /invented_stop/u.test(message)));
+});
+
+test("the contract says what is true of a dirty worktree, and section 9's cells say what the code does (debt 13a review M4, L1)", () => {
+  const contract = files[CONTRACT_PATH];
+  // §6 and §10 no longer claim the apply refuses a dirty, linked or autostash worktree: it runs in a temporary index and reads
+  // neither the worktree nor its index, so those are not its concern; only a collision at an approved path is.
+  const six = contract.slice(contract.indexOf("## 6."), contract.indexOf("## 7."));
+  assert.doesNotMatch(six, /a dirty worktree, a linked worktree, an autostash configuration: recorded and refused/u);
+  assert.match(six, /`worktreeErrors`/u);
+  assert.match(six, /temporary index/u);
+  const ten = contract.slice(contract.indexOf("## 10."), contract.indexOf("## 11."));
+  assert.doesNotMatch(ten, /- a dirty worktree, a linked worktree, an autostash configuration;/u);
+  assert.match(ten, /not refused by the apply/u);
+  const nine = contract.slice(contract.indexOf("## 9."), contract.indexOf("## 10."));
+  const cells = (name) => nine.split("\n").find((line) => line.startsWith(`| \`${name}\` |`)).split("|").slice(1, -1).map((cell) => cell.trim());
+  // The proof flags what was introduced or removed INSIDE the pathspec; outside it, it says nothing.
+  assert.match(cells("scope_violation")[2], /inside/u);
+  assert.doesNotMatch(cells("scope_violation")[2], /outside it/u);
+  // A content failure after the ask is recovered from the recipe and fails its proof again; the helper is not asked.
+  for (const name of ["unreviewed_bytes", "scope_violation", "containment_mismatch"]) assert.match(cells(name)[3], /recovered_from_recipe/u, name);
+  // An absent ref after the swap; a read that fails is an environment failure.
+  assert.match(cells("indeterminate_post_state")[2], /absent/u);
+  assert.match(cells("indeterminate_post_state")[2], /environment_failure/u);
+  // A gitlink is an entry like any other (P1).
+  assert.match(contract, /gitlink|submodule/u);
+});
+
+test("the validator's list of stops is not named like the driver's map of the twelve names (debt 13a review nit)", () => {
+  assert.ok("APPLY_STOP_NAMES" in validator);
+  assert.equal("APPLY_STOPS" in validator, false);
 });

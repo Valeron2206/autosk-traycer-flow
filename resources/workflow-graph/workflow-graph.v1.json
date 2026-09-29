@@ -3589,7 +3589,7 @@
         "staging_commit_oid"
       ],
       "domain": "staging_aggregate",
-      "description": "approved delta, перепроверенная против текущей staging base, больше не применяется так, как одобрена, либо при пересборке planning-изменение (planning.base_oid → planning_head) не ложится на новую recorded_target_base — human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется; при конфликте planning-изменения в v1 выход только cancel (отдельная status-операция) или новый план Epic либо apply_outcome=delta_stale (cause: delta_stale, scope_violation, containment_mismatch)"
+      "description": "approved delta, перепроверенная против текущей staging base, больше не применяется так, как одобрена (apply_outcome=delta_stale; cause: delta_stale, scope_violation, containment_mismatch), либо при пересборке planning-изменение (planning.base_oid → planning_head) не ложится на новую recorded_target_base — human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется; при конфликте planning-изменения в v1 выход только cancel (отдельная status-операция) или новый план Epic"
     },
     {
       "id": "cond_425",
@@ -3603,7 +3603,7 @@
         "staging_commit_oid"
       ],
       "domain": "staging_aggregate",
-      "description": "нет durable receipt у применённой approved delta, либо lineage от recorded_target_base до staging head несёт коммит сверх разрешённого, либо staging ref отстал от commit receipt, либо recipe или journal не ручаются за apply, либо apply_outcome=receipt_missing: доказательство результата провалено (cause: foreign_ref_movement, indeterminate_post_state, reflog_ambiguous, unreviewed_bytes) — human с park.reason=receipt_missing; ref на expected_commit_oid — apply уже сделан, receipt из recipe"
+      "description": "у применённой delta нет durable receipt, либо lineage от recorded_target_base до staging head несёт коммит сверх разрешённого (planning-ref commits до planning_head либо один planning replay commit, затем только receipted deltas), либо staging ref отстал от commit receipt, либо recipe или journal не ручаются за apply, либо apply_outcome=receipt_missing (cause — approved-delta §9) — human с park.reason=receipt_missing; ref на expected_commit_oid — apply уже сделан: receipt из recipe, второго запроса нет"
     },
     {
       "id": "cond_426",
@@ -3816,7 +3816,7 @@
         "cas_receipt"
       ],
       "domain": "target_integration",
-      "description": "git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки — human с park.reason=cas_conflict; retry без расследования запрещён"
+      "description": "git отказал CAS в момент записи (ref не держал expected_old) либо исход остался неопределённым после reflog-проверки — human с park.reason=cas_conflict; retry без расследования запрещён; либо swap прошёл от base, которой запись не называет (cause=unrecorded_base, target сдвинулся с незаписанной base) — то же расследование"
     },
     {
       "id": "cond_449",
@@ -3935,6 +3935,7 @@
     {
       "id": "cond_459",
       "reads": [
+        "apply_outcome",
         "authorization_invalid",
         "not_applied",
         "packed_refs_drift",
@@ -3942,7 +3943,7 @@
         "status"
       ],
       "domain": "planning_ref_lifecycle",
-      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no ref-custody helper answers the staging action — human с park.reason=planning_ref_capability_missing; staging ref не двигается, host не пишет его сам; target ref не читается и не меняется"
+      "description": "helper response status=not_applied and reason=packed_refs_drift|authorization_invalid, or no ref-custody helper answers the staging action, либо вызов клиента упал (apply_outcome=planning_ref_capability_missing; cause — no_helper, packed_refs_drift, authorization_invalid, unanswered или errno клиента) — human с park.reason=planning_ref_capability_missing; host не пишет staging ref сам, resume узнаёт свой commit из recipe; target ref не читается и не меняется"
     },
     {
       "id": "cond_460",
@@ -14701,7 +14702,7 @@
         "human",
         "integrate_staging"
       ],
-      "required_state": "Section 2 parks with this reason at integrate_staging: git refused the one target CAS at write time or the outcome stayed indeterminate; human с park.reason=cas_conflict; ref не перезаписывается, retry только после exact ref/reflog resolution"
+      "required_state": "Section 2 parks with this reason at integrate_staging: git refused the one target CAS at write time or the outcome stayed indeterminate; human с park.reason=cas_conflict; ref не перезаписывается, retry только после exact ref/reflog resolution; also a swap that ran from a base the record does not name (cause unrecorded_base): the target moved from an unrecorded base, and it is investigated, never retried"
     },
     {
       "reason": "child_creation_key_invalid",
@@ -14847,7 +14848,7 @@
         "apply_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at apply_staging: approved delta rechecked against the current staging base at apply time and refused, or, in a re-stage, the planning change (planning.base_oid → planning_head) conflicts with the new recorded_target_base; human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется; for a planning conflict v1 has only two exits, cancel (a separate status operation) or a new Epic plan; the apply reports it as apply_outcome=delta_stale with the contract's name as its cause — delta_stale (the base moved or the digest does not recompute), scope_violation or containment_mismatch (the delta is outside its pathspec or does not assemble as approved) — refused by revalidate before anything is written or asked, and a resume into apply_staging revalidates again, so it stays refused until the delta is replaced or approved again"
+      "required_state": "Section 2 parks with this reason at apply_staging: approved delta rechecked against the current staging base at apply time and refused, or, in a re-stage, the planning change (planning.base_oid → planning_head) conflicts with the new recorded_target_base; human с park.reason=delta_stale; staging не двигается, target ref не читается и не меняется; the apply reports apply_outcome=delta_stale with the contract's name as its cause — delta_stale (base moved, digest does not recompute), scope_violation, containment_mismatch (outside its pathspec, or does not assemble as approved) — before the ref moves; a resume revalidates and is refused again: v1's only exits are cancel (a separate status operation) or a new Epic plan, for a planning conflict and for a delta that does not validate alike, and a path that approves a replacement delta into this step is #9's, not in v1"
     },
     {
       "reason": "environment_failure",
@@ -14859,7 +14860,7 @@
         "aggregate_verify",
         "apply_staging"
       ],
-      "required_state": "Section 2 parks with this reason at aggregate_verify, apply_staging: at aggregate_verify aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; at apply_staging a git command or the recipe journal (a full disk, a directory the process may not use) could not run: nothing is half done and no verdict was made, and a resume runs the apply again from its recipe if one was recorded — a commit the helper made is recovered, not asked again; human с park.reason=environment_failure; target ref не двигается; resume re-enters the step that stood; at apply_staging the environment is also one the apply may not run in: inherited_git_env (a Git variable in the environment), state_identity_collision (the temporary index would sit inside the project), untracked_collision and ignored_collision (a file of the operator's at an approved path: nothing is deleted, the person moves it), each the cause, refused before anything is written or asked, no verdict on the delta, and a resume applies again",
+      "required_state": "Section 2 parks with this reason at aggregate_verify, apply_staging: at aggregate_verify aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; at apply_staging a git command or the recipe journal (a full disk, a directory the process may not use) could not run: nothing is half done and no verdict was made, and a resume runs the apply again from its recipe if one was recorded — a commit the helper made is recovered, not asked again; human с park.reason=environment_failure; target ref не двигается; resume re-enters the step that stood; also at apply_staging, causes inherited_git_env, state_identity_collision (index inside the project), untracked_collision, ignored_collision (a file of the operator's at an approved path, never deleted): no verdict on the delta, and a resume is refused again until the person has moved the file or cleared the variable",
       "resume_scope": "origin"
     },
     {
@@ -17464,11 +17465,11 @@
           "covers": [
             "delta_stale"
           ],
-          "binds": "80d01d17f50efd03fe618577767695b469928b929efd64a4a34987fed8f7fea9",
+          "binds": "134a4d860d0636d284929667ad30ed17a10c9ee5e9a215206e3726f2c7193d7e",
           "cells": [
             "delta_stale",
             "apply_staging",
-            "approved delta перепроверена против текущей staging base и заново одобрена либо заменена; planning-изменение, не легшее на новую recorded_target_base при пересборке, в v1 имеет выход только cancel (отдельная status-операция) или новый план Epic; staging и target не двигались; причины (cause) — имена approved-delta §9: delta_stale, scope_violation, containment_mismatch, до движения ref"
+            "approved delta перепроверена против текущей staging base и заново одобрена либо заменена; planning-изменение, не легшее на новую recorded_target_base при пересборке, в v1 имеет выход только cancel (отдельная status-операция) или новый план Epic; staging и target не двигались; причины (cause) — имена approved-delta §9: delta_stale, scope_violation, containment_mismatch, до движения ref; выход для delta, которая не валидна, — cancel или новый план Epic (в v1 пути одобрить замену нет)"
           ]
         },
         {
@@ -17486,11 +17487,11 @@
           "covers": [
             "environment_failure"
           ],
-          "binds": "4f3ac9bbd92aebac1bfb6677137dbb2899c9387024f88e45c226bf01a4f4f338",
+          "binds": "7987fd9efad4b0f448b2be99564bc314294dfb863509a29e374e95acd11b5712",
           "cells": [
             "environment_failure",
             "aggregate_verify, apply_staging",
-            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict; в apply_staging — git-команда или recipe journal не смогли выполниться (диск, права): ничего не записано наполовину, verdict нет; apply возобновляется в apply_staging из своего recipe, если он записан (commit helper а на expected_commit_oid — apply уже сделан, второго запроса нет); окружение, в котором apply не запускается, — inherited_git_env, state_identity_collision, untracked_collision, ignored_collision (cause), до запроса helper а"
+            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict; в apply_staging — git-команда или recipe journal не смогли выполниться (диск, права): ничего не записано наполовину, verdict нет; apply возобновляется в apply_staging из своего recipe, если он записан (commit helper а на expected_commit_oid — apply уже сделан, второго запроса нет); окружение, в котором apply не запускается, — inherited_git_env, state_identity_collision, untracked_collision, ignored_collision (cause): apply отказывает при старте, и обычный resume отказывает снова, пока человек не убрал файл или переменную"
           ]
         },
         {
@@ -17563,7 +17564,7 @@
           "covers": [
             "cas_conflict"
           ],
-          "binds": "d5e8cff66b061be3769fdf4c8383497521e523531d4ec1805b39a87517e4dd85",
+          "binds": "8ed80b0e40762e3ef9298e76fb5c51a3fe38243c2e33b97218202795910ca939",
           "cells": [
             "cas_conflict",
             "integrate_staging",
@@ -18719,11 +18720,11 @@
             "delta_stale",
             "receipt_missing"
           ],
-          "binds": "ade8ceec4b77243c8fee8ff89e10c7ad5b3b12ebb80ca31d13177c180e13788f",
+          "binds": "3f9ce8b07bab21195429b86b8430e867e0a7df9e41c9c7955a65e44704eb5b24",
           "cells": [
             "Staging apply: delta устарела или нет receipt",
             "apply_staging",
-            "delta перепроверена против текущей staging base, receipt (из recipe apply) и lineage восстановлены; staging и target не двигались"
+            "delta перепроверена против текущей staging base, receipt (из recipe apply) и lineage восстановлены; при delta_stale staging и target не двигались, а после запроса helper а (receipt_missing с причиной foreign_ref_movement, reflog_ambiguous и др.) ref уже сдвинут, receipt остаётся prepared, и линию восстанавливает человек"
           ]
         },
         {
@@ -18732,11 +18733,11 @@
             "environment_failure",
             "staging_moved_after_pass"
           ],
-          "binds": "8d6bcdc5a2a30b75a2537387c58c0e1a1e00193d490de11c165324ee9e83add5",
+          "binds": "0ff38a41a2622d24aff8964ebe44ac949de80784765d7a98e77d6be4be4e789c",
           "cells": [
             "Aggregate не привязан к staging: окружение, void binding, staging сдвинут после PASS",
             "aggregate_verify, accept_staging, apply_staging",
-            "aggregate заново на exact current staging commit/tree без model run; окружение в apply_staging — apply возобновляется из своего recipe, без model run (commit helper а на expected_commit_oid — apply уже сделан); staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится"
+            "aggregate заново на exact current staging commit/tree без model run; окружение в apply_staging — apply возобновляется из своего recipe, без model run (commit helper а на expected_commit_oid — apply уже сделан); staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится; файл оператора или переменную Git, из-за которых apply не запустился, человек убирает сам (перекладывает файл, очищает окружение), а до того обычный resume отказывает снова"
           ]
         },
         {
@@ -18757,7 +18758,7 @@
             "foreign_target_movement",
             "post_cas_mismatch"
           ],
-          "binds": "b2bea3347b3ea854710ed8f6ec67105a543c3f0bcdb91a318ff8bed25638df81",
+          "binds": "f66c8373c6aeb3399e331e2cb8c2271a914346021c49da8d5e6e232065f9deff",
           "cells": [
             "Target CAS: конфликт, чужое движение, read-back mismatch",
             "park: integrate_staging, verify_target; resume по записанному решению пользователя: apply_staging (foreign_target_movement)",
@@ -18786,7 +18787,7 @@
       ]
     }
   ],
-  "canonical_digest": "27b15111b796b2ecacd43ff68b57e0351a74e8fa6cb270d6cdf786392c1b566a",
+  "canonical_digest": "5569c2d739c930e141f0399fa99f33b20084c4b229f70bb2d971af04ec7a2807",
   "external_operations": [
     {
       "status": "cancel",

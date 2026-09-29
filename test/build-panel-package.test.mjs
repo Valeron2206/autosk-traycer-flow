@@ -2511,22 +2511,35 @@ async function modulesWithReasons() {
   return found;
 }
 
-test("the package's list of host reasons no graph row carries is derived from the modules' exports and the graph, and each module has an owner (ADR-109)", async () => {
+test("the package's list of host reasons no graph row carries is derived from the modules' exports and the graph, with known members, and each module has an owner (ADR-109, review L5)", async () => {
   const graph = JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
   const rows = new Set(graph.recovery.map((row) => row.reason));
-  const { APPLY_STOPS } = await import("../src/host/delta-driver.mjs");
-  const derived = [];
-  for (const [file, reasons] of await modulesWithReasons()) {
-    // Two modules map their names by contract instead: the approved delta's through the map of §9, and the epic staging's
-    // `aggregate_failed`, which epic-staging §8 says is `aggregate_verify_failed`.
-    const missing = reasons.filter((reason) => !rows.has(reason) && !(file === "approved-delta.mjs" && reason in APPLY_STOPS)
-      && !(file === "epic-staging.mjs" && reason === "aggregate_failed"));
-    if (missing.length > 0) derived.push({ module: `src/host/${file}`, reasons: missing.sort() });
+  const exported = new Map();
+  for (const [file, reasons] of await modulesWithReasons()) exported.set(`src/host/${file}`, reasons);
+  const gaps = new Map((await hostReasonGaps(graph)).map((gap) => [gap.module, gap]));
+  // Expected, computed from the graph and the exports alone: a name with no row is a gap, except the two the contracts map — every
+  // approved-delta name but the one raised by nothing, and epic-staging's aggregate_failed.
+  const mapped = new Set(["scope_violation", "untracked_collision", "ignored_collision", "foreign_ref_movement", "indeterminate_post_state", "reflog_ambiguous", "inherited_git_env", "state_identity_collision", "unreviewed_bytes", "containment_mismatch", "delta_stale", "aggregate_failed"]);
+  for (const [module, reasons] of exported) {
+    const expected = reasons.filter((reason) => !rows.has(reason) && !(mapped.has(reason) && ["src/host/approved-delta.mjs", "src/host/epic-staging.mjs"].includes(module))).sort();
+    assert.deepEqual([...(gaps.get(module)?.reasons ?? [])], expected, module);
   }
-  assert.deepEqual(await hostReasonGaps(graph), derived.map((entry) => ({ ...entry, owner: HOST_REASON_OWNERS[entry.module] })));
-  assert.deepEqual(Object.keys(HOST_REASON_OWNERS).sort(), derived.map((entry) => entry.module).sort(), "an owner for a module that has nothing to list, or none for one that does");
-  for (const entry of derived) assert.match(HOST_REASON_OWNERS[entry.module], /^#\d+/u, entry.module);
-  assert.ok(derived.length >= 8, "the measured list shrank: a module was mapped and this test was not told");
+  // Known members, so that a wrong exclusion rule cannot pass by agreeing with itself.
+  assert.deepEqual([...gaps.get("src/host/approved-delta.mjs").reasons], ["dirty_worktree"]);
+  assert.equal(gaps.has("src/host/epic-staging.mjs"), false);
+  assert.equal(gaps.has("src/host/planning-publication.mjs"), false);
+  assert.equal(gaps.get("src/host/model-result.mjs").reasons.length, 13);
+  assert.equal(gaps.get("src/host/alignment-gates.mjs").reasons.length, 4);
+  // A code a driver raises that the export does not list: the Ticket step's temporary index (`composeBase`).
+  assert.deepEqual([...gaps.get("src/host/execution-base-driver.mjs").reasons], ["state_identity_collision"]);
+  assert.match(readFileSync(path.join(ROOT, "src/host/execution-base-driver.mjs"), "utf8"), /assertIndexOutsideProject\(/u);
+  // Owners: every listed module has one, and quick-flow's is the matrix's owner of the quick_classification domain.
+  const matrix = JSON.parse(readFileSync(path.join(ROOT, "resources/program-capabilities/matrix.v1.json"), "utf8"));
+  const quick = matrix.predicate_domains.find((domain) => domain.domain === "quick_classification").owner_issues;
+  assert.deepEqual(quick, [4]);
+  assert.match(gaps.get("src/host/quick-flow.mjs").owner, /^#4/u);
+  assert.deepEqual(Object.keys(HOST_REASON_OWNERS).sort(), [...gaps.keys()].sort(), "an owner for a module that has nothing to list, or none for one that does");
+  for (const gap of gaps.values()) assert.match(gap.owner, /^#\d+/u, gap.module);
 });
 
 test("a module whose reasons the graph does not carry and whose owner is unnamed is refused, and a reason that gains a row leaves the list (ADR-109)", async () => {
@@ -2545,6 +2558,7 @@ test("the package lists each host module's reasons without a graph row, with its
   for (const entry of await hostReasonGaps(graph)) {
     assert.ok(text.includes(`\`${entry.module}\` (owner ${entry.owner}): ${entry.reasons.map((reason) => `\`${reason}\``).join(", ")}`), entry.module);
   }
-  assert.match(text, /approved delta's twelve names are mapped/u);
+  assert.match(text, /[Ee]leven of the approved delta's twelve names are mapped/u);
+  assert.match(text, /`dirty_worktree`[^\n]*raised by nothing/u);
   assert.match(text, /`custody_request_invalid`/u);
 });
