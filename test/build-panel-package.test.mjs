@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 
-import { FULL_TEXT, ROOT, buildPackage, contractOutline, measureContracts, namesRefusal, panelRecords, testSummary } from "../scripts/build-panel-package.mjs";
+import { FULL_TEXT, HOST_REASON_OWNERS, ROOT, buildPackage, contractOutline, hostReasonGaps, measureContracts, namesRefusal, panelRecords, testSummary } from "../scripts/build-panel-package.mjs";
 import { MEASURER_FILES } from "../scripts/lib/seam-engine-gate.mjs";
 import { bindSource, digestOf, sourceDrift } from "../scripts/lib/produced-source.mjs";
 import { PANEL_BY_ROUND, panelVerdicts, validatePanelRound } from "../scripts/validate-design-candidate.mjs";
@@ -2497,4 +2497,54 @@ test("§5 names the acceptance rules no code computes, and measures that no v1 p
   assert.doesNotMatch(called, /so no v1 path reaches it/u);
   assert.doesNotMatch(called, /v1 has one acceptance authority, the person's signature/u);
   assert.match(called, phrase("nothing else reaches those steps; and `autoPolicyAcceptance`, the binding a pinned auto-policy is held to, has callers outside tests: `src/host/somewhere.mjs`;"));
+});
+
+// --- debt 13a (ADR-109): the host modules whose PARK_REASONS the graph carries no row for, listed and held ------------
+
+/** The modules under src/host that export a `PARK_REASONS`, read from the modules and not from a list. */
+async function modulesWithReasons() {
+  const found = [];
+  for (const file of readdirSync(path.join(ROOT, "src/host")).filter((entry) => entry.endsWith(".mjs")).sort()) {
+    const exported = await import(path.join(ROOT, "src/host", file));
+    if (Array.isArray(exported.PARK_REASONS)) found.push([file, [...exported.PARK_REASONS]]);
+  }
+  return found;
+}
+
+test("the package's list of host reasons no graph row carries is derived from the modules' exports and the graph, and each module has an owner (ADR-109)", async () => {
+  const graph = JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+  const rows = new Set(graph.recovery.map((row) => row.reason));
+  const { APPLY_STOPS } = await import("../src/host/delta-driver.mjs");
+  const derived = [];
+  for (const [file, reasons] of await modulesWithReasons()) {
+    // Two modules map their names by contract instead: the approved delta's through the map of §9, and the epic staging's
+    // `aggregate_failed`, which epic-staging §8 says is `aggregate_verify_failed`.
+    const missing = reasons.filter((reason) => !rows.has(reason) && !(file === "approved-delta.mjs" && reason in APPLY_STOPS)
+      && !(file === "epic-staging.mjs" && reason === "aggregate_failed"));
+    if (missing.length > 0) derived.push({ module: `src/host/${file}`, reasons: missing.sort() });
+  }
+  assert.deepEqual(await hostReasonGaps(graph), derived.map((entry) => ({ ...entry, owner: HOST_REASON_OWNERS[entry.module] })));
+  assert.deepEqual(Object.keys(HOST_REASON_OWNERS).sort(), derived.map((entry) => entry.module).sort(), "an owner for a module that has nothing to list, or none for one that does");
+  for (const entry of derived) assert.match(HOST_REASON_OWNERS[entry.module], /^#\d+/u, entry.module);
+  assert.ok(derived.length >= 8, "the measured list shrank: a module was mapped and this test was not told");
+});
+
+test("a module whose reasons the graph does not carry and whose owner is unnamed is refused, and a reason that gains a row leaves the list (ADR-109)", async () => {
+  const graph = JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+  const before = await hostReasonGaps(graph);
+  const model = before.find((entry) => entry.module === "src/host/model-result.mjs");
+  const withRow = { ...graph, recovery: [...graph.recovery, { reason: model.reasons[0], parks_at: ["human"], resume_targets: ["human"] }] };
+  const after = await hostReasonGaps(withRow);
+  assert.deepEqual(after.find((entry) => entry.module === model.module).reasons, model.reasons.slice(1));
+  await assert.rejects(() => hostReasonGaps(graph, { owners: {} }), /names no owner/u);
+});
+
+test("the package lists each host module's reasons without a graph row, with its owner, and says approved-delta's are mapped (ADR-109)", async () => {
+  const { text } = await build();
+  const graph = JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+  for (const entry of await hostReasonGaps(graph)) {
+    assert.ok(text.includes(`\`${entry.module}\` (owner ${entry.owner}): ${entry.reasons.map((reason) => `\`${reason}\``).join(", ")}`), entry.module);
+  }
+  assert.match(text, /approved delta's twelve names are mapped/u);
+  assert.match(text, /`custody_request_invalid`/u);
 });

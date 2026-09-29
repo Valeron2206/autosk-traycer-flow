@@ -38,10 +38,25 @@
  *
  * `git(args, { env, stdin })` takes a standard input for `hash-object`, which
  * writes a commit again from the bytes the recipe holds.
+ *
+ * Every refusal of the apply reaches the graph as a stop it carries at
+ * `apply_staging` (debt 13a, R9-3, ADR-109). The approved delta's twelve
+ * names (`approved-delta.md` §9) are the contract's vocabulary, and the graph
+ * has four stops for this step that an apply can report: `delta_stale`,
+ * `receipt_missing`, `environment_failure` and `planning_ref_capability_missing`.
+ * `APPLY_STOPS` maps each name to its stop, once for a refusal raised before
+ * the ref moves (`before`, thrown) and once for a proof that fails on the
+ * result the apply returns (`after`, recorded in the receipt); `applyDelta`
+ * throws the stop with the contract's name as `details.cause`, `applyOutcome`
+ * names the stop of a receipt, and `applyWithOutcome` is what a step body calls:
+ * a refusal comes back as `stop`, the value the graph's predicates read as
+ * `apply_outcome`, and is never thrown into the daemon to become a park with no
+ * reason, which the factory's `admit` lets re-enter the step. What is thrown
+ * past it is a host invariant (`custody_request_invalid`, no task's state).
  */
 import { createHash } from 'node:crypto';
 
-import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
+import { FlowError, demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 import {
   collisionErrors,
@@ -52,6 +67,45 @@ import {
 } from './approved-delta.mjs';
 import { NO_REF_CUSTODY, askCustody, custodyIdentity } from './ref-custody.mjs';
 import { assertStagingRef, readRef, reflogDepth, reflogNewest } from './staging-driver.mjs';
+
+/**
+ * Where each of the approved delta's twelve names (`approved-delta.md` §9) lands at `apply_staging`.
+ *
+ * `before`: the stop of a refusal raised before the staging ref moves, thrown by `applyDelta` with the contract's name as
+ * `cause`. `after`: the stop of a proof that fails on the result the apply returns, which the receipt records as `prepared`
+ * (`applyOutcome`). `null` is a phase the name is not raised in. A delta that no longer applies as approved is `delta_stale`;
+ * the environment the apply runs in — an inherited Git variable, a temporary index inside the project, a file of the
+ * operator's in the way — is `environment_failure`, no verdict on the delta, and a resume applies again once it is put
+ * right; what the ref or the result shows after the helper was asked is `receipt_missing`, the line and the receipts no
+ * longer agreeing. `dirty_worktree` is raised by nothing on this path (`worktreeErrors` has no caller and the apply runs
+ * in a temporary index): its `before` is `null` and the test that says so is the proof.
+ */
+export const APPLY_STOPS = immutable({
+  delta_stale: { before: 'delta_stale', after: null },
+  scope_violation: { before: 'delta_stale', after: 'receipt_missing' },
+  containment_mismatch: { before: 'delta_stale', after: 'receipt_missing' },
+  unreviewed_bytes: { before: null, after: 'receipt_missing' },
+  untracked_collision: { before: 'environment_failure', after: null },
+  ignored_collision: { before: 'environment_failure', after: null },
+  inherited_git_env: { before: 'environment_failure', after: null },
+  state_identity_collision: { before: 'environment_failure', after: null },
+  dirty_worktree: { before: null, after: null },
+  foreign_ref_movement: { before: null, after: 'receipt_missing' },
+  indeterminate_post_state: { before: null, after: 'receipt_missing' },
+  reflog_ambiguous: { before: null, after: 'receipt_missing' },
+});
+
+/** The stops of the graph at `apply_staging` that an apply reports; the anchor's own stop, which an apply never raises, is not among them. */
+export const APPLY_STOP_REASONS = immutable(['delta_stale', 'receipt_missing', 'environment_failure', 'planning_ref_capability_missing']);
+
+/** Movement is named before content when a result fails on both: a ref nobody can vouch for outranks a byte mismatch. */
+const MOVEMENT_NAMES = immutable(['foreign_ref_movement', 'indeterminate_post_state', 'reflog_ambiguous']);
+
+/** A refusal raised inside the apply, made the stop the graph carries: the contract's name becomes the `cause`. */
+function asStop(error) {
+  if (!(error instanceof FlowError) || !Object.hasOwn(APPLY_STOPS, error.code) || APPLY_STOPS[error.code].before === null) return error;
+  return new FlowError(APPLY_STOPS[error.code].before, error.message, { ...error.details, cause: error.code });
+}
 
 /** One git invocation. A command that could not run says nothing about the product. */
 async function ask(git, args, options = {}) {
@@ -228,7 +282,7 @@ const SAFE_EMAIL = /^[^<>\n\0@\s]+@[^<>\n\0@\s]+$/u;
 function assertAuthor(author) {
   demand(author !== null && typeof author === 'object' && typeof author.name === 'string' && SAFE_NAME.test(author.name)
     && typeof author.email === 'string' && SAFE_EMAIL.test(author.email)
-    && typeof author.date === 'string' && DATE.test(author.date), 'cas_conflict',
+    && typeof author.date === 'string' && DATE.test(author.date), 'custody_request_invalid',
   'The apply commits under a host identity: a name, an email and a "<seconds> <zone>" date', {});
   return Object.freeze({ name: author.name, email: author.email, date: author.date });
 }
@@ -236,7 +290,7 @@ function assertAuthor(author) {
 /** The recipe journal: something that can say what it holds and hold what it is given. */
 function assertRecipes(recipes) {
   demand(recipes !== null && typeof recipes === 'object' && typeof recipes.load === 'function' && typeof recipes.save === 'function',
-    'cas_conflict', 'An apply is journaled before it asks the helper, and no recipe journal was given', {});
+    'custody_request_invalid', 'An apply is journaled before it asks the helper, and no recipe journal was given', {});
   return recipes;
 }
 
@@ -309,9 +363,23 @@ async function newestReflogMessage(git, ref) {
  */
 async function movementOf(git, held, base) {
   if (held === null) return 'unrelated';
-  if ((await git(['merge-base', '--is-ancestor', held, base])).code === 0) return 'behind';
-  if ((await git(['merge-base', '--is-ancestor', base, held])).code === 0) return 'beyond';
+  if (await isAncestor(git, held, base)) return 'behind';
+  if (await isAncestor(git, base, held)) return 'beyond';
   return 'unrelated';
+}
+
+/**
+ * Whether `older` is an ancestor of `newer`. `merge-base --is-ancestor` answers with its exit: 0 is yes and 1 is no, and
+ * any other exit is git failing — a locked repository, a missing object — which says nothing about where the ref went and
+ * is an environment failure with the command and a bounded stderr (#280 carry, the rule F4 of 12g gave the reflog reads).
+ */
+async function isAncestor(git, older, newer) {
+  const args = ['merge-base', '--is-ancestor', older, newer];
+  const result = await git(args);
+  if (result.code === 0) return true;
+  if (result.code === 1) return false;
+  return demand(false, 'environment_failure', `git merge-base exited ${result.code}`,
+    { args: immutable([...args]), stderr: (result.stderr ?? '').trim().slice(0, 200) });
 }
 
 /**
@@ -329,24 +397,8 @@ function refuseRecipe(cause, details) {
   demand(false, 'receipt_missing', 'The recorded recipe cannot vouch for this apply: the receipts cannot be restored from it', { cause, ...details });
 }
 
-/**
- * Applies one approved delta to the staging ref.
- *
- * The order is the one the contract requires: revalidate against the exact
- * base, refuse a collision rather than clear it, read where the staging ref is
- * (a ref that is neither the base nor this operation's own commit is refused
- * before anything is written), compose, record the recipe of the commit,
- * ask the helper to advance the ref by compare-and-swap under the operation's
- * identity, and read back what the tree holds. Nothing here resolves a
- * conflict; a conflict is a refusal.
- *
- * `author` is the host identity the commit is made under — a name, an email and
- * a git date — recorded in the recipe with the message, so it is used once, when
- * the recipe is made: a retry regenerating either changes nothing (no post-crash
- * call regenerates author data, dates or the message; `epic-planning-ref.md` §8).
- * `base` is the recorded staging base, the same one on a retry.
- */
-export async function applyDelta(git, {
+/** The apply itself: refusals leave it under the contract's names or as stops; `applyDelta` makes every one a stop. */
+async function applyInside(git, {
   custody = NO_REF_CUSTODY,
   recipes,
   author,
@@ -386,10 +438,14 @@ export async function applyDelta(git, {
   // The recipe under this apply's scoped key is this apply's by construction; one that says otherwise is a journal
   // that cannot vouch for it (a line edited, or read back wrong), and the receipt cannot be restored from it.
   const key = applyKey({ ref, delta, base });
+  // The pair the request is made under is derived once, from the key: a recipe found in the journal is checked against it
+  // and the request never reads it back from the recipe (#280 carry).
+  const identity = custodyIdentity(key, 'advance_staging');
   const recorded = await journal.load(key);
   if (recorded !== null) {
     if (!(recorded.schema === RECIPE_SCHEMA && recorded.apply_key === key && recorded.delta_digest === delta.delta_digest
-      && recorded.ref === ref && recorded.base_commit_oid === base.commit_oid && recorded.base_tree_oid === base.tree_oid)) {
+      && recorded.ref === ref && recorded.base_commit_oid === base.commit_oid && recorded.base_tree_oid === base.tree_oid
+      && recorded.owner_operation_id === identity.owner_operation_id && recorded.request_id === identity.request_id)) {
       refuseRecipe('recipe', { operation_id: delta.operation_id });
     }
   }
@@ -424,7 +480,7 @@ export async function applyDelta(git, {
       tree_oid: tree,
       message,
       author: hostIdentity,
-      ...custodyIdentity(key, 'advance_staging'),
+      ...identity,
       reflog_before: await reflogDepth(git, ref),
       reflog_head: await reflogHead(git, ref),
     };
@@ -439,7 +495,7 @@ export async function applyDelta(git, {
   const commit = recipe.expected_commit_oid;
   // What the helper writes when it moves the staging ref (`epic-planning-ref.md`): a ref at this operation's commit
   // whose newest reflog entry is somebody else's is bytes written by another hand, and is not adopted.
-  const helperSaid = `autosk-flow staging ${recipe.owner_operation_id}`;
+  const helperSaid = `autosk-flow staging ${identity.owner_operation_id}`;
 
   let swapped = held === commit;
   let recovered = swapped;
@@ -454,7 +510,7 @@ export async function applyDelta(git, {
     // observed this operation's own commit is the swap already done.
     const movement = await askCustody(custody, 'advance_staging',
       [{ operation: 'update', ref, expected_old_oid: base.commit_oid, new_oid: commit }],
-      { owner_operation_id: recipe.owner_operation_id, request_id: recipe.request_id });
+      identity);
     swapped = movement.status === 'committed';
     if (!swapped) {
       refused = movement.ref_observations[0].observed_old_oid;
@@ -493,6 +549,31 @@ export async function applyDelta(git, {
 }
 
 /**
+ * Applies one approved delta to the staging ref.
+ *
+ * The order is the one the contract requires: revalidate against the exact
+ * base, refuse a collision rather than clear it, read where the staging ref is
+ * (a ref that is neither the base nor this operation's own commit is refused
+ * before anything is written), compose, record the recipe of the commit,
+ * ask the helper to advance the ref by compare-and-swap under the operation's
+ * identity, and read back what the tree holds. Nothing here resolves a
+ * conflict; a conflict is a refusal.
+ *
+ * `author` is the host identity the commit is made under — a name, an email and
+ * a git date — recorded in the recipe with the message, so it is used once, when
+ * the recipe is made: a retry regenerating either changes nothing (no post-crash
+ * call regenerates author data, dates or the message; `epic-planning-ref.md` §8).
+ * `base` is the recorded staging base, the same one on a retry.
+ */
+export async function applyDelta(git, options) {
+  try {
+    return await applyInside(git, options);
+  } catch (error) {
+    throw asStop(error);
+  }
+}
+
+/**
  * The integration receipt: the result, and what #8's guards make of it.
  *
  * Durable on purpose. A receipt that exists only while the process does cannot
@@ -509,4 +590,50 @@ export function integrationReceipt(delta, result) {
     phase: errors.length === 0 && result.applied ? 'ref_advanced' : 'prepared',
     errors: immutable(errors.map(Object.freeze)),
   });
+}
+
+/**
+ * The stop a receipt stops the apply at, or null when its proof holds (debt 13a, R9-3).
+ *
+ * The receipt records the errors of `integrationProof`, and a receipt with any is `prepared`, not `ref_advanced`: the line
+ * and the receipts do not agree, and the name the graph carries for that is `receipt_missing`, the contract's name for the
+ * failure its `cause`. Movement is named before content. A name the map has no `after` for is still that stop: an error in
+ * a receipt never leaves the apply without one.
+ */
+export function applyOutcome(receipt) {
+  const names = [...new Set(receipt.errors.map((error) => error.reason))];
+  if (names.length === 0) return null;
+  const cause = MOVEMENT_NAMES.find((name) => names.includes(name)) ?? names[0];
+  return Object.freeze({
+    reason: Object.hasOwn(APPLY_STOPS, cause) ? (APPLY_STOPS[cause].after ?? 'receipt_missing') : 'receipt_missing',
+    cause,
+    causes: immutable(names),
+  });
+}
+
+/**
+ * The apply as a step body runs it: the outcome it reports to the graph, whatever the refusal.
+ *
+ * A stop the apply raises, or one its receipt records, comes back as `stop` — `{ reason, cause }`, whose `reason` is the
+ * fact `apply_outcome` that the predicates of the `apply_staging` edges read — and the step ends normally, so the flow
+ * parks with that reason. A refusal thrown out of the step instead would fail it, and the daemon would park with no
+ * reason at all, which `admit` lets re-enter the same step: a retry, forbidden for foreign or indeterminate movement
+ * (`approved-delta.md` §6). Only a host invariant (`custody_request_invalid`), a fault of the caller's own arguments raised
+ * before anything is written or asked, and a defect that is no FlowError, are thrown past it.
+ */
+export async function applyWithOutcome(git, options) {
+  try {
+    const result = await applyDelta(git, options);
+    const receipt = integrationReceipt(options.delta, result);
+    return Object.freeze({ result, receipt, stop: applyOutcome(receipt) });
+  } catch (error) {
+    if (error instanceof FlowError && APPLY_STOP_REASONS.includes(error.code)) {
+      return Object.freeze({
+        result: null,
+        receipt: null,
+        stop: Object.freeze({ reason: error.code, cause: error.details?.cause ?? null, causes: immutable(error.details?.cause ? [error.details.cause] : []) }),
+      });
+    }
+    throw error;
+  }
 }

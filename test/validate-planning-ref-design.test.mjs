@@ -2331,11 +2331,11 @@ test("an advance to the commit the staging ref already holds is not an advance (
   assert.match(errors.join("\n"), /staging value shape/u);
 });
 
-test("the contract states why a malformed host request refuses as cas_conflict (review L2)", () => {
+test("the contract states why a malformed host request refuses as custody_request_invalid and not as cas_conflict (review L2, debt 13a)", () => {
   const staging = readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "..", "..", "docs/contracts/epic-staging.md"), "utf8");
-  assert.match(staging, /A request the host cannot form[^\n]*`cas_conflict`/u);
+  assert.match(staging, /A request the host cannot form[^\n]*`custody_request_invalid`/u);
   const contract = fixture()["docs/contracts/epic-planning-ref.md"];
-  assert.match(contract, /A request the host cannot form[^\n]*`cas_conflict`/u);
+  assert.match(contract, /A request the host cannot form[^\n]*`custody_request_invalid`/u);
   // L6: no stale sentence has the host advance a protected ref itself.
   assert.doesNotMatch(contract, /host-owned operation that creates the approved commit, advances the private ref/u);
   assert.match(contract, /single object and ref database for target, planning, candidate, audit and staging refs|object database for target, planning, candidate, audit and staging refs/u);

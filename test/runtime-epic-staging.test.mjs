@@ -246,7 +246,7 @@ test("the swap can still conflict, because the world moves between read and writ
   assert.equal(conflict.reason, "cas_conflict");
   assert.throws(
     () => applySwap(state(), { expected_old_oid: oid("9"), swapped: true }),
-    (error) => error.code === "cas_conflict",
+    (error) => error.code === "custody_request_invalid",
   );
 });
 

@@ -374,8 +374,8 @@ test("with no helper the planning ref is not advanced and the host writes nothin
 test("an advance made under no operation identity is refused before any request (debt 12g)", async (t) => {
   const { git, parent, tree, keepalive, custody } = await repository(t);
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
-  await assert.rejects(() => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive }), code("cas_conflict"));
-  await assert.rejects(() => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: null, commit: commit.oid }), code("cas_conflict"));
+  await assert.rejects(() => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive }), code("custody_request_invalid"));
+  await assert.rejects(() => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: null, commit: commit.oid }), code("custody_request_invalid"));
   assert.equal(custody.requests.length, 0);
 });
 
@@ -384,11 +384,11 @@ test("an advance with no keepalive, or outside the helper's grammar, is refused 
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
   await assert.rejects(
     () => advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid }),
-    code("cas_conflict"),
+    code("custody_request_invalid"),
   );
   await assert.rejects(
     () => advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: "refs/autosk/planning/e-1", expectedParent: parent, commit: commit.oid, keepalive }),
-    code("cas_conflict"),
+    code("custody_request_invalid"),
   );
   assert.equal(custody.requests.length, 0);
 });

@@ -11,7 +11,7 @@ import { execFile } from "node:child_process";
 import * as nodeFs from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -35,6 +35,8 @@ import { memoryRecipes } from "./support/memory-recipes.mjs";
 
 const execFileAsync = promisify(execFile);
 const code = (name) => (error) => error.code === name;
+/** A stop of the graph at apply_staging, with the contract's own name as its cause (debt 13a, R9-3, ADR-109). */
+const stop = (name, cause) => (error) => error.code === name && error.details?.cause === cause;
 
 // The identity of the host's commit (debt 12g): fixed, so the same delta on the same base is the same commit.
 const AUTHOR = Object.freeze({ name: "autosk flow", email: "flow@autosk.invalid", date: "1700000000 +0000" });
@@ -303,7 +305,7 @@ test("a delta that does not validate is refused at apply time", async (t) => {
   const outside = delta(base, [{ path: "docs/a.md", status: "A", new_blob: oid, new_mode: "100644" }]);
   await assert.rejects(
     () => applyDelta(git, { custody, delta: outside, realpath, ref, base, indexFile, message: "T-1" }),
-    code("scope_violation"),
+    stop("delta_stale", "scope_violation"),
   );
   assert.equal(await readRef(git, ref), base.commit_oid);
 });
@@ -319,7 +321,7 @@ test("an untracked file at an approved path refuses the apply and is not destroy
 
   await assert.rejects(
     () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1", worktree }),
-    code("untracked_collision"),
+    stop("environment_failure", "untracked_collision"),
   );
   // Fail-closed, and the file is still theirs.
   assert.equal(await readFile(path.join(root, "src/a.ts"), "utf8"), "someone's uncommitted work\n");
@@ -332,7 +334,7 @@ test("an inherited Git environment is refused rather than cleaned in place", asy
   const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
   await assert.rejects(
     () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1", env: { GIT_DIR: "/elsewhere/.git" } }),
-    code("inherited_git_env"),
+    stop("environment_failure", "inherited_git_env"),
   );
   assert.throws(() => assertCleanEnvironment({ GIT_INDEX_FILE: "/tmp/x" }), code("inherited_git_env"));
   assert.doesNotThrow(() => assertCleanEnvironment({ PATH: "/usr/bin" }));
@@ -489,7 +491,7 @@ test("an apply refuses a ref that is not an Epic's staging ref, and moves nothin
   for (const ref of ["refs/heads/main", "refs/autosk/epics/e-1/staging", `refs/autosk/epics/${"a".repeat(64)}/planning`]) {
     await assert.rejects(
       () => applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" }),
-      code("cas_conflict"),
+      code("custody_request_invalid"),
       ref,
     );
   }
@@ -658,7 +660,7 @@ test("in a SHA-256 repository a delta naming a 40-hex blob is refused as the del
   const narrow = delta(base, [{ path: "src/a.ts", status: "A", new_blob: "b".repeat(40), new_mode: "100644" }],
     { candidate_tree_oid: "c".repeat(64) });
   await assert.rejects(() => applyDelta(git, { custody, delta: narrow, realpath, ref, base, indexFile, message: "T-1" }),
-    code("containment_mismatch"));
+    stop("delta_stale", "containment_mismatch"));
   assert.equal(await readRef(git, ref), base.commit_oid);
   // The fixture makes the staging ref itself now, so nothing at all was asked of the helper.
   assert.deepEqual(custody.requests.map((request) => request.action), []);
@@ -1131,11 +1133,11 @@ test("an apply with no recipe journal, or no host identity, is refused before an
   const { git, ref, base, indexFile, custody, d } = await seeded(t);
   const depth = await reflogDepth(git, ref);
   for (const recipes of [undefined, null, {}, { load: async () => null }, { save: async () => {} }]) {
-    await assert.rejects(() => applyDeltaWith(git, { custody, recipes, author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" }), code("cas_conflict"));
+    await assert.rejects(() => applyDeltaWith(git, { custody, recipes, author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" }), code("custody_request_invalid"));
   }
   // Git refuses a date of fewer than nine digits, so it is refused here rather than as a failed git.
   for (const author of [undefined, null, {}, { ...AUTHOR, date: "yesterday" }, { ...AUTHOR, date: "12345678 +0000" }, { ...AUTHOR, name: "a<b" }, { ...AUTHOR, email: "no at sign" }]) {
-    await assert.rejects(() => applyDeltaWith(git, { custody, recipes: memoryRecipes(), author, delta: d, realpath, ref, base, indexFile, message: "T-1" }), code("cas_conflict"), JSON.stringify(author));
+    await assert.rejects(() => applyDeltaWith(git, { custody, recipes: memoryRecipes(), author, delta: d, realpath, ref, base, indexFile, message: "T-1" }), code("custody_request_invalid"), JSON.stringify(author));
   }
   assert.equal(custody.requests.length, 0);
   assert.equal(await reflogDepth(git, ref), depth);
@@ -1570,4 +1572,308 @@ test("a git that cannot run is an environment failure that names the command, `-
   assert.equal(tree?.code, "environment_failure");
   assert.equal(tree.message, "git write-tree exited 128");
   assert.equal(custody.requests.length, 0);
+});
+
+// --- debt 13a (R9-3, R9-9, the #280 carry) ---------------------------------------
+
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const graphOf = () => JSON.parse(readFileSync(path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json"), "utf8"));
+/** The park reasons the graph's edges out of apply_staging carry, from the edges and not from a list. */
+const applyEdgeReasons = (graph) => {
+  const guards = new Map(graph.guards.map((guard) => [guard.id, guard]));
+  return new Set(graph.transitions.filter((edge) => edge.from === "apply_staging")
+    .flatMap((edge) => edge.guards.map((id) => guards.get(id).park_reason)));
+};
+
+test("a git that fails while the staging ref's place is read is an environment failure, not `unrelated` (#280 carry A)", async (t) => {
+  const { git, root, ref, base, indexFile, custody, d } = await seeded(t);
+  const foreign = (await git(["commit-tree", base.tree_oid, "-p", base.commit_oid, "-m", "foreign"])).stdout.trim();
+  await git(["update-ref", "-m", "someone", ref, foreign]);
+  const stderr = `fatal: ${"x".repeat(400)}`;
+  // Exit 1 is git's "not an ancestor"; any other exit is git failing. Either of the two questions can fail.
+  for (const [failsAt, exit] of [[0, 128], [1, 128], [0, 2], [1, 129]]) {
+    let asked = 0;
+    const failing = async (args, options) => {
+      if (args[0] === "merge-base") {
+        const now = asked;
+        asked += 1;
+        if (now === failsAt) return { code: exit, stdout: "", stderr };
+        return { code: 1, stdout: "", stderr: "" };
+      }
+      return git(args, options);
+    };
+    const error = await applyDeltaWith(failing, { recipes: journals.get(git), author: AUTHOR, custody, delta: d, realpath, ref, base, indexFile, message: "T-1" })
+      .then(() => null, (thrown) => thrown);
+    assert.equal(error?.code, "environment_failure", `${failsAt}/${exit}: ${error?.code} ${error?.details?.movement}`);
+    assert.equal(error.message, "git merge-base exited " + exit);
+    assert.deepEqual([...error.details.args].slice(0, 2), ["merge-base", "--is-ancestor"]);
+    assert.equal(error.details.stderr.length, 200, "the stderr is bounded");
+  }
+  assert.equal(custody.requests.length, 0);
+  // A plain "not an ancestor" is still a movement the graph names: the ref is beyond nothing and behind nothing.
+  const error = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" }).then(() => null, (thrown) => thrown);
+  assert.equal(error?.code, "receipt_missing");
+  assert.equal(error.details.movement, "beyond");
+  assert.ok(root);
+});
+
+test("a recipe whose owner or request identity is not the one this apply derives is refused as receipt_missing, and the request carries the derived pair (#280 carry B)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const recipes = memoryRecipes();
+  const options = { recipes, author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" };
+  await assert.rejects(() => applyDeltaWith(git, { ...options, custody: dyingBeforeCommit }), /the host died/u);
+  const key = keyOf(d, ref, base);
+  const honest = await recipes.load(key);
+  const derived = custodyModule.custodyIdentity(key, "advance_staging");
+  assert.equal(honest.owner_operation_id, derived.owner_operation_id);
+  const stranger = custodyModule.custodyIdentity("another-operation", "advance_staging");
+  for (const [what, fields] of [
+    ["owner_operation_id", { owner_operation_id: stranger.owner_operation_id }],
+    ["request_id", { request_id: stranger.request_id }],
+    ["both", stranger],
+    ["swapped", { owner_operation_id: derived.request_id, request_id: derived.owner_operation_id }],
+    ["not a uuid", { request_id: "nope" }],
+    ["absent", { owner_operation_id: undefined }],
+  ]) {
+    recipes.held.set(key, { ...honest, ...fields });
+    const error = await applyDeltaWith(git, { ...options, custody }).then(() => null, (thrown) => thrown);
+    assert.equal(error?.code, "receipt_missing", what);
+    assert.equal(error.details.cause, "recipe", what);
+  }
+  assert.equal(custody.requests.length, 0, "the helper was asked over a recipe whose pair is not this apply's");
+  recipes.held.set(key, honest);
+  await applyDeltaWith(git, { ...options, custody });
+  const [request] = custody.requests;
+  assert.equal(request.owner_operation_id, derived.owner_operation_id);
+  assert.equal(request.request_id, derived.request_id);
+});
+
+test("the recovery of a recipe's own commit names the helper by the derived owner, not by a stored one (#280 carry B)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const recipes = memoryRecipes();
+  const options = { recipes, author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" };
+  await applyDeltaWith(git, { ...options, custody: dyingAfterCommit(custody) }).catch(() => {});
+  const key = keyOf(d, ref, base);
+  const honest = await recipes.load(key);
+  // A stored owner that names another helper message would make the apply adopt a commit under a hand that is not the helper's.
+  recipes.held.set(key, { ...honest, owner_operation_id: custodyModule.custodyIdentity("x", "advance_staging").owner_operation_id });
+  const error = await applyDeltaWith(git, { ...options, custody }).then(() => null, (thrown) => thrown);
+  assert.equal(error?.code, "receipt_missing");
+  assert.equal(error.details.cause, "recipe");
+});
+
+/** Every refusal an apply makes before the ref moves, by the contract's name it starts from (approved-delta §9): the options that provoke it. */
+async function refusalScenarios(t) {
+  const repo = await repository(t);
+  const { git, root, ref, base, indexFile, custody } = repo;
+  const oid = await blob(git, root, "a\n");
+  const d = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const options = { custody, recipes: journals.get(git), author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" };
+  const outside = delta(base, [{ path: "docs/a.md", status: "A", new_blob: oid, new_mode: "100644" }]);
+  const twice = delta(base, [{ path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }, { path: "src/a.ts", status: "A", new_blob: oid, new_mode: "100644" }]);
+  return {
+    repo,
+    options,
+    cases: [
+      ["delta_stale", "delta_stale", { base: { commit_oid: "d".repeat(40), tree_oid: "e".repeat(40) } }],
+      ["delta_stale", "delta_stale", { delta: { ...d, delta_digest: "0".repeat(64) } }],
+      ["scope_violation", "delta_stale", { delta: outside }],
+      ["containment_mismatch", "delta_stale", { delta: twice }],
+      ["untracked_collision", "environment_failure", { worktree: { untracked: ["src/a.ts"], ignored: [] } }],
+      ["ignored_collision", "environment_failure", { worktree: { untracked: [], ignored: ["src/a.ts"] } }],
+      ["inherited_git_env", "environment_failure", { env: { GIT_INDEX_FILE: "/x" } }],
+      ["state_identity_collision", "environment_failure", { indexFile: path.join(root, "apply.index") }],
+    ],
+  };
+}
+
+test("every refusal an apply makes before the ref moves is a stop the graph has at apply_staging, with the contract's name as its cause (R9-3, ADR-109)", async (t) => {
+  const { repo, options, cases } = await refusalScenarios(t);
+  const edges = applyEdgeReasons(graphOf());
+  for (const [name, stopName, overrides] of cases) {
+    const error = await applyDelta(repo.git, { ...options, ...overrides }).then(() => null, (thrown) => thrown);
+    assert.equal(error?.code, stopName, name);
+    assert.equal(error.details.cause, name, name);
+    assert.ok(edges.has(error.code), `${name}: ${error.code} has no edge at apply_staging`);
+  }
+  // Nothing was written or asked: the ref is where it was and the helper heard nothing.
+  assert.equal(await readRef(repo.git, repo.ref), repo.base.commit_oid);
+  assert.equal(repo.custody.requests.length, 0);
+});
+
+test("the map of the contract's twelve names is closed, and each stop it names is one the graph carries at apply_staging (R9-3, ADR-109)", async () => {
+  const { PARK_REASONS } = await import("../src/host/approved-delta.mjs");
+  assert.deepEqual(Object.keys(deltaModule.APPLY_STOPS).sort(), [...PARK_REASONS].sort());
+  const edges = applyEdgeReasons(graphOf());
+  for (const [name, { before, after }] of Object.entries(deltaModule.APPLY_STOPS)) {
+    for (const stopName of [before, after]) {
+      if (stopName !== null) assert.ok(edges.has(stopName), `${name} maps to ${stopName}, which no edge out of apply_staging carries`);
+    }
+  }
+  // What the apply reports is the stops the graph carries at apply_staging except the anchor's, which the apply never raises.
+  assert.deepEqual([...deltaModule.APPLY_STOP_REASONS].sort(), [...edges].filter((reason) => reason !== "blocked_anchor").sort());
+});
+
+test("a refusal of the apply reaches the graph as its stop and never as a reasonless park: what a step body calls returns it, and every name of the map has a scenario (R9-3, ADR-109)", async (t) => {
+  const { repo, options, cases } = await refusalScenarios(t);
+  const covered = new Set();
+  for (const [name, stopName, overrides] of cases) {
+    const outcome = await deltaModule.applyWithOutcome(repo.git, { ...options, ...overrides });
+    assert.equal(outcome.result, null, name);
+    assert.equal(outcome.receipt, null, name);
+    assert.equal(outcome.stop.reason, stopName, name);
+    assert.equal(outcome.stop.cause, name, name);
+    covered.add(name);
+  }
+  // A journal that cannot be read and a helper that is missing are stops too.
+  const noHelper = await deltaModule.applyWithOutcome(repo.git, { ...options, custody: NO_HELPER });
+  assert.equal(noHelper.stop.reason, "planning_ref_capability_missing");
+  const broken = await deltaModule.applyWithOutcome(repo.git, { ...options, recipes: journalAt(failingFs("read", "EACCES"), path.dirname(repo.indexFile) + "/recipes") });
+  assert.equal(broken.stop.reason, "environment_failure");
+  assert.equal(broken.stop.cause, "journal_io");
+  // A recipe that cannot vouch is receipt_missing, by its own cause.
+  const recipes = memoryRecipes();
+  await applyDeltaWith(repo.git, { ...options, recipes, custody: dyingBeforeCommit }).catch(() => {});
+  const key = keyOf(options.delta, options.ref, options.base);
+  recipes.held.set(key, { ...(await recipes.load(key)), delta_digest: "f".repeat(64) });
+  const cannotVouch = await deltaModule.applyWithOutcome(repo.git, { ...options, recipes });
+  assert.equal(cannotVouch.stop.reason, "receipt_missing");
+  assert.equal(cannotVouch.stop.cause, "recipe");
+  for (const [name, { before }] of Object.entries(deltaModule.APPLY_STOPS)) {
+    if (before !== null && name !== "dirty_worktree") assert.ok(covered.has(name), `${name} has no scenario`);
+  }
+});
+
+const NO_HELPER = Object.freeze({});
+
+test("a request the host cannot form is a host invariant, `custody_request_invalid`: it is no stop, no park reason and no vocabulary entry, and a step body does not swallow it (R9-9, ADR-109)", async (t) => {
+  const { repo, options } = await refusalScenarios(t);
+  const error = await deltaModule.applyWithOutcome(repo.git, { ...options, author: { name: "x" }, recipes: memoryRecipes() }).then(() => null, (thrown) => thrown);
+  assert.equal(error?.code, "custody_request_invalid");
+  assert.equal(deltaModule.APPLY_STOP_REASONS.includes("custody_request_invalid"), false);
+  assert.equal(repo.custody.requests.length, 0);
+  const graph = graphOf();
+  assert.equal(graph.recovery.some((row) => row.reason === "custody_request_invalid"), false);
+  assert.equal(graph.guards.some((guard) => guard.park_reason === "custody_request_invalid"), false);
+  const vocabulary = JSON.parse(readFileSync(path.join(ROOT, "resources/refusal-vocabulary/refusal-vocabulary.v1.json"), "utf8"));
+  assert.equal(vocabulary.park_reasons.some((reason) => reason.code === "custody_request_invalid"), false);
+});
+
+test("a result the apply returns whose proof fails is receipt_missing, by the contract's name as its cause; movement outranks content (R9-3, ADR-109)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const other = (await git(["commit-tree", base.tree_oid, "-p", base.commit_oid, "-m", "foreign"])).stdout.trim();
+  // The helper is asked, and the ref has moved under it: git refuses the swap and reports what the ref holds.
+  const racing = { advance_staging: async (request) => { await git(["update-ref", "-m", "someone", ref, other]); return custody.advance_staging(request); } };
+  const foreign = await deltaModule.applyWithOutcome(git, { custody: racing, recipes: journals.get(git), author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  assert.equal(foreign.result.applied, false);
+  assert.equal(foreign.receipt.phase, "prepared");
+  assert.equal(foreign.stop.reason, "receipt_missing");
+  assert.equal(foreign.stop.cause, "foreign_ref_movement");
+  assert.deepEqual([...foreign.stop.causes], ["foreign_ref_movement"]);
+  // The resume re-enters the step and is refused by the movement checks before the helper is asked: it is no retry.
+  const asked = custody.requests.length;
+  const again = await deltaModule.applyWithOutcome(git, { custody, recipes: journals.get(git), author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" });
+  assert.equal(again.stop.reason, "receipt_missing");
+  assert.equal(again.stop.cause, "movement");
+  assert.equal(custody.requests.length, asked);
+});
+
+test("a ref deleted under the apply, and a reflog with more than one entry, are receipt_missing with their own causes (R9-3, ADR-109)", async (t) => {
+  const deleting = await seeded(t);
+  const deletingCustody = { advance_staging: async (request) => { await deleting.git(["update-ref", "-d", deleting.ref]); return deleting.custody.advance_staging(request); } };
+  const gone = await deltaModule.applyWithOutcome(deleting.git, { custody: deletingCustody, recipes: journals.get(deleting.git), author: AUTHOR, delta: deleting.d, realpath, ref: deleting.ref, base: deleting.base, indexFile: deleting.indexFile, message: "T-1" });
+  assert.equal(gone.stop.reason, "receipt_missing");
+  assert.equal(gone.stop.cause, "foreign_ref_movement");
+  assert.deepEqual([...gone.stop.causes].sort(), ["foreign_ref_movement", "indeterminate_post_state", "reflog_ambiguous"]);
+
+  const moving = await seeded(t);
+  const away = (await moving.git(["commit-tree", moving.base.tree_oid, "-p", moving.base.commit_oid, "-m", "away"])).stdout.trim();
+  // The helper commits, and the ref then goes away and comes back under the helper's own message: at the commit, with three entries.
+  const wandering = {
+    advance_staging: async (request) => {
+      const answer = await moving.custody.advance_staging(request);
+      await moving.git(["update-ref", "-m", "x", moving.ref, away]);
+      await moving.git(["update-ref", "-m", `autosk-flow staging ${request.owner_operation_id}`, moving.ref, request.ref_updates[0].new_oid]);
+      return answer;
+    },
+  };
+  const ambiguous = await deltaModule.applyWithOutcome(moving.git, { custody: wandering, recipes: journals.get(moving.git), author: AUTHOR, delta: moving.d, realpath, ref: moving.ref, base: moving.base, indexFile: moving.indexFile, message: "T-1" });
+  assert.equal(ambiguous.result.applied, true);
+  assert.equal(ambiguous.receipt.phase, "prepared");
+  assert.equal(ambiguous.stop.reason, "receipt_missing");
+  assert.equal(ambiguous.stop.cause, "reflog_ambiguous");
+  // A resume recovers the same commit from the recipe and asks nothing: the same stop, never a second request.
+  const asked = moving.custody.requests.length;
+  const resumed = await deltaModule.applyWithOutcome(moving.git, { custody: moving.custody, recipes: journals.get(moving.git), author: AUTHOR, delta: moving.d, realpath, ref: moving.ref, base: moving.base, indexFile: moving.indexFile, message: "T-1" });
+  assert.equal(resumed.stop.cause, "reflog_ambiguous");
+  assert.equal(moving.custody.requests.length, asked);
+});
+
+test("the receipt's own errors map to a stop by the map's `after` column, and an apply with no error has none (R9-3, ADR-109)", () => {
+  const receipt = (...reasons) => ({ errors: reasons.map((reason) => ({ reason })) });
+  assert.equal(deltaModule.applyOutcome(receipt()), null);
+  for (const [reason, cause] of [
+    ["foreign_ref_movement", "foreign_ref_movement"],
+    ["indeterminate_post_state", "indeterminate_post_state"],
+    ["reflog_ambiguous", "reflog_ambiguous"],
+    ["unreviewed_bytes", "unreviewed_bytes"],
+    ["containment_mismatch", "containment_mismatch"],
+    ["scope_violation", "scope_violation"],
+  ]) {
+    const stopped = deltaModule.applyOutcome(receipt(reason));
+    assert.equal(stopped.reason, "receipt_missing", reason);
+    assert.equal(stopped.cause, cause, reason);
+  }
+  // Movement is named before content, whatever order the proof lists them in.
+  assert.equal(deltaModule.applyOutcome(receipt("unreviewed_bytes", "reflog_ambiguous", "containment_mismatch")).cause, "reflog_ambiguous");
+  assert.equal(deltaModule.applyOutcome(receipt("containment_mismatch", "unreviewed_bytes")).cause, "containment_mismatch");
+  // A name the map does not know is still a stop: an error in a receipt never leaves the apply unnamed.
+  assert.equal(deltaModule.applyOutcome(receipt("something_new")).reason, "receipt_missing");
+});
+
+test("a dirty worktree is no refusal of the apply: nothing under src/ calls worktreeErrors or resumeFrom, and the apply runs in a temporary index (R9-3, ADR-109)", async (t) => {
+  const { git, ref, base, indexFile, custody, d } = await seeded(t);
+  const result = await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1", worktree: { dirty: true, linked: true, autostash: true, untracked: [], ignored: [] } });
+  assert.equal(result.applied, true);
+  for (const name of ["worktreeErrors", "resumeFrom"]) {
+    for (const file of readdirSync(path.join(ROOT, "src/host")).filter((entry) => entry.endsWith(".mjs") && entry !== "approved-delta.mjs")) {
+      assert.doesNotMatch(readFileSync(path.join(ROOT, "src/host", file), "utf8"), new RegExp(`\\b${name}\\s*[(,}]`, "u"), `${file} calls ${name}`);
+    }
+  }
+  assert.equal(deltaModule.APPLY_STOPS.dirty_worktree.before, null);
+});
+
+test("approved-delta §9 carries the table of the map, row for row, and says whether a resume re-enters the step (R9-3, ADR-109)", () => {
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/approved-delta.md"), "utf8");
+  const section = contract.slice(contract.indexOf("## 9. Park reasons"), contract.indexOf("## 10."));
+  const rows = section.split("\n").filter((line) => /^\| `/u.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
+  assert.equal(rows.length, Object.keys(deltaModule.APPLY_STOPS).length);
+  for (const cells of rows) {
+    const name = cells[0].replaceAll("`", "");
+    const entry = deltaModule.APPLY_STOPS[name];
+    assert.ok(entry, `${name} is not in the map`);
+    // A cell that names a stop opens with it; one that opens with a dash names none.
+    const stops = (cell) => { const named = /^`([a-z_]+)`/u.exec(cell)?.[1]; return named === undefined ? [] : [named]; };
+    assert.deepEqual(stops(cells[1]), entry.before === null ? [] : [entry.before], `${name} before`);
+    assert.deepEqual(stops(cells[2]), entry.after === null ? [] : [entry.after], `${name} after`);
+    assert.match(cells[3], /re-enters|not raised/u, `${name}: the row does not say whether a resume re-enters the step`);
+  }
+});
+
+test("an apply whose journal's directory cannot be synced does not ask the helper: environment_failure, cause journal_io, the errno (#280 carry C)", async (t) => {
+  const { git, ref, base, indexFile, custody, recipesDir, d } = await seeded(t);
+  for (const errno of ["EISDIR", "EPERM", "EINVAL", "ENOTSUP"]) {
+    const noSync = { ...nodeFs, open: async (file, flags, mode) => {
+      if (file === recipesDir) throw Object.assign(new Error(`${errno}: no directory handle`), { code: errno });
+      return nodeFs.open(file, flags, mode);
+    } };
+    const outcome = await deltaModule.applyWithOutcome(git, { custody, recipes: journalAt(noSync, recipesDir), author: AUTHOR, delta: d, realpath, ref, base, indexFile, message: "T-1" });
+    assert.equal(outcome.stop.reason, "environment_failure", errno);
+    assert.equal(outcome.stop.cause, "journal_io", errno);
+  }
+  // The helper was never asked, so a crash after its commit cannot strand a recipe no one knows to be durable.
+  assert.equal(custody.requests.length, 0);
+  assert.equal(await readRef(git, ref), base.commit_oid);
+  // The resume, on a filesystem that syncs, applies.
+  assert.equal((await applyDelta(git, { custody, delta: d, realpath, ref, base, indexFile, message: "T-1" })).applied, true);
 });

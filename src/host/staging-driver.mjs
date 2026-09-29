@@ -32,7 +32,7 @@ import { NO_REF_CUSTODY, askCustody, custodyIdentity } from './ref-custody.mjs';
  */
 export function epicRefKey(projectRootSha256, epicId) {
   demand(/^[0-9a-f]{64}$/u.test(projectRootSha256 ?? '') && typeof epicId === 'string' && epicId.length > 0,
-    'cas_conflict', 'An Epic ref key needs a project root digest and an Epic id',
+    'custody_request_invalid', 'An Epic ref key needs a project root digest and an Epic id',
     { project_root_sha256: projectRootSha256, epic_id: epicId });
   const canonical = `{"epic_id":${JSON.stringify(epicId)},"project_root_sha256":${JSON.stringify(projectRootSha256)}}`;
   return createHash('sha256').update(`autosk-flow/epic-ref-key/v1\0${canonical}`, 'utf8').digest('hex');
@@ -43,7 +43,7 @@ export function epicRefKey(projectRootSha256, epicId) {
  * never named by a display id: only an `epicRefKey` names it.
  */
 export function stagingRef(key) {
-  demand(/^[0-9a-f]{64}$/u.test(key ?? ''), 'cas_conflict',
+  demand(/^[0-9a-f]{64}$/u.test(key ?? ''), 'custody_request_invalid',
     'A staging ref is named by the Epic ref key, 64 lowercase hex characters', { epic_ref_key: key });
   return `refs/autosk/epics/${key}/staging`;
 }
@@ -58,7 +58,7 @@ export function stagingRef(key) {
  * writer of it, and one that holds no authorization.
  */
 export function assertStagingRef(ref) {
-  demand(typeof ref === 'string' && /^refs\/autosk\/epics\/[0-9a-f]{64}\/staging$/u.test(ref), 'cas_conflict',
+  demand(typeof ref === 'string' && /^refs\/autosk\/epics\/[0-9a-f]{64}\/staging$/u.test(ref), 'custody_request_invalid',
     'The host moves only an Epic\'s private staging ref', { ref });
   return ref;
 }
@@ -129,7 +129,7 @@ export async function reflogNewest(git, ref, format) {
 
 /** The pair one create or one delete of a staging ref is asked under: what it asks, and the record's generation. */
 function requestIdentity(action, ref, generation, oid) {
-  demand(Number.isSafeInteger(generation) && generation >= 0, 'cas_conflict',
+  demand(Number.isSafeInteger(generation) && generation >= 0, 'custody_request_invalid',
     'A staging request is made in a generation of the staging record, a count from zero', { action, generation });
   const key = createHash('sha256').update(`autosk-flow/staging-request-key/v1\0${action}\0${ref}\0${generation}\0${oid}`, 'utf8').digest('hex');
   return custodyIdentity(key, action);
@@ -226,7 +226,7 @@ export async function observeTarget(git, { ref, recordedResult, reflogBefore = 0
 export async function swapTarget(git, { ref, expectedOld, newOid }) {
   // A ref under refs/autosk/** has one writer, the ref-custody helper
   // (ADR-095); these mechanics move a target ref and nothing under it.
-  demand(typeof ref === 'string' && !ref.startsWith('refs/autosk/'), 'cas_conflict',
+  demand(typeof ref === 'string' && !ref.startsWith('refs/autosk/'), 'custody_request_invalid',
     'refs/autosk/** is the ref-custody helper\'s to write', { ref });
   const result = await git(['update-ref', '--create-reflog', ref, newOid, expectedOld]);
   if (result.code === 0) {

@@ -272,7 +272,7 @@ test("a containment question git could not answer is an environment failure", as
 
 test("a name that is not an Epic ref key is refused", () => {
   for (const bad of ["", "../escape", "a/b", "e 1", "-lead", "e-1"]) {
-    assert.throws(() => stagingRef(bad), code("cas_conflict"), bad);
+    assert.throws(() => stagingRef(bad), code("custody_request_invalid"), bad);
   }
 });
 
@@ -368,12 +368,12 @@ test("the staging ref is named by epic_ref_key, the same key the planning ref us
   // Another project with the same Epic id is another key.
   assert.notEqual(epicRefKey("b".repeat(64), example.epic_id), key);
   for (const bad of ["e-1", "epic-0001", key.toUpperCase(), key.slice(1), `${key}0`]) {
-    assert.throws(() => stagingRef(bad), code("cas_conflict"), bad);
+    assert.throws(() => stagingRef(bad), code("custody_request_invalid"), bad);
   }
   assert.equal(epicRefKey("0".repeat(64), "e-1"), EPIC_KEY);
-  assert.throws(() => epicRefKey("not-a-digest", example.epic_id), code("cas_conflict"));
+  assert.throws(() => epicRefKey("not-a-digest", example.epic_id), code("custody_request_invalid"));
   for (const epicId of ["", undefined, 7, null]) {
-    assert.throws(() => epicRefKey("0".repeat(64), epicId), code("cas_conflict"), String(epicId));
+    assert.throws(() => epicRefKey("0".repeat(64), epicId), code("custody_request_invalid"), String(epicId));
   }
 });
 
@@ -393,7 +393,7 @@ test("the host moves only an Epic's staging ref: anything else is refused by nam
     // A value that is not a string is refused even when it prints as one.
     { toString: () => staging },
   ]) {
-    assert.throws(() => assertStagingRef(ref), code("cas_conflict"), String(ref));
+    assert.throws(() => assertStagingRef(ref), code("custody_request_invalid"), String(ref));
   }
 });
 
@@ -425,8 +425,8 @@ test("a create or a cleanup made under no generation of the staging record is re
   const { git, head, custody } = await repository(t);
   const ref = stagingRef(EPIC_KEY);
   for (const generation of [undefined, null, -1, 1.5, "0", Number.NaN]) {
-    await assert.rejects(() => createStaging(custody, { epicRefKey: EPIC_KEY, base: head, generation }), code("cas_conflict"), String(generation));
-    await assert.rejects(() => cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head, generation }), code("cas_conflict"), String(generation));
+    await assert.rejects(() => createStaging(custody, { epicRefKey: EPIC_KEY, base: head, generation }), code("custody_request_invalid"), String(generation));
+    await assert.rejects(() => cleanupStaging(custody, { epicRefKey: EPIC_KEY, expectedOid: head, generation }), code("custody_request_invalid"), String(generation));
   }
   assert.equal(await readRef(git, ref), null);
   assert.equal(custody.requests.length, 0, "a request that named no generation was asked");
@@ -516,7 +516,7 @@ test("swapTarget refuses any ref under refs/autosk/**, which is the helper's alo
   const staged = await commitOnTop(git, root, { parent: head, file: "b.txt", content: "staged\n", message: "staged" });
   await createStaging(custody, { generation: 0, epicRefKey: EPIC_KEY, base: head });
   for (const ref of [stagingRef(EPIC_KEY), `refs/autosk/epics/${EPIC_KEY}/planning`, "refs/autosk/anything"]) {
-    await assert.rejects(() => swapTarget(git, { ref, expectedOld: head, newOid: staged.oid }), code("cas_conflict"), ref);
+    await assert.rejects(() => swapTarget(git, { ref, expectedOld: head, newOid: staged.oid }), code("custody_request_invalid"), ref);
   }
   assert.equal(await readRef(git, stagingRef(EPIC_KEY)), head);
   // A target ref is still swapped.

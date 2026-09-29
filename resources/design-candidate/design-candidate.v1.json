@@ -16,11 +16,11 @@
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "86963bbad240897c080791bf8b8277e9bf42afbb0f2c6d61d28e0fbc0c05d351"
+      "sha256": "6f6d0453559761bb3c93ff274ca916c532f48b35566b10459f1ef26c9831951c"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "29ca72e1a7953af980844dcf70664ad17eb6949f8dc4745c77b74b00ba4495c4"
+      "sha256": "c5ae22fa9fb7eaa56107b5ad1638a1d6a991c03f0c9b0aabfd0b24b8d9837a31"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -44,7 +44,7 @@
     },
     {
       "path": "docs/contracts/approved-delta.md",
-      "sha256": "23ced78f39fe632e3d9874b7e8cdbe86f132f0a51d17fcaaf431a67bcbf515bb"
+      "sha256": "35262a7476724e476e424433d133118f60c6677cb8f7fccff968a4541882f70c"
     },
     {
       "path": "docs/contracts/arena.md",
@@ -92,11 +92,11 @@
     },
     {
       "path": "docs/contracts/epic-planning-ref.md",
-      "sha256": "840e22acd17c203659ec264f266aca0ef1d5c8d5817638eaaff6dedcb302e139"
+      "sha256": "811b4e2b36105cd3ebcf1b9e7c23afdf072ed82fe13ece3b890df11b9a708178"
     },
     {
       "path": "docs/contracts/epic-staging.md",
-      "sha256": "ddff5a3cdb48a1bf1237c78af18d95dee47dd2ba059c6e31d445bed0e981de1b"
+      "sha256": "fe2efa14d88d197874681e5f3482b2b2683caf2e7c0aeacdf19af8183f008b93"
     },
     {
       "path": "docs/contracts/evidence-manifest.md",
@@ -144,7 +144,7 @@
     },
     {
       "path": "docs/contracts/platform-support.md",
-      "sha256": "f7acd02f974b1c929c0e39d375aec8d372157d82f25a613727be77ac459942a3"
+      "sha256": "693e1da93c595026b73d0b19cd92b9af3e284662fef7be6fab0ff7df32665da5"
     },
     {
       "path": "docs/contracts/project-instructions-lock.md",
@@ -160,7 +160,7 @@
     },
     {
       "path": "docs/contracts/refusal-vocabulary.md",
-      "sha256": "7a018c3c565f7abf45e696f29f69c944feef04e266592bc2d3858a3d989195f4"
+      "sha256": "4a05603a726f4993ca6d0d3c4424eef70f88d330a9f837e5e1533324c09ee9c7"
     },
     {
       "path": "docs/contracts/requirement-revision.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "e5bb65566627c0367b72bd65f9ca81dec3d46784510a790b3d7d6240dcf38726"
+      "sha256": "9b6246877d14341f9905e2208ea4b6a61a047289fd7ee707d61e9b1865b1911f"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -528,7 +528,7 @@
     },
     {
       "path": "resources/mutation-report/mutation-survivors.v1.json",
-      "sha256": "d21a4e68ac28596f4d3444f27e7bc721a0797a2f96c585acb4628a634bdc2309"
+      "sha256": "f998e2daeae55cfe0620bba72891263c19880c7a1a981775756d082153b523cc"
     },
     {
       "path": "resources/panel-roster/family-partition.v1.json",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "c7b565a5919b7eb91f19d84c969981fc2bd9cff272343e63e19b51afbf0f8267"
+      "sha256": "a642549f4153518dd4d8e79d16aae5fc6e8f58fc7343b828972c46370c5ed3be"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "1fb52780ea4b5b00b7cee1a4ab7c69f0848f4d42c9df1791592da73753c01761"
+      "sha256": "228d0ef0ffa2070c041e3612357fa66729a974f83dfcce2c359dccae13e4253a"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "ebdab99cda3a0a605bab89a42a764fb03994a84f6d02a47b5e1b25a7f22c2bb9",
+  "candidate_digest": "b2ca86df0e5d5fdb7d732e53fc16afb96442bc630ca9f9e2bb1a49fe05727e23",
   "dispositions": [
     {
       "issue": 3,

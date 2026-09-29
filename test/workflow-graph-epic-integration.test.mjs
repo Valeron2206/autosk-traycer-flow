@@ -2154,3 +2154,99 @@ test("the priming entry records the focused re-review, and no further round (rev
   assert.match(priming, /Focused re-review \(on `07ff672`, a fresh process\): no Critical, High or Medium; N1–N6 closed; four Low and six nits, all addressed test-first in a follow-up commit/u);
   assert.match(priming, /No further re-review: the focused re-review raised only Lows and nits/u);
 });
+
+// --- debt 13a (R9-3, R9-9, ADR-109) -------------------------------------------------
+
+test("every stop the apply reports has an edge at apply_staging that reads the apply's outcome, and says which contract names it carries (R9-3)", () => {
+  const graph = shipped();
+  for (const [reason, causes] of [
+    ["delta_stale", ["delta_stale", "scope_violation", "containment_mismatch"]],
+    ["environment_failure", ["untracked_collision", "ignored_collision", "inherited_git_env", "state_identity_collision"]],
+    ["receipt_missing", ["foreign_ref_movement", "indeterminate_post_state", "reflog_ambiguous", "unreviewed_bytes"]],
+  ]) {
+    const edges = edgeReads(graph, "apply_staging", "human", reason);
+    assert.equal(edges.length, 1, `${reason}: one edge`);
+    assert.ok(edges[0].reads.has("apply_outcome"), `${reason}'s predicate does not read apply_outcome`);
+    assert.match(edges[0].says, new RegExp(`apply_outcome=${reason}`, "u"), reason);
+    for (const cause of causes) assert.match(edges[0].says, new RegExp(cause, "u"), `${reason} does not name ${cause}`);
+    // receipt_missing's row is held to 1024 characters by the test of its rebuild text, so its causes ride on the predicate and the view.
+    const row = graph.recovery.find((entry) => entry.reason === reason);
+    if (reason !== "receipt_missing") for (const cause of causes) assert.match(row.required_state, new RegExp(cause, "u"), `${reason}'s row does not name ${cause}`);
+    else {
+      const view = graph.views.flatMap((entry) => entry.rows).find((entry) => entry.covers.length === 1 && entry.covers[0] === reason);
+      for (const cause of causes) assert.match(view.cells[2], new RegExp(cause, "u"), `${reason}'s view does not name ${cause}`);
+    }
+  }
+  // The capability stop reads the helper's answer, which is not the apply's outcome; blocked_anchor is the anchor's.
+  assert.equal(edgeReads(graph, "apply_staging", "human", "planning_ref_capability_missing").length, 1);
+});
+
+test("a stop of the apply that the graph carries is not the daemon's reasonless park, and the rows say what a resume re-enters (R9-3)", () => {
+  const graph = shipped();
+  const step = graph.steps.find((entry) => entry.name === "apply_staging");
+  assert.equal(step.no_transition_reason, "receipt_missing");
+  for (const reason of ["delta_stale", "receipt_missing", "environment_failure"]) {
+    const row = graph.recovery.find((entry) => entry.reason === reason);
+    assert.ok(row.resume_targets.includes("apply_staging"), reason);
+    assert.match(row.required_state, /resume/u, reason);
+  }
+  // The rows that carry a collision or an unfit environment say the person restores it, and the delta is not re-planned.
+  assert.match(graph.recovery.find((entry) => entry.reason === "environment_failure").required_state, /file in the way|untracked_collision/u);
+  assert.match(edgeReads(graph, "apply_staging", "human", "receipt_missing")[0].says, /reflog_ambiguous/u);
+});
+
+test("the contracts and the vocabulary say custody_request_invalid is a host invariant and cas_conflict is git's refusal of a compare-and-swap (R9-9)", () => {
+  const staging = read("docs/contracts/epic-staging.md");
+  const planning = read("docs/contracts/epic-planning-ref.md");
+  assert.match(staging, /A request the host cannot form[^\n]*`custody_request_invalid`/u);
+  assert.match(planning, /A request the host cannot form[^\n]*`custody_request_invalid`/u);
+  assert.doesNotMatch(staging, /A request the host cannot form[^\n]*is refused before the helper is asked, as `cas_conflict`/u);
+  assert.match(staging, /`custody_request_invalid`[^\n]*(?:host invariant|never a task's state|no park reason)/u);
+  const vocabularyText = read("docs/contracts/refusal-vocabulary.md");
+  assert.match(vocabularyText, /`custody_request_invalid`[^\n]*(?:host invariant|not a park reason)/u);
+  // Not a park reason: no row, no guard, no entry.
+  assert.equal(shipped().recovery.some((row) => row.reason === "custody_request_invalid"), false);
+  assert.equal(vocabulary().park_reasons.some((entry) => entry.code === "custody_request_invalid"), false);
+  // And cas_conflict's own row still means git refused the CAS.
+  const row = shipped().recovery.find((entry) => entry.reason === "cas_conflict");
+  assert.deepEqual(row.parks_at, ["integrate_staging"]);
+});
+
+test("approved-delta §7 and §9, epic-staging §8 and the recovery path name reflog_ambiguous as receipt_missing's cause (R9-3)", () => {
+  const delta = read("docs/contracts/approved-delta.md");
+  assert.match(delta, /`reflog_ambiguous`[^\n]*`receipt_missing`/u);
+  const staging = read("docs/contracts/epic-staging.md");
+  assert.match(staging, /reflog_ambiguous[^\n]*`receipt_missing`|`receipt_missing`[^\n]*reflog_ambiguous/u);
+  assert.doesNotMatch(staging, /else `reflog_ambiguous`;/u, "the recovery path names a code with no stop");
+});
+
+test("the recipe journal's docstring no longer says a refused directory sync says nothing about durability (#280 carry C)", () => {
+  const source = read("src/host/staging-lineage.mjs");
+  assert.doesNotMatch(source, /NO_DIRECTORY_SYNC/u);
+  assert.doesNotMatch(source, /none of it says the entry is not durable/u);
+  const staging = read("docs/contracts/epic-staging.md");
+  assert.match(staging, /a sync that fails[^.]*`environment_failure`/u);
+  assert.match(staging, /[Nn]o refusal of the sync is tolerated/u);
+});
+
+test("ADR-109 records the decision and every test it names exists (R9-3, R9-9, the #280 carry)", () => {
+  const decisions = read("04-decisions.md");
+  assert.ok(decisions.includes("## ADR-109"), "no ADR-109");
+  const adr = decisions.slice(decisions.indexOf("## ADR-109"), decisions.indexOf("## Оставшиеся риски"));
+  for (const phrase of [/R9-3/u, /R9-9/u, /#280/u, /`custody_request_invalid`/u, /`apply_outcome`/u, /ADR-105/u, /ADR-108/u, /Альтернатива/u, /Проверка/u, /Что не сделано/u, /Источники/u]) assert.match(adr, phrase);
+  const tests = readdirSync(path.join(ROOT, "test")).filter((name) => name.endsWith(".test.mjs")).map((name) => read(`test/${name}`)).join("\n");
+  const named = [...adr.matchAll(/«([^»]+)»/gu)].map((match) => match[1].replace(/…$/u, "").replace(/\s+$/u, ""));
+  assert.ok(named.length >= 12, `${named.length} tests named`);
+  for (const name of named) assert.ok(tests.includes(`test("${name}`), `ADR-109 names a test that is not in the suite: ${name}`);
+  // The two ADRs whose text changes meaning say so.
+  assert.match(decisions, /Изменено ADR-109[^\n]*ADR-105|Изменено ADR-105[^\n]*ADR-109/u);
+  assert.match(decisions, /Изменено ADR-109[^\n]*(?:ADR-108|cas_conflict)/u);
+});
+
+test("the priming entry of debt 13a follows the round-9 entry and has the 12g entry's parts (R9-3)", () => {
+  const priming = read("docs/cloud-agent-priming.md");
+  const at = priming.indexOf("- 2026-09-29: debt 13a (R9-3, R9-9, the #280 carry)");
+  assert.ok(at > priming.indexOf("- 2026-09-29: panel #39, round 9, attempt 1"), "the entry is not after the round-9 entry");
+  const entry = priming.slice(at);
+  for (const part of ["Worked on", "Measured on", "Decision", "Fix", "Tests", "Verification", "Digests", "Left open", "Review: pending"]) assert.ok(entry.includes(part), part);
+});

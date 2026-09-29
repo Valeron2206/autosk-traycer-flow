@@ -380,7 +380,7 @@ export function resumePlan(state) {
  * refusal to try — it is the try, reporting that the world moved.
  */
 export function applySwap(state, casResult) {
-  demand(casResult.expected_old_oid === state.recorded_target_base, 'cas_conflict',
+  demand(casResult.expected_old_oid === state.recorded_target_base, 'custody_request_invalid',
     'The swap was attempted against another base',
     { expected: state.recorded_target_base, attempted: casResult.expected_old_oid });
   if (casResult.swapped) {

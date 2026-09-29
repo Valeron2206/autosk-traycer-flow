@@ -54,6 +54,10 @@ Either way the owner is a recorded field, not something a reader infers. "Somebo
 
 A name two contracts declare has no single owner — and therefore no single producer and no single step, which is what the rest of this contract checks. That is `refusal_vocabulary_owner_ambiguous`, and it is refused rather than resolved by precedence: a caller branching on the name cannot tell which of the two conditions it got.
 
+## 6a. A host invariant is not a park reason
+
+A code can be raised by the host without being a state any task is in. `custody_request_invalid` is the one (debt 13a, R9-9, ADR-109): the host formed a request the ref-custody helper's protocol cannot carry — a ref outside the action's grammar, no operation identity, an advance to the commit the ref already holds — and refused it before anything was written or asked. That is a fault of the host's own call, so it is not a park reason: it has no recovery row, no guard, no entry in the vocabulary and no owner among the contracts' closed sets, and a step body does not report it as a stop; it is thrown past the step, and no caller can act on it but a person fixing the host. It is kept apart from `cas_conflict`, which means git refused a compare-and-swap (the one target CAS, and the helper's expected-absent create finding the ref at another commit) and is a park reason at `integrate_staging`: the two used to share a name, and a caller could not tell a CAS that lost from a request that was never made.
+
 ## 7. Every contract closes its set, and the user-facing table maps
 
 A contract that declares no closed refusal set leaves its vocabulary open-ended, and a caller has nothing to branch on: `refusal_vocabulary_unclosed_contract`.

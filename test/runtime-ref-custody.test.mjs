@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -229,7 +229,7 @@ test("a request the helper's protocol does not have is refused before the client
     ["advance_staging", ["update"]],
   ];
   for (const [action, updates] of refused) {
-    await assert.rejects(() => askCustody(custody, action, updates), code("cas_conflict"), `${action} ${JSON.stringify(updates)}`);
+    await assert.rejects(() => askCustody(custody, action, updates), code("custody_request_invalid"), `${action} ${JSON.stringify(updates)}`);
   }
   assert.equal(asked.length, 0);
 });
@@ -361,11 +361,11 @@ test("an expected-old mismatch names a ref that did not hold its expected value 
 
 test("an advance to the commit the ref already holds is refused before the client is asked (review L3)", async () => {
   const { asked, custody } = client(committed);
-  await assert.rejects(() => askCustody(custody, "advance_staging", [{ ...advance[0], new_oid: A }]), code("cas_conflict"));
+  await assert.rejects(() => askCustody(custody, "advance_staging", [{ ...advance[0], new_oid: A }]), code("custody_request_invalid"));
   await assert.rejects(() => askCustody(custody, "advance_planning", [
     VALID.advance_planning[0],
     { ...VALID.advance_planning[1], new_oid: A },
-  ]), code("cas_conflict"));
+  ]), code("custody_request_invalid"));
   assert.equal(asked.length, 0);
 });
 
@@ -436,7 +436,7 @@ test("a request with no operation identity, or a malformed one, is refused befor
   const { asked, custody } = client(committed);
   for (const action of HOST_REF_CUSTODY_ACTIONS) {
     for (const identity of bad) {
-      await assert.rejects(() => askCustodyWith(custody, action, VALID[action], identity), code("cas_conflict"), `${action} ${JSON.stringify(identity)}`);
+      await assert.rejects(() => askCustodyWith(custody, action, VALID[action], identity), code("custody_request_invalid"), `${action} ${JSON.stringify(identity)}`);
     }
   }
   assert.deepEqual(asked, []);
@@ -463,8 +463,40 @@ test("custodyIdentity derives the pair from the operation: stable across a retry
   assert.equal(Object.isFrozen(first), true);
   // The names it accepts are the ones it can be derived from: an empty operation and an action the
   // host does not ask for name nothing.
-  for (const operation of ["", undefined, 7]) assert.throws(() => custodyIdentity(operation, "advance_staging"), code("cas_conflict"));
-  for (const action of ["swap_target", "", undefined, "toString"]) assert.throws(() => custodyIdentity("op-7f3c1a", action), code("cas_conflict"));
+  for (const operation of ["", undefined, 7]) assert.throws(() => custodyIdentity(operation, "advance_staging"), code("custody_request_invalid"));
+  for (const action of ["swap_target", "", undefined, "toString"]) assert.throws(() => custodyIdentity("op-7f3c1a", action), code("custody_request_invalid"));
   // The derived pair is a pair the request accepts.
   return askCustody(client(committed).custody, "advance_staging", advance, first);
+});
+
+// --- debt 13a (R9-9, ADR-109): one code for a request the host cannot form, and cas_conflict only where git refused a CAS ---
+
+test("cas_conflict is raised only where git refused a compare-and-swap: a request the host cannot form is custody_request_invalid (R9-9)", () => {
+  const host = path.join(ROOT, "src/host");
+  const literal = /'cas_conflict'/gu;
+  const found = readdirSync(host).filter((file) => file.endsWith(".mjs"))
+    .map((file) => [file, (readFileSync(path.join(host, file), "utf8").match(literal) ?? []).length]).filter(([, count]) => count > 0);
+  // epic-staging.mjs: the vocabulary entry and the swap's own outcome, git's refusal of the one target CAS;
+  // staging-driver.mjs: the helper's expected-absent create finding the ref at another commit.
+  assert.deepEqual(found, [["epic-staging.mjs", 2], ["staging-driver.mjs", 1]]);
+  for (const file of ["ref-custody.mjs", "delta-driver.mjs", "planning-driver.mjs"]) {
+    assert.doesNotMatch(readFileSync(path.join(host, file), "utf8"), literal, file);
+  }
+});
+
+test("every way the host can fail to form a request is custody_request_invalid, before the helper is asked (R9-9)", async () => {
+  const { asked, custody } = client(committed);
+  const identity = custodyModule.custodyIdentity("op-7f3c1a", "advance_staging");
+  const attempts = [
+    () => askCustody(custody, "swap_target", advance, identity),
+    () => askCustodyWith(custody, "advance_staging", advance),
+    () => askCustody(custody, "advance_staging", [], identity),
+    () => askCustody(custody, "advance_staging", [{ ...advance[0], ref: "refs/heads/main" }], identity),
+    () => askCustody(custody, "advance_staging", [{ ...advance[0], new_oid: advance[0].expected_old_oid }], identity),
+    () => custodyModule.custodyIdentity("", "advance_staging"),
+  ];
+  for (const attempt of attempts) await assert.rejects(async () => attempt(), code("custody_request_invalid"));
+  assert.deepEqual(asked, []);
+  // A helper that is not there is a capability, not a fault of the request.
+  await assert.rejects(() => askCustody({}, "advance_staging", advance, identity), code("planning_ref_capability_missing"));
 });

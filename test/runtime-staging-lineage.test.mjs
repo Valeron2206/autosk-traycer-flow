@@ -508,7 +508,7 @@ test("a write that takes the line in pieces is finished, and one that makes no p
   assert.deepEqual(await pending(directory), []);
 });
 
-test("the directory made durable is the journal's own, and a platform that will not open a directory does not fail a save", async (t) => {
+test("the directory made durable is the journal's own, and a platform that will not sync it is no durable journal (#280 carry C)", async (t) => {
   for (const directory of ["/", "/some/where", "relative/dir", "."]) {
     const opened = [];
     const fake = {
@@ -532,7 +532,13 @@ test("the directory made durable is the journal's own, and a platform that will 
     link: async () => {},
     unlink: async () => {},
   });
-  await lineageModule.recipeJournal(refusing("EISDIR"), { directory: "/d" }).save(recipe(key("1")));
+  // A refused directory sync is not durability, whatever the errno: the journal says the entry may be lost, and the apply stops.
+  for (const errno of ["EISDIR", "EPERM", "EINVAL", "ENOTSUP"]) {
+    const refused = await problem(lineageModule.recipeJournal(refusing(errno), { directory: "/d" }).save(recipe(key("1"))));
+    assert.equal(refused?.code, "environment_failure", errno);
+    assert.equal(refused.details.cause, "journal_io", errno);
+    assert.equal(refused.details.errno, errno);
+  }
   const failed = await problem(lineageModule.recipeJournal(refusing("EIO"), { directory: "/d" }).save(recipe(key("1"))));
   assert.equal(failed?.code, "environment_failure");
   assert.equal(failed.details.errno, "EIO");
@@ -546,4 +552,36 @@ test("a recipe names a key that is a file name, or it is no recipe", async (t) =
     await assert.rejects(() => journal.load(bad), (error) => error.code === "invalid_record", String(bad));
   }
   assert.deepEqual(await readdir(directory), []);
+});
+
+test("a directory whose sync is refused leaves no recipe relied on: a save and a load both fail, at the open and at the sync (#280 carry C)", async (t) => {
+  const directory = await journalDir(t);
+  const honest = journalAt(fs, directory);
+  await honest.save(recipe(key("1")));
+  for (const errno of ["EISDIR", "EPERM", "EINVAL", "ENOTSUP"]) {
+    for (const at of ["open", "sync"]) {
+      const refusing = {
+        ...fs,
+        open: async (file, flags, mode) => {
+          const error = Object.assign(new Error(`${errno} on the directory`), { code: errno });
+          if (file === directory && at === "open") throw error;
+          const handle = await fs.open(file, flags, mode);
+          if (file !== directory) return handle;
+          return new Proxy(handle, { get(target, name) {
+            if (name === "sync") return async () => { throw error; };
+            const value = target[name];
+            return typeof value === "function" ? value.bind(target) : value;
+          } });
+        },
+      };
+      const journal = journalAt(refusing, directory);
+      const loaded = await problem(journal.load(key("1")));
+      assert.equal(loaded?.code, "environment_failure", `load ${errno} ${at}`);
+      assert.equal(loaded.details.cause, "journal_io");
+      assert.equal(loaded.details.errno, errno);
+      const saved = await problem(journal.save(recipe(key("2"))));
+      assert.equal(saved?.code, "environment_failure", `save ${errno} ${at}`);
+      assert.equal(saved.details.errno, errno);
+    }
+  }
 });

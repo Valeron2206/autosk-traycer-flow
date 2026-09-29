@@ -26,6 +26,13 @@
  * answers no action and every request is refused as a missing capability: a
  * host with no helper does not fall back to writing the ref itself (ADR-095).
  * Tests hand the drivers a git-backed stand-in (`test/support/git-ref-custody.mjs`).
+ *
+ * A request the host cannot form is `custody_request_invalid` (debt 13a, R9-9,
+ * ADR-109): a fault of the host's own call, raised before anything is asked, so
+ * it is no state of any task and no park reason. `cas_conflict` is git's refusal
+ * of a compare-and-swap and nothing else; the request-formation errors used to
+ * share it, and a caller could not tell "git refused the CAS" from "the host
+ * never made one".
  */
 import { createHash } from 'node:crypto';
 
@@ -97,9 +104,9 @@ function uuidFrom(text) {
  * asks under the same pair and the daemon finds the intent it persisted.
  */
 export function custodyIdentity(operationId, action) {
-  demand(typeof operationId === 'string' && operationId.length > 0, 'cas_conflict',
+  demand(typeof operationId === 'string' && operationId.length > 0, 'custody_request_invalid',
     'A request is made under an operation, and none is named', { action });
-  demand(typeof action === 'string' && Object.hasOwn(SHAPES, action), 'cas_conflict',
+  demand(typeof action === 'string' && Object.hasOwn(SHAPES, action), 'custody_request_invalid',
     'The host asks the helper for no such action', { action });
   return Object.freeze({
     owner_operation_id: uuidFrom(`autosk-flow/ref-custody-owner-operation/v1\0${operationId}`),
@@ -122,25 +129,25 @@ function holds(value, expect, old) {
 /** The request, formed and checked against the action's shape; refused before anything is asked. */
 function formRequest(action, refUpdates, identity) {
   const shape = Object.hasOwn(SHAPES, action) ? SHAPES[action] : null;
-  demand(shape !== null, 'cas_conflict', 'The host asks the helper for no such action', { action });
+  demand(shape !== null, 'custody_request_invalid', 'The host asks the helper for no such action', { action });
   // The pair the daemon-side intent persists: without it a retry could only mint a second request.
   demand(isRecord(identity) && Object.keys(identity).length === 2
-    && UUID_V4.test(identity.owner_operation_id) && UUID_V4.test(identity.request_id), 'cas_conflict',
+    && UUID_V4.test(identity.owner_operation_id) && UUID_V4.test(identity.request_id), 'custody_request_invalid',
   'The request names no operation and request identity the daemon-side intent can be found by', { action });
-  demand(Array.isArray(refUpdates) && refUpdates.length === shape.length, 'cas_conflict',
+  demand(Array.isArray(refUpdates) && refUpdates.length === shape.length, 'custody_request_invalid',
     'The request does not carry the ref updates its action does', { action });
   const keys = new Set();
   const formats = new Set();
   const updates = shape.map(([operation, kind, old, next], index) => {
     const update = refUpdates[index];
-    demand(isRecord(update), 'cas_conflict', 'A ref update is a record', { action, index });
-    demand(update.operation === operation, 'cas_conflict', 'The ref update is not the operation its action performs',
+    demand(isRecord(update), 'custody_request_invalid', 'A ref update is a record', { action, index });
+    demand(update.operation === operation, 'custody_request_invalid', 'The ref update is not the operation its action performs',
       { action, index, operation: update.operation });
     const named = typeof update.ref === 'string' ? KIND[kind].exec(update.ref) : null;
-    demand(named !== null, 'cas_conflict', 'The ref is not one this action of the helper writes',
+    demand(named !== null, 'custody_request_invalid', 'The ref is not one this action of the helper writes',
       { action, index, ref: update.ref });
     keys.add(named[1]);
-    demand(holds(update.expected_old_oid, old) && holds(update.new_oid, next, update.expected_old_oid), 'cas_conflict',
+    demand(holds(update.expected_old_oid, old) && holds(update.new_oid, next, update.expected_old_oid), 'custody_request_invalid',
       'The expected old or the new value is not what the action allows', { action, index });
     for (const oid of [update.expected_old_oid, update.new_oid]) if (oid !== null) formats.add(oidFormat(oid));
     return Object.freeze({
@@ -151,8 +158,8 @@ function formRequest(action, refUpdates, identity) {
     });
   });
   // One Epic and one object format per request, as the helper's wire requires.
-  demand(keys.size === 1, 'cas_conflict', 'One request names one Epic', { action });
-  demand(formats.size === 1, 'cas_conflict', 'One request uses one object format', { action });
+  demand(keys.size === 1, 'custody_request_invalid', 'One request names one Epic', { action });
+  demand(formats.size === 1, 'custody_request_invalid', 'One request uses one object format', { action });
   return Object.freeze({
     action,
     owner_operation_id: identity.owner_operation_id,

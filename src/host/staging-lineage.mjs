@@ -128,9 +128,6 @@ function recipeDigestOf(recipe) {
   return sha256(`autosk-flow/staging-apply-recipe/v1\0${JSON.stringify(Object.fromEntries(Object.keys(body).sort().map((key) => [key, body[key]])))}`);
 }
 
-/** What a platform may refuse when a directory is opened to be synced: none of it says the entry is not durable. */
-const NO_DIRECTORY_SYNC = new Set(['EISDIR', 'EPERM', 'EINVAL', 'ENOTSUP']);
-
 /** An apply key: the digest an apply's recipe is filed under, and so a file name. */
 const APPLY_KEY = /^[0-9a-f]{64}$/u;
 
@@ -157,7 +154,10 @@ const APPLY_KEY = /^[0-9a-f]{64}$/u;
  * directory sync, and a helper that commits on the strength of a recipe the
  * filesystem then loses leaves a commit no recipe can vouch for. So `load` of a
  * recipe, and a repeated `save`, sync the directory, and a sync that fails is a
- * failure (`journal_io`), not a recipe.
+ * failure (`journal_io`), not a recipe. Any refusal of the sync counts, the ones a
+ * platform gives for a directory it cannot open (`EISDIR`, `EPERM`) or sync
+ * (`EINVAL`, `ENOTSUP`) among them: they say the filesystem cannot promise the
+ * name is durable, which is what the journal exists to know.
  *
  * A recipe is written once: the same again is a no-op, another under the same
  * key is refused. A file that is not the one written — edited, cut short, not a
@@ -221,12 +221,16 @@ export function recipeJournal(fs, { directory }) {
   }
 
   async function syncDirectory() {
+    // No refusal of the sync is tolerated (#280 carry, debt 13a): a directory that cannot be opened or synced is a
+    // filesystem on which the name of a recipe may be lost, and an apply that then asks the helper can leave a commit no
+    // recipe vouches for. The supported platforms — linux-x64 on ext4, btrfs and xfs, darwin-arm64 on APFS — sync a
+    // directory, so a refusal is an unsupported filesystem, and it stops the apply where it can be told.
     let handle;
     try {
       handle = await fs.open(directory, 'r');
       await handle.sync();
     } catch (error) {
-      if (!NO_DIRECTORY_SYNC.has(error?.code)) throw ioFailure('make its directory durable', error);
+      throw ioFailure('make its directory durable', error);
     } finally {
       await handle?.close().catch(() => {});
     }

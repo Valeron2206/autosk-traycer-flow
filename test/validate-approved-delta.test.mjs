@@ -269,3 +269,18 @@ test("the design digest changes when any shipped file changes", () => {
   const after = approvedDeltaDesignDigest({ ...files, [CONTRACT_PATH]: `${files[CONTRACT_PATH]}\n` });
   assert.notEqual(before, after);
 });
+
+test("section 9 maps every park reason to the graph stop it becomes at apply_staging, and the validator refuses a table that drops one (debt 13a, ADR-109)", () => {
+  assert.deepEqual(validateApprovedDeltaDesign(files), []);
+  const contract = files[CONTRACT_PATH];
+  const start = contract.indexOf("## 9. Park reasons");
+  const section = contract.slice(start, contract.indexOf("## 10.", start));
+  const rows = section.split("\n").filter((line) => /^\| `/u.test(line));
+  assert.equal(rows.length, PARK_REASONS.length);
+  for (const reason of PARK_REASONS) assert.ok(rows.some((line) => line.startsWith(`| \`${reason}\` |`)), reason);
+  const dropped = contract.replace(rows.find((line) => line.startsWith("| `reflog_ambiguous` |")), "");
+  const errors = validateApprovedDeltaDesign({ ...files, [CONTRACT_PATH]: dropped });
+  assert.ok(errors.some((message) => /reflog_ambiguous/u.test(message) && /table/u.test(message)), errors.join("\n"));
+  const stops = contract.replace(/\| `reflog_ambiguous` \| [^|]*\|[^|]*\|/u, "| `reflog_ambiguous` | — | `invented_stop` |");
+  assert.ok(validateApprovedDeltaDesign({ ...files, [CONTRACT_PATH]: stops }).some((message) => /invented_stop/u.test(message)));
+});

@@ -50,6 +50,9 @@ export const PARK_REASONS = Object.freeze([
   "containment_mismatch",
 ]);
 
+/** The stops of the graph at apply_staging an apply reports; section 9 maps the names above onto them. */
+export const APPLY_STOPS = Object.freeze(["delta_stale", "receipt_missing", "environment_failure", "planning_ref_capability_missing"]);
+
 /** Git environment variables that silently redirect every command that follows. */
 export const INHERITED_GIT_ENV = Object.freeze([
   "GIT_DIR",
@@ -195,6 +198,20 @@ export function validateApprovedDeltaDesign(files) {
   if (!contract.includes(SCHEMA_PATH)) errors.push(`${CONTRACT_PATH}: does not point at ${SCHEMA_PATH}`);
   for (const reason of PARK_REASONS) {
     if (!contract.includes(reason)) errors.push(`${CONTRACT_PATH}: park reason ${reason} is not documented`);
+  }
+  // Section 9 maps every name to the graph stop it becomes at apply_staging (debt 13a, ADR-109): a row per name, and only
+  // stops the graph carries at that step.
+  const start = contract.indexOf("## 9. Park reasons");
+  const table = contract.slice(start, contract.indexOf("## 10.", start)).split("\n").filter((line) => line.startsWith("| `"));
+  for (const reason of PARK_REASONS) {
+    if (!table.some((line) => line.startsWith(`| \`${reason}\` |`))) errors.push(`${CONTRACT_PATH}: section 9's table has no row for ${reason}`);
+  }
+  for (const line of table) {
+    // A cell that names a stop opens with it, in backticks; a cell that opens with a dash names none.
+    for (const cell of line.split("|").slice(2, 4)) {
+      const stop = /^\s*`([a-z_]+)`/u.exec(cell)?.[1];
+      if (stop !== undefined && !APPLY_STOPS.includes(stop)) errors.push(`${CONTRACT_PATH}: section 9's table names ${stop}, which is no stop of apply_staging`);
+    }
   }
   // The three environment variables the issue names by hand must be named in the
   // contract too, or "neutralised" is a word with no list behind it.
