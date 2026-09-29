@@ -1956,8 +1956,12 @@ test("§5 states that no product evaluator of the graph exists, from the measure
   assert.match(evidence, /`guards\[\]\.authority`/u);
   assert.match(evidence, /no file under `src\/` calls it/u);
   assert.match(evidence, /#18 \(`enforcement_points`, ADR-097\)/u);
-  // Review of 11c (M1): #18 owns the mechanism; the meaning of a predicate stays with its domain.
-  assert.match(evidence, /each predicate's meaning stays with its domain record/u);
+  // Review of 11c (M1): #18 owns the mechanism; the meaning of a predicate is its
+  // domain owner's. Debt 12f (R8-8): each predicate names its domain and the
+  // matrix names the domain's one owner, derived from the graph.
+  assert.match(evidence, /each predicate names its domain, the matrix names one owner for each domain\s+\(`predicate_domains`, ADR-107\)/u);
+  assert.match(evidence, /`validate:capabilities` reads those points and those\s+domains from the graph/u);
+  assert.doesNotMatch(evidence, /stays with its domain record/u);
   const product = await build({ factoryCallers: ["scripts/verify-autosk-exits.mjs", "src/host/extension.mjs"] });
   const productEvidence = section5(product.text);
   assert.doesNotMatch(productEvidence, /no file under `src\/` calls it/u);

@@ -2489,3 +2489,42 @@ test("park.decision is a whole token: park.decision_id and park.decisions are no
   });
   assert.deepEqual(invalid(validateGraph(ended, schema)), []);
 });
+
+// --- Debt 12f (R8-8, ADR-107): a predicate names its domain ---
+
+test("a predicate may name the domain that owns what it decides, and the domain is an id (R8-8)", () => {
+  // The graph is a generic document: a predicate without a domain is a valid
+  // graph (the factory reads only ids). The program's capability check is what
+  // refuses an unowned predicate of the v1 graph (`validate:capabilities`).
+  const named = shippedGraph((graph) => { graph.predicates[0].domain = "alignment_gates"; });
+  assert.deepEqual(validateGraph(named, schema), []);
+  for (const domain of ["Alignment Gates", "alignment-gates", "", 7, "a".repeat(129)]) {
+    const errors = validateGraph(shippedGraph((graph) => { graph.predicates[0].domain = domain; }), schema);
+    assert.ok(errors.some((message) => message.startsWith("graph_schema:") && message.includes("domain")), `${String(domain).slice(0, 20)}: ${errors.slice(0, 2)}`);
+  }
+  // An unknown field is still refused: the shape stays closed.
+  const stray = shippedGraph((graph) => { graph.predicates[0].owner = 4; });
+  assert.ok(validateGraph(stray, schema).some((message) => message.startsWith("graph_schema:")));
+});
+
+test("the domain is inside the digest: moving a predicate to another domain is another graph (R8-8)", () => {
+  const graph = document();
+  const other = structuredClone(graph);
+  const target = other.predicates.find((entry) => entry.id === "cond_001");
+  assert.equal(typeof target.domain, "string");
+  target.domain = target.domain === "arena_runtime" ? "alignment_gates" : "arena_runtime";
+  assert.notEqual(graphDigest(other), graphDigest(graph));
+  assert.equal(graph.canonical_digest, graphDigest(graph));
+});
+
+test("every predicate of the shipped graph names a domain, and no two spellings of one domain differ (R8-8)", () => {
+  const graph = document();
+  const missing = graph.predicates.filter((entry) => typeof entry.domain !== "string").map((entry) => entry.id);
+  assert.deepEqual(missing, []);
+  const domains = [...new Set(graph.predicates.map((entry) => entry.domain))];
+  assert.ok(domains.length >= 20);
+  // Two spellings of one domain: the same words with other separators, case or
+  // a plural. Review of 12f: this asserted only the count it now sits beside.
+  const stem = (domain) => domain.replaceAll("_", "").toLowerCase().replace(/s$/u, "");
+  assert.equal(new Set(domains.map(stem)).size, domains.length, domains.join(", "));
+});

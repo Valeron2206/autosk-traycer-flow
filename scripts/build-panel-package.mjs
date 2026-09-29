@@ -1374,8 +1374,10 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   decision sites to the predicate and to \`guards[].authority\` — and the
   extension entry point that registers every workflow the graph registers, the
   two Arena workflows among them, to #18 (\`enforcement_points\`, ADR-097);
-  each predicate's meaning stays with its domain record, and
-  \`validate:capabilities\` reads those points from the graph.
+  each predicate names its domain, the matrix names one owner for each domain
+  (\`predicate_domains\`, ADR-107) and that owner's module decides what the
+  predicate says, and \`validate:capabilities\` reads those points and those
+  domains from the graph.
 - A model session can still reach a creation credential and the leaves that
   admit a resume. Patch \`0028\`'s \`autoskEnv\` puts \`AUTOSK_SESSION_TOKEN\`,
   the credential \`task.create_bound\` takes, into the environment of the

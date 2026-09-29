@@ -14,7 +14,7 @@ So a material change enters through a revision path whose subject is the **order
 
 ## 2. Boundaries
 
-The mechanical rebuild is not this contract. It receives an approved impact plan and starts side effects only after it exists. Issue #35 owns the decision packet and what makes an answer applicable; #14 owns which panel each artifact class takes; #6 owns the Tickets manifest and #7 the base tree a Ticket is measured against. This contract owns classification, order, the disposition of implemented work, and the trace that ties them together.
+The mechanical rebuild is not specified by this contract: `rebuild_anchor` and the operations it drives are specified in `03-technical-plan.md` §5 ("Contest и anchor changes") and by the graph, and their runtime is issue #25's in matrix v1 (ADR-107), not implemented yet and not unowned. It receives an approved impact plan and starts side effects only after it exists. Issue #35 owns the decision packet and what makes an answer applicable; #14 owns which panel each artifact class takes; #6 owns the Tickets manifest and #7 the base tree a Ticket is measured against. This contract owns classification, order, the disposition of implemented work, and the trace that ties them together.
 
 ## 3. Classification comes first, and is the cheapest thing to get wrong
 
@@ -106,4 +106,4 @@ The round id is minted before stage 1, so a crash between doing and recording is
 
 Decided: the closed classification and what each kind may touch; the stage order and that no Ticket or code side effect precedes the approved impact plan; that the fate of staged and integrated work is a recorded user decision; the supersession semantics of rapid corrections; the proof an unaffected rebind needs; what the sweep must report; and the replay semantics of a round.
 
-Deferred and named: the runtime that executes the stages, the panel dispatcher, and the mechanical rebuild that consumes the impact plan. Those are `required_for_v1` and are not claimed here.
+Deferred and named: the runtime that executes the stages, the panel dispatcher, and the mechanical rebuild that consumes the impact plan. Those are `required_for_v1` and owned: the first and the last by #25 (ADR-107), the dispatcher by #14 (which panel each artifact class takes, §2). They are not specified or implemented here, and a contract that defers a runtime does not disown it.

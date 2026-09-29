@@ -936,17 +936,30 @@ test("the calls before a model launch are stated with their v1 owners, not as #4
 // states obligations, not progress (L4); ADR-091 names who carries it (L5).
 import { arenaOwnerErrors } from "../scripts/validate-program-capability-matrix.mjs";
 
-test("#18 owns the evaluator mechanism, and each predicate's meaning stays with its domain record", () => {
+test("#18 owns the evaluator mechanism, and each predicate's meaning is its domain owner's, derived from the graph (R8-8)", () => {
   const data = fixture();
   const text = record(data, 18).implementation_obligation_before_mvp;
   assert.match(text, /never a constant evaluator/u);
-  for (const [domain, issue] of [["the ref-custody predicates", 5], ["foreign target movement", 9], ["review and finding predicates", 16]]) {
-    assert.ok(text.includes(`${domain} with #${issue}`), domain);
-  }
+  // The three sentences this test used to match (ref custody with #5, foreign
+  // target movement with #9, review and finding with #16) are now the graph's
+  // own predicates, each with the domain that names its owner (R8-8, ADR-107):
+  // the prose examples are gone and the derived check covers them.
+  assert.doesNotMatch(text, /the ref-custody predicates with #5/u);
+  assert.match(text, /`predicate_domains`/u);
+  const ownerOf = (id) => {
+    const domain = GRAPH_DOCUMENT.predicates.find((entry) => entry.id === id).domain;
+    return data.matrix.predicate_domains.find((entry) => entry.domain === domain).owner_issues;
+  };
+  assert.deepEqual(ownerOf("cond_002"), [5], "ref custody drift is #5's");
+  assert.deepEqual(ownerOf("cond_446"), [9], "foreign target movement at integrate_staging is #9's");
+  assert.deepEqual(ownerOf("cond_457"), [9], "the resume after foreign target movement is #9's");
+  assert.deepEqual(ownerOf("cond_106"), [16], "a contest is #16's");
+  assert.deepEqual(ownerOf("cond_001"), [4], "`classification is valid` is #4's");
   const point = data.matrix.enforcement_points.find((item) => item.point === "graph.predicate-evaluation");
   assert.deepEqual(point.elements, [{ surface: "table from each predicate id to its implementation", owner: 18 }]);
+  assert.match(point.delivery, /`predicate_domains`/u);
   const decisions = readFileSync(path.join(ROOT, "04-decisions.md"), "utf8");
-  const adr = decisions.slice(decisions.indexOf("## ADR-097"), decisions.indexOf("## Оставшиеся риски"));
+  const adr = decisions.slice(decisions.indexOf("## ADR-097"), decisions.indexOf("## ADR-098"));
   assert.match(adr, /смысл каждого предиката остаётся за модулем записи его домена/u);
   // The justification is not circular: expanded in place, the coordinator's
   // decision under the owner's delegation, reviewed by round 8's full panel.
@@ -1209,4 +1222,466 @@ test("the documents name the model account check and where the gate is called (R
     const text = decisions.slice(decisions.indexOf(adr), decisions.indexOf(next));
     assert.match(text, /^- Изменено ADR-102: /mu, adr);
   }
+});
+
+// Debt 12f (R8-8, ADR-107): every predicate of the graph has an owner, read from
+// the graph and held to `required_for_v1` records. Facts are not a partition
+// (`task_record` is read by 175 of 433 predicates and means something else in
+// each), so the graph's predicate carries a closed `domain` and the matrix
+// names one owner per domain, whose obligation names it.
+import * as domainCheck from "../scripts/validate-program-capability-matrix.mjs";
+
+const domainsOf = (graph) => new Map([...new Set(graph.predicates.map((entry) => entry.domain))].map((domain) => [domain, graph.predicates.filter((entry) => entry.domain === domain).length]));
+const domainErrors = (data, graph = GRAPH_DOCUMENT) => messages(validateMatrix(data.matrix, data.inventory, data.parityRegistry, graph));
+const entryOf = (data, domain) => data.matrix.predicate_domains.find((entry) => entry.domain === domain);
+
+test("R8-8: the domains a graph's predicates name are its requirement, read from the graph", () => {
+  assert.equal(typeof domainCheck.predicateDomainRequirements, "function");
+  const wanted = domainCheck.predicateDomainRequirements(GRAPH_DOCUMENT);
+  assert.deepEqual(wanted.domains.map((want) => want.domain), [...domainsOf(GRAPH_DOCUMENT).keys()].sort());
+  assert.equal(wanted.domains.reduce((sum, want) => sum + want.predicates, 0), GRAPH_DOCUMENT.predicates.length);
+  assert.deepEqual(wanted.unowned, []);
+  const bare = structuredClone(GRAPH_DOCUMENT);
+  delete bare.predicates[0].domain;
+  bare.predicates[1].domain = "";
+  assert.deepEqual(domainCheck.predicateDomainRequirements(bare).unowned, [bare.predicates[0].id, bare.predicates[1].id]);
+  // A string that is not an id names no domain either (review of 12f, L5): the
+  // requirement side holds the same pattern as the matrix side.
+  for (const malformed of ["Quick-Classification", "quick classification", "_quick", "quick__classification", "7up"]) {
+    const spelled = structuredClone(GRAPH_DOCUMENT);
+    spelled.predicates[2].domain = malformed;
+    assert.deepEqual(domainCheck.predicateDomainRequirements(spelled).unowned, [spelled.predicates[2].id], malformed);
+    assert.ok(!domainCheck.predicateDomainRequirements(spelled).domains.some((want) => want.domain === malformed), malformed);
+  }
+  assert.doesNotThrow(() => domainCheck.predicateDomainRequirements(null));
+  assert.deepEqual(domainCheck.predicateDomainRequirements(null), { domains: [], unowned: [], collisions: [] });
+});
+
+test("R8-8: a predicate that names no domain is unowned and fails the capability check", () => {
+  const data = fixture();
+  const graph = structuredClone(GRAPH_DOCUMENT);
+  delete graph.predicates.find((entry) => entry.id === "cond_001").domain;
+  assert.match(domainErrors(data, graph), /predicate `cond_001` names no domain, so no record owns what it decides/u);
+  const blank = structuredClone(GRAPH_DOCUMENT);
+  blank.predicates.find((entry) => entry.id === "cond_001").domain = 7;
+  assert.match(domainErrors(data, blank), /predicate `cond_001` names no domain/u);
+  assert.match(messages(validateAll({ ...data, graph })), /predicate `cond_001` names no domain/u);
+});
+
+test("R8-8: a domain the graph uses is carried by a required_for_v1 record, and the matrix names only the domains it uses", () => {
+  const data = fixture();
+  const graph = structuredClone(GRAPH_DOCUMENT);
+  graph.predicates.find((entry) => entry.id === "cond_001").domain = "imaginary_domain";
+  assert.match(domainErrors(data, graph), /`imaginary_domain` is read by 1 predicate of the v1 graph and carried by no required_for_v1 record/u);
+  const extra = fixture();
+  extra.matrix.predicate_domains.push({ ...structuredClone(extra.matrix.predicate_domains[0]), domain: "zz_imaginary" });
+  assert.match(domainErrors(extra), /`zz_imaginary` is not read by any predicate of the v1 graph; the matrix names only what it reads/u);
+  const twice = fixture();
+  twice.matrix.predicate_domains.push(structuredClone(twice.matrix.predicate_domains.at(-1)));
+  assert.match(domainErrors(twice), new RegExp(`\`${twice.matrix.predicate_domains.at(-1).domain}\` is named twice`, "u"));
+  const unsorted = fixture();
+  unsorted.matrix.predicate_domains.reverse();
+  assert.match(domainErrors(unsorted), /matrix predicate_domains must be sorted by domain/u);
+});
+
+test("R8-8: a domain has one owner, a required_for_v1 record inside the matrix, and its obligation names the domain", () => {
+  const data = fixture();
+  assert.deepEqual(domainErrors(data), "");
+  for (const entry of data.matrix.predicate_domains) assert.equal(entry.owner_issues.length, 1, entry.domain);
+  const post = fixture();
+  entryOf(post, "alignment_gates").owner_issues = [38];
+  entryOf(post, "alignment_gates").elements[0].owner = 38;
+  assert.match(domainErrors(post), /`alignment_gates` is carried by #38, which is planned_after_v1, not required_for_v1/u);
+  const outside = fixture();
+  entryOf(outside, "alignment_gates").owner_issues = [40];
+  assert.match(domainErrors(outside), /predicate_domains\[\d+\]\.owner_issues contains out-of-range issue 40/u);
+  const two = fixture();
+  entryOf(two, "alignment_gates").owner_issues = [4, 5];
+  assert.match(domainErrors(two), /`alignment_gates` has 2 owners; a predicate's meaning is one record's/u);
+  const none = fixture();
+  entryOf(none, "alignment_gates").owner_issues = [];
+  assert.match(domainErrors(none), /`alignment_gates` names no owner issue/u);
+  const unnamed = fixture();
+  record(unnamed, 4).implementation_obligation_before_mvp = record(unnamed, 4).implementation_obligation_before_mvp.replaceAll("`alignment_gates`", "the alignment predicates");
+  assert.match(domainErrors(unnamed), /#4 carries `alignment_gates` but its implementation_obligation_before_mvp does not name it/u);
+  const claiming = fixture();
+  record(claiming, 34).implementation_obligation_before_mvp += " It also decides the `alignment_gates` predicates.";
+  assert.match(domainErrors(claiming), /#34 names `alignment_gates` in its implementation obligation but is not among its owners/u);
+  const surface = fixture();
+  entryOf(surface, "alignment_gates").elements[0].surface = "imaginary surface";
+  assert.match(domainErrors(surface), /surface "imaginary surface" of `alignment_gates` is not named in #4's implementation_obligation_before_mvp/u);
+  const decision = fixture();
+  entryOf(decision, "alignment_gates").decision = "ADR-097";
+  assert.match(domainErrors(decision), /predicate_domains\[\d+\]\.decision must be ADR-107/u);
+});
+
+test("R8-8: a post-v1 owner is refused for the predicates of the v1 graph, whose eight workflows are all v1", () => {
+  // The graph registers `autosk-planned` … `autosk-arena-judge` and no other
+  // workflow, so no predicate of it is a post-v1 workflow's (ADR-090, ADR-097):
+  // a post-v1 owner would leave a required_for_v1 predicate owned by a record
+  // v1 does not have to build.
+  const data = fixture();
+  for (const entry of data.matrix.predicate_domains) {
+    assert.equal(record(data, entry.owner_issues[0]).lifecycle, "required_for_v1", entry.domain);
+  }
+  const post = fixture();
+  entryOf(post, "arena_runtime").owner_issues = [33];
+  entryOf(post, "arena_runtime").elements[0].owner = 33;
+  assert.match(domainErrors(post), /`arena_runtime` is carried by #33, which is planned_after_v1, not required_for_v1/u);
+});
+
+test("R8-8: generic facts do not collapse onto the record that owns the evaluator", () => {
+  const data = fixture();
+  const owners = new Map();
+  for (const entry of GRAPH_DOCUMENT.predicates) {
+    const [issue] = entryOf(data, entry.domain).owner_issues;
+    owners.set(issue, (owners.get(issue) ?? 0) + 1);
+  }
+  // #18 owns the mechanism and four domains' meaning (the chain's unconditional
+  // draws, model-step results, child joins, Arena), a minority of the graph.
+  const shareOf18 = (owners.get(18) ?? 0) / GRAPH_DOCUMENT.predicates.length;
+  assert.ok(shareOf18 < 0.2, `#18 owns ${owners.get(18)} of ${GRAPH_DOCUMENT.predicates.length}`);
+  assert.ok(owners.size >= 15, `${owners.size} owners`);
+  // `task_record` is read by 175 predicates and is nobody's meaning: the
+  // predicates that read it are spread over the owners of what they decide.
+  const readers = new Set(GRAPH_DOCUMENT.predicates.filter((entry) => entry.reads.includes("task_record")).map((entry) => entryOf(data, entry.domain).owner_issues[0]));
+  assert.ok(readers.size >= 12, `${readers.size} owners read task_record`);
+});
+
+test("R8-8: classifier_verdict belongs to the registry classifier's owner, and #18's table meets it there", () => {
+  // Debt 12d added the fact for cond_024; CodeRabbit on #277 asked that the
+  // production evaluator derive it from the current artifact path. It is read
+  // by one predicate, in the domain #14's registry classifier owns, and #14's
+  // obligation names the derivation while #18's names the hand-over.
+  const data = fixture();
+  const readers = GRAPH_DOCUMENT.predicates.filter((entry) => entry.reads.includes("classifier_verdict"));
+  assert.deepEqual(readers.map((entry) => [entry.id, entry.domain]), [["cond_024", "artifact_classification"]]);
+  const entry = entryOf(data, "artifact_classification");
+  assert.deepEqual(entry.owner_issues, [14]);
+  assert.ok(entry.elements.some((element) => element.owner === 14 && element.surface.includes("`classifier_verdict`")));
+  const owner = record(data, 14).implementation_obligation_before_mvp;
+  assert.match(owner, /`classifier_verdict` is derived by the registry classifier from the current artifact path/u);
+  assert.match(record(data, 18).implementation_obligation_before_mvp, /never a value the caller supplies/u);
+  const stripped = fixture();
+  record(stripped, 14).implementation_obligation_before_mvp = record(stripped, 14).implementation_obligation_before_mvp.replaceAll("`classifier_verdict`", "the verdict");
+  assert.match(domainErrors(stripped), /surface "[^"]*`classifier_verdict`[^"]*" of `artifact_classification` is not named in #14's implementation_obligation_before_mvp/u);
+});
+
+test("R8-8 review L5: the closed shape, the delivery's length and the object check are each refused by name", () => {
+  const extra = fixture();
+  entryOf(extra, "alignment_gates").owner = 4;
+  assert.match(domainErrors(extra), /predicate_domains\[\d+\] keys differ from the closed v1 predicate domain shape/u);
+  const short = fixture();
+  entryOf(short, "alignment_gates").delivery = "too short";
+  assert.match(domainErrors(short), /predicate_domains\[\d+\]\.delivery must contain at least 20 characters/u);
+  const notObject = fixture();
+  notObject.matrix.predicate_domains.push(null);
+  assert.match(domainErrors(notObject), new RegExp(`predicate_domains\\[${notObject.matrix.predicate_domains.length - 1}\\] must be an object`, "u"));
+  const notDomain = fixture();
+  entryOf(notDomain, "alignment_gates").domain = "Alignment-Gates";
+  assert.match(domainErrors(notDomain), /predicate_domains\[\d+\]\.domain must name a domain of the graph's predicates/u);
+});
+
+test("R8-8: malformed predicate domains return errors instead of throwing", () => {
+  for (const malformed of [undefined, null, "x", [null], [{ domain: "arena" }], [{ domain: 7 }]]) {
+    const data = fixture();
+    if (malformed === undefined) delete data.matrix.predicate_domains;
+    else data.matrix.predicate_domains = malformed;
+    assert.doesNotThrow(() => validateMatrix(data.matrix, data.inventory, data.parityRegistry));
+    assert.doesNotThrow(() => validateAll(data));
+    assert.notDeepEqual(validateMatrix(data.matrix, data.inventory, data.parityRegistry), []);
+  }
+});
+
+test("R8-8: the matrix schema requires the predicate domains in a closed shape, and the summary lists each with its owner", () => {
+  const schema = JSON.parse(readFileSync(path.join(ROOT, "resources/program-capabilities/matrix.schema.json"), "utf8"));
+  assert.ok(schema.required.includes("predicate_domains"));
+  const entry = schema.$defs.predicateDomain;
+  assert.equal(entry.additionalProperties, false);
+  assert.deepEqual([...entry.required].sort(), ["decision", "delivery", "domain", "elements", "owner_issues"]);
+  const data = fixture();
+  for (const item of data.matrix.predicate_domains) {
+    assert.match(data.documentation, new RegExp(`\\| \`${item.domain}\` \\| #${item.owner_issues[0]} \\|`, "u"));
+  }
+});
+
+// Review of 12f (M1, M2, M3, L4): the assignment is held to the contracts that
+// name each predicate's owner, and an obligation is held to a closed sentence.
+const ownerOfPredicate = (data, id) => entryOf(data, GRAPH_DOCUMENT.predicates.find((entry) => entry.id === id).domain).owner_issues[0];
+const domainOfPredicate = (id) => GRAPH_DOCUMENT.predicates.find((entry) => entry.id === id).domain;
+const entriesOf = (data, issue) => data.matrix.predicate_domains.filter((entry) => entry.owner_issues.includes(issue));
+
+test("review of 12f M1: no Ticket-set domain names #7, whose contract is execution bases; the join is #18's and the dispatch is #6's", () => {
+  const data = fixture();
+  assert.ok(!data.matrix.predicate_domains.some((entry) => entry.domain === "ticket_execution"));
+  assert.ok(!entriesOf(data, 7).length, "#7 owns no predicate: none reads execution-base state");
+  assert.doesNotMatch(record(data, 7).implementation_obligation_before_mvp, /predicate meaning/u);
+  // The join-wait pattern is one domain for every join (`child_join`), and the
+  // Ticket join and the Ticket's completion are joins and completions.
+  for (const id of ["cond_100", "cond_101", "cond_115", "cond_116", "cond_130", "cond_131", "cond_176", "cond_177", "cond_321", "cond_322",
+    "cond_255", "cond_256", "cond_257", "cond_259", "cond_260", "cond_422"]) assert.equal(domainOfPredicate(id), "child_join", id);
+  assert.equal(domainOfPredicate("cond_246"), "tickets_manifest_validation", "a fresh dispatch reads the validated manifest (tickets-manifest.md §1, §14)");
+  assert.equal(ownerOfPredicate(data, "cond_246"), 6);
+  assert.equal(ownerOfPredicate(data, "cond_259"), 18);
+});
+
+test("review of 12f M2: #25 claims the rebuild operations' predicates in its own contract and obligation, and the invalidation publication is #5's", () => {
+  const data = fixture();
+  const text = record(data, 25).implementation_obligation_before_mvp;
+  // Every step whose edge an `anchor_revision` predicate guards is named by
+  // #25's obligation, derived from the graph: a claim the generated sentence
+  // alone made was the pattern R8-8 flagged.
+  const guards = new Map(GRAPH_DOCUMENT.guards.map((guard) => [guard.id, guard.predicate]));
+  const steps = new Set();
+  for (const edge of GRAPH_DOCUMENT.transitions) {
+    if (edge.guards.some((id) => domainOfPredicate(guards.get(id)) === "anchor_revision")) steps.add(edge.from);
+  }
+  assert.ok(steps.size >= 8, [...steps].join(", "));
+  for (const step of steps) assert.ok(text.includes(`\`${step}\``), `#25's obligation names \`${step}\``);
+  for (const operation of ["anchor_rebuild_op", "ticket_repair_op", "rebuild_code_anchor"]) assert.ok(text.includes(`\`${operation}\``), operation);
+  // The contract distinguishes "not implemented" from "not owned".
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/requirement-revision.md"), "utf8");
+  assert.doesNotMatch(contract, /are not claimed here/u);
+  assert.match(contract, /their runtime is issue #25's in matrix v1 \(ADR-107\), not implemented yet and not unowned/u);
+  assert.match(contract, /Deferred and named: the runtime that executes the stages, the panel dispatcher, and the mechanical rebuild that consumes the impact plan\. Those are `required_for_v1` and owned: the first and the last by #25 \(ADR-107\), the dispatcher by #14/u);
+  // The invalidation operation `rebuild_anchor` creates is `epic-planning-ref.md` §10's.
+  for (const id of ["cond_189", "cond_196", "cond_197", "cond_198", "cond_199", "cond_200", "cond_201"]) assert.equal(domainOfPredicate(id), "planning_ref_lifecycle", id);
+  assert.equal(ownerOfPredicate(data, "cond_189"), 5);
+});
+
+test("review of 12f M3: a predicate whose contract names its owner is that owner's", () => {
+  const data = fixture();
+  const expected = {
+    cond_056: ["planning_ref_lifecycle", 5], cond_078: ["planning_ref_lifecycle", 5], // epic-planning-ref.md §5: mismatch before mint
+    cond_143: ["planning_ref_lifecycle", 5], // §8: the signer is asked before the atomic PASS; #17 supplies the policy
+    cond_438: ["target_integration", 9], cond_439: ["target_integration", 9], // epic-staging.md §5 and §8: acceptance_missing
+    cond_316: ["artifact_classification", 14], cond_342: ["artifact_classification", 14], // 01 §1: the classifier is the registry
+    cond_405: ["quick_classification", 4],
+  };
+  for (const [id, [domain, issue]] of Object.entries(expected)) {
+    assert.equal(domainOfPredicate(id), domain, id);
+    assert.equal(ownerOfPredicate(data, id), issue, id);
+  }
+  // Nothing belongs to #35's queue as a predicate, so no domain names it.
+  assert.ok(!data.matrix.predicate_domains.some((entry) => entry.domain === "acceptance_decision"));
+  assert.doesNotMatch(record(data, 35).implementation_obligation_before_mvp, /predicate meaning/u);
+  // Routing after a recorded exemption stays with the verdict's owner.
+  for (const id of ["cond_343", "cond_344", "cond_335", "cond_336"]) assert.equal(domainOfPredicate(id), "review_findings", id);
+});
+
+test("narrow re-review L3: the Ticket workflow's implement → verify edge is decided by #18's result check, not by a Quick trigger", () => {
+  const data = fixture();
+  const guards = new Map(GRAPH_DOCUMENT.guards.map((guard) => [guard.id, guard.predicate]));
+  const edges = GRAPH_DOCUMENT.transitions.filter((edge) => edge.from === "implement" && edge.to === "verify");
+  assert.equal(edges.length, 1, "t_413 is the only implement → verify edge, shared by autosk-ticket and autosk-quick");
+  for (const id of edges.flatMap((edge) => edge.guards.map((guard) => guards.get(guard)))) {
+    assert.equal(domainOfPredicate(id), "model_step_result", id);
+    assert.equal(ownerOfPredicate(data, id), 18, id);
+  }
+  assert.equal(domainOfPredicate("cond_305"), "model_step_result");
+  // The Quick trigger is its own predicate, on the edge into the reclassification.
+  assert.equal(domainOfPredicate("cond_299"), "quick_classification");
+  assert.doesNotMatch(entryOf(data, "quick_classification").delivery, /completion record/u);
+});
+
+test("narrow re-review L4: no delivery claims what none of its predicates decides", () => {
+  const data = fixture();
+  const entry = entryOf(data, "delivery_integration");
+  assert.doesNotMatch(entry.delivery, /sign/u, "cond_143 (planning_signing_unavailable) is #5's; none of the seven decides signing");
+  const predicates = GRAPH_DOCUMENT.predicates.filter((item) => item.domain === "delivery_integration");
+  assert.deepEqual(predicates.map((item) => item.id).sort(), ["cond_435", "cond_436", "cond_437", "cond_451", "cond_452", "cond_453", "cond_458"]);
+  for (const item of predicates) assert.doesNotMatch(item.description, /signing|signature/u, item.id);
+  // The join's exit that names a Ticket's binding is named where it lives.
+  assert.match(entryOf(data, "child_join").delivery, /ticket_join_invalid/u);
+});
+
+test("review of 12f L4: an obligation carries the owner's closed sentence, and nothing else claims or disowns a domain", () => {
+  assert.equal(typeof domainCheck.ownershipSentence, "function");
+  // P8: a negated sentence in place of the owner's is refused.
+  const negated = fixture();
+  const sentence = domainCheck.ownershipSentence(entriesOf(negated, 4));
+  assert.ok(record(negated, 4).implementation_obligation_before_mvp.includes(sentence));
+  record(negated, 4).implementation_obligation_before_mvp = record(negated, 4).implementation_obligation_before_mvp.replace(sentence,
+    "This issue does NOT own `alignment_gates`; the meaning of the `alignment_gates` predicates are someone else's.");
+  assert.match(domainErrors(negated), /#4's implementation_obligation_before_mvp does not carry its ownership sentence/u);
+  // The sentence and a disowning line together: the second mention is stray.
+  const both = fixture();
+  record(both, 4).implementation_obligation_before_mvp += " This issue does NOT own `alignment_gates`.";
+  assert.match(domainErrors(both), /#4 names `alignment_gates` in its implementation obligation outside the ownership sentence/u);
+  // P9: a claim of a domain neither the graph nor the matrix has.
+  for (const claim of [" It also owns the `ghost_domain` predicates.", " It carries predicate domain `ghost_domain`."]) {
+    const ghost = fixture();
+    record(ghost, 16).implementation_obligation_before_mvp += claim;
+    assert.match(domainErrors(ghost), /#16 claims the `ghost_domain` predicates, and the matrix has no such domain/u, claim);
+  }
+  // A stale claim survives no rename: the domain it names is gone from the matrix.
+  const renamed = fixture();
+  renamed.matrix.predicate_domains.find((entry) => entry.domain === "loop_caps").domain = "bounded_loops";
+  const graph = structuredClone(GRAPH_DOCUMENT);
+  for (const predicate of graph.predicates) if (predicate.domain === "loop_caps") predicate.domain = "bounded_loops";
+  renamed.matrix.predicate_domains.sort((a, b) => (a.domain < b.domain ? -1 : 1));
+  assert.match(domainErrors(renamed, graph), /#32 claims the `loop_caps` predicates, and the matrix has no such domain/u);
+  // The sentence is the entry: a delivery that changes without the obligation is drift.
+  const drift = fixture();
+  entryOf(drift, "alignment_gates").delivery += " and something the owner never wrote";
+  assert.match(domainErrors(drift), /#4's implementation_obligation_before_mvp does not carry its ownership sentence/u);
+  // A post-v1 record claiming a real domain is a non-owner's claim too.
+  const post = fixture();
+  record(post, 33).implementation_obligation_before_mvp += " It also decides the `arena_runtime` predicates.";
+  assert.match(domainErrors(post), /#33 names `arena_runtime` in its implementation obligation but is not among its owners/u);
+});
+
+test("review of 12f L4: a domain is not named like a state fact, so a backticked fact is never a claim", () => {
+  // `arena` was both the Arena domain and the fact `cond_031` reads: an
+  // obligation that backticked the fact would have been read as a claim.
+  const data = fixture();
+  const facts = new Set(GRAPH_DOCUMENT.predicates.flatMap((entry) => entry.reads));
+  assert.deepEqual(data.matrix.predicate_domains.map((entry) => entry.domain).filter((domain) => facts.has(domain)), []);
+  assert.deepEqual(domainCheck.predicateDomainRequirements(GRAPH_DOCUMENT).collisions, []);
+  const reads = fixture();
+  record(reads, 34).implementation_obligation_before_mvp += " It reads the `arena` fact and the `phase` fact.";
+  // Only the digest, which any edit to a record moves, differs: no claim, no stray mention.
+  assert.equal(domainErrors(reads).replace(/matrix canonical_digest mismatch: expected [0-9a-f]+/u, ""), "");
+  const collide = structuredClone(GRAPH_DOCUMENT);
+  for (const predicate of collide.predicates) if (predicate.domain === "arena_runtime") predicate.domain = "arena";
+  const renamed = fixture();
+  renamed.matrix.predicate_domains.find((entry) => entry.domain === "arena_runtime").domain = "arena";
+  renamed.matrix.predicate_domains.sort((a, b) => (a.domain < b.domain ? -1 : 1));
+  assert.deepEqual(domainCheck.predicateDomainRequirements(collide).collisions, ["arena"]);
+  assert.match(domainErrors(renamed, collide), /domain `arena` is also a name the graph declares; a domain is named by a token no graph name carries/u);
+});
+
+test("review of 12f: workflow-graph.md's count of task_record readers is the graph's", () => {
+  const readers = GRAPH_DOCUMENT.predicates.filter((entry) => entry.reads.includes("task_record")).length;
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/workflow-graph.md"), "utf8");
+  assert.ok(contract.includes(`\`task_record\` is read by ${readers} of the shipped graph's ${GRAPH_DOCUMENT.predicates.length} predicates`), `${readers} of ${GRAPH_DOCUMENT.predicates.length}`);
+});
+
+// Narrow re-review of 12f (L1, L2, nits): a delivery claims nothing, the collision
+// rule reads every name the graph declares, and the sentence has a place.
+test("narrow re-review L1: a delivery describes its domain and names no domain, so it cannot carry another owner's claim", () => {
+  const other = fixture();
+  const before = domainCheck.ownershipSentence(entriesOf(other, 25));
+  entryOf(other, "anchor_revision").delivery += ", and the meaning of the `tickets_manifest_validation` predicates";
+  record(other, 25).implementation_obligation_before_mvp = record(other, 25).implementation_obligation_before_mvp.replace(before, domainCheck.ownershipSentence(entriesOf(other, 25)));
+  assert.match(domainErrors(other), /predicate_domains\[\d+\]\.delivery names domain `tickets_manifest_validation`/u);
+  const ghost = fixture();
+  const sentence = domainCheck.ownershipSentence(entriesOf(ghost, 25));
+  entryOf(ghost, "anchor_revision").delivery += ", and the `ghost_domain` predicates";
+  record(ghost, 25).implementation_obligation_before_mvp = record(ghost, 25).implementation_obligation_before_mvp.replace(sentence, domainCheck.ownershipSentence(entriesOf(ghost, 25)));
+  assert.match(domainErrors(ghost), /predicate_domains\[\d+\]\.delivery claims the `ghost_domain` predicates, and the matrix has no such domain/u);
+  const own = fixture();
+  const own25 = domainCheck.ownershipSentence(entriesOf(own, 25));
+  entryOf(own, "anchor_revision").delivery += " (the `anchor_revision` predicates)";
+  record(own, 25).implementation_obligation_before_mvp = record(own, 25).implementation_obligation_before_mvp.replace(own25, domainCheck.ownershipSentence(entriesOf(own, 25)));
+  assert.match(domainErrors(own), /delivery names domain `anchor_revision`/u);
+});
+
+test("narrow re-review L2: a domain is not named like anything the graph declares, and not like a name of the repository's vocabulary", () => {
+  const data = fixture();
+  const spelled = (mutate) => {
+    const graph = structuredClone(GRAPH_DOCUMENT);
+    mutate(graph);
+    return domainCheck.predicateDomainRequirements(graph).collisions;
+  };
+  assert.deepEqual(domainCheck.predicateDomainRequirements(GRAPH_DOCUMENT).collisions, []);
+  const domain = "loop_caps";
+  assert.deepEqual(spelled((graph) => graph.steps.push({ name: domain, kind: "agent", no_transition_reason: "x" })), [domain], "a step");
+  assert.deepEqual(spelled((graph) => graph.workflows.push({ name: domain, first_step: "intake" })), [domain], "a workflow");
+  assert.deepEqual(spelled((graph) => graph.entry_steps.push({ step: domain, reason: "x" })), [domain], "an entry step");
+  assert.deepEqual(spelled((graph) => graph.guards[0].park_reason = domain), [domain], "a park reason");
+  assert.deepEqual(spelled((graph) => graph.recovery.push({ reason: domain })), [domain], "a recovery reason");
+  assert.deepEqual(spelled((graph) => graph.caps[0].cycle = domain), [domain], "a cap");
+  assert.deepEqual(spelled((graph) => graph.decision_options.push(domain)), [domain], "a decision option");
+  assert.deepEqual(spelled((graph) => graph.predicates[0].reads.push(domain)), [domain], "a fact");
+  const graph = structuredClone(GRAPH_DOCUMENT);
+  graph.steps.push({ name: domain, kind: "agent", no_transition_reason: "x" });
+  assert.match(domainErrors(data, graph), /domain `loop_caps` is also a name the graph declares; a domain is named by a token no graph name carries/u);
+  // Prose that uses the vocabulary of contracts and of the graph is not a claim.
+  const reads = fixture();
+  record(reads, 9).implementation_obligation_before_mvp += " Apply each Ticket's `approved_delta` (docs/contracts/approved-delta.md) to staging.";
+  record(reads, 14).implementation_obligation_before_mvp += " A class whose `publication` is `planning_ref` is published on the Epic planning ref.";
+  record(reads, 34).implementation_obligation_before_mvp += " The doctor reports a project parked at `authority_recovery`.";
+  assert.equal(domainErrors(reads).replace(/matrix canonical_digest mismatch: expected [0-9a-f]+/u, ""), "");
+  // The names are checked against the repository's own vocabulary: a backticked
+  // token of a document, and a string of a resource, that equals a domain is a
+  // collision. Discussion of the domains (the ADR, the log, the generated
+  // summary, the matrix and the graph themselves, the panel's history) is exempt.
+  const domains = new Set(GRAPH_DOCUMENT.predicates.map((entry) => entry.domain));
+  const exempt = new Set(["04-decisions.md", "docs/cloud-agent-priming.md", "docs/program-capability-matrix.md",
+    "resources/program-capabilities/matrix.v1.json", "resources/workflow-graph/workflow-graph.v1.json", "resources/program-capabilities/matrix.schema.json"]);
+  const found = [];
+  const scan = (file) => {
+    const relative = path.relative(ROOT, file).split(path.sep).join("/");
+    if (exempt.has(relative) || relative.startsWith("resources/design-candidate/")) return;
+    const text = readFileSync(file, "utf8");
+    const pattern = file.endsWith(".md") ? /`([a-z][a-z0-9_]*)`/gu : /"([a-z][a-z0-9_]*)"/gu;
+    for (const match of text.matchAll(pattern)) if (domains.has(match[1])) found.push(`${relative}: ${match[1]}`);
+  };
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(md|json)$/u.test(entry.name)) scan(full);
+    }
+  };
+  for (const dir of ["docs", "resources"]) walk(path.join(ROOT, dir));
+  for (const file of ["01-core-flows.md", "02-architecture.md", "03-technical-plan.md", "README.md", "CONTRIBUTING.md"]) scan(path.join(ROOT, file));
+  assert.deepEqual(found, []);
+});
+
+test("narrow re-review nits: the sentence stands at a sentence boundary outside a quotation, once, and claims are read in every form", () => {
+  const withSentence = (issue, wrap) => {
+    const data = fixture();
+    const text = record(data, issue).implementation_obligation_before_mvp;
+    const sentence = domainCheck.ownershipSentence(entriesOf(data, issue));
+    record(data, issue).implementation_obligation_before_mvp = text.replace(sentence, wrap(sentence));
+    return data;
+  };
+  const carry = /does not carry its ownership sentence/u;
+  assert.match(domainErrors(withSentence(6, (sentence) => `It is false that this issue ${sentence} None of it is this issue's.`)), carry, "a negation before it");
+  assert.match(domainErrors(withSentence(6, (sentence) => `An earlier draft said "${sentence}" and that draft was withdrawn; #18 decides these.`)), carry, "inside a quotation");
+  // After a full stop but still inside an open quotation, straight or curly.
+  assert.match(domainErrors(withSentence(6, (sentence) => `The draft read: "Scope. ${sentence}" and it was withdrawn.`)), carry, "inside a quotation after a full stop");
+  assert.match(domainErrors(withSentence(6, (sentence) => `The draft read: \u201cScope. ${sentence}\u201d and it was withdrawn.`)), carry, "inside curly quotes");
+  assert.equal(domainErrors(withSentence(6, (sentence) => sentence)).replace(/matrix canonical_digest mismatch: expected [0-9a-f]+/u, ""), "", "the shipped position is accepted");
+  // Twice: the second is a stray mention.
+  const twice = fixture();
+  record(twice, 6).implementation_obligation_before_mvp += " " + domainCheck.ownershipSentence(entriesOf(twice, 6));
+  assert.match(domainErrors(twice), /#6 names `tickets_manifest_validation` in its implementation obligation outside the ownership sentence/u);
+  // Claim phrases in every form the prose uses.
+  for (const claim of [" It also owns the predicates of `ghost_domain`.", " It also owns every `ghost_domain` predicate.", " It also owns the domain `ghost_domain`."]) {
+    const ghost = fixture();
+    record(ghost, 16).implementation_obligation_before_mvp += claim;
+    assert.match(domainErrors(ghost), /#16 claims the `ghost_domain` predicates, and the matrix has no such domain/u, claim);
+  }
+  // A record that owns nothing carries no ownership sentence, backticked or not.
+  const stranger = fixture();
+  record(stranger, 7).implementation_obligation_before_mvp += " Owns predicate meaning (ADR-107): meaning of the execution base predicates.";
+  assert.match(domainErrors(stranger), /#7 carries an ownership sentence but owns no domain/u);
+});
+
+test("narrow re-review L5: the §8 entry lists the owners the matrix has", () => {
+  const data = fixture();
+  const owners = new Set(data.matrix.predicate_domains.flatMap((entry) => entry.owner_issues));
+  const log = readFileSync(path.join(ROOT, "docs/cloud-agent-priming.md"), "utf8");
+  const start = log.indexOf("- 2026-09-28: debt 12f");
+  const entry = log.slice(start, log.indexOf("\n- 20", start + 10) === -1 ? undefined : log.indexOf("\n- 20", start + 10));
+  const listed = (marker) => {
+    const at = entry.indexOf(marker);
+    assert.ok(at >= 0, marker);
+    const list = entry.slice(at, at + 300).split(/ —|\)/u)[0];
+    return new Set([...list.matchAll(/#(\d+)/gu)].map((match) => Number(match[1])));
+  };
+  for (const marker of ["(owners #", "GitHub issues (#"]) {
+    const found = listed(marker);
+    assert.deepEqual([...found].sort((a, b) => a - b), [...owners].sort((a, b) => a - b), marker);
+  }
+});
+
+test("narrow re-review nits: requirement-revision.md points at the specification of the rebuild and says it once", () => {
+  const contract = readFileSync(path.join(ROOT, "docs/contracts/requirement-revision.md"), "utf8");
+  assert.doesNotMatch(contract, /not unowned[^\n]*not unowned/u);
+  assert.doesNotMatch(contract, /matrix v1 \(ADR-107\):/u, "no double colon");
+  assert.match(contract, /The mechanical rebuild is not specified by this contract: `rebuild_anchor` and the operations it drives are specified in `03-technical-plan\.md` §5 \("Contest и anchor changes"\) and by the graph, and their runtime is issue #25's in matrix v1 \(ADR-107\), not implemented yet and not unowned\./u);
 });

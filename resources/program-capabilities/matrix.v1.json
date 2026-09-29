@@ -67,7 +67,7 @@
       "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Carry the signed UserDecisionRecord, stale identity, policy scope and four named alignment lifecycles into the #39 design candidate.",
-      "implementation_obligation_before_mvp": "Implement and test the four alignment gates, Quick→Planned reclassification, signed authority records and fail-closed resume behavior before MVP. The daemon side of `authority.user-decision` (ADR-023) and the signer behind `security.signer_boundary` are this issue's: the signer key pin set by trusted init, the signer in a separate OS boundary whose identity the daemon reports, the UserDecisionRecord journal, authority/nonce heads committed before projection or effects, and protected dependency/intent heads, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP. An Epic's own integration acceptance — every answer to any acceptance packet of the Epic, accept or refuse, re-asks included, and every IntegrationAuthorizationRecord of its scope, which autoskd recognizes at commit by the kind of request each decision answers (acceptance_missing at accept_staging), not by its payload — never enters the Epic's relevant authority projection or its dependency or intent head: committing them moves the global authority and nonce heads, kept for integrity, and integration_authorization_head, never a head the record names, and any other decision — a later one revoking or replacing an acceptance decision or record included — enters them as before, so an acceptance does not move what it accepts (docs/contracts/integration-authorization.md §3, ADR-103).",
+      "implementation_obligation_before_mvp": "Implement and test the four alignment gates, Quick→Planned reclassification, signed authority records and fail-closed resume behavior before MVP. The daemon side of `authority.user-decision` (ADR-023) and the signer behind `security.signer_boundary` are this issue's: the signer key pin set by trusted init, the signer in a separate OS boundary whose identity the daemon reports, the UserDecisionRecord journal, authority/nonce heads committed before projection or effects, and protected dependency/intent heads, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP. An Epic's own integration acceptance — every answer to any acceptance packet of the Epic, accept or refuse, re-asks included, and every IntegrationAuthorizationRecord of its scope, which autoskd recognizes at commit by the kind of request each decision answers (acceptance_missing at accept_staging), not by its payload — never enters the Epic's relevant authority projection or its dependency or intent head: committing them moves the global authority and nonce heads, kept for integrity, and integration_authorization_head, never a head the record names, and any other decision — a later one revoking or replacing an acceptance decision or record included — enters them as before, so an acceptance does not move what it accepts (docs/contracts/integration-authorization.md §3, ADR-103). Owns predicate meaning (ADR-107): meaning of the `alignment_gates` predicates: whether the alignment of a Brief, Core Flow, Tech Plan or Tickets breakdown is current, signed by a UserDecisionRecord or covered by the project's policy, and where one that is missing, stale or out of scope parks: the predicates of clarify_alignment, await_alignment, record_alignment and present_tickets_breakdown, and the alignment checks at the freeze, panel, pass and Tickets steps; meaning of the `anchor_binding` predicates: the anchor hook: whether the controlling anchor digest and the pending anchor still bind the step about to run, and the ensure-pending-anchor park (blocked_anchor) that every gate, join, commit and integration prologue takes; meaning of the `authority_journal_recovery` predicates: authority journal and protected-head recovery at authority_recovery: what a short committed prefix, a head ahead of the journal, a missing committed record or a destructive lost-key reset admits, and where an unmatched state parks; meaning of the `quick_classification` predicates: whether a Quick run's classification is valid on intake and at each gate, the planned trigger, and the Quick to Planned reclassification that invalidate_quick_classification records, and the Quick chain's intake.",
       "release_blocking": true,
       "dependencies": [
         3,
@@ -108,7 +108,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify commit-on-PASS, CAS publication, foreign movement, recovery phases and retention in the design candidate.",
-      "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root; ship the `autosk-flow-ref-custody` helper (src/git/ref-custody-helper.ts, its client and the closed nine-action protocol, the Epic staging actions included) as the only writer of refs/autosk/**, which the host asks and never bypasses. The helper runs as the installing user, a process of its own with its own socket, intents, journal and nonces (docs/contracts/platform-support.md §5a, ADR-102): it is the only writer of refs/autosk/** by protocol, its expected-old compare-and-swap and preflight find a protected ref the installing user's own tools moved or packed and never overwrite or adopt it, and its Git reads run with `--no-replace-objects`. The ref-custody policy's committed example, which predates ADR-102, changes only when this issue signs the wire goldens it binds again; the probe behind `security.ref_custody` is #13's with this issue.",
+      "implementation_obligation_before_mvp": "Implement crash-safe publication for every approved behavior artifact and use verified planning_head as the Ticket root; ship the `autosk-flow-ref-custody` helper (src/git/ref-custody-helper.ts, its client and the closed nine-action protocol, the Epic staging actions included) as the only writer of refs/autosk/**, which the host asks and never bypasses. The helper runs as the installing user, a process of its own with its own socket, intents, journal and nonces (docs/contracts/platform-support.md §5a, ADR-102): it is the only writer of refs/autosk/** by protocol, its expected-old compare-and-swap and preflight find a protected ref the installing user's own tools moved or packed and never overwrite or adopt it, and its Git reads run with `--no-replace-objects`. The ref-custody policy's committed example, which predates ADR-102, changes only when this issue signs the wire goldens it binds again; the probe behind `security.ref_custody` is #13's with this issue. Owns predicate meaning (ADR-107): meaning of the `planning_ref_lifecycle` predicates: the Epic planning ref: init and custody through the ref-custody helper (journal phases, ref and reflog proof, foreign movement, capability), the publication of a pass and of an invalidation, the candidate keepalive and its audit ref, and the housekeeping of an expired audit ref, the candidate base checked before a candidate is minted, the trusted signer asked before the atomic PASS (the delivery profile's policy is #17's), and the invalidation operation rebuild_anchor creates and its publication.",
       "release_blocking": true,
       "dependencies": [
         3,
@@ -138,7 +138,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define schema, canonicalization, Markdown consistency, graph validation and candidate identity before #39.",
-      "implementation_obligation_before_mvp": "Ship the versioned schema/validator and require one frozen manifest+docs candidate before Ticket Panel and dispatch.",
+      "implementation_obligation_before_mvp": "Ship the versioned schema/validator and require one frozen manifest+docs candidate before Ticket Panel and dispatch. Owns predicate meaning (ADR-107): meaning of the `tickets_manifest_validation` predicates: the Tickets manifest and its validation receipt: schema, canonical bytes, DAG, paths and the frozen tree, at validation, at freeze and at dispatch, and the fresh dispatch of the Ticket set from the validated manifest.",
       "release_blocking": true,
       "dependencies": [
         5
@@ -205,7 +205,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define canonical delta entries, digest, apply proof, inherited Git environment neutralization and recovery classes.",
-      "implementation_obligation_before_mvp": "Implement the autosk-owned adapter and port the Traycer adversarial CAS/reflog/obstruction/fault suite without runtime dependency.",
+      "implementation_obligation_before_mvp": "Implement the autosk-owned adapter and port the Traycer adversarial CAS/reflog/obstruction/fault suite without runtime dependency. Owns predicate meaning (ADR-107): meaning of the `delta_commit` predicates: a code candidate's approved delta at freeze and at commit-on-pass: the tree equal to the approved tree, the private branch's exact commit and canonical recipe, and the compare-and-swap on it.",
       "release_blocking": true,
       "dependencies": [
         7
@@ -238,7 +238,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify staging lineage, receipts, integration-fix lifecycle, aggregate binding, acceptance identity and single final CAS.",
-      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, and resolves the IntegrationAuthorizationRecord the acceptance names by scope and id, checks its digest and its chain against integration_authorization_head (ADR-096) — a chain per scope: previous_authorization_head_hash names the previous record of the same scope_id and integrateApproved compares the scope's head, under one integration_authorization_head per project kept for integrity, so another Epic's or Quick run's record does not stale it (docs/contracts/integration-authorization.md §5, ADR-103) — and the heads and controlling anchor digest it names against the ones in force, which an Epic's own acceptance does not move (docs/contracts/integration-authorization.md §3, ADR-103): every answer to the Epic's acceptance packets and every IntegrationAuthorizationRecord of its scope stay out of them, and any other decision, a later one revoking or replacing an acceptance included, counts; delivered as compat/autosk patches 0052+. v1 has one acceptance authority at accept_staging, the user's signature at the stop, so this issue's criterion that an auto-integration policy is bound to the exact staging identity reads under v1: every acceptance, a policy's included, carries the user's signature over the exact staging identity — `autoPolicyAcceptance` holds a pinned policy to that, which adds no autonomy, and no v1 graph edge reaches it; an unattended acceptance needs a different binding, #28's post-v1 design work (ADR-103). Aggregate verification runs its checks, which execute code models wrote, only under the model account through #18's launch path, never as the installing user (docs/contracts/platform-support.md §5b, ADR-102).",
+      "implementation_obligation_before_mvp": "Apply reviewed deltas to staging, verify the exact staging state, then move target once under delivery policy. `authorityGuard` and `integrateApproved` of `authority.user-decision` (ADR-023) are this issue's: the final CAS runs in autoskd under the project mutex, reconciles the authority journal and compares the Epic's authority projection and dependency/intent heads, and resolves the IntegrationAuthorizationRecord the acceptance names by scope and id, checks its digest and its chain against integration_authorization_head (ADR-096) — a chain per scope: previous_authorization_head_hash names the previous record of the same scope_id and integrateApproved compares the scope's head, under one integration_authorization_head per project kept for integrity, so another Epic's or Quick run's record does not stale it (docs/contracts/integration-authorization.md §5, ADR-103) — and the heads and controlling anchor digest it names against the ones in force, which an Epic's own acceptance does not move (docs/contracts/integration-authorization.md §3, ADR-103): every answer to the Epic's acceptance packets and every IntegrationAuthorizationRecord of its scope stay out of them, and any other decision, a later one revoking or replacing an acceptance included, counts; delivered as compat/autosk patches 0052+. v1 has one acceptance authority at accept_staging, the user's signature at the stop, so this issue's criterion that an auto-integration policy is bound to the exact staging identity reads under v1: every acceptance, a policy's included, carries the user's signature over the exact staging identity — `autoPolicyAcceptance` holds a pinned policy to that, which adds no autonomy, and no v1 graph edge reaches it; an unattended acceptance needs a different binding, #28's post-v1 design work (ADR-103). Aggregate verification runs its checks, which execute code models wrote, only under the model account through #18's launch path, never as the installing user (docs/contracts/platform-support.md §5b, ADR-102). Owns predicate meaning (ADR-107): meaning of the `staging_aggregate` predicates: the Epic's staging: applying the approved deltas, the aggregate verification and its binding to the staging identity, staging moved after a PASS, and the aggregate remediation; meaning of the `target_integration` predicates: the final target compare-and-swap and what follows: the acceptance's binding to the staging identity, integrateApproved, foreign or indeterminate movement of the target, the read-back and Quick's integrate with its recovery, and the acceptance stop (acceptance_missing) the decision queue's packet answers, with the resume after a new acceptance record.",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -382,7 +382,7 @@
       "owner": "autosk-flow filesystem maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Choose and document helper/addon strategy, threat model, API, packaging identity, capability matrix and residual risks.",
-      "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible, and the install of `autosk-flow-ref-custody` as a process of the installing user (platform-support.md §5a, ADR-102): its non-privileged bootstrap registers it, closes the project's Git directory to every other account (mode 0700), migrates protected packed refs to loose form, pins gc.packRefs=false and the planning refs' reflog retention, turns on per-worktree configuration (extensions.worktreeConfig) and records the bootstrap receipt, and the project's Git directory stays the installing user's ordinary repository, with no service account and no `safe.directory` exception. The privileged install, an administrator step, creates only the model account and its launch mechanism (platform-support.md §5b, ADR-102): the dedicated unprivileged account `autosk-model`, the group of it and the installing user through which it writes its worktrees' files and never a Git directory, and the mechanism autoskd starts model processes under it through, never a setuid binary of this project, which gives autoskd whole-tree termination of every model process tree (a service-manager unit's control group, or a supervisor under the model account where a sudoers rule starts it). `security.model_account` is this issue's with #11, #18 and #34: the model account probe proves that the account exists apart from the installing user, opens no Git directory of the project, reaches no signer, secure store or keychain, cannot read autoskd's RPC token and finds its TCP listener only on loopback, and that the launch mechanism kills a model process tree whole. So is the probe behind `security.ref_custody`, with #5: the doctor check of the helper's process, its socket and journal and the repository's pins, with the park of `ref_custody_unavailable` at project open when they are not proven. Open with #18 and #11: where a model's worktree and session directory lie under the project root.",
+      "implementation_obligation_before_mvp": "Implement the chosen safeProjectFs boundary before any trusted artifact/evidence/cleanup path is release-eligible, and the install of `autosk-flow-ref-custody` as a process of the installing user (platform-support.md §5a, ADR-102): its non-privileged bootstrap registers it, closes the project's Git directory to every other account (mode 0700), migrates protected packed refs to loose form, pins gc.packRefs=false and the planning refs' reflog retention, turns on per-worktree configuration (extensions.worktreeConfig) and records the bootstrap receipt, and the project's Git directory stays the installing user's ordinary repository, with no service account and no `safe.directory` exception. The privileged install, an administrator step, creates only the model account and its launch mechanism (platform-support.md §5b, ADR-102): the dedicated unprivileged account `autosk-model`, the group of it and the installing user through which it writes its worktrees' files and never a Git directory, and the mechanism autoskd starts model processes under it through, never a setuid binary of this project, which gives autoskd whole-tree termination of every model process tree (a service-manager unit's control group, or a supervisor under the model account where a sudoers rule starts it). `security.model_account` is this issue's with #11, #18 and #34: the model account probe proves that the account exists apart from the installing user, opens no Git directory of the project, reaches no signer, secure store or keychain, cannot read autoskd's RPC token and finds its TCP listener only on loopback, and that the launch mechanism kills a model process tree whole. So is the probe behind `security.ref_custody`, with #5: the doctor check of the helper's process, its socket and journal and the repository's pins, with the park of `ref_custody_unavailable` at project open when they are not proven. Open with #18 and #11: where a model's worktree and session directory lie under the project root. Owns predicate meaning (ADR-107): meaning of the `sandbox_cleanup` predicates: the removal of a flow's sandboxes and snapshots at cleanup through safeProjectFs: whether the sandbox is dirty and whether force was asked.",
       "release_blocking": true,
       "dependencies": [
         10
@@ -418,7 +418,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define a versioned Artifact Registry, classifier, dependency graph, lifecycle contract and unknown-class fail-closed behavior.",
-      "implementation_obligation_before_mvp": "Implement registry-driven authoring, identity, gates, publication, impact and retention for all v1 artifact classes.",
+      "implementation_obligation_before_mvp": "Implement registry-driven authoring, identity, gates, publication, impact and retention for all v1 artifact classes. Owns predicate meaning (ADR-107): meaning of the `artifact_classification` predicates: the registry classifier's verdict on a path (every park cause) and the mapping of an additional_normative path: the verdict is derived by the classifier from the current artifact path and handed to the evaluator, never supplied by its caller, and the editorial classification a Quick change's review exemption rests on, which the registry classifier decides; meaning of the `artifact_lifecycle` predicates: the authoring lifecycle of a planning artifact: the next required kind, the draft's and the fix's scope, the freeze's identity and the binding of a recorded pass; meaning of the `panel_lifecycle` predicates: the panel lifecycle of every artifact class: the choice of a full or a narrow panel, a gate-carrying family outside the author and fixer set, the roster, the signed panel waiver and the validity of the join. `classifier_verdict` is derived by the registry classifier from the current artifact path, and the evaluator is handed that function rather than a value.",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -461,7 +461,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Specify GateStoreProjection fields, canonical hash, allowed concurrent host mutations and provenance checks.",
-      "implementation_obligation_before_mvp": "Implement pre/post projection and mutation provenance validation for every gate task.",
+      "implementation_obligation_before_mvp": "Implement pre/post projection and mutation provenance validation for every gate task. Owns predicate meaning (ADR-107): meaning of the `gate_task_projection` predicates: the immutable task-store projection of a gate task: the record, session and snapshot binding the host reads back, and the BLOCKED_ANCHOR record's validity.",
       "release_blocking": true,
       "dependencies": [
         10,
@@ -492,7 +492,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define raw/canonical schemas, merge rules, citable dispositions, contest, gate predicate, debt and late finding flows.",
-      "implementation_obligation_before_mvp": "Implement one finding registry used by Panel and Code Review, including correction work after staging/integration/release.",
+      "implementation_obligation_before_mvp": "Implement one finding registry used by Panel and Code Review, including correction work after staging/integration/release. Owns predicate meaning (ADR-107): meaning of the `review_findings` predicates: review and findings for Panel and Code Review: the synthesis, the contest and its dispositions, the verdict's binding, the routing after a code verdict, the review waiver and the editorial exemption.",
       "release_blocking": true,
       "dependencies": [
         14,
@@ -530,7 +530,7 @@
       "owner": "autosk-flow delivery maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define delivery-profile discovery, human completion, lock/drift, supported modes and unsupported-policy fail-closed behavior.",
-      "implementation_obligation_before_mvp": "Implement local/PR delivery profiles needed by v1 and bind aggregate acceptance/final promotion to the current profile.",
+      "implementation_obligation_before_mvp": "Implement local/PR delivery profiles needed by v1 and bind aggregate acceptance/final promotion to the current profile. Owns predicate meaning (ADR-107): meaning of the `delivery_integration` predicates: the project's delivery profile at integration: the plan's mode and action, the PR or merge-queue receipt and its completion predicate.",
       "release_blocking": true,
       "dependencies": [
         12
@@ -562,7 +562,7 @@
       "owner": "autosk-flow maintainers and autosk upstream maintainer",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define result schemas, role capabilities, record/read-back order, missing/multiple-submit handling and deterministic mappings.",
-      "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step. `workflow.custody` (ADR-025) is this issue's: step-capability metadata CAS against the expected protected head, write-once gate-result receipts under the result head, `orchestrateChildBatch` over the exact child set and heads with monotonic child receipts, and the daemon park.origin writer for daemon-produced scoped park reasons, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP, including resume leaves under metadata CAS: `park.reason`, `park.origin` and `park.receipts.<step>`, which the factory reads to admit a resume, are written only under the step-capability metadata CAS and never through plain `autosk metadata set` (roadmap #231). The workflow graph's evaluator mechanism is this issue's too (ADR-097): the table from each predicate id to its implementation, which the extension hands buildWorkflow and which is never a constant evaluator (`graph.predicate-evaluation`); both decision sites, where each guard's predicate and its `guards[].authority` are decided, the authority by the guard authority evaluator, which lets a transition whose guard names a human or policy actor through only on the authority #4 verifies (`graph.guard-authority`); and the extension entry point, which builds and registers the eight workflows the graph registers (`graph.workflow-registration`: `autosk-planned`, `autosk-quick`, `autosk-ticket`, `autosk-code-review`, `autosk-panel-seat`, `autosk-contest-seat`, `autosk-arena-candidate`, `autosk-arena-judge`) and calls `requireDaemonCapabilities` at extension load, before the registry is built (`daemon.capabilities_pinned`; the function and what it checks are #11's). Each predicate's meaning stays with its domain record's module (the ref-custody predicates with #5, foreign target movement with #9, review and finding predicates with #16): this issue owns the table and the decision sites, not what a predicate decides. The Arena runtime is this issue's with them (`graph.arena-runtime`): candidate isolation, the judge's structured ranking and the autosk-arena block of docs/contracts/arena.md, run through the two Arena workflows its entry point registers. Model launch is this issue's under the model account (ADR-102): model launch under the model account, where the launch path starts every model process, and every check that runs code a model wrote, as `autosk-model` through the mechanism the privileged install sets up (docs/contracts/platform-support.md §5b), kills a timed-out model process tree whole through that mechanism, reads a provider session from the model's session directory only as untrusted input, creates each model worktree as the installing user with its directories setgid and group-writable for the worktree group, its gitfile at 0644 and its config.worktree pinning core.hooksPath=/dev/null and core.fsmonitor=false, hands a model step what it needs from the project's history, which the model account cannot open, and runs every Git command for a model worktree with the per-worktree Git directory and the work tree named explicitly and hooks, fsmonitor and submodule recursion off, so that a repository a model plants is never followed, and model launch only through the dispatch gate, which the launch path calls before every model launch, the workflow's first agent step included, and whose refusal launches nothing; the gate holds the workflow to its model-step checks, `daemon.capabilities_pinned`, `security.signer_boundary` and `security.model_account`, and its required sets and checks are #34's (docs/contracts/doctor-report.md §7).",
+      "implementation_obligation_before_mvp": "Implement host-mediated results for every model-owned author, implementer, fixer, candidate and reviewer step. `workflow.custody` (ADR-025) is this issue's: step-capability metadata CAS against the expected protected head, write-once gate-result receipts under the result head, `orchestrateChildBatch` over the exact child set and heads with monotonic child receipts, and the daemon park.origin writer for daemon-produced scoped park reasons, delivered as compat/autosk patches 0052+ and pinned with a revision and methods before MVP, including resume leaves under metadata CAS: `park.reason`, `park.origin` and `park.receipts.<step>`, which the factory reads to admit a resume, are written only under the step-capability metadata CAS and never through plain `autosk metadata set` (roadmap #231). The workflow graph's evaluator mechanism is this issue's too (ADR-097): the table from each predicate id to its implementation, which the extension hands buildWorkflow and which is never a constant evaluator (`graph.predicate-evaluation`); both decision sites, where each guard's predicate and its `guards[].authority` are decided, the authority by the guard authority evaluator, which lets a transition whose guard names a human or policy actor through only on the authority #4 verifies (`graph.guard-authority`); and the extension entry point, which builds and registers the eight workflows the graph registers (`graph.workflow-registration`: `autosk-planned`, `autosk-quick`, `autosk-ticket`, `autosk-code-review`, `autosk-panel-seat`, `autosk-contest-seat`, `autosk-arena-candidate`, `autosk-arena-judge`) and calls `requireDaemonCapabilities` at extension load, before the registry is built (`daemon.capabilities_pinned`; the function and what it checks are #11's). Each predicate's meaning is its domain owner's (`predicate_domains`, ADR-107): the table binds each predicate id to the implementation that owner ships in its record's module, and a predicate that reads a fact another record derives (`classifier_verdict`, derived by #14's registry classifier from the current artifact path) is handed that record's function, never a value the caller supplies; this issue owns the table and the decision sites, not what a predicate of another owner's domain decides. The Arena runtime is this issue's with them (`graph.arena-runtime`): candidate isolation, the judge's structured ranking and the autosk-arena block of docs/contracts/arena.md, run through the two Arena workflows its entry point registers. Model launch is this issue's under the model account (ADR-102): model launch under the model account, where the launch path starts every model process, and every check that runs code a model wrote, as `autosk-model` through the mechanism the privileged install sets up (docs/contracts/platform-support.md §5b), kills a timed-out model process tree whole through that mechanism, reads a provider session from the model's session directory only as untrusted input, creates each model worktree as the installing user with its directories setgid and group-writable for the worktree group, its gitfile at 0644 and its config.worktree pinning core.hooksPath=/dev/null and core.fsmonitor=false, hands a model step what it needs from the project's history, which the model account cannot open, and runs every Git command for a model worktree with the per-worktree Git directory and the work tree named explicitly and hooks, fsmonitor and submodule recursion off, so that a repository a model plants is never followed, and model launch only through the dispatch gate, which the launch path calls before every model launch, the workflow's first agent step included, and whose refusal launches nothing; the gate holds the workflow to its model-step checks, `daemon.capabilities_pinned`, `security.signer_boundary` and `security.model_account`, and its required sets and checks are #34's (docs/contracts/doctor-report.md §7). Owns predicate meaning (ADR-107): meaning of the `arena_runtime` predicates: Arena as docs/contracts/arena.md decides it: the decision dispatch, the join of candidates and judge, the judgment's binding, the candidates' build, verification and freeze, and the re-expression of the person's decision in the Tech Plan; meaning of the `chain_transition` predicates: the unconditional draws of a workflow's chain: a transition Section 2's tables state without a condition, so that the chain draws it and the graph still names a predicate; meaning of the `child_join` predicates: the join mechanics of host-mediated children: enrollment, the parent's exact blockers, the wait while a child is new, working or waiting on a person, and the join once the blockers are terminal or removed, and the Ticket join's exit to apply_staging once every Ticket is done with its recorded delta and review disposition (the facts are #8's and #16's, read through their modules), and a Ticket's completion once its work items are terminal, and the ticket_join_invalid stop for an expected Ticket that is cancelled, missing or done without its binding; meaning of the `model_step_result` predicates: the result of a model-owned step: provider unavailable after retry, no valid completion record, a mutation outside the scope, and the host's read-back of one schema-valid payload.",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -817,7 +817,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define revision classification, user decisions, layered re-panels, consistency sweep and staged/integrated dispositions.",
-      "implementation_obligation_before_mvp": "Implement the semantic revision front-end and connect its approved impact plan to crash-safe rebuild operations.",
+      "implementation_obligation_before_mvp": "Implement the semantic revision front-end and connect its approved impact plan to crash-safe rebuild operations. Owns predicate meaning (ADR-107): meaning of the `anchor_revision` predicates: revision propagation onto work already done: the anchor impact proposal, its approval and the rebuild, the Ticket repair operation and its replacements, the code-anchor rebuild, the suspended edge and the anchor handoffs (the invalidation publication rebuild_anchor starts is the Epic planning ref's). The mechanical rebuild that consumes an approved impact plan is this issue's runtime (docs/contracts/requirement-revision.md §2, §11; ADR-107): the anchor-impact steps `prepare_anchor_impact`, `await_anchor_impact_approval`, `record_anchor_impact_approval` and `rebuild_anchor`, the durable `anchor_rebuild_op` and `ticket_repair_op` with the Ticket replacements they prepare and resume at `dispatch_ticket_dag`, `resume_repaired_tickets` and `ticket_join`, and `rebuild_code_anchor`; the invalidation publication `rebuild_anchor` starts is the Epic planning ref's, #5's.",
       "release_blocking": true,
       "dependencies": [
         4,
@@ -884,7 +884,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define evidence classes, manifests, retention locks, redaction, dependent invalidation and repair before #39.",
-      "implementation_obligation_before_mvp": "Implement durable/transient evidence lifecycle for v1 gates, verification, integration, approvals and cleanup.",
+      "implementation_obligation_before_mvp": "Implement durable/transient evidence lifecycle for v1 gates, verification, integration, approvals and cleanup. Owns predicate meaning (ADR-107): meaning of the `verification_evidence` predicates: verification evidence: that it is present, well formed and bound to the candidate, that the runner did not fail, and that the checks passed.",
       "release_blocking": true,
       "dependencies": [
         13,
@@ -1050,7 +1050,7 @@
       "owner": "autosk-flow maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Include iteration schema, progress identity, four triggers and crash-safe counters in the v1 design.",
-      "implementation_obligation_before_mvp": "Implement the controller across planning repair, debugging, implementation, fix and verification support. The review cap `artifact_review_round` bounds each artifact's review cycle: it counts the artifact's narrow and full-panel NOT_PASS rounds as one count against 10, since the cycle's verified boundary — the artifact's PASS published, `publish_artifact_pass -> select_next` — from the baseline the factory records at that crossing; no decision or anchor rebuild opens a cycle, and the count never falls below the rounds since the last verified PASS publication, though a resume out of a status park at the boundary step counts as a crossing and a PASS published under binding drift closes none (narrow re-review of 12c); counted per task, it would end an Epic's autonomous planning at its fourth artifact on a host that admits no cap decision (ADR-104, review of 12c). The code review cap and the verification repair cycle's count per task: the repair cycle is bounded absolutely by the workflow graph's cap `verification_repair_round`, which counts `t_416` (`verify -> fix`) against a limit of 10 over the durable takings and parks with `verification_cap`, enforced by the factory's cap term (ADR-104). The controller's own budgets, pinned before dispatch per Ticket and per run, run inside those caps and never past them, and a resume past a cap into another round — past the repair cap `fix`, `verify` or `rebuild_code_anchor` — is the user's, one round per recorded cap decision (ADR-099).",
+      "implementation_obligation_before_mvp": "Implement the controller across planning repair, debugging, implementation, fix and verification support. The review cap `artifact_review_round` bounds each artifact's review cycle: it counts the artifact's narrow and full-panel NOT_PASS rounds as one count against 10, since the cycle's verified boundary — the artifact's PASS published, `publish_artifact_pass -> select_next` — from the baseline the factory records at that crossing; no decision or anchor rebuild opens a cycle, and the count never falls below the rounds since the last verified PASS publication, though a resume out of a status park at the boundary step counts as a crossing and a PASS published under binding drift closes none (narrow re-review of 12c); counted per task, it would end an Epic's autonomous planning at its fourth artifact on a host that admits no cap decision (ADR-104, review of 12c). The code review cap and the verification repair cycle's count per task: the repair cycle is bounded absolutely by the workflow graph's cap `verification_repair_round`, which counts `t_416` (`verify -> fix`) against a limit of 10 over the durable takings and parks with `verification_cap`, enforced by the factory's cap term (ADR-104). The controller's own budgets, pinned before dispatch per Ticket and per run, run inside those caps and never past them, and a resume past a cap into another round — past the repair cap `fix`, `verify` or `rebuild_code_anchor` — is the user's, one round per recorded cap decision (ADR-099). Owns predicate meaning (ADR-107): meaning of the `loop_caps` predicates: the bounded loops: whether the takings of a counted transition are below the cap at review, fix and verify, and the park once they are not.",
       "release_blocking": true,
       "dependencies": [
         18,
@@ -1237,7 +1237,7 @@
       "owner": "autosk-flow governance maintainers",
       "activation_trigger": "Active in the v1 program; execute when all listed dependencies and the current phase gate are satisfied.",
       "design_obligation_before_issue_39": "Define source/adaptation/release separation, canonical build, panel attestation, CAS current pointer and rollback/retention.",
-      "implementation_obligation_before_mvp": "Implement the governance CLI/pipeline and release the exact v1 bundle used by clean-room E2E.",
+      "implementation_obligation_before_mvp": "Implement the governance CLI/pipeline and release the exact v1 bundle used by clean-room E2E. Owns predicate meaning (ADR-107): meaning of the `protocol_lock_repair` predicates: the protocol lock and its snapshot: whether the exact locked bundle is available, and whether a requested migration changes the bundle's identity.",
       "release_blocking": true,
       "dependencies": [
         3,
@@ -1570,7 +1570,7 @@
           "owner": 18
         }
       ],
-      "delivery": "extension product code that binds each predicate id to the implementation in its domain record's module and hands the table to buildWorkflow (src/host/workflow-factory.mjs), which applies it at both decision sites"
+      "delivery": "extension product code that binds each predicate id to the implementation in the module of the record that owns its domain (`predicate_domains`, ADR-107) and hands the table to buildWorkflow (src/host/workflow-factory.mjs), which applies it at both decision sites"
     },
     {
       "point": "graph.workflow-registration",
@@ -1588,5 +1588,347 @@
       "delivery": "extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load"
     }
   ],
-  "canonical_digest": "5dc0fbbf704dc30aa182384b7d86875c9ba066ffb8947b4a446d63a747d9021e"
+  "predicate_domains": [
+    {
+      "domain": "alignment_gates",
+      "decision": "ADR-107",
+      "owner_issues": [
+        4
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `alignment_gates` predicates",
+          "owner": 4
+        }
+      ],
+      "delivery": "whether the alignment of a Brief, Core Flow, Tech Plan or Tickets breakdown is current, signed by a UserDecisionRecord or covered by the project's policy, and where one that is missing, stale or out of scope parks: the predicates of clarify_alignment, await_alignment, record_alignment and present_tickets_breakdown, and the alignment checks at the freeze, panel, pass and Tickets steps"
+    },
+    {
+      "domain": "anchor_binding",
+      "decision": "ADR-107",
+      "owner_issues": [
+        4
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `anchor_binding` predicates",
+          "owner": 4
+        }
+      ],
+      "delivery": "the anchor hook: whether the controlling anchor digest and the pending anchor still bind the step about to run, and the ensure-pending-anchor park (blocked_anchor) that every gate, join, commit and integration prologue takes"
+    },
+    {
+      "domain": "anchor_revision",
+      "decision": "ADR-107",
+      "owner_issues": [
+        25
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `anchor_revision` predicates",
+          "owner": 25
+        }
+      ],
+      "delivery": "revision propagation onto work already done: the anchor impact proposal, its approval and the rebuild, the Ticket repair operation and its replacements, the code-anchor rebuild, the suspended edge and the anchor handoffs (the invalidation publication rebuild_anchor starts is the Epic planning ref's)"
+    },
+    {
+      "domain": "arena_runtime",
+      "decision": "ADR-107",
+      "owner_issues": [
+        18
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `arena_runtime` predicates",
+          "owner": 18
+        }
+      ],
+      "delivery": "Arena as docs/contracts/arena.md decides it: the decision dispatch, the join of candidates and judge, the judgment's binding, the candidates' build, verification and freeze, and the re-expression of the person's decision in the Tech Plan"
+    },
+    {
+      "domain": "artifact_classification",
+      "decision": "ADR-107",
+      "owner_issues": [
+        14
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `artifact_classification` predicates",
+          "owner": 14
+        },
+        {
+          "surface": "`classifier_verdict` is derived by the registry classifier from the current artifact path",
+          "owner": 14
+        }
+      ],
+      "delivery": "the registry classifier's verdict on a path (every park cause) and the mapping of an additional_normative path: the verdict is derived by the classifier from the current artifact path and handed to the evaluator, never supplied by its caller, and the editorial classification a Quick change's review exemption rests on, which the registry classifier decides"
+    },
+    {
+      "domain": "artifact_lifecycle",
+      "decision": "ADR-107",
+      "owner_issues": [
+        14
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `artifact_lifecycle` predicates",
+          "owner": 14
+        }
+      ],
+      "delivery": "the authoring lifecycle of a planning artifact: the next required kind, the draft's and the fix's scope, the freeze's identity and the binding of a recorded pass"
+    },
+    {
+      "domain": "authority_journal_recovery",
+      "decision": "ADR-107",
+      "owner_issues": [
+        4
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `authority_journal_recovery` predicates",
+          "owner": 4
+        }
+      ],
+      "delivery": "authority journal and protected-head recovery at authority_recovery: what a short committed prefix, a head ahead of the journal, a missing committed record or a destructive lost-key reset admits, and where an unmatched state parks"
+    },
+    {
+      "domain": "chain_transition",
+      "decision": "ADR-107",
+      "owner_issues": [
+        18
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `chain_transition` predicates",
+          "owner": 18
+        }
+      ],
+      "delivery": "the unconditional draws of a workflow's chain: a transition Section 2's tables state without a condition, so that the chain draws it and the graph still names a predicate"
+    },
+    {
+      "domain": "child_join",
+      "decision": "ADR-107",
+      "owner_issues": [
+        18
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `child_join` predicates",
+          "owner": 18
+        }
+      ],
+      "delivery": "the join mechanics of host-mediated children: enrollment, the parent's exact blockers, the wait while a child is new, working or waiting on a person, and the join once the blockers are terminal or removed, and the Ticket join's exit to apply_staging once every Ticket is done with its recorded delta and review disposition (the facts are #8's and #16's, read through their modules), and a Ticket's completion once its work items are terminal, and the ticket_join_invalid stop for an expected Ticket that is cancelled, missing or done without its binding"
+    },
+    {
+      "domain": "delivery_integration",
+      "decision": "ADR-107",
+      "owner_issues": [
+        17
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `delivery_integration` predicates",
+          "owner": 17
+        }
+      ],
+      "delivery": "the project's delivery profile at integration: the plan's mode and action, the PR or merge-queue receipt and its completion predicate"
+    },
+    {
+      "domain": "delta_commit",
+      "decision": "ADR-107",
+      "owner_issues": [
+        8
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `delta_commit` predicates",
+          "owner": 8
+        }
+      ],
+      "delivery": "a code candidate's approved delta at freeze and at commit-on-pass: the tree equal to the approved tree, the private branch's exact commit and canonical recipe, and the compare-and-swap on it"
+    },
+    {
+      "domain": "gate_task_projection",
+      "decision": "ADR-107",
+      "owner_issues": [
+        15
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `gate_task_projection` predicates",
+          "owner": 15
+        }
+      ],
+      "delivery": "the immutable task-store projection of a gate task: the record, session and snapshot binding the host reads back, and the BLOCKED_ANCHOR record's validity"
+    },
+    {
+      "domain": "loop_caps",
+      "decision": "ADR-107",
+      "owner_issues": [
+        32
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `loop_caps` predicates",
+          "owner": 32
+        }
+      ],
+      "delivery": "the bounded loops: whether the takings of a counted transition are below the cap at review, fix and verify, and the park once they are not"
+    },
+    {
+      "domain": "model_step_result",
+      "decision": "ADR-107",
+      "owner_issues": [
+        18
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `model_step_result` predicates",
+          "owner": 18
+        }
+      ],
+      "delivery": "the result of a model-owned step: provider unavailable after retry, no valid completion record, a mutation outside the scope, and the host's read-back of one schema-valid payload"
+    },
+    {
+      "domain": "panel_lifecycle",
+      "decision": "ADR-107",
+      "owner_issues": [
+        14
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `panel_lifecycle` predicates",
+          "owner": 14
+        }
+      ],
+      "delivery": "the panel lifecycle of every artifact class: the choice of a full or a narrow panel, a gate-carrying family outside the author and fixer set, the roster, the signed panel waiver and the validity of the join"
+    },
+    {
+      "domain": "planning_ref_lifecycle",
+      "decision": "ADR-107",
+      "owner_issues": [
+        5
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `planning_ref_lifecycle` predicates",
+          "owner": 5
+        }
+      ],
+      "delivery": "the Epic planning ref: init and custody through the ref-custody helper (journal phases, ref and reflog proof, foreign movement, capability), the publication of a pass and of an invalidation, the candidate keepalive and its audit ref, and the housekeeping of an expired audit ref, the candidate base checked before a candidate is minted, the trusted signer asked before the atomic PASS (the delivery profile's policy is #17's), and the invalidation operation rebuild_anchor creates and its publication"
+    },
+    {
+      "domain": "protocol_lock_repair",
+      "decision": "ADR-107",
+      "owner_issues": [
+        37
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `protocol_lock_repair` predicates",
+          "owner": 37
+        }
+      ],
+      "delivery": "the protocol lock and its snapshot: whether the exact locked bundle is available, and whether a requested migration changes the bundle's identity"
+    },
+    {
+      "domain": "quick_classification",
+      "decision": "ADR-107",
+      "owner_issues": [
+        4
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `quick_classification` predicates",
+          "owner": 4
+        }
+      ],
+      "delivery": "whether a Quick run's classification is valid on intake and at each gate, the planned trigger, and the Quick to Planned reclassification that invalidate_quick_classification records, and the Quick chain's intake"
+    },
+    {
+      "domain": "review_findings",
+      "decision": "ADR-107",
+      "owner_issues": [
+        16
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `review_findings` predicates",
+          "owner": 16
+        }
+      ],
+      "delivery": "review and findings for Panel and Code Review: the synthesis, the contest and its dispositions, the verdict's binding, the routing after a code verdict, the review waiver and the editorial exemption"
+    },
+    {
+      "domain": "sandbox_cleanup",
+      "decision": "ADR-107",
+      "owner_issues": [
+        13
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `sandbox_cleanup` predicates",
+          "owner": 13
+        }
+      ],
+      "delivery": "the removal of a flow's sandboxes and snapshots at cleanup through safeProjectFs: whether the sandbox is dirty and whether force was asked"
+    },
+    {
+      "domain": "staging_aggregate",
+      "decision": "ADR-107",
+      "owner_issues": [
+        9
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `staging_aggregate` predicates",
+          "owner": 9
+        }
+      ],
+      "delivery": "the Epic's staging: applying the approved deltas, the aggregate verification and its binding to the staging identity, staging moved after a PASS, and the aggregate remediation"
+    },
+    {
+      "domain": "target_integration",
+      "decision": "ADR-107",
+      "owner_issues": [
+        9
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `target_integration` predicates",
+          "owner": 9
+        }
+      ],
+      "delivery": "the final target compare-and-swap and what follows: the acceptance's binding to the staging identity, integrateApproved, foreign or indeterminate movement of the target, the read-back and Quick's integrate with its recovery, and the acceptance stop (acceptance_missing) the decision queue's packet answers, with the resume after a new acceptance record"
+    },
+    {
+      "domain": "tickets_manifest_validation",
+      "decision": "ADR-107",
+      "owner_issues": [
+        6
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `tickets_manifest_validation` predicates",
+          "owner": 6
+        }
+      ],
+      "delivery": "the Tickets manifest and its validation receipt: schema, canonical bytes, DAG, paths and the frozen tree, at validation, at freeze and at dispatch, and the fresh dispatch of the Ticket set from the validated manifest"
+    },
+    {
+      "domain": "verification_evidence",
+      "decision": "ADR-107",
+      "owner_issues": [
+        27
+      ],
+      "elements": [
+        {
+          "surface": "meaning of the `verification_evidence` predicates",
+          "owner": 27
+        }
+      ],
+      "delivery": "verification evidence: that it is present, well formed and bound to the candidate, that the runner did not fail, and that the checks passed"
+    }
+  ],
+  "canonical_digest": "5e811fd0ef33a851eb59d708870a1ca3ed0511b809033be140905c949a5cb4fc"
 }
